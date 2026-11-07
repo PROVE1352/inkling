@@ -1,0 +1,1 @@
+ALTER TABLE "templates" ADD COLUMN "scope" text DEFAULT 'shared' NOT NULL;

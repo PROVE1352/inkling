@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.local
+.DS_Store
+apps/server/data/
+apps/web/dev-dist/
+*.tsbuildinfo
+backups/
+deploy/rclone.conf

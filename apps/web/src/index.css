@@ -1,0 +1,416 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+
+  /* Notion-style neutral palette — .dark only redefines the variables */
+  --color-app: #ffffff;
+  --color-side: #f7f7f5;
+  --color-line: #e9e9e7;
+  --color-ink: #37352f;
+  --color-sub: #787774;
+  --color-accent: #6366f1;
+  --color-accent-soft: #eef0ff;
+  --color-hover: rgba(55, 53, 47, 0.06);
+  --color-active: rgba(55, 53, 47, 0.1);
+}
+
+.dark {
+  --color-app: #191919;
+  --color-side: #202020;
+  --color-line: #2e2e2e;
+  --color-ink: #e6e6e4;
+  --color-sub: #9b9b98;
+  --color-accent: #818cf8;
+  --color-accent-soft: #26284a;
+  --color-hover: rgba(255, 255, 255, 0.055);
+  --color-active: rgba(255, 255, 255, 0.1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Installed PWA / tablet: stop the whole app from rubber-banding (inner scroll areas still scroll). */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Keep clear of the notch / home indicator (pairs with viewport-fit=cover in index.html). 0 normally. */
+#root {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+body {
+  @apply bg-app text-ink font-sans antialiased;
+  /* The zoom setting (lib/prefs) changes the html font-size, so body text follows in rem (14px by default). */
+  font-size: 0.875rem;
+  /* Prevent double-tap zoom when tapping buttons/menus quickly (pinch zoom still works). */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* Smooth only background/text on theme switch (transitioning every element smears → not on html) */
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Phones (touch, narrow screen): browsers zoom in on focus for inputs under 16px (iOS, some Samsung Internet).
+   Unlayered, so it beats Tailwind text-* utilities — titles (larger) and canvas nodes (zoom scale) are excluded. */
+@media (pointer: coarse) and (max-width: 767.98px) {
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], .react-flow *),
+  textarea:not([data-page-title], .react-flow *),
+  select {
+    font-size: 16px;
+  }
+}
+
+/* Subtle scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared motion infrastructure — transform/opacity only, 120–220ms, ease-out.  */
+/* All off under prefers-reduced-motion.                                       */
+/* fill-mode is backwards — the end state equals the element's own style, so  */
+/* forwards is not needed. With both/forwards, WebKit (Safari) kept elements   */
+/* on a compositing layer after the animation ended, so .nd-enter wrapping the */
+/* whole body held GPU memory the size of the document (1 GB of tab graphics   */
+/* in Safari on a Mac, 2026-09-23).                                             */
+/* ------------------------------------------------------------------ */
+@keyframes nd-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes nd-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes nd-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nd-slide-l {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes nd-slide-r {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes nd-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.nd-enter {
+  animation: nd-fade-in 0.18s ease-out backwards;
+}
+.nd-pop {
+  animation: nd-pop-in 0.14s ease-out backwards;
+}
+.nd-fade {
+  animation: nd-fade 0.15s ease-out backwards;
+}
+.nd-backdrop {
+  animation: nd-fade 0.15s ease-out backwards;
+}
+.nd-drawer-l {
+  animation: nd-slide-l 0.2s ease-out backwards;
+}
+.nd-drawer-r {
+  animation: nd-slide-r 0.2s ease-out backwards;
+}
+/* Phone bottom sheet (global calendar day popover) */
+.nd-sheet {
+  animation: nd-slide-up 0.2s ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nd-enter,
+  .nd-pop,
+  .nd-fade,
+  .nd-backdrop,
+  .nd-drawer-l,
+  .nd-drawer-r,
+  .nd-sheet {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Blend BlockNote into the app background */
+.bn-container {
+  --bn-colors-editor-background: transparent;
+}
+
+/* Editor body text (fixed 16px by default) also follows the zoom setting via rem — identical at 100%. */
+.bn-container .bn-default-styles {
+  font-size: 1rem;
+}
+
+/* Tables scroll horizontally inside their box — so a horizontal swipe doesn't leak into the browser back gesture / the page. */
+.bn-editor [data-content-type='table'] .tableWrapper {
+  overscroll-behavior-x: contain;
+}
+
+/* No `content-visibility: auto` on editor blocks (docs/adr/0850-*): Chromium cannot place the caret
+   inside a block inserted in the same frame (its layout is still skipped), so keys typed right
+   after Enter landed outside the paragraph and ProseMirror dropped them — silent data loss.
+   WebKit had the rule off already (docs/adr/0703-*). */
+
+/* ------------------------------------------------------------------ */
+/* Phones (<640px) — BlockNote defaults target desktop and waste a lot of a narrow screen.        */
+/* ① Drop the 54px side gutters (room for block handles) so the title and body share a left edge; */
+/*    with no gutter, hide the hover-based block handles (⠿/+) — on touch they only appeared after */
+/*    a tap and just covered the text. Add/convert blocks with the "/" menu and the format toolbar. */
+/* ② Smaller headings (H1 3em = 48px → only 4–5 characters per line).                             */
+/* ③ Minimum table cell width — so narrow cells don't wrap one character per line (overflow scrolls). */
+/* ------------------------------------------------------------------ */
+@media (max-width: 639.98px) {
+  .bn-container .bn-editor {
+    padding-inline: 0;
+  }
+  .bn-container .bn-side-menu {
+    display: none;
+  }
+  .bn-editor [data-content-type='heading'] {
+    padding-top: 12px;
+    --level: 1.6em;
+  }
+  .bn-editor [data-content-type='heading'][data-level='2'] {
+    --level: 1.35em;
+  }
+  .bn-editor [data-content-type='heading'][data-level='3'] {
+    --level: 1.15em;
+  }
+  .bn-editor [data-prev-level='1'] {
+    --prev-level: 1.6em;
+  }
+  .bn-editor [data-prev-level='2'] {
+    --prev-level: 1.35em;
+  }
+  .bn-editor [data-prev-level='3'] {
+    --prev-level: 1.15em;
+  }
+  .bn-editor [data-content-type='table'] th,
+  .bn-editor [data-content-type='table'] td {
+    padding: 4px 8px;
+  }
+}
+
+/* Internal wiki links (/w/.../p/...) */
+.bn-container a[href^='/w/'] {
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-accent) 50%, transparent);
+  cursor: pointer;
+}
+.bn-container a[href^='/w/']:hover {
+  border-bottom-style: solid;
+}
+
+/* ------------------------------------------------------------------ */
+/* Public viewer body (M15) — /s/:token does not load BlockNote CSS, so this is our own */
+/* prose style for rendering the server's blocks→HTML readably.                       */
+/* Colours use the theme variables (--color-*), so light/dark apply automatically.     */
+/* ------------------------------------------------------------------ */
+.nd-public-body {
+  color: var(--color-ink);
+  font-size: 1rem;
+  line-height: 1.7;
+  word-break: break-word;
+}
+.nd-public-body h1,
+.nd-public-body h2,
+.nd-public-body h3,
+.nd-public-body h4 {
+  color: var(--color-ink);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.nd-public-body h1 {
+  font-size: 1.6rem;
+}
+.nd-public-body h2 {
+  font-size: 1.35rem;
+}
+.nd-public-body h3 {
+  font-size: 1.15rem;
+}
+.nd-public-body h4 {
+  font-size: 1rem;
+}
+.nd-public-body p {
+  margin: 0.5em 0;
+}
+.nd-public-body ul,
+.nd-public-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.nd-public-body ul {
+  list-style: disc;
+}
+.nd-public-body ol {
+  list-style: decimal;
+}
+.nd-public-body li {
+  margin: 0.2em 0;
+}
+/* Indent fix for nested block groups (child blocks) in BlockNote blocksToFullHTML output. */
+.nd-public-body .bn-block-group .bn-block-group {
+  padding-left: 1.25em;
+}
+.nd-public-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nd-public-body strong {
+  font-weight: 700;
+}
+.nd-public-body em {
+  font-style: italic;
+}
+.nd-public-body blockquote {
+  margin: 0.75em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--color-line);
+  color: var(--color-sub);
+}
+.nd-public-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--color-hover);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.nd-public-body pre {
+  margin: 0.75em 0;
+  padding: 0.9em 1em;
+  background: var(--color-side);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.nd-public-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+}
+.nd-public-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+.nd-public-body hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid var(--color-line);
+}
+.nd-public-body table {
+  margin: 0.75em 0;
+  border-collapse: collapse;
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+.nd-public-body th,
+.nd-public-body td {
+  border: 1px solid var(--color-line);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+.nd-public-body th {
+  background: var(--color-side);
+  font-weight: 600;
+}
+.nd-public-body input[type='checkbox'] {
+  margin-right: 0.4em;
+  vertical-align: middle;
+}
+
+/* @mention inline chip (M13) */
+.nd-mention {
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.nd-mention-user {
+  background: var(--color-accent-soft);
+}
+
+/* Callout block (M14) — the per-type accent is injected inline as --nd-callout-accent (same for light/dark).
+   color-mix derives the background tint so it looks right in both themes. */
+.nd-callout {
+  --nd-callout-accent: #3b82f6;
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.375rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border-left: 3px solid var(--nd-callout-accent);
+  background: color-mix(in srgb, var(--nd-callout-accent) 11%, transparent);
+}
+.nd-callout-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Brief highlight when jumping to a block from a comment/notification */
+@keyframes nd-block-flash {
+  from {
+    background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+.nd-block-flash {
+  animation: nd-block-flash 1.2s ease-out;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd-block-flash {
+    animation: none;
+  }
+}

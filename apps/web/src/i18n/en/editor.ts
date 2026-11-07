@@ -1,0 +1,225 @@
+// English source strings for this area. Keys are 'screen.key' (see i18n/index.ts).
+export default {
+  // CollabEditor
+  'editor.connecting': 'Connecting…',
+
+  // Slash menu
+  'slash.calloutTitle': 'Callout',
+  'slash.calloutSubtext': 'Highlighted box — switch type (note, tip, warning, danger, info) in the block',
+
+  // Callout block
+  'callout.note': 'Note',
+  'callout.tip': 'Tip',
+  'callout.warning': 'Warning',
+  'callout.danger': 'Danger',
+  'callout.info': 'Info',
+  'callout.changeType': 'Change callout type',
+  'callout.typeTitle': 'Callout: {type}',
+
+  // [[ / ![[ menus
+  'wikilink.newPage': '＋ New page: "{title}"',
+  'wikilink.embed': 'Embed',
+  'wikilink.newPageEmbed': '＋ Embed new page: "{title}"',
+
+  // @ mentions
+  'mention.noName': 'Unnamed',
+  'mention.fallback': 'mention',
+
+  // Page embed block
+  'pageEmbed.noPage': 'No page selected to embed.',
+  'pageEmbed.noAccess': 'Page not accessible',
+  'pageEmbed.loadFailed': 'Couldn\'t load the content.',
+  'pageEmbed.loadingBody': 'Loading content…',
+
+  // Query block
+  'queryBlock.slashTitle': 'Query',
+  'queryBlock.slashSubtext': 'Live table or list of pages (Dataview syntax)',
+  'queryBlock.languageName': 'Dataview query',
+  'queryBlock.empty': 'Type a query, e.g. LIST FROM #project',
+  'queryBlock.noResults': 'No matching pages',
+  'queryBlock.loading': 'Running query…',
+  'queryBlock.value': 'Value',
+  'queryBlock.truncated_one': 'Showing the first {count} result · {ms} ms',
+  'queryBlock.truncated_other': 'Showing the first {count} results · {ms} ms',
+  'queryBlock.syntaxError': 'Query error',
+  'queryBlock.at': 'line {line}, column {col}',
+  'queryBlock.failed': 'Query failed',
+  'queryBlock.footer_one': '{count} result · {ms} ms',
+  'queryBlock.footer_other': '{count} results · {ms} ms',
+
+  // Link embed block
+  'linkEmbed.placeholder': 'Paste a link (YouTube, Figma, Google Docs, …) and press Enter',
+  'linkEmbed.invalid': 'Enter a valid http(s) link',
+  'linkEmbed.supported': 'Embeds: {providers}',
+  'linkEmbed.embed': 'Embed',
+  'linkEmbed.card': 'Card',
+  'linkEmbed.link': 'Link',
+  'linkEmbed.asEmbed': 'Show as embed',
+  'linkEmbed.asCard': 'Show as preview card',
+  'linkEmbed.asLink': 'Replace with a plain link',
+  'linkEmbed.openNew': 'Open in a new tab',
+  'linkEmbed.loading': 'Loading preview…',
+  'linkEmbed.frameTitle': '{label} embed',
+  'linkEmbed.slashTitle': 'Embed / link card',
+  'linkEmbed.slashSubtext': 'YouTube, Figma, Google Docs, … or a preview card for any link',
+  'linkEmbed.slashGroup': 'Embeds',
+
+  // Share modal
+  'share.title': 'Share to web',
+  'share.folderNotice': 'This folder and every page in it are public via the link (private 🔒 pages excluded)',
+  'share.exposedShared_one': '{count} page public now',
+  'share.exposedShared_other': '{count} pages public now',
+  'share.exposedPending_one': '{count} page will be public',
+  'share.exposedPending_other': '{count} pages will be public',
+  'share.shareFailed': 'Couldn\'t publish.',
+  'share.unshareFailed': 'Couldn\'t stop sharing.',
+  'share.copyFailed': 'Couldn\'t copy to the clipboard. Select the link and copy it manually.',
+  'share.privateTitle': 'Private pages can\'t be shared',
+  'share.privateHint': 'To publish this page, move it to the shared section first.',
+  'share.sharedHintPage': 'Anyone with this link can view the page (read-only).',
+  'share.sharedHintFolder': 'Anyone with this link can view the folder (read-only).',
+  'share.openNewTab': 'Open in new tab',
+  'share.stop': 'Stop sharing',
+  'share.stopOwnerOnly': 'Only the workspace owner can stop sharing.',
+  'share.publishHintPage': 'Publish this page and anyone can view it read-only, without signing in.',
+  'share.publishHintFolder': 'Publish this folder and anyone can view it read-only, without signing in.',
+  'share.publishOwnerOnly': 'Only the workspace owner can publish.',
+  'share.publish': 'Publish to web',
+
+  // Template gallery
+  'templates.title': 'Start from a template',
+  'templates.applyFailed': 'Couldn\'t apply the template.',
+  'templates.deleteFailed': 'Couldn\'t delete the template.',
+  'templates.delete': 'Delete template',
+  'templates.builtin': 'Built-in templates',
+  'templates.mine': 'My templates',
+  'templates.mineEmpty': 'Create one with “Save as template” in a page\'s ⋯ menu.',
+  'templates.date': 'Date',
+  'templates.titlePlaceholder': 'Title (defaults to “{name}”)',
+
+  // Save as template
+  'saveTemplate.title': 'Save as template',
+  'saveTemplate.nameRequired': 'Enter a name.',
+  'saveTemplate.saved': 'Saved as template \'{name}\'',
+  'saveTemplate.saveFailed': 'Couldn\'t save the template.',
+  'saveTemplate.icon': 'Icon',
+  'saveTemplate.namePlaceholder': 'Template name',
+  'saveTemplate.description': 'Description (optional)',
+  'saveTemplate.descriptionPlaceholder': 'When to use this template',
+
+  // Version history
+  'history.autosave': 'Autosave',
+  'history.labelManual': 'Manual',
+  'history.labelBeforeRestore': 'Before restore',
+  'history.labelBeforeAiEdit': 'Before AI edit',
+  'history.snapshotFailed': 'Couldn\'t save the snapshot.',
+  'history.restoreFailed': 'Couldn\'t restore.',
+  'history.title': 'Version history',
+  'history.snapshotNow': 'Snapshot now',
+  'history.empty': 'No saved versions.',
+  'history.selectHint': 'Select a version on the left to preview it.',
+  'history.previewFailed': 'Couldn\'t load the preview.',
+  'history.emptyDoc': '(empty document)',
+  'history.restoreConfirm': 'This overwrites the current content with this version. The current state is saved as a snapshot first.',
+  'history.restoreThis': 'Restore this version',
+
+  // Emoji picker
+  'emoji.smileys': 'Smileys & people',
+  'emoji.objects': 'Work & objects',
+  'emoji.symbols': 'Symbols',
+  'emoji.nature': 'Nature & animals',
+  'emoji.food': 'Food',
+  'emoji.activity': 'Activities & places',
+  'emoji.pickIcon': 'Choose icon',
+  'emoji.customPlaceholder': 'Type an emoji…',
+  'emoji.useCustom': 'Use this as the icon',
+
+  // Search modal
+  'search.quickSwitch': 'Quick switcher',
+  'search.quickSwitchPlaceholder': 'Jump to a page…',
+  'search.placeholder': 'Search titles and content…',
+  'search.typeToSearch': 'Type to search.',
+  'search.searching': 'Searching…',
+
+  // Trash
+  'trash.title': 'Trash',
+  'trash.empty': 'Trash is empty.',
+  'trash.deletedAt': 'Deleted {when}',
+  'trash.purgeConfirm': 'Pages deleted forever can\'t be restored. Continue?',
+  'trash.purge': 'Delete forever',
+
+  // Move modal
+  'move.title': 'Move page',
+  'move.failed': 'Couldn\'t move the page.',
+  'move.shared': 'Shared',
+  'move.private': 'Private',
+  'move.toRoot': 'To {section} root',
+  'move.hint': 'Moves the page under the one you pick. Moving to another section moves its subpages too. You can\'t pick the page itself or its subpages.',
+
+  // Page cover
+  'cover.uploadFailed': 'Couldn\'t upload the cover.',
+  'cover.alt': 'Cover',
+  'cover.change': 'Change',
+  'cover.dropToSet': 'Drop to set as cover',
+  'cover.add': 'Add cover',
+
+  // Pager
+  'pager.label': 'Pagination',
+  'pager.previousPage': 'Previous page',
+  'pager.nextPage': 'Next page',
+
+  // Notion publish
+  'notion.title': 'Send to Notion',
+  'notion.created_one': 'Created the page in Notion ({count} block).',
+  'notion.created_other': 'Created the page in Notion ({count} blocks).',
+  'notion.warnings_one': '{count} warning',
+  'notion.warnings_other': '{count} warnings',
+  'notion.intro': 'Uploads {title} to Notion as a new subpage of the target page.',
+  'notion.parentUrl': 'Target page URL',
+  'notion.disabled': 'Notion upload is disabled. Set {token} in the server\'s {env} and try again.',
+  'notion.sending': 'Sending…',
+  'notion.send': 'Send',
+
+  // Comments
+  'comments.badgeTitle_one': '{count} comment',
+  'comments.badgeTitle_other': '{count} comments',
+  'comments.editPlaceholder': 'Edit comment…',
+  'comments.delete': 'Delete comment',
+  'comments.block': 'Block',
+  'comments.goToBlock': 'Go to block',
+  'comments.replyPlaceholder': 'Reply…',
+  'comments.reply': 'Reply',
+  'comments.resolved': 'Resolved',
+  'comments.resolve': 'Resolve',
+  'comments.commentOnBlock': 'Comment on current block',
+  'comments.newThread': 'New thread',
+  'comments.placeholder': 'Write a comment. Use @ to mention',
+  'comments.submit': 'Comment',
+  'comments.empty': 'No comments yet.',
+  'comments.showResolved_one': 'Show {count} resolved',
+  'comments.showResolved_other': 'Show {count} resolved',
+  'comments.hideResolved_one': 'Hide {count} resolved',
+  'comments.hideResolved_other': 'Hide {count} resolved',
+
+  // Drag and drop
+  'dnd.moveSomeFailed': 'Couldn\'t move some pages.',
+  'dnd.count': '{count}',
+
+  // Ink toolbar
+  'ink.sizeThin': 'Thin',
+  'ink.sizeMedium': 'Medium',
+  'ink.sizeThick': 'Thick',
+  'ink.pen': 'Pen',
+  'ink.highlighter': 'Highlighter',
+  'ink.eraser': 'Eraser',
+  'ink.color': 'Color {color}',
+  'ink.undo': 'Undo',
+  'ink.clearTitle': 'Clear all ink on this page',
+  'ink.clear': 'Clear',
+  'ink.strokes_one': '{count} stroke',
+  'ink.strokes_other': '{count} strokes',
+  'ink.build': 'Deployed build',
+  'ink.exitTitle': 'Exit ink mode (Esc)',
+  'ink.saveFailed': 'Couldn\'t save ink. Check your connection.',
+  'ink.layer': 'Ink layer',
+} satisfies Record<string, string>

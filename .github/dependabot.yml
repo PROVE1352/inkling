@@ -1,0 +1,37 @@
+# Dependency update policy: docs/adr/0882-dependency-policy.md and CONTRIBUTING.md.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # pnpm workspace: one entry at the root covers every package and pnpm-lock.yaml.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+      runtime-patches:
+        dependency-type: production
+        update-types: [patch]
+    ignore:
+      # The editor stack is upgraded by hand, never by bot:
+      # - @blocknote/* (5 packages across apps/web and apps/server) must move in lockstep, and
+      #   patches/@blocknote__core@0.51.4.patch is keyed to the exact version - after a bump pnpm
+      #   would stop applying it and large documents regress to O(n^2) node-view lookups.
+      # - apps/web/src/lib/perf.test.ts asserts the code-block language table matches the pinned
+      #   @blocknote/code-block verbatim.
+      # - prosemirror-* is forced to a single copy via the pnpm override; ProseMirror breaks in
+      #   subtle ways (instanceof checks, plugin keys) when two copies end up in the bundle.
+      # Upgrade procedure: CONTRIBUTING.md -> "Upgrading the editor".
+      - dependency-name: "@blocknote/*"
+      - dependency-name: "prosemirror-*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

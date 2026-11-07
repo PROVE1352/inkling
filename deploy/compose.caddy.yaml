@@ -1,0 +1,33 @@
+# HTTPS overlay — once the domain is ready:
+#   DOMAIN=inkling.example.com docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --build
+# Caddy issues and renews Let's Encrypt certificates automatically.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set the DOMAIN environment variable}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+  app:
+    environment:
+      # Secure cookies behind HTTPS
+      COOKIE_SECURE: "1"
+    # No direct external exposure — reachable only through Caddy
+    ports: !override []
+
+  db:
+    # In production the DB host port is not exposed at all (Docker-internal traffic only).
+    ports: !override []
+
+volumes:
+  caddy-data:
+  caddy-config:

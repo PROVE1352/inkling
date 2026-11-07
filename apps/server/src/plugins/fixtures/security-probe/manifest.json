@@ -1,0 +1,18 @@
+{
+  "id": "security-probe",
+  "name": "Security Probe",
+  "version": "0.0.1",
+  "minAppVersion": "0.1.0",
+  "description": "TEST ONLY: deliberately misbehaving plugin used to verify the sandbox in a browser. Never enable on a real server.",
+  "author": "Inkling examples",
+  "entry": "main.js",
+  "permissions": ["commands", "read:pages"],
+  "commands": [
+    { "id": "escape", "title": "Probe: try to escape the sandbox" },
+    { "id": "write", "title": "Probe: pages.update without write permission" },
+    { "id": "flood", "title": "Probe: message flood" },
+    { "id": "huge", "title": "Probe: oversized messages" },
+    { "id": "loop", "title": "Probe: infinite loop" },
+    { "id": "navigate", "title": "Probe: navigate own frame" }
+  ]
+}

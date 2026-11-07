@@ -1,0 +1,539 @@
+# Inkling API Contract (M1)
+
+The shared contract between the server and web agents. **This document is the source of truth**: implementations must not diverge from it.
+Request validation schemas and DTO types are defined in `@inkling/shared` (packages/shared/src/index.ts), and both sides import them.
+
+## Common rules
+
+- Every REST endpoint uses the `/api` prefix with JSON in and out. Exceptions: `GET /files/:id` (binary), `WS /collab` (Hocuspocus).
+- Authentication: session cookie `inkling_sid` (httpOnly, SameSite=Lax, Path=/, 30 days, Secure when `COOKIE_SECURE=1`).
+- Error response format: `{ "error": { "code": string, "message": string } }` (`ApiErrorBody`).
+  - Codes: `UNAUTHORIZED`(401), `FORBIDDEN`(403), `NOT_FOUND`(404), `VALIDATION`(400),
+    `EMAIL_TAKEN`(409), `INVALID_CREDENTIALS`(401), `INVALID_CODE`(404), `INVALID_RESET`(400),
+    `EMAIL_NOT_VERIFIED`(403), `DELEGATED_ACCOUNT`(400), `RATE_LIMITED`(429, `Retry-After`),
+    `MAIL_DISABLED`(501), `MAIL_FAILED`(502),
+    `PAYLOAD_TOO_LARGE`(413), `UNSUPPORTED_TYPE`(415), `INTERNAL`(500).
+  - `message` is English. Clients localize by `code`; the web app translates known codes (and some exact messages)
+    and falls back to `message` otherwise. Do not match on message text.
+- Permission model: every workspace operation requires being a **member**. Pages and files are authorized through the workspace they belong to.
+
+## Localization
+
+- Supported locales: `en`, `ko`. The operator can set `DEFAULT_LOCALE` (`en` | `ko`; the server falls back to `en` when it is unset).
+- The web client sends `Accept-Language: <ui locale>` on every API request.
+- **Server-generated content** (built-in templates, default titles of pages the server creates such as the Tasks document,
+  default collection fields and views, the sign-up workspace name) uses the user's saved locale, else `Accept-Language`,
+  else `DEFAULT_LOCALE`.
+- **Emails** use the recipient's saved locale, else `DEFAULT_LOCALE`.
+- Error `message`s are not localized (see [Common rules](#common-rules)).
+- Related endpoints: `GET /api/auth/mode` (`defaultLocale`), `GET /api/auth/me` (`user.locale`), `PATCH /api/auth/me/locale` (see [Auth](#auth)).
+
+## Auth
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }` (no auth required). `defaultLocale: 'en' \| 'ko' \| null` is set only when the operator configured `DEFAULT_LOCALE` (otherwise `null`, and the browser language decides) |
+| POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. |
+| POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. Failure → 401 `INVALID_CREDENTIALS` (never reveal whether the email exists; same message). Unverified account in enforced-verification mode (only when the password is correct) → 403 `EMAIL_NOT_VERIFIED`. If there are no admins, bootstrap promotion applies. |
+| POST | `/api/auth/logout` | - | 204 + cookie cleared. The session row is deleted. |
+| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), and `pendingResetRequests` for admins. |
+| PATCH | `/api/auth/me/locale` | `{ "locale": "en" \| "ko" \| null }` | `{ "locale": "en" \| "ko" \| null }`. Requires a session. Saves the account's UI and email language (`null` = automatic: browser language / `DEFAULT_LOCALE`). Anything else → 400 `VALIDATION`. |
+| POST | `/api/auth/reset-password` | `resetPasswordSchema` `{ email, code, newPassword }` | `{ ok: true }`. Code = a reset code from an admin or automatic email (single use, 24h), or the **maxUses=1** sign-up key that person registered with. On success all of that account's sessions are deleted, remaining codes are revoked and pending requests are resolved. Failure (unknown account, delegated account, wrong code alike) → 400 `INVALID_RESET` with the same message. 10/min + blocking on accumulated failures. |
+| POST | `/api/auth/forgot-password` | `forgotPasswordSchema` `{ email, note? }` | Always `{ ok: true }` (never reveal whether the account exists). Only existing accounts are processed: verified email + mail enabled → a reset code email is sent automatically (in the background, at most one per 5 minutes). Otherwise (unverified, mail disabled, delegated account) → merged into a single pending row in `password_reset_requests` (refreshed at most once a minute). Input without `@` is treated as a delegated ID. 5/min. |
+| POST | `/api/auth/change-password` | `changePasswordSchema` `{ currentPassword, newPassword }` | `{ ok: true }`. Cookie sessions only (bearer → 403). Delegated account → 400 `DELEGATED_ACCOUNT`. Wrong current password → 400 `INVALID_PASSWORD`. All other sessions are deleted; only the current one remains. |
+| POST | `/api/auth/verify-email` | `{ token }` | `{ ok: true, email }`. Token is single use, 24h, and the email at send time must equal the account's email. Invalid → 400 `INVALID_TOKEN`. |
+| POST | `/api/auth/verify-email/send` | (cookie session) or `{ email, password }` | `{ ok: true, alreadyVerified? }`. Resend the verification email. Mail disabled → 501 `MAIL_DISABLED`. One per minute (429). |
+
+- Password rule: 8–100 characters (`newPasswordSchema`).
+- Brute-force protection: failures on the auth routes above, MCP OAuth and public share tokens are counted per IP; over the limit →
+  429 `RATE_LIMITED` + `Retry-After` (uniform wording). Per account there is only backoff (no lockout). Full policy:
+  deploy/DEPLOY.md 3-F.
+
+## Admin (`requireAdmin`: cookie session + `isAdmin`, bearer 403)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/admin/signup-keys` | - | `{ keys: SignupKeyDTO[] }` newest first, including the users who signed up with each key |
+| POST | `/api/admin/signup-keys` | `createSignupKeySchema` | `{ key: SignupKeyDTO }` |
+| DELETE | `/api/admin/signup-keys/:key` | - | `{ ok: true }` (accounts that signed up with it are kept) |
+| POST | `/api/admin/signup-keys/:key/send-invite` | `{ to }` | `{ ok: true }` invite email (`/register?key=`). Mail disabled 501, failure 502 `MAIL_FAILED`. 20/min |
+| GET | `/api/admin/users` | - | `{ users: AdminUserDTO[] }` newest sign-ups first. Includes `signupKeyRecovery` (holds a single-use sign-up key) and `emailVerifiedAt` |
+| PATCH | `/api/admin/users/:id` | `setAdminSchema` | `{ user: { id, isAdmin } }`. Revoking yourself or the last admin → 400 |
+| DELETE | `/api/admin/users/:id` | - | `{ ok: true }` forced account deletion. Content is kept via SET NULL, sessions and memberships cascade, the sign-up key's used_count −1 (floor 0). Yourself or the last admin → 400 |
+| POST | `/api/admin/users/:id/temp-password` | - | `{ password }` (shown once). Deletes all of that user's sessions, resolves pending requests. Delegated account 400 `DELEGATED_ACCOUNT`, yourself 400 |
+| POST | `/api/admin/users/:id/reset-code` | - | `{ code, expiresAt }` (shown once, 24h, only SHA-256 stored in the DB). Revokes previous codes, deletes all sessions, resolves pending requests. Delegated account or yourself 400 |
+| POST | `/api/admin/users/:id/send-credential` | `sendCredentialMailSchema` `{ to, kind: 'reset-code'\|'temp-password', secret }` | `{ ok: true }`. Sent only after the server confirms the secret is currently valid for that user. 20/min |
+| POST | `/api/admin/users/:id/send-verification` | - | `{ ok: true }` verification email to the account's email. Already verified 400 |
+| POST | `/api/admin/users/:id/verify` | `{ verified?: boolean }` | `{ user: { id, emailVerifiedAt } }` manually mark as verified (false unmarks) |
+| GET | `/api/admin/reset-requests` | - | `{ requests: ResetRequestDTO[] }` newest 200 |
+| POST | `/api/admin/reset-requests/:id/dismiss` | - | `{ ok: true }` pending → dismissed. Missing or already handled 404 |
+| GET | `/api/admin/ip-bans` | - | `IpBansResponseDTO` `{ bans, yourIp, yourIpAllowlisted, allowlist, policy }` |
+| POST | `/api/admin/ip-bans` | `manualBanSchema` `{ ip, minutes, reason? }` | `{ ok, ip, bannedUntil }`. Allowlisted IP or your own IP → 400 |
+| DELETE | `/api/admin/ip-bans/:id` | - | `{ ok: true }` lifts the active ban on that IP (the escalation level is kept) |
+
+## Workspaces
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/workspaces` | - | `{ workspaces: WorkspaceDTO[] }` (those you are a member of, including role) |
+| POST | `/api/workspaces` | `createWorkspaceSchema` | `{ workspace: WorkspaceDTO }` (invite code generated automatically, you are the owner) |
+| POST | `/api/workspaces/join` | `joinWorkspaceSchema` | `{ workspace: WorkspaceDTO }`. Codes are compared after uppercase normalization. Unknown code → 404 `INVALID_CODE`. Already a member → plain 200 (idempotent). |
+| GET | `/api/workspaces/:id/members` | - | `{ members: MemberDTO[] }` |
+| PATCH | `/api/workspaces/:id` | `renameWorkspaceSchema` | `{ workspace: WorkspaceDTO }`: **owner only** (otherwise 403) |
+
+- Invite codes: uppercase letters + digits from the alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (confusable characters removed), length 10, crypto random. Retried up to 3 times on a unique collision.
+
+## Pages
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/workspaces/:id/pages` | - | `{ pages: PageMetaDTO[] }`: only `deleted_at IS NULL`, sorted `sortOrder asc, createdAt asc`. The client assembles the tree from `parentId`. |
+| POST | `/api/pages` | `createPageSchema` | `{ page: PageMetaDTO }`. If `parentId` is given it must be a live page in the same workspace (otherwise 400 VALIDATION). `sortOrder` = max among siblings + 1000. |
+| PATCH | `/api/pages/:id` | `updatePageSchema` | `{ page: PageMetaDTO }`. When `parentId` changes: same workspace, not itself, **not into its own descendants** (cycle prevention via a parent-chain check). Updates `updatedAt`. |
+| DELETE | `/api/pages/:id` | - | 204. Soft delete: sets `deleted_at` on the page and all its descendants (recursive CTE). |
+
+## Files
+
+| Method | Path | Input | Response |
+|---|---|---|---|
+| POST | `/api/files?workspaceId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>` |
+| GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401, non-member 403. |
+
+- Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above).
+- Allowed MIME types: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`; anything else 415.
+
+## Collab (real-time co-editing)
+
+- `WS /collab`: Hocuspocus protocol. `documentName` = page UUID.
+- Authentication: the session is determined from the upgrade request's **cookie** (the provider's token value is ignored, but the client sends a dummy `token: 'cookie'` so Hocuspocus runs the onAuthenticate hook).
+- Authorization: documentName must be a UUID, a live page, and the user must be a member of its workspace. Otherwise the connection is refused.
+- Persistence: Yjs state is saved to `page_docs.state` (bytea) with a debounce (2s, max 10s). Saving also updates `pages.updated_at`.
+
+## Misc
+
+- `GET /api/health` → `{ ok: true }` (no auth required)
+- Production (Docker): serves `WEB_DIST` statically + SPA fallback (GET requests outside `/api`, `/files`, `/collab` → index.html)
+
+---
+
+# M2 additional contract (Markdown round-trip · wiki links · trash · search)
+
+## Wiki link representation (convention shared by server and web)
+
+- Wiki links in documents are **standard BlockNote `link` inlines** whose href is an internal path: `/w/<workspaceId>/p/<pageId>`
+  (no custom inline type, so Markdown conversion and server parsing work without extending the schema).
+- On Markdown **export**, internal links become `[[Title]]` (title = link text).
+- On Markdown **import**, `[[Title]]` is resolved to an internal link by title match: ① pages in the same import batch ② live pages in the workspace (case-insensitive, most recent updatedAt first). Unresolved links stay as the literal text `[[Title]]`.
+- Backlink index: on document save (store), internal href patterns are extracted from the blocks and `page_links(source_page_id, target_page_id)` is synced (delete all then reinsert, distinct, self-references excluded; the store itself succeeds even if this fails).
+
+## Pages additions
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/pages/:id/backlinks` | `{ pages: PageMetaDTO[] }`: live pages that link to this page (membership checked, updatedAt desc) |
+| POST | `/api/pages/:id/restore` | `{ page }`: sets `deleted_at=null` on the page and its descendants. If the parent is still deleted, `parentId=null` (moved to the root). 400 if the target is not deleted |
+| DELETE | `/api/pages/:id/purge` | 204: hard delete (cascade). Allowed **only for deleted (trashed) pages**, otherwise 400 |
+| GET | `/api/workspaces/:id/trash` | `{ pages: PageMetaDTO[] }`: all deleted pages (flat), deletedAt desc |
+| GET | `/api/workspaces/:id/search?q=` | `{ pages: PageMetaDTO[] }`: title ILIKE substring match (escaped), live pages only, limit 20, updatedAt desc. Empty q → empty array |
+
+## Export / Import
+
+| Method | Path | Input/Output |
+|---|---|---|
+| GET | `/api/pages/:id/export?format=md` | `text/markdown; charset=utf-8` attachment (single page, children excluded). Image links keep their absolute `/files/...` paths |
+| GET | `/api/pages/:id/export?format=zip` | zip: the page + its subtree. Structure follows the convention below |
+| GET | `/api/workspaces/:id/export` | zip: the whole workspace tree |
+| POST | `/api/workspaces/:id/import?parentId=<uuid?>` | multipart `file` = a single `.md` or a `.zip`. Response `{ pages: PageMetaDTO[] }` (created pages, in creation order) |
+
+### zip convention (Obsidian-friendly)
+
+```
+assets/                  ← all images and files (file name: <fileId><extension inferred from mime>)
+Page Title.md
+Page Title/              ← a page with children gets a folder of the same name (alongside the file)
+  Child Title.md
+```
+
+- File name sanitizing: remove `/ \ : * ? " < > |` and control characters, trim; an empty title → `Untitled` (localized); duplicates in the same folder → ` (2)`, ` (3)`…
+- Markdown frontmatter: only two lines, `inkling-id: <uuid>` and `updated: <ISO>`.
+- Image/file links in Markdown inside the zip are rewritten to relative `assets/<fileId><ext>` paths. Import reverses this (upload assets → rewrite to `/files/<newId>`).
+- Import: folder structure = parent relationships. The frontmatter `inkling-id` is **ignored and a new page is always created** (avoids id collisions; M2 scope).
+- An imported page's document is stored via `blocksToYDoc` → `Y.encodeStateAsUpdate` → `page_docs.state`. This is a one-time initialization before any collaboration starts, so it is safe.
+
+## Page kinds (kind) — M2
+
+- `pages.kind`: `'doc' | 'folder' | 'canvas'` (default doc). `createPageSchema` gains `kind?` and `title?`.
+- **folder**: no document (no collaboration connection). Used to organize the tree. Exported as a directory only; on import, a directory without a Markdown file → a folder page.
+- **canvas**: implemented in M3.5 (JSON Canvas). The M2 server only needs to store and return kind.
+- PageMetaDTO includes `kind`, returned in every page response.
+
+---
+
+# M3 contract — Collections (Notion-style databases)
+
+Types and validation schemas come from the M3 section of `@inkling/shared` (collectionFieldSchema, viewConfigSchema, updateFieldsSchema, createViewSchema, updateViewSchema, updatePropsSchema, CollectionDTO, CollectionViewDTO, RowDTO).
+
+## Model
+
+- **A collection = a page with kind='collection'.** Field definitions live in `collections` (pageId pk, fields jsonb), views in `collection_views`.
+- **A row = a live child page of the collection page** (kind is usually doc). Property values are in `pages.props` jsonb `{ fieldId: value }`.
+- Value shapes: text/url→string, number→number, checkbox→boolean, date→'YYYY-MM-DD' string, select→optionId string, multiSelect→optionId string[], person→userId string.
+- The page tree (GET pages) also returns the collection's children (rows) as-is; **the web app hides them when assembling the tree if the parent is a collection.**
+
+## Endpoints
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/pages` (kind='collection') | existing createPageSchema | On creation the server automatically creates: a `collections` row (default fields: Status (select: To do (gray) / In progress (blue) / Done (green)), Assignee (person), Due (date)) + a default table view ("Table"). Names follow the [request locale](#localization) |
+| GET | `/api/pages/:id/collection` | - | `{ collection: CollectionDTO, rows: RowDTO[] }`: 400 if the target is not of kind collection. rows are live children (sortOrder asc), with props |
+| PUT | `/api/pages/:id/collection/fields` | `updateFieldsSchema` | `{ collection }`: full replacement. Duplicate field id → 400. Orphan values of deleted select options are not cleaned up (ignored when rendering) |
+| POST | `/api/pages/:id/collection/views` | `createViewSchema` | `{ view }` (sortOrder = max+1000) |
+| PATCH | `/api/collection-views/:id` | `updateViewSchema` | `{ view }`: config is **fully replaced** (not merged) |
+| DELETE | `/api/collection-views/:id` | - | 204. 400 VALIDATION if it is the collection's last remaining view |
+| PATCH | `/api/pages/:id/props` | `updatePropsSchema` | `{ row: RowDTO }`: **merge**; a null value deletes the key. Allowed even if the target page's parent is not a collection (properties are just stored) |
+
+- Permissions: all require membership in the workspace.
+- `GET /api/pages/:id/collection` rows include only deletedAt=null.
+- Collection page export (.md/zip): instead of a body, **rows are dumped as a GFM table** (header: title + field names; cells: stringified values, with option names for select, user names for person, ✅/⬜ for checkbox). Row pages are included as child Markdown files following the existing tree logic.
+
+---
+
+# M8 contract — Invite links · member management · version history
+
+## Invites
+- `GET /api/workspaces/invite-preview?code=<code>` (authentication only, membership not required) → `InvitePreviewDTO { name, icon, memberCount }`. Unknown code 404 INVALID_CODE.
+
+## Members (owner only, except leaving yourself)
+- `PATCH /api/workspaces/:id/members/:userId` body `updateMemberSchema { role }` → `{ member: MemberDTO }`. Demoting the last owner 400.
+- `DELETE /api/workspaces/:id/members/:userId` → 204. An owner removes someone else, or you leave. The last owner leaving 400. **On removal, that user's private pages in this workspace are soft-deleted** (audit L3).
+- `POST /api/workspaces/:id/invite/regenerate` (owner) → `{ workspace: WorkspaceDTO }` (new code).
+- `POST /api/workspaces/:id/transfer` (owner) body `transferOwnershipSchema { userId }` → `{ members: MemberDTO[] }`. The target becomes owner and the caller becomes member in one transaction under the `ws-members` lock (docs/adr/0911-*). Not a member (delegated accounts included as usual) 400; the caller themself 400; caller not an owner 403 (also the loser of two concurrent transfers). Afterwards the old owner can leave normally.
+
+## Workspace deletion (owner, soft delete with a 30-day restore — docs/adr/0910-*)
+- `GET /api/workspaces/:id/delete-preview` (owner) → `WorkspaceDeletePreviewDTO { pages, files, publicLinks, members, restoreDays }` for the confirm dialog.
+- `DELETE /api/workspaces/:id` body `deleteWorkspaceSchema { name }` → 204. `name` must equal the workspace name (surrounding spaces ignored, case-sensitive), else 400; member 403; not a member / unknown / already deleted 404. Takes effect for everyone at once: the workspace disappears from `GET /api/workspaces`, every `/api/workspaces/:id/*`, page, comment, file (`/files/:id`) and template route answers 404, public links (`/api/public/*`; `/s/*` falls back to the plain app shell) and the invite code stop working, the iCal feed drops its items, query blocks, MCP tools, reminders, webhooks and sheet sync skip it, and open collaboration sockets are closed. Other members get a `workspace_deleted` notification with the workspace name (no webhook is sent).
+- `GET /api/workspaces/deleted` → `{ workspaces: DeletedWorkspaceDTO[] }` — workspaces the caller owns that are deleted and still restorable (`deletedAt`, `purgeAt` = deletedAt + 30 days), newest first.
+- `POST /api/workspaces/:id/restore` (owner) → `{ workspace: WorkspaceDTO }`. Everything comes back as it was (members, roles, pages, links, invite code). Not deleted or past 30 days 404; member 403. The `workspace_deleted` notifications are removed.
+- Housekeeping deletes workspaces deleted more than 30 days ago: all rows by FK cascade, upload blobs after commit (same function as the forced account deletion's personal workspaces).
+
+## Snapshots (version history, doc pages, visibleTo guard)
+- `POST /api/pages/:id/snapshots` body `createSnapshotSchema { label? }` → `{ snapshot: SnapshotDTO }`.
+- `GET /api/pages/:id/snapshots` → `{ snapshots: SnapshotDTO[] }` newest 50.
+- `GET /api/pages/:id/snapshots/:sid/preview` → `{ markdown: string }`.
+- `POST /api/pages/:id/snapshots/:sid/restore` → 204. Applied to the live document (DirectConnection), with an automatic snapshot taken just before restoring. Canvas 400.
+- Automatic: in the store hook, if 10+ minutes have passed since the last snapshot, the pre-change state is saved; 50 are kept per page.
+
+# M9 contract — Calendar view · daily notes · templates
+
+## Calendar view
+- `collection_views.type` gains `'calendar'` (reflected in schema/shared). `viewConfigSchema.dateFieldId?` added.
+- Server: the existing collection/view APIs as-is (calendar only additionally stores config.dateFieldId). **Rendered by the web app only**: rows are placed on a month grid by their date field value.
+
+## Daily notes
+- No server API needed; the web app uses the existing createPage. It ensures a daily folder (kind=folder, scope=private) exists in the private section, then
+  finds or creates the page titled `YYYY-MM-DD` and navigates to it. (Looked up by title in usePages.)
+
+## Page duplication (templates: see [Templates](#templates))
+- `POST /api/pages/:id/duplicate` → `{ pages: PageMetaDTO[] }` (the duplicated root + descendants).
+  - Recursively duplicates the target page and its descendant tree: new ids, under the same parent (root title "Copy of …", localized), page_docs state copied,
+    props copied, and for collections the collections/views too. Wiki link hrefs keep pointing at the originals in v1 (not rewritten; reported).
+  - visibleTo guard, same scope kept.
+
+---
+
+# MCP remote connector + OAuth 2.1
+
+User guide: [MCP.md](MCP.md). Claude Code / claude.ai connect to `https://<domain>/mcp`, and once each user
+allows it on the browser consent screen, notes are read and written **with that user's permissions only**.
+
+## Endpoints (root, not `/api`; CORS `*`; no cookies)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/.well-known/oauth-protected-resource` (same with a `/mcp` suffix) | RFC 9728. `resource=<origin>/mcp`, `authorization_servers=[<origin>]` |
+| GET | `/.well-known/oauth-authorization-server` | RFC 8414. code + S256 + `token_endpoint_auth_methods=["none"]` |
+| POST | `/oauth/register` | RFC 7591 DCR (public clients). `redirect_uris` must be https or `http://localhost|127.0.0.1|[::1]:<any port>`. 201 `{client_id,…}`. 20/min |
+| GET | `/oauth/authorize` | **No server route**: the SPA consent screen (`OAuthAuthorize.tsx`). Goes through `/login?next=` when not signed in |
+| POST | `/oauth/token` | form-urlencoded (JSON also accepted). `authorization_code` (code single use, 5 minutes, PKCE S256, redirect_uri must match) / `refresh_token` (rotating; reusing a previous refresh token revokes the whole connection). Access 1 hour, refresh 60 days (sliding). Errors are RFC 6749 `{error,error_description}` |
+| POST | `/mcp` | MCP Streamable HTTP (stateless, JSON responses). Missing/invalid token → 401 + `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`. GET/DELETE → 405 |
+
+## `/api/oauth/*` (session cookie only; 403 with a bearer token)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/oauth/authorize/info?client_id&redirect_uri` | `{ client:{id,name}, redirectHost }`. Unregistered client / redirect mismatch → 400 (no redirect) |
+| POST | `/api/oauth/authorize` | body = the authorize query + `decision: allow|deny` → `{ redirectTo }` (code+state or error) |
+| GET | `/api/oauth/grants` | Connected apps `{ grants: [{id, clientName, createdAt, lastUsedAt}] }` |
+| DELETE | `/api/oauth/grants/:id` | 204. Access and refresh tokens are invalidated immediately |
+
+## Token → permissions
+
+- DB: `oauth_clients`, `oauth_codes` (code hashes), `oauth_grants` (SHA-256 hashes of access/refresh tokens + the previous refresh hash). Raw tokens are never stored.
+- `requireUser` accepts `Authorization: Bearer`, but **only from the `/mcp` handler's internal inject (a process-secret header)**.
+  Calling `/api/*` directly from outside with a token → 401. So what a token can do = the MCP tool surface only (no permanent deletion, member management, public sharing or admin APIs).
+- Tools call the existing REST routes as the token's user through `app.inject`, so membership and 🔒 private-page visibility checks are identical to the web. The inject carries the original client IP so rate-limit buckets do not mix.
+
+## Tools
+
+`list_workspaces`, `list_pages(workspaceId, parentId?|'root')`, `search(query, workspaceId?)`, `read_page(pageId)`,
+`create_page(workspaceId, title, markdown, parentId?, private?)`, `update_page(pageId, markdown, mode: append|replace)`,
+`rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block).
+
+## Body edit route (for MCP, but also callable with a cookie)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/pages/:id/content` | `{ markdown, mode: 'replace'|'append' }` | `{ ok: true }`. Doc pages only (otherwise 400). The same `markdownToBlocks` as import → injected through the same DirectConnection as snapshot restore (applied live; the store hook updates the indexes). append replaces the whole document with the existing blocks (ids kept → comment anchors preserved) followed by the new blocks; replace preserves the previous state as a "Before AI edit" snapshot. 30/min |
+
+# Public folder sharing (2026-09-23)
+
+Shares a folder (`kind='folder'`) through a single public link: anyone with the link can browse and read the folder's **current subtree** without signing in.
+Publish/stop rules are the same as single-page sharing (workspace owner only; `scope='private'` → 400). Existing single-page sharing behavior is unchanged.
+
+- **Subtree = computed at request time** (recursive CTE). Pages added or moved in later are included automatically; pages moved out are excluded automatically.
+  Descent stops at trashed (`deleted_at`), private (`scope='private'`) and template pages → that whole subtree is excluded. Same workspace only, depth guard of 64.
+- **ref (opaque identifier)**: the first 22 characters of `ref = base64url(HMAC-SHA256(key=shareToken, msg=pageId))`. Internal page UUIDs never appear in public responses or URLs (the M15 no-leak principle).
+  It is one-way, so ref→pageId cannot be reversed; stopping and re-sharing changes the token, so every ref changes too. The server recomputes the subtree on every request to look refs up (no mapping table, no migration).
+- Outside the subtree / trashed / private / nonexistent / non-viewable kind → always **404** (not 403).
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/pages/:id/share` · same for POST | `ShareStatusDTO` + for folders `exposedCount` (number of currently viewable doc/collection descendants, excluding the folder itself) |
+| GET | `/api/public/:token` (folder token) | `PublicFolderDTO { kind:'folder', title, icon, tree: PublicTreeNodeDTO[], updatedAt }`. Node = `{ ref, title, icon, kind, children }`. Collection rows are hidden from the tree (same as the app sidebar). A single-page token returns the existing `PublicPageDTO` (no kind field) |
+| GET | `/api/public/:token/p/:ref` | Body of a descendant doc/collection as `PublicPageDTO` (server-rendered HTML). folder/canvas ref → 404. Wiki links: targets inside the subtree → `/s/<token>/p/<ref>` (the root folder → `/s/<token>`), outside → plain text. Attachment URLs → the path below |
+| GET | `/api/public/:token/p/:ref/f/:fileId` | Only files referenced by that **descendant page**'s blocks/cover/icon (same workspace). A fileId from another page → 404 |
+| GET | `/api/public/:token/f/:fileId` | Existing route. For a folder token, only the folder's own icon/cover |
+
+Common to public routes: 60/min per route, `Content-Security-Policy: default-src 'none'…` + nosniff, bodies `Cache-Control: no-store`, files `public, max-age=300`.
+Web: `/s/:token` (tree + reading pane for folders), `/s/:token/p/:ref`. "Share to web" in the tree row ⋯/right-click menu (doc, collection, folder; shared section only).
+
+# Calendar · due dates completed — tasks inside documents (2026-09-23)
+
+To fill the calendar and due list for users who only write regular documents, **checklists inside documents** are pulled in as dated items.
+
+## Task index (`page_tasks`, migration `0020_page_tasks`, additive only)
+
+- `page_tasks(id, page_id FK cascade, workspace_id FK cascade, block_id, text, due 'YYYY-MM-DD', checked, updated_at)`, indexes `(workspace_id, due)` and `(page_id)`.
+  `page_task_index(page_id PK FK cascade, indexed_at)` = an "indexing done" marker (so the boot backfill picks only new documents).
+- Extraction points: the collab store hook (next to `reindexPageText/Tags`), import, template creation/instantiation, duplication. Per page, delete+insert in one transaction (per-page advisory lock).
+  At boot, live docs without a marker are backfilled 25 at a time (yielding 50ms between batches, per-page error isolation, counts logged). Extraction never writes the document (`stateToBlocks` read only).
+- Targets: BlockNote `checkListItem`s (including children) with a date in their text. Date syntax (by priority, one per block, the token is removed from the displayed text):
+  1. `📅 2026-09-30` (Obsidian Tasks) 2. with a year: `2026-09-30`, `2026.9.30`, `2026/9/30`, `2026년 9월 30일`
+  3. without a year: `9/30`, `9월 30일` → the upcoming date (this year, or next year if it passed more than 60 days ago). Ties go to the earlier one.
+  Numeric boundary checks (versions like `1.2.3` and paths like `a/9/30` excluded), nonexistent dates (`2/30`) ignored. Relative words (`오늘/내일/모레`, today/tomorrow/the day after) are not parsed. There is no date mention in the schema.
+
+## Dated items (`md/dateItems.ts` → `DateItemDTO`)
+
+`{ kind: 'row'|'page'|'daily'|'task', pageId, title, icon, date, done, collectionTitle?, fieldId?, doneFieldId?, blockId?, parentPath?, pageTitle? }`
+- row: date fields of every collection. done = a checked checkbox field, or a select option whose name matches `/완료|done|끝|complete/i`. `doneFieldId` = a checkbox with a done-like name (else the first checkbox; if neither exists it is omitted → cannot be checked).
+- page: `properties` with type='date' (`fieldId` = property id). done = a `done` checkbox property. daily: title is `YYYY-MM-DD`. task: `page_tasks` (done = checked).
+- All are scoped to the workspace + `visibleTo` + trash excluded.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/workspaces/:id/calendar?month=YYYY-MM` or `?from=&to=` (≤62 days) | `{ events: CalendarEventDTO[] }` = DateItemDTO + a legacy-compatible `type` (=kind). For rows, every date field is its own item |
+| GET | `/api/workspaces/:id/due` | `DueResponseDTO { today, items: (DateItemDTO & {section})[], counts }`. Sections: `overdue` (not done, last 60 days), `today`, `tomorrow`, `week` (the rest of the 7 days), `next30`, `done` (done + dated from 7 days ago to 30 days ahead). row/page/task only (daily excluded). One per row: the value of a date field named `마감|due|deadline|기한` first, else the first date field with a value. `?range=` is accepted but ignored |
+| PATCH | `/api/pages/:id/tasks/:blockId` | `{ checked?, due? }` → toggle done / change the date of one checklist item inside a document. `{ ok, task }`. 120/min. 404 = no such block, 400 = no date token or validation failed |
+| POST | `/api/workspaces/:id/tasks` | `{ title, date }` → appends `- [ ] title 📅 date` to the end of the workspace's Tasks document (top level of the shared section, created if missing (an advisory lock guarantees only one); its title follows the [request locale](#localization)), then reindexes immediately. `{ ok, pageId, blockId }`. 60/min |
+| POST | `/api/pages` | existing + `date?: 'YYYY-MM-DD'` → creates a doc with a date property (`{id:'date', name:<"Date", localized>, type:'date'}`) |
+| PATCH | `/api/pages/:id` | existing + `dateProperty?: { id?, value: 'YYYY-MM-DD'|null }` (added as the "Date" property if missing, removed when null) · `done?: boolean` (the 'done' checkbox property) |
+
+**Safe document-write paths**: only the PATCH tasks / POST tasks routes above write documents (explicit user actions).
+- Task edit: Hocuspocus `openDirectConnection` → changes only the `checked` attribute of an existing `checkListItem` element, or only the characters of the date token inside an existing `Y.XmlText` (formatting kept, no new nodes). The same edit is first applied to a cloned Y.Doc and verified through BlockNote conversion (block count unchanged, target checked/date as expected, body outside the date unchanged); only if it passes is it applied live. Editors with the page open see it live; the store hook saves and reindexes. Date tokens keep their original shape (`9/30`→`10/2`, ISO when the year changes).
+- Quick add: `md/docWrite.appendBlocksToDoc` inserts only a deep clone of the blockContainer built by BlockNote `blocksToYDoc` from the `markdownToBlocks` result at the end of the top-level blockGroup (no existing blocks are rewritten → callouts, embeds and mentions absent from the server schema are preserved). Applied after verifying on the clone that "existing blocks are unchanged + count +1".
+  (The append of `POST /pages/:id/content` rewrites everything, so such blocks disappear there; it was moved to `writeBlocksToDoc` in the same module with the behavior unchanged.)
+
+Reminders: the hourly scan adds "pages with an unfinished task due today → the page's author (if a workspace member)". Same once-a-day-per-page dedupe as row reminders, per-page error isolation.
+
+Web: calendar month/week view (prefs `calendar.view`), kind filter and show-done toggle (doubling as the legend), clicking an empty date / Enter on the day number → popover (add a task · ⌘/Ctrl+Enter new page on this date · open/create the daily note; a bottom sheet on phones), chip drag (rows/pages/tasks, not dailies; MouseSensor 5px, TouchSensor 250ms), clicking a task chip → `?block=<id>` scrolls to and highlights the block.
+Due list: sections, counts, checking (optimistic + undo toast), source, relative dates, quick add at the top, sidebar badge (overdue + today, red when anything is overdue).
+
+## Plugins (experimental)
+
+Registered only with `EXPERIMENTAL_FEATURES=plugins` (otherwise 404). `GET /api/auth/mode` gains
+`experimental: string[]` (enabled experiment names). Design: [PLUGINS.md](PLUGINS.md), ADR 0400–0405.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/api/admin/plugins` | Admin (cookie). Fresh scan of `PLUGINS_DIR` merged with approvals: `{ pluginsDir, appVersion, plugins: [{ id, status: 'invalid'\|'missing'\|'not-approved'\|'needs-reapproval'\|'enabled'\|'disabled', error, manifest, hash, install }] }` |
+| POST | `/api/admin/plugins/:id/approve` | Admin. `{ hash, permissions: string[] }` → enables exactly that content hash with `permissions ∩ manifest.permissions`. 409 `PLUGIN_CHANGED` if files changed since `hash` was read, 400 for unrequested permissions / invalid plugin |
+| POST | `/api/admin/plugins/:id/disable` | Admin. `{ ok }` |
+| DELETE | `/api/admin/plugins/:id` | Admin. Forgets the approval and deletes every user's `plugin_storage` rows for it |
+| GET | `/api/plugins` | User. Active plugins `{ plugins: [{ id, name, version, description, permissions, commands, blocks, frameUrl }] }` (approved + enabled + on-disk hash unchanged) |
+| GET | `/api/plugins/:id/pages/:pageId` | `read:pages`. `{ page: { id, workspaceId, title, kind, updatedAt, markdown } }` — same visibility/membership as the user; canvas/folder → 400. 120/min |
+| GET | `/api/plugins/:id/search?workspaceId=&q=` | `read:pages`. Proxies `/api/workspaces/:id/search` as the user → `{ pages: [{ id, title, kind, updatedAt, snippet }] }`. 120/min |
+| POST | `/api/plugins/:id/pages/:pageId/content` | `write:pages`. `{ markdown, mode: 'replace'\|'append' }` → proxies `POST /api/pages/:id/content` as the user (the web app asks the user to confirm first). 30/min |
+| GET | `/api/plugins/:id/storage` | `storage`. `{ keys }` (this plugin, this user) |
+| GET / PUT / DELETE | `/api/plugins/:id/storage/:key` | `storage`. `PUT { value }` (JSON ≤ 64 KB; 500 keys / 1 MB per plugin per user → 413 `PLUGIN_STORAGE_QUOTA`); `GET` → `{ value \| null }` |
+| GET | `/api/plugin-sdk/v1.js` | Unauthenticated. In-frame SDK (`text/javascript`, `nosniff`) |
+| GET | `/api/plugin-frame/:id/:hash/index.html` | Unauthenticated (opaque-origin frames send no cookies). 404 unless active with that exact hash. CSP `default-src 'none'; script-src 'nonce-…'; connect-src 'none'; … frame-ancestors 'self'; sandbox allow-scripts`, `no-store` |
+| GET | `/api/plugin-frame/:id/:hash/main.js` | Unauthenticated. The approved bundle bytes, `immutable` |
+
+Errors: unknown/inactive plugin → 404 `PLUGIN_NOT_FOUND`; missing permission → 403
+`PLUGIN_PERMISSION`; MCP bearer tokens → 403 (browser sessions only).
+
+## Link previews, embeds, share unfurl, workspace webhooks
+
+Server-side fetches of user URLs go through `safeFetch` (SSRF guard, docs/adr/0500).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/link-preview?url=` | Session required. 30/min per session. `{ preview: LinkPreviewDTO }` (`url` final URL, `title`, `description`, `siteName`, `image` (https only), `favicon` (https only)). Unreachable, blocked or non-2xx → 422 `PREVIEW_UNAVAILABLE` (generic). Cached in memory 6 h (failures 10 min). `Cache-Control: private, max-age=3600`. docs/adr/0502 |
+| GET | `/s/:token`, `/s/:token/p/:ref` | Only when `WEB_DIST` is set. SPA shell with `og:*` / `twitter:*` meta + `<title>` for live shared (`scope='shared'`) pages; otherwise the plain shell. 120/min/IP, `no-store`. docs/adr/0503 |
+| GET | `/api/workspaces/:id/webhooks` | Owner (or site admin member). `{ webhooks: WebhookDTO[] }`, URL masked (`urlMasked`) |
+| POST | `/api/workspaces/:id/webhooks` | Owner. `{ url, events: WebhookEvent[] }` → `{ webhook }`. `url` must be `https://hooks.slack.com/services/…` or `https://discord.com|discordapp.com/api/webhooks/<id>/<token>`, else 400 `VALIDATION`. Max 10 → 409 `LIMIT_REACHED`. 20/min |
+| PATCH | `/api/webhooks/:id` | Owner. `{ events?, enabled? }` → `{ webhook }`. Re-enabling resets `failureCount` and `autoDisabledAt` |
+| DELETE | `/api/webhooks/:id` | Owner. 204 |
+| POST | `/api/webhooks/:id/test` | Owner. 5/min. Sends a fixed test message now → `{ ok, status, error, webhook }` |
+
+`WebhookEvent` = `mention` (comment @mentions) · `comment` · `reminder` (due today) · `page_created` (shared section, sent after 20 s).
+Events on pages that are not `scope='shared'` are never sent. After 5 consecutive failed events a hook is disabled and owners get a
+`webhook_disabled` notification (`NotificationDTO.workspaceId` set). docs/adr/0504.
+
+HTML responses without their own CSP get `Content-Security-Policy: frame-src 'self' <embed providers>` (docs/adr/0501).
+
+## Collections: relations, rollups, batch rows, gallery/timeline, Sheets sync, iCal
+
+View types: `table | board | calendar | gallery | timeline`. `ViewConfig` adds `cardCover`
+(`none|cover|firstImage`), `cardFieldIds`, `cardSize` (`sm|md|lg`), `startFieldId`, `endFieldId`,
+`zoom` (`day|week|month`). Field types add `relation` (`relation: { targetPageId, twoWay?, pairFieldId? }`,
+value = `string[]` of row ids) and `rollup` (`rollup: { relationFieldId, targetFieldId | 'title', fn }`,
+`fn` = `count|sum|avg|min|max|earliest|latest|percentChecked|showUnique`, computed, never stored).
+Up to 200 fields per collection. docs/adr/0300, 0301.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/pages/:id/collection` | Now also returns `refs: Record<rowId, RowRefDTO>` (visible linked rows only). Relation cells contain only visible, live links; rollup values are injected into `props`. `?rows=0` → definition only (`rows: []`) |
+| PUT | `/api/pages/:id/collection/fields` | Validates relation targets (visible collection in the same workspace) and rollups (relation of this collection; target may not be a rollup/relation except `count`) → 400 with a message. A new `twoWay` relation creates the paired field on the target collection (`pairFieldId` filled in) |
+| PATCH | `/api/pages/:id/props` | Rollup keys are ignored. Relation values: invalid/hidden ids dropped, existing hidden links preserved, two-way pair mirrored |
+| GET | `/api/pages/:id/collection/row-options?q=&limit=` | Relation picker: visible rows of the collection `{ rows: RowRefDTO[], more }` (limit ≤ 200, default 50, title ILIKE) |
+| GET | `/api/pages/:id/collection/covers` | Gallery "first image": `{ covers: { rowId: '/files/<id>' } }` (first uploaded image per visible row) |
+| POST | `/api/pages/:id/collection/rows/batch` | `{ rows: [{ title?, props? }] }` 1–1000 rows, body ≤ 16 MB, one transaction. Values type-checked against fields; relation/rollup/unknown keys dropped. Collection cap 100 000 live rows → 400. → `{ rows: RowDTO[] }` |
+| PATCH | `/api/pages/:id/collection/rows/batch` | `{ rows: [{ id, title?, props? }] }` 1–1000. Merge like PATCH props (`null` deletes) in one SQL statement; only visible children of `:id` are touched → `{ updated }` |
+| GET / PUT / DELETE | `/api/pages/:id/collection/sheet-sync` | **Experimental `sheets-sync`** (404 when off). `PUT { url, keyColumn, titleColumn?, intervalMinutes? (5–1440, default 15), enabled? }`; `url` must start with `https://docs.google.com/spreadsheets/`. → `{ sync: SheetSyncDTO \| null }`. docs/adr/0306 |
+| POST | `/api/pages/:id/collection/sheet-sync/run` | **Experimental.** Sync now (6/min). Sheet errors → 400 with message; already running → 409 `SYNC_RUNNING` → `{ sync, stats: { inserted, updated, unchanged } }` |
+| GET | `/api/me/ical` | `{ ical: { active, createdAt, lastUsedAt } }` (never the token) |
+| POST | `/api/me/ical` | Issue/regenerate → `{ ical: { …, url } }` — the URL with the secret token is returned once |
+| DELETE | `/api/me/ical` | Revoke. 204 |
+| GET | `/ical/<token>.ics` | **Root path, no session.** RFC 5545 feed of every dated item the token owner can see (all workspaces, −90/+400 days). `text/calendar`, `ETag` + `If-None-Match` → 304, `Cache-Control: private, max-age=300`, 30/min/IP. Unknown token → 404. docs/adr/0303, 0304 |
+
+## Admin: backups
+
+Admin + browser session only (MCP tokens → 403). Data comes from the `backup` sidecar through shared
+volumes (`BACKUP_DIR`, default `/backups`, read-only; `BACKUP_CTL_DIR`, default `/backup-ctl`).
+Restore has no HTTP endpoint (CLI `deploy/restore.sh`). docs/BACKUP.md, docs/adr/0600–0607.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/admin/backups` | `{ configured, status, alert, stale, pending, sets }`. `configured:false` (everything else empty) when `BACKUP_DIR` does not exist. `status` = sidecar `status.json` (`running`, `heartbeatAt`, `nextRunAt`, `lastSuccess`, `lastFailure`, `lastVerify`, `lastRestoreTest`, `remote`, `config` …). `alert` = `{ kind, message, at }` or null. `pending` = `queued \| processing \| null`. `sets` newest first: `{ id, kind, createdAt, totalBytes, encrypted, appVersion, migration, migrationsApplied, files[{ name, bytes }] }` |
+| POST | `/api/admin/backups/run` | Queue a backup now (6/min). 202 `{ queued: true }`. 409 `BACKUP_QUEUED` / `BACKUP_RUNNING` / `BACKUP_DISABLED` / `BACKUP_NOT_CONFIGURED`, 503 `BACKUP_SIDECAR_DOWN` (no heartbeat for 10 min) |
+| GET | `/api/admin/backups/:id/download` | Streams the set as an uncompressed `application/x-tar` (`inkling-backup-<id>.tar`), files as stored (encrypted sets stay encrypted). `:id` must match `^\d{8}-\d{6}$` → else 404 `BACKUP_NOT_FOUND` |
+
+`NotificationType` gains `workspace_deleted` (docs/adr/0910-*; `pageId` null, `workspaceName` set, not clickable) and `backup_failed` (sent to every admin when a backup, restore test or remote
+copy fails, or the sidecar stops reporting; no page/workspace).
+
+## Query blocks
+
+Dataview-style queries (syntax: [QUERY.md](QUERY.md)). docs/adr/0203, 0204.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/workspaces/:id/query` | `{ source, today?: 'YYYY-MM-DD', tzOffsetMinutes?: -840..840 }` (member only, 120/min). → `QueryResultDTO { type: 'TABLE'\|'LIST'\|'TASK', withoutId, columns: string[], rows: [{ pageId, title, cells: unknown[], task?: { blockId, text, due, checked } }], truncated, elapsedMs, cached? }`. Only pages visible to the caller (shared + own private), no trashed pages or templates. Syntax / unknown field → 400 `QUERY_SYNTAX` (message ends with `(line L, col C)`); > 3 s → 400 `QUERY_TIMEOUT`. Rows ≤ 500 (`LIMIT`, default 200) |
+
+## Vault sync (experimental `vault-sync`)
+
+Registered only when `EXPERIMENTAL_FEATURES` contains `vault-sync` (otherwise 404). Used by
+`inklingctl sync <vaultDir> --workspace <name|id>`. Revision tokens are opaque strings
+(state-vector hash + metadata hash); `contentHash` is SHA-256 of the normalized canonical
+markdown (frontmatter `inkling-id`, `aliases`, `tags`, page properties + body; attachments as
+`/files/<id>`; wikilinks as `[[Current Title]]` / `[[Current Title|shown]]`). docs/adr/0200–0202.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/workspaces/:id/sync/changes?since=<cursor>` | → `{ cursor, pages: [{ id, parentId, kind, title, updatedAt, revision, contentHash }], trashed: [{ id, deletedAt }] }`. All visible live pages (≤ 20 000, else 413 `TOO_MANY_PAGES`); `revision` only for docs changed since `since` (and docs linking to pages renamed/trashed since then), `null` = unchanged; `contentHash` when cached for that revision. Pass the returned `cursor` next time (overlaps by 5 s) |
+| POST | `/api/workspaces/:id/sync/read` | `{ ids: uuid[] }` (1–100) → `{ pages: [{ id, revision, contentHash, markdown }], missing: uuid[] }`. Reads the live document when a browser has it open |
+| PUT | `/api/pages/:id/sync/md` | `{ markdown (≤ 1.5M chars), expectedRevision }` → `{ revision, contentHash, markdown (canonical), droppedFrontmatterKeys }`. Revision mismatch (incl. unsaved live edits) → **412** `{ error: { code: 'REVISION_MISMATCH' }, current: { revision, contentHash, markdown } }`. Frontmatter replaces page properties/aliases (internal `fullWidth` kept). Applied through the collaboration server — open editors update live |
+| POST | `/api/workspaces/:id/sync/pages` | `{ parentId?: uuid\|null, title, kind: 'doc'\|'folder', markdown? }` → `{ page: { id, parentId, kind, title, updatedAt }, revision?, contentHash?, markdown? }` (doc fields only for `kind: 'doc'`). Scope inherits the parent |
+| DELETE | `/api/pages/:id/sync?expectedRevision=` | Trash one leaf page (204). Docs require `expectedRevision` → 412 with `current` on mismatch; live sub-pages → 409 `HAS_CHILDREN` |
+
+## Fix phase changes (docs/adr/0800–0815)
+
+**Errors may carry extra fields.** `AppError.details` is merged into the `error` object:
+`{ "error": { "code": "...", "message": "...", ...details } }`. Clients must ignore unknown keys.
+
+**`DELETE /api/admin/users/:id` — 409 `SOLE_OWNER`.** Refused while the user is the only owner of
+any workspace:
+
+```json
+{ "error": { "code": "SOLE_OWNER", "message": "…", "workspaces": [{ "id": "uuid", "name": "Team" }] } }
+```
+
+The admin UI should list `workspaces` and ask to promote another member to owner first
+(`PATCH /api/workspaces/:id/members/:userId { role: "owner" }` by that workspace's owner, or the
+admin as a member/owner there). On success the user's private pages go to the trash with no author:
+nobody (admins included) can see, restore or purge them; the 30-day trash purge removes them.
+
+**Visibility.** A private page whose author no longer exists (`created_by IS NULL`) is visible to
+nobody. When a shared subtree containing such pages is moved to the private section, the mover
+becomes their author.
+
+**Page tree changes** (`POST /pages` with `parentId`, `PATCH /pages/:id` with `parentId`/`scope`,
+restore/purge, duplicate/expand-canvas, `POST /pages/from-template`, vault-sync create,
+imports, collection batch rows):
+- `400 VALIDATION` — parent missing / in the trash / in another workspace, cycle, or the result
+  would be deeper than 64 levels.
+- `403 FORBIDDEN` — the parent is inside a folder/page with an active public link and the caller is
+  not a workspace owner (moves within the same public folder and new rows of a public collection
+  stay allowed).
+
+**`GET /api/workspaces`, `POST /api/workspaces/join`** — `inviteCode` is `""` unless the caller is an
+owner of that workspace. **`DELETE /api/workspaces/:id/members/:userId`** by an owner (removing
+someone else) regenerates the invite code.
+
+**`PATCH /pages/:id/props`, collection batch rows** — `400` when a person cell references a user who
+is not a member of the workspace.
+
+**`POST /pages/:id/publish/notion`** — real uploads (non-dry-run) are owner-only (`403`) and rate
+limited to 10/min.
+
+**Templates** — templates saved from a private page (or with `private: true`) are listed/usable by
+their creator only; `DELETE /templates/:id` needs the creator or a workspace owner. See [Templates](#templates).
+
+**Imports** — folder depth ≤ 32, at most `IMPORT_MAX_PAGES` (default 5000) created pages, zip entries
+measured by real decompressed bytes (25 MB per entry, 50 MB total) → `400` otherwise. Imported
+attachments get `pageId` of the first page that references them.
+
+**Login** — `401` (the password was just changed) when a password reset committed while the login was
+being verified. A password reset also revokes the iCal feed token.
+
+**`GET /api/health/ready`** — `200 {ok:true, db:true}` / `503 {ok:false, db:false}` (DB `select 1`,
+2 s timeout, cached 5 s). `/api/health` stays a liveness check.
+
+**Collab** — upgrades during shutdown or a DB failure get `503`. When access is revoked the server
+sends a Hocuspocus `PermissionDenied` message with reason `permission-changed` and then closes the
+socket with code 4403.
+
+**Static** — a missing `/assets/*` file is a 404 (not the SPA shell).
+
+---
+
+# Templates
+
+Guide and file format: [TEMPLATES.md](TEMPLATES.md). Decisions: ADR 0920–0925. All routes need a
+session and workspace membership (a deleted workspace answers `404`). `:tid` is a built-in key
+(`meeting`, `standup`, `meetingSeries`, `project`, `kickoff`, `brainstorm`, `retro`, `readingList`,
+`weeklyReview`) or a custom template uuid. Built-in text follows the request locale (`users.locale`
+→ `Accept-Language` → `DEFAULT_LOCALE`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/workspaces/:id/templates` | `{ templates: TemplateDTO[] }` — built-ins, then custom templates visible to the caller (newest first). `TemplateDTO { id, builtin, name, description, icon, category: 'docs'\|'projects'\|'meetings'\|'personal'\|'custom', kind: 'doc'\|'structure', pageCount, scope: 'shared'\|'private', mine, withDate, inputs: { name, default }[] }` |
+| POST | `/api/workspaces/:id/templates` | Save a page as a template. `{ fromPageId, name ≤60, description? ≤300, icon? ≤16, category?, includeSubpages?, includeRows?, private? }` → `{ template }`. A private source page always gives a private template. More than 200 pages / 12 levels / 20 MB → `400 TEMPLATE_TOO_LARGE`. 30/min |
+| GET | `/api/workspaces/:id/templates/:tid/preview` | `{ preview: { blocks: { type, text, depth, checked? }[] (first 14 blocks of the root document, plain text), truncated, outline: { kind, title, icon, depth, fields?, views?, rows? }[] } }` |
+| GET | `/api/workspaces/:id/templates/:tid/export` | `.md` (document template, frontmatter meta) or `.zip` (structure: `inkling-template.json` + `pages/*`). 20/min |
+| POST | `/api/workspaces/:id/templates/import[?private=1]` | multipart `file` (.md / .zip, ≤ 25 MB) → `{ template }`. Bodies go through the Markdown / JSON Canvas importers; invalid archive → `400 TEMPLATE_INVALID`. 20/min |
+| DELETE | `/api/templates/:id` | 204. Built-in key → 403; creator or owner only |
+| POST | `/api/pages/from-template` | `{ workspaceId, builtinKey \| templateId, parentId?, scope?, title? ≤300, date?: 'YYYY-MM-DD', inputs?: { [question]: answer }, tz?: IANA zone }` → `{ page, pages: PageMetaDTO[] (root first, depth-first), cursor?: { pageId, blockId, offset } }`. Creates the whole tree in one transaction under the workspace tree lock (placement and depth checks as for page creation; under a parent the parent's section wins). Variables are substituted at this moment; `withDate` templates also set a `date` property on the root. 30/min |
+
+`POST /api/pages/:id/instantiate` and the page `isTemplate` flag were removed (ADR 0920); save the
+page with sub-pages as a template instead.

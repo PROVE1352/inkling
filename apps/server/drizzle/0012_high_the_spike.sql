@@ -1,0 +1,1 @@
+ALTER TABLE "pages" ADD COLUMN "aliases" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -1,0 +1,372 @@
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import * as Y from 'yjs'
+import type { HocuspocusProvider } from '@hocuspocus/provider'
+import {
+  BlockNoteSchema,
+  type BlockNoteEditor,
+  defaultBlockSpecs,
+  defaultInlineContentSpecs,
+} from '@blocknote/core'
+import { en as bnEn, ko as bnKo } from '@blocknote/core/locales'
+import { useCreateBlockNote } from '@blocknote/react'
+import { BlockNoteView } from '@blocknote/mantine'
+import '@blocknote/mantine/style.css'
+import type { UserDTO } from '@inkling/shared'
+import { qk, uploadFile } from '../api'
+import { userColor } from '../lib/colors'
+import { openCollab, readStatus, readUsers, sameUsers } from '../lib/collabSocket'
+import { capUndoHistory } from '../lib/undoCap'
+import { useTheme } from '../lib/theme'
+import { pageEmbedSpec } from './blocks/PageEmbed'
+import { mentionSpec } from './blocks/Mention'
+import { calloutSpec } from './blocks/Callout'
+import { QueryBlockPortals, queryCodeBlockSpec } from './blocks/QueryBlock'
+import { handleUrlPaste, linkEmbedSpec } from './blocks/LinkEmbed'
+import { pluginBlockSpec } from '../plugins/PluginBlock'
+import type { CollabUser } from './OnlineUsers'
+import { WikilinkMenu } from './WikilinkMenu'
+import { MentionMenu } from './MentionMenu'
+import { SlashMenu } from './SlashMenu'
+import { getLocale, useT } from '../i18n'
+
+// Loose type so parents (PageView etc.) can share the editor instance
+export type InklingEditor = BlockNoteEditor<any, any, any>
+
+export type ConnStatus = 'connected' | 'connecting' | 'disconnected'
+
+export type CollabState = {
+  status: ConnStatus
+  synced: boolean
+  users: CollabUser[]
+}
+
+// Code block highlighting is injected via the schema, not an editor option (Appendix A).
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    // Code block + Query block (language `dataview` renders live results — docs/QUERY.md)
+    codeBlock: queryCodeBlockSpec,
+    // Page embed `![[...]]` (M12). Not in the server schema, but yDocToBlocks safely drops unknown
+    // nodes, so export/indexing survive (only the embed is lost on a round trip — see the report).
+    pageEmbed: pageEmbedSpec,
+    // Callout (M14). Like pageEmbed it is not in the server's default schema, so a stateToBlocks
+    // round trip drops it safely (no crash). Kept in the app's Yjs doc; lost in server .md export (v1 limit).
+    callout: calloutSpec,
+    // Plugin API v0 placeholder block — always registered so plugin block data survives even
+    // when plugins are off (renders an inert card). See apps/web/src/plugins/PluginBlock.tsx.
+    pluginBlock: pluginBlockSpec,
+    // Link embed / preview card (YouTube, Figma, … or OG card). docs/adr/0501-*, 0502-*
+    linkEmbed: linkEmbedSpec,
+  },
+  // @mention inline (M13). Like pageEmbed it is not in the server schema, but y-prosemirror safely
+  // drops unknown inline XmlElements (only the mention is lost on a round trip — see the report).
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    mention: mentionSpec,
+  },
+})
+
+export function CollabEditor({
+  pageId,
+  wsId,
+  me,
+  onCollabChange,
+  onEditorReady,
+  readOnly = false,
+}: {
+  pageId: string
+  wsId: string
+  me: UserDTO
+  onCollabChange?: (state: CollabState) => void
+  onEditorReady?: (editor: InklingEditor | null) => void
+  /** Ink mode — locks the body so the pen does not move the cursor or push text around */
+  readOnly?: boolean
+}) {
+  // M16: on a stateless broadcast ({t:'comments'}) invalidate the comments cache so it shows at once.
+  const queryClient = useQueryClient()
+  const t = useT()
+
+  // The component is fully remounted per pageId (key), so there is one doc per mount.
+  const [doc] = useState(() => new Y.Doc())
+  // The provider is created in an effect on the tab-wide socket (lib/collabSocket.ts,
+  // docs/adr/0702-*): never during render, so a discarded render cannot leak a live provider.
+  const [provider, setProvider] = useState<HocuspocusProvider | null>(null)
+  const [status, setStatus] = useState<ConnStatus>('connecting')
+  const [synced, setSynced] = useState(false)
+  const [users, setUsers] = useState<CollabUser[]>([])
+
+  useEffect(() => {
+    const handle = openCollab({
+      name: pageId,
+      document: doc,
+      userKey: me.id,
+      // Stateless notices the server sends on this page's channel. On a comment change, refetch
+      // immediately instead of waiting for the poll. Parse failures are ignored.
+      onStateless: ({ payload }) => {
+        try {
+          if (JSON.parse(payload)?.t === 'comments') {
+            queryClient.invalidateQueries({ queryKey: qk.comments(pageId) })
+          }
+        } catch {
+          // ignore malformed payloads
+        }
+      },
+    })
+    const p = handle.provider
+    // Subscribe in the same tick as construction (network events are async, so nothing is
+    // missed), then read the current state defensively.
+    // On the shared socket the socket status says nothing about *this* document: a denied
+    // (or revoked) document must still show as disconnected.
+    let denied = false
+    const onStatus = () => setStatus(denied ? 'disconnected' : readStatus(p))
+    const onDenied = () => {
+      denied = true
+      setStatus('disconnected')
+    }
+    p.on('authenticationFailed', onDenied)
+    // In 2.15 the 'synced' payload is onSyncedParameters = { state: boolean }
+    const onSynced = (e: { state: boolean }) => setSynced(e.state)
+    p.on('status', onStatus)
+    p.on('synced', onSynced)
+    // Awareness 'change' fires on every remote cursor move; only push a new users array when
+    // the list really changed (docs/adr/0700-*) — otherwise PageView re-renders per keystroke.
+    let last: CollabUser[] = []
+    const onAwareness = () => {
+      const next = readUsers(p)
+      if (!sameUsers(last, next)) {
+        last = next
+        setUsers(next)
+      }
+    }
+    p.awareness?.on('change', onAwareness)
+    onAwareness()
+    setSynced(p.isSynced)
+    onStatus()
+    setProvider(p)
+    return () => {
+      p.off('status', onStatus)
+      p.off('authenticationFailed', onDenied)
+      p.off('synced', onSynced)
+      p.awareness?.off('change', onAwareness)
+      handle.release()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, pageId, me.id])
+
+  useEffect(() => () => doc.destroy(), [doc])
+
+  // Report collab state to the parent (PageView) — for the top-bar connection dot / online users
+  useEffect(() => {
+    onCollabChange?.({ status, synced, users })
+  }, [status, synced, users, onCollabChange])
+
+  if (!provider) {
+    return (
+      <div className="relative">
+        <div className="pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
+          {t('editor.connecting')}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <CollabEditorBody
+      pageId={pageId}
+      wsId={wsId}
+      me={me}
+      doc={doc}
+      provider={provider}
+      synced={synced}
+      onEditorReady={onEditorReady}
+      readOnly={readOnly}
+    />
+  )
+}
+
+function CollabEditorBody({
+  pageId,
+  wsId,
+  me,
+  doc,
+  provider,
+  synced,
+  onEditorReady,
+  readOnly,
+}: {
+  pageId: string
+  wsId: string
+  me: UserDTO
+  doc: Y.Doc
+  provider: HocuspocusProvider
+  synced: boolean
+  onEditorReady?: (editor: InklingEditor | null) => void
+  readOnly: boolean
+}) {
+  const { resolved } = useTheme()
+  const navigate = useNavigate()
+  const t = useT()
+
+  const editor = useCreateBlockNote(
+    {
+      schema,
+      collaboration: {
+        fragment: doc.getXmlFragment('document'),
+        user: { name: me.name, color: userColor(me.id) },
+        provider: { awareness: provider.awareness ?? undefined },
+        showCursorLabels: 'activity',
+      },
+      // BlockNote's own UI strings follow the app locale. The app remounts on a language change,
+      // so choosing the dictionary once at editor creation is enough.
+      dictionary: getLocale() === 'ko' ? bnKo : bnEn,
+      uploadFile: (file: File) => uploadFile(wsId, file, pageId),
+      // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
+      pasteHandler: ({ event, editor, defaultPasteHandler }) =>
+        handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+    },
+    [provider],
+  )
+
+  // Cap the Yjs undo history (docs/adr/0701-*): y-prosemirror's UndoManager keeps every
+  // capture forever (and keeps deleted structs from GC) — long typing sessions grow without bound.
+  useEffect(() => capUndoHistory(editor), [editor])
+
+  // For a never-edited document (empty fragment), materialize the initial paragraph in the real
+  // Yjs doc. In collaboration mode BlockNote creates the initial paragraph only on the PM side
+  // (id: "initialBlockId" placeholder), so the empty paragraph on screen is a ghost missing from
+  // Yjs, and the side menu's + button has no real block to target until the first keystroke.
+  useEffect(() => {
+    if (!synced) return
+    try {
+      const frag = doc.getXmlFragment('document')
+      if (frag.length === 0 && editor.isEmpty && editor.document.length > 0) {
+        editor.replaceBlocks(editor.document, [{ type: 'paragraph' }])
+      }
+    } catch {
+      // seeding failure is not fatal — the first keystroke creates the block anyway
+    }
+  }, [synced, doc, editor])
+
+  // Block anchor (?block=<id>) — opening a task from the calendar/deadlines scrolls to that block
+  // and flashes it. Retries briefly until rendering catches up after sync, then removes the param.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const anchorBlock = searchParams.get('block')
+  useEffect(() => {
+    if (!synced || !anchorBlock) return
+    let tries = 0
+    let timer = 0
+    const tick = () => {
+      const el = document.querySelector(`.bn-block-outer[data-id="${CSS.escape(anchorBlock)}"], [data-id="${CSS.escape(anchorBlock)}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('nd-block-flash')
+        window.setTimeout(() => el.classList.remove('nd-block-flash'), 1600)
+      }
+      if (el || ++tries > 20) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev)
+            next.delete('block')
+            return next
+          },
+          { replace: true },
+        )
+        return
+      }
+      timer = window.setTimeout(tick, 100)
+    }
+    tick()
+    return () => window.clearTimeout(timer)
+  }, [synced, anchorBlock, setSearchParams])
+
+  // Template caret (?cursor=<blockId>:<offset>, docs/adr/0922-*): a page just created from a
+  // template with {{cursor}} opens with the caret where the marker was. Retried briefly until the
+  // block is in the editor after sync, then the param is removed.
+  const cursorParam = searchParams.get('cursor')
+  useEffect(() => {
+    if (!synced || !cursorParam || readOnly) return
+    const sep = cursorParam.lastIndexOf(':')
+    const blockId = sep > 0 ? cursorParam.slice(0, sep) : cursorParam
+    const offset = sep > 0 ? Math.max(0, Number(cursorParam.slice(sep + 1)) || 0) : 0
+    let tries = 0
+    let timer = 0
+    const done = () =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('cursor')
+          return next
+        },
+        { replace: true },
+      )
+    const tick = () => {
+      const block = editor.getBlock(blockId)
+      if (block) {
+        try {
+          editor.setTextCursorPosition(block, 'start')
+          if (offset > 0) {
+            const tiptap = (editor as unknown as {
+              _tiptapEditor?: { state: { selection: { from: number } }; commands: { setTextSelection: (p: number) => boolean } }
+            })._tiptapEditor
+            if (tiptap) tiptap.commands.setTextSelection(tiptap.state.selection.from + offset)
+          }
+          editor.focus()
+        } catch {
+          // a block without inline content (table, image) — leave the caret where it is
+        }
+        done()
+        return
+      }
+      if (++tries > 20) {
+        done()
+        return
+      }
+      timer = window.setTimeout(tick, 100)
+    }
+    tick()
+    return () => window.clearTimeout(timer)
+  }, [synced, cursorParam, readOnly, editor, setSearchParams])
+
+  // Share the editor instance with the parent (PageView) — for the right panel (outline/outgoing
+  // links/tags). Reset to null on unmount (document switch, folder navigation) to avoid stale state.
+  useEffect(() => {
+    onEditorReady?.(editor)
+    return () => onEditorReady?.(null)
+  }, [editor, onEditorReady])
+
+  // Intercept clicks on internal wikilinks (/w/...) as SPA navigation instead of a new tab/full load.
+  const onClickCapture = (e: React.MouseEvent) => {
+    const href = (e.target as HTMLElement)
+      .closest('a')
+      ?.getAttribute('href')
+    if (href && href.startsWith('/w/')) {
+      e.preventDefault()
+      navigate(href)
+    }
+  }
+
+  return (
+    <div className="relative" onClickCapture={onClickCapture}>
+      {!synced && (
+        <div className="pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
+          {t('editor.connecting')}
+        </div>
+      )}
+      {/* slashMenu={false}: turn off the default slash menu and replace it with SlashMenu (default
+          items + callout). Avoids a duplicate "/" controller — the rest of the default UI
+          (toolbar, side menu, …) stays as is. */}
+      <BlockNoteView
+        editor={editor}
+        theme={resolved}
+        slashMenu={false}
+        editable={!readOnly}
+      >
+        <SlashMenu editor={editor} />
+        <WikilinkMenu editor={editor} wsId={wsId} />
+        <MentionMenu editor={editor} wsId={wsId} />
+        <QueryBlockPortals editor={editor} wsId={wsId} />
+      </BlockNoteView>
+    </div>
+  )
+}

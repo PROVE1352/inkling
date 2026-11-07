@@ -171,3 +171,19 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0923](0923-templater-compatibility-no-code.md) | Obsidian Templater compatibility: a rewrite of three tags, no code execution | Accepted |
 | [0924](0924-template-file-format.md) | Template files: Markdown with flat frontmatter, zip with a manifest for structures | Accepted |
 | [0925](0925-template-gallery-visibility-mcp.md) | Template gallery, visibility rules and MCP tools | Accepted |
+
+## 0926–0939 MCP for agents
+
+| ADR | Title | Status |
+|---|---|---|
+| [0926](0926-section-index-and-stable-anchors.md) | Section index (`page_chunks`) with heading-path anchors | Accepted |
+| [0927](0927-find-context-ranking-and-budget-packing.md) | find_context: index probes, coverage ranking, top-k heap and fractional-knapsack packing | Accepted |
+| [0928](0928-partial-and-batch-reads-compact-output.md) | Partial reads (outline/section), batch reads, compact list/search output | Accepted |
+| [0929](0929-agent-facing-instructions-errors-and-repo-guides.md) | Agent-facing text: server instructions, tool descriptions, errors, AGENTS.md and llms.txt | Accepted |
+| [0930](0930-patch-section-yjs-splice-with-base-version.md) | patch_section: splice one section in the live Yjs document, guarded by a section version | Accepted |
+| [0932](0932-change-feed-cursor.md) | Change feed for agents: cursor, merge window, permissions, retention | Accepted |
+| [0933](0933-change-feed-diff-algorithm.md) | Change feed diff: Myers line diff with sentence units and hard caps | Accepted |
+| [0934](0934-collection-query-tools-for-agents.md) | Collection query and row-update tools for agents | Accepted |
+| [0935](0935-oauth-read-write-scopes.md) | Read-only MCP tokens: OAuth `read` / `write` scopes | Accepted |
+| [0936](0936-via-agent-provenance.md) | "via agent" provenance for MCP writes | Accepted |
+| [0937](0937-prompt-cache-friendly-deterministic-tool-output.md) | Prompt-cache-friendly, deterministic MCP output | Accepted |

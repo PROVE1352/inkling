@@ -115,6 +115,11 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * Days the change feed (changes_since, docs/adr/0932-*) keeps its log. Older rows are deleted by
+   * housekeeping; an agent whose cursor is older gets resync_required. Default 30.
+   */
+  changeFeedRetentionDays: posNum(process.env.CHANGE_FEED_RETENTION_DAYS, 30),
   /** Brute-force protection policy (guard.ts) */
   authGuard: {
     windowMinutes: posNum(process.env.AUTH_GUARD_WINDOW_MINUTES, 15),

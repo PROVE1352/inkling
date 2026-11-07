@@ -275,15 +275,56 @@ allows it on the browser consent screen, notes are read and written **with that 
 
 ## Tools
 
-`list_workspaces`, `list_pages(workspaceId, parentId?|'root')`, `search(query, workspaceId?)`, `read_page(pageId)`,
-`create_page(workspaceId, title, markdown, parentId?, private?)`, `update_page(pageId, markdown, mode: append|replace)`,
-`rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block).
+Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?, section?, maxChars?)`, `read_pages(pageIds[], budget?)`,
+`list_workspaces`, `list_pages(workspaceId, parentId?|'root', depth?, format?)`, `search(query, workspaceId?, format?)`,
+`changes_since(cursor?, workspaceId?, budget?, detail?)`, `query_rows(collectionId, filter?, sort?, fields?, limit?, cursor?, describe?)`, `list_templates`.
+Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
+`create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
+`rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
+`list_pages` and `search` keep their legacy JSON unless `format: "lines"` (docs/adr/0928-*).
+
+- `/.well-known/oauth-*`: `scopes_supported` is `["read","write"]` (`notes` still accepted as full access).
+- `GET /api/oauth/authorize/info?…&scope=`: adds `requestedAccess: "read" | "write"`.
+- `POST /api/oauth/authorize`: optional `access: "read" | "write"` (never wider than the requested scope; absent = as requested).
+- `GET /api/oauth/grants`: each grant adds `access: "read" | "write"`.
+- Bearer (MCP) tokens with scope `read` get 403 on every non-GET/HEAD route unless the route sets `config.bearerReadOnlyOk` (docs/adr/0935-*).
 
 ## Body edit route (for MCP, but also callable with a cookie)
 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/api/pages/:id/content` | `{ markdown, mode: 'replace'|'append' }` | `{ ok: true }`. Doc pages only (otherwise 400). The same `markdownToBlocks` as import → injected through the same DirectConnection as snapshot restore (applied live; the store hook updates the indexes). append replaces the whole document with the existing blocks (ids kept → comment anchors preserved) followed by the new blocks; replace preserves the previous state as a "Before AI edit" snapshot. 30/min |
+
+## Agent retrieval and section editing (docs/adr/0926–0930)
+
+Session cookie or MCP bearer (internal inject). Token numbers are estimates (ADR 0926).
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/context` | `q` (1–300 chars), `workspaceId?` (else every live workspace I belong to), `budget?` (≤ 12,000, default 3,500) | `{ fragments: [{pageId, workspaceId, title, anchor, headingPath, sections: [{anchor, headingPath, version}], ords, text, tokens, score, truncated}], more: [{pageId, title, anchor, headingPath, tokens}], titleOnly: [{pageId, title, kind}], budget, usedTokens, candidates }`. Only live, visible pages of live workspaces |
+| GET | `/api/pages/:id/outline` | – | `{ page: {id, title, kind, workspaceId, updatedAt}, sections: [{anchor, headingPath, level, tokens, version}], tokens }` (non-doc pages: empty `sections`) |
+| GET | `/api/pages/:id/section` | `ref` (anchor, heading text, heading path or heading block id), `maxChars?` | `{ page, section: {anchor, headingPath, level, version}, markdown, truncated, totalChars }`; unknown ref → 404 `SECTION_NOT_FOUND` listing valid anchors |
+| GET | `/api/pages/read` | `ids` (comma-separated, ≤ 20), `budget?` (≤ 30,000, default 8,000) | `{ pages: [{id, title, workspaceId, kind, updatedAt, markdown, tokens, truncated}], omitted: [{id, title, reason}], missing: [id], budget, usedTokens }`; invisible ids are only listed in `missing` |
+| POST | `/api/pages/:id/section` | `{ ref, markdown, mode: replace\|append\|prepend\|insert_after\|delete, baseVersion? }` | `{ ok, section: {anchor, headingPath, version} \| null, sections }`. Doc pages only. Version mismatch → 409 `SECTION_CONFLICT` with `error.current {anchor, headingPath, version, markdown}`, nothing written. replace/delete take a "Before AI edit" snapshot (≤ 1 per page per 2 min). 30/min |
+
+## Collection queries for agents (docs/adr/0934-*)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/pages/:id/collection/query` | Rows of a collection filtered/sorted/paged in SQL. Query: `filter` (compact syntax, see ADR 0934), `sort` ("Due desc, Title"), `fields` (JSON array or comma list, `*` = all), `limit` (1–200, default 25), `cursor` (opaque `nextCursor`), `describe=1` (schema only, adds `definitions`). Returns `{collection, workspaceId, fields, columns, rows: [{id, version, cells}], nextCursor}`. 400 `INVALID_QUERY` / `QUERY_TIMEOUT`. |
+| GET | `/api/pages/:id/row` | One collection row: `{collection, workspaceId, fields (definitions), columns, row: {id, title, version, cells}}`. 400 `NOT_A_ROW` for a page that is not a collection row. |
+| PATCH | `/api/pages/:id/props` | (addition) optional `baseVersion` (row version from the two routes above). Mismatch → 409 `ROW_VERSION_CONFLICT` with `currentVersion`, nothing written. When `baseVersion` is sent the response also has `version`. |
+
+## Provenance (docs/adr/0936-*)
+
+- `GET /api/pages/:id/snapshots`: each snapshot adds `author: {id, name} | null` and `viaClient: string | null`.
+- Comment DTOs add `viaClient: string | null` (OAuth client name when written through MCP).
+
+## Change feed (docs/adr/0932-*, 0933-*)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/changes?cursor&workspaceId&budget&detail` | Changes since a cursor (net per-section diffs within a token budget; `detail` = `none` \| `diff` (default) \| `full`). No cursor → current cursor. Returns `{ status: 'start'\|'ok'\|'resync_required', cursor, text, changes, detailed, listedOnly, rows, more }`. 400 `INVALID_CURSOR` / `CURSOR_WORKSPACE`; `workspaceId` → membership required. Only pages visible at change time are reported; pages no longer visible appear as `removed (no longer visible)` without content. Rows are kept `CHANGE_FEED_RETENTION_DAYS` (default 30) |
 
 # Public folder sharing (2026-09-23)
 

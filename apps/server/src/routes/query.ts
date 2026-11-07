@@ -73,7 +73,8 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
     '/workspaces/:id/query',
     {
       preHandler: requireUser,
-      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+      // Evaluates a query, never writes: read-only MCP tokens may call it (docs/adr/0935-*).
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' }, bearerReadOnlyOk: true },
     },
     async (req) => {
       const user = getUser(req)

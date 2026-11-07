@@ -11,7 +11,9 @@ import { idParam } from '../helpers'
 import {
   ACCESS_TOKEN_TTL_MS,
   AUTH_CODE_TTL_MS,
+  canWriteFromScopes,
   findClient,
+  grantedScope,
   isAllowedRedirectUri,
   mcpResourceUrl,
   newOpaqueToken,
@@ -19,7 +21,9 @@ import {
   publicOrigin,
   REFRESH_TOKEN_TTL_MS,
   redirectUriMatches,
+  requestedAccess,
   sha256,
+  SUPPORTED_SCOPES,
   verifyPkce,
 } from '../oauth'
 
@@ -113,7 +117,7 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
     resource: mcpResourceUrl(req),
     authorization_servers: [publicOrigin(req)],
     bearer_methods_supported: ['header'],
-    scopes_supported: [OAUTH_SCOPE],
+    scopes_supported: [...SUPPORTED_SCOPES],
     resource_name: 'Inkling',
   })
   app.get('/.well-known/oauth-protected-resource', protectedResource)
@@ -130,7 +134,7 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: [OAUTH_SCOPE],
+      scopes_supported: [...SUPPORTED_SCOPES],
     }
   })
 
@@ -310,6 +314,11 @@ const authorizeQuerySchema = z.object({
   redirect_uri: z.string().min(1).max(2000),
 })
 
+/** The info query may also carry the request's scope so the consent screen can preselect access. */
+const authorizeInfoQuerySchema = authorizeQuerySchema.extend({
+  scope: z.string().max(500).optional(),
+})
+
 const authorizeBodySchema = authorizeQuerySchema.extend({
   response_type: z.string().max(50).optional(),
   code_challenge: z.string().max(200).optional(),
@@ -318,6 +327,11 @@ const authorizeBodySchema = authorizeQuerySchema.extend({
   scope: z.string().max(500).optional(),
   resource: z.string().max(2000).optional(),
   decision: z.enum(['allow', 'deny']),
+  /**
+   * The user's consent choice (docs/adr/0935-*). Never widens the request: a client that asked
+   * only for 'read' gets 'read'. Absent (an older SPA build) = what the client requested.
+   */
+  access: z.enum(['read', 'write']).optional(),
 })
 
 /** Validates client_id + redirect_uri — on failure answer 400 instead of redirecting (no open redirect) */
@@ -333,9 +347,14 @@ async function validateClientRedirect(clientId: string, redirectUri: string) {
 export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void> {
   // app name / redirect host for the consent screen
   app.get('/oauth/authorize/info', { preHandler: requireCookieUser }, async (req) => {
-    const q = authorizeQuerySchema.parse(req.query)
+    const q = authorizeInfoQuerySchema.parse(req.query)
     const client = await validateClientRedirect(q.client_id, q.redirect_uri)
-    return { client: { id: client.id, name: client.name }, redirectHost: new URL(q.redirect_uri).host }
+    return {
+      client: { id: client.id, name: client.name },
+      redirectHost: new URL(q.redirect_uri).host,
+      // 'read' = the client asked only for read access → the consent screen offers read-only only
+      requestedAccess: requestedAccess(q.scope),
+    }
   })
 
   // allow/deny → returns the URL back to the client's redirect_uri (the SPA navigates)
@@ -379,7 +398,7 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
         userId: user.id,
         redirectUri: b.redirect_uri,
         codeChallenge: b.code_challenge,
-        scope: OAUTH_SCOPE,
+        scope: grantedScope(b.scope, b.access),
         resource: b.resource ?? null,
         expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
       })
@@ -394,6 +413,7 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       .select({
         id: oauthGrants.id,
         clientName: oauthClients.name,
+        scope: oauthGrants.scope,
         createdAt: oauthGrants.createdAt,
         lastUsedAt: oauthGrants.lastUsedAt,
       })
@@ -405,6 +425,8 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       grants: rows.map((r) => ({
         id: r.id,
         clientName: r.clientName,
+        // additive: legacy (null/'notes') grants report full access
+        access: canWriteFromScopes(r.scope ?? '') ? ('write' as const) : ('read' as const),
         createdAt: r.createdAt.toISOString(),
         lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
       })),

@@ -8,6 +8,7 @@ import { purgeExpiredOAuth } from './oauth'
 import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
+import { purgeOldChanges } from './context/changeLog'
 
 /**
  * Cleanup of tables that grow forever, piggybacking on the reminder scheduler's hourly tick.
@@ -16,6 +17,7 @@ import { purgeExpiredWorkspaces } from './workspaceDeletion'
  *   - Trash: pages in the trash for more than 30 days are permanently deleted.
  *     Same order as manual permanent deletion (routes/pages.ts purge): collect attachment ids -> delete pages -> file rows + blobs.
  *   - Workspaces soft-deleted more than 30 days ago are permanently deleted (docs/adr/0910-*).
+ *   - Change feed rows older than CHANGE_FEED_RETENTION_DAYS (docs/adr/0932-*), in bounded batches.
  * Exceptions are isolated and only logged (they never break the scheduler).
  */
 const READ_NOTIFICATION_TTL_MS = 90 * 24 * 60 * 60 * 1_000
@@ -82,9 +84,11 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     const o = await purgeExpiredOAuth(now)
     // Expired password reset codes and email verification tokens
     const a = await purgeExpiredAccountTokens(now)
-    if (s.length || n.length || t || w || o || a) {
+    // Change feed log retention (an older cursor gets resync_required)
+    const c = await purgeOldChanges(now, env.changeFeedRetentionDays)
+    if (s.length || n.length || t || w || o || a || c) {
       log(
-        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages older than 30 days, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items, ${a} expired reset/verification tokens`,
+        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages older than 30 days, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days`,
       )
     }
   } catch (err) {

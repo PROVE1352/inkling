@@ -597,7 +597,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         .leftJoin(pageTexts, eq(pageTexts.pageId, pages.id))
         .where(and(eq(pages.workspaceId, id), isNull(pages.deletedAt), visibleTo(user.id), matchIds))
         // title matches (true) first → updatedAt desc within each group
-        .orderBy(desc(titleMatchExpr), desc(pages.updatedAt))
+        // id last: deterministic ties (docs/adr/0937-*)
+        .orderBy(desc(titleMatchExpr), desc(pages.updatedAt), asc(pages.id))
         .limit(20),
     )
 

@@ -39,6 +39,9 @@ import { closeConnectionsLosingPrivateAccess } from '../liveConnections'
 import { precheckEtag } from '../httpCache'
 import { workspaceVersion } from '../versions'
 import { emitWebhookEvent } from '../webhooks'
+import { actorOf } from '../context/attribution'
+import { logPageEvents } from '../context/changeLog'
+import type { PageEvent } from '../context/changeLog'
 
 const shortId = (): string => randomUUID().slice(0, 8)
 
@@ -181,7 +184,7 @@ function uuidArray(ids: string[]): string {
   return `{${ids.join(',')}}`
 }
 
-type CopyTable = 'page_docs' | 'page_texts' | 'page_tags'
+type CopyTable = 'page_docs' | 'page_texts' | 'page_tags' | 'page_chunks'
 
 /**
  * Copies per-page rows of `tables` from old ids to new ids entirely inside Postgres
@@ -203,6 +206,15 @@ async function copySubtreeRows(
     } else if (t === 'page_texts') {
       await tx.execute(sql`INSERT INTO page_texts (page_id, text)
         SELECT m.new_id, x.text FROM ${m} JOIN page_texts x ON x.page_id = m.old_id`)
+    } else if (t === 'page_chunks') {
+      // Section index (docs/adr/0926-*): rows + marker copied server-side; anchors/hashes are content-derived.
+      await tx.execute(sql`INSERT INTO page_chunks (page_id, ord, workspace_id, anchor, block_id, heading_path,
+          level, part, text, grams, token_estimate, hash, section_hash)
+        SELECT m.new_id, c.ord, p.workspace_id, c.anchor, c.block_id, c.heading_path, c.level, c.part, c.text,
+          c.grams, c.token_estimate, c.hash, c.section_hash
+        FROM ${m} JOIN page_chunks c ON c.page_id = m.old_id JOIN pages p ON p.id = m.new_id`)
+      await tx.execute(sql`INSERT INTO page_chunk_index (page_id, version)
+        SELECT m.new_id, x.version FROM ${m} JOIN page_chunk_index x ON x.page_id = m.old_id`)
     } else {
       await tx.execute(sql`INSERT INTO page_tags (page_id, tag)
         SELECT m.new_id, g.tag FROM ${m} JOIN page_tags g ON g.page_id = m.old_id
@@ -230,7 +242,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           visibleTo(user.id),
         ),
       )
-      .orderBy(asc(pages.sortOrder), asc(pages.createdAt))
+      // id last: a total order, so the same tree always serialises the same way (docs/adr/0937-*)
+      .orderBy(asc(pages.sortOrder), asc(pages.createdAt), asc(pages.id))
 
     return { pages: rows.map(toPageDTO) }
   })
@@ -327,7 +340,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       body.fullWidth === true || (body.dateProperty !== undefined && body.dateProperty.value !== null) || body.done === true
     const names = NAMES[addsProperty ? await requestLocale(req, user.id) : 'en']
 
-    const { row, privatized } = await db.transaction(async (tx) => {
+    const { row, privatized, scopeChanged, prev } = await db.transaction(async (tx) => {
       if (treeChange) await lockTree(tx, visible.workspaceId)
       const [page] = await tx
         .select({ ...pageColumns, properties: pages.properties })
@@ -435,6 +448,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
       // ── Apply the scope change: page + all descendants in one recursive CTE ──
       let privatized: string[] = []
+      let scopeChanged: string[] = []
       if (scopeChanging) {
         if (finalScope === 'private') {
           // shared → private: the whole subtree must be mine (or ownerless) so others' pages cannot be made private.
@@ -466,6 +480,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           RETURNING id
         `)) as unknown as { id: string }[]
         if (finalScope === 'private') privatized = changed.map((r) => r.id)
+        scopeChanged = changed.map((r) => r.id)
       }
 
       const [row] = await tx
@@ -473,11 +488,19 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .set(updates)
         .where(eq(pages.id, id))
         .returning(pageColumns)
-      return { row, privatized }
+      return { row, privatized, scopeChanged, prev: page }
     })
 
     // Live collab sockets of members who just lost sight of the subtree (docs/adr/0754-*).
     if (privatized.length) await closeConnectionsLosingPrivateAccess(privatized)
+    // Change feed (docs/adr/0932-*): page-level events, after the commit, best effort.
+    const events: PageEvent[] = []
+    if (row.title !== prev.title) events.push({ pageId: id, kind: 'page_renamed', before: prev.title, after: row.title })
+    if (row.parentId !== prev.parentId) {
+      events.push({ pageId: id, kind: 'page_moved', before: prev.parentId ?? '', after: row.parentId ?? '' })
+    }
+    for (const pid of scopeChanged) events.push({ pageId: pid, kind: 'page_visibility', before: prev.scope, after: row.scope })
+    if (events.length) await logPageEvents(events, actorOf(user))
     return { page: toPageDTO(row) }
   })
 
@@ -490,14 +513,16 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
 
-    await withTreeLock(page.workspaceId, (tx) =>
+    const trashed = (await withTreeLock(page.workspaceId, (tx) =>
       tx.execute(sql`
         ${descendantsCte(id)}
         UPDATE pages
         SET deleted_at = now()
         WHERE id IN (SELECT id FROM descendants) AND deleted_at IS NULL
+        RETURNING id
       `),
-    )
+    )) as unknown as { id: string }[]
+    await logPageEvents(trashed.map((r) => ({ pageId: r.id, kind: 'page_trashed' as const })), actorOf(user))
 
     return reply.code(204).send()
   })
@@ -727,6 +752,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (!target) throw notFound()
     await requireMembership(target.workspaceId, user.id)
 
+    let restored: { id: string }[] = []
     const row = await withTreeLock(target.workspaceId, async (tx) => {
       const [cur] = await tx
         .select({ parentId: pages.parentId, deletedAt: pages.deletedAt })
@@ -736,13 +762,13 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (!cur) throw notFound()
       if (!cur.deletedAt) throw badRequest('This page is not deleted')
 
-      await tx.execute(sql`
+      restored = (await tx.execute(sql`
         ${descendantsCte(id, { onlyDeleted: true })}
         UPDATE pages
         SET deleted_at = NULL
         WHERE id IN (SELECT id FROM descendants) AND deleted_at IS NOT NULL
         RETURNING id
-      `)
+      `)) as unknown as { id: string }[]
 
       // Promote to the root when the parent is gone or still deleted
       if (cur.parentId) {
@@ -758,6 +784,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       const [r] = await tx.select(pageColumns).from(pages).where(eq(pages.id, id)).limit(1)
       return r
     })
+    await logPageEvents(restored.map((r) => ({ pageId: r.id, kind: 'page_restored' as const })), actorOf(user))
     return { page: toPageDTO(row) }
   })
 
@@ -892,7 +919,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // 2) page_docs.state + 3) page_texts — copied inside Postgres (INSERT … SELECT over
       //    an old→new id map), so Yjs states / search text of the whole subtree never pass
       //    through Node memory (docs/adr/0751-*).
-      await copySubtreeRows(tx, idMap, ['page_docs', 'page_texts'])
+      await copySubtreeRows(tx, idMap, ['page_docs', 'page_texts', 'page_chunks'])
 
       // 4) copy collections (fields)
       const cols = await tx
@@ -935,6 +962,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     // After commit: task index of the copied docs (best-effort, does not block the response)
     void reindexPageTasksForPages([...idMap.values()])
+    await logPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user))
 
     return { pages: result }
   })

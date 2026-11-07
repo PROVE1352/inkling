@@ -23,6 +23,7 @@ import type { AnyBlock } from '../md/convert'
 import { reindexPageLinks } from '../md/linkIndex'
 import { reindexPageTags } from '../md/tagIndex'
 import { reindexPageTasks } from '../md/taskIndex'
+import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from '../md/textIndex'
 import { pageColumns, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
@@ -744,6 +745,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
     try {
       const blocks = stateToBlocks(p.state)
       await reindexPageText(p.id, blocks)
+      await reindexPageChunks(p.id, blocks)
       await reindexPageTags(p.id, blocks)
       await reindexPageTasks(p.id, blocks)
       await reindexPageLinks(p.id, blocks)

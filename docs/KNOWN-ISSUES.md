@@ -34,6 +34,9 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 
 - **Low** (fix phase, docs/adr/0814-*) The SPA CSP allows `img-src`/`media-src` `https:`, `data:` and `blob:` only; plain `http:` images and media embedded in documents no longer load. `style-src` keeps `'unsafe-inline'` (BlockNote/Mantine inline styles).
 
+- **Low** (AGENT-S1, docs/adr/0936-*) OAuth client names are self-asserted at dynamic registration; "(via X)" is sanitized (control/bidi characters stripped, 60 characters) but X can imitate another product's name.
+- **Low** (AGENT-S2, docs/adr/0935-*) A refresh request cannot narrow a grant's scope; to downgrade to read-only, disconnect and connect again.
+
 <!-- fix-web / tests-ci: append Security items above this line -->
 
 ## Concurrency
@@ -61,6 +64,11 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 
 - **Low** (fix phase, docs/adr/0815-*) Ink 412 merge: the undo history is not rebased onto the merged stroke list, and a stroke another device added after our base cannot be erased until it has been merged in. The client merge path is covered by the server test and code review only, not by a two-device browser run.
 
+- **Low** (AGENT-C1, docs/adr/0930-*) `patch_section` replaces the blocks of one section: characters a person types *inside that section* between the agent's read and its write are lost unless their edit reached the server first (then the stale `baseVersion` is a conflict). Edits in other sections always merge.
+- **Low** (AGENT-C2, docs/adr/0934-*) `create_row` with relation values is two writes (insert, then links); if the second fails the row exists without links (the error says so).
+
+- **Medium** (CF-1, docs/adr/0932-*) Change-feed ordering and merge safety rely on an in-process write chain and high-water mark: single server instance only; a second process writing `page_changes` would need a database lock.
+
 <!-- fix-web / tests-ci: append Concurrency items above this line -->
 
 ## Operations
@@ -81,6 +89,8 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Info** (TODO #9) When upgrading an existing deployment, its environment (`DELEGATED_AUTH_URL`, `DELEGATED_AUTH_NAME`, `DELEGATED_EMAIL_DOMAIN`, `SIGNUP_REQUIRE_KEY=1`, and any existing `TZ` / `DEFAULT_LOCALE`) must be applied together before the first boot of the new version; changing `DELEGATED_EMAIL_DOMAIN` later splits delegated accounts.
 
 - **Low** (fix phase, docs/adr/0813-*) The admin confirm dialog does not yet call `GET /api/admin/users/:id/delete-preview`, so it cannot say how many personal workspaces will be deleted (web follow-up). Attachment links copied from a deleted personal workspace into other workspaces break.
+
+- **Low** (AGENT-O1, docs/adr/0926-*) After upgrading, existing pages are invisible to `find_context` until the boot backfill reaches them (50 pages per batch, at most 50,000 per boot; the rest continue next boot or on their next edit). `search` is unaffected.
 
 <!-- fix-web / tests-ci: append Operations items above this line -->
 
@@ -103,6 +113,12 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** (TODO, performance) Service worker `navigateFallbackDenylist` may not include newer server paths (`/ical`, `/s`, `/mcp`, `/oauth`); verify.
 - **Info** (P, memory audit) A real Safari soak test (one hour of typing with five embeds) is still pending after deployment.
 
+- **Low** (AGENT-P1, docs/adr/0927-*) `find_context` ranks at most 300 candidate chunks chosen by a coarse SQL score; a query made only of very common words is ranked on that coarse score before the cut. Measured p50 49 ms / p95 67 ms on a 15k-chunk workspace.
+- **Low** (AGENT-P2, docs/adr/0926-*) Section text is stored twice (`page_texts` and `page_chunks`, plus a stored tsvector), each capped at 200 KB per page.
+- **Low** (AGENT-P3, docs/adr/0934-*) Collection filters scan the collection's rows (no per-field indexes); very large collections with custom sorts can hit the 3 s timeout (400 `QUERY_TIMEOUT`). `query_rows` with all columns on a large collection costs more tokens than `read_page` (row id + version on every line).
+
+- **Low** (CF-5) Each `changes_since` call may hash up to 2,000 rows × 2 × 16 KB of text; worst case tens of MB per call.
+
 <!-- fix-web / tests-ci: append Performance items above this line -->
 
 ## Editor
@@ -117,6 +133,17 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Info** (TODO, embeds) Paste-to-embed conversion and the toolbar's "Link" action are verified in Chromium and WebKit (Playwright). The Embed / Card toggle, the embed slash entry and the webhooks modal have not been verified in a real browser yet.
 
 - **Low** (fix-web measurement) In Chromium, caret-moving keys pressed back to back with no delay are partly dropped. Measured with Playwright: ArrowLeft x3 at 0 ms moved the caret once (5/5 runs), and a click followed at once by Cmd+→ was ignored. At a 30 ms gap (key-repeat speed) 0/10 runs dropped, and WebKit dropped none at 0 ms. No text is lost (the caret lands elsewhere), and humans do not reach this speed. Not investigated further.
+
+- **Low** (AGENT-E1, docs/adr/0926-*) `find_context` is lexical: no synonyms, and a question in one language does not find a page written only in the other. The section index trails live typing by up to 30 s (server edits are indexed immediately).
+- **Low** (AGENT-E2, docs/adr/0926-*) Renaming a heading changes its section anchor; agents holding the old anchor get `SECTION_NOT_FOUND` with the list of current anchors.
+- **Low** (AGENT-E3, docs/adr/0930-*) Inside the range it rewrites, `patch_section` converts Markdown with the server schema, so callouts, page embeds and mentions in that section are lost; blocks outside the section are untouched.
+- **Low** (AGENT-E4, docs/adr/0934-*) `today` in collection filters and writes is the server's UTC date; relation values given as one comma-separated string are split on commas (pass an array for titles with commas).
+- **Info** (AGENT-E5, docs/adr/0936-*) Pages created through MCP (`create_page`, `import_folder`, `create_from_template`) carry no `via` label; their later edits do.
+
+- **Low** (CF-2) Live typing is not attributed per change, so feed rows from the editor show no "by"; only REST/MCP writes carry actor and via.
+- **Low** (CF-3) A section renamed and rewritten in the same edit, in a document without heading block ids (e.g. Markdown import), shows as removed + added rather than renamed.
+- **Low** (CF-4) A page created but never written is never indexed, so it gets no `page_added` until it has content; pages edited before the upgrade backfill reaches them log `page_added` with their full text.
+- **Low** (CF-6) After a page goes from private to shared, other members see one `visibility: private → shared` line, not the edits made while it was private; agents must read the page.
 
 <!-- fix-web / tests-ci: append Editor items above this line -->
 

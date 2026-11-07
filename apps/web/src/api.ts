@@ -1757,10 +1757,14 @@ export function useSaveInk(pageId: string) {
 export interface OAuthClientInfo {
   client: { id: string; name: string }
   redirectHost: string
+  /** 'read' = the client asked only for read access (docs/adr/0935-*) */
+  requestedAccess?: 'read' | 'write'
 }
 export interface OAuthGrantDTO {
   id: string
   clientName: string
+  /** 'read' = read-only connection; absent on older servers (= full access) */
+  access?: 'read' | 'write'
   createdAt: string
   lastUsedAt: string | null
 }
@@ -1775,15 +1779,18 @@ export interface OAuthAuthorizeInput {
   scope?: string
   resource?: string
   decision: 'allow' | 'deny'
+  /** The user's consent choice; the server never grants more than the client requested */
+  access?: 'read' | 'write'
 }
 
 // App name for the consent screen — includes upfront client_id/redirect_uri validation (400 on failure).
-export function useOAuthClientInfo(clientId: string, redirectUri: string, enabled: boolean) {
+export function useOAuthClientInfo(clientId: string, redirectUri: string, enabled: boolean, scope = '') {
   return useQuery({
-    queryKey: ['oauth', 'info', clientId, redirectUri] as const,
+    queryKey: ['oauth', 'info', clientId, redirectUri, scope] as const,
     queryFn: () =>
       api<OAuthClientInfo>(
-        `/api/oauth/authorize/info?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+        `/api/oauth/authorize/info?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}` +
+          (scope ? `&scope=${encodeURIComponent(scope)}` : ''),
       ),
     enabled: enabled && !!clientId && !!redirectUri,
     retry: false,

@@ -1,0 +1,29 @@
+# Inkling
+
+> Self-hosted notes app: Notion-style databases, Obsidian-style links, graph and JSON Canvas, real-time collaboration (Yjs) and a built-in MCP server for AI agents. MIT licensed. Server: Fastify + Postgres 16; web: React + BlockNote.
+
+Start with the README for features and installation. For AI agents using a running instance, read docs/MCP.md; for agents changing this code, read AGENTS.md.
+
+## Use and operate
+- [README](README.md): features, quick start with Docker Compose
+- [MCP connector and agent guide](docs/MCP.md): connecting Claude, tools, find_context → outline → section, change feed, read-only access
+- [Deployment](deploy/DEPLOY.md): production setup with Caddy
+- [Operations](docs/OPERATIONS.md): deployment checklist, performance, caches, database tuning
+- [Backups](docs/BACKUP.md): backup sidecar, retention, encryption, restore
+- [Templates](docs/TEMPLATES.md): page and structure templates
+- [Query blocks](docs/QUERY.md): Dataview-style query language
+- [Vault sync](docs/VAULT-SYNC.md): two-way Obsidian vault sync (experimental)
+- [Plugins](docs/PLUGINS.md): plugin API v0 (experimental)
+- [Security policy](SECURITY.md): supported versions and how to report vulnerabilities
+
+## Develop
+- [AGENTS.md](AGENTS.md): repository rules for coding agents
+- [Contributing](CONTRIBUTING.md): setup, tests, commits, ADRs, dependency policy, editor pins
+- [API contract](docs/API.md): every REST route, the source of truth for server and web
+- [Architecture](docs/ARCHITECTURE.md): CRDT collaboration, Markdown round trip, deployment
+- [Architecture decision records](docs/adr/README.md): numbered decisions by area
+- [Known issues](docs/KNOWN-ISSUES.md): accepted, triaged issues
+
+## Optional
+- [Roadmap](docs/ROADMAP.md)
+- [README (Korean)](README.ko.md)

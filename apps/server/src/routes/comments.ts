@@ -38,6 +38,7 @@ type CommentJoinRow = {
   resolved: '0' | '1'
   createdAt: Date
   authorName: string | null
+  viaClient: string | null
 }
 
 function toCommentDTO(r: CommentJoinRow, deletedAuthor: string): CommentDTO {
@@ -50,6 +51,7 @@ function toCommentDTO(r: CommentJoinRow, deletedAuthor: string): CommentDTO {
     body: r.body,
     resolved: r.resolved === '1',
     createdAt: r.createdAt.toISOString(),
+    viaClient: r.viaClient,
   }
 }
 
@@ -64,6 +66,7 @@ const commentJoinColumns = {
   resolved: comments.resolved,
   createdAt: comments.createdAt,
   authorName: users.name,
+  viaClient: comments.viaClient,
 } as const
 
 export async function registerCommentRoutes(app: FastifyInstance): Promise<void> {
@@ -141,6 +144,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         threadId,
         authorId: user.id,
         body: body.body,
+        // MCP (bearer) posts carry the OAuth client name; browser sessions leave it null.
+        viaClient: user.via ?? null,
       })
 
       await generateCommentNotifications({
@@ -164,6 +169,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         body: body.body,
         resolved: false,
         createdAt: new Date().toISOString(),
+        viaClient: user.via ?? null,
       }
       return { comment: dto }
     },

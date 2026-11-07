@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { chunkBlocks } from './context/chunker'
+import { reindexPageChunks } from './context/chunkIndex'
 import { stateToBlocks } from './md/convert'
 import { extractInternalLinks } from './md/convert'
 import { reindexPageLinks } from './md/linkIndex'
@@ -10,7 +12,7 @@ import { blocksToPlainText, reindexPageText } from './md/textIndex'
  * Derived-index pipeline for live collaborative documents (docs/adr/0750-*).
  *
  * The Hocuspocus store hook persists the Yjs state every 2–10 s while someone types. Rebuilding
- * the four derived indexes (page_links, page_texts, page_tags, page_tasks) on every store meant a
+ * the derived indexes (page_links, page_texts, page_tags, page_tasks, page_chunks) on every store meant a
  * full Yjs→BlockNote conversion plus ~30 SQL statements per store. This module:
  *
  *  1. debounces indexing per page (trailing INDEX_DEBOUNCE_MS, at most INDEX_MAX_WAIT_MS behind),
@@ -45,6 +47,7 @@ interface Signature {
   text: string
   tags: string
   tasks: string
+  chunks: string
   at: number
 }
 
@@ -57,7 +60,7 @@ function digest(s: string): string {
 }
 
 /** Test/bench hook: counters of what the pipeline actually did. */
-export const docIndexStats = { runs: 0, conversions: 0, links: 0, text: 0, tags: 0, tasks: 0 }
+export const docIndexStats = { runs: 0, conversions: 0, links: 0, text: 0, tags: 0, tasks: 0, chunks: 0 }
 
 async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
   docIndexStats.runs++
@@ -69,11 +72,13 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
   const tagText = blocksToTagText(blocks)
   const tags = extractTags(tagText)
   const tasks = extractTasks(blocks)
+  const chunks = chunkBlocks(blocks)
   const next: Signature = {
     links: links.join(','),
     text: digest(text),
     tags: tags.join('\u0000'),
     tasks: digest(JSON.stringify(tasks)),
+    chunks: digest(chunks.map((c) => c.hash).join(',')),
     at: Date.now(),
   }
   const prev = signatures.get(pageId)
@@ -93,6 +98,11 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
   if (!fresh || fresh.tasks !== next.tasks) {
     docIndexStats.tasks++
     await reindexPageTasks(pageId, blocks)
+  }
+  if (!fresh || fresh.chunks !== next.chunks) {
+    // Section index for agent retrieval + change feed (docs/adr/0926-*, 0932-*); diffed per row inside.
+    docIndexStats.chunks++
+    await reindexPageChunks(pageId, blocks, { chunks })
   }
   // Keep the signature's age from the last full rewrite so the TTL really forces one.
   if (fresh) next.at = fresh.at

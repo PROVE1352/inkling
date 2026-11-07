@@ -107,6 +107,8 @@ export default {
   'connections.meta': 'Connected {connected} · Last used {lastUsed}',
   'connections.never': 'never',
   'connections.revoke': 'Disconnect',
+  'connections.readOnly': 'Read only',
+  'connections.readWrite': 'Read & write',
 
   // OAuth consent
   'oauth.title': 'Connect an app',
@@ -129,6 +131,13 @@ export default {
   'oauth.failed': 'Could not complete the request.',
   'oauth.deny': 'Deny',
   'oauth.allow': 'Allow',
+  'oauth.accessLabel': 'Access',
+  'oauth.accessWrite': 'Read and write',
+  'oauth.accessWriteHint': 'Read, search, create, edit and comment on pages.',
+  'oauth.accessRead': 'Read only',
+  'oauth.accessReadHint': 'Read and search only. The app cannot change anything.',
+  'oauth.accessReadRequested': 'This app asked for read-only access.',
+  'oauth.scopeReadOnly': 'Read and search pages in workspaces you are a member of.',
 
   // email verification banner
   'emailVerify.message': 'Your email is not verified yet. Open the verification link in your inbox.',

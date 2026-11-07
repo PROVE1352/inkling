@@ -27,18 +27,37 @@ export async function pruneSnapshots(pageId: string): Promise<void> {
 /**
  * Store one snapshot and prune the excess.
  * Used for explicit stores such as manual snapshots and pre-restore snapshots.
+ * `via` = the OAuth client name when an agent (MCP) edit caused the snapshot (docs/adr/0936-*).
  */
 export async function createSnapshot(
   pageId: string,
   state: Uint8Array,
   label: string | null,
   createdBy: string | null,
+  via: string | null = null,
 ): Promise<void> {
   await db
     .insert(pageSnapshots)
-    .values({ pageId, state: Buffer.from(state), label, createdBy })
+    .values({ pageId, state: Buffer.from(state), label, createdBy, viaClient: via })
   noteSnapshot(pageId, Date.now())
   await pruneSnapshots(pageId)
+}
+
+/**
+ * Whether the page already has an agent (via_client set) snapshot inside the auto-snapshot
+ * throttle window — the "AI edit" marker after an MCP append is skipped then, so an agent
+ * appending in a loop cannot churn the 50-snapshot cap (docs/adr/0936-*).
+ */
+export async function hasRecentAgentSnapshot(pageId: string): Promise<boolean> {
+  const throttleSec = Math.floor(AUTO_SNAPSHOT_THROTTLE_MS / 1000)
+  const rows = (await db.execute(sql`
+    SELECT 1 AS hit FROM page_snapshots
+     WHERE page_id = ${pageId}
+       AND via_client IS NOT NULL
+       AND created_at > now() - make_interval(secs => ${throttleSec})
+     LIMIT 1
+  `)) as unknown as { hit: number }[]
+  return rows.length > 0
 }
 
 // ---------------------------------------------------------------------------

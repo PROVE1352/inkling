@@ -18,9 +18,14 @@ export function OAuthAuthorize() {
   const me = useMe()
   const clientId = params.get('client_id') ?? ''
   const redirectUri = params.get('redirect_uri') ?? ''
-  const info = useOAuthClientInfo(clientId, redirectUri, !!me.data)
+  const info = useOAuthClientInfo(clientId, redirectUri, !!me.data, params.get('scope') ?? '')
   const authorize = useOAuthAuthorize()
   const [leaving, setLeaving] = useState<'allow' | 'deny' | null>(null)
+  // Access choice (docs/adr/0935-*): null = follow the request (read+write unless the client asked
+  // for read only). A read-only request cannot be widened here; the server enforces that too.
+  const [accessChoice, setAccessChoice] = useState<'read' | 'write' | null>(null)
+  const readOnlyRequested = info.data?.requestedAccess === 'read'
+  const access: 'read' | 'write' = readOnlyRequested ? 'read' : (accessChoice ?? 'write')
   // Loopback callbacks (CLIs such as Codex, Claude Code) show instructions instead of redirecting right
   // away — if the CLI runs on a remote server over SSH, nothing listens on the browser's 127.0.0.1 and
   // the redirect ends in "can't connect".
@@ -45,6 +50,7 @@ export function OAuthAuthorize() {
         scope: params.get('scope') ?? undefined,
         resource: params.get('resource') ?? undefined,
         decision,
+        access,
       },
       {
         onSuccess: ({ redirectTo }) => {
@@ -118,10 +124,39 @@ export function OAuthAuthorize() {
           <strong className="font-semibold">{name}</strong>
           {t('oauth.requestSuffix')}
         </p>
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1 text-xs font-medium text-ink">{t('oauth.accessLabel')}</legend>
+          {(['write', 'read'] as const).map((opt) => (
+            <label
+              key={opt}
+              className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${
+                access === opt ? 'border-accent' : 'border-line'
+              } ${opt === 'write' && readOnlyRequested ? 'cursor-not-allowed opacity-50' : ''}`}
+            >
+              <input
+                type="radio"
+                name="oauth-access"
+                className="mt-0.5"
+                checked={access === opt}
+                disabled={opt === 'write' && readOnlyRequested}
+                onChange={() => setAccessChoice(opt)}
+              />
+              <span className="flex flex-col">
+                <span className="font-medium text-ink">
+                  {opt === 'write' ? t('oauth.accessWrite') : t('oauth.accessRead')}
+                </span>
+                <span className="text-sub">
+                  {opt === 'write' ? t('oauth.accessWriteHint') : t('oauth.accessReadHint')}
+                </span>
+              </span>
+            </label>
+          ))}
+          {readOnlyRequested && <p className="text-xs text-sub">{t('oauth.accessReadRequested')}</p>}
+        </fieldset>
         <ul className="list-disc space-y-1 pl-5 text-xs text-sub">
-          <li>{t('oauth.scopeRead')}</li>
+          <li>{access === 'write' ? t('oauth.scopeRead') : t('oauth.scopeReadOnly')}</li>
           <li>{t('oauth.scopePrivate')}</li>
-          <li>{t('oauth.scopeTrash')}</li>
+          {access === 'write' && <li>{t('oauth.scopeTrash')}</li>}
           <li>{t('oauth.scopeRevoke')}</li>
         </ul>
         <p className="text-xs text-sub">

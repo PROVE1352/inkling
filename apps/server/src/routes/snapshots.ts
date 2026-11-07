@@ -6,7 +6,7 @@ import type { SnapshotDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { hocuspocus } from '../collab'
 import { db } from '../db/index'
-import { pageDocs, pageSnapshots } from '../db/schema'
+import { pageDocs, pageSnapshots, users } from '../db/schema'
 import { badRequest, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
@@ -71,8 +71,12 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
         label: pageSnapshots.label,
         createdAt: pageSnapshots.createdAt,
         bytes: sql<number>`octet_length(${pageSnapshots.state})::int`,
+        authorId: pageSnapshots.createdBy,
+        authorName: users.name,
+        viaClient: pageSnapshots.viaClient,
       })
       .from(pageSnapshots)
+      .leftJoin(users, eq(users.id, pageSnapshots.createdBy))
       .where(eq(pageSnapshots.pageId, id))
       .orderBy(desc(pageSnapshots.createdAt))
       .limit(50)
@@ -82,6 +86,8 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
       label: r.label,
       createdAt: r.createdAt.toISOString(),
       bytes: r.bytes,
+      author: r.authorId && r.authorName !== null ? { id: r.authorId, name: r.authorName } : null,
+      viaClient: r.viaClient,
     }))
     return { snapshots }
   })

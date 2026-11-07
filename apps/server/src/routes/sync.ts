@@ -30,6 +30,7 @@ import {
 } from '../md/syncMd'
 import { reindexPageTags } from '../md/tagIndex'
 import { reindexPageTasks } from '../md/taskIndex'
+import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from '../md/textIndex'
 import { findVisiblePage, visibleTo } from '../pageDto'
 
@@ -198,6 +199,7 @@ async function reindexAll(pageId: string, blocks: AnyBlock[]): Promise<void> {
   forgetDocIndex(pageId) // out-of-band rewrite: the live indexer must not trust its signatures
   await reindexPageLinks(pageId, blocks)
   await reindexPageText(pageId, blocks)
+  await reindexPageChunks(pageId, blocks)
   await reindexPageTags(pageId, blocks)
   await reindexPageTasks(pageId, blocks)
 }

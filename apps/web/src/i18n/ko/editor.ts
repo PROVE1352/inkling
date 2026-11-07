@@ -110,6 +110,8 @@ export default {
   'history.labelManual': '수동',
   'history.labelBeforeRestore': '복원 전',
   'history.labelBeforeAiEdit': 'AI 편집 전',
+  'history.labelAiEdit': 'AI 편집',
+  'history.byVia': '{name} ({client} 경유)',
   'history.snapshotFailed': '스냅샷 저장에 실패했습니다.',
   'history.restoreFailed': '복원에 실패했습니다.',
   'history.title': '버전 히스토리',
@@ -179,6 +181,7 @@ export default {
   // Comments
   'comments.badgeTitle_other': '코멘트 {count}개',
   'comments.editPlaceholder': '코멘트 수정…',
+  'comments.via': '({client} 경유)',
   'comments.delete': '코멘트 삭제',
   'comments.block': '블록',
   'comments.goToBlock': '블록으로 이동',

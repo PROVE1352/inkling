@@ -27,7 +27,10 @@ import { db, retryOnDeadlock } from '../db/index'
 import { ifNoneMatch } from '../httpCache'
 import { workspaceVersion } from '../versions'
 import { collectionViews, collections, pages } from '../db/schema'
-import { badRequest, notFound } from '../errors'
+import { AppError, badRequest, notFound } from '../errors'
+import { rowVersionSql } from '../collectionQuery/compile'
+import { actorOf, withEditActor } from '../context/attribution'
+import { z } from 'zod'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage, pageColumns, toRowDTO, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
@@ -35,6 +38,13 @@ import { registerCollectionExtRoutes } from './collectionsExt'
 import { nonMemberPersonIds } from '../collectionRelations'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Optional optimistic-concurrency check for PATCH /pages/:id/props (docs/adr/0934-*): the row
+ * version from GET /pages/:id/collection/query or GET /pages/:id/row. Parsed separately so the
+ * shared updatePropsSchema (and the web app, which never sends it) stays unchanged.
+ */
+const baseVersionSchema = z.object({ baseVersion: z.string().min(1).max(64).optional() })
 
 interface ViewRow {
   id: string
@@ -304,6 +314,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     await requireMembership(target.workspaceId, user.id)
 
     const body = updatePropsSchema.parse(req.body)
+    const { baseVersion } = baseVersionSchema.parse(req.body)
 
     // Parent collection fields: rollups are computed (never stored), relations are validated
     // and two-way relations mirror their diff onto the paired field.
@@ -321,12 +332,19 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const bad = await nonMemberPersonIds(target.workspaceId, parentFields, [body.props])
     if (bad.length) throw badRequest('Only members of this workspace can be assigned')
 
-    const { row, merged } = await retryOnDeadlock(() =>
+    // withEditActor: the edit is attributed to the user / MCP client (docs/adr/0934-*)
+    const { row, merged, version } = await withEditActor([id], actorOf(user), () =>
+      retryOnDeadlock(() =>
       db.transaction(async (tx) => {
         const [cur] = (await tx.execute(
-          sql`SELECT props FROM pages WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`,
-        )) as unknown as { props: Record<string, unknown> | null }[]
+          sql`SELECT props, ${rowVersionSql()} AS version FROM pages WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`,
+        )) as unknown as { props: Record<string, unknown> | null; version: string }[]
         if (!cur) throw notFound()
+        if (baseVersion !== undefined && cur.version !== baseVersion) {
+          throw new AppError(409, 'ROW_VERSION_CONFLICT', 'The row changed since you read it', undefined, {
+            currentVersion: cur.version,
+          })
+        }
         const oldProps = (cur.props ?? {}) as Record<string, unknown>
         const set: Record<string, unknown> = {}
         const del: string[] = []
@@ -352,9 +370,15 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
           RETURNING props
         `)) as unknown as { props: Record<string, unknown> }[]
         for (const p of pairSyncs) await syncPairedLinks(tx, p.field, id, p.oldIds, p.newIds)
-        const [r] = await tx.select(pageColumns).from(pages).where(eq(pages.id, id)).limit(1)
-        return { row: r, merged: (updated?.props ?? {}) as Record<string, unknown> }
+        // version read after the pair sync (a self-referencing two-way relation may touch this row)
+        const [r] = await tx
+          .select({ ...pageColumns, version: rowVersionSql() })
+          .from(pages)
+          .where(eq(pages.id, id))
+          .limit(1)
+        return { row: r, merged: (updated?.props ?? {}) as Record<string, unknown>, version: r?.version }
       }),
+      ),
     )
 
     // Relation cells return only visible links (hidden links stay stored but are never exposed in the response).
@@ -362,6 +386,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     if (target.parentId && parentFields.length) {
       await resolveRelations(target.workspaceId, parentFields, [dto], user.id)
     }
-    return { row: dto }
+    // `version` only for callers that use the version check (response unchanged for the web app)
+    return baseVersion !== undefined ? { row: dto, version } : { row: dto }
   })
 }

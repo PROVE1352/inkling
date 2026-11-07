@@ -15,6 +15,7 @@ import { startReminderScheduler } from './md/reminders'
 import { backfillPageTags } from './md/tagIndex'
 import { backfillPageTasks } from './md/taskIndex'
 import { backfillPageTexts } from './md/textIndex'
+import { backfillPageChunks } from './context/chunkIndex'
 import { env, mailEnabled } from './env'
 import { AppError } from './errors'
 import { registerApiCachePolicy, staticCacheControl } from './httpCache'
@@ -33,6 +34,8 @@ import { registerNotificationRoutes } from './routes/notifications'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
 import { registerPageContentRoutes } from './routes/pageContent'
+import { registerContextRoutes } from './routes/context'
+import { registerChangeRoutes } from './routes/changes'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
@@ -350,6 +353,10 @@ async function main(): Promise<void> {
       await registerWorkspaceRoutes(api)
       await registerPageRoutes(api)
       await registerPageContentRoutes(api)
+      // Agent retrieval: find_context, outline/section, batch read, section patch (docs/adr/0926-0930)
+      await registerContextRoutes(api)
+      // Change feed for agents: changes_since (docs/adr/0932-*)
+      await registerChangeRoutes(api)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerInkRoutes(api)
@@ -404,6 +411,9 @@ async function main(): Promise<void> {
   void backfillPageTags((msg) => app.log.info(msg))
   //      + dated tasks inside documents (page_tasks): only documents without the marker, low priority
   void backfillPageTasks((msg) => app.log.info(msg))
+  //      + section index for agent retrieval (page_chunks, docs/adr/0926-*): pages without a current
+  //        marker, 50 per batch with event-loop yields, at most 50k pages per boot
+  void backfillPageChunks((msg) => app.log.info(msg))
 
   // 9.6) M17 due-date reminder scheduler: one delayed scan after boot + a rescan every hour.
   //      shutdown calls stop to clear the timer.

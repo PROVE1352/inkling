@@ -107,6 +107,8 @@ export default {
   'connections.meta': '연결 {connected} · 마지막 사용 {lastUsed}',
   'connections.never': '없음',
   'connections.revoke': '연결 해제',
+  'connections.readOnly': '읽기 전용',
+  'connections.readWrite': '읽기·쓰기',
 
   // OAuth consent
   'oauth.title': '앱 연결',
@@ -129,6 +131,13 @@ export default {
   'oauth.failed': '처리하지 못했습니다.',
   'oauth.deny': '거부',
   'oauth.allow': '허용',
+  'oauth.accessLabel': '권한',
+  'oauth.accessWrite': '읽기와 쓰기',
+  'oauth.accessWriteHint': '페이지를 읽고, 검색하고, 만들고, 고치고, 댓글을 달 수 있습니다.',
+  'oauth.accessRead': '읽기 전용',
+  'oauth.accessReadHint': '읽기와 검색만 합니다. 앱은 아무것도 바꿀 수 없습니다.',
+  'oauth.accessReadRequested': '이 앱은 읽기 전용 접근을 요청했습니다.',
+  'oauth.scopeReadOnly': '내가 멤버인 워크스페이스의 페이지를 읽고 검색할 수 있습니다.',
 
   // email verification banner
   'emailVerify.message': '이메일 인증이 아직 안 됐습니다. 메일함의 인증 링크를 열어 주세요.',

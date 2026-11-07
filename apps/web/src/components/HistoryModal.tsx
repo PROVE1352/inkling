@@ -29,6 +29,14 @@ const SYSTEM_LABELS: Record<string, TKey> = {
   '복원 전': 'history.labelBeforeRestore',
   'Before AI edit': 'history.labelBeforeAiEdit',
   'AI 편집 전': 'history.labelBeforeAiEdit',
+  'AI edit': 'history.labelAiEdit',
+  'AI 편집': 'history.labelAiEdit',
+}
+
+/** "Alice" / "Alice (via Claude)" for a snapshot's author line; null when there is none (autosave). */
+export function snapAuthor(s: { author?: { name: string } | null; viaClient?: string | null }): string | null {
+  if (!s.author) return s.viaClient ? t('comments.via', { client: s.viaClient }) : null
+  return s.viaClient ? t('history.byVia', { name: s.author.name, client: s.viaClient }) : s.author.name
 }
 
 export function snapLabel(label: string | null): string {
@@ -153,6 +161,9 @@ export function HistoryModal({
                   <span className="truncate text-xs font-medium text-ink">
                     {snapLabel(s.label)}
                   </span>
+                  {snapAuthor(s) && (
+                    <span className="truncate text-[11px] text-sub">{snapAuthor(s)}</span>
+                  )}
                   <span className="flex items-center gap-1.5 text-[11px] text-sub">
                     <span>{relativeTime(s.createdAt)}</span>
                     <span aria-hidden>·</span>

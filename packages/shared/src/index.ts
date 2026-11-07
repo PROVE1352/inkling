@@ -416,6 +416,10 @@ export interface SnapshotDTO {
   label: string | null
   createdAt: string
   bytes: number
+  /** Who took it (null for autosaves or a deleted user). Additive (docs/adr/0936-*). */
+  author?: { id: string; name: string } | null
+  /** OAuth client name when an agent (MCP) edit caused it — shown as "(via X)". Additive. */
+  viaClient?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -602,6 +606,8 @@ export interface CommentDTO {
   body: string
   resolved: boolean
   createdAt: string
+  /** OAuth client name when posted through MCP — shown as "<author> (via X)". Additive (docs/adr/0936-*). */
+  viaClient?: string | null
 }
 
 export type NotificationType =

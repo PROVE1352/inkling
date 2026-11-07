@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   bigint,
+  bigserial,
   boolean,
   customType,
   doublePrecision,
@@ -15,6 +16,13 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+
+/** Stored full-text vector (section index, docs/adr/0926-*). */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return 'tsvector'
+  },
+})
 
 /** bytea for storing Yjs document snapshots */
 const bytea = customType<{ data: Buffer }>({
@@ -272,6 +280,8 @@ export const pageSnapshots = pgTable(
     state: bytea('state').notNull(),
     label: text('label'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** OAuth client name when the snapshot was taken for an agent (MCP) edit (docs/adr/0936-*). */
+    viaClient: text('via_client'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('page_snapshots_page_idx').on(t.pageId, t.createdAt)],
@@ -314,6 +324,8 @@ export const comments = pgTable(
     threadId: uuid('thread_id').notNull(),
     authorId: uuid('author_id').references(() => users.id, { onDelete: 'set null' }),
     body: text('body').notNull(),
+    /** OAuth client name when written through MCP (docs/adr/0936-*). */
+    viaClient: text('via_client'),
     resolved: text('resolved', { enum: ['0', '1'] }).notNull().default('0'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -438,6 +450,108 @@ export const pageTaskIndex = pgTable('page_task_index', {
     .references(() => pages.id, { onDelete: 'cascade' }),
   indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/**
+ * Section index for agent retrieval (docs/adr/0926-*): each doc page split at its top-level
+ * headings; long sections are split into parts that share one anchor. A derived index rebuilt
+ * from page_docs (docIndexer / importer / sync / templates), diffed per row so typing rewrites
+ * only the rows that changed. `tsv` is a stored generated column over heading path, text and grams.
+ */
+export const pageChunks = pgTable(
+  'page_chunks',
+  {
+    pageId: uuid('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    /** Position of the chunk in the page (0-based, dense). */
+    ord: integer('ord').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Stable section anchor: slugged heading path (`setup/backups`), `_intro` before the first heading. */
+    anchor: text('anchor').notNull(),
+    /** BlockNote id of the section's heading block (fallback anchor), null for `_intro`. */
+    blockId: text('block_id'),
+    /** Heading texts from the outermost to this section, joined with ' › '. */
+    headingPath: text('heading_path').notNull().default(''),
+    /** Heading level of the section (0 for `_intro`). */
+    level: integer('level').notNull().default(0),
+    /** Part number inside a long section (0-based). */
+    part: integer('part').notNull().default(0),
+    /** Section body as light Markdown (heading line excluded). */
+    text: text('text').notNull().default(''),
+    /** CJK character bigrams of long CJK words, so 2-character Korean terms match inside compounds. */
+    grams: text('grams').notNull().default(''),
+    tokenEstimate: integer('token_estimate').notNull().default(0),
+    /** sha1 of this row's derived values (diffing). */
+    hash: text('hash').notNull(),
+    /** Version of the whole section (all parts): patch_section's baseVersion. */
+    sectionHash: text('section_hash').notNull(),
+    /**
+     * Stored (generated) so ranking reads it instead of re-parsing every candidate's text: an
+     * expression index alone made ts_rank recompute to_tsvector per row (p95 1.1 s on 15k chunks).
+     */
+    tsv: tsvector('tsv')
+      .notNull()
+      .generatedAlwaysAs(sql`to_tsvector('simple'::regconfig, heading_path || ' ' || text || ' ' || grams)`),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.pageId, t.ord] }),
+    index('page_chunks_workspace_idx').on(t.workspaceId),
+    index('page_chunks_tsv_idx').using('gin', t.tsv),
+    index('page_chunks_text_trgm_idx').using('gin', sql`${t.text} gin_trgm_ops`),
+  ],
+)
+
+/** Section-index done marker + chunker version: the boot backfill picks pages without a current marker. */
+export const pageChunkIndex = pgTable('page_chunk_index', {
+  pageId: uuid('page_id')
+    .primaryKey()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/**
+ * Change feed for agents (docs/adr/0932-*): one row per changed section (anchor set) or page-level
+ * event (anchor null). Visibility at write time is kept (`scope`, `owner_id`) so a reader is only
+ * told about pages they could see. No FK on page_id: rows outlive purged pages until retention.
+ */
+export const pageChanges = pgTable(
+  'page_changes',
+  {
+    seq: bigserial('seq', { mode: 'number' }).primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    pageId: uuid('page_id').notNull(),
+    /** Section anchor; null for a page-level event. */
+    anchor: text('anchor'),
+    /** Previous anchor (renamed sections). */
+    prevAnchor: text('prev_anchor'),
+    headingPath: text('heading_path').notNull().default(''),
+    /** added | modified | removed | moved | renamed | page_added | page_renamed | page_moved | page_trashed | page_restored | page_visibility */
+    kind: text('kind').notNull(),
+    /** Section text (or page-level value) before / after, capped; null when absent or too large. */
+    beforeText: text('before_text'),
+    afterText: text('after_text'),
+    /** The change was too large to keep a diff ("large change, read section"). */
+    large: boolean('large').notNull().default(false),
+    /** Page visibility when the change was logged: 'shared' or 'private' (owner only). */
+    scope: text('scope').notNull(),
+    ownerId: uuid('owner_id'),
+    actorId: uuid('actor_id'),
+    /** OAuth client name when the change came through MCP (docs/adr/0936-*). */
+    viaClient: text('via_client'),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('page_changes_ws_seq_idx').on(t.workspaceId, t.seq),
+    index('page_changes_page_idx').on(t.pageId, t.anchor, t.seq),
+    index('page_changes_changed_idx').on(t.changedAt),
+  ],
+)
 
 /** Page templates (M12): stores workspace custom templates only. The 5 built-ins are code constants, not in the DB. */
 export const templates = pgTable(

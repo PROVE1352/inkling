@@ -6,18 +6,16 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { PageMetaDTO, PageProperty, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
-import type { AuthUser } from './auth'
 import { db } from './db/index'
 import { pageDocs, pages } from './db/schema'
 import { stateToBlocks, stripFrontmatter } from './md/convert'
-import {
-  getBearerUser,
-  MCP_INTERNAL_HEADER,
-  MCP_INTERNAL_SECRET,
-  publicOrigin,
-  readBearer,
-} from './oauth'
+import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
 import { findVisiblePage } from './pageDto'
+import { registerChangeTools } from './mcpTools/changeTools'
+import { registerCollectionTools } from './mcpTools/collectionTools'
+import { registerContextTools } from './mcpTools/contextTools'
+import { call, json as jsonCore, text, ToolError, uuid, wrap, wrapWrite } from './mcpTools/core'
+import type { ToolCtx } from './mcpTools/core'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -30,75 +28,8 @@ import { findVisiblePage } from './pageDto'
  * Tools for permanent deletion, member management or public sharing are intentionally absent (trash only).
  */
 
-interface ToolCtx {
-  app: FastifyInstance
-  token: string
-  ip: string
-  user: AuthUser
-  origin: string
-}
-
-class ToolError extends Error {}
-
-interface InjectOpts {
-  json?: unknown
-  payload?: Buffer
-  headers?: Record<string, string>
-  query?: Record<string, string>
-}
-
-/** Call an existing REST route as the token user; 4xx/5xx become a ToolError carrying the server message */
-async function call(ctx: ToolCtx, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, opts: InjectOpts = {}) {
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${ctx.token}`,
-    [MCP_INTERNAL_HEADER]: MCP_INTERNAL_SECRET,
-    ...opts.headers,
-  }
-  let payload: string | Buffer | undefined = opts.payload
-  if (opts.json !== undefined) {
-    headers['content-type'] = 'application/json'
-    payload = JSON.stringify(opts.json)
-  }
-  const res = await ctx.app.inject({
-    method,
-    url,
-    query: opts.query,
-    headers,
-    payload,
-    remoteAddress: ctx.ip,
-  })
-  if (res.statusCode >= 400) {
-    let message = `Request failed (HTTP ${res.statusCode})`
-    try {
-      const body = res.json() as { error?: { message?: string; code?: string } }
-      if (body?.error?.message) message = `${body.error.message} (${body.error.code ?? res.statusCode})`
-    } catch {
-      // Body is not JSON: keep the default message
-    }
-    if (res.statusCode === 404) message = `${message}: the page/workspace does not exist or you don't have access`
-    throw new ToolError(message)
-  }
-  return res
-}
-
-function text(s: string): CallToolResult {
-  return { content: [{ type: 'text', text: s }] }
-}
 function json(v: unknown): CallToolResult {
-  return text(JSON.stringify(v))
-}
-
-/** Tool handler wrapper: turns ToolError/validation errors into an isError result */
-function wrap<A>(fn: (args: A) => Promise<CallToolResult>) {
-  return async (args: A): Promise<CallToolResult> => {
-    try {
-      return await fn(args)
-    } catch (err) {
-      const msg = err instanceof ToolError ? err.message : 'Internal server error'
-      if (!(err instanceof ToolError)) console.error('[inkling] MCP tool error', err)
-      return { isError: true, content: [{ type: 'text', text: `Error: ${msg}` }] }
-    }
-  }
+  return jsonCore(v)
 }
 
 const sectionOf = (p: PageMetaDTO) => (p.scope === 'private' ? 'private' : 'shared')
@@ -128,16 +59,106 @@ function multipartMd(filenameTitle: string, markdown: string): { payload: Buffer
   return { payload, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
-const uuid = () => z.uuid()
+/** list_pages rendering (exported for tests): legacy JSON or compact indented lines, with a depth limit. */
+export function renderPageList(
+  all: PageMetaDTO[],
+  opts: { parentId?: string; depth?: number; format: 'json' | 'lines' },
+): string {
+  const byId = new Map(all.map((p) => [p.id, p]))
+  const children = new Map<string | null, PageMetaDTO[]>()
+  for (const p of all) {
+    const k = p.parentId && byId.has(p.parentId) ? p.parentId : null
+    const list = children.get(k) ?? []
+    list.push(p)
+    children.set(k, list)
+  }
+  for (const list of children.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const pathOf = (p: PageMetaDTO): string => {
+    const parts: string[] = []
+    let cur = p.parentId ? byId.get(p.parentId) : undefined
+    for (let i = 0; cur && i < 64; i++) {
+      parts.unshift(titleOf(cur))
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined
+    }
+    return parts.join(' / ')
+  }
+  const LIMIT = 500
+  if (opts.format === 'json') {
+    // Legacy behaviour: parentId → direct children (depth 1), 'root' → top level, none → every page.
+    let list: PageMetaDTO[]
+    if (opts.depth === undefined) {
+      if (opts.parentId === 'root') list = all.filter((p) => !p.parentId)
+      else if (opts.parentId) list = all.filter((p) => p.parentId === opts.parentId)
+      else list = all
+    } else {
+      list = []
+      const start = opts.parentId && opts.parentId !== 'root' ? opts.parentId : null
+      const walk = (k: string | null, d: number) => {
+        if (d > opts.depth!) return
+        for (const c of children.get(k) ?? []) {
+          list.push(c)
+          walk(c.id, d + 1)
+        }
+      }
+      walk(start, 1)
+    }
+    const out = list.slice(0, LIMIT).map((p) => ({
+      id: p.id,
+      title: titleOf(p),
+      kind: p.kind,
+      parentId: p.parentId,
+      section: sectionOf(p),
+      path: pathOf(p),
+      children: children.get(p.id)?.length ?? 0,
+    }))
+    const note = list.length > LIMIT ? { truncated: true, total: list.length } : undefined
+    return JSON.stringify(note ? { pages: out, ...note } : { pages: out })
+  }
+  // lines: indented tree, "title [kind] 🔒 id (+N)" — +N = children hidden by the depth limit
+  const start = opts.parentId && opts.parentId !== 'root' ? opts.parentId : null
+  const maxDepth = opts.depth ?? 64
+  const lines: string[] = []
+  let truncated = 0
+  const walk = (k: string | null, d: number) => {
+    for (const c of children.get(k) ?? []) {
+      if (lines.length >= LIMIT) {
+        truncated++
+        continue
+      }
+      const kids = children.get(c.id)?.length ?? 0
+      const hidden = d >= maxDepth && kids ? ` (+${kids})` : ''
+      lines.push(`${'  '.repeat(d - 1)}- ${titleOf(c)}${c.kind !== 'doc' ? ` [${c.kind}]` : ''}${c.scope === 'private' ? ' 🔒' : ''} ${c.id}${hidden}`)
+      if (d < maxDepth) walk(c.id, d + 1)
+    }
+  }
+  walk(start, 1)
+  if (lines.length === 0) return 'No pages here.'
+  if (truncated) lines.push(`… ${truncated} more pages not shown; pass parentId or a smaller depth.`)
+  return lines.join('\n')
+}
 
-function buildServer(ctx: ToolCtx): McpServer {
+/**
+ * Server instructions: the cheapest path to an answer first (docs/adr/0929-*). Keep short — every
+ * client puts this into the model's context.
+ */
+export const SERVER_INSTRUCTIONS = [
+  'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version.',
+  'If that is not enough: read_page(pageId, outline=true) to see sections, then read_page(pageId, section=anchor); read_pages(ids) reads several pages in one call. Avoid list_pages/full read_page unless you need the whole tree or page.',
+  'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page replaces or appends whole bodies.',
+  'To keep a local copy in sync: store the cursor from changes_since and call changes_since(cursor) next time; it returns only what changed.',
+  'Bodies are Markdown; [[Page title]] is a wiki link. Deleting only moves pages to the trash.',
+].join(' ')
+
+/** Appended for read-only tokens (docs/adr/0935-*): write tools stay listed but refuse. */
+export const READ_ONLY_INSTRUCTION =
+  'This connection is read-only: tools that change notes will refuse; to edit, the user must reconnect Inkling and allow write access.'
+
+/** Builds the per-request MCP server (exported for tests). */
+export function buildMcpServer(ctx: ToolCtx): McpServer {
   const server = new McpServer(
     { name: 'inkling', version: '1.0.0' },
     {
-      instructions:
-        'Read and write my notes in Inkling (a self-hosted notes app). First get a workspace id with list_workspaces, ' +
-        'find page ids with list_pages/search, then read them with read_page. Upload a whole local folder at once with import_folder. Page bodies are Markdown and ' +
-        '[[Page title]] becomes an internal wiki link. Deleting is limited to moving pages to the trash (trash_page).',
+      instructions: ctx.canWrite ? SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS + ' ' + READ_ONLY_INSTRUCTION,
     },
   )
 
@@ -160,50 +181,25 @@ function buildServer(ctx: ToolCtx): McpServer {
     {
       title: 'List pages',
       description:
-        "The workspace's page tree (excluding trash). Each item: id, title, kind (doc/folder/canvas/collection), parentId, " +
-        'section (shared/private; private pages are visible only to me), path (ancestor path), children (child count). ' +
-        "With parentId, returns only that page's direct children; with 'root', only top-level pages.",
+        "The workspace's page tree (excluding trash). Prefer find_context to locate content; use this for structure. " +
+        "parentId: only that page's subtree ('root' = top level). depth: levels to include (1 = direct children only). " +
+        "format 'lines' (recommended, compact: one indented line per page) or 'json' (default, legacy fields: id, title, kind, " +
+        'parentId, section, path, children).',
       inputSchema: {
         workspaceId: uuid().describe('Workspace id (from list_workspaces)'),
         parentId: z
           .string()
           .optional()
-          .describe("Only the direct children of this page; 'root' for top-level pages only"),
+          .describe("Only this page's descendants; 'root' for top-level pages"),
+        depth: z.number().int().min(1).max(64).optional().describe('Levels below parentId/root to include (json: default 1 with parentId, all without)'),
+        format: z.enum(['json', 'lines']).optional().describe("'lines' is compact; 'json' (default) keeps the legacy shape"),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ workspaceId, parentId }) => {
+    wrap(async ({ workspaceId, parentId, depth, format }) => {
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/pages`)
       const { pages: all } = res.json() as { pages: PageMetaDTO[] }
-      const byId = new Map(all.map((p) => [p.id, p]))
-      const childCount = new Map<string, number>()
-      for (const p of all) {
-        if (p.parentId) childCount.set(p.parentId, (childCount.get(p.parentId) ?? 0) + 1)
-      }
-      const pathOf = (p: PageMetaDTO): string => {
-        const parts: string[] = []
-        let cur = p.parentId ? byId.get(p.parentId) : undefined
-        for (let i = 0; cur && i < 50; i++) {
-          parts.unshift(titleOf(cur))
-          cur = cur.parentId ? byId.get(cur.parentId) : undefined
-        }
-        return parts.join(' / ')
-      }
-      let list = all
-      if (parentId === 'root') list = all.filter((p) => !p.parentId)
-      else if (parentId) list = all.filter((p) => p.parentId === parentId)
-      const LIMIT = 500
-      const out = list.slice(0, LIMIT).map((p) => ({
-        id: p.id,
-        title: titleOf(p),
-        kind: p.kind,
-        parentId: p.parentId,
-        section: sectionOf(p),
-        path: pathOf(p),
-        children: childCount.get(p.id) ?? 0,
-      }))
-      const note = list.length > LIMIT ? { truncated: true, total: list.length } : undefined
-      return json(note ? { pages: out, ...note } : { pages: out })
+      return text(renderPageList(all, { parentId, depth, format: format ?? 'json' }))
     }),
   )
 
@@ -212,22 +208,24 @@ function buildServer(ctx: ToolCtx): McpServer {
     {
       title: 'Search',
       description:
-        'Full-text search over page titles and bodies (substring match). Omit workspaceId to search all my workspaces. ' +
-        'Body matches include a snippet. Up to 20 results per workspace.',
+        'Substring search over page titles and bodies (title matches first, then most recently updated; up to 20 per workspace). ' +
+        'For answering questions prefer find_context (ranked sections, one call). Omit workspaceId to search all workspaces. ' +
+        "format 'lines' is compact; 'json' (default) keeps the legacy shape.",
       inputSchema: {
         query: z.string().min(1).max(200).describe('Search query'),
         workspaceId: uuid().optional().describe('Limit to one workspace'),
+        format: z.enum(['json', 'lines']).optional().describe("'lines' (compact) or 'json' (default)"),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ query, workspaceId }) => {
+    wrap(async ({ query, workspaceId, format }) => {
       let wsIds: string[]
       if (workspaceId) wsIds = [workspaceId]
       else {
         const res = await call(ctx, 'GET', '/api/workspaces')
         wsIds = (res.json() as { workspaces: WorkspaceDTO[] }).workspaces.map((w) => w.id)
       }
-      const results: unknown[] = []
+      const results: { id: string; workspaceId: string; title: string; kind: string; section: string; snippet?: string }[] = []
       for (const ws of wsIds) {
         const res = await call(ctx, 'GET', `/api/workspaces/${ws}/search`, { query: { q: query } })
         const { pages: found } = res.json() as { pages: (PageMetaDTO & { snippet?: string })[] }
@@ -242,6 +240,14 @@ function buildServer(ctx: ToolCtx): McpServer {
           })
         }
       }
+      if (format === 'lines') {
+        if (results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
+        return text(
+          results
+            .map((r) => `${r.id} | ${r.title}${r.kind !== 'doc' ? ` [${r.kind}]` : ''}${r.section === 'private' ? ' 🔒' : ''}${r.snippet ? ` | ${r.snippet.replace(/\s+/g, ' ')}` : ''}`)
+            .join('\n'),
+        )
+      }
       return json({ results })
     }),
   )
@@ -251,16 +257,50 @@ function buildServer(ctx: ToolCtx): McpServer {
     {
       title: 'Read page',
       description:
-        "Read a page's body as Markdown (child pages not included). Internal links are [[Title]], attachments /files/<id>. " +
-        'Collections (databases) are returned as a table of rows, canvases as JSON Canvas.',
-      inputSchema: { pageId: uuid().describe('Page id') },
+        "Read a page as Markdown (child pages not included). For long pages first use outline=true (sections with §anchor, " +
+        '~tokens and version v=…), then section=<anchor> to read just that part; maxChars caps the body. Internal links are ' +
+        '[[Title]], attachments /files/<id>. Collections come back as a table, canvases as JSON Canvas.',
+      inputSchema: {
+        pageId: uuid().describe('Page id'),
+        outline: z.boolean().optional().describe('Only the section list (anchor, heading path, ~tokens, version)'),
+        section: z.string().trim().min(1).max(500).optional().describe('Read only this section: §anchor, heading text or heading path'),
+        maxChars: z.number().int().min(100).max(400_000).optional().describe('Truncate the body to this many characters'),
+      },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ pageId }) => {
+    wrap(async ({ pageId, outline, section, maxChars }) => {
+      if (outline) {
+        const r = (await call(ctx, 'GET', `/api/pages/${pageId}/outline`)).json() as {
+          page: { id: string; title: string; kind: string; updatedAt?: string }
+          sections: { anchor: string; headingPath: string; tokens: number; version: string }[]
+          tokens: number
+        }
+        const lines = [`# ${titleOf(r.page)}`, `(page ${r.page.id}, ${r.page.kind}${r.page.updatedAt ? `, updated ${r.page.updatedAt.slice(0, 10)}` : ''}, ~${r.tokens} tok)`]
+        if (r.page.kind !== 'doc') lines.push('Not a document: read it without outline.')
+        else if (r.sections.length === 0) lines.push('Empty page.')
+        for (const s of r.sections) lines.push(`- §${s.anchor}  ${s.headingPath || '(intro)'}  ~${s.tokens} tok  v=${s.version}`)
+        return text(lines.join('\n'))
+      }
+      if (section) {
+        const r = (
+          await call(ctx, 'GET', `/api/pages/${pageId}/section`, {
+            query: { ref: section, ...(maxChars ? { maxChars: String(maxChars) } : {}) },
+          })
+        ).json() as {
+          page: { id: string; title: string }
+          section: { anchor: string; headingPath: string; version: string }
+          markdown: string
+          truncated: boolean
+          totalChars: number
+        }
+        const head = `# ${titleOf(r.page)}${r.section.headingPath ? ` › ${r.section.headingPath}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n\n`
+        const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
+        return text(head + r.markdown + tail)
+      }
       // The export route does the permission check (visibility + membership); metadata is attached only after it passes.
       const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md' } })
       const meta = await findVisiblePage(pageId, ctx.user.id)
-      if (!meta) throw new ToolError('Page not found')
+      if (!meta) throw new ToolError('page not found or not visible to you; use find_context to get a valid id')
       const propsRow = (
         await db
           .select({ properties: pages.properties })
@@ -271,7 +311,10 @@ function buildServer(ctx: ToolCtx): McpServer {
       const properties = (Array.isArray(propsRow?.properties) ? (propsRow.properties as PageProperty[]) : [])
         .filter((p) => p && p.id !== 'fullWidth')
         .map((p) => ({ name: p.name, type: p.type, value: p.value ?? null }))
-      const body = meta.kind === 'canvas' ? res.body : stripFrontmatter(res.body)
+      let body = meta.kind === 'canvas' ? res.body : stripFrontmatter(res.body)
+      if (maxChars && body.length > maxChars) {
+        body = `${body.slice(0, maxChars)}\n\n[truncated: ${maxChars} of ${body.length} chars; use outline=true and section=… for the rest]`
+      }
       const header = [
         `# ${titleOf(meta)}`,
         '',
@@ -307,7 +350,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         private: z.boolean().optional().describe('Create at the top level of the private (🔒) section (only without parentId)'),
       },
     },
-    wrap(async ({ workspaceId, title, markdown, parentId, private: isPrivate }) => {
+    wrapWrite(ctx, async ({ workspaceId, title, markdown, parentId, private: isPrivate }) => {
       if (isPrivate && parentId) {
         throw new ToolError('private can only be used when creating a top-level page without parentId (child pages follow their parent section)')
       }
@@ -364,7 +407,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         parentId: uuid().optional().describe('Parent page id'),
       },
     },
-    wrap(async ({ workspaceId, folderName, files, parentId }) => {
+    wrapWrite(ctx, async ({ workspaceId, folderName, files, parentId }) => {
       const root = safeFilenameTitle(folderName)
       const boundary = `----inkling${randomBytes(12).toString('hex')}`
       const chunks: Buffer[] = []
@@ -407,7 +450,7 @@ function buildServer(ctx: ToolCtx): McpServer {
     {
       title: 'Update page body',
       description:
-        "Edit a document page's body with Markdown. mode='append' adds to the end, 'replace' replaces everything " +
+        "Edit a document page's whole body with Markdown (to change one part, prefer patch_section). mode='append' adds to the end, 'replace' replaces everything " +
         '(the state right before the replace is kept as a snapshot in version history). Changes show live to anyone viewing the page.',
       inputSchema: {
         pageId: uuid().describe('Page id (kind=doc)'),
@@ -416,7 +459,7 @@ function buildServer(ctx: ToolCtx): McpServer {
       },
       annotations: { destructiveHint: true },
     },
-    wrap(async ({ pageId, markdown, mode }) => {
+    wrapWrite(ctx, async ({ pageId, markdown, mode }) => {
       await call(ctx, 'POST', `/api/pages/${pageId}/content`, { json: { markdown, mode } })
       return text(
         mode === 'append'
@@ -436,7 +479,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         title: z.string().trim().min(1).max(300).describe('New title'),
       },
     },
-    wrap(async ({ pageId, title }) => {
+    wrapWrite(ctx, async ({ pageId, title }) => {
       const r = await call(ctx, 'PATCH', `/api/pages/${pageId}`, { json: { title } })
       const page = (r.json() as { page: PageMetaDTO }).page
       return json({ id: page.id, title: page.title })
@@ -457,7 +500,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         section: z.enum(['shared', 'private']).optional().describe('Section (shared/private) when moving to the top level'),
       },
     },
-    wrap(async ({ pageId, parentId, section }) => {
+    wrapWrite(ctx, async ({ pageId, parentId, section }) => {
       const body: Record<string, unknown> = { parentId }
       if (section) {
         if (parentId) throw new ToolError('section can only be set when moving to the top level (parentId=null)')
@@ -479,7 +522,7 @@ function buildServer(ctx: ToolCtx): McpServer {
       inputSchema: { pageId: uuid().describe('Page id') },
       annotations: { destructiveHint: true },
     },
-    wrap(async ({ pageId }) => {
+    wrapWrite(ctx, async ({ pageId }) => {
       await call(ctx, 'DELETE', `/api/pages/${pageId}`)
       return text('Moved to the trash (restorable from the trash in the web app; permanently deleted after 30 days).')
     }),
@@ -495,7 +538,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         body: z.string().trim().min(1).max(4000).describe('Comment text'),
       },
     },
-    wrap(async ({ pageId, body }) => {
+    wrapWrite(ctx, async ({ pageId, body }) => {
       // Check permissions (visibility + membership) first; read the document only after that passes.
       await call(ctx, 'GET', `/api/pages/${pageId}/comments`)
       const row = (
@@ -559,7 +602,7 @@ function buildServer(ctx: ToolCtx): McpServer {
         inputs: z.record(z.string().max(200), z.string().max(2000)).optional().describe('Answers to the template inputs'),
       },
     },
-    wrap(async ({ workspaceId, template, title, parentId, private: isPrivate, date, inputs }) => {
+    wrapWrite(ctx, async ({ workspaceId, template, title, parentId, private: isPrivate, date, inputs }) => {
       if (isPrivate && parentId) {
         throw new ToolError('private can only be used when creating at the top level without parentId (child pages follow their parent section)')
       }
@@ -587,6 +630,9 @@ function buildServer(ctx: ToolCtx): McpServer {
     }),
   )
 
+  registerContextTools(server, ctx)
+  registerChangeTools(server, ctx)
+  registerCollectionTools(server, ctx)
   return server
 }
 
@@ -621,7 +667,7 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
         .send({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null })
     }
 
-    const server = buildServer({ app: rootApp, token, ip: req.ip, user, origin })
+    const server = buildMcpServer({ app: rootApp, token, ip: req.ip, user, origin, canWrite: canWriteFromScopes(user.scope) })
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

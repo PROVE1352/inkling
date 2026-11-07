@@ -6,13 +6,14 @@ import { db } from '../db/index'
 import { pageDocs } from '../db/schema'
 import { badRequest, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
-import { markdownToBlocks, stripFrontmatter } from '../md/convert'
+import { blocksToStateBuffer, markdownToBlocks, stripFrontmatter } from '../md/convert'
 import { writeBlocksToDoc } from '../md/docWrite'
 import { buildTitleResolver } from '../md/importer'
 import { requestLocale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
-import { createSnapshot } from '../snapshotStore'
+import { createSnapshot, hasRecentAgentSnapshot } from '../snapshotStore'
 import { liveDocState } from '../liveConnections'
+import { actorOf, withEditActor } from '../context/attribution'
 
 /**
  * Replaces or appends to an existing doc page's body from Markdown (for MCP update_page; the web UI does not use it).
@@ -61,11 +62,19 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
         // the label is stored in the DB, so it is written in the editor's locale
         if (before) {
           const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집 전' : 'Before AI edit'
-          await createSnapshot(id, before, label, user.id)
+          await createSnapshot(id, before, label, user.id, user.via ?? null)
         }
       }
 
-      await writeBlocksToDoc(id, incoming, body.mode)
+      // The change feed reads the actor (user + OAuth client) while the store hook indexes this edit.
+      const after = await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode))
+
+      // An agent append leaves no "Before" snapshot, so mark it in history with an "AI edit"
+      // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots.
+      if (body.mode === 'append' && user.via && !(await hasRecentAgentSnapshot(id))) {
+        const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
+        await createSnapshot(id, liveDocState(id) ?? blocksToStateBuffer(after), label, user.id, user.via)
+      }
 
       return { ok: true }
     },

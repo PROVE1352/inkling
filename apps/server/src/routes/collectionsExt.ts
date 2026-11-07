@@ -6,6 +6,7 @@ import { assertPlacement, lockTree } from '../pageTree'
  *   POST  /pages/:id/collection/rows/batch    batch insert (import / paste) — one transaction
  *   PATCH /pages/:id/collection/rows/batch    batch merge of props/title (paste) — one statement
  *   /pages/:id/collection/sheet-sync*         Google Sheets read sync — experimental `sheets-sync`
+ *   GET   /pages/:id/collection/query, GET /pages/:id/row   agent reads (./collectionQuery.ts)
  */
 import { and, asc, count, eq, ilike, isNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -27,6 +28,7 @@ import { escapeLike } from '../util'
 import { requireCollectionPage } from './collections'
 import { nonMemberPersonIds } from '../collectionRelations'
 import { registerSheetSyncRoutes } from './sheetSync'
+import { registerCollectionQueryRoutes } from './collectionQuery'
 
 /** Batch bodies can be large (1000 rows × many columns). */
 const BATCH_BODY_LIMIT = 16 * 1024 * 1024
@@ -97,6 +99,9 @@ export function sanitizeBatchProps(
 }
 
 export async function registerCollectionExtRoutes(app: FastifyInstance): Promise<void> {
+  // agent-oriented reads: SQL filter/sort/keyset over rows, single row + version (docs/adr/0934-*)
+  await registerCollectionQueryRoutes(app)
+
   // ---- relation picker options ----
   const optionsQuery = z.object({
     q: z.string().max(200).optional(),

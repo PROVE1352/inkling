@@ -22,6 +22,7 @@ import type { AnyBlock, ResolveAsset, ResolveTitle } from './convert'
 import { reindexPageLinks } from './linkIndex'
 import { reindexPageTags } from './tagIndex'
 import { reindexPageTasks } from './taskIndex'
+import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from './textIndex'
 import { mimeForExt } from './mime'
 
@@ -132,6 +133,7 @@ export async function importMarkdown(args: ImportArgs): Promise<PageRow[]> {
   await db.insert(pageDocs).values({ pageId: page.id, state: blocksToStateBuffer(blocks) })
   await reindexPageLinks(page.id, blocks)
   await reindexPageText(page.id, blocks)
+  await reindexPageChunks(page.id, blocks)
   await reindexPageTags(page.id, blocks)
   await reindexPageTasks(page.id, blocks)
 
@@ -445,6 +447,7 @@ export async function importEntries(
         .onConflictDoNothing()
       await reindexPageLinks(pageId, blocks)
       await reindexPageText(pageId, blocks)
+      await reindexPageChunks(pageId, blocks)
       await reindexPageTags(pageId, blocks)
       await reindexPageTasks(pageId, blocks)
     } else if (node.kind === 'canvas' && node.canvasEntryName) {

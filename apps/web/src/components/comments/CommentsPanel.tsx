@@ -124,6 +124,12 @@ function CommentRow({
         <span className="truncate text-xs font-medium text-ink">
           {comment.author.name}
         </span>
+        {comment.viaClient && (
+          // Posted by an agent through MCP (docs/adr/0936-*); plain text, React escapes it.
+          <span className="shrink-0 truncate text-[11px] text-sub" title={comment.viaClient}>
+            {tr('comments.via', { client: comment.viaClient })}
+          </span>
+        )}
         <span className="shrink-0 text-[11px] text-sub">
           {relativeTime(comment.createdAt)}
         </span>

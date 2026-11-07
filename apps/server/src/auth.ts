@@ -5,7 +5,13 @@ import { db } from './db/index'
 import { sessions, users } from './db/schema'
 import { env } from './env'
 import { forbidden, unauthorized } from './errors'
-import { getBearerUser, MCP_INTERNAL_HEADER, MCP_INTERNAL_SECRET, readBearer } from './oauth'
+import {
+  canWriteFromScopes,
+  getBearerUser,
+  MCP_INTERNAL_HEADER,
+  MCP_INTERNAL_SECRET,
+  readBearer,
+} from './oauth'
 import { newSessionToken } from './util'
 
 export const SESSION_COOKIE = 'inkling_sid'
@@ -16,6 +22,16 @@ export interface AuthUser {
   email: string
   name: string
   isAdmin: boolean
+  /**
+   * Set only for MCP (OAuth bearer) requests: the OAuth client's display name, sanitized and
+   * length-capped, so writes can be labelled "<user> (via <client>)" (docs/adr/0936-*).
+   */
+  via?: string | null
+  /**
+   * Set only for MCP (OAuth bearer) requests: the grant's stored scope string ('' = legacy/full).
+   * Decide write access with canWriteFromScopes(scope) (docs/adr/0935-*).
+   */
+  scope?: string
 }
 
 // Add the authenticated user to FastifyRequest (declaration merging)
@@ -25,7 +41,18 @@ declare module 'fastify' {
     /** How the request authenticated: 'bearer' = MCP OAuth access token (no admin API) */
     authVia?: 'cookie' | 'bearer'
   }
+  interface FastifyContextConfig {
+    /**
+     * A non-GET route that never changes data (e.g. POST /workspaces/:id/query). Read-only MCP
+     * tokens may call it; every other non-GET/HEAD route answers them 403 (docs/adr/0935-*).
+     */
+    bearerReadOnlyOk?: boolean
+  }
 }
+
+/** The 403 a read-only MCP token gets on a write route (the MCP tools answer earlier, in wrapWrite). */
+export const READ_ONLY_TOKEN_MESSAGE =
+  "This connection is read-only (scope 'read'). Reconnect the Inkling connector and allow write access to edit notes"
 
 // ---------------------------------------------------------------------------
 // Password hashing (@node-rs/argon2 default options)
@@ -145,6 +172,16 @@ export async function requireUser(req: FastifyRequest): Promise<void> {
     if (!user) throw unauthorized('Invalid access token')
     req.user = user
     req.authVia = 'bearer'
+    // Defense in depth for read-only tokens: wrapWrite already refuses write tools, but any write
+    // that reaches REST through inject (a future tool forgetting wrapWrite) is refused here too.
+    if (
+      !canWriteFromScopes(user.scope) &&
+      req.method !== 'GET' &&
+      req.method !== 'HEAD' &&
+      req.routeOptions?.config?.bearerReadOnlyOk !== true
+    ) {
+      throw forbidden(READ_ONLY_TOKEN_MESSAGE)
+    }
     return
   }
   const token = req.cookies?.[SESSION_COOKIE]

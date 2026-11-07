@@ -1,0 +1,255 @@
+import { and, asc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { db } from '../db/index'
+import { pageChunkIndex, pageChunks, pageDocs, pages } from '../db/schema'
+import type { AnyBlock } from '../md/convert'
+import { stateToBlocks } from '../md/convert'
+import { bumpIndexEpoch } from '../versions'
+import { recordSectionChanges } from './changeLog'
+import type { SectionState } from './changeLog'
+import type { Chunk } from './chunker'
+import { CHUNKER_VERSION, chunkBlocks } from './chunker'
+
+/**
+ * Section index maintenance (docs/adr/0926-*).
+ *
+ * reindexPageChunks diffs the new chunk list against the stored rows by position and writes only
+ * rows whose hash changed (typing in one section rewrites one row and its GIN entries), deletes
+ * rows past the new end, and stamps the marker. It never throws (logs only), like the other
+ * derived indexes, so a store or import never fails because of it.
+ */
+
+const UPSERT_BATCH = 400
+
+interface ExistingRow {
+  ord: number
+  hash: string
+  anchor: string
+  sectionHash: string
+  headingPath: string
+  blockId: string | null
+}
+
+export interface ReindexOptions {
+  /** false for the boot backfill: re-indexing old pages must not flood the change feed. */
+  log?: boolean
+  /** Chunks already computed by the caller (docIndexer computes them for its signature). */
+  chunks?: Chunk[]
+}
+
+/** Test/bench hook. */
+export const chunkIndexStats = { runs: 0, rowsWritten: 0, rowsDeleted: 0, skipped: 0 }
+
+function sectionsOfRows(rows: { anchor: string; headingPath: string; blockId: string | null; sectionHash: string }[]) {
+  const out: { anchor: string; headingPath: string; blockId: string | null; version: string }[] = []
+  for (const r of rows) {
+    const last = out[out.length - 1]
+    if (last && last.anchor === r.anchor) continue
+    out.push({ anchor: r.anchor, headingPath: r.headingPath, blockId: r.blockId, version: r.sectionHash })
+  }
+  return out
+}
+
+function sectionsOfChunks(chunks: Chunk[]): SectionState[] {
+  const out: SectionState[] = []
+  for (const c of chunks) {
+    const last = out[out.length - 1]
+    if (last && last.anchor === c.anchor) {
+      last.text += `\n${c.text}`
+      continue
+    }
+    out.push({
+      anchor: c.anchor,
+      headingPath: c.headingPath,
+      blockId: c.blockId,
+      text: c.text,
+      version: c.sectionHash,
+      order: out.length,
+    })
+  }
+  return out
+}
+
+export async function reindexPageChunks(
+  pageId: string,
+  blocks: AnyBlock[],
+  opts: ReindexOptions = {},
+): Promise<void> {
+  try {
+    chunkIndexStats.runs++
+    const chunks = opts.chunks ?? chunkBlocks(blocks)
+    const [page] = await db
+      .select({
+        workspaceId: pages.workspaceId,
+        scope: pages.scope,
+        createdBy: pages.createdBy,
+        version: pageChunkIndex.version,
+      })
+      .from(pages)
+      .leftJoin(pageChunkIndex, eq(pageChunkIndex.pageId, pages.id))
+      .where(eq(pages.id, pageId))
+      .limit(1)
+    if (!page) return // page gone (purged meanwhile)
+    const existing: ExistingRow[] = await db
+      .select({
+        ord: pageChunks.ord,
+        hash: pageChunks.hash,
+        anchor: pageChunks.anchor,
+        sectionHash: pageChunks.sectionHash,
+        headingPath: pageChunks.headingPath,
+        blockId: pageChunks.blockId,
+      })
+      .from(pageChunks)
+      .where(eq(pageChunks.pageId, pageId))
+      .orderBy(asc(pageChunks.ord))
+
+    const changed = chunks.filter((c) => existing[c.ord]?.hash !== c.hash)
+    const removedFrom = chunks.length
+    const hasRemoved = existing.length > removedFrom
+    if (changed.length === 0 && !hasRemoved && page.version === CHUNKER_VERSION) {
+      chunkIndexStats.skipped++
+      return
+    }
+
+    // Old text of sections whose version changed or that disappeared (for the change feed).
+    const logIt = opts.log !== false
+    const after = sectionsOfChunks(chunks)
+    const afterByAnchor = new Map(after.map((s) => [s.anchor, s]))
+    const oldSections = sectionsOfRows(existing)
+    const staleAnchors = oldSections
+      .filter((s) => afterByAnchor.get(s.anchor)?.version !== s.version)
+      .map((s) => s.anchor)
+    const oldText = new Map<string, string>()
+    if (logIt && staleAnchors.length) {
+      const rows = await db
+        .select({ anchor: pageChunks.anchor, text: pageChunks.text })
+        .from(pageChunks)
+        .where(and(eq(pageChunks.pageId, pageId), inArray(pageChunks.anchor, staleAnchors)))
+        .orderBy(asc(pageChunks.ord))
+      for (const r of rows) oldText.set(r.anchor, oldText.has(r.anchor) ? `${oldText.get(r.anchor)}\n${r.text}` : r.text)
+    }
+
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < changed.length; i += UPSERT_BATCH) {
+        const batch = changed.slice(i, i + UPSERT_BATCH)
+        await tx
+          .insert(pageChunks)
+          .values(
+            batch.map((c) => ({
+              pageId,
+              ord: c.ord,
+              workspaceId: page.workspaceId,
+              anchor: c.anchor,
+              blockId: c.blockId,
+              headingPath: c.headingPath,
+              level: c.level,
+              part: c.part,
+              text: c.text,
+              grams: c.grams,
+              tokenEstimate: c.tokens,
+              hash: c.hash,
+              sectionHash: c.sectionHash,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [pageChunks.pageId, pageChunks.ord],
+            set: {
+              anchor: sql`excluded.anchor`,
+              blockId: sql`excluded.block_id`,
+              headingPath: sql`excluded.heading_path`,
+              level: sql`excluded.level`,
+              part: sql`excluded.part`,
+              text: sql`excluded.text`,
+              grams: sql`excluded.grams`,
+              tokenEstimate: sql`excluded.token_estimate`,
+              hash: sql`excluded.hash`,
+              sectionHash: sql`excluded.section_hash`,
+              updatedAt: sql`now()`,
+            },
+          })
+      }
+      if (hasRemoved) {
+        await tx.delete(pageChunks).where(and(eq(pageChunks.pageId, pageId), gte(pageChunks.ord, removedFrom)))
+      }
+      await tx
+        .insert(pageChunkIndex)
+        .values({ pageId, version: CHUNKER_VERSION })
+        .onConflictDoUpdate({
+          target: pageChunkIndex.pageId,
+          set: { version: CHUNKER_VERSION, indexedAt: sql`now()` },
+        })
+    })
+    chunkIndexStats.rowsWritten += changed.length
+    chunkIndexStats.rowsDeleted += Math.max(0, existing.length - removedFrom)
+    bumpIndexEpoch()
+
+    if (logIt) {
+      const before: SectionState[] = oldSections.map((s, i) => ({
+        anchor: s.anchor,
+        headingPath: s.headingPath,
+        blockId: s.blockId,
+        text: oldText.get(s.anchor) ?? afterByAnchor.get(s.anchor)?.text ?? '',
+        version: s.version,
+        order: i,
+      }))
+      try {
+        await recordSectionChanges({
+          pageId,
+          workspaceId: page.workspaceId,
+          scope: page.scope,
+          ownerId: page.createdBy,
+          firstIndex: page.version === null,
+          before,
+          after,
+        })
+      } catch (err) {
+        console.error('[inkling] change feed write failed', pageId, err)
+      }
+    }
+  } catch (err) {
+    console.error('[inkling] page_chunks reindex failed', pageId, err)
+  }
+}
+
+/**
+ * Boot backfill: pages with a document but no current section-index marker, 50 per batch, yielding
+ * to the event loop between batches and stopping after `maxPages` (the rest continue next boot or
+ * on their next edit). Failed pages are still stamped so they are not reselected forever.
+ */
+export async function backfillPageChunks(
+  log: (msg: string) => void = console.log,
+  maxPages = 50_000,
+): Promise<number> {
+  const BATCH = 50
+  let total = 0
+  try {
+    while (total < maxPages) {
+      const rows = await db
+        .select({ pageId: pageDocs.pageId, state: pageDocs.state })
+        .from(pageDocs)
+        .leftJoin(pageChunkIndex, eq(pageChunkIndex.pageId, pageDocs.pageId))
+        .where(or(isNull(pageChunkIndex.pageId), lt(pageChunkIndex.version, CHUNKER_VERSION)))
+        .limit(BATCH)
+      if (rows.length === 0) break
+      for (const row of rows) {
+        try {
+          await reindexPageChunks(row.pageId, stateToBlocks(row.state), { log: false })
+        } catch (err) {
+          console.error('[inkling] page_chunks backfill failed for page', row.pageId, err)
+        }
+        // reindexPageChunks swallows its own errors; make sure the page is not picked again
+        await db
+          .insert(pageChunkIndex)
+          .values({ pageId: row.pageId, version: CHUNKER_VERSION })
+          .onConflictDoUpdate({ target: pageChunkIndex.pageId, set: { version: CHUNKER_VERSION } })
+          .catch(() => {})
+      }
+      total += rows.length
+      if (rows.length < BATCH) break
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    if (total > 0) log(`[inkling] page_chunks backfill done — ${total} pages`)
+  } catch (err) {
+    console.error('[inkling] page_chunks backfill failed', err)
+  }
+  return total
+}

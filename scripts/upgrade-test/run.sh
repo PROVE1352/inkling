@@ -130,13 +130,18 @@ log "health/ready: $READY"
 table_counts >"$WORK/counts.after"
 # Every table that existed before must still exist with the same number of rows. Tables the new
 # release adds are listed for the log only. A table that may legitimately change on boot would be
-# allow-listed here with a reason; there are none.
+# allow-listed here with a reason:
+# - workspace_acl_versions may only grow: rows are created lazily by writes and the boot
+#   reconcile (reconcileAclVersions, docs/adr/1071-*) adds one for every workspace without one,
+#   e.g. a workspace created after the old release booted. It is derived state, rebuilt at boot.
 changed=0
 while read -r t n; do
   m=$(awk -v t="$t" '$1 == t { print $2 }' "$WORK/counts.after")
   if [ -z "$m" ]; then
     log "table $t ($n rows) is gone"
     changed=1
+  elif [ "$t" = workspace_acl_versions ] && [ "$m" -ge "$n" ]; then
+    [ "$m" != "$n" ] && log "table $t: $n rows -> $m (allowed: boot reconcile fills missing rows)"
   elif [ "$m" != "$n" ]; then
     log "table $t: $n rows -> $m"
     changed=1

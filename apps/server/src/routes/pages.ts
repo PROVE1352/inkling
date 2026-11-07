@@ -21,9 +21,10 @@ import {
   pageTags,
   pageTexts,
   pages,
+  workspaces,
 } from '../db/schema'
 import { env } from '../env'
-import { badRequest, forbidden, notFound } from '../errors'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { stateToBlocks } from '../md/convert'
@@ -39,6 +40,7 @@ import { closeConnectionsLosingPrivateAccess } from '../liveConnections'
 import { precheckEtag } from '../httpCache'
 import { workspaceVersion } from '../versions'
 import { emitWebhookEvent } from '../webhooks'
+import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
 import { logPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
@@ -528,7 +530,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // ── Public web sharing (M15) ─────────────────────────────────────
-  // Only owners (workspace owner) can turn a public link on/off. Private pages cannot be shared.
+  // Owners and admins turn a public link on/off (docs/adr/0945-*). Private pages cannot be shared.
+  // A workspace with public sharing disabled refuses new links (docs/adr/0949-*).
   // One token per page (idempotent) — an existing one is reused.
   app.post('/pages/:id/share', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
@@ -537,28 +540,39 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     const role = await requireMembership(page.workspaceId, user.id)
-    if (role !== 'owner') throw forbidden('Only owners can publish pages')
+    if (!isManagerRole(role)) throw forbidden('Only owners and admins can publish pages')
     if (page.scope === 'private') throw badRequest("Private pages can't be shared")
 
-    const current = (
-      await db
-        .select({ shareToken: pages.shareToken })
-        .from(pages)
-        .where(eq(pages.id, id))
+    const token = await db.transaction(async (tx) => {
+      // FOR SHARE on the workspace row: a concurrent "disable public sharing" (FOR UPDATE) waits or wins.
+      const [ws] = await tx
+        .select({ publicSharingDisabled: workspaces.publicSharingDisabled })
+        .from(workspaces)
+        .where(eq(workspaces.id, page.workspaceId))
+        .for('share')
         .limit(1)
-    )[0]
-    let token = current?.shareToken ?? null
-    if (!token) {
-      token = await generateUniqueShareToken()
-      await db.update(pages).set({ shareToken: token }).where(eq(pages.id, id))
-    }
+      const [current] = await tx.select({ shareToken: pages.shareToken }).from(pages).where(eq(pages.id, id)).limit(1)
+      if (current?.shareToken) return current.shareToken
+      if (ws?.publicSharingDisabled) {
+        throw new AppError(403, 'PUBLIC_SHARING_DISABLED', 'Public web links are turned off in this workspace')
+      }
+      const token = await generateUniqueShareToken()
+      await tx.update(pages).set({ shareToken: token }).where(eq(pages.id, id))
+      await recordAudit(tx, {
+        workspaceId: page.workspaceId,
+        actor: user,
+        action: 'share.published',
+        target: { type: 'page', id, label: page.title },
+      })
+      return token
+    })
 
     const dto: ShareStatusDTO = { shared: true, token }
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
     return dto
   })
 
-  // Stop sharing (owner) — removes the token; existing links stop working at once (404).
+  // Stop sharing (owner/admin) — removes the token; existing links stop working at once (404).
   app.delete('/pages/:id/share', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
@@ -566,9 +580,23 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     const role = await requireMembership(page.workspaceId, user.id)
-    if (role !== 'owner') throw forbidden('Only owners can stop sharing')
+    if (!isManagerRole(role)) throw forbidden('Only owners and admins can stop sharing')
 
-    await db.update(pages).set({ shareToken: null }).where(eq(pages.id, id))
+    await db.transaction(async (tx) => {
+      const cleared = await tx
+        .update(pages)
+        .set({ shareToken: null })
+        .where(and(eq(pages.id, id), sql`${pages.shareToken} IS NOT NULL`))
+        .returning({ id: pages.id })
+      if (cleared.length > 0) {
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: 'share.unpublished',
+          target: { type: 'page', id, label: page.title },
+        })
+      }
+    })
 
     const dto: ShareStatusDTO = { shared: false, token: null }
     return dto
@@ -600,7 +628,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
   // A workspace's web shares (members) — for the sidebar "Web shares" screen.
   // Only live pages visible to me that have a shareToken. Folders include their currently exposed subpage count.
-  // canManage = may stop sharing (owner) — same rule as the per-page share routes.
+  // canManage = may stop sharing (owner/admin) — same rule as the per-page share routes.
   app.get('/workspaces/:id/shared', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const wsId = idParam(req.params)
@@ -639,7 +667,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         exposedCount: r.kind === 'folder' ? await folderExposedCount(r.id, wsId) : undefined,
       })),
     )
-    return { canManage: role === 'owner', items }
+    return { canManage: isManagerRole(role), items }
   })
 
   // Backlinks: live pages that link to this (target) page

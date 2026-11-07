@@ -40,6 +40,7 @@ const PublicView = lazyNamed(() => import('./pages/PublicView'), 'PublicView')
 const TagsView = lazyNamed(() => import('./pages/TagsView'), 'TagsView')
 const SharedView = lazyNamed(() => import('./pages/SharedView'), 'SharedView')
 const WorkspaceHome = lazyNamed(() => import('./pages/WorkspaceHome'), 'WorkspaceHome')
+const WorkspaceSettings = lazyNamed(() => import('./pages/WorkspaceSettings'), 'WorkspaceSettings')
 
 /** Full-screen fallback for top-level routes. */
 function Page({ children }: { children: ReactNode }) {
@@ -114,6 +115,7 @@ export function App() {
         <Route path="due" element={<Pane><DueView /></Pane>} />
         <Route path="graph" element={<Pane><GraphView /></Pane>} />
         <Route path="settings" element={<Pane><Settings /></Pane>} />
+        <Route path="workspace-settings" element={<Pane><WorkspaceSettings /></Pane>} />
         <Route path="shared" element={<Pane><SharedView /></Pane>} />
         <Route path="tags" element={<Pane><TagsView /></Pane>} />
         <Route path="tags/:tag" element={<Pane><TagsView /></Pane>} />

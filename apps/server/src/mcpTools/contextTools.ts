@@ -2,6 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { FindContextResult } from '../context/retrieve'
 import { DEFAULT_BUDGET, MAX_BUDGET } from '../context/retrieve'
+import { reviewFactsFor } from '../review'
+import { countReads } from '../pageReads'
+import type { ReviewFacts } from '../review'
 import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { ToolCtx } from './core'
 
@@ -11,8 +14,23 @@ import type { ToolCtx } from './core'
  * (pageId, §anchor, version), then the text. No JSON envelopes, no repeated field names.
  */
 
+/**
+ * Short review note for a fragment header (docs/adr/0951-*, 0953-*):
+ * "owner Alice, reviewed 2026-10-01, stale p=0.62". Stale and p come from the daily priority batch
+ * (rounded), dates are the document's own values, never relative ("N days ago").
+ */
+export function reviewNote(f: ReviewFacts | undefined): string {
+  if (!f) return ''
+  const parts: string[] = []
+  if (f.owner) parts.push(`owner ${f.owner}`)
+  if (f.reviewedOn) parts.push(`reviewed ${f.reviewedOn}`)
+  if (f.living) parts.push('living document')
+  else if (f.stale && f.p !== null) parts.push(`stale p=${f.p.toFixed(2)}`)
+  return parts.length ? `; ${parts.join(', ')}` : ''
+}
+
 /** Render find_context results (exported for the evaluation, which measures exactly this text). */
-export function renderFindContext(query: string, r: FindContextResult): string {
+export function renderFindContext(query: string, r: FindContextResult, review?: Map<string, ReviewFacts>): string {
   if (r.fragments.length === 0) {
     const lines = [`No sections match "${query}". Try other or fewer words (synonyms, the other language), or list_pages.`]
     if (r.titleOnly.length) {
@@ -25,7 +43,7 @@ export function renderFindContext(query: string, r: FindContextResult): string {
   r.fragments.forEach((f, i) => {
     const path = f.headingPath ? ` › ${f.headingPath}` : ''
     const versions = f.sections.map((s) => `§${s.anchor} v=${s.version}`).join(', ')
-    out.push('', `[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''})`, f.text)
+    out.push('', `[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${reviewNote(review?.get(f.pageId))})`, f.text)
   })
   if (r.more.length) {
     out.push('', 'Also relevant (not shown):')
@@ -79,7 +97,12 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const res = await call(ctx, 'GET', '/api/context', {
         query: { q: query, ...(workspaceId ? { workspaceId } : {}), ...(budget ? { budget: String(budget) } : {}) },
       })
-      return text(renderFindContext(query, res.json() as FindContextResult))
+      const result = res.json() as FindContextResult
+      // pageIds come from the permission-checked REST answer; this only adds owner/review facts.
+      const shown = result.fragments.map((f) => f.pageId)
+      const review = await reviewFactsFor(shown)
+      countReads(shown) // read counters, page totals only (docs/adr/0953-*)
+      return text(renderFindContext(query, result, review))
     }),
   )
 
@@ -100,7 +123,9 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const res = await call(ctx, 'GET', '/api/pages/read', {
         query: { ids: pageIds.join(','), ...(budget ? { budget: String(budget) } : {}) },
       })
-      return text(renderReadPages(res.json() as ReadPagesResponse))
+      const read = res.json() as ReadPagesResponse
+      countReads(read.pages.map((p) => p.id)) // read counters (docs/adr/0953-*)
+      return text(renderReadPages(read))
     }),
   )
 

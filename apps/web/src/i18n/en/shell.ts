@@ -73,7 +73,7 @@ export default {
   'members.noName': 'No name',
   'members.you': '(you)',
   'members.leaveConfirm':
-    'Leave this workspace? Your private pages here go to the trash: nobody else can see them, and they are deleted after 30 days.',
+    'Leave this workspace? Your private pages here go to the trash: nobody else can see them, and they are deleted when the trash period of the workspace ends (30 days unless an owner changed it).',
   'members.removeConfirm': 'Remove {name}? Their private pages will be moved to the trash.',
   'members.thisMember': 'this member',
   'members.leave': 'Leave',
@@ -199,7 +199,7 @@ export default {
   'wsDanger.delete': 'Delete workspace…',
   'wsDanger.leaveTitle': 'Leave "{name}"?',
   'wsDanger.leaveBody':
-    'You lose access to this workspace. Your private pages here go to the trash: nobody else can see them, and they are deleted after 30 days. Shared pages stay with the team.',
+    'You lose access to this workspace. Your private pages here go to the trash: nobody else can see them, and they are deleted when the trash period of the workspace ends (30 days unless an owner changed it). Shared pages stay with the team.',
   'wsDanger.leaveFailed': "Couldn't leave the workspace",
   'wsDanger.soleOwnerTitle': "You're the only owner",
   'wsDanger.soleOwnerBody':
@@ -241,4 +241,25 @@ export default {
   'wsDanger.daysLeft_other': '{count} days left',
   'wsDanger.restore': 'Restore',
   'wsDanger.restoreFailed': "Couldn't restore the workspace",
+  // Notion export import (docs/adr/0960-*)
+  'notionImport.menu': 'Import from Notion (.zip)',
+  'notionImport.title': 'Import a Notion export',
+  'notionImport.hint': 'In Notion: Settings → Export (or ⋯ → Export on a page) → "Markdown & CSV", include subpages and create folders for subpages. Upload the downloaded .zip as is.',
+  'notionImport.limits': 'Pages become documents, CSV databases become collections, images and files are uploaded. Callouts arrive as quotes and equations as code.',
+  'notionImport.choose': 'Choose .zip',
+  'notionImport.importing': 'Importing…',
+  'notionImport.failed': 'Notion import failed.',
+  'notionImport.done': 'Import finished',
+  'notionImport.documents': 'Documents',
+  'notionImport.collections': 'Databases',
+  'notionImport.rows': 'Database rows',
+  'notionImport.folders': 'Folders',
+  'notionImport.attachments': 'Attachments',
+  'notionImport.links': 'Links resolved',
+  'notionImport.linksValue': '{resolved} / {total}',
+  'notionImport.renamed': '{count} pages with duplicate names got a number suffix.',
+  'notionImport.broken': 'Links not found ({count}) — kept as written',
+  'notionImport.skipped': 'Skipped files ({count})',
+  'notionImport.more': '…and {count} more',
+  'notionImport.open': 'Open',
 } satisfies Record<string, string>

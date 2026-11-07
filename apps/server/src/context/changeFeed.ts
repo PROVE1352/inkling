@@ -4,6 +4,7 @@ import { pageChanges, pageChunks } from '../db/schema'
 import { env } from '../env'
 import { visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
+import { agentAllowedSql } from '../agentAccess'
 import { reserveCursor } from './changeLog'
 import { diffText } from './diff'
 import type { WorkBudget } from './diff'
@@ -489,7 +490,8 @@ async function loadRows(userId: string, from: number, to: number, workspaceId: s
      WHERE c.seq > ${from}::bigint AND c.seq <= ${to}::bigint
        AND c.workspace_id IN (
              SELECT m.workspace_id FROM workspace_members m
-              WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)})
+              WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)}
+                AND ${agentAllowedSql(sql`m.workspace_id`)})
        AND (c.scope = 'shared' OR c.owner_id = ${userId})
      ORDER BY c.seq
      LIMIT ${FEED_MAX_ROWS + 1}

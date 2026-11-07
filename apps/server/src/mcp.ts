@@ -11,6 +11,9 @@ import { pageDocs, pages } from './db/schema'
 import { stateToBlocks, stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
 import { findVisiblePage } from './pageDto'
+import { reviewFactsFor } from './review'
+import { countReads } from './pageReads'
+import type { ReviewFacts } from './review'
 import { registerChangeTools } from './mcpTools/changeTools'
 import { registerCollectionTools } from './mcpTools/collectionTools'
 import { registerContextTools } from './mcpTools/contextTools'
@@ -30,6 +33,17 @@ import type { ToolCtx } from './mcpTools/core'
 
 function json(v: unknown): CallToolResult {
   return jsonCore(v)
+}
+
+/** Owner / review lines for read_page (docs/adr/0951-*, 0953-*): document dates and the daily batch only. */
+function reviewLines(f: ReviewFacts | undefined): string[] {
+  if (!f) return []
+  const out: string[] = []
+  if (f.owner) out.push(`- owner: ${f.owner}`)
+  if (f.reviewedOn) out.push(`- reviewedAt: ${f.reviewedOn}`)
+  if (f.living) out.push('- living: yes (changes too often for review dates)')
+  else if (f.dueOn) out.push(`- reviewDue: ${f.dueOn}${f.stale && f.p !== null ? ` (stale, p=${f.p.toFixed(2)})` : ''}`)
+  return out
 }
 
 const sectionOf = (p: PageMetaDTO) => (p.scope === 'private' ? 'private' : 'shared')
@@ -293,6 +307,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           truncated: boolean
           totalChars: number
         }
+        countReads([r.page.id]) // read counters (docs/adr/0953-*)
         const head = `# ${titleOf(r.page)}${r.section.headingPath ? ` › ${r.section.headingPath}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         return text(head + r.markdown + tail)
@@ -301,6 +316,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md' } })
       const meta = await findVisiblePage(pageId, ctx.user.id)
       if (!meta) throw new ToolError('page not found or not visible to you; use find_context to get a valid id')
+      countReads([meta.id]) // read counters (docs/adr/0953-*)
       const propsRow = (
         await db
           .select({ properties: pages.properties })
@@ -326,6 +342,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         `- updatedAt: ${meta.updatedAt.toISOString()}`,
         `- url: ${pageUrl(ctx, meta)}`,
         ...(properties.length ? [`- properties: ${JSON.stringify(properties)}`] : []),
+        ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id)),
         '',
         '---',
         '',
@@ -517,14 +534,14 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     {
       title: 'Move to trash',
       description:
-        'Move a page (and everything under it) to the trash. It can be restored from the trash in the web app and is permanently deleted after 30 days. ' +
+        'Move a page (and everything under it) to the trash. It can be restored from the trash in the web app until the trash retention period of its workspace ends (30 days by default). ' +
         'There is no permanent-delete tool.',
       inputSchema: { pageId: uuid().describe('Page id') },
       annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId }) => {
       await call(ctx, 'DELETE', `/api/pages/${pageId}`)
-      return text('Moved to the trash (restorable from the trash in the web app; permanently deleted after 30 days).')
+      return text('Moved to the trash (restorable from the trash in the web app until the trash retention period of its workspace ends, 30 days by default).')
     }),
   )
 

@@ -78,10 +78,11 @@ export default {
   'share.sharedHintFolder': '누구나 이 링크로 폴더를 볼 수 있습니다(읽기 전용).',
   'share.openNewTab': '새 탭에서 열기',
   'share.stop': '공유 중지',
-  'share.stopOwnerOnly': '공유 중지는 워크스페이스 소유자만 할 수 있습니다.',
+  'share.stopOwnerOnly': '공유 중지는 워크스페이스 소유자와 관리자만 할 수 있습니다.',
   'share.publishHintPage': '이 페이지를 웹에 공개하면 로그인 없이 누구나 읽기 전용으로 볼 수 있습니다.',
   'share.publishHintFolder': '이 폴더를 웹에 공개하면 로그인 없이 누구나 읽기 전용으로 볼 수 있습니다.',
-  'share.publishOwnerOnly': '워크스페이스 소유자만 공개할 수 있습니다.',
+  'share.publishOwnerOnly': '워크스페이스 소유자와 관리자만 공개할 수 있습니다.',
+  'share.publishDisabled': '워크스페이스 설정에서 웹 공개가 꺼져 있습니다.',
   'share.publish': '웹에 공개',
 
   // Template gallery

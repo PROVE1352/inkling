@@ -12,7 +12,6 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Medium** (C-L4) No Origin / `Sec-Fetch-Site` check on state-changing requests or on the `/collab` upgrade; CSRF and cross-site WebSocket protection relies on `SameSite=Lax` alone. Any future fix must exempt `/oauth/token` and `/mcp`, which are called by non-browser clients.
 - **Medium** (C-L2, TODO #4) A successful login resets the IP-wide failure counter, so an attacker with one valid account can interleave its logins to keep guessing other accounts. Fix: reset only that account's counter and let the IP counter decay.
 - **Medium** (C-L14, TODO #6) A single-use signup key stays valid forever as a password-recovery code for the account that used it. Fix: expire recovery after a period, or show and revoke it in the admin screen.
-- **Medium** (C-M3, remaining part) Any workspace member can add existing users directly via `POST /workspaces/:id/members`, and there is no block list, so a removed member can be re-added by any member.
 - **Medium** (C-L9) The collaboration socket has no limits on message rate, awareness payload size, documents per socket or accumulated Yjs size; awareness user names can be spoofed. Fix: token bucket and size checks in `beforeHandleMessage`, server-side awareness identity.
 - **Medium** (C-M11) `pnpm audit --prod` reported vulnerable dependencies (fastify, @fastify/static, @fastify/busboy, MCP SDK, drizzle-orm, zod, @tiptap/core, prosemirror-view). Addressed in the dependency phase; re-run `pnpm audit --prod` before release.
 - **Low** (C-L15) OAuth: no token revocation endpoint; dynamic client registration has no global cap or cleanup of unused clients; `client_id` handling is lenient; any `https` `redirect_uri` is accepted at registration.
@@ -21,6 +20,9 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (C-L13, TODO) Webhook URLs, which often embed secrets (Slack/Discord tokens), are stored in plaintext. Fix: encrypt with an app secret from env.
 - **Low** (C-L16) A plugin can navigate its own frame to exfiltrate data it was given. Accepted: the trust boundary is the admin's approval of the plugin (documented in `docs/PLUGINS.md`).
 - **Low** (C-L17) The link-preview rate-limit key is the session, so one user with several sessions (or several users) multiply the outbound fetch budget.
+- **Low** (TODO, docs/adr/0947-*) A per-client agent block can be sidestepped by registering the same agent again under a new OAuth `client_id`; blocking "all agents" of the member covers it. Dynamic client registration has no cap (C-L15).
+- **Low** (TODO, docs/adr/0946-*) The workspace audit log is append-only in application code only (no DB trigger); a database administrator can still change rows.
+- **Info** (TODO, docs/adr/0950-*) The export policy gates only the whole-workspace zip; any member can still export single pages they can see (by design: agent reads and copy/paste allow it anyway).
 - **Low** (C-L11, last item) The vault-sync manifest hash (`sync.ts`) includes titles of linked pages the caller cannot see, which leaks that they changed.
 - **Low** (TODO, P-server leftover) An open collaboration socket on a page that is moved to the trash stays connected and writable.
 - **Low** (TODO #5) Login failure counters live in memory and reset on restart (IP bans themselves persist in `ip_bans`). Accepted for a single instance.
@@ -64,7 +66,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 
 - **Low** (fix phase, docs/adr/0815-*) Ink 412 merge: the undo history is not rebased onto the merged stroke list, and a stroke another device added after our base cannot be erased until it has been merged in. The client merge path is covered by the server test and code review only, not by a two-device browser run.
 
-- **Low** (AGENT-C1, docs/adr/0930-*) `patch_section` replaces the blocks of one section: characters a person types *inside that section* between the agent's read and its write are lost unless their edit reached the server first (then the stale `baseVersion` is a conflict). Edits in other sections always merge.
+- **Low** (AGENT-C1, docs/adr/0930-*, 0940-*) `patch_section(replace)` edits the section in place (block alignment + character diff), so concurrent typing merges; characters typed into a block the agent deletes are lost, and a changed table is replaced as one node (typing inside it is not merged). Other live-doc reads (`md/docWrite.ts` writeBlocksToDoc/appendBlocksToDoc, `routes/sync.ts` snapshotPage) still call `yDocToBlocks` on the live document, which deletes callouts, embeds and mentions page-wide; they should read a copy like `context/sectionPatch.ts` `readBlocks`.
 - **Low** (AGENT-C2, docs/adr/0934-*) `create_row` with relation values is two writes (insert, then links); if the second fails the row exists without links (the error says so).
 
 - **Medium** (CF-1, docs/adr/0932-*) Change-feed ordering and merge safety rely on an in-process write chain and high-water mark: single server instance only; a second process writing `page_changes` would need a database lock.
@@ -73,6 +75,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 
 ## Operations
 
+- **Low** (TODO, docs/adr/0953-*) Page read counters are buffered in memory for up to a minute; a crash loses that minute, and several app instances would each keep their own buffer (single instance assumed, like reminders).
 - **Medium** (B-M8) Backups are written to the same disk as the database, and the weekly restore test creates a temporary database inside the production PostgreSQL without checking the db volume's free space. Keep an off-site copy and ample free disk.
 - **Medium** (B-M9) No concurrency cap on heavy jobs (folder import, zip export, subtree duplicate) inside the 768m app container; several at once can OOM-kill it. Fix: a global semaphore (1 to 2 jobs).
 - **Medium** (B-M1) Zip export opens a read stream for every attachment up front (one fd each) and leaks them if the client aborts. Fix: open lazily and destroy on `reply.raw` close.
@@ -103,6 +106,7 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Medium** (P, memory audit P2) Each page embed opens its own `HocuspocusProviderWebsocket` instead of sharing one, which also counts against the 40 sockets per IP cap.
 - **Medium** (TODO, DB extension) The 15 s collection poll includes `refs`; a changed 10k-row collection sends about 4.5 MB (unchanged ones already get 304). Fix: split refs out, send deltas, drop constant DTO fields.
 - **Medium** (P, memory audit P3) Whole-buffer paths: folder import (peak 3 to 4x the 50 MB upload), subtree duplicate (in-memory map), zip export, and the right panel converting the whole document every 300 ms.
+- **Medium** (NOTION-4, docs/adr/0961-*) Zip and Notion imports hold the uploaded archive in memory (JSZip needs the whole buffer); a Notion export with part archives holds those too (bounded by `IMPORT_MAX_UPLOAD_MB`). Raising the `IMPORT_MAX_*` caps on a 768m container needs headroom; there is still no heavy-job semaphore (B-M9).
 - **Low** (P, memory audit P3) Server store path re-reads the previous state before the snapshot decision and runs `stateToBlocks` plus four reindex passes on every store. Fix: reorder and debounce.
 - **Low** (P, memory audit P2; docs/adr/0850-*) `content-visibility: auto` on editor blocks was removed in every engine because it made Chromium drop keystrokes typed right after Enter. Large documents are laid out in full everywhere. Measured cost in Chromium: 3,701 blocks open in 455 ms instead of 320 ms, and relayout after a width change is no longer skipped. A real fix would be JS block virtualization that keeps the edited block rendered.
 - **Low** (P, memory audit) `window.ProseMirror` keeps a reference to the last editor (`@blocknote/react` `useCreateBlockNote`), retaining it after unmount.
@@ -145,12 +149,16 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** (CF-4) A page created but never written is never indexed, so it gets no `page_added` until it has content; pages edited before the upgrade backfill reaches them log `page_added` with their full text.
 - **Low** (CF-6) After a page goes from private to shared, other members see one `visibility: private → shared` line, not the edits made while it was private; agents must read the page.
 
+- **Medium** (NOTION-1, docs/adr/0960-*) Notion import: callouts become quotes (no callout block in the server schema), equations become `latex` code (no math rendering), person / rollup / formula / files columns become text, relations are one-way and only to databases in the same import, select needs at least four values, date cells keep only the start date (no time). Attachments not referenced by any page are skipped (listed in the report). Notion's HTML export and the Notion API are not supported.
+- **Low** (NOTION-2, docs/adr/0960-*) Relation detection is heuristic: a text column whose every value equals a row title of one imported database becomes a relation; a link to a page that is not in the export stays a notion.so URL and is reported as unresolved.
+- **Low** (NOTION-3, docs/adr/0960-*) Notion pages are created first and filled one at a time; a process crash (not an error) in that window leaves pages with empty documents. Errors roll the import back.
+
 <!-- fix-web / tests-ci: append Editor items above this line -->
 
 ## Localization (i18n pass, docs/adr/0900-0904)
 
 - **Low** Titles the server fills in for date items with no title (`Untitled`, `(empty)` in `md/dateItems.ts`) and Notion upload `warnings[]` are English and are shown as-is in the Korean UI.
-- **Low** Server messages with dynamic parts (zod `refine` messages prefixed with the field path, `Delegated sign-in (<name>)…`, `Too many pages to import (max N)` when `IMPORT_MAX_PAGES` is changed) have no exact Korean match and fall back to the generic `errors.<CODE>` text; `NOTION_ERROR` shows Notion's English detail inside the Korean sentence.
+- **Low** Server messages with dynamic parts (zod `refine` messages prefixed with the field path, `Delegated sign-in (<name>)…`, `Too many pages to import (max N)` when `IMPORT_MAX_PAGES` is changed, the import size / file-count messages when `IMPORT_MAX_*` differ from the defaults) have no exact Korean match and fall back to the generic `errors.<CODE>` text; `NOTION_ERROR` shows Notion's English detail inside the Korean sentence.
 - **Low** BlockNote's built-in slash items only match aliases of the active dictionary (`/할일` works in Korean UI, `/todo` in English); Inkling's own items keep both languages' aliases.
 - **Low** Link previews are cached for 60 s with their placeholder text already rendered, so right after a language switch a preview can show the previous language.
 - **Low** Date cells in databases show the stored `YYYY-MM-DD` value in every language; only calendar/timeline headers and tooltips are localized.

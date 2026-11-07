@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { db } from '../db/index'
+import { agentAllowedSql } from '../agentAccess'
 import { escapeLike } from '../util'
 import type { Candidate, Fragment, Scored } from './rank'
 import { pack, queryTerms, scoreCandidate, TOP_K, TopK, tsqueryText } from './rank'
@@ -45,12 +46,15 @@ function uuidArray(ids: string[]): string {
   return `{${ids.join(',')}}`
 }
 
-/** Workspace ids the user is a member of, excluding soft-deleted workspaces. */
+/**
+ * Workspace ids the user is a member of, excluding soft-deleted workspaces and, for an agent
+ * request, workspaces that blocked that agent connection (docs/adr/0947-*).
+ */
 export async function memberWorkspaceIds(userId: string): Promise<string[]> {
   const rows = (await db.execute(sql`
     SELECT wm.workspace_id AS id FROM workspace_members wm
       JOIN workspaces w ON w.id = wm.workspace_id
-     WHERE wm.user_id = ${userId} AND w.deleted_at IS NULL
+     WHERE wm.user_id = ${userId} AND w.deleted_at IS NULL AND ${agentAllowedSql(sql`wm.workspace_id`)}
   `)) as unknown as { id: string }[]
   return rows.map((r) => r.id)
 }

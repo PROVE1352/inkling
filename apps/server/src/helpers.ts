@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from './db/index'
 import { workspaceMembers, workspaces } from './db/schema'
 import { forbidden, notFound } from './errors'
+import { assertAgentAllowed } from './agentAccess'
 import { newInviteCode } from './util'
 import type { WorkspaceRole } from '@inkling/shared'
 
@@ -25,7 +26,8 @@ export async function generateInviteCode(exec: SelectCapable): Promise<string> {
 
 /**
  * Check workspace membership: 403 if not a member, 404 if the workspace is soft-deleted
- * (docs/adr/0910-*), otherwise return the role. Every `/workspaces/:id/*` and page/file route goes
+ * (docs/adr/0910-*), 403 AGENT_BLOCKED for an agent connection blocked in this workspace
+ * (docs/adr/0947-*), otherwise return the role. Every `/workspaces/:id/*` and page/file route goes
  * through here, so this one check hides a deleted workspace from all of them.
  */
 export async function requireMembership(
@@ -47,6 +49,8 @@ export async function requireMembership(
   const row = rows[0]
   if (!row) throw forbidden()
   if (row.deletedAt) throw notFound()
+  // Agent (MCP) requests: per-workspace block + access record (docs/adr/0947-*). No-op for cookies.
+  await assertAgentAllowed(workspaceId)
   return row.role
 }
 

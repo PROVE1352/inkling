@@ -14,6 +14,7 @@ import { useParams } from 'react-router'
 import { useDroppable } from '@dnd-kit/core'
 import type { PageMetaDTO } from '@inkling/shared'
 import {
+  recordPageView,
   useBookmarks,
   useMe,
   usePages,
@@ -354,6 +355,11 @@ export function PageView() {
   const { theme } = useTheme()
 
   const page = pages.data?.find((p) => p.id === pageId)
+  // One view per page open → the page's read counter (totals only, docs/adr/0953-*)
+  const pageLoaded = !!page
+  useEffect(() => {
+    if (pageId && pageLoaded) recordPageView(pageId)
+  }, [pageId, pageLoaded])
   const isDoc = page?.kind === 'doc'
   const isCanvas = page?.kind === 'canvas'
   const isBookmarked = !!page && (bookmarks.data ?? []).some((b) => b.pageId === page.id)

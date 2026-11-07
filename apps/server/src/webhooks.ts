@@ -125,6 +125,8 @@ export interface WebhookEventInput {
   commentId?: string | null
   /** For 'mention': the mentioned user ids. */
   mentionedUserIds?: string[]
+  /** For 'review_due': every page in the digest (pageId is the first one). docs/adr/0952-* */
+  pageIds?: string[]
 }
 
 interface Message {
@@ -155,6 +157,7 @@ function plainExcerpt(body: string, max = 140): string {
  * page missing/deleted/private/moved, comment deleted, …  This is the single privacy gate.
  */
 async function buildMessage(ev: WebhookEventInput, hookWorkspaceId: string): Promise<Message | null> {
+  if (ev.type === 'review_due') return buildReviewDigest(ev, hookWorkspaceId)
   const page = (
     await db
       .select({ id: pages.id, title: pages.title, scope: pages.scope, workspaceId: pages.workspaceId, deletedAt: pages.deletedAt, isTemplate: pages.isTemplate })
@@ -199,8 +202,49 @@ async function buildMessage(ev: WebhookEventInput, hookWorkspaceId: string): Pro
     case 'page_created':
       summary = `${actor} created "${title}"`
       break
+    default:
+      return null
   }
   return { summary, excerpt, link, title }
+}
+
+const DIGEST_LISTED = 8
+
+/**
+ * The daily review digest (docs/adr/0952-*). Same privacy gate as single-page events, applied to
+ * each page at delivery: only live, shared, non-template pages of this workspace are named.
+ */
+async function buildReviewDigest(ev: WebhookEventInput, hookWorkspaceId: string): Promise<Message | null> {
+  if (ev.workspaceId !== hookWorkspaceId) return null
+  const ids = [...new Set(ev.pageIds ?? [ev.pageId])].slice(0, 100)
+  if (ids.length === 0) return null
+  const rows = await db
+    .select({ id: pages.id, title: pages.title, ownerName: users.name })
+    .from(pages)
+    .leftJoin(users, eq(users.id, pages.ownerId))
+    .where(
+      and(
+        inArray(pages.id, ids),
+        eq(pages.workspaceId, hookWorkspaceId),
+        sql`${pages.deletedAt} is null`,
+        eq(pages.scope, 'shared'),
+        eq(pages.isTemplate, '0'),
+      ),
+    )
+  if (rows.length === 0) return null
+  const order = new Map(ids.map((id, i) => [id, i]))
+  rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  const listed = rows
+    .slice(0, DIGEST_LISTED)
+    .map((r) => `${r.title.trim() || 'Untitled'}${r.ownerName ? ` (${r.ownerName})` : ''}`)
+  const more = rows.length - listed.length
+  const origin = appOrigin()
+  return {
+    summary: `${rows.length} document${rows.length === 1 ? ' is' : 's are'} due for review`,
+    excerpt: plainExcerpt(listed.join(' · ') + (more > 0 ? ` (+${more} more)` : ''), 600),
+    link: origin ? `${origin}/w/${hookWorkspaceId}/workspace-settings?tab=review` : null,
+    title: 'Review due',
+  }
 }
 
 function slackEscape(s: string): string {
@@ -446,6 +490,11 @@ async function enabledHooks(workspaceId: string): Promise<CachedHooks['hooks']> 
   hookCache.set(workspaceId, { at: Date.now(), hooks })
   if (hookCache.size > 10_000) hookCache.delete(hookCache.keys().next().value as string)
   return hooks
+}
+
+/** Whether the workspace has an enabled hook subscribed to `event` (cached like delivery). */
+export async function hasEnabledHook(workspaceId: string, event: WebhookEvent): Promise<boolean> {
+  return (await enabledHooks(workspaceId)).some((h) => h.events.includes(event))
 }
 
 /**

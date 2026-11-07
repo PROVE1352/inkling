@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import type { MemberDTO, WorkspaceDTO, WorkspaceRole } from '@inkling/shared'
 import {
@@ -22,20 +21,21 @@ import {
   RefreshIcon,
   SearchIcon,
   UserMinusIcon,
-  UsersIcon,
-  XIcon,
 } from './Icons'
 import { Spinner } from './Spinner'
 
-const roleLabel = (role: WorkspaceRole) => (role === 'owner' ? t('members.roleOwner') : t('members.roleMember'))
+// Members tab of the workspace settings screen (docs/adr/0945-*, 0948-*). Owners change roles;
+// owners and admins remove people (admins: plain members only) and handle the invite link;
+// adding existing users follows the workspace's member-add policy (WorkspaceDTO.can).
 
-function RoleBadge({ role }: { role: WorkspaceRole }) {
+export const roleLabel = (role: WorkspaceRole) =>
+  role === 'owner' ? t('members.roleOwner') : role === 'admin' ? t('members.roleAdmin') : t('members.roleMember')
+
+export function RoleBadge({ role }: { role: WorkspaceRole }) {
   return (
     <span
       className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-        role === 'owner'
-          ? 'bg-accent-soft text-accent'
-          : 'bg-hover text-sub'
+        role === 'member' ? 'bg-hover text-sub' : 'bg-accent-soft text-accent'
       }`}
     >
       {roleLabel(role)}
@@ -43,18 +43,9 @@ function RoleBadge({ role }: { role: WorkspaceRole }) {
   )
 }
 
-export function MembersModal({
-  open,
-  onClose,
-  wsId,
-  workspace,
-}: {
-  open: boolean
-  onClose: () => void
-  wsId: string
-  workspace: WorkspaceDTO
-}) {
+export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: WorkspaceDTO }) {
   useT()
+
   const navigate = useNavigate()
   const me = useMe()
   const members = useMembers(wsId)
@@ -70,25 +61,17 @@ export function MembersModal({
     const timer = window.setTimeout(() => setDebounced(query.trim()), 250)
     return () => window.clearTimeout(timer)
   }, [query])
-  const candidates = useMemberCandidates(open ? wsId : '', debounced)
+  const candidates = useMemberCandidates(workspace.can?.addMembers === false ? '' : wsId, debounced)
 
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'ok' | 'fail' | null>(null)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
   const [confirmRegen, setConfirmRegen] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
-  if (!open) return null
-
   const isOwner = workspace.role === 'owner'
+  const isManager = workspace.can?.manage ?? isOwner
+  const canAdd = workspace.can?.addMembers ?? true
+  const canInvite = workspace.can?.inviteLink ?? isOwner
   const list = members.data ?? []
   const ownerCount = list.filter((m) => m.role === 'owner').length
 
@@ -116,10 +99,7 @@ export function MembersModal({
     removeMember.mutate(userId, {
       onSuccess: () => {
         // Once I leave I can no longer access this workspace → go home.
-        if (isSelf) {
-          onClose()
-          navigate('/', { replace: true })
-        }
+        if (isSelf) navigate('/', { replace: true })
       },
       onError: (err) =>
         setError(err instanceof ApiError ? err.message : t('members.actionFailed')),
@@ -149,6 +129,8 @@ export function MembersModal({
   const renderRow = (m: MemberDTO) => {
     const isSelf = m.id === me.data?.id
     const isLastOwner = m.role === 'owner' && ownerCount <= 1
+    // admins may remove plain members (and themselves); owners anyone but the last owner
+    const canRemove = isSelf || isOwner || (isManager && m.role === 'member')
     const initial = m.name.trim().charAt(0).toUpperCase() || '?'
     return (
       <div key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-hover">
@@ -173,6 +155,7 @@ export function MembersModal({
               className="shrink-0 rounded-md border border-line bg-app px-1.5 py-1 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
             >
               <option value="owner">{t('members.roleOwner')}</option>
+              <option value="admin">{t('members.roleAdmin')}</option>
               <option value="member">{t('members.roleMember')}</option>
             </select>
             <ConfirmPopover
@@ -200,6 +183,25 @@ export function MembersModal({
         ) : (
           <>
             <RoleBadge role={m.role} />
+            {isManager && canRemove && !isSelf && (
+              <ConfirmPopover
+                open={confirmRemoveId === m.id}
+                onCancel={() => setConfirmRemoveId(null)}
+                onConfirm={() => doRemove(m.id)}
+                message={t('members.removeConfirm', { name: m.name || t('members.thisMember') })}
+                confirmLabel={t('members.removeMember')}
+              >
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemoveId(m.id)}
+                  disabled={busy}
+                  title={t('members.removeMember')}
+                  className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 transition-colors duration-150 hover:bg-hover disabled:opacity-40"
+                >
+                  <UserMinusIcon size={14} />
+                </button>
+              </ConfirmPopover>
+            )}
             {isSelf && (
               <ConfirmPopover
                 open={confirmRemoveId === m.id}
@@ -224,32 +226,9 @@ export function MembersModal({
     )
   }
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10dvh]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="nd-pop flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-line bg-app shadow-xl"
-      >
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
-            <UsersIcon size={17} /> {t('members.title')}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t('common.close')}
-            className="rounded-md p-1 text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-          >
-            <XIcon size={18} />
-          </button>
-        </div>
-
+  return (
+    <div className="flex flex-col overflow-hidden rounded-lg border border-line">
+      {canAdd && (
         <div className="border-b border-line px-3 py-2">
           <label className="flex items-center gap-2 rounded-md border border-line bg-app px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-accent">
             <SearchIcon size={14} className="shrink-0 text-sub" />
@@ -268,9 +247,7 @@ export function MembersModal({
                   <Spinner size={16} />
                 </div>
               ) : (candidates.data ?? []).length === 0 ? (
-                <p className="px-1 py-2 text-xs text-sub">
-                  {t('members.noCandidates')}
-                </p>
+                <p className="px-1 py-2 text-xs text-sub">{t('members.noCandidates')}</p>
               ) : (
                 (candidates.data ?? []).map((c) => (
                   <div key={c.id} className="flex items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-hover">
@@ -292,34 +269,40 @@ export function MembersModal({
             </div>
           )}
         </div>
+      )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {members.isLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner size={20} />
-            </div>
-          ) : list.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-sub">{t('members.empty')}</p>
-          ) : (
-            list.map(renderRow)
-          )}
-        </div>
+      <div className="py-1">
+        {members.isLoading ? (
+          <div className="flex justify-center py-8">
+            <Spinner size={20} />
+          </div>
+        ) : list.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-sub">{t('members.empty')}</p>
+        ) : (
+          list.map(renderRow)
+        )}
+      </div>
 
-        {error && <p className="px-4 pt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="px-4 pb-2 text-xs text-red-600">{error}</p>}
 
+      {isManager && (
         <div className="flex items-center gap-2 border-t border-line px-3 py-3">
-          <button
-            type="button"
-            onClick={copyLink}
-            className="flex flex-1 items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-            title={t('members.copyInvite')}
-          >
-            <CopyIcon size={14} />
-            <span key={copied ?? 'idle'} className="nd-fade">
-              {copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
-            </span>
-          </button>
-          {isOwner && (
+          {canInvite ? (
+            <button
+              type="button"
+              onClick={copyLink}
+              className="flex flex-1 items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+              title={t('members.copyInvite')}
+            >
+              <CopyIcon size={14} />
+              <span key={copied ?? 'idle'} className="nd-fade">
+                {copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
+              </span>
+            </button>
+          ) : (
+            <p className="flex-1 text-xs text-sub">{t('members.inviteOff')}</p>
+          )}
+          {canInvite && (
             <ConfirmPopover
               open={confirmRegen}
               onCancel={() => setConfirmRegen(false)}
@@ -334,18 +317,13 @@ export function MembersModal({
                 className="flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
                 title={t('members.regenTitle')}
               >
-                {regenerate.isPending ? (
-                  <Spinner size={14} />
-                ) : (
-                  <RefreshIcon size={14} />
-                )}
+                {regenerate.isPending ? <Spinner size={14} /> : <RefreshIcon size={14} />}
                 {t('members.regenCode')}
               </button>
             </ConfirmPopover>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+      )}
+    </div>
   )
 }

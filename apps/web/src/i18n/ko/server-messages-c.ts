@@ -28,4 +28,8 @@ export default {
   'Validation failed': '유효성 검사에 실패했습니다',
   'Unsupported media type': '지원하지 않는 형식입니다',
   'The requested resource was not found': '요청한 리소스를 찾을 수 없습니다',
+  // md/notionImport.ts, routes/exportImport.ts (Notion export import, docs/adr/0960-*)
+  'No Notion pages found in the archive': '압축 파일에서 Notion 페이지를 찾지 못했습니다',
+  'Not a readable zip archive': '읽을 수 없는 zip 파일입니다',
+  'A Notion export is imported as its .zip file': 'Notion 내보내기는 받은 .zip 파일 그대로 가져옵니다',
 } satisfies Record<string, string>

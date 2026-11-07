@@ -11,12 +11,14 @@ import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import {
   invalidateWebhookCache,
+  maskWebhookUrl,
   MAX_WEBHOOKS_PER_WORKSPACE,
   parseWebhookUrl,
   sendTestMessage,
   toWebhookDTO,
   WebhookUrlError,
 } from '../webhooks'
+import { recordAudit } from '../workspaceAdmin'
 
 const eventsSchema = z
   .array(z.enum(WEBHOOK_EVENTS as unknown as [WebhookEvent, ...WebhookEvent[]]))
@@ -83,10 +85,21 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       if (n >= MAX_WEBHOOKS_PER_WORKSPACE) {
         throw new AppError(409, 'LIMIT_REACHED', `At most ${MAX_WEBHOOKS_PER_WORKSPACE} webhooks per workspace`)
       }
-      const [row] = await db
-        .insert(workspaceWebhooks)
-        .values({ workspaceId, kind: parsed.kind, url: parsed.url, events: body.events, createdBy: user.id })
-        .returning()
+      const row = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(workspaceWebhooks)
+          .values({ workspaceId, kind: parsed.kind, url: parsed.url, events: body.events, createdBy: user.id })
+          .returning()
+        // the masked URL only: the full URL is a secret (docs/adr/0946-*)
+        await recordAudit(tx, {
+          workspaceId,
+          actor: user,
+          action: 'webhook.created',
+          target: { type: 'webhook', id: row.id, label: maskWebhookUrl(row.url) },
+          after: { kind: row.kind, events: body.events },
+        })
+        return row
+      })
       invalidateWebhookCache(workspaceId)
       return { webhook: toWebhookDTO(row) }
     },
@@ -104,7 +117,28 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       if (body.enabled) Object.assign(set, { failureCount: 0, autoDisabledAt: null })
     }
     if (Object.keys(set).length === 0) return { webhook: toWebhookDTO(hook) }
-    const [row] = await db.update(workspaceWebhooks).set(set).where(eq(workspaceWebhooks.id, hook.id)).returning()
+    const row = await db.transaction(async (tx) => {
+      const [row] = await tx.update(workspaceWebhooks).set(set).where(eq(workspaceWebhooks.id, hook.id)).returning()
+      const before: Record<string, unknown> = {}
+      const after: Record<string, unknown> = {}
+      if (body.events) {
+        before.events = hook.events
+        after.events = body.events
+      }
+      if (body.enabled !== undefined) {
+        before.enabled = hook.enabled === '1'
+        after.enabled = body.enabled
+      }
+      await recordAudit(tx, {
+        workspaceId: hook.workspaceId,
+        actor: user,
+        action: 'webhook.updated',
+        target: { type: 'webhook', id: hook.id, label: maskWebhookUrl(hook.url) },
+        before,
+        after,
+      })
+      return row
+    })
     invalidateWebhookCache(hook.workspaceId)
     return { webhook: toWebhookDTO(row) }
   })
@@ -112,7 +146,21 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
   app.delete('/webhooks/:id', { preHandler: requireUser }, async (req, reply) => {
     const user = getUser(req)
     const hook = await loadHook(idParam(req.params), user)
-    await db.delete(workspaceWebhooks).where(and(eq(workspaceWebhooks.id, hook.id), eq(workspaceWebhooks.workspaceId, hook.workspaceId)))
+    await db.transaction(async (tx) => {
+      const gone = await tx
+        .delete(workspaceWebhooks)
+        .where(and(eq(workspaceWebhooks.id, hook.id), eq(workspaceWebhooks.workspaceId, hook.workspaceId)))
+        .returning({ id: workspaceWebhooks.id })
+      if (gone.length > 0) {
+        await recordAudit(tx, {
+          workspaceId: hook.workspaceId,
+          actor: user,
+          action: 'webhook.deleted',
+          target: { type: 'webhook', id: hook.id, label: maskWebhookUrl(hook.url) },
+          before: { kind: hook.kind, events: hook.events },
+        })
+      }
+    })
     invalidateWebhookCache(hook.workspaceId)
     return reply.code(204).send()
   })

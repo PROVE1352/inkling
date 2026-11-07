@@ -7,8 +7,8 @@ export default {
   "Can't move a page under its own subpage": '자신의 하위 페이지로 이동할 수 없습니다',
   'The parent page is in the trash': '상위 페이지가 휴지통에 있습니다',
   'Pages can be nested at most 64 levels deep': '페이지 계층은 64단계까지만 만들 수 있습니다',
-  'Only the workspace owner can create or move pages under a folder that is published to the web':
-    '웹에 공개 중인 폴더 아래로는 워크스페이스 소유자만 페이지를 만들거나 옮길 수 있습니다',
+  'Only workspace owners and admins can create or move pages under a folder that is published to the web':
+    '웹에 공개 중인 폴더 아래로는 워크스페이스 소유자와 관리자만 페이지를 만들거나 옮길 수 있습니다',
   // md/taskEdit.ts (sent as-is by routes/tasks.ts)
   'No date found in this task': '이 할 일에서 날짜를 찾지 못했습니다',
   'Edit check failed (block count changed)': '편집 검증 실패(블록 수 변화)',

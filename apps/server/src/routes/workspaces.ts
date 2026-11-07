@@ -51,6 +51,17 @@ import {
 import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { escapeLike } from '../util'
+import { agentAllowedSql } from '../agentAccess'
+import {
+  diffFields,
+  isManagerRole,
+  loadPolicy,
+  policyColumns,
+  recordAudit,
+  roleMeets,
+  toWorkspaceDTO,
+} from '../workspaceAdmin'
+import type { AuditActor } from '../workspaceAdmin'
 import { collectDateItems } from '../md/dateItems'
 import { broadcastToUser } from '../collab'
 import { invalidateWebhookCache } from '../webhooks'
@@ -143,21 +154,17 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         icon: workspaces.icon,
         inviteCode: workspaces.inviteCode,
         role: workspaceMembers.role,
+        policy: policyColumns,
       })
       .from(workspaceMembers)
       .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-      // soft-deleted workspaces are hidden from every member (ADR 0910); owners see them in /workspaces/deleted
-      .where(and(eq(workspaceMembers.userId, user.id), isNull(workspaces.deletedAt)))
+      // soft-deleted workspaces are hidden from every member (ADR 0910); owners see them in /workspaces/deleted.
+      // An agent connection does not see workspaces that blocked it (docs/adr/0947-*).
+      .where(and(eq(workspaceMembers.userId, user.id), isNull(workspaces.deletedAt), agentAllowedSql(workspaces.id)))
       .orderBy(asc(workspaces.createdAt))
 
-    // The invite code is an owner credential (C-M3): members get '' (DTO field stays a string).
-    const result: WorkspaceDTO[] = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      icon: r.icon,
-      inviteCode: r.role === 'owner' ? r.inviteCode : '',
-      role: r.role,
-    }))
+    // The invite code is a manager credential (C-M3): members get '' (DTO field stays a string).
+    const result: WorkspaceDTO[] = rows.map((r) => toWorkspaceDTO(r, r.role, r.policy))
     return { workspaces: result }
   })
 
@@ -178,13 +185,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       return created
     })
 
-    const dto: WorkspaceDTO = {
-      id: ws.id,
-      name: ws.name,
-      icon: ws.icon,
-      inviteCode: ws.inviteCode,
-      role: 'owner',
-    }
+    const dto: WorkspaceDTO = toWorkspaceDTO(ws, 'owner', ws)
     return { workspace: dto }
   })
 
@@ -201,40 +202,52 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const body = joinWorkspaceSchema.parse(req.body)
     const code = body.inviteCode.trim().toUpperCase()
 
-    const ws = (
+    const found = (
       await db
-        .select()
+        .select({ id: workspaces.id })
         .from(workspaces)
-        .where(and(eq(workspaces.inviteCode, code), isNull(workspaces.deletedAt)))
+        // a turned-off invite link answers exactly like a wrong code (docs/adr/0948-*)
+        .where(and(eq(workspaces.inviteCode, code), isNull(workspaces.deletedAt), eq(workspaces.inviteLinkEnabled, true)))
         .limit(1)
     )[0]
-    if (!ws) throw notFound('INVALID_CODE', 'Invalid invite code')
+    if (!found) throw notFound('INVALID_CODE', 'Invalid invite code')
 
-    await db
-      .insert(workspaceMembers)
-      .values({ workspaceId: ws.id, userId: user.id, role: 'member' })
-      .onConflictDoNothing()
-
-    const membership = (
-      await db
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
+    // Under the member lock, re-checked: a removal regenerates the code and a settings change can
+    // turn the link off in a transaction that holds the same lock.
+    const { ws, role } = await db.transaction(async (tx) => {
+      await lockWorkspaceMembers(tx, found.id)
+      const [ws] = await tx
+        .select()
+        .from(workspaces)
         .where(
           and(
-            eq(workspaceMembers.workspaceId, ws.id),
-            eq(workspaceMembers.userId, user.id),
+            eq(workspaces.id, found.id),
+            eq(workspaces.inviteCode, code),
+            isNull(workspaces.deletedAt),
+            eq(workspaces.inviteLinkEnabled, true),
           ),
         )
         .limit(1)
-    )[0]
+      if (!ws) throw notFound('INVALID_CODE', 'Invalid invite code')
+      const inserted = await tx
+        .insert(workspaceMembers)
+        .values({ workspaceId: ws.id, userId: user.id, role: 'member' })
+        .onConflictDoNothing()
+        .returning({ userId: workspaceMembers.userId })
+      if (inserted.length > 0) {
+        await recordAudit(tx, {
+          workspaceId: ws.id,
+          actor: user,
+          action: 'member.joined',
+          target: { type: 'user', id: user.id, label: user.name },
+          after: { role: 'member', via: 'invite_link' },
+        })
+      }
+      const role = (await memberRoleTx(tx, ws.id, user.id)) ?? 'member'
+      return { ws, role }
+    })
 
-    const dto: WorkspaceDTO = {
-      id: ws.id,
-      name: ws.name,
-      icon: ws.icon,
-      inviteCode: membership.role === 'owner' ? ws.inviteCode : '',
-      role: membership.role,
-    }
+    const dto: WorkspaceDTO = toWorkspaceDTO(ws, role, ws)
     return { workspace: dto }
   })
 
@@ -254,7 +267,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         await db
           .select({ id: workspaces.id, name: workspaces.name, icon: workspaces.icon })
           .from(workspaces)
-          .where(and(eq(workspaces.inviteCode, normalized), isNull(workspaces.deletedAt)))
+          .where(and(eq(workspaces.inviteCode, normalized), isNull(workspaces.deletedAt), eq(workspaces.inviteLinkEnabled, true)))
           .limit(1)
       )[0]
       if (!ws) throw notFound('INVALID_CODE', 'Invalid invite code')
@@ -302,11 +315,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
 
   // Member-add candidate search — people who share another workspace with me and are not members here yet.
   //   Emails of unrelated users are never exposed; newcomers join through the invite link.
-  //   Any member can see the invite link, so any member may add people too.
+  //   Only callers the member-add policy allows (docs/adr/0948-*).
   app.get('/workspaces/:id/member-candidates', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireMembership(id, user.id)
+    const myRole = await requireMembership(id, user.id)
+    if (!roleMeets(myRole, (await loadPolicy(db, id)).memberAddPolicy)) {
+      throw forbidden('The workspace settings do not allow you to add members')
+    }
     const { q } = candidateQuerySchema.parse(req.query)
     const pattern = `%${escapeLike(q)}%`
 
@@ -328,6 +344,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   })
 
   // Add an existing user directly — no invite link. The added person gets a notification.
+  //   Allowed by the member-add policy (docs/adr/0948-*), read under the member lock.
   app.post('/workspaces/:id/members', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
@@ -344,6 +361,12 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     if (!target) throw notFound()
 
     const inserted = await db.transaction(async (tx) => {
+      await lockWorkspaceMembers(tx, id)
+      const myRole = await memberRoleTx(tx, id, user.id)
+      if (!myRole) throw forbidden()
+      if (!roleMeets(myRole, (await loadPolicy(tx, id)).memberAddPolicy)) {
+        throw forbidden('The workspace settings do not allow you to add members')
+      }
       const rows = await tx
         .insert(workspaceMembers)
         .values({ workspaceId: id, userId, role: 'member' })
@@ -353,6 +376,13 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       await tx
         .insert(notifications)
         .values({ userId, type: 'workspace_added', workspaceId: id, actorId: user.id })
+      await recordAudit(tx, {
+        workspaceId: id,
+        actor: user,
+        action: 'member.added',
+        target: { type: 'user', id: target.id, label: target.name },
+        after: { role: 'member' },
+      })
       return true
     })
     if (!inserted) throw badRequest('Already a member')
@@ -369,7 +399,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const body = updateMemberSchema.parse(req.body)
 
     await requireMembership(id, user.id)
-    await changeMemberRole(user.id, id, userId, body.role)
+    await changeMemberRole(user, id, userId, body.role)
 
     const row = (
       await db
@@ -407,7 +437,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const { id, userId } = memberParamsSchema.parse(req.params)
 
       await requireMembership(id, user.id)
-      await removeMember(user.id, id, userId)
+      await removeMember(user, id, userId)
       // The removed member's open collab sockets in this workspace stop receiving/sending now
       // (authorisation is otherwise only checked at connect time — docs/adr/0754-*).
       await closeUserWorkspaceConnections(userId, id)
@@ -416,32 +446,27 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     },
   )
 
-  // Regenerate the invite code — owner only. Invalidates the old link.
+  // Regenerate the invite code — owners and admins (docs/adr/0945-*). Invalidates the old link.
   app.post('/workspaces/:id/invite/regenerate', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
 
     const role = await requireMembership(id, user.id)
-    if (role !== 'owner') throw forbidden('Only owners can regenerate the invite code')
+    if (!isManagerRole(role)) throw forbidden('Only owners and admins can regenerate the invite code')
 
-    const code = await generateInviteCode(db)
-    const [ws] = await db
-      .update(workspaces)
-      .set({ inviteCode: code })
-      .where(eq(workspaces.id, id))
-      .returning()
+    const ws = await db.transaction(async (tx) => {
+      await lockWorkspaceMembers(tx, id)
+      const code = await generateInviteCode(tx)
+      const [ws] = await tx.update(workspaces).set({ inviteCode: code }).where(eq(workspaces.id, id)).returning()
+      await recordAudit(tx, { workspaceId: id, actor: user, action: 'invite.regenerated', target: { type: 'invite_link' } })
+      return ws
+    })
 
-    const dto: WorkspaceDTO = {
-      id: ws.id,
-      name: ws.name,
-      icon: ws.icon,
-      inviteCode: ws.inviteCode,
-      role,
-    }
+    const dto: WorkspaceDTO = toWorkspaceDTO(ws, role, ws)
     return { workspace: dto }
   })
 
-  // Rename — owner only
+  // Rename / change the icon — owner only (docs/adr/0945-*)
   app.patch('/workspaces/:id', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
@@ -450,19 +475,32 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const role = await requireMembership(id, user.id)
     if (role !== 'owner') throw forbidden('Only owners can rename the workspace')
 
-    const [ws] = await db
-      .update(workspaces)
-      .set({ name: body.name })
-      .where(eq(workspaces.id, id))
-      .returning()
+    const ws = await db.transaction(async (tx) => {
+      const [cur] = await tx
+        .select({ name: workspaces.name, icon: workspaces.icon })
+        .from(workspaces)
+        .where(eq(workspaces.id, id))
+        .for('update')
+        .limit(1)
+      if (!cur) throw notFound()
+      const set: { name?: string; icon?: string | null } = {}
+      if (body.name !== undefined) set.name = body.name
+      if (body.icon !== undefined) set.icon = body.icon
+      const [ws] = await tx.update(workspaces).set(set).where(eq(workspaces.id, id)).returning()
+      const diff = diffFields(cur, set)
+      if (diff) {
+        await recordAudit(tx, {
+          workspaceId: id,
+          actor: user,
+          action: 'workspace.updated',
+          target: { type: 'workspace', id, label: ws.name },
+          ...diff,
+        })
+      }
+      return ws
+    })
 
-    const dto: WorkspaceDTO = {
-      id: ws.id,
-      name: ws.name,
-      icon: ws.icon,
-      inviteCode: ws.inviteCode,
-      role,
-    }
+    const dto: WorkspaceDTO = toWorkspaceDTO(ws, role, ws)
     return { workspace: dto }
   })
 
@@ -486,7 +524,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const user = getUser(req)
     const id = idParam(req.params)
     const body = deleteWorkspaceSchema.parse(req.body ?? {})
-    const res = await softDeleteWorkspace(user.id, id, body.name)
+    const res = await softDeleteWorkspace(user, id, body.name)
     invalidateWebhookCache(id)
     await closeWorkspaceConnections(id)
     // every member's switcher refetches; AppLayout sends them home when the id is gone
@@ -505,18 +543,12 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.post('/workspaces/:id/restore', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    const res = await restoreWorkspace(user.id, id)
+    const res = await restoreWorkspace(user, id)
     invalidateWebhookCache(id)
     for (const uid of res.memberIds) broadcastToUser(uid, { t: 'notifications' })
     const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1)
     if (!ws) throw notFound()
-    const dto: WorkspaceDTO = {
-      id: ws.id,
-      name: ws.name,
-      icon: ws.icon,
-      inviteCode: ws.inviteCode,
-      role: 'owner',
-    }
+    const dto: WorkspaceDTO = toWorkspaceDTO(ws, 'owner', ws)
     return { workspace: dto }
   })
 
@@ -526,7 +558,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const id = idParam(req.params)
     const { userId } = transferOwnershipSchema.parse(req.body)
     await requireMembership(id, user.id)
-    await transferOwnership(user.id, id, userId)
+    await transferOwnership(user, id, userId)
     broadcastToUser(userId, { t: 'notifications' })
     const rows = await db
       .select({ id: users.id, name: users.name, email: users.email, role: workspaceMembers.role })
@@ -832,14 +864,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
  * same time cannot both succeed and leave the workspace without an owner.
  */
 export async function changeMemberRole(
-  actorId: string,
+  actor: AuditActor,
   workspaceId: string,
   userId: string,
   role: WorkspaceRole,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
-    const myRole = await memberRoleTx(tx, workspaceId, actorId)
+    const myRole = await memberRoleTx(tx, workspaceId, actor.id)
     if (!myRole) throw forbidden()
     if (myRole !== 'owner') throw forbidden('Only owners can change member roles')
     const target = await memberRoleTx(tx, workspaceId, userId)
@@ -847,31 +879,49 @@ export async function changeMemberRole(
     if (target === 'owner' && role !== 'owner' && (await ownerCountTx(tx, workspaceId)) <= 1) {
       throw badRequest('The last owner cannot be demoted')
     }
+    if (target === role) return
     await tx
       .update(workspaceMembers)
       .set({ role })
       .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)))
+    await recordAudit(tx, {
+      workspaceId,
+      actor,
+      action: 'member.role_changed',
+      target: { type: 'user', id: userId, label: await userNameTx(tx, userId) },
+      before: { role: target },
+      after: { role },
+    })
   })
 }
 
+async function userNameTx(tx: Pick<typeof db, 'select'>, userId: string): Promise<string | null> {
+  const [u] = await tx.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1)
+  return u?.name ?? null
+}
+
 /**
- * Removal by an owner, or leaving (actor = user), under the workspace member lock (A-H2).
- * When an owner removes someone else the invite code is regenerated in the same transaction:
+ * Removal by an owner or admin, or leaving (actor = user), under the workspace member lock (A-H2).
+ * Admins may remove plain members only; owners anyone but the last owner (docs/adr/0945-*).
+ * When someone else is removed the invite code is regenerated in the same transaction:
  * the removed member knew it and could otherwise rejoin at once (C-M3).
  */
 export async function removeMember(
-  actorId: string,
+  actor: AuditActor,
   workspaceId: string,
   userId: string,
 ): Promise<void> {
-  const isSelf = actorId === userId
+  const isSelf = actor.id === userId
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
-    const myRole = await memberRoleTx(tx, workspaceId, actorId)
+    const myRole = await memberRoleTx(tx, workspaceId, actor.id)
     if (!myRole) throw forbidden()
-    if (!isSelf && myRole !== 'owner') throw forbidden('Only owners can remove members')
+    if (!isSelf && !isManagerRole(myRole)) throw forbidden('Only owners and admins can remove members')
     const target = await memberRoleTx(tx, workspaceId, userId)
     if (!target) throw notFound()
+    if (!isSelf && myRole === 'admin' && target !== 'member') {
+      throw forbidden('Admins can only remove members; ask an owner to remove an owner or admin')
+    }
     if (target === 'owner' && (await ownerCountTx(tx, workspaceId)) <= 1) {
       throw badRequest('The last owner cannot leave')
     }
@@ -890,9 +940,21 @@ export async function removeMember(
           isNull(pages.deletedAt),
         ),
       )
+    // documents they owned lose their owner (the review list shows them as unowned, docs/adr/0951-*)
+    await tx
+      .update(pages)
+      .set({ ownerId: null })
+      .where(and(eq(pages.workspaceId, workspaceId), eq(pages.ownerId, userId)))
     if (!isSelf) {
       const code = await generateInviteCode(tx)
       await tx.update(workspaces).set({ inviteCode: code }).where(eq(workspaces.id, workspaceId))
     }
+    await recordAudit(tx, {
+      workspaceId,
+      actor,
+      action: isSelf ? 'member.left' : 'member.removed',
+      target: { type: 'user', id: userId, label: await userNameTx(tx, userId) },
+      before: { role: target },
+    })
   })
 }

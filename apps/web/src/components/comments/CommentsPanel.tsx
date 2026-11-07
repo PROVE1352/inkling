@@ -306,7 +306,8 @@ export function CommentsPanel({
   const resolved = threads.filter((t) => t.resolved)
 
   const myId = me.data?.id
-  const isOwner = (members.find((m) => m.id === myId)?.role ?? 'member') === 'owner'
+  // owners and admins moderate comments (docs/adr/0945-*)
+  const isOwner = (members.find((m) => m.id === myId)?.role ?? 'member') !== 'member'
 
   const startCompose = () => {
     if (!editor) return

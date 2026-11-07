@@ -25,6 +25,7 @@ import type { InklingEditor } from './CollabEditor'
 import { FieldCell } from './collection/cells/FieldCell'
 import { CommentsPanel } from './comments/CommentsPanel'
 import { HistoryModal, snapLabel } from './HistoryModal'
+import { PageReviewCard } from './PageReview'
 import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import {
   ChevronRightIcon,
@@ -104,6 +105,7 @@ const SECTION_KEYS = [
   'aliases',
   'history',
   'props',
+  'review',
 ] as const
 type SectionKey = (typeof SECTION_KEYS)[number]
 
@@ -120,6 +122,7 @@ function loadSectionState(): Record<SectionKey, boolean> {
     aliases: true,
     history: true,
     props: true,
+    review: true,
   }
   try {
     const raw = localStorage.getItem('inkling:rightPanel:sections')
@@ -446,6 +449,17 @@ export function RightPanel({
           </ul>
         )}
       </Section>
+
+      {/* Document owner and last review (docs/adr/0951-*) */}
+      {page.kind !== 'folder' && (
+        <Section
+          title={tr('review.section')}
+          open={sections.review}
+          onToggle={() => toggleSection('review')}
+        >
+          {sections.review && <PageReviewCard wsId={wsId} page={page} />}
+        </Section>
+      )}
 
       {isDoc && (
         <Section

@@ -7,17 +7,17 @@ import { getServerEditor } from './editor'
 // Casts happen only at the editor-method boundary.
 // ---------------------------------------------------------------------------
 
-interface StyledText {
+export interface StyledText {
   type: 'text'
   text: string
   styles?: Record<string, unknown>
 }
-interface LinkInline {
+export interface LinkInline {
   type: 'link'
   href: string
   content: StyledText[]
 }
-type Inline = StyledText | LinkInline | { type: string; [k: string]: unknown }
+export type Inline = StyledText | LinkInline | { type: string; [k: string]: unknown }
 
 interface TableCellObj {
   type: 'tableCell'
@@ -63,7 +63,7 @@ function isTableContent(c: AnyBlock['content']): c is TableContent {
 }
 
 /** Replace each block's inline array with mapFn's result (table cells included, children recursive). */
-function mapBlockInlines(
+export function mapBlockInlines(
   blocks: AnyBlock[],
   mapFn: (inlines: Inline[]) => Inline[],
 ): void {
@@ -107,7 +107,7 @@ function visitBlockInlines(blocks: AnyBlock[], visit: (inlines: Inline[]) => voi
 }
 
 /** Recursively visit attachment blocks that carry props.url (children included). */
-function visitAssetBlocks(blocks: AnyBlock[], visit: (block: AnyBlock) => void): void {
+export function visitAssetBlocks(blocks: AnyBlock[], visit: (block: AnyBlock) => void): void {
   for (const b of blocks) {
     if (b.type && ASSET_BLOCK_TYPES.has(b.type)) visit(b)
     if (Array.isArray(b.children)) visitAssetBlocks(b.children, visit)

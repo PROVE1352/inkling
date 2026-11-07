@@ -1,6 +1,7 @@
 import { hash, verify } from '@node-rs/argon2'
 import { eq, sql } from 'drizzle-orm'
-import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
+import { runAsAgent } from './agentAccess'
 import { db } from './db/index'
 import { sessions, users } from './db/schema'
 import { env } from './env'
@@ -32,6 +33,10 @@ export interface AuthUser {
    * Decide write access with canWriteFromScopes(scope) (docs/adr/0935-*).
    */
   scope?: string
+  /** Set only for MCP (OAuth bearer) requests: the connection (grant) id (docs/adr/0947-*). */
+  grantId?: string
+  /** Set only for MCP (OAuth bearer) requests: the registered OAuth client id (docs/adr/0947-*). */
+  clientId?: string
 }
 
 // Add the authenticated user to FastifyRequest (declaration merging)
@@ -161,7 +166,33 @@ export function clearSessionCookie(reply: FastifyReply): void {
  * unchanged). The cookie path is unchanged (browsers never attach a bearer token automatically,
  * so the CSRF surface does not grow).
  */
-export async function requireUser(req: FastifyRequest): Promise<void> {
+export function requireUser(req: FastifyRequest): Promise<void>
+export function requireUser(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void
+export function requireUser(
+  req: FastifyRequest,
+  _reply?: FastifyReply,
+  done?: HookHandlerDoneFunction,
+): Promise<void> | void {
+  const auth = authenticate(req)
+  // Called directly (`await requireUser(req)`): no agent scope is needed by the caller.
+  if (!done) return auth
+  // As a preHandler: continue the request inside the agent scope for bearer requests, so
+  // requireMembership / findVisiblePage can enforce per-workspace agent blocks (docs/adr/0947-*).
+  // The scope has to be entered here, around `done`: the handler runs from inside that call.
+  auth.then(
+    () => {
+      const u = req.user
+      if (req.authVia === 'bearer' && u?.grantId && u.clientId) {
+        runAsAgent({ userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }, () => done())
+      } else {
+        done()
+      }
+    },
+    (err: Error) => done(err),
+  )
+}
+
+async function authenticate(req: FastifyRequest): Promise<void> {
   const bearer = readBearer(req.headers.authorization)
   if (bearer !== null) {
     // The token is valid only in the /mcp handler's internal inject; direct REST use from outside is refused.

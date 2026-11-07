@@ -1,6 +1,7 @@
 // First import on purpose: ESM evaluates it before the submodules re-exported below build schemas.
 import './zodConfig'
 import { z } from 'zod'
+import type { WorkspaceCapabilities } from './workspaceAdmin'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -187,7 +188,16 @@ export const createWorkspaceSchema = z.object({
 })
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>
 
-export const renameWorkspaceSchema = createWorkspaceSchema
+/**
+ * PATCH /workspaces/:id — name and/or icon (docs/adr/0945-*). icon: a short emoji / text glyph,
+ * null clears it. At least one field.
+ */
+export const renameWorkspaceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60).optional(),
+    icon: z.string().trim().min(1).max(16).nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.icon !== undefined, { message: 'name or icon required' })
 
 /** DELETE /workspaces/:id — the current workspace name, typed again as confirmation (docs/adr/0910-*). */
 export const deleteWorkspaceSchema = z.object({
@@ -201,7 +211,7 @@ export const transferOwnershipSchema = z.object({
 })
 export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>
 
-export const memberRoleSchema = z.enum(['owner', 'member'])
+export const memberRoleSchema = z.enum(['owner', 'admin', 'member'])
 
 export const updateMemberSchema = z.object({
   role: memberRoleSchema,
@@ -290,14 +300,21 @@ export interface UserDTO {
   pendingResetRequests?: number
 }
 
-export type WorkspaceRole = 'owner' | 'member'
+/** owner > admin > member (docs/adr/0945-*). */
+export type WorkspaceRole = 'owner' | 'admin' | 'member'
 
 export interface WorkspaceDTO {
   id: string
   name: string
   icon: string | null
+  /** Owners and admins only ('' for members, and when the invite link is turned off for everyone but owners/admins). */
   inviteCode: string
   role: WorkspaceRole
+  /**
+   * What the caller may do here, derived on the server from role + workspace settings
+   * (docs/adr/0945-*). Additive: older servers omit it.
+   */
+  can?: WorkspaceCapabilities
 }
 
 /** A soft-deleted workspace the caller owns and can still restore (GET /workspaces/deleted). */
@@ -809,3 +826,4 @@ export * from './query'
 
 // Embeds, link previews, workspace webhooks
 export * from './embeds'
+export * from './workspaceAdmin'

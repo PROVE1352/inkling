@@ -8,6 +8,7 @@ import editor from './ko/editor'
 import lib from './ko/lib'
 import collection from './ko/collection'
 import templates from './ko/templates'
+import workspaceAdmin from './ko/workspace-admin'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -20,4 +21,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...lib,
   ...collection,
   ...templates,
+  ...workspaceAdmin,
 }

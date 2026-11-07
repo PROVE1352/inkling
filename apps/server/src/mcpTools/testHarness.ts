@@ -44,6 +44,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
   await app.register(
     async (api) => {
       await (await import('../routes/workspaces')).registerWorkspaceRoutes(api)
+      await (await import('../routes/workspaceAdmin')).registerWorkspaceAdminRoutes(api)
       await (await import('../routes/pages')).registerPageRoutes(api)
       await (await import('../routes/pageContent')).registerPageContentRoutes(api)
       await (await import('../routes/context')).registerContextRoutes(api)

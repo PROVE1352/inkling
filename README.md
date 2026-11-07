@@ -58,6 +58,7 @@
 - Slack and Discord webhooks for mentions, comments, due dates and new pages
 - iCal feed of due dates, CSV/XLSX import and export for databases, read-only Google Sheets sync (experimental)
 - Markdown and zip import/export (front matter, attachments, `[[links]]` resolved), upload to Notion
+- Notion export import (Markdown & CSV zip): page tree, links, images and files, CSV databases as collections with typed fields; callouts arrive as quotes and equations as code, and size caps apply (25 MB upload / 50 MB unpacked by default)
 
 **Self-hosting & operations**
 - One `docker compose` stack: Postgres, the app, and a backup sidecar; optional Caddy overlay for automatic HTTPS
@@ -170,7 +171,7 @@ A rough comparison as of November 2026, from each project's repository, document
 | Real-time collaboration | yes | yes | yes | yes | yes |
 | MCP server | built in, free | built in, free | EE | built in, needs an AI provider; read-only by default | built in (plan limits: ?) |
 | Obsidian vault sync | two-way (experimental) | no | no | one-way import | no |
-| Notion import | no (Markdown/zip import, upload to Notion) | yes | yes | yes | yes |
+| Notion import | export zip (Markdown & CSV), no API import | yes | yes | yes | yes |
 | Self-host weight | app + PostgreSQL | one Go binary + SQLite | app + PostgreSQL + Redis | app + PostgreSQL (pgvector) + Redis | app + PostgreSQL + Redis, plus an SSO provider or SMTP for login |
 
 Where Inkling is weaker: it needs PostgreSQL (no SQLite mode), there are no native desktop or

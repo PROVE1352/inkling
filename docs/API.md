@@ -75,11 +75,11 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/workspaces` | - | `{ workspaces: WorkspaceDTO[] }` (those you are a member of, including role) |
+| GET | `/api/workspaces` | - | `{ workspaces: WorkspaceDTO[] }` (those you are a member of, including role and `can`, docs/adr/0945-*). An MCP connection blocked in a workspace does not see it (docs/adr/0947-*). `inviteCode` is '' unless you are an owner, or an admin while the invite link is on |
 | POST | `/api/workspaces` | `createWorkspaceSchema` | `{ workspace: WorkspaceDTO }` (invite code generated automatically, you are the owner) |
-| POST | `/api/workspaces/join` | `joinWorkspaceSchema` | `{ workspace: WorkspaceDTO }`. Codes are compared after uppercase normalization. Unknown code → 404 `INVALID_CODE`. Already a member → plain 200 (idempotent). |
+| POST | `/api/workspaces/join` | `joinWorkspaceSchema` | `{ workspace: WorkspaceDTO }`. Codes are compared after uppercase normalization. Unknown code, or the invite link turned off → 404 `INVALID_CODE`. Already a member → plain 200 (idempotent). Audited as `member.joined`. |
 | GET | `/api/workspaces/:id/members` | - | `{ members: MemberDTO[] }` |
-| PATCH | `/api/workspaces/:id` | `renameWorkspaceSchema` | `{ workspace: WorkspaceDTO }`: **owner only** (otherwise 403) |
+| PATCH | `/api/workspaces/:id` | `renameWorkspaceSchema { name?, icon? }` (icon ≤ 16 chars, null clears; at least one field) | `{ workspace: WorkspaceDTO }`: **owner only** (otherwise 403). Audited as `workspace.updated` |
 
 - Invite codes: uppercase letters + digits from the alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (confusable characters removed), length 10, crypto random. Retried up to 3 times on a unique collision.
 
@@ -143,7 +143,7 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 | GET | `/api/pages/:id/export?format=md` | `text/markdown; charset=utf-8` attachment (single page, children excluded). Image links keep their absolute `/files/...` paths |
 | GET | `/api/pages/:id/export?format=zip` | zip: the page + its subtree. Structure follows the convention below |
 | GET | `/api/workspaces/:id/export` | zip: the whole workspace tree |
-| POST | `/api/workspaces/:id/import?parentId=<uuid?>` | multipart `file` = a single `.md` or a `.zip`. Response `{ pages: PageMetaDTO[] }` (created pages, in creation order) |
+| POST | `/api/workspaces/:id/import?parentId=<uuid?>&source=<auto\|markdown\|notion?>` | multipart `file` = a single `.md` or a `.zip` (≤ `IMPORT_MAX_UPLOAD_MB`, default 25). Response `{ pages: PageMetaDTO[] }` (created pages, in creation order). A Notion export (`source=notion`, or a zip detected as one when `source` is omitted) responds `{ pages, report }`, see [Notion export import](#notion-export-import). `source=notion` with a non-zip file → `415` |
 
 ### zip convention (Obsidian-friendly)
 
@@ -159,6 +159,34 @@ Page Title/              ← a page with children gets a folder of the same name
 - Image/file links in Markdown inside the zip are rewritten to relative `assets/<fileId><ext>` paths. Import reverses this (upload assets → rewrite to `/files/<newId>`).
 - Import: folder structure = parent relationships. The frontmatter `inkling-id` is **ignored and a new page is always created** (avoids id collisions; M2 scope).
 - An imported page's document is stored via `blocksToYDoc` → `Y.encodeStateAsUpdate` → `page_docs.state`. This is a one-time initialization before any collaboration starts, so it is safe.
+
+### Notion export import
+
+Notion → Settings → Export (or a page's ⋯ → Export) → **Markdown & CSV**, include subpages, create
+folders for subpages; upload the downloaded zip as is (docs/adr/0960-*).
+
+- Ids (` <32 hex>`) are removed from titles; `Title.md` + folder `Title/` = one page with children;
+  sibling title collisions get ` (2)`. The leading `# Title` line becomes the title.
+- `X_all.csv` (preferred over `X.csv`) → a collection with a table view; first column = row title;
+  fields typed checkbox / number / date / URL / select / multi-select / relation (rows of one
+  database in the same import), everything else text. Row pages in the database folder become the
+  rows' documents (their property lines are removed).
+- Relative links to `.md` / `.csv` / folders and notion.so URLs → internal links; referenced
+  images and files are uploaded. Unresolved links keep their href.
+- Callouts → quotes, `$$` equations → `latex` code blocks, inline `$x$` → inline code.
+- Nested part archives (`Export-…-Part-N.zip`) are unpacked one level deep.
+- All-or-nothing: on failure the created pages and uploaded files are removed.
+
+`report`:
+
+```ts
+{ source: 'notion', detected: 'explicit' | 'auto',
+  pages, documents, folders, collections, rows, attachments: number,
+  links: { total, resolved },             // relative links, attachment paths, notion.so URLs
+  brokenLinks: { page, href }[], brokenLinkCount,   // lists capped at 200, counts exact
+  skipped: { path, reason }[], skippedCount,         // view CSVs, unreferenced attachments, …
+  renamed, callouts, equations: number }
+```
 
 ## Page kinds (kind) — M2
 
@@ -203,10 +231,11 @@ Types and validation schemas come from the M3 section of `@inkling/shared` (coll
 ## Invites
 - `GET /api/workspaces/invite-preview?code=<code>` (authentication only, membership not required) → `InvitePreviewDTO { name, icon, memberCount }`. Unknown code 404 INVALID_CODE.
 
-## Members (owner only, except leaving yourself)
-- `PATCH /api/workspaces/:id/members/:userId` body `updateMemberSchema { role }` → `{ member: MemberDTO }`. Demoting the last owner 400.
-- `DELETE /api/workspaces/:id/members/:userId` → 204. An owner removes someone else, or you leave. The last owner leaving 400. **On removal, that user's private pages in this workspace are soft-deleted** (audit L3).
-- `POST /api/workspaces/:id/invite/regenerate` (owner) → `{ workspace: WorkspaceDTO }` (new code).
+## Members (roles `owner | admin | member`, docs/adr/0945-*)
+- `PATCH /api/workspaces/:id/members/:userId` body `updateMemberSchema { role: 'owner'|'admin'|'member' }` (owner only) → `{ member: MemberDTO }`. Demoting the last owner 400.
+- `DELETE /api/workspaces/:id/members/:userId` → 204. An owner removes anyone, an admin removes plain members (owner/admin target 403), or you leave. The last owner leaving 400. **On removal, that user's private pages in this workspace are soft-deleted** (audit L3), their document ownerships are cleared and (when someone else is removed) the invite code is regenerated.
+- `GET /api/workspaces/:id/member-candidates`, `POST /api/workspaces/:id/members`: only callers the member-add policy allows (default owners and admins; 403 otherwise, docs/adr/0948-*).
+- `POST /api/workspaces/:id/invite/regenerate` (owner or admin) → `{ workspace: WorkspaceDTO }` (new code).
 - `POST /api/workspaces/:id/transfer` (owner) body `transferOwnershipSchema { userId }` → `{ members: MemberDTO[] }`. The target becomes owner and the caller becomes member in one transaction under the `ws-members` lock (docs/adr/0911-*). Not a member (delegated accounts included as usual) 400; the caller themself 400; caller not an owner 403 (also the loser of two concurrent transfers). Afterwards the old owner can leave normally.
 
 ## Workspace deletion (owner, soft delete with a 30-day restore — docs/adr/0910-*)
@@ -427,7 +456,8 @@ Server-side fetches of user URLs go through `safeFetch` (SSRF guard, docs/adr/05
 | DELETE | `/api/webhooks/:id` | Owner. 204 |
 | POST | `/api/webhooks/:id/test` | Owner. 5/min. Sends a fixed test message now → `{ ok, status, error, webhook }` |
 
-`WebhookEvent` = `mention` (comment @mentions) · `comment` · `reminder` (due today) · `page_created` (shared section, sent after 20 s).
+`WebhookEvent` = `mention` (comment @mentions) · `comment` · `reminder` (due today) · `page_created` (shared section, sent after 20 s) · `review_due` (once a day: shared documents due for review by priority, docs/adr/0952-*).
+Webhook create/update/delete are audited (`webhook.*`, masked URL).
 Events on pages that are not `scope='shared'` are never sent. After 5 consecutive failed events a hook is disabled and owners get a
 `webhook_disabled` notification (`NotificationDTO.workspaceId` set). docs/adr/0504.
 
@@ -541,7 +571,8 @@ limited to 10/min.
 their creator only; `DELETE /templates/:id` needs the creator or a workspace owner. See [Templates](#templates).
 
 **Imports** — folder depth ≤ 32, at most `IMPORT_MAX_PAGES` (default 5000) created pages, zip entries
-measured by real decompressed bytes (25 MB per entry, 50 MB total) → `400` otherwise. Imported
+measured by real decompressed bytes (`IMPORT_MAX_ENTRY_MB` per entry, default 25; `IMPORT_MAX_UNPACKED_MB`
+total, default 50), at most `IMPORT_MAX_FILES` (default 300) files → `400` otherwise. Imported
 attachments get `pageId` of the first page that references them.
 
 **Login** — `401` (the password was just changed) when a password reset committed while the login was
@@ -578,3 +609,40 @@ session and workspace membership (a deleted workspace answers `404`). `:tid` is 
 
 `POST /api/pages/:id/instantiate` and the page `isTemplate` flag were removed (ADR 0920); save the
 page with sub-pages as a template instead.
+
+# Workspace settings (docs/adr/0945–0953)
+
+All routes in this section need a browser session (a bearer token gets 401 from outside /mcp, 403 through it). `WorkspaceDTO.can`
+(`manage`, `editSettings`, `addMembers`, `inviteLink`, `export`, `publish`) is the server's view of
+what the caller may do; every route re-checks.
+
+| Method | Path | Who | Body / query | Response |
+|---|---|---|---|---|
+| GET | `/api/workspaces/:id/settings` | member | - | `{ settings: WorkspaceSettingsDTO, role, can }` |
+| PATCH | `/api/workspaces/:id/settings` | owner | `updateWorkspaceSettingsSchema` (strict): `inviteLinkEnabled`, `memberAddPolicy`/`exportPolicy` (`owners`\|`admins`\|`members`), `publicSharingDisabled` (+ `unpublishExisting: true` removes every public link in the same transaction), `trashRetentionDays` 7–365, `auditRetentionDays` 30–730, `reviewIntervalDays` 7–730 or null | `{ settings, role, can, unpublished }`; audited as `settings.updated` with changed fields |
+| GET | `/api/workspaces/:id/audit` | owner, admin | `action` (exact, or a group such as `member`), `actorId`, `cursor` (id), `limit` ≤ 100 | `AuditPageDTO { events, nextCursor, retentionDays }`, newest first |
+| GET | `/api/workspaces/:id/agents` | owner, admin | - | `{ connections: AgentConnectionDTO[], blocks: AgentBlockDTO[] }` — OAuth connections of current members that reached this workspace (`access`, `firstUsedAt`, `lastUsedAt`, `blocked`) |
+| POST | `/api/workspaces/:id/agents/blocks` | owner, admin (not owners' agents) | `{ userId, clientId? }` (no client = all agents of that member) | `{ block: { id } }`; idempotent |
+| DELETE | `/api/workspaces/:id/agents/blocks/:blockId` | owner, admin | - | 204 |
+| POST | `/api/workspaces/:id/shared/unpublish` | owner, admin | `{ pageIds? }` (omit = all) | `{ unpublished }` |
+| GET | `/api/workspaces/:id/review-due` | member | `mine=1` | `ReviewDueDTO { intervalDays, today, items, archive, living }`; items by priority score |
+| POST | `/api/pages/:id/view` | member who sees the page | - | 204; counts one web read (page total only) |
+| GET | `/api/pages/:id/review` | member who sees the page | - | `{ review: PageReviewDTO }` |
+| PUT | `/api/pages/:id/owner` | member who sees the page | `{ ownerId \| null }` (a member; private page: its author) | `{ review }` |
+| POST | `/api/pages/:id/review` | member who sees the page | - | `{ review }`; "Mark reviewed" now, by the caller |
+| PUT | `/api/pages/:id/living` | member who sees the page | `{ living: true\|false\|null }` | `{ review }` |
+
+Changed rules:
+- `POST /api/pages/:id/share`, `DELETE /api/pages/:id/share`: owners and admins; publishing a page
+  that is not public yet answers 403 `PUBLIC_SHARING_DISABLED` while the workspace forbids public
+  links. Both are audited (`share.*`). `GET /api/workspaces/:id/shared` → `canManage` for owners and admins.
+- `GET /api/workspaces/:id/export`: 403 when the export policy excludes the caller; audited
+  (`export.downloaded`). Per-page `/api/pages/:id/export` is unchanged.
+- Agent (MCP) requests: any workspace route answers 403 `AGENT_BLOCKED` (single-page routes 404)
+  when that connection is blocked in the workspace; cross-workspace tools skip it.
+- MCP `read_page` header adds `owner`, `reviewedAt`, `reviewDue: YYYY-MM-DD (stale, p=0.62)` or
+  `living: yes` when known; `find_context` adds `owner X, reviewed YYYY-MM-DD, stale p=0.62` to a
+  fragment header. Values come from stored dates and the daily batch only.
+- Trash purge uses each workspace's `trashRetentionDays`; audit events past
+  `auditRetentionDays` and page read counters older than 90 days are purged hourly.
+

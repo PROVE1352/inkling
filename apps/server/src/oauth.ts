@@ -218,6 +218,7 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
       lastUsedAt: oauthGrants.lastUsedAt,
       scope: oauthGrants.scope,
       clientName: oauthClients.name,
+      clientId: oauthClients.id,
       id: users.id,
       email: users.email,
       name: users.name,
@@ -245,6 +246,9 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
     // '' would read as "legacy/full" in canWriteFromScopes, which is what a null grant means too.
     scope: row.scope ?? '',
     via: sanitizeClientName(row.clientName) ?? 'MCP client',
+    // per-workspace agent blocks and access records (docs/adr/0947-*)
+    grantId: row.grantId,
+    clientId: row.clientId,
   }
 }
 

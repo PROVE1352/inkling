@@ -14,6 +14,7 @@ import { idParam, requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
 import { emitWebhookEvent } from '../webhooks'
+import { isManagerRole } from '../workspaceAdmin'
 
 /** Display name for a removed/deleted author (comments whose author_id was set null), in the viewer's locale. */
 const DELETED_AUTHOR: Record<Locale, string> = { en: '(deleted user)', ko: '(삭제된 사용자)' }
@@ -256,8 +257,9 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
     if (!page) throw notFound()
     const role = await requireMembership(page.workspaceId, user.id)
 
-    if (comment.authorId !== user.id && role !== 'owner') {
-      throw forbidden('Only the author or an owner can delete this comment')
+    // owners and admins moderate comments (docs/adr/0945-*)
+    if (comment.authorId !== user.id && !isManagerRole(role)) {
+      throw forbidden('Only the author, an owner or an admin can delete this comment')
     }
 
     if (comment.threadId === id) {

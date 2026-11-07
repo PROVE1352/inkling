@@ -29,6 +29,7 @@ import {
 import type { TemplateContentV2, TemplateMeta, TNode } from '../templates/structure'
 import { formatDate, renderString, wallClock, withIsoDate } from '../templates/variables'
 import type { VarContext } from '../templates/variables'
+import { isManagerRole } from '../workspaceAdmin'
 
 /**
  * Page templates (docs/adr/0920-0925, docs/TEMPLATES.md).
@@ -363,9 +364,9 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
     if (!row) throw notFound('TEMPLATE_NOT_FOUND', 'Template not found')
     if (row.builtin === '1') throw forbidden("Built-in templates can't be deleted")
     const role = await requireMembership(row.workspaceId, user.id)
-    // Only the author or a workspace owner may delete a template (C-L11).
-    if (row.createdBy !== user.id && role !== 'owner') {
-      throw forbidden('Only the template creator or an owner can delete it')
+    // Only the author or a workspace owner/admin may delete a template (C-L11, docs/adr/0945-*).
+    if (row.createdBy !== user.id && !isManagerRole(role)) {
+      throw forbidden('Only the template creator, an owner or an admin can delete it')
     }
     await db.delete(templates).where(eq(templates.id, id))
     return reply.code(204).send()

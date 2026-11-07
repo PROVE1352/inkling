@@ -74,7 +74,7 @@ export default {
   'members.noName': '이름 없음',
   'members.you': '(나)',
   'members.leaveConfirm':
-    '이 워크스페이스에서 나가시겠어요? 내 개인 페이지는 휴지통으로 가며 다른 사람은 볼 수 없고, 30일 뒤 삭제됩니다.',
+    '이 워크스페이스에서 나가시겠어요? 내 개인 페이지는 휴지통으로 가며 다른 사람은 볼 수 없고, 워크스페이스 휴지통 보관 기간(소유자가 바꾸지 않았다면 30일)이 지나면 삭제됩니다.',
   'members.removeConfirm': '{name} 님을 내보낼까요? 이 멤버의 개인 페이지는 휴지통으로 이동합니다.',
   'members.thisMember': '이 멤버',
   'members.leave': '나가기',
@@ -194,7 +194,7 @@ export default {
   'wsDanger.delete': '워크스페이스 삭제…',
   'wsDanger.leaveTitle': '"{name}"에서 나가시겠어요?',
   'wsDanger.leaveBody':
-    '이 워크스페이스에 더 이상 접근할 수 없습니다. 여기 있는 내 개인 페이지는 휴지통으로 가며 다른 사람은 볼 수 없고, 30일 뒤 삭제됩니다. 공유 페이지는 팀에 남습니다.',
+    '이 워크스페이스에 더 이상 접근할 수 없습니다. 여기 있는 내 개인 페이지는 휴지통으로 가며 다른 사람은 볼 수 없고, 워크스페이스 휴지통 보관 기간(소유자가 바꾸지 않았다면 30일)이 지나면 삭제됩니다. 공유 페이지는 팀에 남습니다.',
   'wsDanger.leaveFailed': '워크스페이스에서 나가지 못했습니다',
   'wsDanger.soleOwnerTitle': '유일한 소유자입니다',
   'wsDanger.soleOwnerBody':
@@ -229,4 +229,25 @@ export default {
   'wsDanger.daysLeft_other': '{count}일 남음',
   'wsDanger.restore': '복원',
   'wsDanger.restoreFailed': '워크스페이스를 복원하지 못했습니다',
+  // Notion export import (docs/adr/0960-*)
+  'notionImport.menu': 'Notion에서 가져오기 (.zip)',
+  'notionImport.title': 'Notion 내보내기 가져오기',
+  'notionImport.hint': 'Notion에서 설정 → 내보내기(또는 페이지 ⋯ → 내보내기) → "Markdown & CSV", 하위 페이지 포함, 하위 페이지용 폴더 만들기를 켜고 받은 .zip을 그대로 올리세요.',
+  'notionImport.limits': '페이지는 문서로, CSV 데이터베이스는 컬렉션으로, 이미지와 파일은 첨부로 들어옵니다. 콜아웃은 인용으로, 수식은 코드로 들어옵니다.',
+  'notionImport.choose': '.zip 선택',
+  'notionImport.importing': '가져오는 중…',
+  'notionImport.failed': 'Notion 가져오기에 실패했습니다.',
+  'notionImport.done': '가져오기 완료',
+  'notionImport.documents': '문서',
+  'notionImport.collections': '데이터베이스',
+  'notionImport.rows': '데이터베이스 행',
+  'notionImport.folders': '폴더',
+  'notionImport.attachments': '첨부',
+  'notionImport.links': '연결된 링크',
+  'notionImport.linksValue': '{resolved} / {total}',
+  'notionImport.renamed': '이름이 겹친 페이지 {count}개에 번호를 붙였습니다.',
+  'notionImport.broken': '찾지 못한 링크 ({count}개) — 원문 그대로 둠',
+  'notionImport.skipped': '건너뛴 파일 ({count}개)',
+  'notionImport.more': '…외 {count}개',
+  'notionImport.open': '열기',
 } satisfies Partial<Record<keyof typeof en, string>>

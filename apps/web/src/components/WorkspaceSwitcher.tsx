@@ -18,17 +18,13 @@ import {
   ChevronDownIcon,
   CheckIcon,
   DownloadIcon,
-  LogOutIcon,
-  PlugIcon,
   PlusIcon,
-  TrashIcon,
+  SettingsIcon,
   UploadIcon,
   UsersIcon,
 } from './Icons'
-import { WorkspaceDangerDialogs, type DangerAction } from './WorkspaceDanger'
-import { MembersModal } from './MembersModal'
-import { WebhooksModal } from './WebhooksModal'
 import { Modal } from './Modal'
+import { NotionImportModal } from './NotionImportModal'
 import { Spinner } from './Spinner'
 import { t, useT } from '../i18n'
 
@@ -44,10 +40,8 @@ export function WorkspaceSwitcher({
   const [open, setOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
-  const [showMembers, setShowMembers] = useState(false)
-  const [showWebhooks, setShowWebhooks] = useState(false)
-  const [danger, setDanger] = useState<DangerAction>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [showNotion, setShowNotion] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const importWs = useImportWorkspace(wsId)
@@ -157,28 +151,27 @@ export function WorkspaceSwitcher({
             ))}
           </div>
           <div className="my-1 border-t border-line" />
+          {/* Members, sharing, agents, audit, webhooks and the danger zone live on one screen (docs/adr/0945-*) */}
           <button
             type="button"
             onClick={() => {
               setOpen(false)
-              setShowMembers(true)
+              navigate(`/w/${wsId}/workspace-settings?tab=members`)
             }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
           >
             <UsersIcon size={15} /> {t('members.title')}
           </button>
-          {current?.role === 'owner' && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false)
-                setShowWebhooks(true)
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
-            >
-              <PlugIcon size={15} /> Slack & Discord
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              navigate(`/w/${wsId}/workspace-settings`)
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
+          >
+            <SettingsIcon size={15} /> {t('wsSettings.menu')}
+          </button>
 
           <div className="my-1 border-t border-line" />
           <button
@@ -203,16 +196,18 @@ export function WorkspaceSwitcher({
           </button>
 
           <div className="my-1 border-t border-line" />
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              triggerDownload(`/api/workspaces/${wsId}/export`)
-            }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
-          >
-            <DownloadIcon size={15} /> {t('workspace.exportAll')}
-          </button>
+          {(current?.can?.export ?? true) && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                triggerDownload(`/api/workspaces/${wsId}/export`)
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
+            >
+              <DownloadIcon size={15} /> {t('workspace.exportAll')}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
@@ -231,49 +226,22 @@ export function WorkspaceSwitcher({
             {importFolder.isPending ? <Spinner size={15} /> : <UploadIcon size={15} />}
             {t('workspace.importFolder')}
           </button>
-          {importError && (
-            <p className="px-3 py-1 text-xs text-red-600">{importError}</p>
-          )}
-
-          {/* Danger zone (docs/adr/0910-*, 0911-*) */}
-          <div className="my-1 border-t border-line" />
-          <div className="px-3 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-sub">
-            {t('wsDanger.section')}
-          </div>
           <button
             type="button"
             onClick={() => {
               setOpen(false)
-              setDanger('leave')
+              setShowNotion(true)
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
+            disabled={importing}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
           >
-            <LogOutIcon size={15} /> {t('wsDanger.leave')}
+            <UploadIcon size={15} />
+            {t('notionImport.menu')}
           </button>
-          {current?.role === 'owner' && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  setDanger('transfer')
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
-              >
-                <UsersIcon size={15} /> {t('wsDanger.transfer')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  setDanger('delete')
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-hover"
-              >
-                <TrashIcon size={15} /> {t('wsDanger.delete')}
-              </button>
-            </>
+          {importError && (
+            <p className="px-3 py-1 text-xs text-red-600">{importError}</p>
           )}
+
         </div>
       )}
 
@@ -294,6 +262,7 @@ export function WorkspaceSwitcher({
         onChange={onImportFolder}
       />
 
+      <NotionImportModal open={showNotion} onClose={() => setShowNotion(false)} wsId={wsId} />
       <CreateWorkspaceModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
@@ -310,18 +279,6 @@ export function WorkspaceSwitcher({
           navigate(`/w/${ws.id}`)
         }}
       />
-      {current && (
-        <WorkspaceDangerDialogs action={danger} onAction={setDanger} wsId={wsId} workspace={current} />
-      )}
-      {showWebhooks && current && <WebhooksModal wsId={wsId} onClose={() => setShowWebhooks(false)} />}
-      {showMembers && current && (
-        <MembersModal
-          open
-          onClose={() => setShowMembers(false)}
-          wsId={wsId}
-          workspace={current}
-        />
-      )}
     </div>
   )
 }

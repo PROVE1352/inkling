@@ -2,12 +2,14 @@ import { unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { db, relaxStatementTimeout } from './db/index'
-import { files, notifications, workspaceMembers, workspaces } from './db/schema'
+import { files, notifications, users, workspaceMembers, workspaces } from './db/schema'
 import { env } from './env'
 import { badRequest, forbidden, notFound } from './errors'
 import { lockWorkspaceMembers, memberRoleTx } from './helpers'
 import { lockTree, type Tx } from './pageTree'
 import { WORKSPACE_RESTORE_MS } from './workspaceLive'
+import { recordAudit } from './workspaceAdmin'
+import type { AuditActor } from './workspaceAdmin'
 
 /**
  * Workspace deletion and ownership transfer (docs/adr/0910-*, 0911-*).
@@ -59,10 +61,11 @@ export interface SoftDeleteResult {
  * 404 when it does not exist, is already deleted, or the actor is not a member.
  */
 export async function softDeleteWorkspace(
-  actorId: string,
+  actor: AuditActor,
   workspaceId: string,
   confirmName: string,
 ): Promise<SoftDeleteResult> {
+  const actorId = actor.id
   return db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
     const [ws] = await tx
@@ -97,6 +100,7 @@ export async function softDeleteWorkspace(
         })),
       )
     }
+    await recordAudit(tx, { workspaceId, actor, action: 'workspace.deleted', target: { type: 'workspace', id: workspaceId, label: ws.name } })
     return { name: ws.name, memberIds: members.map((m) => m.userId) }
   })
 }
@@ -106,7 +110,8 @@ export async function softDeleteWorkspace(
  * deleted, the window has passed, or the actor is not a member. The `workspace_deleted`
  * notifications are removed (they would now be wrong).
  */
-export async function restoreWorkspace(actorId: string, workspaceId: string): Promise<{ memberIds: string[] }> {
+export async function restoreWorkspace(actor: AuditActor, workspaceId: string): Promise<{ memberIds: string[] }> {
+  const actorId = actor.id
   return db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
     const role = await memberRoleTx(tx, workspaceId, actorId)
@@ -117,8 +122,14 @@ export async function restoreWorkspace(actorId: string, workspaceId: string): Pr
       .update(workspaces)
       .set({ deletedAt: null, deletedBy: null })
       .where(and(eq(workspaces.id, workspaceId), isNotNull(workspaces.deletedAt), gt(workspaces.deletedAt, cutoff)))
-      .returning({ id: workspaces.id })
+      .returning({ id: workspaces.id, name: workspaces.name })
     if (restored.length === 0) throw notFound()
+    await recordAudit(tx, {
+      workspaceId,
+      actor,
+      action: 'workspace.restored',
+      target: { type: 'workspace', id: workspaceId, label: restored[0].name },
+    })
     await tx
       .delete(notifications)
       .where(and(eq(notifications.workspaceId, workspaceId), eq(notifications.type, 'workspace_deleted')))
@@ -207,7 +218,8 @@ export async function purgeExpiredWorkspaces(now: Date, log: (msg: string) => vo
  * same owner: the second sees the actor demoted and gets 403, so the workspace always keeps at
  * least one owner.
  */
-export async function transferOwnership(actorId: string, workspaceId: string, targetId: string): Promise<void> {
+export async function transferOwnership(actor: AuditActor, workspaceId: string, targetId: string): Promise<void> {
+  const actorId = actor.id
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
     const myRole = await memberRoleTx(tx, workspaceId, actorId)
@@ -230,6 +242,15 @@ export async function transferOwnership(actorId: string, workspaceId: string, ta
           ne(workspaceMembers.userId, targetId),
         ),
       )
+    const [u] = await tx.select({ name: users.name }).from(users).where(eq(users.id, targetId)).limit(1)
+    await recordAudit(tx, {
+      workspaceId,
+      actor,
+      action: 'workspace.transferred',
+      target: { type: 'user', id: targetId, label: u?.name ?? null },
+      before: { owner: actor.name, targetRole: target },
+      after: { owner: u?.name ?? null, actorRole: 'member' },
+    })
   })
 }
 

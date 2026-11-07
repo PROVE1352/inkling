@@ -1,5 +1,6 @@
 import {
   replaceEqualDeep,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -1930,4 +1931,238 @@ export function runQuery(wsId: string, source: string) {
       body: JSON.stringify({ source, today, tzOffsetMinutes: -now.getTimezoneOffset() }),
     },
   )
+}
+
+// ---------------------------------------------------------------------------
+// Workspace settings screen (docs/adr/0945-* .. 0952-*): settings, audit log, connected agents,
+// public link management, document owner / review
+// ---------------------------------------------------------------------------
+
+type WsSettingsDTO = import('@inkling/shared').WorkspaceSettingsDTO
+type WsCapabilities = import('@inkling/shared').WorkspaceCapabilities
+type WsRole = import('@inkling/shared').WorkspaceRole
+
+export interface WorkspaceSettingsResponse {
+  settings: WsSettingsDTO
+  role: WsRole
+  can: WsCapabilities
+  unpublished?: number
+}
+
+export const qkAdmin = {
+  settings: (wsId: string) => ['wsSettings', wsId] as const,
+  audit: (wsId: string, action: string, actorId: string) => ['wsAudit', wsId, action, actorId] as const,
+  agents: (wsId: string) => ['wsAgents', wsId] as const,
+  reviewDue: (wsId: string, mine: boolean) => ['reviewDue', wsId, mine] as const,
+  pageReview: (pageId: string) => ['pageReview', pageId] as const,
+}
+
+export function useWorkspaceSettings(wsId: string) {
+  return useQuery({
+    queryKey: qkAdmin.settings(wsId),
+    queryFn: () => api<WorkspaceSettingsResponse>(`/api/workspaces/${wsId}/settings`),
+    enabled: !!wsId,
+  })
+}
+
+export function useUpdateWorkspaceSettings(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: import('@inkling/shared').UpdateWorkspaceSettingsInput) =>
+      api<WorkspaceSettingsResponse>(`/api/workspaces/${wsId}/settings`, { method: 'PATCH', body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      qc.setQueryData(qkAdmin.settings(wsId), data)
+      // capabilities in the workspace list (WorkspaceDTO.can) follow the settings
+      qc.invalidateQueries({ queryKey: qk.workspaces })
+      qc.invalidateQueries({ queryKey: ['sharedList'] })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+      qc.invalidateQueries({ queryKey: ['reviewDue', wsId] })
+    },
+  })
+}
+
+/** Rename / change the icon (owner). */
+export function useUpdateWorkspace(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name?: string; icon?: string | null }) =>
+      api<{ workspace: WorkspaceDTO }>(`/api/workspaces/${wsId}`, { method: 'PATCH', body: JSON.stringify(input) }).then(
+        (r) => r.workspace,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.workspaces })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
+export function useAuditLog(wsId: string, filter: { action: string; actorId: string }, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: qkAdmin.audit(wsId, filter.action, filter.actorId),
+    initialPageParam: '',
+    queryFn: ({ pageParam }) => {
+      const q = new URLSearchParams({ limit: '50' })
+      if (filter.action) q.set('action', filter.action)
+      if (filter.actorId) q.set('actorId', filter.actorId)
+      if (pageParam) q.set('cursor', pageParam)
+      return api<import('@inkling/shared').AuditPageDTO>(`/api/workspaces/${wsId}/audit?${q.toString()}`)
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: !!wsId && enabled,
+  })
+}
+
+export function useWorkspaceAgents(wsId: string, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.agents(wsId),
+    queryFn: () =>
+      api<{
+        connections: import('@inkling/shared').AgentConnectionDTO[]
+        blocks: import('@inkling/shared').AgentBlockDTO[]
+      }>(`/api/workspaces/${wsId}/agents`),
+    enabled: !!wsId && enabled,
+  })
+}
+
+export function useBlockAgent(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { userId: string; clientId: string | null }) =>
+      api<{ block: { id: string } }>(`/api/workspaces/${wsId}/agents/blocks`, jsonBody(input)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qkAdmin.agents(wsId) })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
+export function useUnblockAgent(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (blockId: string) => api<void>(`/api/workspaces/${wsId}/agents/blocks/${blockId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qkAdmin.agents(wsId) })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
+/** Remove public links: the given pages, or all of them (owners/admins). */
+export function useBulkUnpublish(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (pageIds?: string[]) =>
+      api<{ unpublished: number }>(`/api/workspaces/${wsId}/shared/unpublish`, jsonBody(pageIds ? { pageIds } : {})),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sharedList'] })
+      qc.invalidateQueries({ queryKey: ['share'] })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
+export function useReviewDue(wsId: string, mine: boolean, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.reviewDue(wsId, mine),
+    queryFn: () => api<import('@inkling/shared').ReviewDueDTO>(`/api/workspaces/${wsId}/review-due${mine ? '?mine=1' : ''}`),
+    enabled: !!wsId && enabled,
+  })
+}
+
+type PageReview = import('@inkling/shared').PageReviewDTO
+
+export function usePageReview(pageId: string, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.pageReview(pageId),
+    queryFn: () => api<{ review: PageReview | null }>(`/api/pages/${pageId}/review`).then((r) => r.review),
+    enabled: !!pageId && enabled,
+    retry: false,
+  })
+}
+
+function usePageReviewMutation<V>(pageId: string, fn: (v: V) => Promise<{ review: PageReview | null }>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => {
+      qc.setQueryData(qkAdmin.pageReview(pageId), data.review)
+      qc.invalidateQueries({ queryKey: ['reviewDue'] })
+    },
+  })
+}
+
+export function useSetPageOwner(pageId: string) {
+  return usePageReviewMutation(pageId, (ownerId: string | null) =>
+    api<{ review: PageReview | null }>(`/api/pages/${pageId}/owner`, { method: 'PUT', body: JSON.stringify({ ownerId }) }),
+  )
+}
+
+export function useSetLiving(pageId: string) {
+  return usePageReviewMutation(pageId, (living: boolean | null) =>
+    api<{ review: PageReview | null }>(`/api/pages/${pageId}/living`, { method: 'PUT', body: JSON.stringify({ living }) }),
+  )
+}
+
+/** One web view → the page's read counter (totals only, docs/adr/0953-*). Fire and forget. */
+export function recordPageView(pageId: string): void {
+  void api<void>(`/api/pages/${pageId}/view`, { method: 'POST' }).catch(() => {})
+}
+
+export function useMarkReviewed(pageId: string) {
+  return usePageReviewMutation(pageId, (_: void) =>
+    api<{ review: PageReview | null }>(`/api/pages/${pageId}/review`, { method: 'POST' }),
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Notion export import (docs/adr/0960-*) — same multipart route, ?source=notion
+// ---------------------------------------------------------------------------
+
+/** Server report of a Notion import (mirrors NotionImportReport in apps/server/src/md/notionImport.ts). */
+export interface NotionImportReportDTO {
+  source: 'notion'
+  detected: 'explicit' | 'auto'
+  pages: number
+  documents: number
+  folders: number
+  collections: number
+  rows: number
+  attachments: number
+  links: { total: number; resolved: number }
+  brokenLinks: { page: string; href: string }[]
+  brokenLinkCount: number
+  skipped: { path: string; reason: string }[]
+  skippedCount: number
+  renamed: number
+  callouts: number
+  equations: number
+}
+
+export async function importNotion(
+  wsId: string,
+  file: File,
+  parentId?: string,
+): Promise<{ pages: PageMetaDTO[]; report: NotionImportReportDTO }> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const qs = new URLSearchParams({ source: 'notion' })
+  if (parentId) qs.set('parentId', parentId)
+  const res = await fetch(`/api/workspaces/${wsId}/import?${qs.toString()}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: fd,
+  })
+  if (!res.ok) throw await parseError(res)
+  return (await res.json()) as { pages: PageMetaDTO[]; report: NotionImportReportDTO }
+}
+
+export function useImportNotion(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { file: File; parentId?: string }) => importNotion(wsId, vars.file, vars.parentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.pages(wsId) })
+    },
+  })
 }

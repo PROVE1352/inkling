@@ -4,6 +4,7 @@ import type { PageKind, PageMetaDTO, PageScope, RowDTO } from '@inkling/shared'
 import { db } from './db/index'
 import { pages } from './db/schema'
 import { liveWorkspace } from './workspaceLive'
+import { agentAllowedSql } from './agentAccess'
 
 /**
  * Shared projection that selects only the pages columns the API responses need.
@@ -114,7 +115,16 @@ export async function findVisiblePage(
   const rows = await db
     .select(pageColumns)
     .from(pages)
-    .where(and(eq(pages.id, id), isNull(pages.deletedAt), visibleTo(userId), liveWorkspace(pages.workspaceId)))
+    .where(
+      and(
+        eq(pages.id, id),
+        isNull(pages.deletedAt),
+        visibleTo(userId),
+        liveWorkspace(pages.workspaceId),
+        // a page in a workspace that blocked the current agent connection is "not found" (docs/adr/0947-*)
+        agentAllowedSql(pages.workspaceId),
+      ),
+    )
     .limit(1)
   return rows[0] ?? null
 }

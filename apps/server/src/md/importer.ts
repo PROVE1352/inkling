@@ -25,20 +25,19 @@ import { reindexPageTasks } from './taskIndex'
 import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from './textIndex'
 import { mimeForExt } from './mime'
+import { importLimits, mbLabel } from './importLimits'
 
-// Lowered for small hosts (low memory) — guards against zip bombs / huge imports exhausting memory
-const MAX_ENTRIES = 300
-const MAX_UNCOMPRESSED = 50 * 1024 * 1024
-/** Largest single entry once decompressed (same as a direct upload). */
-const MAX_ENTRY_BYTES = 25 * 1024 * 1024
+// Caps guard against zip bombs / huge imports exhausting memory. All are env-configurable with the
+// historical values as defaults (md/importLimits.ts, docs/adr/0961-*).
+const MAX_ENTRIES = importLimits.maxFiles
+const MAX_UNCOMPRESSED = importLimits.maxUnpackedBytes
+/** Largest single entry once decompressed (same as a direct upload by default). */
+const MAX_ENTRY_BYTES = importLimits.maxEntryBytes
 /** Deepest folder nesting an import may create (C-H2b). */
 export const IMPORT_MAX_FOLDER_DEPTH = 32
 /** Most pages (folders + docs + canvases) one import may create; env IMPORT_MAX_PAGES. */
-export const IMPORT_MAX_PAGES = (() => {
-  const n = Number(process.env.IMPORT_MAX_PAGES)
-  return Number.isInteger(n) && n > 0 ? n : 5000
-})()
-const EMPTY_BLOCKS: AnyBlock[] = [{ type: 'paragraph', content: [] }]
+export const IMPORT_MAX_PAGES = importLimits.maxPages
+export const EMPTY_BLOCKS: AnyBlock[] = [{ type: 'paragraph', content: [] }]
 
 interface ImportArgs {
   buffer: Buffer
@@ -56,7 +55,7 @@ interface ImportArgs {
 // shared helpers
 // ---------------------------------------------------------------------------
 
-async function nextSortOrderBase(
+export async function nextSortOrderBase(
   tx: Pick<Tx, 'select'>,
   workspaceId: string,
   parentId: string | null,
@@ -226,8 +225,12 @@ export function readZipEntryCapped(
       if (done) return
       size += chunk.length
       meter.total += chunk.length
-      if (size > limits.entry) return fail(badRequest('A file in the archive is too large (max 25MB)'))
-      if (meter.total > limits.total) return fail(badRequest('Archive is too large when unpacked (max 50MB)'))
+      if (size > limits.entry) {
+        return fail(badRequest(`A file in the archive is too large (max ${mbLabel(limits.entry)})`))
+      }
+      if (meter.total > limits.total) {
+        return fail(badRequest(`Archive is too large when unpacked (max ${mbLabel(limits.total)})`))
+      }
       chunks.push(chunk)
     })
     stream.on('error', (err: Error) => fail(err))
@@ -254,7 +257,7 @@ export async function importEntries(
   let totalUncompressed = 0
   for (const e of fileEntries) totalUncompressed += e.size
   if (totalUncompressed > MAX_UNCOMPRESSED) {
-    throw badRequest('Archive is too large when unpacked (max 50MB)')
+    throw badRequest(`Archive is too large when unpacked (max ${mbLabel(MAX_UNCOMPRESSED)})`)
   }
 
   const entryByName = new Map(fileEntries.map((e) => [e.name, e]))

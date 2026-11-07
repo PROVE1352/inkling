@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useLayout } from '../components/AppLayout'
 import { Kbd, shortcutGroups } from '../components/ShortcutsModal'
@@ -22,98 +22,10 @@ import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { useT, type TKey } from '../i18n'
 import { delegatedDisplayName } from './Login'
+import { Group, Row, Select, Toggle } from '../components/SettingsRows'
 
 // Settings (/w/:wsId/settings) — grouped rows like Obsidian's settings (title/description + control on the right).
 // Everything is saved on this device only (lib/prefs), except the account section. Changes apply immediately.
-
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="mb-8">
-      <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">
-        {title}
-      </h2>
-      <div className="divide-y divide-line rounded-lg border border-line">{children}</div>
-    </section>
-  )
-}
-
-function Row({
-  title,
-  desc,
-  children,
-  id,
-}: {
-  title: string
-  desc?: ReactNode
-  children: ReactNode
-  id?: string
-}) {
-  return (
-    <div className="flex items-center gap-4 px-4 py-3" data-pref={id}>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm text-ink">{title}</div>
-        {desc && <div className="mt-0.5 text-xs leading-relaxed text-sub">{desc}</div>}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </div>
-  )
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-        checked ? 'bg-accent' : 'bg-line'
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-150 ${
-          checked ? 'translate-x-[18px]' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
-  )
-}
-
-function Select<T extends string>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: T
-  options: { value: T; label: string }[]
-  onChange: (v: T) => void
-  label: string
-}) {
-  return (
-    <select
-      value={value}
-      aria-label={label}
-      onChange={(e) => onChange(e.target.value as T)}
-      className="rounded-md border border-line bg-app px-2 py-1 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  )
-}
 
 /** Account — email verification status and changing your own password (the only group stored on the server) */
 function AccountGroup() {

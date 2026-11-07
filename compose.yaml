@@ -100,6 +100,10 @@ services:
       APP_VERSION: ${APP_VERSION:-}
       # Most pages one import may create (default 5000).
       IMPORT_MAX_PAGES: ${IMPORT_MAX_PAGES:-}
+      IMPORT_MAX_UPLOAD_MB: ${IMPORT_MAX_UPLOAD_MB:-}
+      IMPORT_MAX_UNPACKED_MB: ${IMPORT_MAX_UNPACKED_MB:-}
+      IMPORT_MAX_ENTRY_MB: ${IMPORT_MAX_ENTRY_MB:-}
+      IMPORT_MAX_FILES: ${IMPORT_MAX_FILES:-}
       # Delegated login / signup keys (see .env.example)
       DELEGATED_AUTH_URL: ${DELEGATED_AUTH_URL:-}
       DELEGATED_AUTH_NAME: ${DELEGATED_AUTH_NAME:-}

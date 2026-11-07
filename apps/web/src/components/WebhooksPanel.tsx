@@ -10,11 +10,10 @@ import {
   useWebhooks,
 } from '../api'
 import { PlugIcon, TrashIcon } from './Icons'
-import { Modal } from './Modal'
 import { Spinner } from './Spinner'
 import { t } from '../i18n'
 
-// Workspace → Slack / Discord notifications (owners only). The webhook URL is a secret: the
+// Workspace → Slack / Discord notifications (owners only), including the daily review_due digest. The webhook URL is a secret: the
 // server returns only a masked form after creation. Pages in the private (🔒) section are never
 // sent; messages are a one-line summary + link. See docs/adr/0504-workspace-webhooks.md.
 
@@ -40,6 +39,7 @@ const T = {
     get comment() { return t('webhooks.eventComment') },
     get reminder() { return t('webhooks.eventReminder') },
     get page_created() { return t('webhooks.eventPageCreated') },
+    get review_due() { return t('webhooks.eventReviewDue') },
   } satisfies Record<WebhookEvent, string>,
   kind: { slack: 'Slack', discord: 'Discord' },
 }
@@ -134,7 +134,8 @@ function HookRow({ wsId, hook }: { wsId: string; hook: WebhookDTO }) {
   )
 }
 
-export function WebhooksModal({ wsId, onClose }: { wsId: string; onClose: () => void }) {
+/** Webhooks tab of the workspace settings screen (owners). */
+export function WebhooksPanel({ wsId }: { wsId: string }) {
   const hooks = useWebhooks(wsId)
   const create = useCreateWebhook(wsId)
   const [url, setUrl] = useState('')
@@ -155,7 +156,7 @@ export function WebhooksModal({ wsId, onClose }: { wsId: string; onClose: () => 
   }
 
   return (
-    <Modal open onClose={onClose} title={T.title}>
+    <div className="rounded-lg border border-line p-4">
       <div className="flex flex-col gap-4">
         <p className="text-xs text-sub">{T.intro}</p>
         <form onSubmit={submit} className="flex flex-col gap-2">
@@ -194,6 +195,6 @@ export function WebhooksModal({ wsId, onClose }: { wsId: string; onClose: () => 
           <p className="text-xs text-sub">{hooks.isError ? errMsg(hooks.error) : T.empty}</p>
         )}
       </div>
-    </Modal>
+    </div>
   )
 }

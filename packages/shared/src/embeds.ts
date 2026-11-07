@@ -358,8 +358,9 @@ export interface LinkPreviewDTO {
 }
 
 export type WebhookKind = 'slack' | 'discord'
-export type WebhookEvent = 'mention' | 'comment' | 'reminder' | 'page_created'
-export const WEBHOOK_EVENTS: readonly WebhookEvent[] = ['mention', 'comment', 'reminder', 'page_created']
+/** review_due: a once-a-day digest of documents past their review date (docs/adr/0952-*). */
+export type WebhookEvent = 'mention' | 'comment' | 'reminder' | 'page_created' | 'review_due'
+export const WEBHOOK_EVENTS: readonly WebhookEvent[] = ['mention', 'comment', 'reminder', 'page_created', 'review_due']
 
 export interface WebhookDTO {
   id: string

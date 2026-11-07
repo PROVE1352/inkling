@@ -194,6 +194,29 @@ export const workspaces = pgTable('workspaces', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   /** Who deleted it (shown in the restore list). */
   deletedBy: uuid('deleted_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+  // --- Workspace settings (docs/adr/0945-* .. 0952-*) -------------------------------------
+  /** Joining with the invite code is allowed (docs/adr/0948-*). Off = join and preview answer INVALID_CODE. */
+  inviteLinkEnabled: boolean('invite_link_enabled').notNull().default(true),
+  /** Lowest role that may add existing users directly: 'owners' | 'admins' | 'members' (docs/adr/0948-*). */
+  memberAddPolicy: text('member_add_policy', { enum: ['owners', 'admins', 'members'] })
+    .notNull()
+    .default('admins'),
+  /** Lowest role that may download the whole-workspace zip export (docs/adr/0950-*). */
+  exportPolicy: text('export_policy', { enum: ['owners', 'admins', 'members'] })
+    .notNull()
+    .default('members'),
+  /** "No public web links": new public shares are refused (docs/adr/0949-*). Existing links are kept unless bulk-unshared. */
+  publicSharingDisabled: boolean('public_sharing_disabled').notNull().default(false),
+  /** Days a trashed page stays restorable before housekeeping purges it (docs/adr/0950-*). */
+  trashRetentionDays: integer('trash_retention_days').notNull().default(30),
+  /** Days audit events are kept (docs/adr/0946-*). */
+  auditRetentionDays: integer('audit_retention_days').notNull().default(90),
+  /** Default review interval for document owners; null = review reminders off (docs/adr/0951-*). */
+  reviewIntervalDays: integer('review_interval_days'),
+  /** Server-local 'YYYY-MM-DD' of the last review_due webhook digest (once a day, docs/adr/0952-*). */
+  reviewDigestSentOn: text('review_digest_sent_on'),
+  /** Server-local 'YYYY-MM-DD' of the last review priority batch (page_review_scores, docs/adr/0953-*). */
+  reviewScoredOn: text('review_scored_on'),
 })
 
 export const workspaceMembers = pgTable(
@@ -205,7 +228,8 @@ export const workspaceMembers = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    role: text('role', { enum: ['owner', 'member'] })
+    /** owner > admin > member (docs/adr/0945-*). No DB check constraint: the enum is TypeScript-only. */
+    role: text('role', { enum: ['owner', 'admin', 'member'] })
       .notNull()
       .default('member'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -252,6 +276,16 @@ export const pages = pgTable('pages', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   /** Trash (soft delete). In M1 it is only hidden, with no restore UI */
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Document owner: the member responsible for keeping it current (docs/adr/0951-*). */
+  ownerId: uuid('owner_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+  /** Last "Mark reviewed" (docs/adr/0951-*); null = never reviewed (created_at is the baseline). */
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewedBy: uuid('reviewed_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+  /**
+   * "Living document" override (docs/adr/0953-*): null = classify automatically from its edit rate,
+   * true = always living (never in the review list), false = never living.
+   */
+  livingOverride: boolean('living_override'),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.
@@ -259,6 +293,7 @@ export const pages = pgTable('pages', {
   index('pages_parent_idx').on(t.parentId),
   index('pages_created_by_idx').on(t.createdBy),
   index('pages_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`),
+  index('pages_owner_idx').on(t.ownerId),
 ])
 
 export const pageDocs = pgTable('page_docs', {
@@ -676,6 +711,7 @@ export const oauthGrants = pgTable(
   ],
 )
 
+export * from './schema-workspaceAdmin'
 export * from './schema-plugins'
 export * from './schema-collections'
 export * from './schema-sync'

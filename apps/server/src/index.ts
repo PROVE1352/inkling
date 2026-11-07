@@ -12,6 +12,7 @@ import { assertOriginConfigured } from './origin'
 import { maskUrlSecrets } from './util'
 import { users } from './db/schema'
 import { startReminderScheduler } from './md/reminders'
+import { startReadFlusher } from './pageReads'
 import { backfillPageTags } from './md/tagIndex'
 import { backfillPageTasks } from './md/taskIndex'
 import { backfillPageTexts } from './md/textIndex'
@@ -42,6 +43,7 @@ import { registerPublicRoutes } from './routes/public'
 import { registerSnapshotRoutes } from './routes/snapshots'
 import { registerTemplateRoutes } from './routes/templates'
 import { registerWorkspaceRoutes } from './routes/workspaces'
+import { registerWorkspaceAdminRoutes } from './routes/workspaceAdmin'
 import { isExperimentalEnabled } from './features'
 import { registerPluginRoutes } from './plugins/routes'
 import { registerQueryRoutes } from './routes/query'
@@ -79,6 +81,7 @@ function isReservedPath(url: string): boolean {
 
 let appRef: FastifyInstance | null = null
 let stopReminders: (() => void) | null = null
+let stopReadFlusher: (() => Promise<void>) | null = null
 let shutdownStarted = false
 
 /** Hard cap for the whole shutdown; compose gives the container 30 s (stop_grace_period). */
@@ -123,6 +126,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   await step('collab flush', () => destroyCollab(), COLLAB_FLUSH_TIMEOUT_MS)
   const a = appRef
   if (a) await step('http close', () => a.close(), HTTP_CLOSE_TIMEOUT_MS)
+  // buffered page read counts (docs/adr/0953-*) — after HTTP so in-flight reads are counted
+  if (stopReadFlusher) await step('read counter flush', () => stopReadFlusher!(), 3_000)
   await step('db close', () => closeDb(), 6_000)
   process.exit(exitCode)
 }
@@ -351,6 +356,7 @@ async function main(): Promise<void> {
       await registerAuthRoutes(api)
       await registerAdminRoutes(api)
       await registerWorkspaceRoutes(api)
+      await registerWorkspaceAdminRoutes(api)
       await registerPageRoutes(api)
       await registerPageContentRoutes(api)
       // Agent retrieval: find_context, outline/section, batch read, section patch (docs/adr/0926-0930)
@@ -418,6 +424,8 @@ async function main(): Promise<void> {
   // 9.6) M17 due-date reminder scheduler: one delayed scan after boot + a rescan every hour.
   //      shutdown calls stop to clear the timer.
   stopReminders = startReminderScheduler((msg) => app.log.info(msg))
+  // Page read counters: flushed every minute (docs/adr/0953-*)
+  stopReadFlusher = startReadFlusher((msg) => app.log.info(msg))
 
   // 10) Boot summary (B-M6, C-M10)
   const flags = enabledExperimentalFeatures()

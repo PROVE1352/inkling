@@ -11,21 +11,33 @@ import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { workspaces } from '../db/schema'
-import { AppError, badRequest, notFound } from '../errors'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { recordAudit, roleMeets } from '../workspaceAdmin'
 import { exportPageCanvas, exportPageMd, exportZip } from '../md/exporter'
 import { importEntries, importMarkdown, importZip } from '../md/importer'
 import type { ImportEntry } from '../md/importer'
+import { importLimits, mbLabel } from '../md/importLimits'
+import { importNotionZip } from '../md/notionImport'
+import { looksLikeNotionExport } from '../md/notionParse'
+import { requestLocale } from '../i18n'
+import JSZip from 'jszip'
 import { env } from '../env'
 import { findVisiblePage, toPageDTO } from '../pageDto'
 import type { PageScope } from '@inkling/shared'
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024
-// Folder import: file count / total size limits (match importZip's 300-entry / 50MB guard)
-const MAX_FOLDER_FILES = 300
-const MAX_FOLDER_BYTES = 50 * 1024 * 1024
+// Import caps come from md/importLimits.ts (env-configurable, docs/adr/0961-*).
+const MAX_FILE_BYTES = importLimits.maxUploadBytes
+// Folder import: file count / total size / per-file limits (same caps as an archive import)
+const MAX_FOLDER_FILES = importLimits.maxFiles
+const MAX_FOLDER_BYTES = importLimits.maxUnpackedBytes
+const MAX_FOLDER_FILE_BYTES = importLimits.maxEntryBytes
 const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional() })
-const importQuerySchema = z.object({ parentId: z.uuid().optional() })
+const importQuerySchema = z.object({
+  parentId: z.uuid().optional(),
+  /** zip only: 'notion' = Notion "Markdown & CSV" export, 'markdown' = plain folder zip, default = detect */
+  source: z.enum(['auto', 'markdown', 'notion']).optional(),
+})
 
 function isTooLargeError(err: unknown): boolean {
   const e = err as { code?: string; statusCode?: number } | null
@@ -92,8 +104,9 @@ function dirEntry(name: string): ImportEntry {
  * socket a longer idle window; the route is rate limited (20/min) (docs/adr/0751-*).
  */
 const EXPORT_SOCKET_TIMEOUT_MS = 10 * 60_000
-function relaxSocketTimeout(req: { raw: { socket?: { setTimeout(ms: number): unknown } } }): void {
-  req.raw.socket?.setTimeout(EXPORT_SOCKET_TIMEOUT_MS)
+function relaxSocketTimeout(req: { raw: { socket?: { setTimeout?(ms: number): unknown } } }): void {
+  // injected requests (MCP, tests) have a socket stub without setTimeout
+  if (typeof req.raw.socket?.setTimeout === 'function') req.raw.socket.setTimeout(EXPORT_SOCKET_TIMEOUT_MS)
 }
 
 export async function registerExportImportRoutes(app: FastifyInstance): Promise<void> {
@@ -155,16 +168,27 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireMembership(id, user.id)
+    const role = await requireMembership(id, user.id)
 
     const ws = (
       await db
-        .select({ name: workspaces.name })
+        .select({ name: workspaces.name, exportPolicy: workspaces.exportPolicy })
         .from(workspaces)
         .where(eq(workspaces.id, id))
         .limit(1)
     )[0]
     if (!ws) throw notFound()
+    // Export policy (docs/adr/0950-*). Per-page exports (/pages/:id/export) stay open to members:
+    // read_page and the editor's own export use them, and they cover one visible page at a time.
+    if (!roleMeets(role, ws.exportPolicy)) throw forbidden('The workspace settings do not allow you to export it')
+    // A streamed download has no transaction to share: the event is written before streaming starts.
+    await recordAudit(db, {
+      workspaceId: id,
+      actor: user,
+      action: 'export.downloaded',
+      target: { type: 'workspace', id, label: ws.name },
+      after: { format: 'zip' },
+    })
 
     relaxSocketTimeout(req)
     const { filename, stream } = await exportZip({
@@ -214,7 +238,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         let count = 0
         let total = 0
         try {
-          for await (const part of req.parts({ limits: { files: MAX_FOLDER_FILES + 1, fileSize: MAX_FILE_BYTES, fields: 20, fieldSize: 100 * 1024, parts: MAX_FOLDER_FILES + 21, headerPairs: 200 } })) {
+          for await (const part of req.parts({ limits: { files: MAX_FOLDER_FILES + 1, fileSize: MAX_FOLDER_FILE_BYTES, fields: 20, fieldSize: 100 * 1024, parts: MAX_FOLDER_FILES + 21, headerPairs: 200 } })) {
             if (part.type !== 'file') continue
             count++
             if (count > MAX_FOLDER_FILES) {
@@ -238,17 +262,17 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
             const budget = MAX_FOLDER_BYTES - total
             const size = await streamToFile(part.file, diskPath, budget)
             if (part.file.truncated) {
-              throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'A file is too large (max 25MB)')
+              throw new AppError(413, 'PAYLOAD_TOO_LARGE', `A file is too large (max ${mbLabel(MAX_FOLDER_FILE_BYTES)})`)
             }
             if (size < 0) {
-              throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'Folder is too large (max 50MB)')
+              throw new AppError(413, 'PAYLOAD_TOO_LARGE', `Folder is too large (max ${mbLabel(MAX_FOLDER_BYTES)})`)
             }
             total += size
             entries.push(diskEntry(segs.join('/'), diskPath, size))
           }
         } catch (err) {
           if (isTooLargeError(err)) {
-            throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'A file is too large (max 25MB)')
+            throw new AppError(413, 'PAYLOAD_TOO_LARGE', `A file is too large (max ${mbLabel(MAX_FOLDER_FILE_BYTES)})`)
           }
           throw err
         }
@@ -274,7 +298,8 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     },
   )
 
-  // import: multipart file = a single .md or a .zip
+  // import: multipart file = a single .md or a .zip (a Notion "Markdown & CSV" export is detected
+  // from its file names or requested with ?source=notion; docs/adr/0960-*)
   app.post(
     '/workspaces/:id/import',
     {
@@ -287,7 +312,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     const id = idParam(req.params)
     const role = await requireMembership(id, user.id)
 
-    const { parentId: parentQuery } = importQuerySchema.parse(req.query)
+    const { parentId: parentQuery, source } = importQuerySchema.parse(req.query)
     let parentId: string | null = null
     // scope of imported pages: inherit the parent's when given; root imports are shared.
     let scope: PageScope = 'shared'
@@ -300,7 +325,8 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       scope = parent.scope
     }
 
-    const mp = await req.file()
+    // Per-request cap overrides the global multipart fileSize (IMPORT_MAX_UPLOAD_MB).
+    const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } })
     if (!mp) throw badRequest('No files to upload')
 
     let buffer: Buffer
@@ -308,12 +334,12 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       buffer = await mp.toBuffer()
     } catch (err) {
       if (isTooLargeError(err)) {
-        throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')
+        throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
       }
       throw err
     }
     if (mp.file.truncated || buffer.length > MAX_FILE_BYTES) {
-      throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')
+      throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
     }
 
     const filename = mp.filename || 'import'
@@ -330,8 +356,36 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       mime === 'text/markdown' ||
       mime === 'text/plain'
 
+    if (source === 'notion' && !isZip) {
+      throw new AppError(415, 'UNSUPPORTED_TYPE', 'A Notion export is imported as its .zip file')
+    }
     if (!isZip && !isMd) {
       throw new AppError(415, 'UNSUPPORTED_TYPE', 'Only .md or .zip files can be imported')
+    }
+
+    if (isZip && source !== 'markdown') {
+      let zip: JSZip
+      try {
+        zip = await JSZip.loadAsync(buffer)
+      } catch {
+        throw badRequest('Not a readable zip archive')
+      }
+      const names = Object.values(zip.files).filter((e) => !e.dir).map((e) => e.name)
+      if (source === 'notion' || looksLikeNotionExport(names)) {
+        const locale = await requestLocale(req, user.id)
+        const { pages, report } = await importNotionZip({
+          buffer,
+          zip,
+          workspaceId: id,
+          parentId,
+          userId: user.id,
+          scope,
+          role,
+          detected: source === 'notion' ? 'explicit' : 'auto',
+          tableViewName: locale === 'ko' ? '표' : 'Table',
+        })
+        return { pages: pages.map(toPageDTO), report }
+      }
     }
 
     const created = isZip

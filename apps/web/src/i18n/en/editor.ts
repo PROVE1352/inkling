@@ -80,10 +80,11 @@ export default {
   'share.sharedHintFolder': 'Anyone with this link can view the folder (read-only).',
   'share.openNewTab': 'Open in new tab',
   'share.stop': 'Stop sharing',
-  'share.stopOwnerOnly': 'Only the workspace owner can stop sharing.',
+  'share.stopOwnerOnly': 'Only workspace owners and admins can stop sharing.',
   'share.publishHintPage': 'Publish this page and anyone can view it read-only, without signing in.',
   'share.publishHintFolder': 'Publish this folder and anyone can view it read-only, without signing in.',
-  'share.publishOwnerOnly': 'Only the workspace owner can publish.',
+  'share.publishOwnerOnly': 'Only workspace owners and admins can publish.',
+  'share.publishDisabled': 'Public links are turned off in the workspace settings.',
   'share.publish': 'Publish to web',
 
   // Template gallery

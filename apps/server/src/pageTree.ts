@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { WorkspaceRole } from '@inkling/shared'
 import { db } from './db/index'
 import { badRequest, forbidden } from './errors'
+import { isManagerRole } from './workspaceAdmin'
 
 /**
  * Page tree integrity (docs/adr/0800-*).
@@ -146,7 +147,7 @@ export async function assertPlacement(
   // A new row in a collection is an edit of that collection's content (like typing into a public
   // page), not a new page published under a folder — members keep adding rows to public databases.
   const newRow = !opts.movingId && parent.kind === 'collection'
-  if (opts.role !== 'owner' && opts.publicRule !== false && !newRow) {
+  if (!isManagerRole(opts.role) && opts.publicRule !== false && !newRow) {
     const target = publicAncestors(chain)
     if (target.size > 0) {
       // A move inside the same public folder exposes nothing new; anything else does.
@@ -157,7 +158,7 @@ export async function assertPlacement(
       }
       if ([...target].some((id) => !already.has(id))) {
         throw forbidden(
-          'Only the workspace owner can create or move pages under a folder that is published to the web',
+          'Only workspace owners and admins can create or move pages under a folder that is published to the web',
         )
       }
     }

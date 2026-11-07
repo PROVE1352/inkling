@@ -188,3 +188,24 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0936](0936-via-agent-provenance.md) | "via agent" provenance for MCP writes | Accepted |
 | [0937](0937-prompt-cache-friendly-deterministic-tool-output.md) | Prompt-cache-friendly, deterministic MCP output | Accepted |
 | [0940](0940-patch-section-minimal-yjs-edit.md) | patch_section: minimal Yjs edit (block alignment + character diff) instead of replacing the section; never read the live doc through the server schema | Accepted |
+
+## 0945–0959 Workspace settings
+
+| ADR | Title | Status |
+|---|---|---|
+| [0945](0945-workspace-admin-role-and-settings-screen.md) | Workspace admin role and one workspace settings screen | Accepted |
+| [0946](0946-workspace-audit-log.md) | Workspace audit log: same-transaction, append-only, no IP | Accepted |
+| [0947](0947-per-workspace-agent-blocks.md) | Per-workspace agent blocks, enforced per request | Accepted |
+| [0948](0948-member-add-policy-and-invite-toggle.md) | Member-add policy and an invite link switch (closes C-M3) | Accepted |
+| [0949](0949-public-sharing-switch-and-link-list.md) | "No public links" switch and public link management | Accepted |
+| [0950](0950-export-policy-and-trash-retention.md) | Export policy and per-workspace trash retention | Accepted |
+| [0951](0951-document-owner-and-review.md) | Document owner and last review | Accepted |
+| [0952](0952-review-reminders-as-webhook-digest.md) | Review reminders as a daily webhook digest, not inbox notifications | Accepted |
+| [0953](0953-review-priority-freshness-model.md) | Review priority: read counters, a drift model, living documents, archive candidates | Accepted |
+
+## 096x Import
+
+| ADR | Title | Status |
+|---|---|---|
+| [0960](0960-notion-export-import.md) | Notion export import: Markdown & CSV zip into pages, collections and attachments | Accepted |
+| [0961](0961-env-configurable-import-limits.md) | Import caps from the environment | Accepted |

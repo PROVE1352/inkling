@@ -24,7 +24,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Raise `BACKUP_MIN_FREE_MB` above the 256 MB default on small disks. Backup prune runs before the free-space check (the newest set is always kept), so a full disk no longer blocks pruning.
 - [ ] Container memory: `APP_MEM_LIMIT` / `NODE_OPTIONS` and `PG_MEM_LIMIT` / `PG_SHM_SIZE` (see sections 1 and 2); backup sidecar 256m.
 - [ ] Base `compose.yaml` services share the `x-logging` anchor; overlay files (Caddy, rclone) cannot reuse it, so give their services their own `logging:` block.
-- [ ] Import limits: folder depth 32, pages created per import capped by `IMPORT_MAX_PAGES` (default 5000), zip entries measured by actual decompressed bytes.
+- [ ] Import limits: folder depth 32, pages created per import capped by `IMPORT_MAX_PAGES` (default 5000), zip entries measured by actual decompressed bytes. Size caps are env-configurable: `IMPORT_MAX_UPLOAD_MB` (25), `IMPORT_MAX_UNPACKED_MB` (50), `IMPORT_MAX_ENTRY_MB` (25), `IMPORT_MAX_FILES` (300). Raising them for Notion exports raises peak memory by about the upload size (twice for nested part archives); see docs/adr/0961-*.
 
 ### Database timeouts
 

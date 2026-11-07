@@ -27,8 +27,10 @@ export function ShareModal({
 }) {
   const t = useT()
   const workspaces = useWorkspaces()
-  const isOwner =
-    (workspaces.data ?? []).find((w) => w.id === page.workspaceId)?.role === 'owner'
+  // Owners and admins manage public links; publishing also needs public sharing allowed (docs/adr/0945-*, 0949-*).
+  const ws = (workspaces.data ?? []).find((w) => w.id === page.workspaceId)
+  const isOwner = ws?.can?.manage ?? ws?.role === 'owner'
+  const canPublish = ws?.can?.publish ?? isOwner
   const isPrivate = page.scope === 'private'
   const isFolder = page.kind === 'folder'
 
@@ -163,8 +165,8 @@ export function ShareModal({
           <button
             type="button"
             onClick={doShare}
-            disabled={!isOwner || busy}
-            title={!isOwner ? t('share.publishOwnerOnly') : undefined}
+            disabled={!canPublish || busy}
+            title={!canPublish ? t(isOwner ? 'share.publishDisabled' : 'share.publishOwnerOnly') : undefined}
             className="flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
           >
             {share.isPending && (
@@ -172,8 +174,8 @@ export function ShareModal({
             )}
             {t('share.publish')}
           </button>
-          {!isOwner && (
-            <p className="text-xs text-sub">{t('share.publishOwnerOnly')}</p>
+          {!canPublish && (
+            <p className="text-xs text-sub">{t(isOwner ? 'share.publishDisabled' : 'share.publishOwnerOnly')}</p>
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>

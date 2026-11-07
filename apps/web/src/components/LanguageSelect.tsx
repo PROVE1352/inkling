@@ -1,6 +1,7 @@
 import { useMe, useSetUserLocale } from '../api'
 import { getLocaleChoice, LOCALES, setLocaleChoice, useT, type Locale } from '../i18n'
 import { LOCALE_NAMES } from '../i18n/names'
+import { SELECT_CLASS } from './SettingsRows'
 
 /**
  * UI language picker. Applies immediately (the app remounts in the new language) and, when signed
@@ -27,7 +28,7 @@ export function LanguageSelect({ compact = false }: { compact?: boolean }) {
       className={
         compact
           ? 'rounded-md border border-line bg-transparent px-2 py-1 text-xs text-sub'
-          : 'rounded-md border border-line bg-app px-2 py-1 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+          : SELECT_CLASS
       }
     >
       <option value="">{t('lang.auto')}</option>

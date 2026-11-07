@@ -6,6 +6,7 @@ import {
   type GraphPrefs,
 } from '../../lib/prefs'
 import { useT } from '../../i18n'
+import { useGraphIslands } from '../../api'
 import { SearchIcon, XIcon } from '../Icons'
 import { colorOf, G_NEUTRAL, G_ORPHAN, G_TAG, type GraphColors, type ModelGroup } from './graphModel'
 
@@ -85,6 +86,41 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
+/**
+ * Pages with no link in or out, for this viewer (server list: GET /workspaces/:id/graph/islands,
+ * docs/adr/1123-*). Folders are left out; trash and other members' private pages never appear.
+ */
+function UnlinkedPages({ wsId, onOpen }: { wsId: string; onOpen: (id: string) => void }) {
+  const t = useT()
+  const q = useGraphIslands(wsId)
+  if (!q.data) return <p className="py-1 text-[11px] text-sub">{q.isError ? t('localGraph.loadFailed') : '…'}</p>
+  const { unlinked, unlinkedTotal } = q.data
+  if (unlinkedTotal === 0) return <p className="py-1 text-[11px] text-sub">{t('graph.unlinkedNone')}</p>
+  const shown = unlinked.slice(0, 30)
+  return (
+    <>
+      <p className="pb-1 text-[11px] text-sub">{t('graph.unlinkedCount', { count: unlinkedTotal })}</p>
+      <ul className="max-h-48 space-y-0.5 overflow-y-auto text-xs">
+        {shown.map((p) => (
+          <li key={p.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(p.id)}
+              className="w-full truncate rounded px-1 py-0.5 text-left hover:bg-hover"
+            >
+              {p.icon ? `${p.icon} ` : ''}
+              {p.title || t('common.untitled')}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {unlinkedTotal > shown.length && (
+        <p className="pt-1 text-[11px] text-sub">{t('graph.moreUnlinked', { count: unlinkedTotal - shown.length })}</p>
+      )}
+    </>
+  )
+}
+
 export function GraphControls({
   prefs,
   search,
@@ -92,6 +128,11 @@ export function GraphControls({
   matchCount,
   hasTags,
   groups,
+  islandCount,
+  island,
+  onIsland,
+  wsId,
+  onOpen,
   colors,
   onClose,
 }: {
@@ -101,14 +142,22 @@ export function GraphControls({
   matchCount: number | null
   hasTags: boolean
   groups: ModelGroup[]
+  /** Link islands of 2+ pages in the current view */
+  islandCount: number
+  /** Hub page id of the island shown alone, or null */
+  island: string | null
+  onIsland: (hubId: string | null) => void
+  wsId: string
+  onOpen: (pageId: string) => void
   colors: GraphColors | null
   onClose?: () => void
 }) {
   const t = useT()
   const shown = groups.slice(0, 8)
   const rest = groups.length - shown.length
+  const colored = prefs.colorGroups || prefs.colorIslands
   const swatch = (gi: number) =>
-    colors ? colorOf(gi, colors, prefs.colorGroups) : 'var(--color-sub)'
+    colors ? colorOf(gi, colors, colored) : 'var(--color-sub)'
 
   return (
     <div className="text-ink">
@@ -148,20 +197,73 @@ export function GraphControls({
       </Group>
 
       <Group title={t('graph.groups')}>
-        <Toggle label={t('graph.colorByFolder')} checked={prefs.colorGroups} onChange={(v) => setGraphPref('colorGroups', v)} />
+        <Toggle
+          label={t('graph.colorByFolder')}
+          checked={prefs.colorGroups && !prefs.colorIslands}
+          onChange={(v) => {
+            setGraphPref('colorGroups', v)
+            if (v) setGraphPref('colorIslands', false)
+          }}
+        />
+        <Toggle
+          label={t('graph.colorByIsland')}
+          checked={prefs.colorIslands}
+          onChange={(v) => {
+            setGraphPref('colorIslands', v)
+            if (!v) onIsland(null)
+          }}
+        />
+        {prefs.colorIslands && (
+          <p className="pb-1 text-[11px] text-sub">
+            {island ? t('graph.islandShown') : t('graph.islandCount', { count: islandCount })}
+          </p>
+        )}
         <ul className="mt-1 space-y-0.5 text-xs">
-          {prefs.colorGroups &&
-            shown.map((g, i) => (
-              <li key={g.key} className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: swatch(i) }} />
-                <span className="min-w-0 flex-1 truncate">{g.label}</span>
-                <span className="text-[11px] text-sub">{g.count}</span>
-              </li>
-            ))}
-          {prefs.colorGroups && rest > 0 && <li className="pl-4.5 text-[11px] text-sub">{t('graph.moreGroups', { count: rest })}</li>}
+          {colored &&
+            shown.map((g, i) =>
+              prefs.colorIslands ? (
+                <li key={g.key}>
+                  <button
+                    type="button"
+                    onClick={() => onIsland(island ? null : g.key)}
+                    title={island ? t('graph.allIslands') : t('graph.onlyThisIsland')}
+                    aria-pressed={island === g.key}
+                    className="flex w-full items-center gap-2 rounded px-0.5 text-left hover:bg-hover"
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: swatch(i) }} />
+                    <span className="min-w-0 flex-1 truncate">{g.label}</span>
+                    <span className="text-[11px] text-sub">{g.count}</span>
+                  </button>
+                </li>
+              ) : (
+                <li key={g.key} className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: swatch(i) }} />
+                  <span className="min-w-0 flex-1 truncate">{g.label}</span>
+                  <span className="text-[11px] text-sub">{g.count}</span>
+                </li>
+              ),
+            )}
+          {colored && rest > 0 && (
+            <li className="pl-4.5 text-[11px] text-sub">
+              {t(prefs.colorIslands ? 'graph.moreIslands' : 'graph.moreGroups', { count: rest })}
+            </li>
+          )}
+          {island && (
+            <li>
+              <button
+                type="button"
+                onClick={() => onIsland(null)}
+                className="text-[11px] text-sub underline-offset-2 hover:text-ink hover:underline"
+              >
+                {t('graph.allIslands')}
+              </button>
+            </li>
+          )}
           <li className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: swatch(G_NEUTRAL) }} />
-            <span className="flex-1">{prefs.colorGroups ? t('graph.rootPages') : t('common.pages')}</span>
+            <span className="flex-1">
+              {prefs.colorIslands ? t('graph.noIsland') : prefs.colorGroups ? t('graph.rootPages') : t('common.pages')}
+            </span>
           </li>
           <li className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: swatch(G_ORPHAN) }} />
@@ -174,6 +276,10 @@ export function GraphControls({
             </li>
           )}
         </ul>
+      </Group>
+
+      <Group title={t('graph.unlinked')}>
+        <UnlinkedPages wsId={wsId} onOpen={onOpen} />
       </Group>
 
       <Group title={t('graph.display')}>

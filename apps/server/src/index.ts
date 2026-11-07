@@ -10,6 +10,7 @@ import { enabledExperimentalFeatures } from './features'
 import { lifecycle, withTimeout } from './lifecycle'
 import { assertOriginConfigured } from './origin'
 import { hashLegacySessionTokens } from './sessionTokens'
+import { migrateSecretsAtRest } from './secretsAtRest'
 import { assertSecretKeyConfig } from './secretBox'
 import { registerOriginCheck } from './csrf'
 import { maskUrlSecrets } from './util'
@@ -50,8 +51,10 @@ import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
 import { registerSnapshotRoutes } from './routes/snapshots'
+import { registerLargePageRoutes } from './routes/largePages'
 import { registerTemplateRoutes } from './routes/templates'
 import { registerWorkspaceRoutes } from './routes/workspaces'
+import { registerGraphRoutes } from './routes/graph'
 import { registerWorkspaceAdminRoutes } from './routes/workspaceAdmin'
 import { isExperimentalEnabled } from './features'
 import { registerPluginRoutes } from './plugins/routes'
@@ -211,6 +214,27 @@ async function main(): Promise<void> {
     console.error('[inkling] Hashing stored session tokens failed; the server cannot start', err)
     process.exit(1)
   }
+  //    Data pass (docs/adr/1110-*, 1111-*): share tokens, invite codes and signup keys stored in
+  //    plaintext are hashed (old links and keys keep working), copies and webhook/sheet URLs are
+  //    sealed when APP_SECRET_KEY is set. Idempotent.
+  try {
+    const r = await migrateSecretsAtRest()
+    if (r.hashed > 0) console.log(`[inkling] hashed ${r.hashed} stored share token(s), invite code(s) and signup key(s)`)
+    if (r.sealed > 0) console.log(`[inkling] encrypted ${r.sealed} stored link/URL secret(s) with APP_SECRET_KEY`)
+    if (r.plaintext > 0) {
+      console.warn(
+        `[inkling] APP_SECRET_KEY is not set — ${r.plaintext} link copies / webhook and sheet URLs stay in plaintext in the database (docs/adr/1111-*).`,
+      )
+    }
+    if (r.unreadable > 0) {
+      console.warn(
+        `[inkling] ${r.unreadable} stored secret(s) are encrypted but APP_SECRET_KEY is not set — those links cannot be shown and those webhooks/syncs cannot run until the key is restored (docs/adr/1111-*).`,
+      )
+    }
+  } catch (err) {
+    console.error('[inkling] Converting stored link secrets failed; the server cannot start', err)
+    process.exit(1)
+  }
   //    Workspace access versions (docs/adr/1071-*): a row per workspace and a locked-page count
   //    that matches the pages, before any request can take the no-lock fast path. Idempotent.
   try {
@@ -221,7 +245,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   if (!env.appSecretKey) {
-    console.warn('[inkling] APP_SECRET_KEY is not set — two-step verification cannot be turned on (docs/adr/1061-*).')
+    console.warn('[inkling] APP_SECRET_KEY is not set — two-step verification cannot be turned on and workspaces cannot require it (docs/adr/1061-*, 1112-*).')
   }
 
   // 3) Fastify instance
@@ -406,6 +430,8 @@ async function main(): Promise<void> {
       await registerTwoFactorRoutes(api)
       await registerAdminRoutes(api)
       await registerWorkspaceRoutes(api)
+      // Link islands and unlinked pages beside the graph (docs/adr/1123-*)
+      await registerGraphRoutes(api)
       await registerWorkspaceAdminRoutes(api)
       await registerPageRoutes(api)
       await registerPageContentRoutes(api)
@@ -417,6 +443,7 @@ async function main(): Promise<void> {
       await registerChangeRoutes(api)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
+      await registerLargePageRoutes(api)
       await registerInkRoutes(api)
       await registerTemplateRoutes(api)
       await registerCollectionRoutes(api)

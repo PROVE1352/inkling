@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useIcalStatus, useIssueIcal, useRevokeIcal } from '../lib/collectionApi'
 import { askConfirm } from '../lib/confirm'
 import { fmtDate, fmtDateTime, t } from '../i18n'
+import { Group } from './SettingsRows'
 
 // UI strings — getters so each read follows the current language.
 const T = {
@@ -19,7 +20,7 @@ const T = {
   get confirmRegenerate() { return t('ical.confirmRegenerate') },
 }
 
-/** Settings group: issue / regenerate / revoke the personal iCal feed URL. */
+/** Settings › Connections: issue / regenerate / revoke the personal iCal feed URL. */
 export function IcalSettings() {
   const status = useIcalStatus()
   const issue = useIssueIcal()
@@ -43,20 +44,35 @@ export function IcalSettings() {
     }
   }
   const btn =
-    'rounded-md border border-line px-2.5 py-1 text-sm text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-50'
+    'rounded-md border border-line px-2 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-50'
 
   return (
-    <section className="mb-8">
-      <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{T.title}</h2>
-      <div className="rounded-lg border border-line px-4 py-3">
-        <p className="text-xs leading-relaxed text-sub">{T.desc}</p>
-        <p className="mt-2 text-xs text-sub">
-          {s?.active && s.createdAt
-            ? T.active(fmtDate(s.createdAt)) + (s.lastUsedAt ? T.lastUsed(fmtDateTime(s.lastUsedAt)) : '')
-            : T.inactive}
-        </p>
+    <Group title={T.title} desc={T.desc}>
+      <div className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p className="min-w-0 flex-1 text-sm text-ink">
+            {s?.active && s.createdAt
+              ? T.active(fmtDate(s.createdAt)) + (s.lastUsedAt ? T.lastUsed(fmtDateTime(s.lastUsedAt)) : '')
+              : T.inactive}
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={() => void doIssue()} disabled={issue.isPending} className={btn}>
+              {s?.active ? T.regenerate : T.create}
+            </button>
+            {s?.active && (
+              <button
+                type="button"
+                onClick={() => revoke.mutate(undefined, { onSuccess: () => setUrl(null) })}
+                disabled={revoke.isPending}
+                className={`${btn} text-red-600`}
+              >
+                {T.revoke}
+              </button>
+            )}
+          </div>
+        </div>
         {url && (
-          <div className="mt-2 flex flex-col gap-1">
+          <div className="mt-3 flex flex-col gap-1">
             <div className="flex gap-2">
               <input
                 readOnly
@@ -71,22 +87,7 @@ export function IcalSettings() {
             <p className="text-[11px] text-sub">{T.shownOnce}</p>
           </div>
         )}
-        <div className="mt-3 flex gap-2">
-          <button type="button" onClick={() => void doIssue()} disabled={issue.isPending} className={btn}>
-            {s?.active ? T.regenerate : T.create}
-          </button>
-          {s?.active && (
-            <button
-              type="button"
-              onClick={() => revoke.mutate(undefined, { onSuccess: () => setUrl(null) })}
-              disabled={revoke.isPending}
-              className={`${btn} text-red-600`}
-            >
-              {T.revoke}
-            </button>
-          )}
-        </div>
       </div>
-    </section>
+    </Group>
   )
 }

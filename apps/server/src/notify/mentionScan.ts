@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { applyStoredState } from '../yState'
 
 /**
  * @mentions of people in a document body, read straight from the Yjs state (docs/adr/1002-*).
@@ -83,13 +84,18 @@ export function scanMentions(state: Uint8Array): DocMention[] {
   if (!mayHaveMentions(state)) return []
   const doc = new Y.Doc()
   try {
-    Y.applyUpdate(doc, state)
-    const out: DocMention[] = []
-    walk(doc.getXmlFragment('document'), 0, 0, null, out)
-    return out
+    applyStoredState(doc, state)
+    return scanMentionsInDoc(doc)
   } finally {
     doc.destroy()
   }
+}
+
+/** Mention chips of an already decoded document (read-only Yjs walk; run it before a BlockNote read). */
+export function scanMentionsInDoc(doc: Y.Doc): DocMention[] {
+  const out: DocMention[] = []
+  walk(doc.getXmlFragment('document'), 0, 0, null, out)
+  return out
 }
 
 /**

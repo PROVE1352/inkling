@@ -103,7 +103,9 @@ describe('[db] workspace settings, audit log and agent blocks', { skip: !HAS_DB 
 
     // invite link off → join and preview answer like a wrong code
     const joiner = await h.makeUser('joiner')
-    const [{ code }] = await db.select({ code: schema.workspaces.inviteCode }).from(schema.workspaces).where(eq(schema.workspaces.id, ws.id))
+    // the database keeps only the code's hash (docs/adr/1110-*): take the code the owner sees
+    const code = ((await req(owner, 'GET', '/workspaces')).json() as { workspaces: { id: string; inviteCode: string }[] }).workspaces.find((w) => w.id === ws.id)!.inviteCode
+    assert.match(code, /^[A-Z2-9]{10}$/)
     assert.equal((await req(owner, 'PATCH', `/workspaces/${ws.id}/settings`, { inviteLinkEnabled: false })).statusCode, 200)
     const off = await req(joiner, 'POST', '/workspaces/join', { inviteCode: code })
     assert.equal(off.statusCode, 404)

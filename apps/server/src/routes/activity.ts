@@ -13,6 +13,8 @@ import { idParam, requireMembership } from '../helpers'
 import { blocksToMarkdown, stateToBlocks } from '../md/convert'
 import { findVisiblePage } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
+import { snapshotBlocks } from '../snapshotStore'
+import type { AnyBlock } from '../md/convert'
 
 /**
  * Activity screen and diffs for people (docs/adr/1005-*). Reads the change log the agent feed
@@ -43,7 +45,11 @@ function opsFor(before: string, after: string): { ops: ChangeDiffDTO['ops']; lar
 }
 
 async function markdownOf(state: Uint8Array | Buffer): Promise<string> {
-  const { markdown } = await blocksToMarkdown(stateToBlocks(state), { assetMode: 'absolute' })
+  return markdownOfBlocks(stateToBlocks(state))
+}
+
+async function markdownOfBlocks(blocks: AnyBlock[]): Promise<string> {
+  const { markdown } = await blocksToMarkdown(blocks, { assetMode: 'absolute' })
   return markdown
 }
 
@@ -183,35 +189,35 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
-    const snap = (
-      await db
-        .select({ state: pageSnapshots.state, label: pageSnapshots.label, createdAt: pageSnapshots.createdAt })
-        .from(pageSnapshots)
-        .where(and(eq(pageSnapshots.id, sid), eq(pageSnapshots.pageId, id)))
-        .limit(1)
-    )[0]
+    // Versions are rebuilt from their diff chains (docs/adr/1100-*); metadata is read on its own.
+    const meta = async (sid2: string) =>
+      (
+        await db
+          .select({ label: pageSnapshots.label, createdAt: pageSnapshots.createdAt })
+          .from(pageSnapshots)
+          .where(and(eq(pageSnapshots.id, sid2), eq(pageSnapshots.pageId, id)))
+          .limit(1)
+      )[0]
+    const snap = await meta(sid)
     if (!snap) throw notFound()
     let to: SnapshotDiffDTO['to']
-    let toState: Uint8Array | Buffer | null
+    let after: string
     if (against === 'current') {
       const cur = (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, id)).limit(1))[0]
-      toState = cur?.state ?? null
+      after = cur?.state ? await markdownOf(cur.state) : ''
       to = { id: 'current', label: null, createdAt: null }
     } else {
       if (against === sid) throw badRequest('Pick a different version to compare with')
-      const other = (
-        await db
-          .select({ state: pageSnapshots.state, label: pageSnapshots.label, createdAt: pageSnapshots.createdAt })
-          .from(pageSnapshots)
-          .where(and(eq(pageSnapshots.id, against), eq(pageSnapshots.pageId, id)))
-          .limit(1)
-      )[0]
+      const other = await meta(against)
       if (!other) throw notFound()
-      toState = other.state
+      const otherBlocks = await snapshotBlocks(id, against)
+      if (!otherBlocks) throw notFound()
+      after = await markdownOfBlocks(otherBlocks)
       to = { id: against, label: other.label, createdAt: other.createdAt.toISOString() }
     }
-    const before = await markdownOf(snap.state)
-    const after = toState ? await markdownOf(toState) : ''
+    const fromBlocks = await snapshotBlocks(id, sid)
+    if (!fromBlocks) throw notFound()
+    const before = await markdownOfBlocks(fromBlocks)
     const d = opsFor(before, after)
     const dto: SnapshotDiffDTO = {
       from: { id: sid, label: snap.label, createdAt: snap.createdAt.toISOString() },

@@ -28,6 +28,7 @@ import { env } from './env'
 import { kickOutbox, OUTBOX_ORIGIN, ownedOrOrphaned, registerOutboxHandler, wakeAt } from './outbox'
 import type { Exec, RetryPolicy } from './outbox'
 import { safeFetch, SafeFetchError } from './safeFetch'
+import { protectSecret, revealSecret, SecretUnreadableError, tryRevealSecret } from './secretsAtRest'
 import { liveWorkspace } from './workspaceLive'
 
 // ---------------------------------------------------------------------------
@@ -106,12 +107,35 @@ export function maskWebhookUrl(url: string): string {
 
 type HookRow = typeof workspaceWebhooks.$inferSelect
 
+/**
+ * The hook's URL as stored → the real URL (docs/adr/1111-*). Sealed with APP_SECRET_KEY when the key
+ * is set (row id as AAD); plaintext rows from a key-less install pass through. Throws
+ * SecretUnreadableError when the key is missing or changed.
+ */
+export function hookUrl(h: Pick<HookRow, 'id' | 'url'>): string {
+  return revealSecret('webhook-url', h.url, h.id)
+}
+
+/** Stored form of a new hook's URL. */
+export function storeHookUrl(id: string, url: string): string {
+  return protectSecret('webhook-url', url, id)
+}
+
+/** Masked URL for display and audit labels; '••••' when the stored URL cannot be decrypted. */
+export function maskedHookUrl(h: Pick<HookRow, 'id' | 'url'>): string {
+  const url = tryRevealSecret('webhook-url', h.url, h.id)
+  return url ? maskWebhookUrl(url) : '••••'
+}
+
+/** lastError of a hook whose URL cannot be decrypted (shown in the webhooks panel). */
+export const UNREADABLE_URL_ERROR = 'URL cannot be decrypted: APP_SECRET_KEY is missing or changed'
+
 export function toWebhookDTO(r: HookRow): WebhookDTO {
   const events = Array.isArray(r.events) ? (r.events as string[]).filter((e): e is WebhookEvent => (WEBHOOK_EVENTS as string[]).includes(e)) : []
   return {
     id: r.id,
     kind: r.kind,
-    urlMasked: maskWebhookUrl(r.url),
+    urlMasked: maskedHookUrl(r),
     events,
     enabled: r.enabled === '1',
     autoDisabledAt: r.autoDisabledAt ? r.autoDisabledAt.toISOString() : null,
@@ -329,17 +353,24 @@ export type DeliveryResult =
   | { ok: true; status: number }
   | { ok: false; retryable: boolean; retryAfterMs?: number; error: string }
 
-export async function deliver(hook: Pick<HookRow, 'kind' | 'url'>, body: string, deliveryId?: string): Promise<DeliveryResult> {
+export async function deliver(hook: Pick<HookRow, 'id' | 'kind' | 'url'>, body: string, deliveryId?: string): Promise<DeliveryResult> {
   const p = PROVIDERS[hook.kind]
+  let url: string
+  try {
+    url = hookUrl(hook)
+  } catch (e) {
+    if (e instanceof SecretUnreadableError) return { ok: false, retryable: false, error: UNREADABLE_URL_ERROR }
+    throw e
+  }
   let u: URL
   try {
-    u = new URL(hook.url)
+    u = new URL(url)
   } catch {
     return { ok: false, retryable: false, error: 'invalid URL' }
   }
   const loop = isLoopbackTestUrl(u)
   try {
-    const res = await safeFetch(hook.url, {
+    const res = await safeFetch(url, {
       method: 'POST',
       body,
       headers: { 'content-type': 'application/json', ...(deliveryId ? { 'x-inkling-delivery': deliveryId } : {}) },

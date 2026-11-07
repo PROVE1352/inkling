@@ -635,7 +635,7 @@ export function Admin() {
   const filteredKeys = (keys.data ?? []).filter(
     (k: SignupKeyDTO) =>
       !kq ||
-      k.key.toLowerCase().includes(kq) ||
+      (k.key ?? k.keyHint ?? '').toLowerCase().includes(kq) ||
       (k.note ?? '').toLowerCase().includes(kq) ||
       k.usedBy.some((u) => u.email.toLowerCase().includes(kq) || u.name.toLowerCase().includes(kq)),
   )
@@ -931,16 +931,23 @@ export function Admin() {
               {keyView.items.map((k) => {
                 const st = keyState(k)
                 return (
-                  <li key={k.key} className="rounded-lg border border-line p-3">
+                  <li key={k.id ?? k.key} className="rounded-lg border border-line p-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => copy(k.key)}
-                        title={t('admin.clickToCopy')}
-                        className="font-mono text-sm text-ink transition-colors duration-150 hover:text-accent"
-                      >
-                        {copied === k.key ? t('common.copied') : k.key}
-                      </button>
+                      {k.key ? (
+                        <button
+                          type="button"
+                          onClick={() => copy(k.key!)}
+                          title={t('admin.clickToCopy')}
+                          className="font-mono text-sm text-ink transition-colors duration-150 hover:text-accent"
+                        >
+                          {copied === k.key ? t('common.copied') : k.key}
+                        </button>
+                      ) : (
+                        // Used up (or its encrypted copy is unreadable): only the last four characters (docs/adr/1110-*)
+                        <span className="font-mono text-sm text-sub" title={t('admin.keyHidden')}>
+                          ••••-••••-••••-{k.keyHint ?? '••••'}
+                        </span>
+                      )}
                       <Badge cls={st.cls}>{st.label}</Badge>
                       <span className="text-xs text-sub">
                         {t('admin.keyUsage', { used: k.usedCount, max: k.maxUses, date: fmtDate(k.expiresAt) })}
@@ -948,7 +955,7 @@ export function Admin() {
                       {k.note && <span className="text-xs text-sub">· {k.note}</span>}
                       <button
                         type="button"
-                        onClick={() => revokeKey.mutate(k.key)}
+                        onClick={() => revokeKey.mutate(k.id ?? k.key ?? '')}
                         className="ml-auto rounded-md px-2 py-1 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-red-600"
                       >
                         {t('admin.revoke')}

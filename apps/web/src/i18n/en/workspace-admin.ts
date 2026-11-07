@@ -68,6 +68,31 @@ export default {
   'wsSettings.deleteDesc': 'Hidden from everyone at once; an owner can restore it for 30 days.',
   'wsSettings.dangerOwnerOnly': 'Transfer and delete are for owners.',
 
+  'wsTwoFactor.group': 'Security',
+  'wsTwoFactor.title': 'Require two-step verification',
+  'wsTwoFactor.desc':
+    'Members without two-step verification can no longer open this workspace once the grace period ends. Their agent connections follow them. Delegated sign-in accounts use their sign-in service’s second factor.',
+  'wsTwoFactor.unavailable': 'Not available on this server: the administrator has to set APP_SECRET_KEY.',
+  'wsTwoFactor.selfFirst': 'Turn on two-step verification for your own account first.',
+  'wsTwoFactor.selfFirstLink': 'Open Settings',
+  'wsTwoFactor.deadlineFuture': 'Members without it are blocked from {date}.',
+  'wsTwoFactor.deadlinePast': 'In effect since {date}.',
+  'wsTwoFactor.grace': 'Grace period',
+  'wsTwoFactor.graceDesc': 'Counted from when the requirement was turned on. Until then members only see a reminder.',
+  'wsTwoFactor.graceNone': 'None (at once)',
+  'wsTwoFactor.graceDays_one': '{count} day',
+  'wsTwoFactor.graceDays_other': '{count} days',
+  'wsTwoFactor.withoutTitle_one': '{count} member without two-step verification',
+  'wsTwoFactor.withoutTitle_other': '{count} members without two-step verification',
+  'wsTwoFactor.withoutNone': 'Everyone has it on.',
+  'wsTwoFactor.banner': '“{name}” requires two-step verification from {date}.',
+  'wsTwoFactor.bannerAction': 'Turn it on',
+  'wsTwoFactor.gateTitle': 'This workspace requires two-step verification',
+  'wsTwoFactor.gateBody':
+    'An owner or admin made two-step verification a requirement here. Turn it on for your account below; the workspace opens again right away. Your other workspaces are not affected.',
+  'wsTwoFactor.gateContinue': 'Open the workspace',
+  'wsTwoFactor.gateOther': 'Other workspaces:',
+
   'members.roleAdmin': 'Admin',
   'members.inviteOff': 'The invite link is turned off in the workspace settings.',
 

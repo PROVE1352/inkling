@@ -7,6 +7,7 @@ import { z } from 'zod'
 import type { PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
 import { db } from '../db/index'
 import { files, pageDocs, pages } from '../db/schema'
+import { hashShareToken } from '../secretsAtRest'
 import { env } from '../env'
 import { notFound } from '../errors'
 import { recordFailure } from '../guard'
@@ -228,7 +229,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedPage |
       .from(pages)
       .where(
         and(
-          eq(pages.shareToken, token),
+          // stored as SHA-256 (docs/adr/1110-*); a 64-hex value is never a raw token
+          eq(pages.shareToken, hashShareToken(token)),
           isNull(pages.deletedAt),
           eq(pages.scope, 'shared'),
           // A soft-deleted workspace's links stop working at once and come back on restore (ADR 0910).

@@ -16,6 +16,7 @@ import {
 import { useT } from '../i18n'
 import { DownloadIcon, RestoreIcon } from './Icons'
 import { Modal } from './Modal'
+import { Group, useSettingsFlat } from './SettingsRows'
 import { Spinner } from './Spinner'
 import { WorkspaceAvatar } from './WorkspaceAvatar'
 
@@ -371,11 +372,12 @@ export function DeletedWorkspacesList({ compact = false }: { compact?: boolean }
   const restore = useRestoreWorkspace()
   const [error, setError] = useState<string | null>(null)
   const list = deleted.data ?? []
+  const flat = useSettingsFlat()
 
   if (compact && list.length === 0) return null
 
-  const rows = (
-    <div className="divide-y divide-line">
+  const items = (
+    <>
       {deleted.isLoading ? (
         <div className="flex justify-center py-4">
           <Spinner size={18} />
@@ -412,8 +414,13 @@ export function DeletedWorkspacesList({ compact = false }: { compact?: boolean }
         })
       )}
       {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
-    </div>
+    </>
   )
+  // In the flat look the rows sit directly in the group's divided list (no wrapper of their own).
+  const rows = flat && !compact ? items : <div className="divide-y divide-line">{items}</div>
+
+  // Settings › Account: the flat row look of the personal settings screen.
+  if (flat && !compact) return <Group title={t('wsDanger.deletedTitle')} desc={t('wsDanger.deletedDesc')}>{rows}</Group>
 
   return (
     <section className={compact ? 'w-full max-w-2xl' : 'mb-8'}>

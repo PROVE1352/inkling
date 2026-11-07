@@ -64,6 +64,29 @@ export default {
   'wsSettings.deleteDesc': '모두에게서 즉시 숨겨지고, 소유자는 30일 동안 복원할 수 있습니다.',
   'wsSettings.dangerOwnerOnly': '이전과 삭제는 소유자만 할 수 있습니다.',
 
+  'wsTwoFactor.group': '보안',
+  'wsTwoFactor.title': '2단계 인증 필수',
+  'wsTwoFactor.desc':
+    '유예 기간이 지나면 2단계 인증을 켜지 않은 멤버는 이 워크스페이스를 열 수 없습니다. 그 멤버가 연결한 에이전트도 같이 막힙니다. 위임 로그인 계정은 해당 로그인 서비스의 2단계 인증을 따릅니다.',
+  'wsTwoFactor.unavailable': '이 서버에서는 쓸 수 없습니다. 관리자가 APP_SECRET_KEY를 설정해야 합니다.',
+  'wsTwoFactor.selfFirst': '먼저 내 계정의 2단계 인증을 켜세요.',
+  'wsTwoFactor.selfFirstLink': '설정 열기',
+  'wsTwoFactor.deadlineFuture': '{date}부터 2단계 인증이 없는 멤버는 막힙니다.',
+  'wsTwoFactor.deadlinePast': '{date}부터 적용 중입니다.',
+  'wsTwoFactor.grace': '유예 기간',
+  'wsTwoFactor.graceDesc': '필수로 바꾼 때부터 셉니다. 그동안 멤버에게는 안내만 보입니다.',
+  'wsTwoFactor.graceNone': '없음(즉시)',
+  'wsTwoFactor.graceDays_other': '{count}일',
+  'wsTwoFactor.withoutTitle_other': '2단계 인증을 켜지 않은 멤버 {count}명',
+  'wsTwoFactor.withoutNone': '모두 켜 두었습니다.',
+  'wsTwoFactor.banner': '“{name}” 워크스페이스는 {date}부터 2단계 인증이 필요합니다.',
+  'wsTwoFactor.bannerAction': '지금 켜기',
+  'wsTwoFactor.gateTitle': '이 워크스페이스는 2단계 인증이 필요합니다',
+  'wsTwoFactor.gateBody':
+    '소유자나 관리자가 이 워크스페이스에 2단계 인증을 필수로 설정했습니다. 아래에서 내 계정의 2단계 인증을 켜면 바로 다시 열립니다. 다른 워크스페이스에는 영향이 없습니다.',
+  'wsTwoFactor.gateContinue': '워크스페이스 열기',
+  'wsTwoFactor.gateOther': '다른 워크스페이스:',
+
   'members.roleAdmin': '관리자',
   'members.inviteOff': '워크스페이스 설정에서 초대 링크가 꺼져 있습니다.',
 

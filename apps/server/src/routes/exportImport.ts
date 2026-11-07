@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { randomUUID } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, readFile, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { Transform } from 'node:stream'
@@ -16,7 +16,7 @@ import { idParam, requireMembership } from '../helpers'
 import { recordAudit, roleMeets } from '../workspaceAdmin'
 import { exportPageCanvas, exportPageMd, exportZip } from '../md/exporter'
 import { importEntries, importMarkdown, importZip } from '../md/importer'
-import type { ImportEntry } from '../md/importer'
+import type { ImportEntry, ImportStats } from '../md/importer'
 import { importLimits, mbLabel } from '../md/importLimits'
 import { importNotionZip } from '../md/notionImport'
 import { looksLikeNotionExport } from '../md/notionParse'
@@ -86,6 +86,12 @@ function diskEntry(name: string, diskPath: string, size: number): ImportEntry {
     readBuffer: () => readFile(diskPath),
     readText: () => readFile(diskPath, 'utf8'),
     moveTo: (dest) => rename(diskPath, dest),
+    // Streamed so a de-duplication check never buffers a large attachment (docs/adr/1122-*).
+    sha256: async () => {
+      const h = createHash('sha256')
+      for await (const chunk of createReadStream(diskPath)) h.update(chunk as Buffer)
+      return h.digest('hex')
+    },
   }
 }
 
@@ -288,12 +294,13 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         }
         for (const d of dirs) entries.push(dirEntry(d))
 
-        const created = await importEntries({ entries, workspaceId: id, parentId, userId: user.id, scope, role })
+        const stats: ImportStats = { duplicateAttachments: 0 }
+        const created = await importEntries({ entries, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
         if (created.length === 0) {
           throw badRequest('No .md files to import')
         }
         await markCreatedVia(created.map((p) => p.id), user)
-        return { pages: created.map(toPageDTO) }
+        return { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
       } finally {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
       }
@@ -390,8 +397,9 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       }
     }
 
+    const stats: ImportStats = { duplicateAttachments: 0 }
     const created = isZip
-      ? await importZip({ buffer, workspaceId: id, parentId, userId: user.id, scope, role })
+      ? await importZip({ buffer, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
       : await importMarkdown({
           buffer,
           filename,
@@ -403,6 +411,10 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         })
 
     await markCreatedVia(created.map((p) => p.id), user)
-    return { pages: created.map(toPageDTO) }
+    // `report` stays reserved for the Notion importer's report (its presence tells the client which
+    // importer ran); the zip/folder importers only add the de-duplication count (docs/adr/1122-*).
+    return isZip
+      ? { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
+      : { pages: created.map(toPageDTO) }
   })
 }

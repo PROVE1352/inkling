@@ -285,6 +285,40 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 |---|---|---|
 | [1090](1090-quieter-page-chrome-and-line-width-setting.md) | Quieter page chrome: ⋯ menu, line-width slider, title-heading dedupe on import | Accepted |
 
+## 1100–1109 Large pages, part 2
+
+| ADR | Title | Status |
+|---|---|---|
+| [1100](1100-incremental-version-history.md) | Incremental version history: snapshot rows as Yjs diffs in short chains | Accepted |
+| [1101](1101-yjs-v2-encoding-for-stored-states.md) | Yjs V2 encoding for stored states, read in either format, converted on the next store | Accepted |
+| [1102](1102-one-encode-per-store-one-decode-per-index-pass.md) | One encode per store, one decode per index pass | Accepted |
+| [1103](1103-large-page-notice-for-people.md) | A "large page" notice for people and a list for workspace managers | Accepted |
+| [1104](1104-editor-viewport-rendering-not-adopted.md) | Rendering only the visible part of the editor: investigated, not adopted | Rejected |
+
+## 1110–1119 Secrets at rest and workspace security
+
+| ADR | Title | Status |
+|---|---|---|
+| [1110](1110-hashed-link-secrets-with-sealed-copies.md) | Share tokens, invite codes and signup keys stored as SHA-256, with a sealed copy for "copy link" | Accepted |
+| [1111](1111-webhook-and-sheet-urls-sealed-at-rest.md) | Webhook and sheet-sync URLs sealed with `APP_SECRET_KEY`; plaintext with a warning without it | Accepted |
+| [1112](1112-workspace-requires-two-step-verification.md) | A workspace can require two-step verification | Accepted |
+
+## 1120–1129 Algorithms
+
+| ADR | Title | Status |
+|---|---|---|
+| [1120](1120-union-find-module.md) | One union-find module, and the rule for when it fits | Accepted |
+| [1121](1121-former-titles-for-wikilinks-after-rename.md) | Former page titles: `[[old name]]` still finds a renamed page | Accepted |
+| [1122](1122-import-deduplication.md) | Import de-duplication: identical attachments once, one Notion page per Notion id | Accepted |
+| [1123](1123-link-islands-and-unlinked-pages.md) | Link islands and unlinked pages | Accepted |
+| [1124](1124-cache-replacement-lru-vs-sieve-s3fifo.md) | Cache replacement: LRU kept (SIEVE and S3-FIFO measured, OPT as the bound) | Accepted |
+
+## 1130–1139 Settings
+
+| ADR | Title | Status |
+|---|---|---|
+| [1130](1130-settings-sections-and-flat-rows.md) | Personal settings: section list, flat rows, "This device" tags | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

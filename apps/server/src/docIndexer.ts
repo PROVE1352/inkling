@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { chunkBlocks } from './context/chunker'
 import { reindexPageChunks } from './context/chunkIndex'
-import { stateToBlocks } from './md/convert'
+import { docToBlocks } from './md/convert'
+import { docFromStoredState } from './yState'
 import { extractInternalLinks } from './md/convert'
 import { reindexPageLinks } from './md/linkIndex'
 import { blocksToTagText, extractTags, reindexPageTags } from './md/tagIndex'
@@ -86,7 +87,13 @@ function rememberStamp(pageId: string, stamp: string | null): void {
 
 async function runIndex(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
   docIndexStats.runs++
-  const blocks = stateToBlocks(state)
+  // One decode per pass (docs/adr/1102-*): the mention walk reads the Yjs tree first, then BlockNote
+  // reads the same throwaway doc (its read deletes nodes the server schema lacks, mention chips among
+  // them). The live document is never read here: copying it costs as much as decoding the state.
+  // The throwaway doc is left to the GC, as stateToBlocks always did.
+  const decoded = docFromStoredState(state)
+  const mention = mentionSignature(state, decoded)
+  const blocks = docToBlocks(decoded)
   docIndexStats.conversions++
   const text = blocksToPlainText(blocks)
   const links = extractInternalLinks(blocks).filter((t) => t !== pageId).sort()
@@ -97,7 +104,6 @@ async function runIndex(pageId: string, state: Uint8Array, stamp: string | null)
   const chunks = chunkBlocks(blocks)
   // Captured before any await: the REST/MCP request that caused this pass is still in flight.
   const actor = indexActor(pageId)
-  const mention = mentionSignature(state)
   const next: Signature = {
     links: links.join(','),
     text: digest(text),

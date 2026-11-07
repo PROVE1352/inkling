@@ -176,7 +176,10 @@ describe('[db] fix phase', { skip: !HAS_DB }, async () => {
     return { ...u, cookie: `${SESSION_COOKIE}=${token}` }
   }
   async function workspace(owner: { id: string }, members: { id: string; role?: 'owner' | 'member' }[] = []) {
-    const [ws] = await db.insert(schema.workspaces).values({ name: 'w', inviteCode: `I${tag()}` }).returning()
+    // invite code stored as hash + sealed copy, as the routes do (docs/adr/1110-*)
+    const { generateInviteCodeColumns } = await import('./helpers')
+    const id = randomUUID()
+    const [ws] = await db.insert(schema.workspaces).values({ id, name: 'w', ...(await generateInviteCodeColumns(db, id)) }).returning()
     await db.insert(schema.workspaceMembers).values([
       { workspaceId: ws.id, userId: owner.id, role: 'owner' },
       ...members.map((m) => ({ workspaceId: ws.id, userId: m.id, role: m.role ?? ('member' as const) })),
@@ -436,7 +439,9 @@ describe('[db] fix phase', { skip: !HAS_DB }, async () => {
     const asMember = (await req(m2.cookie, 'GET', '/api/workspaces')).json().workspaces.find((x: { id: string }) => x.id === w.id)
     assert.equal(asMember.inviteCode, '')
     const before = (await req(owner.cookie, 'GET', '/api/workspaces')).json().workspaces.find((x: { id: string }) => x.id === w.id)
-    assert.equal(before.inviteCode, w.inviteCode)
+    const { revealInviteCode } = await import('./helpers')
+    assert.equal(before.inviteCode, revealInviteCode(w))
+    assert.match(before.inviteCode, /^[A-Z2-9]{10}$/)
     assert.equal((await req(owner.cookie, 'DELETE', `/api/workspaces/${w.id}/members/${m2.id}`)).statusCode, 204)
     const [after] = await db.select().from(schema.workspaces).where(eq(schema.workspaces.id, w.id))
     assert.notEqual(after.inviteCode, w.inviteCode)

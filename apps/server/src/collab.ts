@@ -1,5 +1,5 @@
-import { Database } from '@hocuspocus/extension-database'
 import { Hocuspocus } from '@hocuspocus/server'
+import type { Extension } from '@hocuspocus/server'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { IncomingMessage, Server as HttpServer } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -15,6 +15,7 @@ export { flushDocIndexes } from './docIndexer'
 import { visibleTo } from './pageDto'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
+import { isTwoFactorBlocked } from './twoFactorPolicy'
 import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
@@ -23,6 +24,7 @@ import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
 import { trustedClientIp } from './guard'
 import { lifecycle, withRetry } from './lifecycle'
+import { applyStoredState, encodeStoredState, STATE_V1, STATE_V2, wholeStateFormat } from './yState'
 
 const uuidSchema = z.uuid()
 
@@ -44,53 +46,60 @@ function isPageDocument(documentName: string): boolean {
  * again on disconnect). Keyed by the document object, so an unload and reload of the same page
  * never mix their records.
  */
-const persisted = new WeakMap<Y.Doc, { digest: string; stamp: string | null }>()
-/** What fetch saw, handed to afterLoadDocument of the same load. */
-const loadedStamps = new Map<string, { stamp: string | null; indexed: boolean; digest: string | null }>()
+const persisted = new WeakMap<Y.Doc, { digest: string; stamp: string | null; legacy: boolean }>()
+/** What the load saw, handed to afterLoadDocument of the same load. */
+const loadedStamps = new Map<
+  string,
+  { stamp: string | null; indexed: boolean; digest: string | null; legacy: boolean; state: Uint8Array | null }
+>()
 
 function stateDigest(state: Uint8Array): string {
   return createHash('sha1').update(state).digest('base64')
 }
 
-// Yjs state persistence extension: stored in page_docs.state (bytea)
-const databaseExtension = new Database({
-  fetch: async ({ documentName }) => {
+/**
+ * Yjs state persistence in page_docs.state (docs/adr/1101-*, 1102-*). An extension of our own
+ * instead of @hocuspocus/extension-database: that one encodes the whole document (V1) before calling
+ * `store`, which then had to encode it again from the live doc inside the serialised chain, so every
+ * store paid two full encodes. Loads accept V1 and V2 rows; stores write V2.
+ */
+const persistence: Extension = {
+  async onLoadDocument({ documentName, document }) {
     // Non-UUID documents such as inbox have no persisted state: load as an empty document.
-    if (!isPageDocument(documentName)) return null
+    if (!isPageDocument(documentName)) return
     const [row] = (await db.execute(sql`
       SELECT d.state, d.updated_at::text AS stamp,
              EXISTS (SELECT 1 FROM page_chunk_index m WHERE m.page_id = ${documentName}) AS indexed
         FROM (SELECT 1) one LEFT JOIN page_docs d ON d.page_id = ${documentName}
     `)) as unknown as { state: Buffer | null; stamp: string | null; indexed: boolean }[]
+    const state = row?.state && row.state.length > 0 ? row.state : null
+    if (state) applyStoredState(document, state)
+    // A V1 row is converted by the next store even when nothing changed (gradual conversion,
+    // docs/adr/1101-*): remember the digest of its V2 encoding so that store recognises "unchanged".
+    const legacy = !!state && wholeStateFormat(state) === STATE_V1
     loadedStamps.set(documentName, {
       stamp: row?.stamp ?? null,
       indexed: !!row?.indexed,
-      digest: row?.state ? stateDigest(row.state) : null,
+      digest: state ? stateDigest(legacy ? encodeStoredState(document) : state) : null,
+      legacy,
+      state,
     })
-    return row?.state ?? null
   },
-  store: ({ documentName, state, document, socketId }) => {
+  async onStoreDocument({ documentName, document, socketId }) {
     // Non-UUID documents such as inbox are never stored/snapshotted/indexed: skip every store hook.
-    if (!isPageDocument(documentName)) return Promise.resolve()
+    if (!isPageDocument(documentName)) return
     // Stores of one document are serialised: Hocuspocus only debounces *timers*, so a
     // DirectConnection store (debounce 0) can run while a client store is mid-flight, and the
     // one holding the older state could finish last and overwrite page_docs. Inside the chain
-    // we re-encode from the live Y.Doc, so whichever store runs last writes the newest state.
+    // we encode from the live Y.Doc, so whichever store runs last writes the newest state.
     return serialStore(documentName, () => {
-      const live = document instanceof Y.Doc ? document : null
       // Update counter at encode time: the live doc equals what this store writes (docs/adr/1041-*).
-      const seq = live ? liveDocSeq(live) : null
-      return storeDocument(
-        documentName,
-        live ? Buffer.from(Y.encodeStateAsUpdate(live)) : state,
-        document,
-        socketId,
-        live,
-        seq,
-      )
+      const seq = liveDocSeq(document)
+      const state = Buffer.from(encodeStoredState(document))
+      return storeDocument(documentName, state, Buffer.from(Y.encodeStateVector(document)), document, socketId, document, seq)
     })
   },
-})
+}
 
 const storeChains = new Map<string, Promise<void>>()
 
@@ -109,6 +118,7 @@ function serialStore(name: string, run: () => Promise<void>): Promise<void> {
 async function storeDocument(
   documentName: string,
   state: Buffer,
+  stateVector: Buffer,
   document: { getConnectionsCount?: () => number } | undefined,
   socketId: string | undefined,
   live: Y.Doc | null = null,
@@ -121,6 +131,12 @@ async function storeDocument(
   if (prev && prev.digest === digest) {
     // Same bytes as page_docs already holds: no write, no snapshot, no re-index (docs/adr/1042-*).
     // A pass the previous store left debounced still runs now when this store would have run one.
+    // A V1 row is rewritten as V2 here, keeping its stamp: same document, no snapshot, no
+    // updated_at bump, no re-index (docs/adr/1101-*).
+    if (prev.legacy) {
+      prev.legacy = false
+      await convertStoredState(documentName, state, stateVector, prev.stamp)
+    }
     if (live) noteLiveStored(live, seq, prev.stamp)
     storeStats.skipped++
     if (immediate) await flushDocIndex(documentName)
@@ -141,9 +157,11 @@ async function storeDocument(
       () =>
         db.execute(sql`
           WITH d AS (
-            INSERT INTO page_docs (page_id, state, updated_at)
-            VALUES (${documentName}, ${state}, now())
-            ON CONFLICT (page_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()
+            INSERT INTO page_docs (page_id, state, state_format, state_vector, updated_at)
+            VALUES (${documentName}, ${state}, ${STATE_V2}, ${stateVector}, now())
+            ON CONFLICT (page_id) DO UPDATE
+              SET state = EXCLUDED.state, state_format = EXCLUDED.state_format,
+                  state_vector = EXCLUDED.state_vector, updated_at = now()
             RETURNING page_id, updated_at
           ), u AS (
             UPDATE pages SET updated_at = now() WHERE id IN (SELECT page_id FROM d)
@@ -158,7 +176,7 @@ async function storeDocument(
     )) as unknown as { stamp: string }[]
     const stamp = rows[0]?.stamp ?? null
     if (live) {
-      persisted.set(live, { digest, stamp })
+      persisted.set(live, { digest, stamp, legacy: false })
       noteLiveStored(live, seq, stamp)
     }
 
@@ -169,8 +187,26 @@ async function storeDocument(
   }
 }
 
-/** Test/bench hook: stores written vs skipped as unchanged (docs/adr/1042-*). */
-export const storeStats = { written: 0, skipped: 0 }
+/**
+ * Rewrites an unchanged V1 row as V2 (docs/adr/1101-*). Only when page_docs still holds the state
+ * this document was loaded from (same stamp): any other writer in between wins. Never throws.
+ */
+async function convertStoredState(documentName: string, state: Buffer, stateVector: Buffer, stamp: string | null): Promise<void> {
+  if (stamp === null) return
+  try {
+    const rows = (await db.execute(sql`
+      UPDATE page_docs SET state = ${state}, state_format = ${STATE_V2}, state_vector = ${stateVector}
+       WHERE page_id = ${documentName} AND updated_at::text = ${stamp}
+      RETURNING 1 AS ok
+    `)) as unknown as { ok: number }[]
+    if (rows.length > 0) storeStats.converted++
+  } catch (err) {
+    console.error('[inkling] V2 conversion of page_docs failed', documentName, err)
+  }
+}
+
+/** Test/bench hook: stores written vs skipped as unchanged, V1 rows rewritten as V2 (docs/adr/1042-*, 1101-*). */
+export const storeStats = { written: 0, skipped: 0, converted: 0 }
 
 /**
  * Hocuspocus instance: used by the snapshots route to push a restore live into an open
@@ -182,7 +218,7 @@ export const hocuspocus = new Hocuspocus({
   quiet: true,
   // Shutdown is coordinated together with fastify, so disable automatic signal handling
   stopOnSignals: false,
-  extensions: [databaseExtension],
+  extensions: [persistence],
   // Track updates of loaded page documents so reads know when the live doc still equals the
   // stored (and indexed) state (docs/adr/1041-*).
   async afterLoadDocument({ documentName, document }) {
@@ -190,12 +226,15 @@ export const hocuspocus = new Hocuspocus({
     const loaded = loadedStamps.get(documentName)
     loadedStamps.delete(documentName)
     trackLiveDoc(document, loaded?.stamp ?? null)
-    if (loaded?.digest) persisted.set(document, { digest: loaded.digest, stamp: loaded.stamp })
+    if (loaded?.digest) persisted.set(document, { digest: loaded.digest, stamp: loaded.stamp, legacy: loaded.legacy })
     // A page never indexed (created without the indexer, or with no stored state yet) gets its
     // current state indexed before the first edit, so that edit is diffed against it in the change
     // feed instead of being the silent first index. Unchanged stores used to do this as a side
     // effect; they are skipped now (docs/adr/1042-*).
-    if (loaded && !loaded.indexed) await scheduleDocIndex(documentName, Y.encodeStateAsUpdate(document), true, loaded.stamp)
+    // The bytes just loaded are that state: no re-encode (docs/adr/1102-*).
+    if (loaded && !loaded.indexed) {
+      await scheduleDocIndex(documentName, loaded.state ?? encodeStoredState(document), true, loaded.stamp)
+    }
   },
 
   // Who is typing where (docs/adr/1002-*): attributes body mentions and followed-page updates.
@@ -249,6 +288,8 @@ export const hocuspocus = new Hocuspocus({
         .limit(1)
     )[0]
     if (!member) throw new Error('Forbidden')
+    // "Require two-step verification" (docs/adr/1112-*): no live editing once the grace period is over.
+    if (await isTwoFactorBlocked(page.workspaceId, user.id)) throw new Error('TWO_FACTOR_REQUIRED')
 
     // Edit lock (docs/adr/0970-*): a member who may not edit the page gets a read-only connection.
     // Hocuspocus then answers their sync updates with SyncStatus(false) and never applies them;

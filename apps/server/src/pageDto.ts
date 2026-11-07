@@ -5,6 +5,7 @@ import { db } from './db/index'
 import { pages } from './db/schema'
 import { liveWorkspace } from './workspaceLive'
 import { agentAllowedSql } from './agentAccess'
+import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
 
 /**
  * Shared projection that selects only the pages columns the API responses need.
@@ -117,7 +118,11 @@ export async function findVisiblePage(
   userId: string,
 ): Promise<PageRow | null> {
   const rows = await db
-    .select(pageColumns)
+    .select({
+      ...pageColumns,
+      // "Require two-step verification" (docs/adr/1112-*): 403, not 404, so the client can say why.
+      twoFactorBlocked: sql<boolean>`${twoFactorBlockedSql(pages.workspaceId, userId)}`,
+    })
     .from(pages)
     .where(
       and(
@@ -130,5 +135,9 @@ export async function findVisiblePage(
       ),
     )
     .limit(1)
-  return rows[0] ?? null
+  const row = rows[0]
+  if (!row) return null
+  const { twoFactorBlocked, ...page } = row
+  if (twoFactorBlocked) throw twoFactorRequired(page.workspaceId)
+  return page
 }

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router'
 import {
   DndContext,
   KeyboardSensor,
@@ -20,11 +19,11 @@ import { Group, Toggle } from './SettingsRows'
 import { SIDEBAR_MENU_META, isSidebarMenuId } from './sidebarMenus'
 
 // Settings → Sidebar (docs/adr/1020-*): show/hide each top-of-sidebar menu and reorder them by
-// dragging the handle (mouse, long-press on touch, or Space + arrow keys) or with the ↑/↓ buttons.
+// dragging the handle (mouse, long-press on touch, or Space + arrow keys) or with the ↑/↓ buttons
+// (shown on hover or keyboard focus).
 // Stored on the account, so every device shows the same sidebar.
 export function SidebarSettings() {
   const t = useT()
-  const location = useLocation()
   const prefs = useSidebarPrefs()
   const save = useSaveSidebarPrefs()
   const entries = resolveSidebarMenu(prefs, SIDEBAR_MENU_IDS).filter((e) => isSidebarMenuId(e.id))
@@ -33,13 +32,6 @@ export function SidebarSettings() {
   const [live, setLive] = useState('')
   const sectionRef = useRef<HTMLDivElement>(null)
   const pendingFocus = useRef<string | null>(null)
-
-  // Opened from the sidebar's "Customize sidebar…" or the palette: bring this group into view.
-  useEffect(() => {
-    if (location.hash !== '#sidebar') return
-    const id = window.requestAnimationFrame(() => sectionRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
-    return () => window.cancelAnimationFrame(id)
-  }, [location.hash])
 
   const commit = (next: SidebarEntry[]) => save.mutate(toSidebarPrefs(next, SIDEBAR_MENU_IDS, prefs))
   const name = (id: string) => (isSidebarMenuId(id) ? t(SIDEBAR_MENU_META[id].label) : id)
@@ -78,7 +70,7 @@ export function SidebarSettings() {
   }
 
   return (
-    <div ref={sectionRef} id="sidebar" className="scroll-mt-4">
+    <div ref={sectionRef}>
       <Group title={t('sidebarSettings.title')}>
         <div className="px-4 py-3">
           <div className="text-xs leading-relaxed text-sub">{t('sidebarSettings.desc')}</div>
@@ -157,6 +149,10 @@ function SortableRow({
   const meta = isSidebarMenuId(entry.id) ? SIDEBAR_MENU_META[entry.id] : null
   const arrow =
     'flex h-7 w-7 items-center justify-center rounded-md text-sub transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-30 disabled:hover:bg-transparent pointer-coarse:h-9 pointer-coarse:w-9'
+  // ↑/↓ only while the row is hovered or holds keyboard focus (Tab still reaches them: opacity keeps them in
+  // the tab order). Touch screens have no hover, so they stay visible there.
+  const reveal =
+    'opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 group-focus-within/row:opacity-100 pointer-coarse:opacity-100'
 
   return (
     <li
@@ -166,7 +162,7 @@ function SortableRow({
         transform: transform ? `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` : undefined,
         transition,
       }}
-      className={`relative flex items-center gap-2 bg-app px-2 py-1.5 ${isDragging ? 'z-10 shadow-lg ring-1 ring-line' : ''}`}
+      className={`group/row relative flex items-center gap-2 bg-app px-2 py-1.5 ${isDragging ? 'z-10 shadow-lg ring-1 ring-line' : ''}`}
     >
       <button
         type="button"
@@ -183,28 +179,30 @@ function SortableRow({
       <span className={`min-w-0 flex-1 truncate text-sm ${entry.hidden ? 'text-sub line-through decoration-sub/50' : 'text-ink'}`}>
         {label}
       </span>
-      <button
-        type="button"
-        data-focus-id={`up-${entry.id}`}
-        onClick={onUp}
-        disabled={first}
-        aria-label={t('sidebarSettings.moveUp', { name: label })}
-        title={t('sidebarSettings.moveUp', { name: label })}
-        className={arrow}
-      >
-        <ChevronDownIcon size={16} className="rotate-180" />
-      </button>
-      <button
-        type="button"
-        data-focus-id={`down-${entry.id}`}
-        onClick={onDown}
-        disabled={last}
-        aria-label={t('sidebarSettings.moveDown', { name: label })}
-        title={t('sidebarSettings.moveDown', { name: label })}
-        className={arrow}
-      >
-        <ChevronDownIcon size={16} />
-      </button>
+      <span className={`flex shrink-0 ${reveal}`}>
+        <button
+          type="button"
+          data-focus-id={`up-${entry.id}`}
+          onClick={onUp}
+          disabled={first}
+          aria-label={t('sidebarSettings.moveUp', { name: label })}
+          title={t('sidebarSettings.moveUp', { name: label })}
+          className={arrow}
+        >
+          <ChevronDownIcon size={16} className="rotate-180" />
+        </button>
+        <button
+          type="button"
+          data-focus-id={`down-${entry.id}`}
+          onClick={onDown}
+          disabled={last}
+          aria-label={t('sidebarSettings.moveDown', { name: label })}
+          title={t('sidebarSettings.moveDown', { name: label })}
+          className={arrow}
+        >
+          <ChevronDownIcon size={16} />
+        </button>
+      </span>
       <span className="ml-1 flex shrink-0">
         <Toggle label={t('sidebarSettings.show', { name: label })} checked={!entry.hidden} onChange={onToggle} />
       </span>

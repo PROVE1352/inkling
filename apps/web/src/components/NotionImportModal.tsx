@@ -94,6 +94,9 @@ export function NotionImportModal({
             </dd>
           </dl>
           {r.renamed > 0 && <p className="text-xs text-sub">{t('notionImport.renamed', { count: r.renamed })}</p>}
+          {r.merged && r.merged.pages + r.merged.attachments > 0 && (
+            <p className="text-xs text-sub">{t('notionImport.merged', { count: r.merged.pages + r.merged.attachments })}</p>
+          )}
           <ReportList
             title={t('notionImport.broken', { count: r.brokenLinkCount })}
             items={r.brokenLinks.map((b) => `${b.page}: ${b.href}`)}

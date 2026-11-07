@@ -34,6 +34,7 @@ import { reindexPageTasksForPages } from '../md/taskIndex'
 import { loadSharedSubtree } from './public'
 import { assertPlacement, descendantsCte, lockTree, purgeDeletedSubtrees, withTreeLock } from '../pageTree'
 import { findVisiblePage, pageColumns, toPageDTO, visibleTo } from '../pageDto'
+import { hashShareToken, protectSecret, tryRevealSecret } from '../secretsAtRest'
 import type { PageRow } from '../pageDto'
 import { escapeLike } from '../util'
 import { closeConnectionsLosingPrivateAccess } from '../liveConnections'
@@ -47,6 +48,7 @@ import type { WorkspaceRole } from '@inkling/shared'
 import { bumpAcl, gateWrite } from '../aclVersion'
 import type { AclState } from '../aclVersion'
 import { assertAgentAllowed } from '../agentAccess'
+import { recordRename } from '../formerTitles'
 
 /** Edit-lock guard inside a transaction (docs/adr/0970-*). */
 function assertEditable(
@@ -115,11 +117,16 @@ async function generateUniqueShareToken(): Promise<string> {
     const clash = await db
       .select({ id: pages.id })
       .from(pages)
-      .where(eq(pages.shareToken, token))
+      .where(eq(pages.shareToken, hashShareToken(token)))
       .limit(1)
     if (clash.length === 0) return token
   }
   return randomBytes(16).toString('base64url')
+}
+
+/** The share token of a shared page for "copy link", or null when its copy cannot be opened (docs/adr/1110-*). */
+function revealShareToken(pageId: string, enc: string | null): string | null {
+  return tryRevealSecret('share-token', enc, pageId)
 }
 
 /** Max pages a single duplicate may create (runaway/DoS guard — lowered in audit F5) */
@@ -219,8 +226,9 @@ async function copySubtreeRows(
   const m = sql`unnest(${olds}::uuid[], ${news}::uuid[]) AS m(old_id, new_id)`
   for (const t of tables) {
     if (t === 'page_docs') {
-      await tx.execute(sql`INSERT INTO page_docs (page_id, state)
-        SELECT m.new_id, d.state FROM ${m} JOIN page_docs d ON d.page_id = m.old_id`)
+      // Format and state vector travel with the bytes (docs/adr/1101-*).
+      await tx.execute(sql`INSERT INTO page_docs (page_id, state, state_format, state_vector)
+        SELECT m.new_id, d.state, d.state_format, d.state_vector FROM ${m} JOIN page_docs d ON d.page_id = m.old_id`)
     } else if (t === 'page_texts') {
       await tx.execute(sql`INSERT INTO page_texts (page_id, text)
         SELECT m.new_id, x.text FROM ${m} JOIN page_texts x ON x.page_id = m.old_id`)
@@ -523,6 +531,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .set(updates)
         .where(eq(pages.id, id))
         .returning(pageColumns)
+      // Old name keeps resolving [[old name]] to this page (docs/adr/1121-*).
+      if (row.title !== page.title) await recordRename(tx, page.workspaceId, id, page.title, row.title)
       return { row, privatized, scopeChanged, prev: page }
     })
 
@@ -586,13 +596,24 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .where(eq(workspaces.id, page.workspaceId))
         .for('share')
         .limit(1)
-      const [current] = await tx.select({ shareToken: pages.shareToken }).from(pages).where(eq(pages.id, id)).limit(1)
-      if (current?.shareToken) return current.shareToken
+      const [current] = await tx
+        .select({ shareToken: pages.shareToken, enc: pages.shareTokenEnc })
+        .from(pages)
+        .where(eq(pages.id, id))
+        .for('update')
+        .limit(1)
+      // Already shared: hand back the same link. When its copy cannot be opened (APP_SECRET_KEY
+      // changed or removed), a new link replaces it — the only way to get a link to show again.
+      const existing = current?.shareToken ? revealShareToken(id, current.enc) : null
+      if (existing) return existing
       if (ws?.publicSharingDisabled) {
         throw new AppError(403, 'PUBLIC_SHARING_DISABLED', 'Public web links are turned off in this workspace')
       }
       const token = await generateUniqueShareToken()
-      await tx.update(pages).set({ shareToken: token }).where(eq(pages.id, id))
+      await tx
+        .update(pages)
+        .set({ shareToken: hashShareToken(token), shareTokenEnc: protectSecret('share-token', token, id) })
+        .where(eq(pages.id, id))
       await recordAudit(tx, {
         workspaceId: page.workspaceId,
         actor: user,
@@ -620,7 +641,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     await db.transaction(async (tx) => {
       const cleared = await tx
         .update(pages)
-        .set({ shareToken: null })
+        .set({ shareToken: null, shareTokenEnc: null })
         .where(and(eq(pages.id, id), sql`${pages.shareToken} IS NOT NULL`))
         .returning({ id: pages.id })
       if (cleared.length > 0) {
@@ -648,12 +669,13 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const current = (
       await db
-        .select({ shareToken: pages.shareToken })
+        .select({ shareToken: pages.shareToken, enc: pages.shareTokenEnc })
         .from(pages)
         .where(eq(pages.id, id))
         .limit(1)
     )[0]
-    const token = current?.shareToken ?? null
+    // A link whose copy cannot be opened reads as "not shared" here; publishing again replaces it.
+    const token = current?.shareToken ? revealShareToken(id, current.enc) : null
 
     const dto: ShareStatusDTO = { shared: Boolean(token), token }
     // For folders, also return the number of viewable subpages that are (or would be, if published) exposed.
@@ -676,7 +698,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         icon: pages.icon,
         kind: pages.kind,
         parentId: pages.parentId,
-        shareToken: pages.shareToken,
+        shareTokenEnc: pages.shareTokenEnc,
         updatedAt: pages.updatedAt,
       })
       .from(pages)
@@ -697,7 +719,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         icon: r.icon,
         kind: r.kind,
         parentId: r.parentId,
-        token: r.shareToken as string,
+        // '' when the copy cannot be opened (key changed): the row still lets a manager stop sharing.
+        token: revealShareToken(r.id, r.shareTokenEnc) ?? '',
         updatedAt: r.updatedAt.toISOString(),
         exposedCount: r.kind === 'folder' ? await folderExposedCount(r.id, wsId) : undefined,
       })),

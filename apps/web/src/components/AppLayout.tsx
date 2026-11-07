@@ -18,6 +18,7 @@ import { NotificationBell } from './NotificationBell'
 import { SearchModal, type SearchMode } from './SearchModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EmailVerifyBanner } from './EmailVerifyBanner'
+import { TwoFactorBanner, TwoFactorGate, useTwoFactorRequiredListener } from './TwoFactorRequired'
 import { useHistoryNav } from './NavButtons'
 import { requestPropsFocus } from '../lib/propsFocus'
 import { CommandPalette } from './CommandPalette'
@@ -93,6 +94,8 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const workspaces = useWorkspaces()
+  useTwoFactorRequiredListener()
+  const twoFactorWs = workspaces.data?.find((w) => w.id === wsId)
   const me = useMe()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
@@ -311,6 +314,8 @@ export function AppLayout() {
   ])
 
   if (!wsId) return <Navigate to="/" replace />
+  // "Require two-step verification" (docs/adr/1112-*): once it blocks me, only the setup screen.
+  if (twoFactorWs?.twoFactor?.state === 'blocked') return <TwoFactorGate ws={twoFactorWs} />
 
   return (
     <AppDnd wsId={wsId}>
@@ -353,6 +358,7 @@ export function AppLayout() {
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <EmailVerifyBanner />
+        <TwoFactorBanner wsId={wsId} />
         <Outlet
           context={
             { onToggleSidebar, openSearch } satisfies LayoutContext

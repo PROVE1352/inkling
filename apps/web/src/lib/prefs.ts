@@ -63,6 +63,8 @@ export type GraphPrefs = {
   arrows: boolean
   /** Group colours by top-level folder */
   colorGroups: boolean
+  /** Colour by link island instead (connected components of the links, docs/adr/1123-*) */
+  colorIslands: boolean
   /** Center force 0–1 */
   centerForce: number
   /** Repel force 0–20 */
@@ -91,6 +93,7 @@ export const DEFAULT_GRAPH_PREFS: GraphPrefs = {
   showTags: false,
   arrows: false,
   colorGroups: true,
+  colorIslands: false,
   centerForce: 0.5,
   repelForce: 10,
   linkDistance: 80,

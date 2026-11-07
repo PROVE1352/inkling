@@ -6,10 +6,12 @@ import type {
   WorkspaceDTO,
   WorkspaceRole,
   WorkspaceSettingsDTO,
+  WorkspaceTwoFactorStatus,
 } from '@inkling/shared'
 import { db } from './db/index'
 import { workspaceAuditEvents, workspaces } from './db/schema'
 import { forbidden, notFound } from './errors'
+import { revealInviteCode } from './helpers'
 
 /**
  * Workspace roles, settings and the audit log (docs/adr/0945-*, 0946-*).
@@ -74,16 +76,19 @@ export function capabilitiesFor(role: WorkspaceRole, p: WorkspacePolicy): Worksp
  * link is turned off, only owners still see the (unusable) code so they can turn it back on.
  */
 export function toWorkspaceDTO(
-  ws: { id: string; name: string; icon: string | null; inviteCode: string },
+  ws: { id: string; name: string; icon: string | null; inviteCodeEnc: string | null },
   role: WorkspaceRole,
   p: WorkspacePolicy,
+  twoFactor?: WorkspaceTwoFactorStatus,
 ): WorkspaceDTO {
   const can = capabilitiesFor(role, p)
   return {
+    ...(twoFactor ? { twoFactor } : {}),
     id: ws.id,
     name: ws.name,
     icon: ws.icon,
-    inviteCode: can.inviteLink || role === 'owner' ? ws.inviteCode : '',
+    // `invite_code` holds only the SHA-256; the code comes from its sealed copy (docs/adr/1110-*).
+    inviteCode: can.inviteLink || role === 'owner' ? revealInviteCode(ws) : '',
     role,
     can,
   }

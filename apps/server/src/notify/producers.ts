@@ -9,7 +9,7 @@ import { kickOutbox } from '../outbox'
 import type { Exec } from '../outbox'
 import { emitWebhookEvent, enqueueWebhookEvent } from '../webhooks'
 import { enqueueNotify, notify } from './engine'
-import { scanMentions, textMentions } from './mentionScan'
+import { mayHaveMentions, scanMentions, scanMentionsInDoc, textMentions } from './mentionScan'
 
 /**
  * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each only queues
@@ -90,8 +90,12 @@ function sameSet(a: string[], b: string[]): boolean {
 }
 
 /** Signature of the mention set, for the indexer's skip cache. */
-export function mentionSignature(state: Uint8Array): { sig: string; mentions: ReturnType<typeof scanMentions> } {
-  const mentions = scanMentions(state)
+export function mentionSignature(
+  state: Uint8Array,
+  decoded?: import('yjs').Doc,
+): { sig: string; mentions: ReturnType<typeof scanMentions> } {
+  // `decoded` = the same state already applied to a throwaway doc (the indexer decodes once, docs/adr/1102-*).
+  const mentions = !mayHaveMentions(state) ? [] : decoded ? scanMentionsInDoc(decoded) : scanMentions(state)
   return { sig: [...new Set(mentions.map((m) => m.userId))].sort().join(','), mentions }
 }
 

@@ -56,6 +56,48 @@ export const updateWorkspaceSettingsSchema = z
   .strict()
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>
 
+// --- Require two-step verification (docs/adr/1112-*) --------------------------
+
+export const TWO_FACTOR_GRACE_DAYS = { min: 0, max: 30, default: 7 } as const
+
+/** How a workspace's 2FA requirement applies to the caller (WorkspaceDTO.twoFactor). */
+export interface WorkspaceTwoFactorStatus {
+  /** The workspace requires two-step verification. */
+  required: boolean
+  /** When the grace period ends (ISO), null when the requirement is off. */
+  deadline: string | null
+  /**
+   * off = not required; ok = the caller satisfies it (2FA on, or a delegated sign-in account);
+   * grace = not yet, but still allowed until `deadline`; blocked = workspace API and collaboration
+   * answer 403 TWO_FACTOR_REQUIRED until the caller turns 2FA on.
+   */
+  state: 'off' | 'ok' | 'grace' | 'blocked'
+}
+
+/** GET /workspaces/:id/settings → `twoFactor` (members see it read-only). */
+export interface TwoFactorPolicyDTO {
+  required: boolean
+  graceDays: number
+  /** When the requirement was turned on (ISO), null when off. */
+  requiredAt: string | null
+  deadline: string | null
+  /** The server can do two-step verification at all (APP_SECRET_KEY set). Off: the switch cannot be turned on. */
+  available: boolean
+  /** The caller has 2FA on (or signs in through delegated login): needed to turn the requirement on. */
+  selfSatisfied: boolean
+  /** Owners/admins only: members who have not turned 2FA on yet (first 50), and how many in all. */
+  membersWithout?: { count: number; members: { id: string; name: string }[] }
+}
+
+/** PUT /workspaces/:id/settings/two-factor (owners and admins). */
+export const setTwoFactorPolicySchema = z
+  .object({
+    required: z.boolean(),
+    graceDays: z.number().int().min(TWO_FACTOR_GRACE_DAYS.min).max(TWO_FACTOR_GRACE_DAYS.max).optional(),
+  })
+  .strict()
+export type SetTwoFactorPolicyInput = z.infer<typeof setTwoFactorPolicySchema>
+
 // --- Audit log --------------------------------------------------------------
 
 export const AUDIT_ACTIONS = [

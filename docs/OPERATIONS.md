@@ -10,7 +10,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Set a strong `POSTGRES_PASSWORD` in `.env` (the default `nodian` is for local development only).
 - [ ] Set `PUBLIC_URL` (or `APP_URL`) to the external origin. Example: `PUBLIC_URL=https://notes.example.com`. It is the only source for mail links, the OAuth issuer and `og:url`; the `Host` header is never trusted for them. When SMTP mail is enabled and neither variable is set, the server refuses to boot.
   Browsers opening the app under any other origin (a LAN IP, another domain) can read but every write is refused with 403 `CROSS_SITE_REQUEST` (docs/adr/1062-*).
-- [ ] Set `APP_SECRET_KEY` (≥ 32 characters, `openssl rand -base64 32`) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work).
+- [ ] Set `APP_SECRET_KEY` (≥ 32 characters, `openssl rand -base64 32`) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work). From 0.5.0 it also seals the "copy link" copies of share links, invite codes and signup keys and the webhook and sheet-sync URLs; without it those copies and URLs stay in plaintext (boot warning) and are sealed at the first boot after the key is set (docs/adr/1110-*, 1111-*).
 - [ ] Cookies: when `PUBLIC_URL` is `https`, session cookies are `Secure` automatically. `COOKIE_SECURE` is passed through from `.env` (default `0`); the Caddy overlay sets it to `1`.
 - [ ] Signup keys: with `NODE_ENV=production`, signups require a signup key unless `SIGNUP_REQUIRE_KEY=0` is set explicitly. Create the first admin's key with `./deploy/signup-key.sh new "<name>"` (the server logs this hint at boot).
 - [ ] Set `TZ` to the users' timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to `UTC`; a Korean deployment sets `TZ=Asia/Seoul`.
@@ -66,6 +66,10 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   for the next release).
 - No downgrades: an older release does not know the newer schema. Roll back by restoring the backup from
   step 1 and pinning `INKLING_VERSION` to the old release.
+  From 0.5.0 this matters more: page states are written in Yjs V2 and share links, invite codes and
+  signup keys are kept as hashes, which 0.4.x cannot read. If newer edits must survive a rollback, stop
+  the server, run `apps/server/scripts/states-to-v1.ts` (try `--dry-run` first) and accept that existing
+  share links, invite codes and signup keys stop working (docs/adr/1101-*, 1110-*).
 - Every release is tested for an upgrade from each earlier release, with data, before its image is
   published (`.github/workflows/upgrade.yml`, docs/adr/1052-*).
 

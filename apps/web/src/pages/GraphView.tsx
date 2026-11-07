@@ -32,15 +32,22 @@ export function GraphView() {
   const deferredSearch = useDeferredValue(search)
   // Phone: settings live in a bottom sheet (closed by default). Desktop/tablet: saved open/closed state.
   const [sheetOpen, setSheetOpen] = useState(false)
+  // "Only this island": hub page id of the island being shown (not saved; cleared on reload)
+  const [island, setIsland] = useState<string | null>(null)
   const panelOpen = isPhone ? sheetOpen : gp.panelOpen
   const togglePanel = () => (isPhone ? setSheetOpen((v) => !v) : setGraphPref('panelOpen', !gp.panelOpen))
 
   const model = useMemo(
     () =>
       graph.data
-        ? buildModel(graph.data, { showOrphans: gp.showOrphans, showTags: gp.showTags })
+        ? buildModel(graph.data, {
+            showOrphans: gp.showOrphans,
+            showTags: gp.showTags,
+            colorBy: gp.colorIslands ? 'island' : 'folder',
+            island,
+          })
         : null,
-    [graph.data, gp.showOrphans, gp.showTags],
+    [graph.data, gp.showOrphans, gp.showTags, gp.colorIslands, island],
   )
   const settings: EngineSettings = useMemo(
     () => ({
@@ -50,9 +57,9 @@ export function GraphView() {
       linkForce: gp.linkForce,
       nodeSize: gp.nodeSize,
       arrows: gp.arrows,
-      colorGroups: gp.colorGroups,
+      colorGroups: gp.colorGroups || gp.colorIslands,
     }),
-    [gp.centerForce, gp.repelForce, gp.linkDistance, gp.linkForce, gp.nodeSize, gp.arrows, gp.colorGroups],
+    [gp.centerForce, gp.repelForce, gp.linkDistance, gp.linkForce, gp.nodeSize, gp.arrows, gp.colorGroups, gp.colorIslands],
   )
   const colors = useMemo(() => readGraphColors(resolved === 'dark'), [resolved])
   const matchCount = useMemo(() => {
@@ -75,6 +82,11 @@ export function GraphView() {
       matchCount={matchCount}
       hasTags={model.hasTags}
       groups={model.groups}
+      islandCount={model.islandCount}
+      island={island}
+      onIsland={setIsland}
+      wsId={wsId ?? ''}
+      onOpen={onOpen}
       colors={colors}
       onClose={togglePanel}
     />

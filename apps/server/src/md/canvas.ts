@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import * as Y from 'yjs'
+import { applyStoredState } from '../yState'
 
 // ---------------------------------------------------------------------------
 // Canvas conversion module — Yjs state (cnodes/cedges) ↔ JSON Canvas 1.0 (.canvas)
@@ -149,7 +150,7 @@ export function collectAssetRefs(state: Uint8Array): string[] {
 /** Read cnodes/cedges out of a Yjs state (safe for an empty state). */
 function readCanvasState(state: Uint8Array): { cnodes: CNode[]; cedges: CEdge[] } {
   const doc = new Y.Doc()
-  if (state.length > 0) Y.applyUpdate(doc, state)
+  if (state.length > 0) applyStoredState(doc, state)
   const cnodesMap = doc.getMap('cnodes').toJSON() as Record<string, CNode>
   const cedgesMap = doc.getMap('cedges').toJSON() as Record<string, CEdge>
   doc.destroy()

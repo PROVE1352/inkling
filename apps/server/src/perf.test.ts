@@ -194,12 +194,14 @@ describe('[db] permission-change revocation + concurrency', { skip: !HAS_DB }, a
 
   dbIt('signup key: 10 concurrent sign-ups never exceed max_uses=3', async () => {
     const { consumeSignupKey } = await import('./routes/auth')
-    const key = `K-${randomUUID()}`
-    await db.insert(schema.signupKeys).values({ key, maxUses: 3 } as never)
+    const { hashSignupKey } = await import('./secretsAtRest')
+    const key = `K-${randomUUID()}`.toUpperCase()
+    // signup_keys.key holds the key's SHA-256 (docs/adr/1110-*)
+    await db.insert(schema.signupKeys).values({ key: hashSignupKey(key), maxUses: 3 } as never)
     const results = await Promise.all(Array.from({ length: 10 }, () => consumeSignupKey(key)))
     assert.equal(results.filter(Boolean).length, 3)
     const { eq } = await import('drizzle-orm')
-    const [row] = await db.select().from(schema.signupKeys).where(eq(schema.signupKeys.key, key))
+    const [row] = await db.select().from(schema.signupKeys).where(eq(schema.signupKeys.key, hashSignupKey(key)))
     assert.equal(row.usedCount, 3)
   })
 

@@ -77,10 +77,10 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 | Method | Path | Body | Response |
 |---|---|---|---|
 | DELETE | `/api/admin/users/:id/2fa` | - | `{ ok, wasOn }`. Turns off the member's two-step verification and signs out their sessions. `GET /api/admin/users` rows carry `twoFactor`. |
-| GET | `/api/admin/signup-keys` | - | `{ keys: SignupKeyDTO[] }` newest first, including the users who signed up with each key |
+| GET | `/api/admin/signup-keys` | - | `{ keys: SignupKeyDTO[] }` newest first, including the users who signed up with each key. `SignupKeyDTO.id` is the key hash; `key` is the raw key only while it can still be revealed (unused and sealed), else null; `keyHint` shows the last characters (docs/adr/1110-*) |
 | POST | `/api/admin/signup-keys` | `createSignupKeySchema` | `{ key: SignupKeyDTO }` |
 | DELETE | `/api/admin/signup-keys/:key` | - | `{ ok: true }` (accounts that signed up with it are kept) |
-| POST | `/api/admin/signup-keys/:key/send-invite` | `{ to }` | `{ ok: true }` invite email (`/register?key=`). Mail disabled 501, failure 502 `MAIL_FAILED`. 20/min |
+| POST | `/api/admin/signup-keys/:key/send-invite` | `{ to }` | `{ ok: true }` invite email (`/register?key=`). `:key` here and in DELETE is the id or the raw key; a key that can no longer be revealed 409 `KEY_NOT_REVEALABLE`. Mail disabled 501, failure 502 `MAIL_FAILED`. 20/min |
 | GET | `/api/admin/users` | - | `{ users: AdminUserDTO[] }` newest sign-ups first. Includes `signupKeyRecovery` (holds a single-use sign-up key) and `emailVerifiedAt` |
 | PATCH | `/api/admin/users/:id` | `setAdminSchema` | `{ user: { id, isAdmin } }`. Revoking yourself or the last admin → 400 |
 | DELETE | `/api/admin/users/:id` | - | `{ ok: true }` forced account deletion. Content is kept via SET NULL, sessions and memberships cascade, the sign-up key's used_count −1 (floor 0). Yourself or the last admin → 400 |
@@ -278,6 +278,7 @@ Types and validation schemas come from the M3 section of `@inkling/shared` (coll
 - `GET /api/pages/:id/snapshots/:sid/preview` → `{ markdown: string }`.
 - `POST /api/pages/:id/snapshots/:sid/restore` → 204. Applied to the live document (DirectConnection), with an automatic snapshot taken just before restoring. Canvas 400.
 - Automatic: in the store hook, if 10+ minutes have passed since the last snapshot, the pre-change state is saved; 50 are kept per page.
+- Rows are a full state or a Yjs V2 diff against the previous version (chains of at most 10, docs/adr/1100-*). `SnapshotDTO.bytes` is the stored size. Preview, compare and restore answer 409 `SNAPSHOT_UNAVAILABLE` when a version cannot be rebuilt; restore then writes nothing.
 
 # M9 contract — Calendar view · daily notes · templates
 
@@ -740,3 +741,24 @@ Changed rules:
 - Trash purge uses each workspace's `trashRetentionDays`; audit events past
   `auditRetentionDays` and page read counters older than 90 days are purged hourly.
 
+## v0.5.0 additions
+
+### Workspace two-step requirement (docs/adr/1112-*)
+- `PUT /api/workspaces/:id/settings/two-factor` (owner or admin) body `{ required: boolean, graceDays?: 0–30 }` → `{ twoFactor }`. No `APP_SECRET_KEY` → 501 `TWO_FACTOR_UNAVAILABLE`; turning it on before you use two-step verification yourself → 403 `TWO_FACTOR_SELF_REQUIRED`. Audited.
+- `GET /api/workspaces/:id/settings` gains `twoFactor { required, graceDays, requiredAt, deadline, available, selfSatisfied, membersWithout? { count, members (≤50) } }` (`membersWithout` for owners and admins).
+- `WorkspaceDTO.twoFactor { required, deadline, state: 'off' | 'ok' | 'grace' | 'blocked' }`.
+- After the deadline every workspace route, MCP call and collaboration socket of a member without two-step verification answers 403 `TWO_FACTOR_REQUIRED { workspaceId }`. Accounts that sign in through another service count as verified.
+- Invite codes are matched case-insensitively against their hash (docs/adr/1110-*). `AdminUserDTO.signupKey` is masked.
+
+### Large pages (docs/adr/1103-*)
+- `GET /api/pages/:id/size` (page access) → `{ stateBytes, tokens, large }`. `stateBytes` is in V1 terms (V2 bytes × 1.46) so the threshold matches the agent hint (≥ 1 MiB or ≥ 50k tokens).
+- `GET /api/workspaces/:id/large-pages` (owner or admin, else 403) → `{ pages: [{ id, title, icon, stateBytes, tokens, updatedAt, snapshotBytes, snapshotCount }], thresholds }`. Other members' private pages are left out.
+
+### Link islands (docs/adr/1123-*)
+- `GET /api/workspaces/:id/graph/islands` (members) → `{ pages, links, islands: [{ size, hub: { id, title }, pageIds (≤200) }], unlinked: [{ id, title, icon, kind, updatedAt }] (≤500, newest first, folders excluded), unlinkedTotal }`. Islands have 2+ pages, largest first. Nodes follow `/graph` (visibleTo, no trash, no database rows); a link to a page you cannot see is not an edge. ETag = user + workspace version + index epoch → 304. 60/min.
+
+### Former titles (docs/adr/1121-*)
+- `[[Title]]` resolves current title, then alias, then a former title of a page you can see (newest holder wins). Former titles are recorded by `PATCH /api/pages/:id` renames only.
+
+### Imports (docs/adr/1122-*)
+- zip and folder import responses add `duplicateAttachments`; the Notion report adds `merged: { pages, attachments }` and `attachments` counts files actually stored.

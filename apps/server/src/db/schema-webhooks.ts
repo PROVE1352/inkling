@@ -15,7 +15,10 @@ export const workspaceWebhooks = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ['slack', 'discord'] }).notNull(),
-    /** Full incoming-webhook URL (secret). */
+    /**
+     * Full incoming-webhook URL (secret). Sealed with APP_SECRET_KEY (`v1.…`, row id as AAD) when the
+     * key is set, else plaintext; read it through openStoredUrl (docs/adr/1111-*).
+     */
     url: text('url').notNull(),
     /** Subscribed events: WebhookEvent[] */
     events: jsonb('events').notNull().default(sql`'[]'::jsonb`),

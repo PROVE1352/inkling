@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
@@ -41,13 +42,15 @@ import {
 } from '../db/schema'
 import { badRequest, forbidden, notFound } from '../errors'
 import {
-  generateInviteCode,
+  generateInviteCodeColumns,
   idParam,
   lockWorkspaceMembers,
   memberRoleTx,
   ownerCountTx,
   requireMembership,
 } from '../helpers'
+import { hashInviteCode } from '../secretsAtRest'
+import { twoFactorStatus, userSatisfiesTwoFactor } from '../twoFactorPolicy'
 import { bumpAcl } from '../aclVersion'
 import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
@@ -153,9 +156,11 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         id: workspaces.id,
         name: workspaces.name,
         icon: workspaces.icon,
-        inviteCode: workspaces.inviteCode,
+        inviteCodeEnc: workspaces.inviteCodeEnc,
         role: workspaceMembers.role,
         policy: policyColumns,
+        twoFactorRequiredAt: workspaces.twoFactorRequiredAt,
+        twoFactorGraceDays: workspaces.twoFactorGraceDays,
       })
       .from(workspaceMembers)
       .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
@@ -165,7 +170,12 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       .orderBy(asc(workspaces.createdAt))
 
     // The invite code is a manager credential (C-M3): members get '' (DTO field stays a string).
-    const result: WorkspaceDTO[] = rows.map((r) => toWorkspaceDTO(r, r.role, r.policy))
+    // A workspace whose 2FA requirement blocks the caller stays listed, with `twoFactor.state`
+    // 'blocked', so the web app can explain it instead of failing (docs/adr/1112-*).
+    const satisfied = rows.some((r) => r.twoFactorRequiredAt) ? await userSatisfiesTwoFactor(user.id) : true
+    const result: WorkspaceDTO[] = rows.map((r) =>
+      toWorkspaceDTO(r, r.role, r.policy, twoFactorStatus(r.twoFactorRequiredAt, r.twoFactorGraceDays, satisfied)),
+    )
     return { workspaces: result }
   })
 
@@ -175,10 +185,10 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const body = createWorkspaceSchema.parse(req.body)
 
     const ws = await db.transaction(async (tx) => {
-      const inviteCode = await generateInviteCode(tx)
+      const id = randomUUID()
       const [created] = await tx
         .insert(workspaces)
-        .values({ name: body.name, inviteCode, createdBy: user.id })
+        .values({ id, name: body.name, ...(await generateInviteCodeColumns(tx, id)), createdBy: user.id })
         .returning()
       await tx
         .insert(workspaceMembers)
@@ -201,7 +211,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     async (req) => {
     const user = getUser(req)
     const body = joinWorkspaceSchema.parse(req.body)
-    const code = body.inviteCode.trim().toUpperCase()
+    // stored as SHA-256 of the canonical (trimmed, upper-case) code (docs/adr/1110-*)
+    const code = hashInviteCode(body.inviteCode)
 
     const found = (
       await db
@@ -248,7 +259,13 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       return { ws, role }
     })
 
-    const dto: WorkspaceDTO = toWorkspaceDTO(ws, role, ws)
+    const satisfied = ws.twoFactorRequiredAt ? await userSatisfiesTwoFactor(user.id) : true
+    const dto: WorkspaceDTO = toWorkspaceDTO(
+      ws,
+      role,
+      ws,
+      twoFactorStatus(ws.twoFactorRequiredAt, ws.twoFactorGraceDays, satisfied),
+    )
     return { workspace: dto }
   })
 
@@ -262,7 +279,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     },
     async (req) => {
       const { code } = invitePreviewQuerySchema.parse(req.query)
-      const normalized = code.trim().toUpperCase()
+      const normalized = hashInviteCode(code)
 
       const ws = (
         await db
@@ -457,8 +474,11 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
 
     const ws = await db.transaction(async (tx) => {
       await lockWorkspaceMembers(tx, id)
-      const code = await generateInviteCode(tx)
-      const [ws] = await tx.update(workspaces).set({ inviteCode: code }).where(eq(workspaces.id, id)).returning()
+      const [ws] = await tx
+        .update(workspaces)
+        .set(await generateInviteCodeColumns(tx, id))
+        .where(eq(workspaces.id, id))
+        .returning()
       await recordAudit(tx, { workspaceId: id, actor: user, action: 'invite.regenerated', target: { type: 'invite_link' } })
       return ws
     })
@@ -952,8 +972,7 @@ export async function removeMember(
       .set({ ownerId: null })
       .where(and(eq(pages.workspaceId, workspaceId), eq(pages.ownerId, userId)))
     if (!isSelf) {
-      const code = await generateInviteCode(tx)
-      await tx.update(workspaces).set({ inviteCode: code }).where(eq(workspaces.id, workspaceId))
+      await tx.update(workspaces).set(await generateInviteCodeColumns(tx, workspaceId)).where(eq(workspaces.id, workspaceId))
     }
     await recordAudit(tx, {
       workspaceId,

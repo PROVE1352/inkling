@@ -1,10 +1,26 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { useLayout } from '../components/AppLayout'
-import { Kbd, shortcutGroups } from '../components/ShortcutsModal'
+import { ShortcutList } from '../components/ShortcutsModal'
 import { NavButtons } from '../components/NavButtons'
 import { ThemeToggle } from '../components/ThemeToggle'
-import { MenuIcon } from '../components/Icons'
+import {
+  BellIcon,
+  ChevronRightIcon,
+  ContrastIcon,
+  EditIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  InfoIcon,
+  KeyboardIcon,
+  LockIcon,
+  MenuIcon,
+  PanelLeftIcon,
+  PlugIcon,
+  RestoreIcon,
+  SearchIcon,
+  UserIcon,
+} from '../components/Icons'
 import { ALT, MOD, NEW_PAGE_KEY, combo, isMac, isStandalone, modKey } from '../lib/platform'
 import {
   DEFAULT_PREFS,
@@ -28,14 +44,67 @@ import { SidebarSettings } from '../components/SidebarSettings'
 import { VersionInfo } from '../components/VersionInfo'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
-import { useT, type TKey } from '../i18n'
+import { getLocale, useT, type TKey } from '../i18n'
 import { delegatedDisplayName } from './Login'
-import { Group, Row, Select, Toggle } from '../components/SettingsRows'
+import { Group, Row, Select, SettingsFlat, Toggle } from '../components/SettingsRows'
 
-// Settings (/w/:wsId/settings) — grouped rows like Obsidian's settings (title/description + control on the right).
-// Everything is saved on this device only (lib/prefs), except the account section. Changes apply immediately.
+// Settings (/w/:wsId/settings): Obsidian-style, a list of sections on the left and the chosen section on
+// the right (on a phone the list is its own screen and a section opens over it). The section lives in the
+// URL hash (#account, #sidebar…) so links such as the sidebar's "Customize sidebar…" open it directly.
+// Rows saved in this browser only (lib/prefs) carry a "This device" tag; everything else is on the account.
+// Changes apply immediately.
 
-/** Account — email verification status and changing your own password (the only group stored on the server) */
+const REPO_URL = 'https://github.com/PROVE1352/inkling'
+
+const SECTION_IDS = [
+  'account',
+  'security',
+  'notifications',
+  'editor',
+  'sidebar',
+  'files',
+  'appearance',
+  'connections',
+  'shortcuts',
+  'about',
+] as const
+type SectionId = (typeof SECTION_IDS)[number]
+const isSectionId = (v: string): v is SectionId => (SECTION_IDS as readonly string[]).includes(v)
+
+const SECTIONS: Record<SectionId, { label: TKey; icon: (size: number) => ReactNode }> = {
+  account: { label: 'settings.account', icon: (s) => <UserIcon size={s} /> },
+  security: { label: 'settings.security', icon: (s) => <LockIcon size={s} /> },
+  notifications: { label: 'notifSettings.title', icon: (s) => <BellIcon size={s} /> },
+  editor: { label: 'settings.editor', icon: (s) => <EditIcon size={s} /> },
+  sidebar: { label: 'sidebarSettings.title', icon: (s) => <PanelLeftIcon size={s} /> },
+  files: { label: 'settings.filesLinks', icon: (s) => <FileTextIcon size={s} /> },
+  appearance: { label: 'settings.appearance', icon: (s) => <ContrastIcon size={s} /> },
+  connections: { label: 'settings.connections', icon: (s) => <PlugIcon size={s} /> },
+  shortcuts: { label: 'settings.shortcuts', icon: (s) => <KeyboardIcon size={s} /> },
+  about: { label: 'settings.about', icon: (s) => <InfoIcon size={s} /> },
+}
+
+/** Same breakpoint as Tailwind's `sm`: at and above it the list and the section sit side by side. */
+const WIDE_QUERY = '(min-width: 640px)'
+function useWide(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(WIDE_QUERY)
+      mq.addEventListener('change', cb)
+      return () => mq.removeEventListener('change', cb)
+    },
+    () => window.matchMedia(WIDE_QUERY).matches,
+    () => true,
+  )
+}
+
+const btn =
+  'rounded-md border border-line px-2 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-40'
+const iconBtn =
+  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:invisible'
+const slider = 'min-w-0 flex-1 accent-[var(--color-accent)] disabled:opacity-40 sm:w-40 sm:flex-none'
+
+/** Account: email verification status and changing your own password. */
 function AccountGroup() {
   const t = useT()
   const me = useMe()
@@ -101,76 +170,422 @@ function AccountGroup() {
                   setVerifyMsg(err instanceof ApiError ? err.message : t('auth.mailFailed')),
               })
             }
-            className="rounded-md border border-line px-2 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-50"
+            className={btn}
           >
             {t('login.resendVerify')}
           </button>
         )}
       </Row>
-      <form onSubmit={submit} className="px-4 py-3">
-        <div className="text-sm text-ink">{t('settings.changePassword')}</div>
-        <div className="mt-0.5 text-xs leading-relaxed text-sub">
-          {delegated
-            ? t('settings.delegatedPassword', { name: delegatedName })
-            : t('settings.changePasswordHint')}
-        </div>
-        <fieldset disabled={delegated || change.isPending} className="mt-3 grid gap-2 sm:grid-cols-3">
-          <input
-            type="password"
-            value={cur}
-            onChange={(e) => setCur(e.target.value)}
-            placeholder={t('settings.currentPassword')}
-            aria-label={t('settings.currentPassword')}
-            autoComplete="current-password"
-            className={input}
-          />
-          <input
-            type="password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            placeholder={t('settings.newPassword')}
-            aria-label={t('reset.newPassword')}
-            autoComplete="new-password"
-            className={input}
-          />
-          <input
-            type="password"
-            value={pw2}
-            onChange={(e) => setPw2(e.target.value)}
-            placeholder={t('reset.confirmPassword')}
-            aria-label={t('reset.confirmPassword')}
-            autoComplete="new-password"
-            className={input}
-          />
-        </fieldset>
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={delegated || change.isPending || !cur || !pw}
-            className="rounded-md border border-line px-3 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-40"
-          >
-            {t('reset.submit')}
-          </button>
-          {msg && (
-            <span className={`text-xs ${msg.error ? 'text-red-600' : 'text-emerald-600'}`}>{msg.text}</span>
-          )}
-        </div>
-      </form>
+      {delegated ? (
+        // The password belongs to the external service: nothing to fill in here, just where to go.
+        <Row title={t('settings.changePassword')} desc={t('settings.delegatedPassword', { name: delegatedName })} />
+      ) : (
+        <form onSubmit={submit} className="px-4 py-3">
+          <div className="text-sm text-ink">{t('settings.changePassword')}</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-sub">{t('settings.changePasswordHint')}</div>
+          <fieldset disabled={change.isPending} className="mt-3 grid gap-2 sm:grid-cols-3">
+            <input
+              type="password"
+              value={cur}
+              onChange={(e) => setCur(e.target.value)}
+              placeholder={t('settings.currentPassword')}
+              aria-label={t('settings.currentPassword')}
+              autoComplete="current-password"
+              className={input}
+            />
+            <input
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder={t('settings.newPassword')}
+              aria-label={t('reset.newPassword')}
+              autoComplete="new-password"
+              className={input}
+            />
+            <input
+              type="password"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+              placeholder={t('reset.confirmPassword')}
+              aria-label={t('reset.confirmPassword')}
+              autoComplete="new-password"
+              className={input}
+            />
+          </fieldset>
+          <div className="mt-2 flex items-center justify-end gap-3">
+            {msg && (
+              <span className={`mr-auto text-xs ${msg.error ? 'text-red-600' : 'text-emerald-600'}`}>{msg.text}</span>
+            )}
+            <button type="submit" disabled={change.isPending || !cur || !pw} className={btn}>
+              {t('reset.submit')}
+            </button>
+          </div>
+        </form>
+      )}
     </Group>
+  )
+}
+
+/** Slider + value + a small reset icon: the same shape for line width and zoom. */
+function RangeControl({
+  label,
+  value,
+  min,
+  max,
+  step,
+  display,
+  onChange,
+  disabled,
+  resetLabel,
+  onReset,
+  canReset,
+  valueAttr,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  display: string
+  onChange: (v: number) => void
+  disabled?: boolean
+  resetLabel: string
+  onReset: () => void
+  canReset: boolean
+  valueAttr: Record<string, string>
+}) {
+  return (
+    <>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        aria-valuetext={display}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={slider}
+      />
+      <span className="w-14 text-right text-sm tabular-nums text-ink" {...valueAttr}>
+        {display}
+      </span>
+      <button
+        type="button"
+        onClick={onReset}
+        disabled={!canReset}
+        aria-label={resetLabel}
+        title={resetLabel}
+        className={iconBtn}
+      >
+        <RestoreIcon size={14} />
+      </button>
+    </>
   )
 }
 
 const THEME_LABEL_KEY: Record<Theme, TKey> = { light: 'theme.light', dark: 'theme.dark', system: 'theme.system' }
 
+function EditorSection() {
+  const t = useT()
+  const prefs = usePrefs()
+  const full = prefs.lineWidth === LINE_WIDTH_FULL
+  return (
+    <Group title={t('settings.editor')}>
+      <Row id="lineWidth" title={t('settings.lineWidth')} desc={t('settings.lineWidthDesc')} deviceOnly stack>
+        <RangeControl
+          label={t('settings.lineWidth')}
+          value={full ? LINE_WIDTH_MAX : prefs.lineWidth}
+          min={LINE_WIDTH_MIN}
+          max={LINE_WIDTH_MAX}
+          step={20}
+          display={full ? t('settings.lineWidthFull') : `${prefs.lineWidth}px`}
+          disabled={full}
+          onChange={(v) => setPref('lineWidth', v)}
+          resetLabel={t('settings.resetTo', { value: `${LINE_WIDTH_DEFAULT}px` })}
+          onReset={() => setPref('lineWidth', LINE_WIDTH_DEFAULT)}
+          canReset={prefs.lineWidth !== LINE_WIDTH_DEFAULT}
+          valueAttr={{ 'data-line-width-value': '' }}
+        />
+      </Row>
+      <Row id="lineWidthFull" title={t('settings.lineWidthFullRow')} desc={t('settings.lineWidthFullDesc')} deviceOnly>
+        <Toggle
+          label={t('settings.lineWidthFullRow')}
+          checked={full}
+          onChange={(v) => setPref('lineWidth', v ? LINE_WIDTH_FULL : LINE_WIDTH_DEFAULT)}
+        />
+      </Row>
+      <Row id="spellcheck" title={t('settings.spellcheck')} desc={t('settings.spellcheckDesc')} deviceOnly>
+        <Toggle label={t('settings.spellcheck')} checked={prefs.spellcheck} onChange={(v) => setPref('spellcheck', v)} />
+      </Row>
+      <Row id="wordCount" title={t('settings.wordCount')} desc={t('settings.wordCountDesc')} deviceOnly>
+        <Toggle label={t('settings.wordCount')} checked={prefs.wordCount} onChange={(v) => setPref('wordCount', v)} />
+      </Row>
+    </Group>
+  )
+}
+
+function FilesSection() {
+  const t = useT()
+  const prefs = usePrefs()
+  return (
+    <Group title={t('settings.filesLinks')}>
+      <Row id="launchPage" title={t('settings.launchPage')} desc={t('settings.launchPageDesc')} deviceOnly stack>
+        <Select<LaunchPage>
+          label={t('settings.launchPage')}
+          value={prefs.launchPage}
+          onChange={(v) => setPref('launchPage', v)}
+          options={[
+            { value: 'last', label: t('settings.launchLast') },
+            { value: 'home', label: t('settings.launchHome') },
+          ]}
+        />
+      </Row>
+      <Row
+        id="newPageLocation"
+        title={t('settings.newPageLocation')}
+        desc={t('settings.newPageLocationDesc', { key: NEW_PAGE_KEY })}
+        deviceOnly
+        stack
+      >
+        <Select<NewPageLocation>
+          label={t('settings.newPageLocation')}
+          value={prefs.newPageLocation}
+          onChange={(v) => setPref('newPageLocation', v)}
+          options={[
+            { value: 'root', label: t('settings.newPageRoot') },
+            { value: 'child', label: t('settings.newPageChild') },
+            { value: 'sibling', label: t('settings.newPageSibling') },
+          ]}
+        />
+      </Row>
+      <Row id="linkPreview" title={t('settings.linkPreview')} desc={t('settings.linkPreviewDesc')} deviceOnly>
+        <Toggle label={t('settings.linkPreview')} checked={prefs.linkPreview} onChange={(v) => setPref('linkPreview', v)} />
+      </Row>
+      <Row id="confirmDelete" title={t('settings.confirmDelete')} desc={t('settings.confirmDeleteDesc')} deviceOnly>
+        <Toggle
+          label={t('settings.confirmDelete')}
+          checked={prefs.confirmDelete}
+          onChange={(v) => setPref('confirmDelete', v)}
+        />
+      </Row>
+    </Group>
+  )
+}
+
+function AppearanceSection() {
+  const t = useT()
+  const prefs = usePrefs()
+  const { theme } = useTheme()
+  return (
+    <Group title={t('settings.appearance')}>
+      <Row id="language" title={t('lang.label')} desc={t('lang.description')} stack>
+        <LanguageSelect />
+      </Row>
+      <Row id="theme" title={t('settings.theme')} desc={t('settings.themeDesc')} deviceOnly stack>
+        <Select<Theme>
+          label={t('settings.theme')}
+          value={theme}
+          onChange={(v) => setTheme(v)}
+          options={(['light', 'dark', 'system'] as Theme[]).map((th) => ({ value: th, label: t(THEME_LABEL_KEY[th]) }))}
+        />
+      </Row>
+      <Row id="zoom" title={t('settings.zoom')} desc={t('settings.zoomDesc')} deviceOnly stack>
+        <RangeControl
+          label={t('settings.zoom')}
+          value={prefs.zoom}
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step={5}
+          display={`${prefs.zoom}%`}
+          onChange={(v) => setPref('zoom', v)}
+          resetLabel={t('settings.resetTo', { value: `${DEFAULT_PREFS.zoom}%` })}
+          onReset={() => setPref('zoom', DEFAULT_PREFS.zoom)}
+          canReset={prefs.zoom !== DEFAULT_PREFS.zoom}
+          valueAttr={{ 'data-zoom-value': '' }}
+        />
+      </Row>
+    </Group>
+  )
+}
+
+function ConnectionsSection() {
+  const t = useT()
+  const navigate = useNavigate()
+  const mcpUrl = `${window.location.origin}/mcp`
+  const [copied, setCopied] = useState(false)
+  const copyMcp = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // No permission: the address is selectable text.
+    }
+  }
+  return (
+    <>
+      <Group title={t('settings.connections')}>
+        <div className="px-4 py-3" data-pref="mcp">
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-ink">{t('settings.mcpServer')}</div>
+              <div className="mt-0.5 text-xs leading-relaxed text-sub">{t('settings.mcpDesc')}</div>
+            </div>
+            <button type="button" onClick={() => navigate('/settings/connections')} className={`${btn} shrink-0`}>
+              {t('settings.manageConnections')}
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <code
+              aria-label={t('settings.mcpUrl')}
+              className="min-w-0 flex-1 select-all truncate rounded bg-side px-2 py-1 font-mono text-xs text-ink"
+            >
+              {mcpUrl}
+            </code>
+            <button type="button" onClick={copyMcp} className={`${btn} shrink-0`}>
+              {copied ? t('common.copied') : t('settings.copyUrl')}
+            </button>
+          </div>
+        </div>
+      </Group>
+      <IcalSettings />
+    </>
+  )
+}
+
+function ShortcutsSection() {
+  const t = useT()
+  const [query, setQuery] = useState('')
+  return (
+    <div>
+      <label className="relative mb-5 block">
+        <span className="sr-only">{t('shortcuts.search')}</span>
+        <SearchIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sub" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('shortcuts.search')}
+          className="w-full rounded-md border border-line bg-app py-1.5 pl-8 pr-2 text-sm text-ink placeholder:text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:max-w-xs"
+        />
+      </label>
+      <ShortcutList query={query} />
+      <p className="mt-6 border-t border-line pt-3 text-xs leading-relaxed text-sub">
+        {t('settings.shortcutsNoCustom')}{' '}
+        {isMac
+          ? t('settings.shortcutsMacHint', { key: modKey('N'), alt: combo(MOD, ALT, 'N') })
+          : t('settings.shortcutsWinHint', { key: NEW_PAGE_KEY })}
+      </p>
+    </div>
+  )
+}
+
+function AboutSection() {
+  const t = useT()
+  const guide = `${REPO_URL}/blob/main/docs/${getLocale() === 'ko' ? 'GUIDE.ko.md' : 'GUIDE.md'}`
+  const link = (href: string) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center gap-1`}>
+      {t('common.open')}
+      <ExternalLinkIcon size={12} />
+    </a>
+  )
+  return (
+    <Group title={t('settings.about')}>
+      <div className="px-4 py-3">
+        <VersionInfo />
+      </div>
+      <Row title={t('settings.guide')} desc={t('settings.guideDesc')}>
+        {link(guide)}
+      </Row>
+      <Row title={t('settings.github')} desc={t('settings.githubDesc')}>
+        {link(REPO_URL)}
+      </Row>
+    </Group>
+  )
+}
+
+/** What each section shows, and which group headings it leaves out (the section heading already says it). */
+function SectionBody({ id, label }: { id: SectionId; label: string }) {
+  switch (id) {
+    case 'account':
+      return (
+        <SettingsFlat omitTitle={label}>
+          <AccountGroup />
+          <DeletedWorkspacesList />
+        </SettingsFlat>
+      )
+    case 'security':
+      return (
+        <SettingsFlat omitTitle>
+          <TwoFactorSettings />
+        </SettingsFlat>
+      )
+    case 'notifications':
+      return (
+        <SettingsFlat omitTitle>
+          <NotificationSettings />
+        </SettingsFlat>
+      )
+    case 'editor':
+      return (
+        <SettingsFlat omitTitle>
+          <EditorSection />
+        </SettingsFlat>
+      )
+    case 'sidebar':
+      return (
+        <SettingsFlat omitTitle>
+          <SidebarSettings />
+        </SettingsFlat>
+      )
+    case 'files':
+      return (
+        <SettingsFlat omitTitle>
+          <FilesSection />
+        </SettingsFlat>
+      )
+    case 'appearance':
+      return (
+        <SettingsFlat omitTitle>
+          <AppearanceSection />
+        </SettingsFlat>
+      )
+    case 'connections':
+      return (
+        <SettingsFlat omitTitle={label}>
+          <ConnectionsSection />
+        </SettingsFlat>
+      )
+    case 'shortcuts':
+      return <ShortcutsSection />
+    case 'about':
+      return (
+        <SettingsFlat omitTitle>
+          <AboutSection />
+        </SettingsFlat>
+      )
+  }
+}
+
 export function Settings() {
   const t = useT()
   const { wsId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { onToggleSidebar } = useLayout()
-  const prefs = usePrefs()
-  const { theme } = useTheme()
-  const mcpUrl = `${window.location.origin}/mcp`
-  const [copied, setCopied] = useState(false)
+  const wide = useWide()
+  const navRef = useRef<HTMLUListElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const lastSection = useRef<SectionId | null>(null)
+
+  const hash = decodeURIComponent(location.hash.slice(1))
+  const chosen = isSectionId(hash) ? hash : null
+  // A wide screen always shows a section (the first one when the URL names none); a phone shows the list.
+  const active: SectionId | null = chosen ?? (wide ? 'account' : null)
+  const fromList = (location.state as { fromList?: boolean } | null)?.fromList === true
 
   // Came from inside the app: go to the previous screen; opened by URL: go to the workspace home (same as Admin).
   const goBack = () => {
@@ -179,18 +594,41 @@ export function Settings() {
     else navigate(wsId ? `/w/${wsId}` : '/')
   }
 
-  const copyMcp = async () => {
-    try {
-      await navigator.clipboard.writeText(mcpUrl)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // No permission — the user selects and copies it manually
-    }
+  // Phone: from a section back to the list. Undo the list → section step when that is how we got here,
+  // otherwise (opened by a link) replace the entry so the browser's back still leaves Settings.
+  const backToList = () => {
+    if (fromList) navigate(-1)
+    else navigate({ hash: '' }, { replace: true })
   }
 
-  const zoomBtn =
-    'rounded-md border border-line px-2 py-0.5 text-sm text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-40'
+  // A new section starts at the top. On a phone, focus moves to the section heading when one opens and back
+  // to its list item when returning, so a screen reader or keyboard user does not lose their place.
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 })
+    if (wide) return
+    if (active) {
+      lastSection.current = active
+      headingRef.current?.focus({ preventScroll: true })
+    } else if (lastSection.current) {
+      navRef.current?.querySelector<HTMLElement>(`[data-section="${lastSection.current}"]`)?.focus()
+    }
+  }, [active, wide])
+
+  // ↑/↓ (and Home/End) move between list items; Enter opens one, like any link. Tab leaves the list.
+  const onNavKey = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End']
+    if (!keys.includes(e.key)) return
+    const items = [...(navRef.current?.querySelectorAll<HTMLElement>('[data-section]') ?? [])]
+    const i = items.indexOf(document.activeElement as HTMLElement)
+    const next =
+      e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1)
+    e.preventDefault()
+    items[next]?.focus()
+  }
+
+  const label = active ? t(SECTIONS[active].label) : ''
+  // Phone with a section open: the header's back button returns to the list.
+  const inSection = !wide && active !== null
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -204,277 +642,76 @@ export function Settings() {
           <MenuIcon size={18} />
         </button>
         <NavButtons />
-        {!isStandalone() && (
+        {/* One back button. On a phone inside a section it returns to the section list (also in the installed
+            app, where it is the only way back); otherwise it leaves Settings. */}
+        {(inSection || !isStandalone()) && (
           <button
             type="button"
-            onClick={goBack}
+            onClick={inSection ? backToList : goBack}
             className="rounded-md px-2 py-1 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
           >
-            ← {t('common.back')}
+            ← {inSection ? t('settings.backToList') : t('common.back')}
           </button>
         )}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-ink">
-          {t('common.settings')}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-medium text-ink">
+          {inSection ? label : t('common.settings')}
         </div>
         <ThemeToggle />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="nd-enter mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
-          <AccountGroup />
-          <TwoFactorSettings />
-          <NotificationSettings />
-          <IcalSettings />
-          <SidebarSettings />
-          <DeletedWorkspacesList />
+      <div className="flex min-h-0 flex-1">
+        <nav
+          aria-label={t('settings.sections')}
+          className={`${active ? 'hidden' : 'flex'} min-h-0 w-full shrink-0 flex-col overflow-y-auto sm:flex sm:w-52 sm:border-r sm:border-line sm:bg-side/40`}
+        >
+          <ul ref={navRef} onKeyDown={onNavKey} className="flex flex-col p-2 sm:gap-0.5 sm:py-4">
+            {SECTION_IDS.map((id) => {
+              const current = id === active
+              return (
+                <li key={id}>
+                  <Link
+                    to={{ hash: id }}
+                    replace={wide}
+                    state={wide ? undefined : { fromList: true }}
+                    data-section={id}
+                    // One tab stop for the whole list (the open section, or the first item): ↑/↓ move within it.
+                    tabIndex={id === (active ?? SECTION_IDS[0]) ? 0 : -1}
+                    aria-current={current ? 'page' : undefined}
+                    className={`flex items-center gap-3 rounded-md px-3 py-3 text-[15px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:gap-2.5 sm:px-2.5 sm:py-1.5 sm:text-sm ${
+                      current ? 'bg-hover font-medium text-ink' : 'text-ink hover:bg-hover sm:text-sub sm:hover:text-ink'
+                    }`}
+                  >
+                    <span className="flex shrink-0 text-sub">{SECTIONS[id].icon(16)}</span>
+                    <span className="min-w-0 flex-1 truncate">{t(SECTIONS[id].label)}</span>
+                    <ChevronRightIcon size={16} className="shrink-0 text-sub sm:hidden" />
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
 
-          <p className="mb-6 px-1 text-xs text-sub">
-            {t('settings.deviceOnly')}
-          </p>
-
-          <Group title={t('settings.editor')}>
-            <Row id="lineWidth" title={t('settings.lineWidth')} desc={t('settings.lineWidthDesc')}>
-              <input
-                type="range"
-                min={LINE_WIDTH_MIN}
-                max={LINE_WIDTH_MAX}
-                step={20}
-                value={prefs.lineWidth === LINE_WIDTH_FULL ? LINE_WIDTH_MAX : prefs.lineWidth}
-                aria-label={t('settings.lineWidth')}
-                aria-valuetext={
-                  prefs.lineWidth === LINE_WIDTH_FULL ? t('settings.lineWidthFull') : `${prefs.lineWidth}px`
-                }
-                onChange={(e) => setPref('lineWidth', Number(e.target.value))}
-                className={`w-20 accent-[var(--color-accent)] sm:w-32 ${
-                  prefs.lineWidth === LINE_WIDTH_FULL ? 'opacity-40' : ''
-                }`}
-              />
-              <span className="w-12 text-right text-sm tabular-nums text-ink sm:w-14" data-line-width-value>
-                {prefs.lineWidth === LINE_WIDTH_FULL ? t('settings.lineWidthFull') : `${prefs.lineWidth}px`}
-              </span>
-              <button
-                type="button"
-                aria-pressed={prefs.lineWidth === LINE_WIDTH_FULL}
-                onClick={() =>
-                  setPref('lineWidth', prefs.lineWidth === LINE_WIDTH_FULL ? LINE_WIDTH_DEFAULT : LINE_WIDTH_FULL)
-                }
-                className={`${zoomBtn} ${prefs.lineWidth === LINE_WIDTH_FULL ? 'bg-accent-soft text-accent' : ''}`}
-              >
-                {t('settings.lineWidthFull')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPref('lineWidth', LINE_WIDTH_DEFAULT)}
-                disabled={prefs.lineWidth === LINE_WIDTH_DEFAULT}
-                className="hidden rounded-md px-2 py-0.5 text-xs text-sub sm:block transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-40"
-              >
-                {t('common.reset')}
-              </button>
-            </Row>
-            <Row id="spellcheck" title={t('settings.spellcheck')} desc={t('settings.spellcheckDesc')}>
-              <Toggle
-                label={t('settings.spellcheck')}
-                checked={prefs.spellcheck}
-                onChange={(v) => setPref('spellcheck', v)}
-              />
-            </Row>
-            <Row
-              id="wordCount"
-              title={t('settings.wordCount')}
-              desc={t('settings.wordCountDesc')}
+        <div
+          ref={contentRef}
+          className={`${active ? 'block' : 'hidden'} min-h-0 min-w-0 flex-1 overflow-y-auto sm:block`}
+        >
+          {active && (
+            <section
+              key={active}
+              aria-labelledby="settings-section-title"
+              className="nd-enter mx-auto w-full max-w-2xl px-4 pb-16 pt-4 sm:px-8 sm:pt-8"
             >
-              <Toggle
-                label={t('settings.wordCount')}
-                checked={prefs.wordCount}
-                onChange={(v) => setPref('wordCount', v)}
-              />
-            </Row>
-          </Group>
-
-          <Group title={t('settings.filesLinks')}>
-            <Row
-              id="launchPage"
-              title={t('settings.launchPage')}
-              desc={t('settings.launchPageDesc')}
-            >
-              <Select<LaunchPage>
-                label={t('settings.launchPage')}
-                value={prefs.launchPage}
-                onChange={(v) => setPref('launchPage', v)}
-                options={[
-                  { value: 'last', label: t('settings.launchLast') },
-                  { value: 'home', label: t('settings.launchHome') },
-                ]}
-              />
-            </Row>
-            <Row
-              id="newPageLocation"
-              title={t('settings.newPageLocation')}
-              desc={t('settings.newPageLocationDesc', { key: NEW_PAGE_KEY })}
-            >
-              <Select<NewPageLocation>
-                label={t('settings.newPageLocation')}
-                value={prefs.newPageLocation}
-                onChange={(v) => setPref('newPageLocation', v)}
-                options={[
-                  { value: 'root', label: t('settings.newPageRoot') },
-                  { value: 'child', label: t('settings.newPageChild') },
-                  { value: 'sibling', label: t('settings.newPageSibling') },
-                ]}
-              />
-            </Row>
-            <Row
-              id="linkPreview"
-              title={t('settings.linkPreview')}
-              desc={t('settings.linkPreviewDesc')}
-            >
-              <Toggle
-                label={t('settings.linkPreview')}
-                checked={prefs.linkPreview}
-                onChange={(v) => setPref('linkPreview', v)}
-              />
-            </Row>
-          </Group>
-
-          <Group title={t('settings.trash')}>
-            <Row
-              id="confirmDelete"
-              title={t('settings.confirmDelete')}
-              desc={t('settings.confirmDeleteDesc')}
-            >
-              <Toggle
-                label={t('settings.confirmDelete')}
-                checked={prefs.confirmDelete}
-                onChange={(v) => setPref('confirmDelete', v)}
-              />
-            </Row>
-          </Group>
-
-          <Group title={t('settings.appearance')}>
-            <Row id="language" title={t('lang.label')} desc={t('lang.description')}>
-              <LanguageSelect />
-            </Row>
-            <Row id="zoom" title={t('settings.zoom')} desc={t('settings.zoomDesc')}>
-              <button
-                type="button"
-                aria-label={t('settings.zoomOut')}
-                disabled={prefs.zoom <= ZOOM_MIN}
-                onClick={() => setPref('zoom', Math.max(ZOOM_MIN, prefs.zoom - 5))}
-                className={zoomBtn}
+              <h2
+                id="settings-section-title"
+                ref={headingRef}
+                tabIndex={-1}
+                className="mb-5 text-xl font-semibold text-ink focus:outline-none"
               >
-                −
-              </button>
-              <input
-                type="range"
-                min={ZOOM_MIN}
-                max={ZOOM_MAX}
-                step={5}
-                value={prefs.zoom}
-                aria-label={t('settings.zoom')}
-                onChange={(e) => setPref('zoom', Number(e.target.value))}
-                className="w-24 accent-[var(--color-accent)] sm:w-32"
-              />
-              <button
-                type="button"
-                aria-label={t('settings.zoomIn')}
-                disabled={prefs.zoom >= ZOOM_MAX}
-                onClick={() => setPref('zoom', Math.min(ZOOM_MAX, prefs.zoom + 5))}
-                className={zoomBtn}
-              >
-                +
-              </button>
-              <span className="w-10 text-right text-sm tabular-nums text-ink" data-zoom-value>
-                {prefs.zoom}%
-              </span>
-              <button
-                type="button"
-                onClick={() => setPref('zoom', DEFAULT_PREFS.zoom)}
-                disabled={prefs.zoom === DEFAULT_PREFS.zoom}
-                className="rounded-md px-2 py-0.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-40"
-              >
-                {t('common.reset')}
-              </button>
-            </Row>
-            <Row id="theme" title={t('settings.theme')} desc={t('settings.themeDesc')}>
-              <Select<Theme>
-                label={t('settings.theme')}
-                value={theme}
-                onChange={(v) => setTheme(v)}
-                options={(['light', 'dark', 'system'] as Theme[]).map((th) => ({
-                  value: th,
-                  label: t(THEME_LABEL_KEY[th]),
-                }))}
-              />
-            </Row>
-          </Group>
-
-          <Group title={t('settings.connections')}>
-            <Row
-              title={t('settings.mcpServer')}
-              desc={
-                <>
-                  {t('settings.mcpDesc')}{' '}
-                  <code className="break-all rounded bg-side px-1 py-0.5 text-[11px] text-ink">
-                    {mcpUrl}
-                  </code>
-                </>
-              }
-            >
-              <button
-                type="button"
-                onClick={copyMcp}
-                className="rounded-md border border-line px-2 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover"
-              >
-                {copied ? t('common.copied') : t('settings.copyUrl')}
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/settings/connections')}
-                className="rounded-md border border-line px-2 py-1 text-xs text-ink transition-colors duration-150 hover:bg-hover"
-              >
-                {t('settings.manageConnections')}
-              </button>
-            </Row>
-          </Group>
-
-          <Group title={t('settings.shortcuts')}>
-            <div className="px-4 py-3">
-              <div className="grid gap-5 sm:grid-cols-2">
-                {shortcutGroups().map((g) => (
-                  <div key={g.title}>
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">
-                      {g.title}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {g.rows.map((r) => (
-                        <div
-                          key={r.label}
-                          className="flex items-center justify-between gap-2 text-sm"
-                        >
-                          <span className="min-w-0 truncate text-ink">
-                            {r.label}
-                            {r.hint && <span className="ml-1 text-xs text-sub">({r.hint})</span>}
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1">
-                            {r.keys.map((k) => (
-                              <Kbd key={k}>{k}</Kbd>
-                            ))}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-xs text-sub">
-                {t('settings.shortcutsNoCustom')}{' '}
-                {isMac
-                  ? t('settings.shortcutsMacHint', { key: modKey('N'), alt: combo(MOD, ALT, 'N') })
-                  : t('settings.shortcutsWinHint', { key: NEW_PAGE_KEY })}
-              </p>
-            </div>
-          </Group>
-          <VersionInfo />
+                {label}
+              </h2>
+              <SectionBody id={active} label={label} />
+            </section>
+          )}
         </div>
       </div>
     </div>

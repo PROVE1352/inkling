@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { and, count, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -11,10 +12,12 @@ import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import {
   invalidateWebhookCache,
+  maskedHookUrl,
   maskWebhookUrl,
   MAX_WEBHOOKS_PER_WORKSPACE,
   parseWebhookUrl,
   sendTestMessage,
+  storeHookUrl,
   toWebhookDTO,
   WebhookUrlError,
 } from '../webhooks'
@@ -86,16 +89,18 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         throw new AppError(409, 'LIMIT_REACHED', `At most ${MAX_WEBHOOKS_PER_WORKSPACE} webhooks per workspace`)
       }
       const row = await db.transaction(async (tx) => {
+        // The id is chosen here: it is the AAD that binds the sealed URL to this row (docs/adr/1111-*).
+        const id = randomUUID()
         const [row] = await tx
           .insert(workspaceWebhooks)
-          .values({ workspaceId, kind: parsed.kind, url: parsed.url, events: body.events, createdBy: user.id })
+          .values({ id, workspaceId, kind: parsed.kind, url: storeHookUrl(id, parsed.url), events: body.events, createdBy: user.id })
           .returning()
         // the masked URL only: the full URL is a secret (docs/adr/0946-*)
         await recordAudit(tx, {
           workspaceId,
           actor: user,
           action: 'webhook.created',
-          target: { type: 'webhook', id: row.id, label: maskWebhookUrl(row.url) },
+          target: { type: 'webhook', id: row.id, label: maskWebhookUrl(parsed.url) },
           after: { kind: row.kind, events: body.events },
         })
         return row
@@ -133,7 +138,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         workspaceId: hook.workspaceId,
         actor: user,
         action: 'webhook.updated',
-        target: { type: 'webhook', id: hook.id, label: maskWebhookUrl(hook.url) },
+        target: { type: 'webhook', id: hook.id, label: maskedHookUrl(hook) },
         before,
         after,
       })
@@ -156,7 +161,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
           workspaceId: hook.workspaceId,
           actor: user,
           action: 'webhook.deleted',
-          target: { type: 'webhook', id: hook.id, label: maskWebhookUrl(hook.url) },
+          target: { type: 'webhook', id: hook.id, label: maskedHookUrl(hook) },
           before: { kind: hook.kind, events: hook.events },
         })
       }

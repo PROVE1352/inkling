@@ -16,6 +16,7 @@ import type { AuthUser } from '../auth'
 import { db } from '../db/index'
 import * as schema from '../db/schema'
 import { AppError } from '../errors'
+import { generateInviteCodeColumns } from '../helpers'
 import { blocksToStateBuffer } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
 import { buildMcpServer } from '../mcp'
@@ -53,6 +54,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/context')).registerContextRoutes(api)
       await (await import('../routes/changes')).registerChangeRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
+      await (await import('../routes/largePages')).registerLargePageRoutes(api)
       await (await import('../routes/templates')).registerTemplateRoutes(api)
       await (await import('../routes/collections')).registerCollectionRoutes(api)
       await (await import('../routes/exportImport')).registerExportImportRoutes(api)
@@ -85,7 +87,12 @@ export async function makeUser(name = 'u'): Promise<TestUser> {
 }
 
 export async function makeWorkspace(owner: { id: string }, members: { id: string }[] = [], name = `WS ${tag()}`) {
-  const [ws] = await db.insert(schema.workspaces).values({ name, inviteCode: `I${tag()}${tag()}` }).returning()
+  // the invite code is stored as its hash plus a sealed copy, like the routes do (docs/adr/1110-*)
+  const id = randomUUID()
+  const [ws] = await db
+    .insert(schema.workspaces)
+    .values({ id, name, ...(await generateInviteCodeColumns(db, id)) })
+    .returning()
   await db.insert(schema.workspaceMembers).values([
     { workspaceId: ws.id, userId: owner.id, role: 'owner' as const },
     ...members.map((m) => ({ workspaceId: ws.id, userId: m.id, role: 'member' as const })),

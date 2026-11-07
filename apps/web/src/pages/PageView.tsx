@@ -47,6 +47,7 @@ import { RightPanel } from '../components/RightPanel'
 import { ShareModal } from '../components/ShareModal'
 import { PageLockModal } from '../components/PageLockModal'
 import { SuspiciousNotice } from '../components/SuspiciousNotice'
+import { LargePageNotice } from '../components/LargePageNotice'
 import { PageFollowPanel } from '../components/PageFollow'
 import { usePageSubscription } from '../notificationsApi'
 import { useIsPhone } from '../lib/useMediaQuery'
@@ -881,6 +882,7 @@ export function PageView() {
                 />
                 <PageProvenanceBadge pageId={page.id} />
                 <SuspiciousNotice pageId={page.id} />
+                <LargePageNotice pageId={page.id} />
               </div>
               <CollabEditor
                 pageId={page.id}

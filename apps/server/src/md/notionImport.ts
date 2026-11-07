@@ -13,7 +13,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { eq, inArray } from 'drizzle-orm'
 import JSZip from 'jszip'
-import { parseCsv, parseBoolean, parseNumber } from '@inkling/shared'
+import { groupByKeys, parseCsv, parseBoolean, parseNumber } from '@inkling/shared'
 import type { CollectionField, PageScope, SelectOption, WorkspaceRole } from '@inkling/shared'
 import { db } from '../db/index'
 import { collections, collectionViews, files, pageDocs, pages } from '../db/schema'
@@ -37,6 +37,7 @@ import {
   IMPORT_MAX_FOLDER_DEPTH,
   nextSortOrderBase,
   readZipEntryCapped,
+  sha256,
 } from './importer'
 import { importLimits, mbLabel } from './importLimits'
 import type { ImportLimits } from './importLimits'
@@ -98,6 +99,11 @@ export interface NotionImportReport {
   /** Notion callouts imported as quotes / equations imported as code. */
   callouts: number
   equations: number
+  /**
+   * Duplicates merged (docs/adr/1122-*): pages = the same Notion page (same id) reached through
+   * more than one path, imported once; attachments = files with identical bytes, stored once.
+   */
+  merged: { pages: number; attachments: number }
 }
 
 export interface NotionImportArgs {
@@ -196,6 +202,7 @@ class Report {
       renamed: 0,
       callouts: 0,
       equations: 0,
+      merged: { pages: 0, attachments: 0 },
     }
   }
   skip(p: string, reason: string): void {
@@ -437,7 +444,35 @@ async function planTree(entries: SrcEntry[], report: Report, limits: ImportLimit
     }
   }
 
+  // Same Notion page reached through several paths (docs/adr/1122-*): a multi-part export or two
+  // export folders in one upload can carry `Page <id>.md` twice, or the page in one part and its
+  // subpage folder `Page <id>/` in another. Nodes that share a Notion id form one set
+  // (union-find over the id, groupByKeys); the representative is a document when the set has one,
+  // then the first by path. Other members are dropped: their children move under the
+  // representative and their paths link to it. Database nodes and rows are never merged (their
+  // identity is the CSV, not one file).
+  const mergedInto = new Map<string, PlanNode>()
+  const dupCandidates = [...nodes.values()]
+    .filter((n) => n.hash && !n.isRow && (n.kind === 'doc' || n.kind === 'folder'))
+    .sort((a, b) => (a.kind !== b.kind ? (a.kind === 'doc' ? -1 : 1) : a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  const repOf = groupByKeys(dupCandidates, (n) => [n.hash!])
+  dupCandidates.forEach((n, i) => {
+    const keep = dupCandidates[repOf[i]]
+    if (keep === n) return
+    mergedInto.set(n.key, keep)
+    if (n.mdPath) mergedInto.set(n.mdPath, keep)
+    nodes.delete(n.key)
+    report.r.merged.pages++
+  })
+  if (mergedInto.size) {
+    for (const n of nodes.values()) {
+      const to = n.parentKey ? mergedInto.get(n.parentKey) : undefined
+      if (to) n.parentKey = to.key
+    }
+  }
+
   // Link targets: archive paths and Notion ids → planned pages.
+  for (const [dropped, keep] of mergedInto) pathToNode.set(dropped, keep)
   for (const n of nodes.values()) {
     if (n.mdPath) pathToNode.set(n.mdPath, n)
     if (n.kind === 'folder' || n.kind === 'doc') pathToNode.set(n.key, n)
@@ -806,11 +841,20 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
     const resolveTitle = await buildTitleResolver(workspaceId, batchMap, userId)
     const pageHref = (n: PlanNode) => `/w/${workspaceId}/p/${n.id}`
 
+    // Identical bytes under different paths are stored once (docs/adr/1122-*).
+    const byHash = new Map<string, string>()
     const upload = async (p: string, ownerPageId: string): Promise<string> => {
       const have = uploaded.get(p)
       if (have) return `/files/${have}`
       const entry = plan.assetByPath.get(p)!
       const data = await entry.read()
+      const hash = sha256(data)
+      const same = byHash.get(hash)
+      if (same) {
+        uploaded.set(p, same)
+        report.r.merged.attachments++
+        return `/files/${same}`
+      }
       const id = randomUUID()
       const dest = path.join(env.dataDir, 'uploads', id)
       await writeFile(dest, data, { flag: 'wx' })
@@ -825,6 +869,7 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
         createdBy: userId,
       })
       uploaded.set(p, id)
+      byHash.set(hash, id)
       return `/files/${id}`
     }
 
@@ -887,7 +932,7 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
     }
   } catch (err) {
     // Compensate: nothing of a failed import stays behind (pages cascade to docs, rows, indexes).
-    const ids = [...uploaded.values()]
+    const ids = [...new Set(uploaded.values())]
     if (ids.length) await db.delete(files).where(inArray(files.id, ids)).catch(() => {})
     for (const p of uploadedPaths) await rm(p, { force: true }).catch(() => {})
     if (topIds.length) await db.delete(pages).where(inArray(pages.id, topIds)).catch(() => {})
@@ -904,6 +949,6 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
     else report.r.documents++
   }
   report.r.pages = plan.ordered.length
-  report.r.attachments = uploaded.size
+  report.r.attachments = new Set(uploaded.values()).size
   return { pages: created, report: report.r }
 }

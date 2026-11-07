@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -15,11 +15,10 @@ import {
   blocksToMarkdown,
   blocksToStateBuffer,
   blocksToXmlFragment,
-  stateToBlocks,
 } from '../md/convert'
 import { findVisiblePage } from '../pageDto'
-import { createSnapshot } from '../snapshotStore'
-import { liveDocState } from '../liveConnections'
+import { createSnapshot, snapshotBlocks } from '../snapshotStore'
+import { liveDoc } from '../liveConnections'
 
 const snapshotParamsSchema = z.object({ id: z.uuid(), sid: z.uuid() })
 
@@ -43,7 +42,7 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
 
     const cur = (
       await db
-        .select({ state: pageDocs.state })
+        .select({ state: pageDocs.state, stateVector: pageDocs.stateVector })
         .from(pageDocs)
         .where(eq(pageDocs.pageId, id))
         .limit(1)
@@ -52,12 +51,13 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
 
     const label =
       body.label && body.label.length > 0 ? body.label : LABELS[await requestLocale(req, user.id)].manual
-    await createSnapshot(id, cur.state, label, user.id)
+    await createSnapshot(id, cur, label, user.id)
 
     return { ok: true }
   })
 
-  // Snapshot list — latest 50 (byte length only, the state blob is not sent)
+  // Snapshot list — latest 50 (byte length only, the state blob is not sent). `bytes` is what the
+  // row stores: a whole state, or the diff from the previous version (docs/adr/1100-*).
   app.get('/pages/:id/snapshots', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
@@ -102,16 +102,9 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
 
-    const snap = (
-      await db
-        .select({ state: pageSnapshots.state })
-        .from(pageSnapshots)
-        .where(and(eq(pageSnapshots.id, sid), eq(pageSnapshots.pageId, id)))
-        .limit(1)
-    )[0]
-    if (!snap) throw notFound()
-
-    const blocks = stateToBlocks(snap.state)
+    // Rebuilt from its diff chain (docs/adr/1100-*); a broken chain answers 409 SNAPSHOT_UNAVAILABLE.
+    const blocks = await snapshotBlocks(id, sid)
+    if (!blocks) throw notFound()
     const { markdown } = await blocksToMarkdown(blocks, { assetMode: 'absolute' })
     return { markdown }
   })
@@ -131,31 +124,29 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
       throw badRequest('Only document pages can be restored')
     }
 
-    const snap = (
-      await db
-        .select({ state: pageSnapshots.state })
-        .from(pageSnapshots)
-        .where(and(eq(pageSnapshots.id, sid), eq(pageSnapshots.pageId, id)))
-        .limit(1)
-    )[0]
-    if (!snap) throw notFound()
+    // Rebuilt from its diff chain (docs/adr/1100-*) before anything is written: a broken chain
+    // answers 409 SNAPSHOT_UNAVAILABLE and leaves the page and its history untouched.
+    const blocks = await snapshotBlocks(id, sid)
+    if (!blocks) throw notFound()
 
-    // Keep the current state as a "Before restore" snapshot right before restoring (for undo)
-    const cur = (
-      await db
-        .select({ state: pageDocs.state })
-        .from(pageDocs)
-        .where(eq(pageDocs.pageId, id))
-        .limit(1)
-    )[0]
+    // Keep the current state as a "Before restore" snapshot right before restoring (for undo).
     // Prefer the in-memory document: page_docs trails it by the store debounce (ADR 0757).
-    const before = liveDocState(id) ?? cur?.state
+    const live = liveDoc(id)
+    const cur = live
+      ? null
+      : (
+          await db
+            .select({ state: pageDocs.state, stateVector: pageDocs.stateVector })
+            .from(pageDocs)
+            .where(eq(pageDocs.pageId, id))
+            .limit(1)
+        )[0]
+    const before = live ?? cur
     if (before) {
       await createSnapshot(id, before, LABELS[await requestLocale(req, user.id)].beforeRestore, user.id)
     }
 
     // Inject the snapshot blocks into the live document fragment → propagated live to viewing clients
-    const blocks = stateToBlocks(snap.state)
     // Audit F4: if inject throws after the delete inside transact, Yjs does not roll back and the
     // live document is broadcast and persisted empty. Verify the conversion first (throwaway doc) to
     // guarantee "fully convert, then replace". If this throws, the live document is untouched.

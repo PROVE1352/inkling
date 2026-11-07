@@ -29,6 +29,7 @@ export const collectionSheetSyncs = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Sheet URL (may carry a sharing key). Sealed (`v1.…`, page id as AAD) when APP_SECRET_KEY is set (docs/adr/1111-*). */
     url: text('url').notNull(),
     keyColumn: text('key_column').notNull(),
     titleColumn: text('title_column'),

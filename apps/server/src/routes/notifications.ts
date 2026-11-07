@@ -9,6 +9,7 @@ import { db } from '../db/index'
 import { notifications, pages, users, workspaceMembers, workspaces } from '../db/schema'
 import { visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { registerNotificationSettingsRoutes } from './notificationSettings'
 
 const markReadSchema = z.object({
@@ -39,6 +40,9 @@ function visibleNotifCond(userId: string): SQL {
       isNull(notifications.workspaceId),
       sql`exists (select 1 from ${workspaceMembers} where ${workspaceMembers.workspaceId} = ${notifications.workspaceId} and ${workspaceMembers.userId} = ${userId})`,
     ),
+    // A workspace whose 2FA requirement blocks the user (docs/adr/1112-*): its page notifications
+    // (titles) are held back until 2FA is on; they come back then.
+    or(isNull(notifications.pageId), sql`not ${twoFactorBlockedSql(pages.workspaceId, userId)}`),
     // Soft-deleted workspace (ADR 0910): its page and workspace notifications disappear with it,
     // except the `workspace_deleted` notice itself, which is the point.
     or(isNull(notifications.pageId), liveWorkspace(pages.workspaceId)),

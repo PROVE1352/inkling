@@ -9,6 +9,7 @@ import collection from './en/collection'
 import templates from './en/templates'
 import workspaceAdmin from './en/workspace-admin'
 import notifications from './en/notifications'
+import largePages from './en/large-pages'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -24,6 +25,7 @@ export const en = {
   ...templates,
   ...workspaceAdmin,
   ...notifications,
+  ...largePages,
 }
 
 export type MessageKey = keyof typeof en

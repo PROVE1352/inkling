@@ -7,6 +7,67 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-07
+
+Database migration 0035 is applied on first boot. Take a backup before upgrading ([docs/BACKUP.md](docs/BACKUP.md)).
+At start-up share links, invite codes and signup keys are converted to hashes (they keep working), and pages are
+stored in the Yjs V2 format from their next save. Going back to 0.4.x is only safe by restoring the pre-upgrade
+backup; if you must keep newer edits, stop the server and run `apps/server/scripts/states-to-v1.ts` first, and expect
+share links, invite codes and signup keys to stop working (docs/adr/1101-*, 1110-*).
+
+### Security
+- Share-link tokens, invite codes and signup keys are stored as SHA-256 only; the copy used for "Copy link" is
+  encrypted with `APP_SECRET_KEY`. Used signup keys are no longer shown again. Existing links and keys are converted at
+  first boot and keep working (docs/adr/1110-*).
+- Slack/Discord webhook URLs and sheet-sync URLs are encrypted with `APP_SECRET_KEY`; without the key they stay
+  plaintext and the server logs a warning at boot (docs/adr/1111-*).
+
+### Added
+- Workspace settings → Security → "Require two-step verification" (owners and admins, grace period 0–30 days, 7 by
+  default). After the grace period members without two-step verification, and their agents, get 403
+  `TWO_FACTOR_REQUIRED` and are sent to the setup screen. Accounts that sign in through another service count as
+  verified. Changes are in the audit log (docs/adr/1112-*).
+- `[[Old name]]` still opens a page after it was renamed (docs/adr/1121-*).
+- Graph: colour by link island, "Show only this island", and a list of pages with no links;
+  `GET /api/workspaces/:id/graph/islands` (docs/adr/1123-*).
+- Large pages: a one-line notice at the top of a large page, and a "Large pages" list in workspace settings for owners
+  and admins with page and version-history sizes (docs/adr/1103-*).
+- Settings → About: version, links to the user guide and the GitHub repository.
+
+### Changed
+- Settings is split into sections listed on the left (Account, Security, Notifications, Editor, Sidebar, Files &
+  links, Appearance, Connections, Keyboard shortcuts, About). On a phone the list opens first and the header's back
+  button returns to it. Sections have their own links (`/w/<id>/settings#sidebar`). Rows are separated by thin lines
+  instead of boxes, and settings kept in this browser only are tagged "This device" (docs/adr/1130-*).
+- Settings → Editor: "Full" line width is its own toggle; line width and zoom reset from a small icon next to the value
+  (the zoom −/+ buttons are gone, the slider takes arrow keys). "Confirm before deleting" moved from Trash to Files &
+  links. Settings → Keyboard shortcuts uses the same list as the `?` dialog, with a search box. Settings → Sidebar: the
+  ↑/↓ buttons appear on hover or keyboard focus (always on touch screens).
+- Accounts that sign in through another service no longer see the password fields.
+- Dropdowns use one quiet look with a thin chevron instead of the OS control. In Chromium-based browsers with a mouse
+  the opened list follows the app theme too (customizable select); touch screens keep the OS picker.
+- Imports store identical attachments once and merge Notion pages that share a Notion id. The Notion report gains
+  `merged: { pages, attachments }` and `attachments` counts files actually stored; zip and folder imports return
+  `duplicateAttachments` (docs/adr/1122-*).
+- `SnapshotDTO.bytes` is the stored size, so versions saved as a diff show a few KB. Preview, compare and restore answer
+  409 `SNAPSHOT_UNAVAILABLE` when a version cannot be rebuilt.
+
+### Performance
+- Version history is stored as Yjs diffs against the previous version, with a full state every 10th version and on any
+  doubt. 50 versions of a 4.5 MB page: 107 MB → 9.3 MB raw, 33.7 MB → 2.16 MB on disk (docs/adr/1100-*). The first
+  version after the upgrade is a full one.
+- Page state is stored in Yjs V2: −29 to −32% raw, −48% on disk. Old rows are read as they are and rewritten on the
+  next save without side effects (docs/adr/1101-*).
+- A save encodes the document once instead of twice (2.1–4.0× faster); `update_page` append p50 −10%, `patch_section`
+  p50 −10 to −16% on a 4.5 MB page (docs/adr/1102-*).
+- Shared union-find module for link islands; `[[title]]` lookup with 1,000 former titles stays at ~10 ms p50 on 5,000
+  pages (docs/adr/1120-*).
+- Measured and not adopted: SIEVE and S3-FIFO instead of LRU for the section, ACL and formula caches (−6.5 to +0.6 pp
+  hit rate at the sizes in use, docs/adr/1124-*); rendering only the visible part of the editor (docs/adr/1104-*).
+- Regressions: on a 4.5 MB page at the 50-version limit an automatic version takes 55–88 ms instead of ~5 ms (event loop
+  stall up to 42–75 ms, once per 10 minutes of editing); other requests' p95 during `patch_section` 304 → 426–473 ms.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## [0.4.0] - 2026-11-07
 
 Database migration 0034 (two-step verification, outbox, workspace access versions) is applied on first boot. Take a

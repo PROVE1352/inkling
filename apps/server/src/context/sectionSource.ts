@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import * as Y from 'yjs'
+import { applyStoredState } from '../yState'
 import { db } from '../db/index'
 import { adoptIndexedStamp, docIndexIdle, indexedStamp, scheduleDocIndex } from '../docIndexer'
 import { liveDoc, liveDocStamp } from '../liveConnections'
@@ -293,7 +294,7 @@ async function indexedRange(pageId: string, stamp: string, s: IndexedSection): P
   if (rows[0]?.stamp !== stamp || indexedStamp(pageId) !== stamp) return null
   const tmp = new Y.Doc()
   try {
-    Y.applyUpdate(tmp, rows[0].state)
+    applyStoredState(tmp, rows[0].state)
     return rangeBlocks(tmp, s.blockId, s.nextBlockId)
   } finally {
     tmp.destroy()

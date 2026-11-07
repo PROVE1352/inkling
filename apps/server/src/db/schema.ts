@@ -10,6 +10,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -47,7 +48,11 @@ export const users = pgTable('users', {
     .default('local'),
   /** Admin: can issue/revoke signup keys and list users. */
   isAdmin: boolean('is_admin').notNull().default(false),
-  /** Signup key used to create this account. For key -> signup tracing; only set when origin='local'. */
+  /**
+   * SHA-256 (hex) of the signup key used to create this account (docs/adr/1110-*): the same value as
+   * `signup_keys.key`, for key -> signup tracing and the single-use recovery check. Only set when
+   * origin='local'. Rows written before 1110 are hashed in place at boot (secretsAtRest.ts).
+   */
   signupKey: text('signup_key'),
   /** When the email was verified. null = unverified (pre-migration accounts are null too, but are not retroactively blocked). */
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
@@ -72,7 +77,19 @@ export const users = pgTable('users', {
  * A key with maxUses=1 can also serve as a password reset code for the one person who signed up with it.
  */
 export const signupKeys = pgTable('signup_keys', {
+  /**
+   * SHA-256 (hex) of the canonical key (trimmed, upper case) — the lookup key (docs/adr/1110-*).
+   * The key itself is never stored in this column; rows from before 1110 are hashed at boot.
+   */
   key: text('key').primaryKey(),
+  /**
+   * The key for showing it again in the admin screen: sealed with APP_SECRET_KEY (`v1.…`), or the
+   * raw key when APP_SECRET_KEY is unset. Cleared once the key is used up (a used single-use key is
+   * that person's recovery code and is never shown again).
+   */
+  keyEnc: text('key_enc'),
+  /** Last four characters of the key, for telling keys apart once `key_enc` is gone. */
+  keyHint: text('key_hint'),
   note: text('note'),
   maxUses: integer('max_uses').notNull().default(1),
   usedCount: integer('used_count').notNull().default(0),
@@ -188,7 +205,10 @@ export const workspaces = pgTable('workspaces', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   icon: text('icon'),
+  /** SHA-256 (hex) of the canonical invite code (trimmed, upper case) — the lookup key (docs/adr/1110-*). */
   inviteCode: text('invite_code').notNull().unique(),
+  /** The invite code for "copy invite link": sealed (`v1.…`), or raw when APP_SECRET_KEY is unset (docs/adr/1110-*). */
+  inviteCodeEnc: text('invite_code_enc'),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   /**
@@ -224,6 +244,13 @@ export const workspaces = pgTable('workspaces', {
   reviewScoredOn: text('review_scored_on'),
   /** Server-local 'YYYY-MM-DD' of the last agent_digest webhook (once a day, docs/adr/1004-*). */
   agentDigestSentOn: text('agent_digest_sent_on'),
+  /**
+   * "Require two-step verification" (docs/adr/1112-*): when it was turned on, null = off. Members
+   * without 2FA get 403 TWO_FACTOR_REQUIRED once `two_factor_grace_days` have passed since then.
+   */
+  twoFactorRequiredAt: timestamp('two_factor_required_at', { withTimezone: true }),
+  /** Grace period after turning the requirement on, in days (0..30). */
+  twoFactorGraceDays: integer('two_factor_grace_days').notNull().default(7),
 })
 
 export const workspaceMembers = pgTable(
@@ -270,8 +297,13 @@ export const pages = pgTable('pages', {
   properties: jsonb('properties').notNull().default(sql`'[]'::jsonb`),
   /** Wiki-link aliases: [[alias]] also links to / finds this page (string[]) */
   aliases: jsonb('aliases').notNull().default(sql`'[]'::jsonb`),
-  /** Public web share token: when set, /s/<token> allows unauthenticated read-only access */
+  /**
+   * Public web share: SHA-256 (hex) of the token in /s/<token> (docs/adr/1110-*). Set = shared;
+   * lookups hash the presented token. Rows from before 1110 are hashed at boot.
+   */
   shareToken: text('share_token').unique(),
+  /** The token for "copy link": sealed (`v1.…`), or raw when APP_SECRET_KEY is unset (docs/adr/1110-*). */
+  shareTokenEnc: text('share_token_enc'),
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),
@@ -318,10 +350,23 @@ export const pageDocs = pgTable('page_docs', {
     .primaryKey()
     .references(() => pages.id, { onDelete: 'cascade' }),
   state: bytea('state').notNull(),
+  /**
+   * 1 = Yjs V1 update, 2 = V2 (docs/adr/1101-*). Mirrors the bytes (a whole-document state is
+   * self-describing; readers sniff it, never trust this over the bytes). Used by SQL that cannot
+   * sniff cheaply (large-page threshold) and to watch the gradual conversion. Writers that do not
+   * set it write V1.
+   */
+  stateFormat: smallint('state_format').notNull().default(1),
+  /** Y.encodeStateVector of `state`, written by the collab store; null for rows other writers made. */
+  stateVector: bytea('state_vector'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-/** Version history: Yjs state snapshots (automatic with a 10-minute throttle + manual) */
+/**
+ * Version history: Yjs state snapshots (automatic with a 10-minute throttle + manual).
+ * Incremental since docs/adr/1100-*: a row is either a whole state (`base_id` null) or the Yjs diff
+ * from its base row's state (`base_id` set), chained up to SNAPSHOT_CHAIN_MAX deep.
+ */
 export const pageSnapshots = pgTable(
   'page_snapshots',
   {
@@ -335,6 +380,14 @@ export const pageSnapshots = pgTable(
     /** OAuth client name when the snapshot was taken for an agent (MCP) edit (docs/adr/0936-*). */
     viaClient: text('via_client'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Encoding of `state`: 1 = Yjs V1, 2 = V2 (a diff is not self-describing; docs/adr/1101-*). */
+    stateFormat: smallint('state_format').notNull().default(1),
+    /** Null = `state` is the whole document; else `state` is the diff from this row's state (docs/adr/1100-*). */
+    baseId: uuid('base_id'),
+    /** Rows between this one and its whole-state ancestor (0 for a whole state). */
+    depth: smallint('depth').notNull().default(0),
+    /** State vector of the document this row represents; null on rows written before docs/adr/1100-*. */
+    stateVector: bytea('state_vector'),
   },
   (t) => [index('page_snapshots_page_idx').on(t.pageId, t.createdAt)],
 )
@@ -772,3 +825,5 @@ export * from './schema-editLock'
 export * from './schema-notifications'
 export * from './schema-twoFactor'
 export * from './schema-outbox'
+// Former page titles for [[old title]] links after a rename (docs/adr/1121-*)
+export * from './schema-titles'

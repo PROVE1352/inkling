@@ -42,12 +42,11 @@ jobs:
       fail-fast: false
       matrix:
         from:
-          # v0.1.0 was released without a git tag: this is its commit (migrations 0000-0027;
-          # CHANGELOG puts 0028-0030 in 0.2.0). Switch to the tag name once v0.1.0 is tagged.
-          - { name: v0.1.0, ref: 9dc9a9bf1bb9823ead79e65d9bd79d6ca5f05d3c }
+          - { name: v0.1.0, ref: v0.1.0 }
           - { name: v0.2.0, ref: v0.2.0 }
           - { name: v0.3.0, ref: v0.3.0 }
           - { name: v0.3.1, ref: v0.3.1 }
+          - { name: v0.4.0, ref: v0.4.0 }
     steps:
       # Two separate checkouts so neither build context contains the other tree.
       - uses: actions/checkout@v4

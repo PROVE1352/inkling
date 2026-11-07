@@ -26,6 +26,7 @@ import {
 import { Modal } from './Modal'
 import { NotionImportModal } from './NotionImportModal'
 import { Spinner } from './Spinner'
+import { toast } from '../lib/toast'
 import { t, useT } from '../i18n'
 
 export function WorkspaceSwitcher({
@@ -59,8 +60,10 @@ export function WorkspaceSwitcher({
     importWs.mutate(
       { file },
       {
-        onSuccess: (pages) => {
+        onSuccess: ({ pages, duplicateAttachments }) => {
           setOpen(false)
+          // Identical attachments were stored once (docs/adr/1122-*).
+          if (duplicateAttachments > 0) toast({ message: t('workspace.importDuplicates', { count: duplicateAttachments }) })
           const first = pages[0]
           if (first) navigate(`/w/${wsId}/p/${first.id}`)
         },

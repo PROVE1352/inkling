@@ -1,3 +1,4 @@
+import { components } from '@inkling/shared'
 import type { GraphDTO } from '../../api'
 import { t } from '../../i18n'
 
@@ -26,7 +27,10 @@ export type ModelGroup = { key: string; label: string; count: number }
 export type GraphModel = {
   nodes: ModelNode[]
   links: ModelLink[]
+  /** Colour groups: top-level folders, or link islands when `colorBy` is 'island' */
   groups: ModelGroup[]
+  /** Link islands of two or more pages among the shown pages (docs/adr/1123-*) */
+  islandCount: number
   /** Whether the data has any tags at all (decides whether the tag toggle is shown) */
   hasTags: boolean
 }
@@ -34,6 +38,10 @@ export type GraphModel = {
 export type ModelOptions = {
   showOrphans: boolean
   showTags: boolean
+  /** Colour by top-level folder (default) or by link island */
+  colorBy?: 'folder' | 'island'
+  /** Show only the link island that contains this page id */
+  island?: string | null
   /** Local graph: `depth` hops from focus, with direction filters */
   local?: { focusId: string; depth: number; incoming: boolean; outgoing: boolean }
 }
@@ -65,7 +73,21 @@ export function buildModel(graph: GraphDTO, opt: ModelOptions): GraphModel {
     keep = new Set(graph.nodes.map((n) => n.id))
   }
 
-  const links = pageLinks.filter((l) => keep.has(l.source) && keep.has(l.target))
+  let links = pageLinks.filter((l) => keep.has(l.source) && keep.has(l.target))
+
+  // --- Link islands (docs/adr/1123-*) ------------------------------------------
+  // Connected components of the page links (direction ignored) by union-find: union every link,
+  // then group by find(). Rebuilt with the model on every graph fetch — a deleted link cannot be
+  // taken out of a union-find, and the rebuild is O((V + E) α(V)).
+  const keptIds = [...keep].filter((id) => byId.has(id))
+  let islands = components(keptIds, links.map((l) => [l.source, l.target] as const))
+  if (opt.island && islands.indexOf.has(opt.island)) {
+    const gi = islands.indexOf.get(opt.island)!
+    keep = new Set(islands.groups[gi])
+    links = links.filter((l) => keep.has(l.source) && keep.has(l.target))
+    islands = components(islands.groups[gi], links.map((l) => [l.source, l.target] as const))
+  }
+  const islandCount = islands.groups.filter((g) => g.length > 1).length
 
   // Tag nodes: only tags of pages being shown. Names are merged case-insensitively.
   const tagLinks: ModelLink[] = []
@@ -137,6 +159,23 @@ export function buildModel(graph: GraphDTO, opt: ModelOptions): GraphModel {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
   const gIndex = new Map(groups.map((g, i) => [g.key, i]))
 
+  // Island colouring: one group per island of 2+ pages, named after its most linked page.
+  const byIsland = opt.colorBy === 'island'
+  const pageDegree = new Map<string, number>()
+  for (const l of links) {
+    pageDegree.set(l.source, (pageDegree.get(l.source) ?? 0) + 1)
+    pageDegree.set(l.target, (pageDegree.get(l.target) ?? 0) + 1)
+  }
+  const islandGroups: ModelGroup[] = []
+  if (byIsland) {
+    for (const g of islands.groups) {
+      if (g.length < 2) break // largest first
+      let hub = g[0]
+      for (const id of g) if ((pageDegree.get(id) ?? 0) > (pageDegree.get(hub) ?? 0)) hub = id
+      islandGroups.push({ key: hub, label: byId.get(hub)?.title || t('common.untitled'), count: g.length })
+    }
+  }
+
   const nodes: ModelNode[] = []
   for (const id of keep) {
     const n = byId.get(id)
@@ -146,11 +185,19 @@ export function buildModel(graph: GraphDTO, opt: ModelOptions): GraphModel {
     // The local graph's focus node is always shown, even with no links
     if (orphan && !opt.showOrphans && id !== opt.local?.focusId) continue
     const key = nodeGroupKey.get(id)
+    const island = islands.indexOf.get(id)
+    const gi = byIsland
+      ? island !== undefined && island < islandGroups.length
+        ? island
+        : G_NEUTRAL
+      : key != null
+        ? gIndex.get(key)!
+        : G_NEUTRAL
     nodes.push({
       id,
       label: n.title || t('common.untitled'),
       degree: d,
-      gi: orphan ? G_ORPHAN : key != null ? gIndex.get(key)! : G_NEUTRAL,
+      gi: orphan ? G_ORPHAN : gi,
       isTag: false,
     })
   }
@@ -158,7 +205,7 @@ export function buildModel(graph: GraphDTO, opt: ModelOptions): GraphModel {
     nodes.push({ id: key, label, degree: degree.get(key) ?? 0, gi: G_TAG, isTag: true })
   }
 
-  return { nodes, links: [...links, ...tagLinks], groups, hasTags }
+  return { nodes, links: [...links, ...tagLinks], groups: byIsland ? islandGroups : groups, islandCount, hasTags }
 }
 
 // N-hop neighbourhood of focus (with direction filters), via BFS.

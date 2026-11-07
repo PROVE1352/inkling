@@ -31,6 +31,7 @@ import { appOrigin, inviteMail, resetCodeMail, sendMail, tempPasswordMail, verif
 import { newSignupKey, newTempPassword } from '../util'
 import { resolveLocale } from '../i18n'
 import { disableTwoFactor } from '../twoFactor'
+import { HASH_RE, hashSignupKey, protectSecret, signupKeyHint, tryRevealSecret } from '../secretsAtRest'
 
 /**
  * Admin-only operations API: issuing/revoking Inkling signup keys, user management (password
@@ -42,6 +43,14 @@ import { disableTwoFactor } from '../twoFactor'
  * keep their password elsewhere, so password features do not apply to them
  * (400 DELEGATED_ACCOUNT). Forced deletion still works.
  */
+/**
+ * Route parameter → signup_keys.key. Admin screens pass the key's id (its SHA-256); an older client
+ * passes the key itself, which is hashed. A raw key is never 64 hex characters (docs/adr/1110-*).
+ */
+function signupKeyId(param: string): string {
+  return HASH_RE.test(param) ? param : hashSignupKey(param)
+}
+
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   const admin = { preHandler: requireAdmin }
   // Admin endpoints that send mail: rate-limited so a hijacked admin account cannot spam
@@ -96,7 +105,9 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/admin/signup-keys', admin, async () => {
     const rows = await db
       .select({
-        key: signupKeys.key,
+        id: signupKeys.key,
+        keyEnc: signupKeys.keyEnc,
+        keyHint: signupKeys.keyHint,
         note: signupKeys.note,
         maxUses: signupKeys.maxUses,
         usedCount: signupKeys.usedCount,
@@ -131,11 +142,13 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
     const now = Date.now()
     return {
-      keys: rows.map((k) => ({
+      keys: rows.map(({ keyEnc, ...k }) => ({
         ...k,
+        // signup_keys.key is the SHA-256; the key to copy comes from its sealed copy (docs/adr/1110-*)
+        key: tryRevealSecret('signup-key', keyEnc, k.id),
         expired: !!k.expiresAt && k.expiresAt.getTime() <= now,
         exhausted: k.usedCount >= k.maxUses,
-        usedBy: (byKey.get(k.key) ?? []).map((u) => ({
+        usedBy: (byKey.get(k.id) ?? []).map((u) => ({
           name: u.name,
           email: u.email,
           createdAt: u.createdAt,
@@ -156,18 +169,22 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     // Key collisions are negligible (31^16), but an insert failure is absorbed by retrying.
     for (let attempt = 0; attempt < 3; attempt++) {
       const key = newSignupKey()
+      const id = hashSignupKey(key)
       try {
         const [row] = await db
           .insert(signupKeys)
           .values({
-            key,
+            key: id,
+            keyEnc: protectSecret('signup-key', key, id),
+            keyHint: signupKeyHint(key),
             note: body.note?.trim() || null,
             maxUses: body.maxUses,
             expiresAt,
             createdBy: me.id,
           })
           .returning()
-        return { key: { ...row, expired: false, exhausted: false, usedBy: [] } }
+        const { keyEnc: _enc, ...rest } = row
+        return { key: { ...rest, id, key, expired: false, exhausted: false, usedBy: [] } }
       } catch (err) {
         const e = err as { code?: string; cause?: { code?: string } }
         if (e?.code !== '23505' && e?.cause?.code !== '23505') throw err
@@ -181,7 +198,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const { key } = req.params as { key: string }
     const deleted = await db
       .delete(signupKeys)
-      .where(eq(signupKeys.key, key))
+      .where(eq(signupKeys.key, signupKeyId(key)))
       .returning({ key: signupKeys.key })
     if (deleted.length === 0) throw notFound('KEY_NOT_FOUND', 'Signup key not found')
     return { ok: true }
@@ -193,12 +210,14 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const { key } = req.params as { key: string }
     const { to } = sendInviteMailSchema.parse(req.body)
     const [k] = await db
-      .select({ key: signupKeys.key, expiresAt: signupKeys.expiresAt })
+      .select({ id: signupKeys.key, keyEnc: signupKeys.keyEnc, expiresAt: signupKeys.expiresAt })
       .from(signupKeys)
-      .where(eq(signupKeys.key, key))
+      .where(eq(signupKeys.key, signupKeyId(key)))
       .limit(1)
     if (!k) throw notFound('KEY_NOT_FOUND', 'Signup key not found')
-    await sendMail(to, inviteMail({ key: k.key, expiresAt: k.expiresAt, origin: appOrigin(req), locale: env.defaultLocale }), log)
+    const raw = tryRevealSecret('signup-key', k.keyEnc, k.id)
+    if (!raw) throw new AppError(409, 'KEY_NOT_REVEALABLE', 'This key can no longer be shown or sent. Issue a new key.')
+    await sendMail(to, inviteMail({ key: raw, expiresAt: k.expiresAt, origin: appOrigin(req), locale: env.defaultLocale }), log)
     return { ok: true }
   })
 
@@ -213,6 +232,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         isAdmin: users.isAdmin,
         signupKey: users.signupKey,
         signupKeyMaxUses: signupKeys.maxUses,
+        signupKeyHint: signupKeys.keyHint,
         emailVerifiedAt: users.emailVerifiedAt,
         createdAt: users.createdAt,
         twoFactorAt: userTotp.enabledAt,
@@ -222,8 +242,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       .leftJoin(userTotp, eq(userTotp.userId, users.id))
       .orderBy(desc(users.createdAt))
     return {
-      users: rows.map(({ signupKeyMaxUses, twoFactorAt, ...u }) => ({
+      users: rows.map(({ signupKeyMaxUses, signupKeyHint, twoFactorAt, ...u }) => ({
         ...u,
+        // only a masked hint: users.signup_key is the key's SHA-256 (docs/adr/1110-*)
+        signupKey: u.signupKey ? `••••-${signupKeyHint ?? '••••'}` : null,
         signupKeyRecovery: u.origin === 'local' && signupKeyMaxUses === 1,
         // Extension field (docs/adr/1061-*)
         twoFactor: !!twoFactorAt,

@@ -9,13 +9,13 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 ## Security
 
 - **Medium** (C-L2, TODO #4) A successful login resets the IP-wide failure counter, so an attacker with one valid account can interleave its logins to keep guessing other accounts. Fix: reset only that account's counter and let the IP counter decay.
-- **Medium** (C-L14, TODO #6) A single-use signup key stays valid forever as a password-recovery code for the account that used it. Fix: expire recovery after a period, or show and revoke it in the admin screen.
+- **Medium** (C-L14, TODO #6) A single-use signup key stays valid forever as a password-recovery code for the account that used it. Since docs/adr/1110-* it is stored only as SHA-256 and never shown again once used, but it still works. Fix: expire recovery after a period, or revoke it in the admin screen.
 - **Medium** (C-L9) The collaboration socket has no limits on message rate, awareness payload size, documents per socket or accumulated Yjs size; awareness user names can be spoofed. Fix: token bucket and size checks in `beforeHandleMessage`, server-side awareness identity.
 - **Medium** (C-M11) `pnpm audit --prod` reported vulnerable dependencies (fastify, @fastify/static, @fastify/busboy, MCP SDK, drizzle-orm, zod, @tiptap/core, prosemirror-view). Addressed in the dependency phase; re-run `pnpm audit --prod` before release.
 - **Low** (C-L15) OAuth: no token revocation endpoint; dynamic client registration has no global cap or cleanup of unused clients; `client_id` handling is lenient; any `https` `redirect_uri` is accepted at registration.
 - **Low** (TODO, P-server leftover) The OAuth authorization code is consumed before the PKCE verifier is checked, so a wrong verifier burns the code instead of being rejected without side effects.
 - **Low** (C-L6) Login for a nonexistent account returns 401 immediately while existing accounts pay an argon2 verify, so response timing reveals which emails exist. Fix: dummy argon2 verify.
-- **Low** (C-L13, TODO) Webhook URLs, which often embed secrets (Slack/Discord tokens), are stored in plaintext. Fix: encrypt with an app secret from env.
+- **Low** (C-L13, docs/adr/1111-*) Webhook and sheet-sync URLs are encrypted only when `APP_SECRET_KEY` is set; without it they, and the "copy link" copies of share tokens, invite codes and unused signup keys (docs/adr/1110-*), stay in plaintext (the boot log counts them). Fix: set `APP_SECRET_KEY`; the next boot encrypts them.
 - **Low** (C-L16) A plugin can navigate its own frame to exfiltrate data it was given. Accepted: the trust boundary is the admin's approval of the plugin (documented in `docs/PLUGINS.md`).
 - **Low** (C-L17) The link-preview rate-limit key is the session, so one user with several sessions (or several users) multiply the outbound fetch budget.
 - **Low** (TODO, docs/adr/0947-*) A per-client agent block can be sidestepped by registering the same agent again under a new OAuth `client_id`; blocking "all agents" of the member covers it. Dynamic client registration has no cap (C-L15).
@@ -45,10 +45,16 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (AGENT-S2, docs/adr/0935-*) A refresh request cannot narrow a grant's scope; to downgrade to read-only, disconnect and connect again.
 
 - **Low** (docs/adr/1061-*) Wrong two-step codes are counted per challenge (5) in the database, but the per-account backoff (`totp:<email>`) lives in memory like the other guard counters and resets on restart.
-- **Low** (docs/adr/1061-*) An admin can turn off a member's two-step verification and then reset their password, which together take over the account. Admins are trusted; there is no workspace policy that requires 2FA yet.
+- **Low** (docs/adr/1061-*) An admin can turn off a member's two-step verification and then reset their password, which together take over the account. Admins are trusted; a workspace that requires 2FA (docs/adr/1112-*) then blocks that member until they turn it on again, which the new password holder can do.
 - **Low** (docs/adr/1061-*) Losing or changing `APP_SECRET_KEY` makes every stored TOTP secret unreadable; affected users can only sign in with a recovery code (or an admin turns 2FA off). There is no key rotation.
 - **Low** (docs/adr/1062-*) State-changing requests whose Origin is not `PUBLIC_URL`/`APP_URL` are refused, so an instance reached under a second address (LAN IP, alias domain) is read-only there. There is no extra-origins setting.
 - **Info** (docs/adr/1060-*) A plaintext session row inserted by an older `deploy/cli-token.sh` stays plaintext until its first use (then it is hashed in place).
+
+- **Low** (docs/adr/1110-*) Invite codes are 10 characters (~50 bits) and stored as unsalted SHA-256: a leaked database lets someone brute-force a code offline in about a GPU-day. Regenerating the code (members panel) makes the leaked hash useless. Fix: longer codes or a keyed hash.
+- **Low** (docs/adr/1110-*, 1111-*) Losing or changing `APP_SECRET_KEY` makes the encrypted copies unreadable: share links, invite codes and unused signup keys keep working but can no longer be shown (publish again / regenerate / issue a new key), and webhooks and sheet syncs fail until the URL is entered again. There is no key rotation.
+- **Low** (docs/adr/1112-*) When a workspace's 2FA grace period runs out by itself, members' open collaboration sockets stay connected until they reconnect (turning the requirement on with no grace closes them at once).
+- **Low** (docs/adr/1112-*) A member blocked by a workspace's 2FA requirement still gets that workspace's mail digests, agent-inbox items (when the inbox is read without a workspace) and its outgoing webhooks keep firing; the in-app notification list and the iCal feed leave it out.
+- **Info** (docs/adr/1112-*) Delegated sign-in accounts count as satisfying a workspace's 2FA requirement (their second factor is the upstream service's); Inkling cannot check that it is on.
 
 <!-- fix-web / tests-ci: append Security items above this line -->
 

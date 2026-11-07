@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { getServerEditor } from './editor'
 import { extractMath, prepareMathExport } from './math'
+import { applyStoredState } from '../yState'
 
 // ---------------------------------------------------------------------------
 // Loose structural types — handling BlockNote's generic Block type directly makes inline
@@ -119,11 +120,19 @@ export function visitAssetBlocks(blocks: AnyBlock[], visit: (block: AnyBlock) =>
 // Yjs state ↔ blocks
 // ---------------------------------------------------------------------------
 
+/** Blocks of a stored state, V1 or V2 (docs/adr/1101-*). */
 export function stateToBlocks(state: Uint8Array): AnyBlock[] {
   const doc = new Y.Doc()
-  Y.applyUpdate(doc, state)
-  const blocks = getServerEditor().yDocToBlocks(doc, 'document')
-  return blocks as unknown as AnyBlock[]
+  applyStoredState(doc, state)
+  return docToBlocks(doc)
+}
+
+/**
+ * Blocks of a document read through BlockNote. The read is destructive for nodes the server schema
+ * does not know (y-prosemirror deletes them), so only pass a throwaway document, never a live one.
+ */
+export function docToBlocks(doc: Y.Doc): AnyBlock[] {
+  return getServerEditor().yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
 }
 
 export function blocksToStateBuffer(blocks: AnyBlock[]): Buffer {

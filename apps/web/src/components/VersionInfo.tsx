@@ -4,7 +4,7 @@ import { useT } from '../i18n'
 
 type VersionDTO = { version?: string; build?: string }
 
-/** Bottom of Settings: the version and build this tab is running, and the server's when they differ. */
+/** Settings › About: the version and build this tab is running, and the server's when they differ. */
 export function VersionInfo() {
   const t = useT()
   const server = useQuery({
@@ -18,8 +18,8 @@ export function VersionInfo() {
   const s = server.data
   const differs = !!s && ((s.version && s.version !== CLIENT_VERSION) || (s.build && s.build !== CLIENT_BUILD))
   return (
-    <div className="mt-8 px-1 pb-2 text-xs text-sub" data-testid="version-info">
-      <p>{t('settings.version', { version: CLIENT_VERSION, build: CLIENT_BUILD })}</p>
+    <div className="text-xs leading-relaxed text-sub" data-testid="version-info">
+      <p className="text-sm text-ink">{t('settings.version', { version: CLIENT_VERSION, build: CLIENT_BUILD })}</p>
       {differs && (
         <p className="mt-1">{t('settings.versionServer', { version: s?.version ?? '?', build: s?.build ?? '?' })}</p>
       )}

@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull, max } from 'drizzle-orm'
 import JSZip from 'jszip'
+import { createHash } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { db } from '../db/index'
@@ -25,6 +26,7 @@ import { reindexPageTasks } from './taskIndex'
 import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from './textIndex'
 import { mimeForExt } from './mime'
+import { formerTitleMap } from '../formerTitles'
 import { dropLeadingTitleHeading } from './titleHeading'
 import { importLimits, mbLabel } from './importLimits'
 
@@ -56,6 +58,11 @@ interface ImportArgs {
 // shared helpers
 // ---------------------------------------------------------------------------
 
+/** Hex SHA-256 of an attachment's bytes (import de-duplication, docs/adr/1122-*). */
+export function sha256(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
 export async function nextSortOrderBase(
   tx: Pick<Tx, 'select'>,
   workspaceId: string,
@@ -71,8 +78,10 @@ export async function nextSortOrderBase(
 
 /**
  * [[title]] resolver: ① pages in this batch ② titles of live pages in the workspace
- * ③ aliases of workspace pages. All case-insensitive, most recent updatedAt wins.
- * Priority: batch > real title > alias (so an alias never shadows a real page title).
+ * ③ aliases of workspace pages ④ former titles (renamed pages, docs/adr/1121-*). All
+ * case-insensitive, most recent updatedAt wins (former titles: most recent holder of the name).
+ * Priority: batch > real title > alias > former title (so neither an alias nor an old name ever
+ * shadows a page's current title).
  */
 export async function buildTitleResolver(
   workspaceId: string,
@@ -81,11 +90,14 @@ export async function buildTitleResolver(
 ): Promise<ResolveTitle> {
   // Security (docs/adr/0756-*): only pages the importing user may see are link targets.
   // Without visibleTo, [[Someone's private page]] resolved to its id and leaked its existence.
-  const wsRows = await db
-    .select({ id: pages.id, title: pages.title, aliases: pages.aliases })
-    .from(pages)
-    .where(and(eq(pages.workspaceId, workspaceId), isNull(pages.deletedAt), visibleTo(userId)))
-    .orderBy(asc(pages.updatedAt)) // asc → the last (newest) one stays in the map
+  const [wsRows, formerMap] = await Promise.all([
+    db
+      .select({ id: pages.id, title: pages.title, aliases: pages.aliases })
+      .from(pages)
+      .where(and(eq(pages.workspaceId, workspaceId), isNull(pages.deletedAt), visibleTo(userId)))
+      .orderBy(asc(pages.updatedAt)), // asc → the last (newest) one stays in the map
+    formerTitleMap(workspaceId, userId),
+  ])
   const titleMap = new Map<string, string>()
   const aliasMap = new Map<string, string>()
   for (const r of wsRows) {
@@ -100,7 +112,7 @@ export async function buildTitleResolver(
   }
   return (title: string) => {
     const key = title.toLowerCase()
-    const pid = batchMap.get(key) ?? titleMap.get(key) ?? aliasMap.get(key)
+    const pid = batchMap.get(key) ?? titleMap.get(key) ?? aliasMap.get(key) ?? formerMap.get(key)
     return pid ? `/w/${workspaceId}/p/${pid}` : null
   }
 }
@@ -180,10 +192,19 @@ export interface ImportEntry {
   readText(): Promise<string>
   /** Optional zero-copy path: move the bytes to `dest` (same filesystem) instead of read+write. */
   moveTo?(dest: string): Promise<void>
+  /** SHA-256 of the bytes without buffering them (disk-backed entries); used with `moveTo`. */
+  sha256?(): Promise<string>
+}
+
+/** What an import merged or skipped, for the response (docs/adr/1122-*). */
+export interface ImportStats {
+  /** Attachments whose bytes equalled an earlier attachment of the same import: stored once. */
+  duplicateAttachments: number
 }
 
 export async function importZip(
   args: Omit<ImportArgs, 'filename'>,
+  stats?: ImportStats,
 ): Promise<PageRow[]> {
   const { buffer, workspaceId, parentId, userId, scope, role } = args
   const zip = await JSZip.loadAsync(buffer)
@@ -202,7 +223,7 @@ export async function importZip(
       readText: async () => (await read()).toString('utf8'),
     }
   })
-  return importEntries({ entries, workspaceId, parentId, userId, scope, role })
+  return importEntries({ entries, workspaceId, parentId, userId, scope, role }, stats)
 }
 
 /** Decompresses one zip entry while counting real output bytes (see importZip). */
@@ -247,6 +268,7 @@ export function readZipEntryCapped(
 /** Imports a folder tree (zip or disk-backed upload): folders → folder pages, .md → docs, assets/ → files. */
 export async function importEntries(
   args: Omit<ImportArgs, 'filename' | 'buffer'> & { entries: ImportEntry[] },
+  stats: ImportStats = { duplicateAttachments: 0 },
 ): Promise<PageRow[]> {
   const { workspaceId, parentId, userId, role } = args
   const allEntries = args.entries.filter((e) => !isIgnored(e.name))
@@ -265,13 +287,25 @@ export async function importEntries(
   const entryByName = new Map(fileEntries.map((e) => [e.name, e]))
 
   // 1) upload assets/ → entryName → /files/<newId>
+  //    Same bytes under two names (a picture pasted into several notes) are stored once: the first
+  //    entry is the representative and later ones map to its /files url (docs/adr/1122-*). One key
+  //    (the content hash) decides, so a Map from hash to the representative is the whole
+  //    "union-find" here — every set has depth 1 by construction.
   const assetMap = new Map<string, string>()
   const assetIds: string[] = []
+  const byHash = new Map<string, string>()
   for (const e of fileEntries) {
     if (!isAssetPath(e.name)) continue
     const ext = path.extname(e.name)
     // Zip entries are decompressed (and measured) before the row exists.
     const data = e.moveTo ? null : await e.readBuffer()
+    const hash = data ? sha256(data) : e.sha256 ? await e.sha256() : null
+    const same = hash ? byHash.get(hash) : undefined
+    if (same) {
+      assetMap.set(e.name, same)
+      stats.duplicateAttachments++
+      continue
+    }
     const [row] = await db
       .insert(files)
       .values({
@@ -286,6 +320,7 @@ export async function importEntries(
     if (e.moveTo) await e.moveTo(dest)
     else await writeFile(dest, data!)
     assetMap.set(e.name, `/files/${row.id}`)
+    if (hash) byHash.set(hash, `/files/${row.id}`)
     assetIds.push(row.id)
   }
 

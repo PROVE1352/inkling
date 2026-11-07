@@ -1,10 +1,7 @@
-import { eq } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
-import { db } from '../db/index'
-import { pageDocs } from '../db/schema'
 import { badRequest, notFound } from '../errors'
 import { idParam, requireMembershipAcl } from '../helpers'
 import { markdownToBlocks, stripFrontmatter } from '../md/convert'
@@ -12,8 +9,7 @@ import { writeBlocksToDoc } from '../md/docWrite'
 import { buildTitleResolver } from '../md/importer'
 import { requestLocale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
-import { createSnapshot, hasRecentAgentSnapshot } from '../snapshotStore'
-import { liveDocState } from '../liveConnections'
+import { createSnapshot, currentSnapshotSource, hasRecentAgentSnapshot } from '../snapshotStore'
 import { actorOf, withEditActor } from '../context/attribution'
 
 /**
@@ -53,15 +49,8 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
       const incoming = await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle)
 
       if (body.mode === 'replace') {
-        const cur = (
-          await db
-            .select({ state: pageDocs.state })
-            .from(pageDocs)
-            .where(eq(pageDocs.pageId, id))
-            .limit(1)
-        )[0]
         // Prefer the in-memory document: page_docs trails it by the store debounce (ADR 0757).
-        const before = liveDocState(id) ?? cur?.state
+        const before = await currentSnapshotSource(id)
         // the label is stored in the DB, so it is written in the editor's locale
         if (before) {
           const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집 전' : 'Before AI edit'
@@ -76,9 +65,7 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
       // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots. The
       // result is what the store hook just saved (the doc is usually unloaded by now).
       if (body.mode === 'append' && user.via && !(await hasRecentAgentSnapshot(id))) {
-        const state =
-          liveDocState(id) ??
-          (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, id)).limit(1))[0]?.state
+        const state = await currentSnapshotSource(id)
         if (state) {
           const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
           await createSnapshot(id, state, label, user.id, user.via)

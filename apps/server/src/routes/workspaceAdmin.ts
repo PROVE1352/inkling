@@ -7,6 +7,7 @@ import {
   bulkUnpublishSchema,
   setLivingSchema,
   setPageOwnerSchema,
+  setTwoFactorPolicySchema,
   updateWorkspaceSettingsSchema,
 } from '@inkling/shared'
 import type {
@@ -16,6 +17,8 @@ import type {
   AuditEventDTO,
   AuditPageDTO,
   ReviewDueDTO,
+  TwoFactorPolicyDTO,
+  WorkspaceRole,
   WorkspaceSettingsDTO,
 } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
@@ -31,7 +34,7 @@ import {
   workspaceMembers,
   workspaces,
 } from '../db/schema'
-import { badRequest, forbidden, notFound } from '../errors'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, lockWorkspaceMembers, memberRoleTx, requireMembership } from '../helpers'
 import { bumpAcl } from '../aclVersion'
 import { canWriteFromScopes } from '../oauth'
@@ -39,10 +42,14 @@ import { findVisiblePage } from '../pageDto'
 import { assertPageEditable } from '../editLock'
 import { computeReviewScores, ensureReviewScores, listReviewBucket, localISODate, pageReview } from '../review'
 import { countReads } from '../pageReads'
+import { closeUserWorkspaceConnections } from '../liveConnections'
+import { secretBoxAvailable } from '../secretBox'
+import { twoFactorBlockedSql, twoFactorDeadline, userSatisfiesTwoFactor } from '../twoFactorPolicy'
 import { notifyAssigned } from '../notify/producers'
 import {
   capabilitiesFor,
   diffFields,
+  isManagerRole,
   loadPolicy,
   policyColumns,
   recordAudit,
@@ -57,6 +64,38 @@ import {
  * Browser sessions only: an MCP token never reaches workspace administration (same rule as the
  * admin API), and review sign-off is a human action.
  */
+/** GET settings → `twoFactor` (docs/adr/1112-*). Managers also get who has not turned 2FA on yet. */
+async function twoFactorPolicyDTO(workspaceId: string, userId: string, role: WorkspaceRole): Promise<TwoFactorPolicyDTO> {
+  const [ws] = await db
+    .select({ at: workspaces.twoFactorRequiredAt, grace: workspaces.twoFactorGraceDays })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1)
+  if (!ws) throw notFound()
+  const deadline = twoFactorDeadline(ws.at, ws.grace)
+  const dto: TwoFactorPolicyDTO = {
+    required: ws.at !== null,
+    graceDays: ws.grace,
+    requiredAt: ws.at ? ws.at.toISOString() : null,
+    deadline: deadline ? deadline.toISOString() : null,
+    available: secretBoxAvailable(),
+    selfSatisfied: await userSatisfiesTwoFactor(userId),
+  }
+  if (isManagerRole(role)) {
+    const rows = (await db.execute(sql`
+      SELECT u.id, u.name, count(*) OVER ()::int AS total
+        FROM workspace_members m JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = ${workspaceId}
+         AND u.origin <> 'delegated'
+         AND NOT EXISTS (SELECT 1 FROM user_totp t WHERE t.user_id = u.id AND t.enabled_at IS NOT NULL)
+       ORDER BY u.name, u.id
+       LIMIT 50
+    `)) as unknown as { id: string; name: string; total: number }[]
+    dto.membersWithout = { count: rows[0]?.total ?? 0, members: rows.map((r) => ({ id: r.id, name: r.name })) }
+  }
+  return dto
+}
+
 async function requireSessionUser(req: FastifyRequest): Promise<void> {
   await requireUser(req)
   if (req.authVia !== 'cookie') throw forbidden('Workspace administration is only available in the web app')
@@ -89,7 +128,68 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     const id = idParam(req.params)
     const role = await requireMembership(id, user.id)
     const settings: WorkspaceSettingsDTO = await loadPolicy(db, id)
-    return { settings, role, can: capabilitiesFor(role, settings) }
+    return { settings, role, can: capabilitiesFor(role, settings), twoFactor: await twoFactorPolicyDTO(id, user.id, role) }
+  })
+
+  // "Require two-step verification" (docs/adr/1112-*): owners and admins. Turning it on needs
+  // APP_SECRET_KEY (members must be able to comply) and the caller's own 2FA.
+  app.put('/workspaces/:id/settings/two-factor', { preHandler: requireSessionUser }, async (req) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const body = setTwoFactorPolicySchema.parse(req.body)
+    await requireMembership(id, user.id)
+    if (body.required) {
+      if (!secretBoxAvailable()) {
+        throw new AppError(501, 'TWO_FACTOR_UNAVAILABLE', 'Two-step verification is not available on this server (APP_SECRET_KEY is not set)')
+      }
+      if (!(await userSatisfiesTwoFactor(user.id))) {
+        throw new AppError(403, 'TWO_FACTOR_SELF_REQUIRED', 'Turn on two-step verification for your own account first')
+      }
+    }
+    const changed = await db.transaction(async (tx) => {
+      const role = await memberRoleTx(tx, id, user.id)
+      if (!role) throw forbidden()
+      requireManager(role)
+      const [cur] = await tx
+        .select({ at: workspaces.twoFactorRequiredAt, grace: workspaces.twoFactorGraceDays })
+        .from(workspaces)
+        .where(eq(workspaces.id, id))
+        .for('update')
+        .limit(1)
+      if (!cur) throw notFound()
+      const before = { twoFactorRequired: cur.at !== null, twoFactorGraceDays: cur.grace }
+      const after = { twoFactorRequired: body.required, twoFactorGraceDays: body.graceDays ?? cur.grace }
+      if (before.twoFactorRequired === after.twoFactorRequired && before.twoFactorGraceDays === after.twoFactorGraceDays) {
+        return false
+      }
+      // The grace period runs from when the requirement was turned on; changing only the number of
+      // days keeps that moment (shortening it can end the grace period at once).
+      const at = !body.required ? null : (cur.at ?? new Date())
+      await tx
+        .update(workspaces)
+        .set({ twoFactorRequiredAt: at, twoFactorGraceDays: after.twoFactorGraceDays })
+        .where(eq(workspaces.id, id))
+      const diff = diffFields(before, after)
+      await recordAudit(tx, {
+        workspaceId: id,
+        actor: user,
+        action: 'settings.updated',
+        target: { type: 'workspace', id },
+        before: diff?.before ?? null,
+        after: diff?.after ?? null,
+      })
+      return true
+    })
+    // Members now past the deadline lose their live editing sockets; their next request gets 403.
+    if (changed && body.required) {
+      const blocked = (await db.execute(sql`
+        SELECT m.user_id AS "userId" FROM workspace_members m
+         WHERE m.workspace_id = ${id} AND ${twoFactorBlockedSql(sql`m.workspace_id`, sql`m.user_id`)}
+      `)) as unknown as { userId: string }[]
+      for (const b of blocked) await closeUserWorkspaceConnections(b.userId, id)
+    }
+    const role = await requireMembership(id, user.id)
+    return { twoFactor: await twoFactorPolicyDTO(id, user.id, role) }
   })
 
   app.patch('/workspaces/:id/settings', { preHandler: requireSessionUser }, async (req) => {
@@ -120,7 +220,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
       if (unpublishExisting) {
         const rows = await tx
           .update(pages)
-          .set({ shareToken: null })
+          .set({ shareToken: null, shareTokenEnc: null })
           .where(and(eq(pages.workspaceId, id), isNotNull(pages.shareToken)))
           .returning({ id: pages.id })
         unpublished = rows.length
@@ -356,7 +456,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     const removed = await db.transaction(async (tx) => {
       const rows = await tx
         .update(pages)
-        .set({ shareToken: null })
+        .set({ shareToken: null, shareTokenEnc: null })
         .where(
           and(eq(pages.workspaceId, id), isNotNull(pages.shareToken), pageIds ? inArray(pages.id, pageIds) : undefined),
         )

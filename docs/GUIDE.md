@@ -143,7 +143,7 @@ Create one with **New database**. Each row is a page; **Open row as a page** ope
 - **Due** in the sidebar lists overdue, this week and the next 30 days. **Add a task…** adds one to the "Tasks" document.
 - **Calendar** shows dated items by month or week. Click an empty day to add a task, a page or the daily note;
   drag items to another day.
-- Settings → **Calendar subscription (iCal)** gives you a private link for Google Calendar, Apple Calendar or
+- Settings → Connections → **Calendar subscription (iCal)** gives you a private link for Google Calendar, Apple Calendar or
   Outlook. Anyone with the link can read those items, so keep it to yourself.
 
 ## Working together
@@ -316,33 +316,36 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 - Deleting a page moves it to the **Trash** (bottom of the sidebar). Open it to **Restore** a page or
   **Delete forever**.
 - The trash keeps pages for 30 days unless an owner changed it (Workspace settings → General → **Keep trash for**).
-- Settings → Trash → **Confirm before deleting**: when off, pages go straight to the trash with an "Undo" toast.
+- Settings → Files & links → **Confirm before deleting**: when off, pages go straight to the trash with an "Undo" toast.
 - **History** in the right panel lists saved versions. **View all** opens **Version history**: preview a version,
   **Compare with current**, **Snapshot now** to save one yourself, or **Restore this version** (the current state
   is saved first).
-- A deleted workspace can be restored by its owner from Settings → **Deleted workspaces** for 30 days.
+- A deleted workspace can be restored by its owner from Settings → Account → **Deleted workspaces** for 30 days.
 
 ## Settings and the sidebar
 
-Open Settings with ⌘, or **Settings** at the bottom of the sidebar.
+Open Settings with ⌘, or **Settings** at the bottom of the sidebar. The sections (Account, Security, Notifications,
+Editor, Sidebar, Files & links, Appearance, Connections, Keyboard shortcuts, About) are listed on the left and the
+chosen one opens on the right; on a phone the list comes first and a section opens over it. Two-step verification is
+under Security; the app version and a link to this guide are under About.
 
 Saved to your account (the same on every device):
 
-- **Account**: email verification, **Change password**.
-- **Notifications**, **Calendar subscription (iCal)**, **Sidebar**.
+- **Account**: email verification, **Change password**, deleted workspaces.
+- **Security** (two-step verification), **Notifications**, **Sidebar**, **Calendar subscription (iCal)**.
 - **Language** (in the Appearance group).
 
-Saved on this device only:
+Saved on this device only (marked **This device** next to the setting):
 
 - **Editor**: line width (600–1200 px of body text or full; 700 px by default, the per-page "Full width" still wins), spell check, word count.
-- **Files & links**: page on launch, new page location, link preview.
-- **Trash**: confirm before deleting.
-- **Appearance**: zoom, theme (light, dark, system). The theme item in a document's ⋯ menu does the same.
+- **Files & links**: page on launch, new page location, link preview, confirm before deleting.
+- **Appearance**: theme (light, dark, system), zoom. The theme item in a document's ⋯ menu does the same.
 
 ### Sidebar menus
 
 Settings → **Sidebar** chooses which of Search, Graph, Tags, Web shares, Due, Calendar, Activity and Today appear
-at the top of the sidebar, and in what order (drag, or the ↑/↓ buttons). **Reset to default** restores them. You
+at the top of the sidebar, and in what order (drag, or the ↑/↓ buttons, which appear when you hover
+over a row or reach it with the keyboard). **Reset to default** restores them. You
 can also right-click (or long-press) a menu → **Hide from sidebar**. Hidden menus still open from the ⌘P palette
 and their shortcuts.
 
@@ -350,7 +353,8 @@ and their shortcuts.
 
 ## Keyboard shortcuts
 
-Press `?` (outside a text field) to see this list in the app. Settings → Keyboard shortcuts shows it too.
+Press `?` (outside a text field) to see this list in the app. Settings → Keyboard shortcuts shows it too, with a search
+box.
 Custom shortcuts aren't supported yet.
 
 | Action | Mac | Windows / Linux |

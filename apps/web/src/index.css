@@ -69,6 +69,79 @@ body {
   }
 }
 
+/* Selects: one quiet look on every platform instead of the OS control (macOS draws its own ⇕ button).
+   Unlayered so the chevron's right padding beats the px-* utilities; colours still come from the utilities
+   (border-line, bg-app, text-ink). color-scheme makes the opened list follow the app theme. */
+:root {
+  color-scheme: light;
+  --nd-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23787774' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+}
+.dark {
+  color-scheme: dark;
+  --nd-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%239b9b98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+}
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: var(--nd-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.45rem center;
+  background-size: 0.85rem 0.85rem;
+  padding-right: 1.6rem;
+  cursor: pointer;
+}
+select:not([multiple]):not([size]):hover:not(:disabled) {
+  border-color: var(--color-sub);
+}
+select:disabled {
+  cursor: default;
+}
+
+/* Opened list in the app's look where the browser allows it (customizable select, Chromium 135+). Elsewhere, and on
+   touch screens where the OS picker is easier to use, the native list stays. */
+@supports (appearance: base-select) {
+  @media (pointer: fine) {
+    select:not([multiple]):not([size]),
+    select:not([multiple]):not([size])::picker(select) {
+      appearance: base-select;
+    }
+    select:not([multiple]):not([size])::picker-icon {
+      display: none; /* the chevron above is drawn as a background image */
+    }
+    select:not([multiple]):not([size])::picker(select) {
+      margin-block: 4px;
+      padding: 4px;
+      border: 1px solid var(--color-line);
+      border-radius: 8px;
+      background: var(--color-app);
+      color: var(--color-ink);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+      min-width: anchor-size(width);
+    }
+    select:not([multiple]):not([size]) option {
+      padding: 5px 10px 5px 6px;
+      border-radius: 5px;
+      font-size: inherit;
+      color: var(--color-ink);
+      background: transparent;
+    }
+    select:not([multiple]):not([size]) option:hover,
+    select:not([multiple]):not([size]) option:focus-visible {
+      background: var(--color-hover);
+      outline: none;
+    }
+    select:not([multiple]):not([size]) option:checked {
+      font-weight: 500;
+    }
+    select:not([multiple]):not([size]) option::checkmark {
+      color: var(--color-accent);
+    }
+    select:not([multiple]):not([size]) option:disabled {
+      color: var(--color-sub);
+    }
+  }
+}
+
 /* Subtle scrollbars */
 * {
   scrollbar-width: thin;

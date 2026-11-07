@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
+import { stateVectorOfStored } from '../yState'
 import type { PageProperty, PagePropertyType } from '@inkling/shared'
 import { blocksToMarkdown } from './convert'
 import type { AnyBlock } from './convert'
@@ -74,7 +75,7 @@ export function revisionFromDoc(doc: Y.Doc, meta: string): string {
 }
 
 export function revisionFromState(state: Uint8Array | null, meta: string): string {
-  const sv = state && state.length ? Y.encodeStateVectorFromUpdate(state) : Y.encodeStateVector(new Y.Doc())
+  const sv = state && state.length ? stateVectorOfStored(state) : Y.encodeStateVector(new Y.Doc())
   return `${svHash(sv)}.${meta}`
 }
 

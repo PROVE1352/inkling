@@ -11,12 +11,13 @@
  * module (collectDateItems) and the same visibility rules (visibleTo) as the in-app calendar.
  */
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { DateItemDTO, IcalIssueDTO, IcalStatusDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { icalTokens, workspaceMembers, workspaces } from '../db/schema'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { collectDateItems } from '../md/dateItems'
 import { publicOrigin } from '../oauth'
 
@@ -218,7 +219,14 @@ export async function registerIcalFeedRoute(app: FastifyInstance): Promise<void>
         .select({ id: workspaces.id, name: workspaces.name })
         .from(workspaceMembers)
         .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-        .where(and(eq(workspaceMembers.userId, userId), isNull(workspaces.deletedAt)))
+        .where(
+          and(
+            eq(workspaceMembers.userId, userId),
+            isNull(workspaces.deletedAt),
+            // the feed leaves out workspaces whose 2FA requirement blocks the user (docs/adr/1112-*)
+            sql`not ${twoFactorBlockedSql(workspaces.id, userId)}`,
+          ),
+        )
       const from = dayOffset(-PAST_DAYS)
       const to = dayOffset(FUTURE_DAYS)
       const items: (DateItemDTO & { workspaceId: string; workspaceName: string })[] = []

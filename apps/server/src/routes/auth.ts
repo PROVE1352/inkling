@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { and, count, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -48,7 +48,8 @@ import {
 import { env, mailEnabled } from '../env'
 import { AppError, conflict, forbidden } from '../errors'
 import { assertAccount, assertNotBanned, recordFailure, recordSuccess } from '../guard'
-import { generateInviteCode } from '../helpers'
+import { generateInviteCodeColumns } from '../helpers'
+import { hashSignupKey } from '../secretsAtRest'
 import { appOrigin, resetCodeMail, sendMail, verifyMail } from '../mail'
 import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
@@ -165,10 +166,14 @@ export async function consumeSignupKey(key: string): Promise<boolean> {
     .set({
       usedCount: sql`${signupKeys.usedCount} + 1`,
       lastUsedAt: now,
+      // A used-up key is no longer shown in the admin screen: a used single-use key is that
+      // person's recovery code (docs/adr/1110-*).
+      keyEnc: sql`CASE WHEN ${signupKeys.usedCount} + 1 >= ${signupKeys.maxUses} THEN NULL ELSE ${signupKeys.keyEnc} END`,
     })
     .where(
       and(
-        eq(signupKeys.key, key),
+        // stored as SHA-256 of the canonical key (docs/adr/1110-*)
+        eq(signupKeys.key, hashSignupKey(key)),
         lt(signupKeys.usedCount, signupKeys.maxUses),
         or(isNull(signupKeys.expiresAt), sql`${signupKeys.expiresAt} > now()`),
       ),
@@ -182,7 +187,7 @@ async function refundSignupKey(key: string): Promise<void> {
   await db
     .update(signupKeys)
     .set({ usedCount: sql`greatest(${signupKeys.usedCount} - 1, 0)` })
-    .where(eq(signupKeys.key, key))
+    .where(eq(signupKeys.key, hashSignupKey(key)))
 }
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -252,7 +257,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
             passwordHash,
             origin: 'local',
             // Record only a key that was actually consumed and verified (key → signup tracing, basis for single-use-key resets).
-            signupKey: env.signupRequireKey && signupKey ? signupKey : null,
+            signupKey: env.signupRequireKey && signupKey ? hashSignupKey(signupKey) : null,
             mustVerifyEmail: mustVerify,
           })
           .returning({
@@ -262,12 +267,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
             isAdmin: users.isAdmin,
           })
 
-        const inviteCode = await generateInviteCode(tx)
+        const wsId = randomUUID()
         const [ws] = await tx
           .insert(workspaces)
           .values({
+            id: wsId,
             name: locale === 'ko' ? `${body.name}의 워크스페이스` : `${body.name}'s workspace`,
-            inviteCode,
+            ...(await generateInviteCodeColumns(tx, wsId)),
             createdBy: u.id,
           })
           .returning({ id: workspaces.id })
@@ -566,7 +572,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!u || u.origin !== 'local') throw await fail()
 
     let ok = await consumeResetCode(u.id, code)
-    if (!ok && u.signupKey && safeEqual(normalizeCode(u.signupKey), code)) {
+    // users.signup_key holds the key's SHA-256 (docs/adr/1110-*)
+    if (!ok && u.signupKey && safeEqual(u.signupKey, hashSignupKey(code))) {
       const [k] = await db
         .select({ maxUses: signupKeys.maxUses })
         .from(signupKeys)

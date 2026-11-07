@@ -1,7 +1,7 @@
 // First import on purpose: ESM evaluates it before the submodules re-exported below build schemas.
 import './zodConfig'
 import { z } from 'zod'
-import type { WorkspaceCapabilities } from './workspaceAdmin'
+import type { WorkspaceCapabilities, WorkspaceTwoFactorStatus } from './workspaceAdmin'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -122,7 +122,18 @@ export interface SignupKeyUseDTO {
 }
 
 export interface SignupKeyDTO {
-  key: string
+  /**
+   * Identifier for revoke / send-invite: the key's SHA-256 (docs/adr/1110-*). Older servers omit it
+   * and identify keys by `key`.
+   */
+  id?: string
+  /**
+   * The key itself for copying, or null when it can no longer be shown: used up (a used single-use
+   * key is that person's recovery code), or its encrypted copy cannot be opened (docs/adr/1110-*).
+   */
+  key: string | null
+  /** Last four characters of the key, to tell keys apart when `key` is null. */
+  keyHint?: string | null
   note: string | null
   maxUses: number
   usedCount: number
@@ -144,6 +155,10 @@ export interface AdminUserDTO {
   name: string
   origin: UserOrigin
   isAdmin: boolean
+  /**
+   * Set when the account was created with a signup key: a masked hint ('••••-ABCD'), never the key
+   * (the server keeps only its SHA-256, docs/adr/1110-*).
+   */
   signupKey: string | null
   /** Whether this user's signup key is single-use (maxUses=1) and can therefore double as a password reset code */
   signupKeyRecovery: boolean
@@ -317,6 +332,11 @@ export interface WorkspaceDTO {
    * (docs/adr/0945-*). Additive: older servers omit it.
    */
   can?: WorkspaceCapabilities
+  /**
+   * The workspace's "require two-step verification" policy as it applies to the caller
+   * (docs/adr/1112-*). Additive: older servers omit it.
+   */
+  twoFactor?: WorkspaceTwoFactorStatus
 }
 
 /** A soft-deleted workspace the caller owns and can still restore (GET /workspaces/deleted). */
@@ -856,6 +876,7 @@ export * from './query'
 // Embeds, link previews, workspace webhooks
 export * from './embeds'
 export * from './workspaceAdmin'
+export * from './largePages'
 export * from './editLock'
 export * from './notifications'
 
@@ -864,3 +885,6 @@ export * from './math'
 
 // Per-user sidebar menu order / visibility (docs/adr/1020-*)
 export * from './sidebar'
+
+// Disjoint sets (union by size + path compression): link islands, import de-duplication (docs/adr/1120-*)
+export * from './unionFind'

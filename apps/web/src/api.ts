@@ -108,6 +108,15 @@ export interface GraphDTO {
   tags?: { pageId: string; tag: string }[]
 }
 
+/** GET /workspaces/:id/graph/islands (docs/adr/1123-*): link islands and unlinked pages for this viewer. */
+export interface GraphIslandsDTO {
+  pages: number
+  links: number
+  islands: { size: number; hub: { id: string; title: string }; pageIds: string[] }[]
+  unlinked: { id: string; title: string; icon: string | null; kind: PageMetaDTO['kind']; updatedAt: string }[]
+  unlinkedTotal: number
+}
+
 // ---------------------------------------------------------------------------
 // Low-level fetch wrapper
 // ---------------------------------------------------------------------------
@@ -150,6 +159,9 @@ export async function parseError(res: Response): Promise<ApiError> {
   return err
 }
 
+/** Fired on window when any API call answers 403 TWO_FACTOR_REQUIRED (detail: { workspaceId }). */
+export const TWO_FACTOR_REQUIRED_EVENT = 'inkling:two-factor-required'
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: 'same-origin',
@@ -162,7 +174,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   noteServerBuild(res.headers) // X-Inkling-Build vs this bundle (lib/update.ts, docs/adr/0991-*)
-  if (!res.ok) throw await parseError(res)
+  if (!res.ok) {
+    const err = await parseError(res)
+    // A workspace started requiring two-step verification (docs/adr/1112-*): the layout refetches
+    // the workspace list and shows the setup screen instead of a trail of failed requests.
+    if (err.code === 'TWO_FACTOR_REQUIRED' && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(TWO_FACTOR_REQUIRED_EVENT, { detail: err.details }))
+    }
+    throw err
+  }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
@@ -423,6 +443,16 @@ export function useGraph(wsId: string) {
     queryKey: qk.graph(wsId),
     queryFn: () => api<GraphDTO>(`/api/workspaces/${wsId}/graph`),
     enabled: !!wsId,
+    staleTime: 15_000,
+  })
+}
+
+/** Unlinked pages and link islands (graph settings panel); the server answers 304 while the graph is unchanged. */
+export function useGraphIslands(wsId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...qk.graph(wsId), 'islands'] as const,
+    queryFn: () => api<GraphIslandsDTO>(`/api/workspaces/${wsId}/graph/islands`),
+    enabled: !!wsId && enabled,
     staleTime: 15_000,
   })
 }
@@ -1197,7 +1227,7 @@ export async function importWorkspace(
   wsId: string,
   file: File,
   parentId?: string,
-): Promise<PageMetaDTO[]> {
+): Promise<{ pages: PageMetaDTO[]; duplicateAttachments: number }> {
   const fd = new FormData()
   fd.append('file', file)
   const qs = parentId ? `?parentId=${encodeURIComponent(parentId)}` : ''
@@ -1207,8 +1237,9 @@ export async function importWorkspace(
     body: fd,
   })
   if (!res.ok) throw await parseError(res)
-  const body = (await res.json()) as { pages: PageMetaDTO[] }
-  return body.pages
+  const body = (await res.json()) as { pages: PageMetaDTO[]; duplicateAttachments?: number }
+  // Identical attachments are stored once (docs/adr/1122-*); absent for .md and Notion imports.
+  return { pages: body.pages, duplicateAttachments: body.duplicateAttachments ?? 0 }
 }
 
 /** Import a whole folder — relative paths are encoded into the filename (multipart strips '/'). */
@@ -2034,6 +2065,8 @@ export interface WorkspaceSettingsResponse {
   role: WsRole
   can: WsCapabilities
   unpublished?: number
+  /** "Require two-step verification" (docs/adr/1112-*). Older servers omit it. */
+  twoFactor?: import('@inkling/shared').TwoFactorPolicyDTO
 }
 
 export const qkAdmin = {
@@ -2067,6 +2100,23 @@ export function useUpdateWorkspaceSettings(wsId: string) {
       qc.invalidateQueries({ queryKey: ['sharedList'] })
       qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
       qc.invalidateQueries({ queryKey: ['reviewDue', wsId] })
+    },
+  })
+}
+
+/** Turn "require two-step verification" on/off or change its grace period (owners and admins, docs/adr/1112-*). */
+export function useSetTwoFactorPolicy(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: import('@inkling/shared').SetTwoFactorPolicyInput) =>
+      api<{ twoFactor: import('@inkling/shared').TwoFactorPolicyDTO }>(`/api/workspaces/${wsId}/settings/two-factor`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData<WorkspaceSettingsResponse>(qkAdmin.settings(wsId), (prev) => (prev ? { ...prev, twoFactor: data.twoFactor } : prev))
+      qc.invalidateQueries({ queryKey: qk.workspaces })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
     },
   })
 }
@@ -2227,6 +2277,8 @@ export interface NotionImportReportDTO {
   renamed: number
   callouts: number
   equations: number
+  /** Duplicates merged (docs/adr/1122-*); absent on older servers. */
+  merged?: { pages: number; attachments: number }
 }
 
 export async function importNotion(

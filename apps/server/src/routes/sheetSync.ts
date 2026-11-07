@@ -37,6 +37,7 @@ import { collections, collectionSheetSyncs, pages, workspaceMembers } from '../d
 import { AppError, badRequest, conflict, notFound } from '../errors'
 import { idParam } from '../helpers'
 import { findVisiblePage, visibleTo } from '../pageDto'
+import { protectSecret, revealSecret, SecretUnreadableError, tryRevealSecret } from '../secretsAtRest'
 import { liveWorkspace } from '../workspaceLive'
 import { safeFetch, SafeFetchError } from '../safeFetch'
 import { requireCollectionPage } from './collections'
@@ -50,10 +51,16 @@ const OPTION_COLORS: SelectOption['color'][] = ['gray', 'blue', 'green', 'yellow
 
 type SyncRow = typeof collectionSheetSyncs.$inferSelect
 
+/** The sheet URL as stored → the real URL (sealed when APP_SECRET_KEY is set, docs/adr/1111-*). */
+function syncUrl(r: Pick<SyncRow, 'pageId' | 'url'>): string {
+  return revealSecret('sheet-sync-url', r.url, r.pageId)
+}
+
 function toDTO(r: SyncRow): SheetSyncDTO {
   return {
     pageId: r.pageId,
-    url: r.url,
+    // '' when the stored URL cannot be decrypted (key missing or changed): saving the form again re-seals it.
+    url: tryRevealSecret('sheet-sync-url', r.url, r.pageId) ?? '',
     keyColumn: r.keyColumn,
     titleColumn: r.titleColumn,
     intervalMinutes: r.intervalMinutes,
@@ -259,7 +266,14 @@ export async function runSheetSync(pageId: string): Promise<SyncStats | null> {
       throw err
     }
 
-    const text = await fetchSheetCsv(sync.url)
+    let url: string
+    try {
+      url = syncUrl(sync)
+    } catch (e) {
+      if (e instanceof SecretUnreadableError) throw new SyncError('The sheet URL cannot be decrypted (APP_SECRET_KEY is missing or changed). Save the sync settings again.')
+      throw e
+    }
+    const text = await fetchSheetCsv(url)
     const parsed = parseCsv(text, { maxRows: IMPORT_MAX_ROWS + 1 })
     if (parsed.truncated) throw new SyncError(`The sheet has more than ${IMPORT_MAX_ROWS} rows`)
 
@@ -418,7 +432,7 @@ export async function registerSheetSyncRoutes(app: FastifyInstance): Promise<voi
     await assertPageEditable(id, user.id)
     const body = sheetSyncSchema.parse(req.body)
     const values = {
-      url: body.url,
+      url: protectSecret('sheet-sync-url', body.url, id),
       keyColumn: body.keyColumn,
       titleColumn: body.titleColumn?.trim() || null,
       intervalMinutes: body.intervalMinutes ?? SHEETS_SYNC_DEFAULT_INTERVAL,

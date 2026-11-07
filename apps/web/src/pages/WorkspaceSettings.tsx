@@ -4,6 +4,7 @@ import type {
   AuditEventDTO,
   ReviewDueItemDTO,
   RolePolicy,
+  TwoFactorPolicyDTO,
   WorkspaceCapabilities,
   WorkspaceDTO,
   WorkspaceSettingsDTO,
@@ -21,6 +22,7 @@ import {
   useBulkUnpublish,
   useMembers,
   useReviewDue,
+  useSetTwoFactorPolicy,
   useSharedList,
   useUnblockAgent,
   useUnshare,
@@ -46,6 +48,7 @@ import {
   UsersIcon,
   ClockIcon,
   KeyIcon,
+  FileTextIcon,
 } from '../components/Icons'
 import { MembersPanel, RoleBadge } from '../components/MembersPanel'
 import { Modal } from '../components/Modal'
@@ -53,6 +56,7 @@ import { NavButtons } from '../components/NavButtons'
 import { Group, Row, Select, Toggle } from '../components/SettingsRows'
 import { Spinner } from '../components/Spinner'
 import { WebhooksPanel } from '../components/WebhooksPanel'
+import { LargePagesPanel } from '../components/LargePagesPanel'
 import { WorkspaceAvatar } from '../components/WorkspaceAvatar'
 import { DeletedWorkspacesList, WorkspaceDangerDialogs, type DangerAction } from '../components/WorkspaceDanger'
 import { fmtDate, fmtDateTime, fmtRelative, useT, type TKey } from '../i18n'
@@ -61,7 +65,7 @@ import { fmtDate, fmtDateTime, fmtRelative, useT, type TKey } from '../i18n'
 // One screen for what used to be spread over the switcher menu and four modals. Tabs follow the
 // caller's role (WorkspaceDTO.can, computed by the server); every rule is enforced server-side too.
 
-type Tab = 'general' | 'members' | 'sharing' | 'agents' | 'audit' | 'review' | 'webhooks' | 'danger'
+type Tab = 'general' | 'members' | 'sharing' | 'agents' | 'audit' | 'review' | 'large' | 'webhooks' | 'danger'
 
 const TABS: { id: Tab; label: TKey; icon: ReactNode; show: (c: WorkspaceCapabilities) => boolean }[] = [
   { id: 'general', label: 'wsSettings.tabGeneral', icon: <SlidersIcon size={15} />, show: () => true },
@@ -70,6 +74,8 @@ const TABS: { id: Tab; label: TKey; icon: ReactNode; show: (c: WorkspaceCapabili
   { id: 'agents', label: 'wsSettings.tabAgents', icon: <KeyIcon size={15} />, show: (c) => c.manage },
   { id: 'audit', label: 'wsSettings.tabAudit', icon: <HistoryIcon size={15} />, show: (c) => c.manage },
   { id: 'review', label: 'wsSettings.tabReview', icon: <ClockIcon size={15} />, show: () => true },
+  // Large pages (docs/adr/1103-*): owners and admins, like the audit log.
+  { id: 'large', label: 'wsSettings.tabLargePages', icon: <FileTextIcon size={15} />, show: (c) => c.manage },
   { id: 'webhooks', label: 'wsSettings.tabWebhooks', icon: <PlugIcon size={15} />, show: (c) => c.editSettings },
   { id: 'danger', label: 'wsSettings.tabDanger', icon: <TrashIcon size={15} />, show: () => true },
 ]
@@ -160,6 +166,7 @@ export function WorkspaceSettings() {
           {tab === 'agents' && <AgentsTab ws={ws} />}
           {tab === 'audit' && <AuditTab ws={ws} />}
           {tab === 'review' && <ReviewTab ws={ws} can={can} />}
+          {tab === 'large' && <LargePagesPanel wsId={wsId} />}
           {tab === 'webhooks' && <WebhooksPanel wsId={wsId} />}
           {tab === 'danger' && <DangerTab ws={ws} />}
         </div>
@@ -345,6 +352,7 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
             </Row>
           </Group>
 
+          {settings.data?.twoFactor && <TwoFactorPolicyGroup ws={ws} can={can} policy={settings.data.twoFactor} />}
           <Group title={t('wsSettings.groupContent')}>
             <Row title={t('wsSettings.exportPolicy')} desc={t('wsSettings.exportPolicyDesc')}>
               <Select
@@ -416,6 +424,83 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
 // ---------------------------------------------------------------------------
 // Sharing: "no public links" switch + the list of public pages
 // ---------------------------------------------------------------------------
+
+/** "Require two-step verification" (docs/adr/1112-*): owners and admins switch it; members see it. */
+function TwoFactorPolicyGroup({ ws, can, policy }: { ws: WorkspaceDTO; can: WorkspaceCapabilities; policy: TwoFactorPolicyDTO }) {
+  const t = useT()
+  const set = useSetTwoFactorPolicy(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const manage = can.manage
+  const canTurnOn = policy.available && policy.selfSatisfied
+  const save = (input: { required: boolean; graceDays?: number }) => {
+    setError(null)
+    set.mutate(input, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+  }
+  const graceOptions = [0, 1, 3, 7, 14, 30].map((d) => ({
+    value: String(d),
+    label: d === 0 ? t('wsTwoFactor.graceNone') : t('wsTwoFactor.graceDays', { count: d }),
+  }))
+  if (!graceOptions.some((o) => o.value === String(policy.graceDays))) {
+    graceOptions.push({ value: String(policy.graceDays), label: t('wsTwoFactor.graceDays', { count: policy.graceDays }) })
+  }
+  const without = policy.membersWithout
+  return (
+    <Group title={t('wsTwoFactor.group')}>
+      <Row
+        id="twoFactorRequired"
+        title={t('wsTwoFactor.title')}
+        desc={
+          <>
+            {t('wsTwoFactor.desc')}
+            {!policy.available && <span className="mt-1 block text-amber-600">{t('wsTwoFactor.unavailable')}</span>}
+            {policy.available && !policy.selfSatisfied && !policy.required && manage && (
+              <span className="mt-1 block text-amber-600">
+                {t('wsTwoFactor.selfFirst')}{' '}
+                <Link to={`/w/${ws.id}/settings#security`} className="text-accent hover:underline">
+                  {t('wsTwoFactor.selfFirstLink')}
+                </Link>
+              </span>
+            )}
+            {policy.required && policy.deadline && (
+              <span className="mt-1 block">
+                {new Date(policy.deadline).getTime() > Date.now()
+                  ? t('wsTwoFactor.deadlineFuture', { date: fmtDateTime(policy.deadline) })
+                  : t('wsTwoFactor.deadlinePast', { date: fmtDateTime(policy.deadline) })}
+              </span>
+            )}
+          </>
+        }
+      >
+        <Toggle
+          checked={policy.required}
+          disabled={!manage || set.isPending || (!policy.required && !canTurnOn)}
+          label={t('wsTwoFactor.title')}
+          onChange={(v) => save({ required: v, graceDays: policy.graceDays })}
+        />
+      </Row>
+      <Row title={t('wsTwoFactor.grace')} desc={t('wsTwoFactor.graceDesc')}>
+        <Select
+          value={String(policy.graceDays)}
+          options={graceOptions}
+          disabled={!manage || set.isPending}
+          label={t('wsTwoFactor.grace')}
+          onChange={(v) => save({ required: policy.required, graceDays: Number(v) })}
+        />
+      </Row>
+      {manage && without && (
+        <Row
+          title={t('wsTwoFactor.withoutTitle', { count: without.count })}
+          desc={
+            without.count === 0
+              ? t('wsTwoFactor.withoutNone')
+              : without.members.map((m) => m.name).join(', ') + (without.count > without.members.length ? ' …' : '')
+          }
+        />
+      )}
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
+  )
+}
 
 function SharingTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities }) {
   const t = useT()

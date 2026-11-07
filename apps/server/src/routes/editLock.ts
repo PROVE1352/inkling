@@ -8,7 +8,7 @@ import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { pages } from '../db/schema'
 import { forbidden, notFound } from '../errors'
-import { isLargePage } from '../context/largePage'
+import { isLargePage, stateBytesV1Sql } from '../context/largePage'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
@@ -132,7 +132,7 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
     SELECT pages.id, pages.workspace_id AS "workspaceId", m.role,
            cu.name AS "createdBy", lc.seq IS NOT NULL AS "hasChange",
            au.name AS "editorName", lc.via_client AS "via",
-           (SELECT octet_length(d.state) FROM page_docs d WHERE d.page_id = pages.id) AS "stateBytes",
+           (SELECT ${stateBytesV1Sql()} FROM page_docs d WHERE d.page_id = pages.id) AS "stateBytes",
            (SELECT sum(c.token_estimate) FROM page_chunks c WHERE c.page_id = pages.id) AS "tokens",
            ${acl.version} AS "aclVersion", ${acl.hasLocks} AS "hasLocks"
       FROM pages

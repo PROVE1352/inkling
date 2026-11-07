@@ -24,6 +24,7 @@ describe('[db] workspace deletion and ownership transfer', { skip: !HAS_DB }, as
   const { eq, and } = await import('drizzle-orm')
   const { env } = await import('./env')
   const { hashIcalToken } = await import('./routes/ical')
+  const { hashShareToken } = await import('./secretsAtRest')
   const Fastify = (await import('fastify')).default
 
   const app = Fastify()
@@ -119,7 +120,9 @@ describe('[db] workspace deletion and ownership transfer', { skip: !HAS_DB }, as
 
   it('after delete: hidden from list, members, pages, public share, files, iCal; restore brings it all back', async () => {
     const ws = await workspace(owner, [member])
-    const p = await page(ws.id, member.id, { title: 'Roadmap', shareToken: `tok${tag()}${tag()}` })
+    // pages.share_token holds the token's SHA-256 (docs/adr/1110-*)
+    const shareRaw = `tok${tag()}${tag()}`
+    const p = await page(ws.id, member.id, { title: 'Roadmap', shareToken: hashShareToken(shareRaw) })
     const f = await file(ws.id, p.id, member.id)
     const ical = randomUUID().replace(/-/g, '').padEnd(43, 'x').slice(0, 43)
     await db.insert(schema.icalTokens).values({ userId: member.id, tokenHash: hashIcalToken(ical) })
@@ -136,7 +139,7 @@ describe('[db] workspace deletion and ownership transfer', { skip: !HAS_DB }, as
       assert.equal((await req(member.cookie, 'GET', `/api/workspaces/${ws.id}/pages`)).statusCode, code)
       assert.equal((await req(member.cookie, 'GET', `/api/workspaces/${ws.id}/search?q=Road`)).statusCode, code)
       assert.equal((await req(member.cookie, 'GET', `/api/pages/${p.id}/share`)).statusCode, code)
-      assert.equal((await app.inject({ method: 'GET', url: `/api/public/${p.shareToken}` })).statusCode, code)
+      assert.equal((await app.inject({ method: 'GET', url: `/api/public/${shareRaw}` })).statusCode, code)
       assert.equal((await req(member.cookie, 'GET', `/files/${f.id}`)).statusCode, code)
       const feed = await app.inject({ method: 'GET', url: `/ical/${ical}.ics` })
       assert.equal(feed.statusCode, 200)

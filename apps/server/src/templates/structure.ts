@@ -25,6 +25,7 @@ import { reindexPageTags } from '../md/tagIndex'
 import { reindexPageTasks } from '../md/taskIndex'
 import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from '../md/textIndex'
+import { applyStoredState, toV1 } from '../yState'
 import { pageColumns, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
 import { assertPlacement, withTreeLock } from '../pageTree'
@@ -150,7 +151,7 @@ function docTexts(state: Uint8Array): string[] {
   const out: string[] = []
   if (state.length === 0) return out
   const doc = new Y.Doc()
-  Y.applyUpdate(doc, state)
+  applyStoredState(doc, state)
   const visit = (n: Y.XmlElement | Y.XmlFragment | Y.XmlText): void => {
     if (n instanceof Y.XmlText) {
       for (const op of n.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[]) {
@@ -169,7 +170,7 @@ function docTexts(state: Uint8Array): string[] {
 function canvasTexts(state: Uint8Array): string[] {
   if (state.length === 0) return []
   const doc = new Y.Doc()
-  Y.applyUpdate(doc, state)
+  applyStoredState(doc, state)
   const nodes = Object.values(doc.getMap('cnodes').toJSON() as Record<string, { type?: string; text?: unknown }>)
   doc.destroy()
   return nodes.filter((n) => n?.type === 'text' && typeof n.text === 'string').map((n) => n.text as string)
@@ -219,7 +220,7 @@ export function transformDocState(
   t: DocTransform,
 ): { state: Buffer; cursor?: { blockId: string; offset: number } } {
   const doc = new Y.Doc()
-  if (state.length > 0) Y.applyUpdate(doc, state)
+  if (state.length > 0) applyStoredState(doc, state)
   let cursor: { blockId: string; offset: number } | undefined
 
   const visitText = (text: Y.XmlText, blockId: string | null, base: number): number => {
@@ -292,7 +293,7 @@ export function transformCanvasState(
   remapId: (id: string) => string | null,
 ): Buffer {
   const doc = new Y.Doc()
-  if (state.length > 0) Y.applyUpdate(doc, state)
+  if (state.length > 0) applyStoredState(doc, state)
   const cnodes = doc.getMap<Record<string, unknown>>('cnodes')
   doc.transact(() => {
     for (const [key, raw] of [...cnodes.entries()]) {
@@ -414,9 +415,11 @@ export async function snapshotTree(
       .where(inArray(pageDocs.pageId, bodyIds))
     let bytes = 0
     for (const d of docs) {
-      bytes += d.state.length
+      // Template trees are a file format (export/import): their states stay V1 (docs/adr/1101-*).
+      const v1 = toV1(d.state)
+      bytes += v1.length
       if (bytes > TEMPLATE_MAX_BYTES) throw tooLarge('The pages are too large to save as a template')
-      nodes.get(d.pageId)!.state = b64(d.state)
+      nodes.get(d.pageId)!.state = b64(v1)
     }
   }
 

@@ -26,7 +26,7 @@ import { buildTitleResolver } from '../md/importer'
 import { findVisiblePage, pageColumns, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
 import { pages } from '../db/schema'
-import { createSnapshot, hasRecentAgentSnapshot } from '../snapshotStore'
+import { createSnapshot, currentSnapshotSource, hasRecentAgentSnapshot } from '../snapshotStore'
 import { liveWorkspace } from '../workspaceLive'
 
 /**
@@ -264,8 +264,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
           .orderBy(desc(pageSnapshots.createdAt))
           .limit(1)
         if (recent.length === 0) {
-          const cur = (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, id)).limit(1))[0]
-          const before = liveDocState(id) ?? cur?.state
+          const before = await currentSnapshotSource(id)
           if (before) {
             const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집 전' : 'Before AI edit'
             await createSnapshot(id, before, label, user.id, user.via ?? null)
@@ -298,9 +297,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       // Non-destructive agent patches leave no "Before" snapshot: mark them in history like an
       // update_page append (throttled "AI edit" snapshot, docs/adr/0936-*).
       if (res.status === 'ok' && user.via && body.mode !== 'replace' && body.mode !== 'delete' && !(await hasRecentAgentSnapshot(id))) {
-        const state =
-          liveDocState(id) ??
-          (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, id)).limit(1))[0]?.state
+        const state = await currentSnapshotSource(id)
         if (state) {
           const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
           await createSnapshot(id, state, label, user.id, user.via)

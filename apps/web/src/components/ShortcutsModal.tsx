@@ -8,7 +8,7 @@ type Row = { label: string; keys: string[]; hint?: string }
 type Group = { title: string; rows: Row[] }
 
 // All key labels come from the platform helpers — ⌘/⌫ on a Mac, Ctrl/Del elsewhere.
-// The settings screen (shortcuts section) uses the same list, so editing it here updates both.
+// The settings screen (Settings › Shortcuts) renders the same <ShortcutList>, so editing it here updates both.
 export const shortcutGroups = (): Group[] => [
   {
     title: t('shortcuts.groupGlobal'),
@@ -69,6 +69,50 @@ export function Kbd({ children }: { children: string }) {
   )
 }
 
+/**
+ * The shortcut table, shared by this modal (`?`) and Settings › Shortcuts. `query` keeps only the rows whose
+ * label, hint or keys contain it (case-insensitive); groups left empty are dropped.
+ */
+export function ShortcutList({ query = '' }: { query?: string }) {
+  useT()
+  const q = query.trim().toLowerCase()
+  const groups = shortcutGroups()
+    .map((g) => ({
+      ...g,
+      rows: q
+        ? g.rows.filter((r) =>
+            [r.label, r.hint ?? '', ...r.keys, g.title].some((s) => s.toLowerCase().includes(q)),
+          )
+        : g.rows,
+    }))
+    .filter((g) => g.rows.length > 0)
+  if (groups.length === 0) return <p className="py-2 text-sm text-sub">{t('shortcuts.noMatch')}</p>
+  return (
+    <div className="grid gap-5 sm:grid-cols-2">
+      {groups.map((g) => (
+        <div key={g.title}>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">{g.title}</div>
+          <div className="flex flex-col gap-1.5">
+            {g.rows.map((r) => (
+              <div key={r.label} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate text-ink">
+                  {r.label}
+                  {r.hint && <span className="ml-1 text-xs text-sub">({r.hint})</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  {r.keys.map((k) => (
+                    <Kbd key={k}>{k}</Kbd>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   useT()
   useEffect(() => {
@@ -107,30 +151,7 @@ export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () =
           </button>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          {shortcutGroups().map((g) => (
-            <div key={g.title}>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">
-                {g.title}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {g.rows.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="min-w-0 truncate text-ink">
-                      {r.label}
-                      {r.hint && <span className="ml-1 text-xs text-sub">({r.hint})</span>}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1">
-                      {r.keys.map((k) => (
-                        <Kbd key={k}>{k}</Kbd>
-                      ))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ShortcutList />
       </div>
     </div>,
     document.body,

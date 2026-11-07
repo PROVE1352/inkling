@@ -7,23 +7,38 @@ import { assertAgentAllowed, currentAgent } from './agentAccess'
 import { aclColumns, toAcl } from './aclVersion'
 import type { AclState } from './aclVersion'
 import { newInviteCode } from './util'
+import { hashInviteCode, protectSecret, tryRevealSecret } from './secretsAtRest'
+import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
 import type { WorkspaceRole } from '@inkling/shared'
 
 // Both db and a transaction (tx) structurally satisfy the select method.
 type SelectCapable = Pick<typeof db, 'select'>
 
-/** Generate an unused invite code, retrying up to 3 times to avoid unique collisions. */
-export async function generateInviteCode(exec: SelectCapable): Promise<string> {
+/**
+ * Generate an unused invite code and return the columns that store it (docs/adr/1110-*):
+ * `invite_code` = SHA-256 of the code (lookup), `invite_code_enc` = the code sealed with
+ * APP_SECRET_KEY (or as is without a key) for "copy invite link". Retries up to 3 times on a clash.
+ */
+export async function generateInviteCodeColumns(
+  exec: SelectCapable,
+  workspaceId: string,
+): Promise<{ inviteCode: string; inviteCodeEnc: string }> {
+  let code = newInviteCode()
   for (let attempt = 0; attempt < 3; attempt++) {
-    const code = newInviteCode()
     const existing = await exec
       .select({ id: workspaces.id })
       .from(workspaces)
-      .where(eq(workspaces.inviteCode, code))
+      .where(eq(workspaces.inviteCode, hashInviteCode(code)))
       .limit(1)
-    if (existing.length === 0) return code
+    if (existing.length === 0) break
+    code = newInviteCode()
   }
-  return newInviteCode()
+  return { inviteCode: hashInviteCode(code), inviteCodeEnc: protectSecret('invite-code', code, workspaceId) }
+}
+
+/** The invite code for "copy invite link"; '' when there is no readable copy (APP_SECRET_KEY changed). */
+export function revealInviteCode(ws: { id: string; inviteCodeEnc: string | null }): string {
+  return tryRevealSecret('invite-code', ws.inviteCodeEnc, ws.id) ?? ''
 }
 
 /**
@@ -60,7 +75,12 @@ async function membership(
   acl: 'none' | 'version' | 'full',
 ): Promise<{ role: WorkspaceRole; acl: AclState | null }> {
   const c = aclColumns(sql`${workspaceMembers.workspaceId}`)
-  const base = { role: workspaceMembers.role, deletedAt: workspaces.deletedAt }
+  const base = {
+    role: workspaceMembers.role,
+    deletedAt: workspaces.deletedAt,
+    // "Require two-step verification" (docs/adr/1112-*), read in the same statement.
+    twoFactorBlocked: sql<boolean>`${twoFactorBlockedSql(workspaceMembers.workspaceId, userId)}`,
+  }
   const where = and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))
   const rows =
     acl === 'none'
@@ -85,6 +105,8 @@ async function membership(
   const row = rows[0]
   if (!row) throw forbidden()
   if (row.deletedAt) throw notFound()
+  // People and agents alike: an agent request runs as its token's owner (docs/adr/1112-*).
+  if (row.twoFactorBlocked) throw twoFactorRequired(workspaceId)
   const state = acl === 'none' ? null : toAcl(workspaceId, row.version, row.hasLocks)
   // Agent (MCP) requests: per-workspace block + access record (docs/adr/0947-*). No-op for cookies.
   await assertAgentAllowed(workspaceId, state?.version)

@@ -20,7 +20,7 @@
     "@fastify/rate-limit": "^11.1.0",
     "@fastify/static": "10.1.10",
     "@hocuspocus/extension-database": "^2.15.0",
-    "@hocuspocus/server": "^2.15.0",
+    "@hocuspocus/server": "^4.8.0",
     "@inkling/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@node-rs/argon2": "^2.0.0",

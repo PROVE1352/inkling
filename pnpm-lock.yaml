@@ -58,8 +58,8 @@ importers:
         specifier: ^2.15.0
         version: 2.15.3(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
       '@hocuspocus/server':
-        specifier: ^2.15.0
-        version: 2.15.3(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
+        specifier: ^4.8.0
+        version: 4.8.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
       '@inkling/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -1503,6 +1503,9 @@ packages:
   '@hocuspocus/common@2.15.3':
     resolution: {integrity: sha512-Rzh1HF0a2o/tf90A3w2XNdXd9Ym3aQzMDfD3lAUONCX9B9QOdqdyiORrj6M25QEaJrEIbXFy8LtAFcL0wRdWzA==}
 
+  '@hocuspocus/common@4.8.0':
+    resolution: {integrity: sha512-UI8Vye3mds2aMUHaWfwkDq0+257JUpvKa0nyAOjXWLfyhYHsAq8eku+ynZc/PaShyOci/VD54cW/rLQJGHHPKg==}
+
   '@hocuspocus/extension-database@2.15.3':
     resolution: {integrity: sha512-+PVlPwfdVyOase68WEBb105ZwglhCLVeGpyNa3uwnmH+Ers7OKGLma2SDMKn3Vcb5oHzTzEGx7jNt+32KTEKXA==}
     peerDependencies:
@@ -1516,6 +1519,13 @@ packages:
 
   '@hocuspocus/server@2.15.3':
     resolution: {integrity: sha512-Ju4ty4/7JtmvivcP7gKReOLf8KrFwN7Yx/5VhXYh4TRULy4kSo2fsDVUaluPp0neZa6PbVhizJuzlOim73IEbQ==}
+    peerDependencies:
+      y-protocols: ^1.0.6
+      yjs: ^13.6.8
+
+  '@hocuspocus/server@4.8.0':
+    resolution: {integrity: sha512-P8U4I4R4Ft+B37d4CFs4tG8oPJ3rnJJiFx3CXBJpKSIrXTz5YDldRmv7eGqmUq4QRSoWR6FjN4DUIX1QO0PccA==}
+    engines: {node: '>=22'}
     peerDependencies:
       y-protocols: ^1.0.6
       yjs: ^13.6.8
@@ -2502,6 +2512,9 @@ packages:
   async-lock@1.4.1:
     resolution: {integrity: sha512-Az2ZTpuytrtqENulXwO3GGv1Bztugx6TT37NIo7imr/Qo0gsYiGtSdBa2B6fsXhTpVZDNfu1Qn3pk531e3q+nQ==}
 
+  async-mutex@0.5.0:
+    resolution: {integrity: sha512-1A94B18jkJ3DYq284ohPxoXbfTA5HsQ7/Mf4DEhcyLx3Bz27Rh59iScbB6EPiP+B+joue6YCxcMXSbFC1tZKwA==}
+
   async@3.2.6:
     resolution: {integrity: sha512-htCUDlxyyCLMgaM3xXg0C0LW2xqfuQ6p05pCEIsXuyQ+a1koYKTuBMzRNwmybfLgvJDMd0r1LTn4+E0Ti6C2AA==}
 
@@ -2763,6 +2776,14 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  crossws@0.4.17:
+    resolution: {integrity: sha512-YG2kyfafNXKmu7e6k64yrj6whrw7m5sBIsOSXOlJ/72X3TQWRQuw8DhvXFDcBk8HF77PnTSygnm7xpYCTnFpow==}
+    peerDependencies:
+      srvx: '>=0.11.5'
+    peerDependenciesMeta:
+      srvx:
+        optional: true
 
   crypto-random-string@2.0.0:
     resolution: {integrity: sha512-v1plID3y9r/lPhviJ1wrXpLeyUIGAZ2SHNYTEapm7/8A9nLPoyvVp3RK/EPFqn5kEznyWgYZNsRtYYIWbuG8KA==}
@@ -3593,6 +3614,11 @@ packages:
 
   lib0@0.2.117:
     resolution: {integrity: sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
+  lib0@0.2.119:
+    resolution: {integrity: sha512-vh+TiejVy8Xm+hCdnRfn9BthGNvNUZdEXltNjVZL3TzRIKP3s1lnQh8pWd/Q0wCgY0FPAGVVjFF4ZiHUV3LFgA==}
     engines: {node: '>=16'}
     hasBin: true
 
@@ -6444,6 +6470,10 @@ snapshots:
     dependencies:
       lib0: 0.2.117
 
+  '@hocuspocus/common@4.8.0':
+    dependencies:
+      lib0: 0.2.119
+
   '@hocuspocus/extension-database@2.15.3(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)':
     dependencies:
       '@hocuspocus/server': 2.15.3(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
@@ -6478,6 +6508,18 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@hocuspocus/server@4.8.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)':
+    dependencies:
+      '@hocuspocus/common': 4.8.0
+      async-mutex: 0.5.0
+      crossws: 0.4.17
+      kleur: 4.1.5
+      lib0: 0.2.119
+      y-protocols: 1.0.7(yjs@13.6.31)
+      yjs: 13.6.31
+    transitivePeerDependencies:
+      - srvx
 
   '@hono/node-server@2.1.1(hono@4.13.8)':
     dependencies:
@@ -7284,6 +7326,10 @@ snapshots:
 
   async-lock@1.4.1: {}
 
+  async-mutex@0.5.0:
+    dependencies:
+      tslib: 2.8.1
+
   async@3.2.6: {}
 
   asynckit@0.4.0: {}
@@ -7534,6 +7580,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  crossws@0.4.17: {}
 
   crypto-random-string@2.0.0: {}
 
@@ -8495,6 +8543,10 @@ snapshots:
   leven@3.1.0: {}
 
   lib0@0.2.117:
+    dependencies:
+      isomorphic.js: 0.2.5
+
+  lib0@0.2.119:
     dependencies:
       isomorphic.js: 0.2.5
 

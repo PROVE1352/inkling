@@ -49,7 +49,7 @@ services:
       - pg_stat_statements.track=top
     environment:
       POSTGRES_USER: nodian
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodian}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: nodian
     ports:
       # Host exposure for development (55432 → 5432), on a non-standard port to avoid clashes.
@@ -89,7 +89,7 @@ services:
     # PORT, DATA_DIR, WEB_DIST, DRIZZLE_DIR. BACKUP_DIR / BACKUP_CTL_DIR are fixed by the
     # volume mounts below, and WEBHOOK_TEST_ALLOW_LOOPBACK is test-only (ignored in production).
     environment:
-      DATABASE_URL: postgres://nodian:${POSTGRES_PASSWORD:-nodian}@db:5432/nodian
+      DATABASE_URL: postgres://nodian:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@db:5432/nodian
       # Interpolated from .env AND the invoking shell: an exported NODE_ENV=development in the
       # operator's shell would silently turn production mode off. Leave it unset there.
       NODE_ENV: ${NODE_ENV:-production}
@@ -182,7 +182,7 @@ services:
       PGHOST: db
       PGUSER: nodian
       PGDATABASE: nodian
-      PGPASSWORD: ${POSTGRES_PASSWORD:-nodian}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       TZ: ${TZ:-UTC}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
       BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-daily@03:00}

@@ -97,7 +97,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Medium** (B-M8) Backups are written to the same disk as the database, and the weekly restore test creates a temporary database inside the production PostgreSQL without checking the db volume's free space. Keep an off-site copy and ample free disk.
 - **Medium** (B-M9) No concurrency cap on heavy jobs (folder import, zip export, subtree duplicate) inside the 768m app container; several at once can OOM-kill it. Fix: a global semaphore (1 to 2 jobs).
 - **Medium** (B-M1) Zip export opens a read stream for every attachment up front (one fd each) and leaks them if the client aborts. Fix: open lazily and destroy on `reply.raw` close.
-- **Low** (B-L4, remaining parts) Base `compose.yaml` publishes `3000` on all interfaces, `POSTGRES_PASSWORD` defaults to `nodian`, and `DATABASE_URL` falls back to a dev value, with no boot warning for any of them. Production must use the Caddy overlay and a strong password.
+- **Low** (B-L4, remaining parts) Base `compose.yaml` publishes `3000` on all interfaces, and `DATABASE_URL` falls back to a dev value, with no boot warning for any of them. Production must use the Caddy overlay and a strong password.
 - **Low** (B-L1) The app container runs as root without an init process (tini). The backup scripts (umask 077, read-only mounts) currently assume root.
 - **Low** (B-L2) The Caddy and rclone overlay services have no `logging:` limits, so their container logs can grow without bound.
 - **Low** (B-L5) Reminders: no overlap guard beyond the re-entrancy flag, N+1 queries per tick, a burst of work right after boot, and reminders or backups missed while the server was down are not caught up.

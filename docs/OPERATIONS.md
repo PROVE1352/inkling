@@ -7,7 +7,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 ### Before first deploy
 
 - [ ] Run behind TLS: `docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d`. Never expose the base compose's `3000:3000` to the internet (plain HTTP).
-- [ ] Set a strong `POSTGRES_PASSWORD` in `.env` (the default `nodian` is for local development only).
+- [ ] Set a strong `POSTGRES_PASSWORD` in `.env` (required; compose does not start without it).
 - [ ] Set `PUBLIC_URL` (or `APP_URL`) to the external origin. Example: `PUBLIC_URL=https://notes.example.com`. It is the only source for mail links, the OAuth issuer and `og:url`; the `Host` header is never trusted for them. When SMTP mail is enabled and neither variable is set, the server refuses to boot.
   Browsers opening the app under any other origin (a LAN IP, another domain) can read but every write is refused with 403 `CROSS_SITE_REQUEST` (docs/adr/1062-*).
 - [ ] Set `APP_SECRET_KEY` (≥ 32 characters, `openssl rand -base64 32`) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work). From 0.5.0 it also seals the "copy link" copies of share links, invite codes and signup keys and the webhook and sheet-sync URLs; without it those copies and URLs stay in plaintext (boot warning) and are sealed at the first boot after the key is set (docs/adr/1110-*, 1111-*).

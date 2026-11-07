@@ -115,7 +115,7 @@ first account to register becomes the site admin:
 
 Open the signup link, paste the key, and you are in. Further keys can be issued from the **Admin** page.
 
-To try it locally without a domain, run `docker compose up -d` and open http://localhost:3000
+To try it locally without a domain, copy `.env.example` to `.env`, set `POSTGRES_PASSWORD`, run `docker compose up -d` and open http://localhost:3000
 (production mode still asks for a signup key, so run the same `signup-key.sh` command).
 
 To upgrade: take a backup, pull the new image, restart the app (migrations run on boot). Details,
@@ -139,7 +139,7 @@ The essentials, all in `.env`:
 | Variable | Default | What it does |
 |---|---|---|
 | `PUBLIC_URL` | empty | Public origin, e.g. `https://notes.example.com`. Used for mail links, the OAuth issuer and share previews; the `Host` header is never trusted. An `https://` value also turns on Secure cookies. |
-| `POSTGRES_PASSWORD` | `nodian` | Database password. Change it **before the first start**; Postgres only reads it when it creates the data volume. |
+| `POSTGRES_PASSWORD` | none, required | Database password, e.g. `openssl rand -base64 24`. Set it **before the first start**; Postgres only reads it when it creates the data volume. Compose refuses to start without it. |
 | `SIGNUP_REQUIRE_KEY` | required in production | Leave empty: signup then needs a key. `0` opens public signup. |
 | `DEFAULT_LOCALE` | `en` | `en` or `ko`: language of emails and built-in templates for users who have not chosen one, and the UI default before the browser language. |
 | `TZ` | `UTC` | Time zone that decides "today" for due dates, daily notes, reminders and backup schedules. |

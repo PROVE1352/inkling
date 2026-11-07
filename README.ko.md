@@ -118,7 +118,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 
 가입 링크를 열고 키를 붙여 넣으시면 됩니다. 다음 키부터는 관리자 페이지에서 만들 수 있습니다.
 
-도메인 없이 내 컴퓨터에서 먼저 써 보고 싶으시면 `docker compose up -d`로 띄운 다음 http://localhost:3000 을 여시면 됩니다. 이때도 프로덕션 모드라 가입 키가 필요하니 위의 `signup-key.sh` 명령을 똑같이 실행하셔야 합니다.
+도메인 없이 내 컴퓨터에서 먼저 써 보고 싶으시면 `.env.example`을 `.env`로 복사해 `POSTGRES_PASSWORD`만 채우고 `docker compose up -d`로 띄운 다음 http://localhost:3000 을 여시면 됩니다. 이때도 프로덕션 모드라 가입 키가 필요하니 위의 `signup-key.sh` 명령을 똑같이 실행하셔야 합니다.
 
 업그레이드는 백업, 새 이미지 받기, 앱 재시작 순서입니다(마이그레이션은 부팅할 때 자동으로 돕니다). 소스 빌드에서 배포 이미지로 옮기는 방법까지 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades)에 있습니다.
 
@@ -138,7 +138,7 @@ Compose 프로젝트, 볼륨, DB 역할 이름은 예전 이름인 `nodian`을 �
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `PUBLIC_URL` | 비어 있음 | 공개 주소입니다. 예: `https://notes.example.com`. 메일 링크, OAuth 발급자, 공유 미리보기에 쓰고 `Host` 헤더는 믿지 않습니다. `https://`로 시작하면 Secure 쿠키도 켜집니다. |
-| `POSTGRES_PASSWORD` | `nodian` | DB 비밀번호입니다. 처음 띄우기 전에 바꾸셔야 합니다. Postgres는 데이터 볼륨을 만들 때만 이 값을 읽습니다. |
+| `POSTGRES_PASSWORD` | 없음(필수) | DB 비밀번호입니다. `openssl rand -base64 24` 같은 걸로 만들어서 처음 띄우기 전에 넣어 주셔야 합니다. Postgres는 데이터 볼륨을 만들 때만 이 값을 읽고, 비어 있으면 compose가 아예 시작하지 않습니다. |
 | `SIGNUP_REQUIRE_KEY` | 프로덕션에서 필수 | 비워 두면 가입에 키가 필요합니다. `0`이면 누구나 가입할 수 있습니다. |
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |
 | `TZ` | `UTC` | 마감일, 데일리 노트, 알림, 백업 일정에서 "오늘"을 정하는 시간대입니다. 예: `Asia/Seoul` |

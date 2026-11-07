@@ -1,5 +1,8 @@
 import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
+import { pageAccess } from '../aclVersion'
+import { pageEditGate } from '../docWriteGate'
+import { gatedTransact } from '../md/docWrite'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
@@ -242,7 +245,10 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       const id = idParam(req.params)
       const body = patchBodySchema.parse(req.body)
       const page = await guardPage(id, user.id)
-      await assertPageEditable(id, user.id)
+      // Role + access version, kept for the write gate below (docs/adr/1071-*, 1150-*).
+      const access = await pageAccess(db, id, user.id)
+      if (!access) throw notFound()
+      await assertPageEditable(id, user.id, { role: access.role, acl: access.acl })
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable sections')
 
       const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
@@ -284,9 +290,11 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       await withEditActor([id], actorOf(user), async () => {
         const conn = await hocuspocus.openDirectConnection(id)
         try {
-          await conn.transact((doc) => {
+          // The patch is applied under the write gate (docs/adr/1150-*); the store runs after it.
+          const gate = pageEditGate(id, page.workspaceId, user.id, access)
+          await gatedTransact(conn, (doc) => {
             outcome = applySectionPatch(doc, body.ref, incoming, body.mode, body.baseVersion, echo)
-          })
+          }, gate)
         } finally {
           await conn.disconnect()
         }

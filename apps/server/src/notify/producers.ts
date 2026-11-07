@@ -5,20 +5,19 @@ import { liveEditors } from '../context/attribution'
 import type { EditActor } from '../context/attribution'
 import { splitSections } from '../context/chunker'
 import type { AnyBlock } from '../md/convert'
-import { kickOutbox } from '../outbox'
-import type { Exec } from '../outbox'
-import { emitWebhookEvent, enqueueWebhookEvent } from '../webhooks'
-import { enqueueNotify, notify } from './engine'
+import { enqueue, kickOutbox, outboxTopics } from '../outbox'
+import type { Exec, OutboxRow, OutboxTopic } from '../outbox'
+import { enqueueWebhookEvent, webhookOutboxRows } from '../webhooks'
+import { enqueueNotify, notifyOutboxRow } from './engine'
 import { mayHaveMentions, scanMentions, scanMentionsInDoc, textMentions } from './mentionScan'
 
 /**
  * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each only queues
- * work in the outbox (docs/adr/1081-*): in its own transaction where it has one, else right after
- * the write (`notify`), so request latency does not depend on recipients.
+ * work in the outbox (docs/adr/1081-*), in the transaction of the write (docs/adr/1150-*), so
+ * request latency does not depend on recipients and an event commits exactly with its write.
  */
 
-/** Owner / person-cell assignment: one event, webhook `assigned` for the channel. */
-export function notifyAssigned(a: {
+export interface Assignment {
   workspaceId: string
   pageId: string
   actorId: string
@@ -27,10 +26,14 @@ export function notifyAssigned(a: {
   userIds: string[]
   /** 'owner' or the person field's name (shown in the item and the webhook). */
   field: string
-}): void {
+}
+
+/** Outbox rows of an owner / person-cell assignment: one event, webhook `assigned` for the channel. */
+export async function assignmentRows(a: Assignment, exec: Pick<typeof db, 'select'> = db): Promise<OutboxRow[]> {
   const ids = [...new Set(a.userIds)].filter((id) => id !== a.actorId)
-  if (!ids.length) return
-  notify({
+  if (!ids.length) return []
+  const rows: OutboxRow[] = []
+  const n = notifyOutboxRow({
     workspaceId: a.workspaceId,
     pageId: a.pageId,
     actorId: a.actorId,
@@ -38,7 +41,43 @@ export function notifyAssigned(a: {
     recipients: ids.map((userId) => ({ userId, kind: a.kind, reason: 'direct' })),
     excerpt: a.field === 'owner' ? null : a.field,
   })
-  emitWebhookEvent({ type: 'assigned', workspaceId: a.workspaceId, pageId: a.pageId, actorId: a.actorId, via: a.via, mentionedUserIds: ids, field: a.field })
+  if (n) rows.push(n)
+  rows.push(
+    ...(await webhookOutboxRows({ type: 'assigned', workspaceId: a.workspaceId, pageId: a.pageId, actorId: a.actorId, via: a.via, mentionedUserIds: ids, field: a.field }, exec)),
+  )
+  return rows
+}
+
+/**
+ * Queue assignments in the writer's transaction (one INSERT for all of them, docs/adr/1150-*).
+ * Returns the topics queued; call `outboxCommitted(topics)` after the commit.
+ */
+export async function enqueueAssignments(exec: Exec & Pick<typeof db, 'select'>, list: Assignment[]): Promise<OutboxTopic[]> {
+  // Sequential on the transaction's connection (hook list on a cache miss).
+  const rows: OutboxRow[] = []
+  for (const a of list) rows.push(...(await assignmentRows(a, exec)))
+  if (!rows.length) return []
+  await enqueue(exec, rows)
+  return outboxTopics(rows).topics
+}
+
+/** Person-cell assignments of one row, one per field: see `newAssignees`. */
+export function taskAssignments(a: {
+  workspaceId: string
+  rowId: string
+  actorId: string
+  via: string | null
+  changes: { field: string; userIds: string[] }[]
+}): Assignment[] {
+  return a.changes.map((c) => ({
+    workspaceId: a.workspaceId,
+    pageId: a.rowId,
+    actorId: a.actorId,
+    via: a.via,
+    kind: 'task_assigned' as const,
+    userIds: c.userIds,
+    field: c.field,
+  }))
 }
 
 /** Person ids of a person cell value (a uuid string, or an array of them). */
@@ -65,18 +104,6 @@ export function newAssignees(
     if (added.length) out.push({ field: f.name, userIds: [...new Set(added)] })
   }
   return out
-}
-
-export function notifyTaskAssignments(a: {
-  workspaceId: string
-  rowId: string
-  actorId: string
-  via: string | null
-  changes: { field: string; userIds: string[] }[]
-}): void {
-  for (const c of a.changes) {
-    notifyAssigned({ workspaceId: a.workspaceId, pageId: a.rowId, actorId: a.actorId, via: a.via, kind: 'task_assigned', userIds: c.userIds, field: c.field })
-  }
 }
 
 // ---------------------------------------------------------------------------

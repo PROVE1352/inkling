@@ -38,6 +38,10 @@ export interface WorkspaceSettingsDTO {
   auditRetentionDays: number
   /** null = review reminders off. */
   reviewIntervalDays: number | null
+  /** New public links expire after this many days unless the publisher picks otherwise; null = none (docs/adr/1172-*). */
+  shareDefaultExpiryDays: number | null
+  /** New public links need a password and a password cannot be removed (docs/adr/1172-*). */
+  sharePasswordRequired: boolean
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */
@@ -52,6 +56,8 @@ export const updateWorkspaceSettingsSchema = z
     trashRetentionDays: z.number().int().min(TRASH_RETENTION_DAYS.min).max(TRASH_RETENTION_DAYS.max).optional(),
     auditRetentionDays: z.number().int().min(AUDIT_RETENTION_DAYS.min).max(AUDIT_RETENTION_DAYS.max).optional(),
     reviewIntervalDays: z.number().int().min(REVIEW_INTERVAL_DAYS.min).max(REVIEW_INTERVAL_DAYS.max).nullable().optional(),
+    shareDefaultExpiryDays: z.number().int().min(1).max(365).nullable().optional(),
+    sharePasswordRequired: z.boolean().optional(),
   })
   .strict()
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>
@@ -109,6 +115,10 @@ export const AUDIT_ACTIONS = [
   'invite.regenerated',
   'share.published',
   'share.unpublished',
+  'share.expiry_changed',
+  'share.password_set',
+  'share.password_changed',
+  'share.password_removed',
   'export.downloaded',
   'workspace.updated',
   'workspace.deleted',

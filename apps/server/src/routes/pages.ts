@@ -3,7 +3,7 @@ import { unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { and, asc, desc, eq, ilike, inArray, isNull, max, ne, notExists, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { createPageSchema, updatePageSchema } from '@inkling/shared'
+import { createPageSchema, createShareSchema, updatePageSchema, updateShareSchema } from '@inkling/shared'
 import type {
   CollectionField,
   PageProperty,
@@ -21,7 +21,6 @@ import {
   pageTags,
   pageTexts,
   pages,
-  workspaces,
 } from '../db/schema'
 import { env } from '../env'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
@@ -35,12 +34,22 @@ import { loadSharedSubtree } from './public'
 import { assertPlacement, descendantsCte, lockTree, purgeDeletedSubtrees, withTreeLock } from '../pageTree'
 import { findVisiblePage, pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { hashShareToken, protectSecret, tryRevealSecret } from '../secretsAtRest'
+import { hashSharePassword } from '../shareAccess'
+import {
+  CLEARED_SHARE_LINK,
+  lockSharePolicy,
+  readSharePolicy,
+  resolveShareExpiry,
+  sharePasswordPolicyError,
+  shareLinkFields,
+} from '../shareSettings'
 import type { PageRow } from '../pageDto'
 import { escapeLike } from '../util'
 import { closeConnectionsLosingPrivateAccess } from '../liveConnections'
 import { precheckEtag } from '../httpCache'
 import { workspaceVersion } from '../versions'
-import { emitWebhookEvent } from '../webhooks'
+import { enqueueWebhookEvent } from '../webhooks'
+import { outboxCommitted } from '../outbox'
 import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
 import { assertCan, actorFor } from '../editLock'
@@ -60,7 +69,7 @@ function assertEditable(
 ): Promise<void> {
   return assertCan(tx, pageId, actorFor(userId, role), opts)
 }
-import { logPageEvents } from '../context/changeLog'
+import { recordPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
 
 const shortId = (): string => randomUUID().slice(0, 8)
@@ -296,7 +305,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     // Creation under a parent is a tree change (docs/adr/0800-*): the parent must still be live,
     // within the depth cap and not inside a public folder the actor may not publish into — all
     // checked under the workspace tree lock so a concurrent delete/move cannot slip in between.
-    const row = await withTreeLock(body.workspaceId, async (tx) => {
+    const { queued, ...row } = await withTreeLock(body.workspaceId, async (tx) => {
       let scope: PageScope = body.scope ?? 'shared'
       if (parentId) {
         const chain = await assertPlacement(tx, {
@@ -340,13 +349,15 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           sortOrder: 1000,
         })
       }
-      return page
+      // Workspace webhooks: new pages in the shared section only (re-checked at delivery); queued
+      // in the page's transaction (docs/adr/1150-*).
+      const queued =
+        page.scope === 'shared'
+          ? await enqueueWebhookEvent(tx, { type: 'page_created', workspaceId: body.workspaceId, pageId: page.id, actorId: user.id })
+          : 0
+      return { ...page, queued }
     })
-
-    // Workspace webhooks: new pages in the shared section only (re-checked at delivery).
-    if (row.scope === 'shared') {
-      emitWebhookEvent({ type: 'page_created', workspaceId: body.workspaceId, pageId: row.id, actorId: user.id })
-    }
+    if (queued > 0) outboxCommitted(['webhook'])
     return { page: toPageDTO(row) }
   })
 
@@ -368,7 +379,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       body.fullWidth === true || (body.dateProperty !== undefined && body.dateProperty.value !== null) || body.done === true
     const names = NAMES[addsProperty ? await requestLocale(req, user.id) : 'en']
 
-    const { row, privatized, scopeChanged, prev } = await db.transaction(async (tx) => {
+    const { row, privatized, logged } = await db.transaction(async (tx) => {
       if (treeChange) await lockTree(tx, visible.workspaceId)
       // A move changes the lock chain of the moved subtree: new access version, exclusive gate
       // (docs/adr/1071-*). Before any page row lock (lock order: tree → acl → pages).
@@ -533,19 +544,20 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .returning(pageColumns)
       // Old name keeps resolving [[old name]] to this page (docs/adr/1121-*).
       if (row.title !== page.title) await recordRename(tx, page.workspaceId, id, page.title, row.title)
-      return { row, privatized, scopeChanged, prev: page }
+      // Change feed (docs/adr/0932-*): page-level events commit with the change (docs/adr/1150-*).
+      const events: PageEvent[] = []
+      if (row.title !== page.title) events.push({ pageId: id, kind: 'page_renamed', before: page.title, after: row.title })
+      if (row.parentId !== page.parentId) {
+        events.push({ pageId: id, kind: 'page_moved', before: page.parentId ?? '', after: row.parentId ?? '' })
+      }
+      for (const pid of scopeChanged) events.push({ pageId: pid, kind: 'page_visibility', before: page.scope, after: row.scope })
+      if (events.length) await recordPageEvents(events, actorOf(user), tx)
+      return { row, privatized, logged: events.length > 0 }
     })
+    if (logged) outboxCommitted(['change'])
 
     // Live collab sockets of members who just lost sight of the subtree (docs/adr/0754-*).
     if (privatized.length) await closeConnectionsLosingPrivateAccess(privatized)
-    // Change feed (docs/adr/0932-*): page-level events, after the commit, best effort.
-    const events: PageEvent[] = []
-    if (row.title !== prev.title) events.push({ pageId: id, kind: 'page_renamed', before: prev.title, after: row.title })
-    if (row.parentId !== prev.parentId) {
-      events.push({ pageId: id, kind: 'page_moved', before: prev.parentId ?? '', after: row.parentId ?? '' })
-    }
-    for (const pid of scopeChanged) events.push({ pageId: pid, kind: 'page_visibility', before: prev.scope, after: row.scope })
-    if (events.length) await logPageEvents(events, actorOf(user))
     return { page: toPageDTO(row) }
   })
 
@@ -561,15 +573,18 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const trashed = (await withTreeLock(page.workspaceId, async (tx) => {
       // Trashing carries the subtree: every lock in it must allow the actor (docs/adr/0970-*).
       await assertEditable(tx, id, user.id, role, { subtree: true })
-      return tx.execute(sql`
+      const rows = (await tx.execute(sql`
         ${descendantsCte(id)}
         UPDATE pages
         SET deleted_at = now()
         WHERE id IN (SELECT id FROM descendants) AND deleted_at IS NULL
         RETURNING id
-      `)
+      `)) as unknown as { id: string }[]
+      // Change feed events commit with the trash (docs/adr/1150-*).
+      await recordPageEvents(rows.map((r) => ({ pageId: r.id, kind: 'page_trashed' as const })), actorOf(user), tx)
+      return rows
     })) as unknown as { id: string }[]
-    await logPageEvents(trashed.map((r) => ({ pageId: r.id, kind: 'page_trashed' as const })), actorOf(user))
+    if (trashed.length) outboxCommitted(['change'])
 
     return reply.code(204).send()
   })
@@ -577,27 +592,32 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
   // ── Public web sharing (M15) ─────────────────────────────────────
   // Owners and admins turn a public link on/off (docs/adr/0945-*). Private pages cannot be shared.
   // A workspace with public sharing disabled refuses new links (docs/adr/0949-*).
-  // One token per page (idempotent) — an existing one is reused.
+  // One token per page (idempotent) — an existing one is reused, and the body (expiry, password,
+  // docs/adr/1170-*, 1171-*) only applies to a new link; later changes go through PATCH.
   app.post('/pages/:id/share', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
+    const body = createShareSchema.parse(req.body ?? {})
 
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     const role = await requireMembership(page.workspaceId, user.id)
     if (!isManagerRole(role)) throw forbidden('Only owners and admins can publish pages')
     if (page.scope === 'private') throw badRequest("Private pages can't be shared")
+    const requestedExpiry = resolveShareExpiry(body)
+    // argon2 outside the transaction: no row lock is held for its ~50 ms.
+    const passwordHash = body.password !== undefined ? await hashSharePassword(body.password) : null
 
-    const token = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       // FOR SHARE on the workspace row: a concurrent "disable public sharing" (FOR UPDATE) waits or wins.
-      const [ws] = await tx
-        .select({ publicSharingDisabled: workspaces.publicSharingDisabled })
-        .from(workspaces)
-        .where(eq(workspaces.id, page.workspaceId))
-        .for('share')
-        .limit(1)
+      const policy = await lockSharePolicy(tx, page.workspaceId)
       const [current] = await tx
-        .select({ shareToken: pages.shareToken, enc: pages.shareTokenEnc })
+        .select({
+          shareToken: pages.shareToken,
+          enc: pages.shareTokenEnc,
+          shareExpiresAt: pages.shareExpiresAt,
+          sharePasswordHash: pages.sharePasswordHash,
+        })
         .from(pages)
         .where(eq(pages.id, id))
         .for('update')
@@ -605,25 +625,115 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // Already shared: hand back the same link. When its copy cannot be opened (APP_SECRET_KEY
       // changed or removed), a new link replaces it — the only way to get a link to show again.
       const existing = current?.shareToken ? revealShareToken(id, current.enc) : null
-      if (existing) return existing
-      if (ws?.publicSharingDisabled) {
+      if (existing) return { token: existing, link: shareLinkFields(current!), policy }
+      if (policy.publicSharingDisabled) {
         throw new AppError(403, 'PUBLIC_SHARING_DISABLED', 'Public web links are turned off in this workspace')
       }
+      if (policy.passwordRequired && !passwordHash) throw sharePasswordPolicyError()
+      // Not asked: the workspace default for new links (docs/adr/1172-*), else no expiry.
+      const shareExpiresAt =
+        requestedExpiry !== undefined
+          ? requestedExpiry
+          : policy.defaultExpiryDays
+            ? new Date(Date.now() + policy.defaultExpiryDays * 86_400_000)
+            : null
       const token = await generateUniqueShareToken()
       await tx
         .update(pages)
-        .set({ shareToken: hashShareToken(token), shareTokenEnc: protectSecret('share-token', token, id) })
+        .set({
+          shareToken: hashShareToken(token),
+          shareTokenEnc: protectSecret('share-token', token, id),
+          shareExpiresAt,
+          sharePasswordHash: passwordHash,
+        })
         .where(eq(pages.id, id))
       await recordAudit(tx, {
         workspaceId: page.workspaceId,
         actor: user,
         action: 'share.published',
         target: { type: 'page', id, label: page.title },
+        // Whether a password was set, never the password or its hash.
+        after:
+          shareExpiresAt || passwordHash
+            ? { expiresAt: shareExpiresAt ? shareExpiresAt.toISOString() : null, password: passwordHash !== null }
+            : null,
       })
-      return token
+      return { token, link: shareLinkFields({ shareExpiresAt, sharePasswordHash: passwordHash }), policy }
     })
 
-    const dto: ShareStatusDTO = { shared: true, token }
+    const { publicSharingDisabled: _off, ...policy } = result.policy
+    const dto: ShareStatusDTO = { shared: true, token: result.token, ...result.link, policy }
+    if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
+    return dto
+  })
+
+  // Change an existing link's expiry or password (owner/admin; docs/adr/1170-*, 1171-*). Omitted
+  // fields stay; `expiresAt: null` / `password: null` remove them. An expired link can be extended
+  // or made permanent here. Every change is audited; the password never is.
+  app.patch('/pages/:id/share', { preHandler: requireUser }, async (req) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const body = updateShareSchema.parse(req.body ?? {})
+
+    const page = await findVisiblePage(id, user.id)
+    if (!page) throw notFound()
+    const role = await requireMembership(page.workspaceId, user.id)
+    if (!isManagerRole(role)) throw forbidden('Only owners and admins can change public links')
+    const nextExpiry = resolveShareExpiry(body)
+    const nextHash =
+      body.password === undefined ? undefined : body.password === null ? null : await hashSharePassword(body.password)
+
+    const result = await db.transaction(async (tx) => {
+      const policy = await lockSharePolicy(tx, page.workspaceId)
+      const [cur] = await tx
+        .select({
+          shareToken: pages.shareToken,
+          enc: pages.shareTokenEnc,
+          shareExpiresAt: pages.shareExpiresAt,
+          sharePasswordHash: pages.sharePasswordHash,
+        })
+        .from(pages)
+        .where(eq(pages.id, id))
+        .for('update')
+        .limit(1)
+      if (!cur?.shareToken) throw new AppError(409, 'NOT_SHARED', 'This page has no public link')
+      if (nextHash === null && policy.passwordRequired) throw sharePasswordPolicyError()
+
+      const set: { shareExpiresAt?: Date | null; sharePasswordHash?: string | null } = {}
+      const target = { type: 'page', id, label: page.title }
+      const before = cur.shareExpiresAt ? cur.shareExpiresAt.toISOString() : null
+      const after = nextExpiry === undefined ? before : nextExpiry ? nextExpiry.toISOString() : null
+      if (nextExpiry !== undefined && after !== before) {
+        set.shareExpiresAt = nextExpiry
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: 'share.expiry_changed',
+          target,
+          before: { expiresAt: before },
+          after: { expiresAt: after },
+        })
+      }
+      const had = cur.sharePasswordHash !== null
+      if (nextHash !== undefined && (nextHash !== null || had)) {
+        set.sharePasswordHash = nextHash
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: nextHash === null ? 'share.password_removed' : had ? 'share.password_changed' : 'share.password_set',
+          target,
+        })
+      }
+      if (Object.keys(set).length > 0) await tx.update(pages).set(set).where(eq(pages.id, id))
+      const link = shareLinkFields({
+        shareExpiresAt: set.shareExpiresAt !== undefined ? set.shareExpiresAt : cur.shareExpiresAt,
+        sharePasswordHash: set.sharePasswordHash !== undefined ? set.sharePasswordHash : cur.sharePasswordHash,
+      })
+      return { token: revealShareToken(id, cur.enc), link, policy }
+    })
+
+    const { publicSharingDisabled: _off, ...policy } = result.policy
+    const dto: ShareStatusDTO = { shared: Boolean(result.token), token: result.token, ...result.link, policy }
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
     return dto
   })
@@ -639,9 +749,10 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (!isManagerRole(role)) throw forbidden('Only owners and admins can stop sharing')
 
     await db.transaction(async (tx) => {
+      // Expiry and password go with the token: a later link starts from the workspace defaults.
       const cleared = await tx
         .update(pages)
-        .set({ shareToken: null, shareTokenEnc: null })
+        .set(CLEARED_SHARE_LINK)
         .where(and(eq(pages.id, id), sql`${pages.shareToken} IS NOT NULL`))
         .returning({ id: pages.id })
       if (cleared.length > 0) {
@@ -669,7 +780,12 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const current = (
       await db
-        .select({ shareToken: pages.shareToken, enc: pages.shareTokenEnc })
+        .select({
+          shareToken: pages.shareToken,
+          enc: pages.shareTokenEnc,
+          shareExpiresAt: pages.shareExpiresAt,
+          sharePasswordHash: pages.sharePasswordHash,
+        })
         .from(pages)
         .where(eq(pages.id, id))
         .limit(1)
@@ -677,7 +793,15 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     // A link whose copy cannot be opened reads as "not shared" here; publishing again replaces it.
     const token = current?.shareToken ? revealShareToken(id, current.enc) : null
 
-    const dto: ShareStatusDTO = { shared: Boolean(token), token }
+    const dto: ShareStatusDTO = {
+      shared: Boolean(token),
+      token,
+      ...(token && current
+        ? shareLinkFields(current)
+        : { expiresAt: null, expired: false, hasPassword: false }),
+      // The rules a new link would get (the dialog pre-selects the default expiry).
+      policy: await readSharePolicy(db, page.workspaceId),
+    }
     // For folders, also return the number of viewable subpages that are (or would be, if published) exposed.
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
     return dto
@@ -699,6 +823,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         kind: pages.kind,
         parentId: pages.parentId,
         shareTokenEnc: pages.shareTokenEnc,
+        shareExpiresAt: pages.shareExpiresAt,
+        sharePasswordHash: pages.sharePasswordHash,
         updatedAt: pages.updatedAt,
       })
       .from(pages)
@@ -722,6 +848,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         // '' when the copy cannot be opened (key changed): the row still lets a manager stop sharing.
         token: revealShareToken(r.id, r.shareTokenEnc) ?? '',
         updatedAt: r.updatedAt.toISOString(),
+        // Expired links stay listed so a manager can extend or remove them (docs/adr/1170-*).
+        ...shareLinkFields(r),
         exposedCount: r.kind === 'folder' ? await folderExposedCount(r.id, wsId) : undefined,
       })),
     )
@@ -872,9 +1000,11 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       const [r] = await tx.select(pageColumns).from(pages).where(eq(pages.id, id)).limit(1)
+      // Change feed events commit with the restore (docs/adr/1150-*).
+      await recordPageEvents(restored.map((x) => ({ pageId: x.id, kind: 'page_restored' as const })), actorOf(user), tx)
       return r
     })
-    await logPageEvents(restored.map((r) => ({ pageId: r.id, kind: 'page_restored' as const })), actorOf(user))
+    if (restored.length) outboxCommitted(['change'])
     return { page: toPageDTO(row) }
   })
 
@@ -1047,14 +1177,17 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         )
       }
 
+      // Change feed: the copies are new pages; the events commit with them (docs/adr/1150-*).
+      await recordPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user), tx)
+
       // Response: root first, then descendants (BFS order). returning order is not guaranteed, so map by id.
       const byId = new Map(inserted.map((r) => [r.id, r]))
       return ordered.map((p) => toPageDTO(byId.get(idMap.get(p.id)!)!))
     })
+    outboxCommitted(['change'])
 
     // After commit: task index of the copied docs (best-effort, does not block the response)
     void reindexPageTasksForPages([...idMap.values()])
-    await logPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user))
 
     return { pages: result }
   })

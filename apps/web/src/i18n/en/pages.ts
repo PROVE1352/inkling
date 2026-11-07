@@ -135,7 +135,7 @@ export default {
   'tags.noPages': 'No pages with this tag.',
 
   'public.notFoundTitle': 'Page not found',
-  'public.notFoundBody': 'The link has expired or doesn\'t exist.',
+  'public.notFoundBody': 'The link doesn\'t exist or is no longer shared.',
   'public.sharedFolder': 'Shared folder',
   'public.folderToc': 'Shared folder contents',
   'public.openToc': 'Open contents',

@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { pageChanges } from '../db/schema'
-import { drainOutbox, enqueue, failRow, kickOutbox, OUTBOX_ORIGIN, registerOutboxHandler } from '../outbox'
+import { drainOutbox, enqueue, failRow, OUTBOX_ORIGIN, outboxCommitted, registerOutboxHandler } from '../outbox'
 import type { Exec, RetryPolicy } from '../outbox'
 import { currentEditActor, liveEditors } from './attribution'
 import { notifyPageEdited } from '../notify/producers'
@@ -15,7 +15,8 @@ import type { SectionChange, SectionChangeKind } from './sectionChanges'
  * Contract with the section index (context/chunkIndex.ts): after a page's chunks are rewritten,
  * reindexPageChunks calls `recordSectionChanges` once with the section lists before and after, in
  * the transaction that rewrote the chunks. Page-level events (title, parent, trash, restore,
- * visibility, duplicate) come from the page routes through `logPageEvents`.
+ * visibility, duplicate) come from the page routes through `recordPageEvents(…, tx)`, in the
+ * route's transaction (docs/adr/1150-*).
  *
  * Write path: the caller only computes the section diff (CPU) and inserts ONE outbox row
  * (topic 'change'). Nothing waits for other writers.
@@ -266,7 +267,8 @@ export interface PageEvent {
 
 /**
  * Queue page-level events: ONE statement that reads each page's workspace, owner and visibility
- * now (log time) and writes one outbox row per workspace.
+ * now (log time) and writes one outbox row per workspace. Routes pass their transaction
+ * (docs/adr/1150-*) and call `outboxCommitted(['change'])` after the commit.
  */
 export async function recordPageEvents(events: PageEvent[], actor: EditActor | null, exec?: Exec): Promise<void> {
   if (events.length === 0) return
@@ -297,12 +299,15 @@ export async function recordPageEvents(events: PageEvent[], actor: EditActor | n
        GROUP BY p.workspace_id
       RETURNING id
     )
-    SELECT pg_notify('inkling_outbox', ${`change:${OUTBOX_ORIGIN}`}) AS z FROM ins LIMIT 1
+    SELECT 1 AS z FROM ins LIMIT 1
   `)) as unknown as unknown[]
-  if (out.length > 0 && x === db) kickOutbox('change')
+  if (out.length > 0 && x === db) outboxCommitted(['change'])
 }
 
-/** Route helper: best effort, after the route's own transaction; never fails the request. */
+/**
+ * Best effort, in its own statement after a write that has no transaction to put the events in;
+ * never fails the request. Routes with a transaction use `recordPageEvents(…, tx)` instead.
+ */
 export async function logPageEvents(events: PageEvent[], actor: EditActor | null): Promise<void> {
   try {
     await recordPageEvents(events, actor)
@@ -375,6 +380,7 @@ export async function runChangeBatch(): Promise<number> {
 
 async function changePass(isolate: boolean): Promise<number> {
   let notified = false
+  let notifiedForeign = false
   const n = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHANGE_LOG_LOCK})`)
     const rows = (await tx.execute(sql`
@@ -395,13 +401,19 @@ async function changePass(isolate: boolean): Promise<number> {
         continue
       }
       if (!isolate) {
-        if (await applyOp(tx, r.payload, hwm, at, r.origin)) notified = true
+        if (await applyOp(tx, r.payload, hwm, at, r.origin)) {
+          notified = true
+          if (r.origin !== OUTBOX_ORIGIN) notifiedForeign = true
+        }
         done.push(r.id)
         continue
       }
       try {
         const res = await tx.transaction((sp) => applyOp(sp, r.payload, hwm, at, r.origin))
-        if (res) notified = true
+        if (res) {
+          notified = true
+          if (r.origin !== OUTBOX_ORIGIN) notifiedForeign = true
+        }
         done.push(r.id)
       } catch (err) {
         for (const id of ids) blocked.add(id)
@@ -413,7 +425,8 @@ async function changePass(isolate: boolean): Promise<number> {
     await changeLogTestHooks.beforeCommit?.()
     return done.length
   })
-  if (notified) kickOutbox('notify')
+  // Follower events carry the origin of their change row: another process is told (docs/adr/1150-*).
+  if (notified) outboxCommitted(['notify'], { foreign: notifiedForeign })
   return n
 }
 

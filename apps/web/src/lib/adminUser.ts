@@ -5,10 +5,12 @@ import type { AdminUserDTO } from '@inkling/shared'
  * - `signupKey`: an Inkling account registered with a signup key (users.signup_key is set)
  * - `local`: an Inkling account without a key (open signup, or created before keys were required)
  * - `delegated`: mirrored from the external auth server (delegated login)
+ * - `oidc`: created by an OpenID Connect sign-in (docs/adr/1161-*)
  */
-export type UserOriginBadge = 'signupKey' | 'local' | 'delegated'
+export type UserOriginBadge = 'signupKey' | 'local' | 'delegated' | 'oidc'
 
 export function userOriginBadge(u: Pick<AdminUserDTO, 'origin' | 'signupKey'>): UserOriginBadge {
+  if (u.origin === 'oidc') return 'oidc'
   if (u.origin !== 'local') return 'delegated'
   return u.signupKey ? 'signupKey' : 'local'
 }

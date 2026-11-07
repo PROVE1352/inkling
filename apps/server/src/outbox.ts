@@ -8,13 +8,14 @@ import { env } from './env'
 /**
  * Transactional outbox: scheduling and plumbing (docs/adr/1080-*, 1081-*).
  *
- * Writers call `enqueue` with the transaction of their change (or right after it): one INSERT that
- * also fires `pg_notify('inkling_outbox', '<topic>:<origin>')` on commit. Consumers are registered per topic by
+ * Writers call `enqueue` (or put `outboxInsertSql` into their own statement) with the transaction of
+ * their change, then `outboxCommitted` after the commit (docs/adr/1150-*). Consumers are registered per topic by
  * the modules that own the effect (context/changeLog.ts 'change', notify/engine.ts 'notify',
  * webhooks.ts 'webhook'); this module only decides WHEN they run:
  *
  *  - kick:   right after a local enqueue commits (same process, no round trip);
- *  - LISTEN: a dedicated connection wakes the topic named in the notification (other processes);
+ *  - LISTEN: a dedicated connection wakes the topic named in the notification (other processes); the
+ *            notification is sent after the writer's commit, coalesced per topic (`announce`);
  *  - poll:   every OUTBOX_POLL_MS as a backstop (lost notification, reconnect, retry backoff);
  *  - timer:  `wakeAt` for rows that become due later (delayed webhooks, backoff).
  *
@@ -63,13 +64,17 @@ export interface OutboxRow {
   origin?: string | null
 }
 
+/** Pending webhook deliveries per workspace; beyond this new deliveries are dropped (flood guard). */
+export const WEBHOOK_QUEUE_MAX_PER_WS = 200
+
 /**
- * Insert rows (one statement) and notify listeners on commit. Returns how many were inserted
- * (rows whose dedupe key already exists are skipped). Inside a caller's transaction nothing runs
- * before the commit; call `kickOutbox` after it (a plain `db` call kicks by itself).
+ * The INSERT of `rows` as a statement or a data-modifying CTE body (`RETURNING topic`), for writers
+ * that put their own change and its events into ONE statement (docs/adr/1150-*). `when` makes the
+ * insert conditional on the rest of the statement (e.g. `EXISTS (SELECT 1 FROM written)`). Rows with
+ * a dedupe key that already exists are skipped; webhook rows are dropped while their workspace has
+ * WEBHOOK_QUEUE_MAX_PER_WS pending deliveries. No NOTIFY here: see `outboxCommitted`.
  */
-export async function enqueue(exec: Exec, rows: OutboxRow[]): Promise<number> {
-  if (rows.length === 0) return 0
+export function outboxInsertSql(rows: OutboxRow[], when?: SQL): SQL {
   const data = rows.map((r) => ({
     topic: r.topic,
     origin: r.origin === undefined ? OUTBOX_ORIGIN : r.origin,
@@ -78,21 +83,91 @@ export async function enqueue(exec: Exec, rows: OutboxRow[]): Promise<number> {
     payload: r.payload ?? null,
     delay_s: Math.max(0, r.delayMs ?? 0) / 1000,
   }))
-  const out = (await exec.execute(sql`
-    WITH ins AS (
+  return sql`
       INSERT INTO outbox (topic, origin, dedupe_key, workspace_id, payload, available_at)
       SELECT x.topic, x.origin, x.dedupe_key, x.workspace_id, x.payload, now() + make_interval(secs => x.delay_s)
         FROM jsonb_to_recordset(${JSON.stringify(data)}::jsonb)
              AS x(topic text, origin text, dedupe_key text, workspace_id uuid, payload jsonb, delay_s float8)
+       WHERE ${when ?? sql`true`}
+         AND (x.topic <> 'webhook' OR (
+               SELECT count(*) FROM outbox o
+                WHERE o.topic = 'webhook' AND o.state = 'pending' AND o.workspace_id = x.workspace_id) < ${WEBHOOK_QUEUE_MAX_PER_WS})
       ON CONFLICT (dedupe_key) DO NOTHING
-      RETURNING topic
-    )
-    SELECT topic, count(*)::int AS n, pg_notify(${OUTBOX_CHANNEL}, topic || ':' || ${OUTBOX_ORIGIN}) AS z FROM ins GROUP BY topic
+      RETURNING topic`
+}
+
+/** Topics of `rows`, and whether any row belongs to another process (it must be told). */
+export function outboxTopics(rows: OutboxRow[]): { topics: OutboxTopic[]; foreign: boolean } {
+  return {
+    topics: [...new Set(rows.map((r) => r.topic))],
+    foreign: rows.some((r) => r.origin !== undefined && r.origin !== OUTBOX_ORIGIN),
+  }
+}
+
+/**
+ * Insert rows (one statement). Returns how many were inserted (rows whose dedupe key already exists
+ * are skipped). Inside a caller's transaction nothing runs before the commit: call
+ * `outboxCommitted` after it (a plain `db` call does that itself).
+ */
+export async function enqueue(exec: Exec, rows: OutboxRow[]): Promise<number> {
+  if (rows.length === 0) return 0
+  const out = (await exec.execute(sql`
+    WITH ins AS (${outboxInsertSql(rows)})
+    SELECT topic, count(*)::int AS n FROM ins GROUP BY topic
   `)) as unknown as { topic: OutboxTopic; n: number }[]
   let n = 0
   for (const r of out) n += Number(r.n)
-  if (exec === db) for (const r of out) kickOutbox(r.topic)
+  if (exec === db && n > 0) {
+    const t = outboxTopics(rows)
+    outboxCommitted(out.map((r) => r.topic), { foreign: t.foreign })
+  }
   return n
+}
+
+/**
+ * After a commit that queued rows of `topics`: run this process's consumers now (kick) and tell other
+ * processes when they can act on the rows (one coalesced NOTIFY per topic, outside the writer's
+ * transaction, docs/adr/1150-*). 'change' rows can be applied by any process; 'notify' and 'webhook'
+ * rows only by their origin for the first TAKEOVER_MS, so they are announced only when `foreign`
+ * (a consumer queued rows that belong to another process). A lost announcement costs at most one
+ * poll interval.
+ */
+export function outboxCommitted(topics: Iterable<OutboxTopic>, opts: { foreign?: boolean } = {}): void {
+  for (const t of topics) {
+    kickOutbox(t)
+    if (t === 'change' || opts.foreign) announce(t)
+  }
+}
+
+/** Announcements in flight per topic; 'again' = a commit came in meanwhile, send one more after it. */
+const announcing = new Map<OutboxTopic, 'busy' | 'again'>()
+const announceFlight = new Set<Promise<unknown>>()
+/** Announcements sent (diagnostics, tests). */
+export let outboxAnnouncements = 0
+
+function announce(topic: OutboxTopic): void {
+  if (stopped) return
+  if (announcing.has(topic)) {
+    announcing.set(topic, 'again')
+    return
+  }
+  announcing.set(topic, 'busy')
+  outboxAnnouncements++
+  const p: Promise<unknown> = db
+    .execute(sql`SELECT pg_notify(${OUTBOX_CHANNEL}, ${`${topic}:${OUTBOX_ORIGIN}`})`)
+    .catch((err) => log(`[outbox] announce ${topic} failed: ${String(err)}`))
+    .finally(() => {
+      announceFlight.delete(p)
+      const again = announcing.get(topic) === 'again'
+      announcing.delete(topic)
+      if (again) announce(topic)
+    })
+  announceFlight.add(p)
+}
+
+/** Wait for announcements in flight (tests, shutdown). */
+export async function flushAnnouncements(): Promise<void> {
+  while (announceFlight.size) await Promise.allSettled([...announceFlight])
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +416,7 @@ export async function stopOutboxWorker(): Promise<void> {
   const c = listenClient
   listenClient = null
   if (c) await c.end({ timeout: 2 }).catch(() => undefined)
+  await flushAnnouncements()
   await Promise.allSettled([...running.values()])
 }
 

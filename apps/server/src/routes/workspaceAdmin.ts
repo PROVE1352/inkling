@@ -45,7 +45,8 @@ import { countReads } from '../pageReads'
 import { closeUserWorkspaceConnections } from '../liveConnections'
 import { secretBoxAvailable } from '../secretBox'
 import { twoFactorBlockedSql, twoFactorDeadline, userSatisfiesTwoFactor } from '../twoFactorPolicy'
-import { notifyAssigned } from '../notify/producers'
+import { enqueueAssignments } from '../notify/producers'
+import { outboxCommitted } from '../outbox'
 import {
   capabilitiesFor,
   diffFields,
@@ -56,6 +57,7 @@ import {
   requireManager,
   requireOwner,
 } from '../workspaceAdmin'
+import { CLEARED_SHARE_LINK } from '../shareSettings'
 
 /**
  * Workspace settings screen API (docs/adr/0945-* .. 0952-*): settings, audit log, connected
@@ -86,7 +88,7 @@ async function twoFactorPolicyDTO(workspaceId: string, userId: string, role: Wor
       SELECT u.id, u.name, count(*) OVER ()::int AS total
         FROM workspace_members m JOIN users u ON u.id = m.user_id
        WHERE m.workspace_id = ${workspaceId}
-         AND u.origin <> 'delegated'
+         AND u.origin NOT IN ('delegated', 'oidc')
          AND NOT EXISTS (SELECT 1 FROM user_totp t WHERE t.user_id = u.id AND t.enabled_at IS NOT NULL)
        ORDER BY u.name, u.id
        LIMIT 50
@@ -220,7 +222,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
       if (unpublishExisting) {
         const rows = await tx
           .update(pages)
-          .set({ shareToken: null, shareTokenEnc: null })
+          .set(CLEARED_SHARE_LINK)
           .where(and(eq(pages.workspaceId, id), isNotNull(pages.shareToken)))
           .returning({ id: pages.id })
         unpublished = rows.length
@@ -456,7 +458,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     const removed = await db.transaction(async (tx) => {
       const rows = await tx
         .update(pages)
-        .set({ shareToken: null, shareTokenEnc: null })
+        .set(CLEARED_SHARE_LINK)
         .where(
           and(eq(pages.workspaceId, id), isNotNull(pages.shareToken), pageIds ? inArray(pages.id, pageIds) : undefined),
         )
@@ -542,15 +544,16 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     const [prev] = await db.select({ ownerId: pages.ownerId }).from(pages).where(eq(pages.id, page.id)).limit(1)
     // The owner of a lock page is one of its implicit editors: new access version in the same
     // transaction (docs/adr/1071-*).
-    await db.transaction(async (tx) => {
+    const queued = await db.transaction(async (tx) => {
       await bumpAcl(tx, page.workspaceId)
       await tx.update(pages).set({ ownerId }).where(eq(pages.id, page.id))
+      // A new owner hears about it (docs/adr/1000-*); the event commits with the change (docs/adr/1150-*).
+      return ownerId && ownerId !== prev?.ownerId
+        ? enqueueAssignments(tx, [{ workspaceId: page.workspaceId, pageId: page.id, actorId: user.id, via: user.via ?? null, kind: 'page_owner', userIds: [ownerId], field: 'owner' }])
+        : []
     })
+    outboxCommitted(queued)
     await computeReviewScores(page.workspaceId, new Date(), [page.id])
-    // A new owner hears about it (docs/adr/1000-*); after the write, queued.
-    if (ownerId && ownerId !== prev?.ownerId) {
-      notifyAssigned({ workspaceId: page.workspaceId, pageId: page.id, actorId: user.id, via: user.via ?? null, kind: 'page_owner', userIds: [ownerId], field: 'owner' })
-    }
     return { review: await pageReview(page.id) }
   })
 

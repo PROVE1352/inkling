@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { WorkspaceRole } from '@inkling/shared'
 import { db } from './db/index'
+import { forbidden } from './errors'
 
 /**
  * Workspace access version and write gate (docs/adr/1071-*).
@@ -104,6 +105,26 @@ async function ensureAclRow(exec: Exec, workspaceId: string): Promise<void> {
 }
 
 /**
+ * The gate statement: the acl row FOR SHARE (held until the end of the transaction) with the fresh
+ * version, "has locks" and the caller's role. Also used as a CTE by writers that check and write in
+ * one statement (`gatedWriteSql`).
+ */
+export function gateSelectSql(workspaceId: string, userId: string): SQL {
+  // locked_pages: fresh even after waiting for a bumper (the locked row is re-read at its latest
+  // version); EXISTS: same snapshot as the statement, catches edit_locked written without a bump.
+  // The role comes from the statement's snapshot: after a wait for a bumper (member removal, role
+  // change) it can be older than the version. "snapVersion" (the version in that snapshot) tells:
+  // when it differs from `version`, the caller reads again in a new statement (docs/adr/1150-*).
+  return sql`
+      SELECT a.version, (a.locked_pages > 0 OR ${hasLocksSql(sql`a.workspace_id`)}) AS "hasLocks", m.role,
+             (SELECT s.version FROM workspace_acl_versions s WHERE s.workspace_id = a.workspace_id) AS "snapVersion"
+        FROM workspace_acl_versions a
+        LEFT JOIN workspace_members m ON m.workspace_id = a.workspace_id AND m.user_id = ${userId}
+       WHERE a.workspace_id = ${workspaceId}
+         FOR SHARE OF a`
+}
+
+/**
  * Write gate for a transaction that is about to check and write in `workspaceId`: holds the acl row
  * FOR SHARE until commit (a lock change, block or move waits for this write; this write waits for one
  * in progress) and returns the fresh state plus the caller's role there. Call it before any page
@@ -114,20 +135,71 @@ export async function gateWrite(
   workspaceId: string,
   userId: string,
 ): Promise<{ role: WorkspaceRole | null; acl: AclState }> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    // locked_pages: fresh even after waiting for a bumper (the locked row is re-read at its latest
-    // version); EXISTS: same snapshot as the statement, catches edit_locked written without a bump.
-    const [r] = (await tx.execute(sql`
-      SELECT a.version, (a.locked_pages > 0 OR ${hasLocksSql(sql`a.workspace_id`)}) AS "hasLocks", m.role
-        FROM workspace_acl_versions a
-        LEFT JOIN workspace_members m ON m.workspace_id = a.workspace_id AND m.user_id = ${userId}
-       WHERE a.workspace_id = ${workspaceId}
-         FOR SHARE OF a
-    `)) as unknown as { version: string; hasLocks: boolean; role: WorkspaceRole | null }[]
-    if (r) return { role: r.role ?? null, acl: toAcl(workspaceId, r.version, r.hasLocks) }
-    await ensureAclRow(tx, workspaceId)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [r] = (await tx.execute(gateSelectSql(workspaceId, userId))) as unknown as {
+      version: string
+      hasLocks: boolean
+      role: WorkspaceRole | null
+      snapVersion: string | null
+    }[]
+    if (!r) {
+      await ensureAclRow(tx, workspaceId)
+      continue
+    }
+    // Waited for a bumper: the role was read before its commit. The share lock is held now, so the
+    // next statement sees the committed state without waiting.
+    if (r.snapVersion !== r.version) continue
+    return { role: r.role ?? null, acl: toAcl(workspaceId, r.version, r.hasLocks) }
   }
-  throw new Error(`workspace_acl_versions row for ${workspaceId} could not be created`)
+  throw new Error(`workspace_acl_versions row for ${workspaceId} could not be read`)
+}
+
+/** What a writer checked before its write: the role and the access version it decided on. */
+export interface CheckedAccess {
+  role: WorkspaceRole | null
+  acl: AclState
+}
+
+/**
+ * Gate CTEs for a writer that checks before and writes in ONE statement (docs/adr/1150-*):
+ * `gate` takes the acl row FOR SHARE (fresh version and role, see gateSelectSql); `gate_ok` has a
+ * row only while both are what the caller checked. The caller's data-modifying CTEs select
+ * `FROM gate_ok` / `WHERE EXISTS (SELECT 1 FROM gate_ok)` and the statement returns
+ * `gateColumns`; when `ok` is false nothing was written and the caller re-checks under `gateWrite`
+ * in a transaction (also when the workspace has no acl row yet).
+ */
+export function gatedWriteSql(workspaceId: string, userId: string, checked: CheckedAccess): { ctes: SQL; columns: SQL } {
+  return {
+    ctes: sql`gate AS (${gateSelectSql(workspaceId, userId)}),
+      gate_ok AS (SELECT 1 FROM gate WHERE gate.version = ${checked.acl.version}::bigint AND gate.role IS NOT DISTINCT FROM ${checked.role}::text)`,
+    columns: sql`EXISTS (SELECT 1 FROM gate_ok) AS ok`,
+  }
+}
+
+/**
+ * Write gate for a write that is not an SQL statement (a Yjs document edit, docs/adr/1150-*): in a
+ * short transaction, take the gate, re-check with `recheck` when the version or role changed since
+ * `checked` (null role = no longer a member: 403), then run `apply` — synchronously, before the
+ * commit. `apply` must not wait for the pool (the transaction holds a connection): open documents
+ * before, persist after. Its return value is handed back after the commit (never awaited inside).
+ */
+export async function underWriteGate<T>(
+  workspaceId: string,
+  userId: string,
+  checked: CheckedAccess,
+  recheck: (fresh: { role: WorkspaceRole; acl: AclState }, tx: Exec) => Promise<void>,
+  apply: () => T,
+): Promise<T> {
+  const box = await db.transaction(async (tx) => {
+    const gate = await gateWrite(tx, workspaceId, userId)
+    if (gate.acl.version !== checked.acl.version || gate.role !== checked.role) {
+      if (!gate.role) throw forbidden()
+      await recheck({ role: gate.role, acl: gate.acl }, tx)
+    }
+    // Boxed: a promise returned from here would be awaited before the commit.
+    return { value: apply() }
+  })
+  return box.value
 }
 
 /**

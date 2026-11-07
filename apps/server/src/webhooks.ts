@@ -25,8 +25,8 @@ import { broadcastToUser } from './collab'
 import { db } from './db/index'
 import { comments, notifications, pages, users, workspaceMembers, workspaceWebhooks } from './db/schema'
 import { env } from './env'
-import { kickOutbox, OUTBOX_ORIGIN, ownedOrOrphaned, registerOutboxHandler, wakeAt } from './outbox'
-import type { Exec, RetryPolicy } from './outbox'
+import { enqueue, kickOutbox, ownedOrOrphaned, registerOutboxHandler, wakeAt, WEBHOOK_QUEUE_MAX_PER_WS } from './outbox'
+import type { Exec, OutboxRow, RetryPolicy } from './outbox'
 import { safeFetch, SafeFetchError } from './safeFetch'
 import { protectSecret, revealSecret, SecretUnreadableError, tryRevealSecret } from './secretsAtRest'
 import { liveWorkspace } from './workspaceLive'
@@ -52,8 +52,6 @@ export const WEBHOOK_RETRY: RetryPolicy = { baseMs: 2_000, factor: 5, capMs: 60_
 const PAGE_CREATED_DELAY_MS = 20_000
 const BUCKET_CAPACITY = 20
 const BUCKET_REFILL_PER_SEC = 20 / 60
-/** Pending deliveries per workspace; beyond this new events are dropped (flood guard). */
-const QUEUE_MAX_PER_WS = 200
 const MAX_CONCURRENCY = 4
 /** A claimed delivery is retried by any consumer after this (crash during the HTTP call). */
 export const WEBHOOK_LEASE_MS = 30_000
@@ -575,10 +573,11 @@ export function invalidateWebhookCache(workspaceId: string): void {
   hookCache.delete(workspaceId)
 }
 
-async function enabledHooks(workspaceId: string): Promise<CachedHooks['hooks']> {
+/** `exec`: the caller's transaction when it has one (a cache miss must not wait for a second pool connection). */
+async function enabledHooks(workspaceId: string, exec: Pick<typeof db, 'select'> = db): Promise<CachedHooks['hooks']> {
   const hit = hookCache.get(workspaceId)
   if (hit && Date.now() - hit.at < HOOK_CACHE_TTL_MS) return hit.hooks
-  const rows = await db
+  const rows = await exec
     .select({ id: workspaceWebhooks.id, events: workspaceWebhooks.events })
     .from(workspaceWebhooks)
     .where(
@@ -616,36 +615,34 @@ function eventKey(ev: WebhookEventInput): string | null {
 }
 
 /**
+ * Outbox rows of an event: one per enabled hook of the workspace subscribed to it (dedupe key per
+ * event and hook). For writers that queue the rows in their own statement (`outboxInsertSql`,
+ * docs/adr/1150-*); the flood guard (WEBHOOK_QUEUE_MAX_PER_WS) is part of that insert.
+ */
+export async function webhookOutboxRows(ev: WebhookEventInput, exec: Pick<typeof db, 'select'> = db): Promise<OutboxRow[]> {
+  const hooks = (await enabledHooks(ev.workspaceId, exec)).filter((h) => h.events.includes(ev.type))
+  if (hooks.length === 0) return []
+  const key = eventKey(ev) ?? randomUUID()
+  const delayMs = ev.type === 'page_created' ? PAGE_CREATED_DELAY_MS : 0
+  return hooks.map((h) => ({
+    topic: 'webhook' as const,
+    workspaceId: ev.workspaceId,
+    dedupeKey: `wh:${key}:${h.id}`,
+    payload: { hookId: h.id, event: ev } satisfies WebhookJob,
+    delayMs,
+  }))
+}
+
+/**
  * Queue an event for every enabled hook of the workspace subscribed to it, with `exec` (the
  * producer's transaction, or `db`). Returns the number of deliveries queued. Privacy filtering
- * happens at delivery.
+ * happens at delivery. In a transaction, call `outboxCommitted(['webhook'])` after the commit.
  */
-export async function enqueueWebhookEvent(exec: Exec, ev: WebhookEventInput): Promise<number> {
-  const hooks = (await enabledHooks(ev.workspaceId)).filter((h) => h.events.includes(ev.type))
-  if (hooks.length === 0) return 0
-  const key = eventKey(ev) ?? randomUUID()
-  const delay = ev.type === 'page_created' ? PAGE_CREATED_DELAY_MS : 0
-  const rows = hooks.map((h) => ({ k: `wh:${key}:${h.id}`, p: { hookId: h.id, event: ev } satisfies WebhookJob }))
-  const out = (await exec.execute(sql`
-    WITH cap AS (
-      SELECT count(*) AS n FROM outbox WHERE topic = 'webhook' AND state = 'pending' AND workspace_id = ${ev.workspaceId}
-    ), ins AS (
-      INSERT INTO outbox (topic, origin, dedupe_key, workspace_id, payload, available_at)
-      SELECT 'webhook', ${OUTBOX_ORIGIN}, x.k, ${ev.workspaceId}, x.p, now() + make_interval(secs => ${delay / 1000})
-        FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS x(k text, p jsonb), cap
-       WHERE cap.n < ${QUEUE_MAX_PER_WS}
-      ON CONFLICT (dedupe_key) DO NOTHING
-      RETURNING id
-    )
-    SELECT (SELECT n FROM cap)::int AS pending, (SELECT count(*) FROM ins)::int AS n,
-           (SELECT pg_notify('inkling_outbox', ${`webhook:${OUTBOX_ORIGIN}`}) FROM ins LIMIT 1) AS z
-  `)) as unknown as { pending: number; n: number }[]
-  const n = Number(out[0]?.n ?? 0)
-  if (Number(out[0]?.pending ?? 0) >= QUEUE_MAX_PER_WS) log(`[webhooks] queue full, dropping ${ev.type} for workspace ${ev.workspaceId}`)
-  if (n > 0 && exec === db) {
-    if (delay > 0) wakeAt('webhook', delay)
-    else kickOutbox('webhook')
-  }
+export async function enqueueWebhookEvent(exec: Exec & Pick<typeof db, 'select'>, ev: WebhookEventInput): Promise<number> {
+  const rows = await webhookOutboxRows(ev, exec)
+  if (rows.length === 0) return 0
+  const n = await enqueue(exec, rows)
+  if (n < rows.length) log(`[webhooks] ${rows.length - n} of ${rows.length} ${ev.type} deliveries not queued (already queued, or the workspace queue of ${WEBHOOK_QUEUE_MAX_PER_WS} is full)`)
   return n
 }
 

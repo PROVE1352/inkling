@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 import { useDroppable } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
 import type { PageLockDTO, PageMetaDTO } from '@inkling/shared'
@@ -48,6 +48,7 @@ import { ShareModal } from '../components/ShareModal'
 import { PageLockModal } from '../components/PageLockModal'
 import { SuspiciousNotice } from '../components/SuspiciousNotice'
 import { LargePageNotice } from '../components/LargePageNotice'
+import { SplitPageModal } from '../components/SplitPageModal'
 import { PageFollowPanel } from '../components/PageFollow'
 import { usePageSubscription } from '../notificationsApi'
 import { useIsPhone } from '../lib/useMediaQuery'
@@ -74,6 +75,7 @@ import {
   MoreHorizontalIcon,
   PanelRightIcon,
   PenIcon,
+  SplitIcon,
   SunIcon,
 } from '../components/Icons'
 import { setTheme, useTheme, type Theme } from '../lib/theme'
@@ -479,6 +481,17 @@ export function PageView() {
   // Page notifications (in the ⋯ menu). `following` puts a check on the item and a dot on ⋯.
   const [followOpen, setFollowOpen] = useState(false)
   useEffect(() => setFollowOpen(false), [pageId])
+  // Split into subpages (docs/adr/1140-*); `?split=1` (the "large page" notification) opens it.
+  const [splitOpen, setSplitOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => setSplitOpen(false), [pageId])
+  useEffect(() => {
+    if (searchParams.get('split') !== '1') return
+    setSplitOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('split')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
   const pageSub = usePageSubscription(page?.id)
   const following = pageSub.data?.effective.level === 'all'
   const isPhone = useIsPhone()
@@ -738,6 +751,16 @@ export function PageView() {
                   },
                 ]
               : []),
+            ...(isDoc && page && !lockReadOnly
+              ? [
+                  {
+                    label: tr('split.menu'),
+                    icon: <SplitIcon size={16} />,
+                    onSelect: () => setSplitOpen(true),
+                    testId: 'page-split-button',
+                  },
+                ]
+              : []),
             ...(canLock
               ? [
                   {
@@ -938,6 +961,9 @@ export function PageView() {
       )}
       {page && wsId && lockOpen && (
         <PageLockModal open={lockOpen} onClose={() => setLockOpen(false)} wsId={wsId} page={page} />
+      )}
+      {page && wsId && splitOpen && page.kind === 'doc' && (
+        <SplitPageModal open={splitOpen} onClose={() => setSplitOpen(false)} wsId={wsId} page={page} />
       )}
       {page && followOpen && (
         <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>

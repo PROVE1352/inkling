@@ -241,6 +241,61 @@ docker compose restart app   # to clear the in-memory ban list as well
 - Request rate limiting (@fastify/rate-limit: 300/min globally, 10/min for auth, etc.) keeps working
   separately and uses the same 429 `RATE_LIMITED` format.
 
+## 3-G. OpenID Connect sign-in (optional)
+
+Adds "Sign in with <name>" to the login screen. Works with OpenID Connect providers such as Google
+Workspace, Microsoft Entra ID, Keycloak and Authentik. The password stays at the provider; Inkling
+receives a signed id_token and issues its usual session (docs/adr/1160-*). Password sign-in keeps
+working next to it.
+
+1. Register Inkling as a confidential web client (authorization code flow) at the provider with
+   the redirect URI `<PUBLIC_URL>/api/auth/oidc/callback`, e.g.
+   `https://notes.example.com/api/auth/oidc/callback`. `PUBLIC_URL` is required; the server does not
+   start with OIDC configured and no `PUBLIC_URL`.
+2. Put the issuer, client id and secret in `.env` and restart:
+
+| env | Meaning | Default |
+|---|---|---|
+| `OIDC_ISSUER` | Issuer URL, exactly as the provider's discovery document states it | none (off) |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Client credentials. The secret is sent only to the token endpoint, never logged or returned | none |
+| `OIDC_NAME` | Button label ("Sign in with <name>") | `SSO` |
+| `OIDC_ALLOWED_DOMAINS` | Comma-separated email domains allowed to sign in; needs `email_verified` | empty (anyone the provider issues) |
+| `OIDC_AUTO_CREATE` | `1` = first sign-in of someone new creates an account (no signup key) | `0` |
+| `OIDC_LINK_EXISTING` | `1` = connect to an existing local account with the same, provider-verified email (never admins) | `0` |
+| `OIDC_REQUIRE_MFA` | `1` = refuse sign-ins whose id_token shows no second factor (`amr`/`acr`) | `0` |
+| `OIDC_ACR_VALUES` | acr values to request; a returned one in this list counts as a second factor | empty |
+| `OIDC_TRUST_EMAIL` | `1` = treat the email as verified when the provider sends no `email_verified` | `0` |
+| `OIDC_SCOPES` | Requested scopes | `openid email profile` |
+| `OIDC_ID_TOKEN_ALG` | The one accepted id_token algorithm: `RS256`, `PS256` or `ES256` | `RS256` |
+
+Issuer examples:
+
+| Provider | `OIDC_ISSUER` | Notes |
+|---|---|---|
+| Google Workspace | `https://accounts.google.com` | Restrict with `OIDC_ALLOWED_DOMAINS=<your domain>`. Google sends no `amr`, so leave `OIDC_REQUIRE_MFA=0` and enforce 2-Step Verification in the Admin console. |
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | Use the tenant id, not `common`/`organizations`. Turn on the optional `email` claim. Entra sends no `email_verified`: account creation needs `OIDC_TRUST_EMAIL=1`, and email linking stays off. |
+| Keycloak | `https://<host>/realms/<realm>` | For `OIDC_REQUIRE_MFA`, configure ACR levels and set `OIDC_ACR_VALUES`, or add an `amr` mapper. |
+| Authentik | `https://<host>/application/o/<slug>/` | Keep the trailing slash: it is part of the issuer. |
+
+How accounts are matched (docs/adr/1161-*): by the provider's issuer and subject, never by email
+alone. Someone who already has an Inkling account connects the provider in Settings › Account
+(the safe way). With `OIDC_LINK_EXISTING=1` the first sign-in also connects to an account with the
+same email if the provider marks that email verified. People with no account get one only with
+`OIDC_AUTO_CREATE=1`; signup keys are not asked for, so set `OIDC_ALLOWED_DOMAINS` (the server
+warns at boot when it is empty). On an empty instance the first account becomes admin, as with any
+signup.
+
+Two-step verification (docs/adr/1162-*): accounts created by the provider use the provider's
+second factor and count as verified for workspaces that require two-step verification. To make
+Inkling check it, set `OIDC_REQUIRE_MFA=1`. Accounts that also have Inkling's own two-step
+verification are asked for the code after the provider.
+
+Problems show up on the login screen as a fixed message and in the server log as
+`[oidc] callback refused: <CODE> (<reason>)`. `OIDC_STATE_INVALID` usually means the sign-in took
+longer than 10 minutes or was started in another tab or browser; `OIDC_UNAVAILABLE` means the
+discovery document, keys or token endpoint could not be reached (check the issuer and the
+container's outbound network).
+
 ## 4. Backups
 
 The `backup` service in `compose.yaml` backs up the database and the data volume every day at

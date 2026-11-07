@@ -32,6 +32,10 @@ export const DELEGATED_EMAIL_SUFFIX = `@${env.delegatedEmailDomain}`
 export const isDelegatedEmail = (email: string) =>
   email.toLowerCase().endsWith(DELEGATED_EMAIL_SUFFIX)
 
+/** Name of the service that owns a non-local account's password (for messages). */
+export const externalAccountName = (origin: string) =>
+  origin === 'oidc' ? env.oidc.name : env.delegatedAuthName
+
 /** Does REQUIRE_EMAIL_VERIFICATION actually apply? (With mail off there is no way to verify.) */
 export const verificationEnforced = () => env.requireEmailVerification && mailEnabled
 

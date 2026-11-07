@@ -130,7 +130,7 @@ export default {
   'tags.noPages': '이 태그의 페이지가 없습니다.',
 
   'public.notFoundTitle': '페이지를 찾을 수 없습니다',
-  'public.notFoundBody': '링크가 만료되었거나 존재하지 않습니다.',
+  'public.notFoundBody': '없는 링크이거나 공유가 중단된 링크입니다.',
   'public.sharedFolder': '공유 폴더',
   'public.folderToc': '공유 폴더 목차',
   'public.openToc': '목차 열기',

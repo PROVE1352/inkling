@@ -40,10 +40,12 @@ export const users = pgTable('users', {
   /**
    * Account origin. 'local' = Inkling-only account created with a signup key (password is verified only
    * against the argon2 hash here), 'delegated' = account mirrored from delegated login to an external auth server
-   * (DELEGATED_AUTH_URL; no local password, random hash). Login picks the verification path from this value, and
-   * a 'local' account's password is never sent to the external auth server.
+   * (DELEGATED_AUTH_URL; no local password, random hash), 'oidc' = account created by an OpenID Connect sign-in
+   * (no local password, random hash; docs/adr/1161-*). Login picks the verification path from this value, and
+   * a 'local' account's password is never sent to the external auth server. A local account linked to an OIDC
+   * identity stays 'local' (user_identities records the link).
    */
-  origin: text('origin', { enum: ['local', 'delegated'] })
+  origin: text('origin', { enum: ['local', 'delegated', 'oidc'] })
     .notNull()
     .default('local'),
   /** Admin: can issue/revoke signup keys and list users. */
@@ -251,6 +253,10 @@ export const workspaces = pgTable('workspaces', {
   twoFactorRequiredAt: timestamp('two_factor_required_at', { withTimezone: true }),
   /** Grace period after turning the requirement on, in days (0..30). */
   twoFactorGraceDays: integer('two_factor_grace_days').notNull().default(7),
+  /** New public links expire after this many days unless the publisher picks otherwise; null = none (docs/adr/1172-*). */
+  shareDefaultExpiryDays: integer('share_default_expiry_days'),
+  /** New public links need a password, and a link's password cannot be removed (docs/adr/1172-*). */
+  sharePasswordRequired: boolean('share_password_required').notNull().default(false),
 })
 
 export const workspaceMembers = pgTable(
@@ -304,6 +310,13 @@ export const pages = pgTable('pages', {
   shareToken: text('share_token').unique(),
   /** The token for "copy link": sealed (`v1.…`), or raw when APP_SECRET_KEY is unset (docs/adr/1110-*). */
   shareTokenEnc: text('share_token_enc'),
+  /** The public link stops working at this instant (server clock); null = never (docs/adr/1170-*). Cleared on unpublish. */
+  shareExpiresAt: timestamp('share_expires_at', { withTimezone: true }),
+  /**
+   * argon2 hash of the link password; null = no password (docs/adr/1171-*). Unlock cookies are bound
+   * to this string, so setting, changing or removing it ends every visitor's unlock. Cleared on unpublish.
+   */
+  sharePasswordHash: text('share_password_hash'),
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),
@@ -454,6 +467,7 @@ export const notifications = pgTable(
       enum: [
         'comment', 'comment_mention', 'doc_mention', 'reminder', 'workspace_added', 'webhook_disabled', 'backup_failed', 'workspace_deleted',
         'comment_reply', 'page_owner', 'task_assigned', 'page_update', 'agent_digest', 'approval_request', 'approval_result',
+        'large_page',
       ],
     }).notNull(),
     pageId: uuid('page_id').references(() => pages.id, { onDelete: 'cascade' }),
@@ -827,3 +841,6 @@ export * from './schema-twoFactor'
 export * from './schema-outbox'
 // Former page titles for [[old title]] links after a rename (docs/adr/1121-*)
 export * from './schema-titles'
+export * from './schema-split'
+// OpenID Connect identities and pending sign-ins (docs/adr/1160-*, 1161-*)
+export * from './schema-identities'

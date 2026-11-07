@@ -13,6 +13,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Set `APP_SECRET_KEY` (≥ 32 characters, `openssl rand -base64 32`) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work). From 0.5.0 it also seals the "copy link" copies of share links, invite codes and signup keys and the webhook and sheet-sync URLs; without it those copies and URLs stay in plaintext (boot warning) and are sealed at the first boot after the key is set (docs/adr/1110-*, 1111-*).
 - [ ] Cookies: when `PUBLIC_URL` is `https`, session cookies are `Secure` automatically. `COOKIE_SECURE` is passed through from `.env` (default `0`); the Caddy overlay sets it to `1`.
 - [ ] Signup keys: with `NODE_ENV=production`, signups require a signup key unless `SIGNUP_REQUIRE_KEY=0` is set explicitly. Create the first admin's key with `./deploy/signup-key.sh new "<name>"` (the server logs this hint at boot).
+- [ ] OpenID Connect sign-in (optional, deploy/DEPLOY.md "3-G"): register `<PUBLIC_URL>/api/auth/oidc/callback` at the provider and set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`. A half-filled set or a missing `PUBLIC_URL` stops the boot. Signup keys do not apply to it: with `OIDC_AUTO_CREATE=1` also set `OIDC_ALLOWED_DOMAINS`. Keep `OIDC_LINK_EXISTING=0` unless the provider verifies email addresses (docs/adr/1161-*), and decide whether workspace two-step verification may trust the provider (`OIDC_REQUIRE_MFA`, docs/adr/1162-*). Sign in once as the first admin with a password before turning on `OIDC_AUTO_CREATE` on an empty instance.
 - [ ] Set `TZ` to the users' timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to `UTC`; a Korean deployment sets `TZ=Asia/Seoul`.
 - [ ] Set `DEFAULT_LOCALE` (`en` | `ko`, default `en`): language of emails and built-in templates for users who have not chosen one, and the web UI default before the browser language (docs/adr/0901-*, 0903-*). A Korean deployment sets `DEFAULT_LOCALE=ko`.
 - [ ] All server environment variables are passed through `compose.yaml` as `${X:-}`, so setting them in `.env` is enough (`.env` itself is not copied into the image). If you use a `compose.override.yaml`, check that it does not replace the `environment:` entries you need.
@@ -104,6 +105,8 @@ the web build wrote to `WEB_DIST/build.json`; docs/adr/0990-*). What they do is 
 
 - Forced account deletion (admin): the user's private pages go to the trash with no owner. They are visible to nobody, admins included, and are purged after 30 days. Deletion is refused with 409 while the user is the sole owner of a workspace; transfer ownership first.
 - Ownerless private pages created before this behaviour (by older versions) stay hidden and are not deleted.
+
+- OpenID Connect: a person's connected sign-ins are listed in `user_identities` (issuer, subject, user). The app has no "disconnect" yet; remove a wrong connection with `DELETE FROM user_identities WHERE user_id = '<id>' AND issuer = '<issuer>'`. Changing `OIDC_ISSUER` does not move connections: people connect again in Settings › Account (or are linked by verified email with `OIDC_LINK_EXISTING=1`).
 
 ### Incidents
 

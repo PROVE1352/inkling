@@ -732,7 +732,9 @@ export function Admin() {
             <ul className="flex flex-col gap-2">
               {reqView.items.map((r) => {
                 const slot = `req:${r.id}`
-                const delegated = r.origin === 'delegated'
+                // OIDC-created accounts have no password here either (docs/adr/1161-*)
+                const delegated = r.origin !== 'local'
+                const extName = r.origin === 'oidc' ? (mode.data?.oidc?.name ?? 'SSO') : delegatedName
                 return (
                   <li key={r.id} className="rounded-lg border border-line p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -740,7 +742,7 @@ export function Admin() {
                       <span className="text-sm font-medium text-ink">{r.name}</span>
                       <span className="text-xs text-sub">{r.email}</span>
                       {delegated && (
-                        <Badge cls="bg-sub/10 text-sub">{delegatedName}</Badge>
+                        <Badge cls="bg-sub/10 text-sub">{extName}</Badge>
                       )}
                       <span className="ml-auto text-xs text-sub">{fmtDateTime(r.createdAt)}</span>
                     </div>
@@ -761,7 +763,7 @@ export function Admin() {
                       )}
                       {r.status === 'pending' && delegated && (
                         <span className="mr-2 text-amber-600">
-                          {t('admin.delegatedReset', { name: delegatedName })}
+                          {t('admin.delegatedReset', { name: extName })}
                         </span>
                       )}
                       {r.status === 'pending' && (
@@ -1010,7 +1012,9 @@ export function Admin() {
                 const local = u.origin === 'local'
                 const originBadge = userOriginBadge(u)
                 const pwDisabledReason = !local
-                  ? t('admin.pwDisabledDelegated', { name: delegatedName })
+                  ? t('admin.pwDisabledDelegated', {
+                      name: u.origin === 'oidc' ? (mode.data?.oidc?.name ?? 'SSO') : delegatedName,
+                    })
                   : isMe
                     ? t('admin.pwDisabledSelf')
                     : undefined
@@ -1024,7 +1028,9 @@ export function Admin() {
                           ? t('register.signupKey')
                           : originBadge === 'local'
                             ? t('admin.originLocal')
-                            : delegatedName}
+                            : originBadge === 'oidc'
+                              ? (mode.data?.oidc?.name ?? 'SSO')
+                              : delegatedName}
                       </Badge>
                       {local ? (
                         u.emailVerifiedAt ? (

@@ -10,7 +10,7 @@ import { CopyIcon, GlobeIcon, MenuIcon } from '../components/Icons'
 import { pageIcon, kindLabel } from '../lib/pageIcon'
 import { relativeTime } from '../lib/time'
 import { toast } from '../lib/toast'
-import { useT } from '../i18n'
+import { fmtDate, useT } from '../i18n'
 
 // Workspace web-share list: /w/:wsId/shared.
 // Gathers the pages/folders published via "Share to web" (page header or tree menu) in one place:
@@ -93,6 +93,25 @@ export function SharedView() {
   )
 }
 
+// Expiry and password of a link (docs/adr/1170-*, 1171-*). Expired links stay listed so they can be
+// extended from the page's share dialog or stopped here.
+function LinkBadges({ item }: { item: SharedItemDTO }) {
+  const t = useT()
+  const badge = 'shrink-0 rounded border px-1.5 py-px text-[10px] leading-4'
+  return (
+    <>
+      {item.expired ? (
+        <span className={`${badge} border-red-600/40 text-red-600`}>{t('shareLink.expiredBadge')}</span>
+      ) : item.expiresAt ? (
+        <span className={`${badge} border-line text-sub`} title={item.expiresAt}>
+          {t('shareLink.expiresBadge', { date: fmtDate(item.expiresAt) })}
+        </span>
+      ) : null}
+      {item.hasPassword && <span className={`${badge} border-line text-sub`}>{t('shareLink.passwordBadge')}</span>}
+    </>
+  )
+}
+
 function SharedRow({
   wsId,
   item,
@@ -131,8 +150,11 @@ function SharedRow({
       >
         <span className="mt-0.5 text-[17px] leading-none">{pageIcon(item)}</span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink hover:underline">
-            {item.title || t('common.untitled')}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-ink hover:underline">
+              {item.title || t('common.untitled')}
+            </span>
+            <LinkBadges item={item} />
           </span>
           <span className="block truncate text-xs text-sub">
             {kindLabel(item.kind)}

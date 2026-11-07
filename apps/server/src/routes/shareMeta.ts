@@ -11,6 +11,11 @@
  * Invalid tokens are deliberately NOT counted as brute-force failures here: the SPA's own API
  * call already counts them, and link-preview bots must not get an IP banned.
  *
+ * Expired links and links with a password (docs/adr/1170-*, 1171-*) get the shell with only
+ * `<meta name="robots" content="noindex, nofollow">` and the same X-Robots-Tag header: no title,
+ * description, image or URL, whoever asks (an unlock cookie is scoped to /api/public/<token> and
+ * never reaches /s/, so a visitor's unlock cannot turn the meta back on).
+ *
  * Only active when WEB_DIST is set (production). See docs/adr/0503-share-page-unfurl-meta.md.
  */
 import { eq } from 'drizzle-orm'
@@ -22,7 +27,8 @@ import { pageTexts } from '../db/schema'
 import { env } from '../env'
 import { configuredPublicOrigin } from '../origin'
 import { parseFileUrl } from '../md/convert'
-import { findSharedPageByToken, loadFolderShare } from './public'
+import { shareGated } from '../shareAccess'
+import { buildFolderShare, findSharedPageByToken } from './public'
 import type { SharedPage } from './public'
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{1,128}$/
@@ -80,6 +86,13 @@ export function renderMetaTags(m: UnfurlMeta): string {
     tags.push(['name', 'twitter:image', m.image])
   }
   return tags.map(([k, n, v]) => `<meta ${k}="${n}" content="${escapeHtml(v)}" />`).join('\n    ')
+}
+
+/** Shell for a gated link: keep it out of search engines, say nothing about the page. */
+export function injectNoindex(shell: string): string {
+  const idx = shell.indexOf('</head>')
+  if (idx < 0) return shell
+  return shell.slice(0, idx) + '    <meta name="robots" content="noindex, nofollow" />\n  ' + shell.slice(idx)
 }
 
 /** Inject meta + replace <title> in the shell. Pure string ops on a trusted template. */
@@ -148,14 +161,18 @@ export async function registerShareMetaRoutes(app: FastifyInstance): Promise<voi
       let target: SharedPage | null = null
       let fileBase = `/api/public/${token}`
       let childCount: number | undefined
+      // The gate is the root's: a folder's expiry and password cover every page below it.
+      const root = await findSharedPageByToken(token)
+      if (!root) return send(reply, base)
+      if (shareGated(root.gate)) {
+        reply.header('X-Robots-Tag', 'noindex, nofollow')
+        return send(reply, injectNoindex(base))
+      }
       if (ref === undefined) {
-        target = await findSharedPageByToken(token)
-        if (target?.kind === 'folder') {
-          const share = await loadFolderShare(token)
-          childCount = share?.pages.length
-        }
+        target = root
+        if (root.kind === 'folder') childCount = (await buildFolderShare(root, token)).pages.length
       } else {
-        const share = await loadFolderShare(token)
+        const share = root.kind === 'folder' ? await buildFolderShare(root, token) : null
         target = share?.byRef.get(ref) ?? null
         fileBase = `/api/public/${token}/p/${ref}`
       }

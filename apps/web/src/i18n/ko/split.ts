@@ -1,0 +1,30 @@
+import type en from '../en/split'
+
+// 페이지를 하위 페이지로 나누기와 길어지는 기록의 자동 나누기 (docs/adr/1140-*, 1141-*).
+export default {
+  'split.menu': '페이지 나누기…',
+  'split.title': '하위 페이지로 나누기',
+  'split.intro': '고른 수준의 제목마다 그 아래 내용과 함께 하위 페이지가 됩니다. 이 페이지에는 각 하위 페이지로 가는 링크가 남고, 나누기 전 상태는 버전 히스토리에 남습니다.',
+  'split.level': '나눌 제목',
+  'split.levelOption': 'H{level}',
+  'split.levelCount': '{count}',
+  'split.none': '페이지 맨 위 단계에 이 수준의 제목이 없습니다.',
+  'split.loadError': '페이지를 읽지 못했습니다.',
+  'split.selected': '{total}개 중 {selected}개 선택',
+  'split.selectAll': '모두 선택',
+  'split.selectNone': '선택 해제',
+  'split.blocks_other': '블록 {count}개',
+  'split.comments_other': '댓글 {count}개',
+  'split.openBy_other': '다른 사람 {count}명이 이 페이지를 열어 두었습니다. 나누면 그 화면에서도 바로 바뀝니다.',
+  'split.submit_other': '{count}개 페이지로 나누기',
+  'split.cancel': '취소',
+  'split.done_other': '하위 페이지 {count}개를 만들었습니다',
+  'split.auto': '새 기록',
+  'split.autoHint': '에이전트나 API가 덧붙이는 내용이 들어갈 곳입니다. 페이지에서 직접 입력하는 것은 바뀌지 않습니다.',
+  'split.autoOff': '이 페이지에 계속',
+  'split.autoMonth': '달마다 하위 페이지',
+  'split.autoSize': '이 크기를 넘으면 새 하위 페이지',
+  'split.autoCurrent': '지금은 {title}에 씁니다',
+  'notifications.largePage': '"{title}" 페이지가 커지고 있습니다. 하위 페이지로 나누거나 새 기록을 달마다 하위 페이지에 쓰게 할 수 있습니다.',
+  'errors.SPLIT_CONFLICT': '나누는 동안 페이지가 바뀌었습니다. 다시 시도하세요.',
+} satisfies Partial<Record<keyof typeof en, string>>

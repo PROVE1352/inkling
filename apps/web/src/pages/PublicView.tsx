@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { FormEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import type { PageKind, PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
-import { usePublicPage } from '../api'
+import { ApiError, usePublicPage, useUnlockShare } from '../api'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Spinner } from '../components/Spinner'
 import { ChevronDownIcon, ChevronRightIcon, MenuIcon, XIcon } from '../components/Icons'
@@ -18,7 +18,17 @@ import { t } from '../i18n'
 // before dangerouslySetInnerHTML, and cover/icon URLs through the media URL allowlist.
 export function PublicView() {
   const { token, ref } = useParams()
-  const { data, isLoading, isError } = usePublicPage(token)
+  const { data, isLoading, isError, error } = usePublicPage(token)
+  // An expired link or one with a password (docs/adr/1170-*, 1171-*): a quiet screen that says
+  // nothing about the page. The gate is the link's, so it covers folder children too.
+  const gate = gateOf(error)
+  if (gate && token) {
+    return (
+      <PublicFrame>
+        <PublicGate token={token} gate={gate} />
+      </PublicFrame>
+    )
+  }
   const root = data as PublicPageDTO | PublicFolderDTO | undefined
   const folder = root && 'kind' in root && root.kind === 'folder' ? root : null
 
@@ -32,6 +42,100 @@ export function PublicView() {
       isLoading={isLoading}
       isError={isError || (!!root && !page)}
     />
+  )
+}
+
+type Gate = 'expired' | 'password'
+
+function gateOf(err: unknown): Gate | null {
+  if (!(err instanceof ApiError)) return null
+  if (err.code === 'SHARE_EXPIRED') return 'expired'
+  if (err.code === 'SHARE_PASSWORD_REQUIRED') return 'password'
+  return null
+}
+
+/** Standalone page frame with only the theme toggle (single pages and the gate screens). */
+function PublicFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative flex min-h-full flex-col bg-app">
+      <div className="pointer-events-none absolute right-3 top-3 z-10">
+        <div className="pointer-events-auto">
+          <ThemeToggle />
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function PublicGate({ token, gate }: { token: string; gate: Gate }) {
+  if (gate === 'expired') {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-24 text-center">
+        <img src="/icon.svg" alt="Inkling" className="h-10 w-10 opacity-60" />
+        <h1 className="text-lg font-semibold text-ink">{t('public.expiredTitle')}</h1>
+        <p className="max-w-xs text-sm text-sub">{t('public.expiredBody')}</p>
+      </div>
+    )
+  }
+  return <PublicPasswordForm token={token} />
+}
+
+function PublicPasswordForm({ token }: { token: string }) {
+  const unlock = useUnlockShare(token)
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!password || unlock.isPending) return
+    setError(null)
+    unlock.mutate(password, {
+      onError: (err) => {
+        const code = err instanceof ApiError ? err.code : ''
+        setError(
+          code === 'SHARE_PASSWORD_INVALID'
+            ? t('public.wrongPassword')
+            : code === 'RATE_LIMITED'
+              ? t('public.tooMany')
+              : t('public.unlockFailed'),
+        )
+        setPassword('')
+      },
+    })
+  }
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-6 py-24">
+      <form onSubmit={submit} className="flex w-full max-w-xs flex-col items-center gap-3 text-center">
+        <img src="/icon.svg" alt="Inkling" className="h-10 w-10 opacity-60" />
+        <h1 className="text-lg font-semibold text-ink">{t('public.lockedTitle')}</h1>
+        <p className="text-sm text-sub">{t('public.lockedBody')}</p>
+        <div className="mt-2 flex w-full items-center gap-2">
+          <input
+            type="password"
+            autoComplete="current-password"
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-label={t('public.passwordLabel')}
+            placeholder={t('public.passwordLabel')}
+            aria-invalid={!!error}
+            aria-describedby={error ? 'public-unlock-error' : undefined}
+            className="min-w-0 flex-1 rounded-md border border-line bg-app px-3 py-2 text-sm text-ink placeholder:text-sub/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          />
+          <button
+            type="submit"
+            disabled={!password || unlock.isPending}
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition duration-150 hover:opacity-90 active:scale-[.98] disabled:opacity-60"
+          >
+            {unlock.isPending && <Spinner size={14} className="border-white/40 border-t-white" />}
+            {t('public.unlock')}
+          </button>
+        </div>
+        <p id="public-unlock-error" role="alert" className="min-h-[1.25rem] text-xs text-red-600">
+          {error}
+        </p>
+      </form>
+    </div>
   )
 }
 
@@ -272,6 +376,9 @@ function PublicFolderView({
         <Spinner size={24} />
       </div>
     )
+  } else if (child.isError && gateOf(child.error)) {
+    // The link closed while browsing (password changed, expired): same screen as the root.
+    pane = <PublicGate token={token} gate={gateOf(child.error)!} />
   } else if (child.isError || !child.data) {
     pane = <PublicNotFound />
   } else {

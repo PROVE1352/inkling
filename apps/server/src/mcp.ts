@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import type { PageMetaDTO, PageProperty, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
+import type { PageMetaDTO, PageProperty, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
 import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
@@ -20,6 +20,7 @@ import { registerContextTools } from './mcpTools/contextTools'
 import { registerInstructionTools } from './mcpTools/instructionTools'
 import { registerCommentTools } from './mcpTools/commentTools'
 import { registerInboxTools } from './mcpTools/inboxTools'
+import { registerSplitTools } from './mcpTools/splitTools'
 import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
 import { cleanText, wrapUntrusted } from './mcpTools/trust'
@@ -507,14 +508,29 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId, markdown, mode }) => {
-      await call(ctx, 'POST', `/api/pages/${pageId}/content`, { json: { markdown, mode } })
-      const ac = await loadAgentContext(ctx, [pageId])
-      const large = largeLine(ac, pageId)
+      // A page that splits itself (docs/adr/1141-*) takes appends in its current subpage; the route
+      // also sends the owner the one-time "large page" notice.
+      const target =
+        mode === 'append'
+          ? ((await call(ctx, 'POST', `/api/pages/${pageId}/rotation/target`)).json() as RotationTargetDTO)
+          : null
+      const writeId = target?.pageId ?? pageId
+      await call(ctx, 'POST', `/api/pages/${writeId}/content`, { json: { markdown, mode } })
+      const ac = await loadAgentContext(ctx, [writeId])
+      const large = largeLine(ac, writeId)
+      const where =
+        target?.rotated
+          ? `Appended to the end of subpage "${cleanText(titleOf(target))}" (pageId=${target.pageId}), not to the page you addressed: ` +
+            (target.mode === 'month'
+              ? 'that page splits itself by month and new entries go to the current month\'s subpage.'
+              : 'that page splits itself by size and new entries go to its newest subpage.') +
+            (target.created ? ' The subpage was created by this call.' : '')
+          : null
       return text(
         withApplies(
           ac,
           (mode === 'append'
-            ? 'Appended to the end of the body.'
+            ? (where ?? 'Appended to the end of the body.')
             : 'Replaced the body (the previous content is saved as a version-history snapshot).') + (large ? `\n${large}` : ''),
         ),
       )
@@ -665,6 +681,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerInstructionTools(server, ctx)
   registerChangeTools(server, ctx)
   registerCollectionTools(server, ctx)
+  registerSplitTools(server, ctx)
   return server
 }
 

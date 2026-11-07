@@ -48,6 +48,8 @@ export const policyColumns = {
   trashRetentionDays: workspaces.trashRetentionDays,
   auditRetentionDays: workspaces.auditRetentionDays,
   reviewIntervalDays: workspaces.reviewIntervalDays,
+  shareDefaultExpiryDays: workspaces.shareDefaultExpiryDays,
+  sharePasswordRequired: workspaces.sharePasswordRequired,
 } as const
 
 export type WorkspacePolicy = WorkspaceSettingsDTO

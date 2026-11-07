@@ -15,8 +15,8 @@ export function Modal({
   onClose: () => void
   title?: string
   children: ReactNode
-  /** sm = forms (default); lg = galleries and two-pane dialogs. */
-  size?: 'sm' | 'lg'
+  /** sm = forms (default); md = forms with a list; lg = galleries and two-pane dialogs. */
+  size?: 'sm' | 'md' | 'lg'
 }) {
   const t = useT()
   useEffect(() => {
@@ -40,7 +40,7 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className={`nd-pop max-h-full w-full ${size === 'lg' ? 'max-w-3xl' : 'max-w-sm'} overflow-y-auto rounded-lg border border-line bg-app p-5 shadow-xl`}
+        className={`nd-pop max-h-full w-full ${size === 'lg' ? 'max-w-3xl' : size === 'md' ? 'max-w-lg' : 'max-w-sm'} overflow-y-auto rounded-lg border border-line bg-app p-5 shadow-xl`}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-ink">{title}</h2>

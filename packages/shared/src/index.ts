@@ -146,8 +146,23 @@ export interface SignupKeyDTO {
   usedBy: SignupKeyUseDTO[]
 }
 
-/** Account origin: local = Inkling's own account, delegated = mirror of an external auth server's delegated sign-in */
-export type UserOrigin = 'local' | 'delegated'
+/**
+ * Account origin: local = Inkling's own account, delegated = mirror of an external auth server's delegated
+ * sign-in, oidc = created by an OpenID Connect sign-in (docs/adr/1161-*). A local account linked to an
+ * OIDC identity stays local.
+ */
+export type UserOrigin = 'local' | 'delegated' | 'oidc'
+
+/** A sign-in method linked to the account (/auth/me `logins`, docs/adr/1161-*). */
+export interface LinkedLoginDTO {
+  provider: 'oidc'
+  /** OIDC_NAME for the configured provider, the issuer's host for an older one */
+  name: string
+  /** The email the provider reported at the last sign-in (display only) */
+  email: string | null
+  linkedAt: string
+  lastUsedAt: string | null
+}
 
 export interface AdminUserDTO {
   id: string
@@ -198,6 +213,8 @@ export interface AuthModeDTO {
   emailVerificationRequired: boolean
   /** Enabled experimental features (env EXPERIMENTAL_FEATURES), e.g. ['plugins'] */
   experimental?: string[]
+  /** OpenID Connect sign-in is configured: the button label (OIDC_NAME). Absent on older servers. */
+  oidc?: { name: string } | null
 }
 
 export const createWorkspaceSchema = z.object({
@@ -315,6 +332,8 @@ export interface UserDTO {
   emailVerified?: boolean
   /** /auth/me only, for admins: number of pending password reset requests */
   pendingResetRequests?: number
+  /** /auth/me only: sign-in methods linked to the account (OpenID Connect, docs/adr/1161-*) */
+  logins?: LinkedLoginDTO[]
 }
 
 /** owner > admin > member (docs/adr/0945-*). */
@@ -678,6 +697,8 @@ export type NotificationType =
   | 'approval_request'
   /** Reserved: the decision on an approval you asked for. */
   | 'approval_result'
+  /** A page you own grew large while something appended to it: split it or let it split itself (docs/adr/1141-*). */
+  | 'large_page'
 export interface NotificationDTO {
   id: string
   type: NotificationType
@@ -711,6 +732,14 @@ export interface ShareStatusDTO {
   token: string | null
   /** Folder shares only: number of subpages viewable via the current link (excluding private, trashed and the folder itself) */
   exposedCount?: number
+  /** When the link stops working (ISO, server clock), null = never (docs/adr/1170-*). */
+  expiresAt?: string | null
+  /** The link has expired: it answers "expired" until the expiry is extended or removed. */
+  expired?: boolean
+  /** Visitors must enter a password (docs/adr/1171-*). The password itself is never returned. */
+  hasPassword?: boolean
+  /** Workspace rules for new links (docs/adr/1172-*). */
+  policy?: import('./shareLinks').SharePolicyDTO
 }
 
 /** Public (unauthenticated) page response */
@@ -876,7 +905,9 @@ export * from './query'
 // Embeds, link previews, workspace webhooks
 export * from './embeds'
 export * from './workspaceAdmin'
+export * from './shareLinks'
 export * from './largePages'
+export * from './pageSplit'
 export * from './editLock'
 export * from './notifications'
 

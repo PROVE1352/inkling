@@ -25,7 +25,9 @@ import { badRequest } from '../errors'
 import { isExperimentalEnabled } from '../features'
 import { idParam } from '../helpers'
 import { pageColumns, toRowDTO, visibleTo } from '../pageDto'
-import { newAssignees, notifyTaskAssignments } from '../notify/producers'
+import { enqueueAssignments, newAssignees, taskAssignments } from '../notify/producers'
+import { outboxCommitted } from '../outbox'
+import type { OutboxTopic } from '../outbox'
 import { escapeLike } from '../util'
 import { requireCollectionPage } from './collections'
 import { nonMemberPersonIds } from '../collectionRelations'
@@ -167,6 +169,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
 
       // Real role for the edit-lock check (the public-folder rule is off for new rows either way).
       const role = (await roleForPage(id, user.id)) ?? 'member'
+      let queued: OutboxTopic[] = []
       const created = await db.transaction(async (tx) => {
         // The workspace tree lock serialises concurrent batch inserts into the same collection
         // (row cap + sortOrder) and keeps rows from landing under a collection that is being
@@ -201,18 +204,21 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           sortOrder: base + 1000 * (i + 1),
           createdBy: user.id,
         }))
-        return tx
+        const rows = await tx
           .insert(pages)
           .values(values)
           .returning({ ...pageColumns, props: pages.props })
+        // New rows created with people in person cells are assignments too (docs/adr/1000-*); the
+        // events commit with the rows (docs/adr/1150-*).
+        queued = await enqueueAssignments(
+          tx,
+          rows.flatMap((r) =>
+            taskAssignments({ workspaceId: page.workspaceId, rowId: r.id, actorId: user.id, via: user.via ?? null, changes: newAssignees(fieldList, {}, (r.props ?? {}) as Record<string, unknown>) }),
+          ),
+        )
+        return rows
       })
-      // New rows created with people in person cells are assignments too (docs/adr/1000-*).
-      for (const r of created) {
-        const changes = newAssignees(fieldList, {}, (r.props ?? {}) as Record<string, unknown>)
-        if (changes.length) {
-          notifyTaskAssignments({ workspaceId: page.workspaceId, rowId: r.id, actorId: user.id, via: user.via ?? null, changes })
-        }
-      }
+      outboxCommitted(queued)
       return {
         rows: created.map((r) => toRowDTO(r, (r.props ?? {}) as Record<string, unknown>)),
       }
@@ -249,29 +255,37 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
              WHERE id = ANY(${`{${payload.map((p) => p.id).join(',')}}`}::uuid[]) AND parent_id = ${id}
           `)) as unknown as { id: string; props: Record<string, unknown> | null }[])
         : []
-      const updated = (await db.execute(sql`
-        UPDATE pages SET
-          props = (pages.props || x.set) - x.del,
-          title = COALESCE(x.title, pages.title),
-          updated_at = now()
-        FROM jsonb_to_recordset(${json}::jsonb) AS x(id uuid, set jsonb, del text[], title text)
-        WHERE pages.id = x.id
-          AND pages.parent_id = ${id}
-          AND pages.deleted_at IS NULL
-          AND ${visibleTo(user.id)}
-        RETURNING pages.id
-      `)) as unknown as { id: string }[]
-      if (personTouched) {
+      const update = (exec: Pick<typeof db, 'execute'>) =>
+        exec.execute(sql`
+          UPDATE pages SET
+            props = (pages.props || x.set) - x.del,
+            title = COALESCE(x.title, pages.title),
+            updated_at = now()
+          FROM jsonb_to_recordset(${json}::jsonb) AS x(id uuid, set jsonb, del text[], title text)
+          WHERE pages.id = x.id
+            AND pages.parent_id = ${id}
+            AND pages.deleted_at IS NULL
+            AND ${visibleTo(user.id)}
+          RETURNING pages.id
+        `) as unknown as Promise<{ id: string }[]>
+      if (!personTouched) return { updated: (await update(db)).length }
+      // Assignments commit with the update (docs/adr/1150-*).
+      let queued: OutboxTopic[] = []
+      const updated = await db.transaction(async (tx) => {
+        const rows = await update(tx)
         const prevById = new Map(before.map((r) => [r.id, r.props ?? {}]))
-        const done = new Set(updated.map((r) => r.id))
-        for (const p of payload) {
-          if (!done.has(p.id)) continue
-          const changes = newAssignees(fieldList, prevById.get(p.id) ?? {}, p.set)
-          if (changes.length) {
-            notifyTaskAssignments({ workspaceId: page.workspaceId, rowId: p.id, actorId: user.id, via: user.via ?? null, changes })
-          }
-        }
-      }
+        const done = new Set(rows.map((r) => r.id))
+        queued = await enqueueAssignments(
+          tx,
+          payload
+            .filter((p) => done.has(p.id))
+            .flatMap((p) =>
+              taskAssignments({ workspaceId: page.workspaceId, rowId: p.id, actorId: user.id, via: user.via ?? null, changes: newAssignees(fieldList, prevById.get(p.id) ?? {}, p.set) }),
+            ),
+        )
+        return rows
+      })
+      outboxCommitted(queued)
       return { updated: updated.length }
     },
   )

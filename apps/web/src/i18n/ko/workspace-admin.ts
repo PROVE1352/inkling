@@ -67,7 +67,7 @@ export default {
   'wsTwoFactor.group': '보안',
   'wsTwoFactor.title': '2단계 인증 필수',
   'wsTwoFactor.desc':
-    '유예 기간이 지나면 2단계 인증을 켜지 않은 멤버는 이 워크스페이스를 열 수 없습니다. 그 멤버가 연결한 에이전트도 같이 막힙니다. 위임 로그인 계정은 해당 로그인 서비스의 2단계 인증을 따릅니다.',
+    '유예 기간이 지나면 2단계 인증을 켜지 않은 멤버는 이 워크스페이스를 열 수 없습니다. 그 멤버가 연결한 에이전트도 같이 막힙니다. 위임 로그인이나 통합 로그인(SSO)으로 들어오는 계정은 해당 로그인 서비스의 2단계 인증을 따릅니다.',
   'wsTwoFactor.unavailable': '이 서버에서는 쓸 수 없습니다. 관리자가 APP_SECRET_KEY를 설정해야 합니다.',
   'wsTwoFactor.selfFirst': '먼저 내 계정의 2단계 인증을 켜세요.',
   'wsTwoFactor.selfFirstLink': '설정 열기',

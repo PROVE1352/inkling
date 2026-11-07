@@ -36,7 +36,7 @@ import {
   type NewPageLocation,
 } from '../lib/prefs'
 import { setTheme, useTheme, type Theme } from '../lib/theme'
-import { ApiError, useAuthMode, useChangePassword, useMe, useResendVerification } from '../api'
+import { ApiError, useAuthMode, useChangePassword, useMe, useOidcLink, useResendVerification } from '../api'
 import { IcalSettings } from '../components/IcalSettings'
 import { TwoFactorSettings } from '../components/TwoFactorSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
@@ -45,7 +45,7 @@ import { VersionInfo } from '../components/VersionInfo'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { getLocale, useT, type TKey } from '../i18n'
-import { delegatedDisplayName } from './Login'
+import { delegatedDisplayName, oidcErrorText } from './Login'
 import { Group, Row, Select, SettingsFlat, Toggle } from '../components/SettingsRows'
 
 // Settings (/w/:wsId/settings): Obsidian-style, a list of sections on the left and the chosen section on
@@ -119,8 +119,13 @@ function AccountGroup() {
 
   const user = me.data
   if (!user) return null
-  const delegated = user.origin === 'delegated'
-  const delegatedName = delegatedDisplayName(mode.data?.delegatedName)
+  // Accounts whose password lives elsewhere: delegated sign-in, or created by OpenID Connect sign-in.
+  // Same rule for both: no password fields here, just where to go (docs/adr/1161-*).
+  const delegated = user.origin === 'delegated' || user.origin === 'oidc'
+  const delegatedName =
+    user.origin === 'oidc'
+      ? (mode.data?.oidc?.name ?? user.logins?.[0]?.name ?? 'SSO')
+      : delegatedDisplayName(mode.data?.delegatedName)
   const input =
     'w-full rounded-md border border-line bg-app px-2 py-1.5 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50'
 
@@ -222,7 +227,73 @@ function AccountGroup() {
           </div>
         </form>
       )}
+      <LinkedLogins />
     </Group>
+  )
+}
+
+/**
+ * Settings › Account › Sign-in methods: OpenID Connect identities linked to this account, and
+ * "Connect <name>" for a local account that has none yet (docs/adr/1161-*). There is no disconnect:
+ * an account created by the provider would be left without any way to sign in.
+ */
+function LinkedLogins() {
+  const t = useT()
+  const me = useMe()
+  const mode = useAuthMode()
+  const link = useOidcLink()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [error, setError] = useState<string | null>(null)
+  const oidcName = mode.data?.oidc?.name ?? null
+
+  // A failed connect comes back as ?oidc_error=CODE on this page: show it once, then drop it from the URL.
+  useEffect(() => {
+    const code = new URLSearchParams(location.search).get('oidc_error')
+    if (!code) return
+    setError(oidcErrorText(code, oidcName ?? 'SSO'))
+    const q = new URLSearchParams(location.search)
+    q.delete('oidc_error')
+    const rest = q.toString()
+    navigate({ pathname: location.pathname, search: rest ? `?${rest}` : '', hash: location.hash }, { replace: true })
+  }, [location.search, location.pathname, location.hash, navigate, oidcName])
+
+  const user = me.data
+  if (!user) return null
+  const logins = user.logins ?? []
+  const canConnect = !!oidcName && user.origin === 'local' && !logins.some((l) => l.name === oidcName)
+  if (logins.length === 0 && !canConnect) return null
+
+  const connect = () => {
+    setError(null)
+    link.mutate(`${location.pathname}${location.search}#account`, {
+      onSuccess: (r) => window.location.assign(r.url),
+      onError: (err) =>
+        setError(err instanceof ApiError ? oidcErrorText(err.code, oidcName ?? 'SSO') : t('oidc.error.unknown', { name: oidcName ?? 'SSO' })),
+    })
+  }
+
+  return (
+    <>
+      {logins.map((l) => (
+        <Row
+          key={`${l.name}:${l.linkedAt}`}
+          title={l.email ? `${l.name} · ${l.email}` : l.name}
+          desc={t('settings.loginLinked', { date: new Date(l.linkedAt).toLocaleDateString(getLocale()) })}
+        />
+      ))}
+      {canConnect && (
+        <Row
+          title={logins.length === 0 ? t('settings.logins') : t('settings.loginConnect', { name: oidcName })}
+          desc={error ?? (logins.length === 0 ? t('settings.loginConnectHint', { name: oidcName }) : undefined)}
+        >
+          <button type="button" className={btn} disabled={link.isPending} onClick={connect}>
+            {t('settings.loginConnect', { name: oidcName })}
+          </button>
+        </Row>
+      )}
+      {!canConnect && error && <Row title={t('settings.logins')} desc={error} />}
+    </>
   )
 }
 

@@ -171,6 +171,15 @@ export const UploadIcon = (p: IconProps) => (
   </Svg>
 )
 
+// A page cut into pieces: split into subpages (docs/adr/1140-*).
+export const SplitIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 10V4h8l4 4v2" />
+    <path d="M3 13.5h2M8 13.5h2M14 13.5h2M19 13.5h2" />
+    <path d="M6 17v3h12v-3" />
+  </Svg>
+)
+
 export const MoveIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />

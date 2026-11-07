@@ -319,6 +319,37 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 |---|---|---|
 | [1130](1130-settings-sections-and-flat-rows.md) | Personal settings: section list, flat rows, "This device" tags | Accepted |
 
+## 1140–1149 Large pages, part 3
+
+| ADR | Title | Status |
+|---|---|---|
+| [1140](1140-split-a-page-at-its-headings.md) | Split a page into subpages at its headings, on the live document | Accepted |
+| [1141](1141-logs-that-split-themselves-and-a-one-time-large-page-notice.md) | Logs that split themselves, and a one-time "large page" notice to the owner | Accepted |
+| [1142](1142-links-into-a-split-page.md) | Links into a split page: keep the page, move anchors with their blocks, resolve `[[Page#Heading]]` | Accepted |
+
+## 1150–1159 Events and the write gate
+
+| ADR | Title | Status |
+|---|---|---|
+| [1150](1150-events-in-the-writers-transaction.md) | Events in the writer's transaction, NOTIFY after the commit, batched notification consumer | Accepted |
+| [1151](1151-write-gate-on-comments-and-document-edits.md) | Write gate on comments and document edits; fresh role after waiting at the gate | Accepted |
+
+## 1160–1169 OpenID Connect
+
+| ADR | Title | Status |
+|---|---|---|
+| [1160](1160-openid-connect-sign-in.md) | Sign-in with an OpenID Connect provider: Authorization Code + PKCE, built-ins only | Accepted |
+| [1161](1161-oidc-identities-linking-and-account-creation.md) | OIDC identities keyed by (issuer, subject); email linking only when verified and allowed; no signup key | Accepted |
+| [1162](1162-oidc-and-two-step-verification.md) | OIDC accounts and two-step verification: the provider's second factor, optionally proven by amr/acr | Accepted |
+
+## 1170–1179 Public links
+
+| ADR | Title | Status |
+|---|---|---|
+| [1170](1170-public-link-expiry.md) | Public links can expire | Accepted |
+| [1171](1171-public-link-passwords.md) | Public links can have a password; unlock cookies per link | Accepted |
+| [1172](1172-workspace-rules-for-new-public-links.md) | Workspace rules for new public links: default expiry, password required | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

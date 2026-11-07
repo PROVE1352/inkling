@@ -4,7 +4,7 @@ import { broadcastToUser } from '../collab'
 import { db } from '../db/index'
 import { mailEnabled } from '../env'
 import { drainOutbox, enqueue, failRow, ownedOrOrphaned, registerOutboxHandler } from '../outbox'
-import type { Exec, RetryPolicy } from '../outbox'
+import type { Exec, OutboxRow, RetryPolicy } from '../outbox'
 import { liveWorkspace } from '../workspaceLive'
 import { decide, KINDS } from './kinds'
 import type { NotifyKind, Reason } from './kinds'
@@ -81,16 +81,31 @@ export function notify(input: NotifyInput): void {
   void p.finally(() => inserting.delete(p))
 }
 
-/** Queue an event in the caller's transaction (kicks the consumer itself when `exec` is `db`). */
-export async function enqueueNotify(exec: Exec, input: NotifyInput, origin?: string | null): Promise<void> {
-  if (input.recipients.length === 0 && !input.followers) return
+/**
+ * The outbox row of an event (null when it reaches nobody), for producers that queue it in their own
+ * statement (`outboxInsertSql`, docs/adr/1150-*). Payloads are bounded here.
+ */
+export function notifyOutboxRow(input: NotifyInput, origin?: string | null): OutboxRow | null {
+  if (input.recipients.length === 0 && !input.followers) return null
   const payload: NotifyInput = {
     ...input,
     recipients: input.recipients.slice(0, MAX_RECIPIENTS),
     excerpt: input.excerpt ? input.excerpt.slice(0, EXCERPT_STORED) : (input.excerpt ?? null),
   }
-  await enqueue(exec, [{ topic: 'notify', workspaceId: input.workspaceId, payload, origin }])
+  return { topic: 'notify', workspaceId: input.workspaceId, payload, origin }
 }
+
+/**
+ * Queue an event in the caller's transaction (kicks the consumer itself when `exec` is `db`;
+ * otherwise call `outboxCommitted(['notify'])` after the commit).
+ */
+export async function enqueueNotify(exec: Exec, input: NotifyInput, origin?: string | null): Promise<void> {
+  const row = notifyOutboxRow(input, origin)
+  if (row) await enqueue(exec, [row])
+}
+
+/** Consumer passes and events of the fast path (diagnostics, benchmarks). */
+export const notifyStats = { passes: 0, events: 0 }
 
 /** Fault injection for the crash tests: runs after a batch's writes, before its commit. */
 export const notifyTestHooks: { beforeCommit?: () => void | Promise<void> } = {}
@@ -131,7 +146,13 @@ async function notifyPass(isolate: boolean): Promise<number> {
       .sort((a, b) => Number(a.id) - Number(b.id))
     if (rows.length === 0) return 0
     if (!isolate) {
-      for (const r of rows) written.push(...(await resolveAndWrite(r.payload, tx)).written)
+      // Batched (docs/adr/1150-*): one statement for the subscription levels of every event, one for
+      // visibility, mail settings and hourly counts of every recipient, then one INSERT per event.
+      const planned = await planEvents(rows.map((r) => r.payload), tx)
+      const info = await lookupRecipients(tx, planned)
+      for (const p of planned) written.push(...(await writePlanned(p, info, tx)).written)
+      notifyStats.passes++
+      notifyStats.events += rows.length
       await notifyTestHooks.beforeCommit?.()
       return rows.length
     }
@@ -198,80 +219,12 @@ function groupKeyOf(kind: NotifyKind, ev: NotifyInput): string | null {
   }
 }
 
-const uuidArray = (ids: string[]) => sql`${`{${ids.join(',')}}`}::uuid[]`
-
-/** Nearest subscription level per user for a page (or the workspace), plus everyone at 'all'. */
-async function levelsFor(
-  exec: Exec,
-  workspaceId: string,
-  pageId: string | null,
-  targets: string[],
-  wantFollowers: boolean,
-): Promise<Map<string, NotificationLevel>> {
-  const rows = (pageId
-    ? await exec.execute(sql`
-        WITH RECURSIVE up AS (
-          SELECT id, parent_id, 0 AS depth FROM pages WHERE id = ${pageId}
-          UNION ALL
-          SELECT p.id, p.parent_id, up.depth + 1 FROM pages p JOIN up ON p.id = up.parent_id WHERE up.depth < 64
-        ), cover AS (
-          SELECT np.user_id, np.level, CASE WHEN np.root_page_id IS NULL THEN 100000 ELSE up.depth END AS d
-            FROM notification_prefs np LEFT JOIN up ON up.id = np.root_page_id
-           WHERE np.workspace_id = ${workspaceId}
-             AND (np.root_page_id IS NULL OR (up.id IS NOT NULL AND (up.depth = 0 OR np.subtree)))
-             AND (np.user_id = ANY(${uuidArray(targets)}) OR ${wantFollowers})
-        )
-        SELECT DISTINCT ON (user_id) user_id AS "userId", level FROM cover ORDER BY user_id, d
-      `)
-    : await exec.execute(sql`
-        SELECT user_id AS "userId", level FROM notification_prefs
-         WHERE workspace_id = ${workspaceId} AND root_page_id IS NULL AND user_id = ANY(${uuidArray(targets)})
-      `)) as unknown as { userId: string; level: NotificationLevel }[]
-  return new Map(rows.map((r) => [r.userId, r.level]))
-}
-
-/** Of `ids`, the members of the workspace that can see the page now (live page, live workspace). */
-async function visibleRecipients(exec: Exec, workspaceId: string, pageId: string | null, ids: string[]): Promise<Set<string>> {
-  if (!ids.length) return new Set()
-  const rows = (pageId
-    ? await exec.execute(sql`
-        SELECT m.user_id AS "userId" FROM workspace_members m JOIN pages p ON p.id = ${pageId}
-         WHERE m.workspace_id = ${workspaceId} AND m.user_id = ANY(${uuidArray(ids)})
-           AND p.workspace_id = ${workspaceId} AND p.deleted_at IS NULL
-           AND (p.scope = 'shared' OR p.created_by = m.user_id)
-           AND ${liveWorkspace(sql`m.workspace_id`)}
-      `)
-    : await exec.execute(sql`
-        SELECT m.user_id AS "userId" FROM workspace_members m
-         WHERE m.workspace_id = ${workspaceId} AND m.user_id = ANY(${uuidArray(ids)})
-           AND ${liveWorkspace(sql`m.workspace_id`)}
-      `)) as unknown as { userId: string }[]
-  return new Set(rows.map((r) => r.userId))
-}
-
 interface Settings {
   emailInstant: boolean
   emailDigest: 'off' | 'daily' | 'weekly'
 }
 
-async function settingsFor(exec: Exec, ids: string[]): Promise<Map<string, Settings>> {
-  const rows = (await exec.execute(sql`
-    SELECT user_id AS "userId", email_instant AS "emailInstant", email_digest AS "emailDigest"
-      FROM user_notification_settings WHERE user_id = ANY(${uuidArray(ids)})
-  `)) as unknown as ({ userId: string } & Settings)[]
-  return new Map(rows.map((r) => [r.userId, { emailInstant: r.emailInstant, emailDigest: r.emailDigest }]))
-}
-
 export const DEFAULT_SETTINGS: Settings = { emailInstant: true, emailDigest: 'daily' }
-
-async function hourlyCounts(exec: Exec, ids: string[]): Promise<Map<string, number>> {
-  const rows = (await exec.execute(sql`
-    SELECT user_id AS "userId", count(*)::int AS n FROM notifications
-     WHERE user_id = ANY(${uuidArray(ids)}) AND created_at > now() - interval '1 hour'
-     GROUP BY user_id
-  `)) as unknown as { userId: string; n: number }[]
-  return new Map(rows.map((r) => [r.userId, r.n]))
-}
 
 export interface ProcessResult {
   /** userId → delivery of the row written (inserted or collapsed). */
@@ -300,49 +253,157 @@ export async function processEvent(ev: NotifyInput): Promise<ProcessResult> {
 
 /** Resolve one event and write its rows with `exec`; side effects are the caller's (after commit). */
 async function resolveAndWrite(ev: NotifyInput, exec: Exec): Promise<ProcessResult & { written: Written[] }> {
-  const delivered: ProcessResult['delivered'] = new Map()
-  const written: Written[] = []
-  const excluded = new Set([...(ev.exclude ?? []), ...(ev.actorId ? [ev.actorId] : [])])
+  const planned = await planEvents([ev], exec)
+  return writePlanned(planned[0], await lookupRecipients(exec, planned), exec)
+}
 
-  // One kind per person: the highest priority wins (a mention beats a reply beats a comment).
-  const wanted = new Map<string, { kind: NotifyKind; reason: Reason }>()
-  const offer = (userId: string, kind: NotifyKind, reason: Reason) => {
-    if (excluded.has(userId)) return
-    const cur = wanted.get(userId)
-    if (!cur || KINDS[kind].priority > KINDS[cur.kind].priority) wanted.set(userId, { kind, reason })
-  }
-  for (const r of ev.recipients.slice(0, MAX_RECIPIENTS)) offer(r.userId, r.kind, r.reason)
+/** One event with the people it may reach (one kind per person) and their subscription levels. */
+interface Planned {
+  i: number
+  ev: NotifyInput
+  wanted: Map<string, { kind: NotifyKind; reason: Reason }>
+  levels: Map<string, NotificationLevel>
+}
 
-  const targets = [...wanted.keys()]
-  const levels = await levelsFor(exec, ev.workspaceId, ev.pageId, targets, !!ev.followers)
-  if (ev.followers) {
+/**
+ * Recipients and nearest subscription level of each event: ONE statement for all events (per page,
+ * the nearest of the page's own, an ancestor's subtree and the workspace-wide preference; plus everyone
+ * at 'all' when the event reaches followers). Never the actor or anyone in `exclude`; the highest
+ * priority kind wins per person (a mention beats a reply beats a comment).
+ */
+async function planEvents(evs: NotifyInput[], exec: Exec): Promise<Planned[]> {
+  const planned: Planned[] = evs.map((ev, i) => {
+    const excluded = new Set([...(ev.exclude ?? []), ...(ev.actorId ? [ev.actorId] : [])])
+    const wanted: Planned['wanted'] = new Map()
+    for (const r of ev.recipients.slice(0, MAX_RECIPIENTS)) offer(wanted, excluded, r.userId, r.kind, r.reason)
+    return { i, ev, wanted, levels: new Map() }
+  })
+  const q = planned.map((p) => ({
+    i: p.i,
+    ws: p.ev.workspaceId,
+    page: p.ev.pageId,
+    followers: !!p.ev.followers,
+    targets: [...p.wanted.keys()],
+  }))
+  const rows = (await exec.execute(sql`
+    WITH RECURSIVE ev AS (
+      SELECT * FROM jsonb_to_recordset(${JSON.stringify(q)}::jsonb) AS x(i int, ws uuid, page uuid, followers boolean, targets uuid[])
+    ), up AS (
+      -- LATERAL … LIMIT 1 keeps every step an index lookup by id (a plain join, or a LATERAL the
+      -- planner flattens, is hashed against all pages: the function's row estimate is 100).
+      SELECT ev.i, p.id, p.parent_id, 0 AS depth FROM ev, LATERAL (SELECT id, parent_id FROM pages WHERE id = ev.page LIMIT 1) p
+      UNION ALL
+      SELECT up.i, p.id, p.parent_id, up.depth + 1
+        FROM up, LATERAL (SELECT id, parent_id FROM pages WHERE id = up.parent_id LIMIT 1) p
+       WHERE up.depth < 64
+    ), cover AS (
+      SELECT ev.i, np.user_id, np.level, CASE WHEN np.root_page_id IS NULL THEN 100000 ELSE up.depth END AS d
+        FROM ev
+        JOIN notification_prefs np ON np.workspace_id = ev.ws
+        LEFT JOIN up ON up.i = ev.i AND up.id = np.root_page_id
+       WHERE (np.root_page_id IS NULL OR (ev.page IS NOT NULL AND up.id IS NOT NULL AND (up.depth = 0 OR np.subtree)))
+         AND (np.user_id = ANY(ev.targets) OR (ev.followers AND ev.page IS NOT NULL))
+    )
+    SELECT DISTINCT ON (i, user_id) i, user_id AS "userId", level FROM cover ORDER BY i, user_id, d
+  `)) as unknown as { i: number; userId: string; level: NotificationLevel }[]
+  for (const r of rows) planned[r.i].levels.set(r.userId, r.level)
+  for (const p of planned) {
+    if (!p.ev.followers) continue
+    const excluded = new Set([...(p.ev.exclude ?? []), ...(p.ev.actorId ? [p.ev.actorId] : [])])
     let n = 0
-    for (const [userId, level] of levels) {
-      if (level !== 'all' || wanted.has(userId)) continue
+    for (const [userId, level] of p.levels) {
+      if (level !== 'all' || p.wanted.has(userId)) continue
       if (++n > MAX_RECIPIENTS) break
-      offer(userId, ev.followers, 'activity')
+      offer(p.wanted, excluded, userId, p.ev.followers, 'activity')
     }
   }
-  if (wanted.size === 0) return { delivered, written }
+  return planned
+}
 
-  const ids = [...wanted.keys()]
-  const [visible, settings, counts] = await Promise.all([
-    visibleRecipients(exec, ev.workspaceId, ev.pageId, ids),
-    settingsFor(exec, ids),
-    hourlyCounts(exec, ids),
-  ])
+function offer(
+  wanted: Planned['wanted'],
+  excluded: Set<string>,
+  userId: string,
+  kind: NotifyKind,
+  reason: Reason,
+): void {
+  if (excluded.has(userId)) return
+  const cur = wanted.get(userId)
+  if (!cur || KINDS[kind].priority > KINDS[cur.kind].priority) wanted.set(userId, { kind, reason })
+}
+
+/** Per event: who can see the page now; per person: mail settings and rows of the last hour. */
+interface Lookup {
+  visible: Map<number, Set<string>>
+  settings: Map<string, Settings>
+  /** Rows of the last hour per person, raised as this pass inserts rows (the hourly cap). */
+  counts: Map<string, number>
+}
+
+/**
+ * ONE statement for every recipient of every planned event: member of the workspace and can see the
+ * page now (live page, live workspace, private pages only for their author), mail settings, and
+ * notifications created in the last hour.
+ */
+async function lookupRecipients(exec: Exec, planned: Planned[]): Promise<Lookup> {
+  const out: Lookup = { visible: new Map(), settings: new Map(), counts: new Map() }
+  const q = planned.flatMap((p) => [...p.wanted.keys()].map((uid) => ({ i: p.i, ws: p.ev.workspaceId, page: p.ev.pageId, uid })))
+  if (!q.length) return out
+  const rows = (await exec.execute(sql`
+    SELECT q.i, q.uid AS "userId",
+           (m.ok IS NOT NULL AND ${liveWorkspace(sql`q.ws`)}
+             AND (q.page IS NULL OR (p.id IS NOT NULL AND p.workspace_id = q.ws AND p.deleted_at IS NULL
+                                     AND (p.scope = 'shared' OR p.created_by = q.uid)))) AS visible,
+           s.email_instant AS "emailInstant", s.email_digest AS "emailDigest", c.n
+      FROM jsonb_to_recordset(${JSON.stringify(q)}::jsonb) AS q(i int, ws uuid, page uuid, uid uuid)
+      -- LATERAL … LIMIT 1 (not flattened): index lookups per recipient, never a scan of pages.
+      LEFT JOIN LATERAL (SELECT 1 AS ok FROM workspace_members WHERE workspace_id = q.ws AND user_id = q.uid LIMIT 1) m ON true
+      LEFT JOIN LATERAL (SELECT id, workspace_id, deleted_at, scope, created_by FROM pages WHERE id = q.page LIMIT 1) p ON true
+      LEFT JOIN LATERAL (SELECT email_instant, email_digest FROM user_notification_settings WHERE user_id = q.uid LIMIT 1) s ON true
+      CROSS JOIN LATERAL (
+        SELECT count(*)::int AS n FROM notifications WHERE user_id = q.uid AND created_at > now() - interval '1 hour'
+      ) c
+  `)) as unknown as {
+    i: number
+    userId: string
+    visible: boolean
+    emailInstant: boolean | null
+    emailDigest: Settings['emailDigest'] | null
+    n: number
+  }[]
+  for (const r of rows) {
+    if (r.visible) {
+      const set = out.visible.get(r.i) ?? new Set<string>()
+      set.add(r.userId)
+      out.visible.set(r.i, set)
+    }
+    if (r.emailInstant !== null && r.emailDigest !== null) {
+      out.settings.set(r.userId, { emailInstant: r.emailInstant, emailDigest: r.emailDigest })
+    }
+    out.counts.set(r.userId, Number(r.n))
+  }
+  return out
+}
+
+/** Write the rows of one planned event (collapsing into unread rows of the same group). */
+async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<ProcessResult & { written: Written[] }> {
+  const delivered: ProcessResult['delivered'] = new Map()
+  const written: Written[] = []
+  const ev = p.ev
+  if (p.wanted.size === 0) return { delivered, written }
+  const visible = look.visible.get(p.i) ?? new Set<string>()
   const agent = !!ev.via
   const rows: Record<string, unknown>[] = []
-  for (const [userId, w] of wanted) {
+  for (const [userId, w] of p.wanted) {
     if (!visible.has(userId)) continue
-    const level = levels.get(userId) ?? 'mentions'
+    const level = p.levels.get(userId) ?? 'mentions'
     const d = decide(w.kind, w.reason, level, agent)
     if (!d.deliver) continue
     const spec = KINDS[w.kind]
-    const recent = counts.get(userId) ?? 0
+    const recent = look.counts.get(userId) ?? 0
     if (recent >= HARD_CAP_PER_HOUR && !spec.bypassMute) continue
     const delivery = recent >= SOFT_CAP_PER_HOUR && !spec.bypassMute ? 'quiet' : d.delivery
-    const s = settings.get(userId) ?? DEFAULT_SETTINGS
+    const s = look.settings.get(userId) ?? DEFAULT_SETTINGS
     // Mail: direct items right away when allowed; the rest waits for the digest; "nothing" never mails.
     let mailState: 'instant' | 'digest' | null = null
     if (mailEnabled && level !== 'nothing') {
@@ -388,12 +449,14 @@ async function resolveAndWrite(ev: NotifyInput, exec: Exec): Promise<ProcessResu
         WHEN EXCLUDED.mail_state = 'digest' OR notifications.mail_state = 'digest' THEN 'digest'
         ELSE notifications.mail_state END,
       acked_at = NULL
-    RETURNING user_id AS "userId", type, delivery, mail_state AS "mailState"
-  `)) as unknown as { userId: string; type: NotifyKind; delivery: 'now' | 'quiet'; mailState: string | null }[]
+    RETURNING user_id AS "userId", type, delivery, mail_state AS "mailState", (xmax = 0) AS inserted
+  `)) as unknown as { userId: string; type: NotifyKind; delivery: 'now' | 'quiet'; mailState: string | null; inserted: boolean }[]
 
   for (const r of out) {
     delivered.set(r.userId, { kind: r.type, delivery: r.delivery })
     written.push({ userId: r.userId, mailState: r.mailState })
+    // A new row counts toward the hourly cap of later events in this pass (a collapse adds none).
+    if (r.inserted) look.counts.set(r.userId, (look.counts.get(r.userId) ?? 0) + 1)
   }
   return { delivered, written }
 }

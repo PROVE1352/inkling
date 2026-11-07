@@ -30,6 +30,8 @@ import { registerMcpRoutes } from './mcp'
 import { registerAdminRoutes } from './routes/admin'
 import { registerAuthRoutes } from './routes/auth'
 import { registerTwoFactorRoutes } from './routes/twoFactor'
+import { registerOidcRoutes } from './routes/oidc'
+import { assertOidcConfig } from './oidc'
 import { registerBookmarkRoutes } from './routes/bookmarks'
 import { registerCollectionRoutes } from './routes/collections'
 import { registerIcalApiRoutes, registerIcalFeedRoute } from './routes/ical'
@@ -52,6 +54,7 @@ import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
 import { registerSnapshotRoutes } from './routes/snapshots'
 import { registerLargePageRoutes } from './routes/largePages'
+import { registerSplitPageRoutes } from './routes/splitPage'
 import { registerTemplateRoutes } from './routes/templates'
 import { registerWorkspaceRoutes } from './routes/workspaces'
 import { registerGraphRoutes } from './routes/graph'
@@ -187,6 +190,8 @@ async function main(): Promise<void> {
   // 0) Configuration that must not silently fall back to request headers (C-M1).
   assertOriginConfigured()
   assertSecretKeyConfig()
+  //    OpenID Connect sign-in (docs/adr/1160-*): a half-filled set or no PUBLIC_URL refuses to boot.
+  for (const w of assertOidcConfig()) console.warn(`[inkling] ${w}`)
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
@@ -428,6 +433,8 @@ async function main(): Promise<void> {
       await registerAuthRoutes(api)
       // Two-step verification settings (docs/adr/1061-*)
       await registerTwoFactorRoutes(api)
+      // Sign-in with an OpenID Connect provider (docs/adr/1160-*)
+      await registerOidcRoutes(api)
       await registerAdminRoutes(api)
       await registerWorkspaceRoutes(api)
       // Link islands and unlinked pages beside the graph (docs/adr/1123-*)
@@ -444,6 +451,7 @@ async function main(): Promise<void> {
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)
+      await registerSplitPageRoutes(api)
       await registerInkRoutes(api)
       await registerTemplateRoutes(api)
       await registerCollectionRoutes(api)

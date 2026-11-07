@@ -7,6 +7,55 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-07
+
+Database migration 0036 (sign-in identities, log rotation, public-link expiry and passwords) only adds tables and
+columns. Take a backup before upgrading as usual. If you never set `POSTGRES_PASSWORD`, read the first Security item
+before you pull the new `compose.yaml`.
+
+### Added
+- Sign-in with an OpenID Connect provider (Google Workspace, Microsoft Entra ID, Keycloak, Authentik, …): "Sign in
+  with <OIDC_NAME>" on the login screen. Authorization Code + PKCE, the id_token is checked against the provider's keys
+  (fixed algorithm, iss/aud/azp/exp/nonce), no new dependency. Set `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+  `OIDC_CLIENT_SECRET` and register `<PUBLIC_URL>/api/auth/oidc/callback` (deploy/DEPLOY.md "3-G"). Accounts are
+  matched by issuer and subject; an existing account is linked by email only with `OIDC_LINK_EXISTING=1` and a
+  provider-verified email, never for admins. Settings → Account lists connected sign-ins and can connect the provider
+  to a local account. `OIDC_REQUIRE_MFA` refuses sign-ins that show no second factor (`amr`/`acr`). Accounts created
+  by the provider count as verified for workspaces that require two-step verification (docs/adr/1160-*, 1161-*, 1162-*).
+- Split a long page into subpages at its headings: page ⋯ → "Split into subpages…", MCP `split_page` (`dry_run`
+  first). Block ids, comment threads and links into the page keep working, people with the page open see it change in
+  place, and the version before the split stays in history. `[[Page#Heading]]` now links to the subpage made from that
+  section, else to the page (docs/adr/1140-*, 1142-*).
+- "New entries" setting for logs: appends through MCP `update_page` go to one subpage per month or to a new subpage
+  past a size, and the tool says where it wrote. The owner of a large page gets one notification when something keeps
+  appending to it (docs/adr/1141-*).
+- Public links can expire (1/7/30 days or a date, by the server clock) and can have a password. Expired links answer
+  "This link has expired" on every public route including folder subpages and files; owners can extend or remove the
+  expiry. A password is asked once per link (12-hour cookie for that link only); changing it signs every visitor out;
+  wrong guesses are slowed per link and ban the guessing IP, and every answer takes the same time. Protected and
+  expired links show nothing in link previews and are marked noindex (docs/adr/1170-*, 1171-*).
+- Workspace settings → Public links: a default expiry for new links and "Require a password on public links"
+  (existing links are not changed) (docs/adr/1172-*). Audit log: `share.expiry_changed`, `share.password_set`,
+  `share.password_changed`, `share.password_removed`.
+
+### Changed
+- Notification, webhook and change-feed events of comments, page create/rename/move/trash/restore/duplicate, row
+  assignees and owner changes are written in the same transaction as the change. If the event cannot be written the
+  change fails too, so nothing is saved without its event (docs/adr/1150-*).
+
+### Fixed
+- Comment create/edit, `update_page` and `patch_section` that start while a lock change, an agent block or a member
+  removal is in progress wait for it and are judged by the result. A page edit by a member being removed that waited
+  at the gate no longer gets through (docs/adr/1151-*).
+
+### Performance
+- 16 concurrent comment posts: p50 20.6–24.2 → 17.0–17.8 ms, 605–741 → 839–885 req/s; notifications are processed in
+  batches and the queue drains 296–358 → 43–47 ms after the last request (docs/adr/1150-*).
+- Splitting the 4.5 MB log leaves a 105 KB page (−97.7%) in 0.5–0.7 s. Appending to a monthly log instead of the large
+  page: p50 538–611 → 29–39 ms, event-loop stall 354 → 8–15 ms.
+- Regressions: `update_page` append +3–4% (write gate transaction and the rotation lookup, +3–4 ms).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ### Security
 - `POSTGRES_PASSWORD` no longer falls back to `nodian`: `compose.yaml` refuses to start without it. If you never set
   it, put `POSTGRES_PASSWORD=nodian` in `.env` to keep the existing volume working, then change the role's password

@@ -6,7 +6,7 @@ import type { AnyBlock } from '../md/convert'
 import { stateToBlocks } from '../md/convert'
 import { blocksToPlainText, reindexPageText, TEXT_CUT_MARK } from '../md/textIndex'
 import { bumpIndexEpoch } from '../versions'
-import { kickOutbox } from '../outbox'
+import { outboxCommitted } from '../outbox'
 import { recordSectionChanges } from './changeLog'
 import type { PageSectionDelta, SectionState } from './changeLog'
 import type { Chunk } from './chunker'
@@ -219,7 +219,7 @@ export async function reindexPageChunks(
         }
       }
     })
-    if (delta) kickOutbox('change')
+    if (delta) outboxCommitted(['change'])
     // First detection per page and rule goes to the audit log (docs/adr/0977-*); best effort.
     const flagged = [...new Set(chunks.flatMap((c) => c.suspicious))]
     if (flagged.length) await auditSuspicious(pageId, page.workspaceId, flagged, chunks)

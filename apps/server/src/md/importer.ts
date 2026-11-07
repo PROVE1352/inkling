@@ -92,7 +92,7 @@ export async function buildTitleResolver(
   // Without visibleTo, [[Someone's private page]] resolved to its id and leaked its existence.
   const [wsRows, formerMap] = await Promise.all([
     db
-      .select({ id: pages.id, title: pages.title, aliases: pages.aliases })
+      .select({ id: pages.id, title: pages.title, aliases: pages.aliases, parentId: pages.parentId })
       .from(pages)
       .where(and(eq(pages.workspaceId, workspaceId), isNull(pages.deletedAt), visibleTo(userId)))
       .orderBy(asc(pages.updatedAt)), // asc → the last (newest) one stays in the map
@@ -100,8 +100,11 @@ export async function buildTitleResolver(
   ])
   const titleMap = new Map<string, string>()
   const aliasMap = new Map<string, string>()
+  // `[[Page#Heading]]`: a subpage of Page titled Heading (what a split leaves, docs/adr/1140-*).
+  const childMap = new Map<string, string>()
   for (const r of wsRows) {
     if (r.title) titleMap.set(r.title.toLowerCase(), r.id)
+    if (r.title && r.parentId) childMap.set(`${r.parentId}\u0000${r.title.toLowerCase()}`, r.id)
     if (Array.isArray(r.aliases)) {
       for (const a of r.aliases as unknown[]) {
         if (typeof a !== 'string') continue
@@ -110,9 +113,16 @@ export async function buildTitleResolver(
       }
     }
   }
+  const lookup = (key: string) => batchMap.get(key) ?? titleMap.get(key) ?? aliasMap.get(key) ?? formerMap.get(key)
   return (title: string) => {
     const key = title.toLowerCase()
-    const pid = batchMap.get(key) ?? titleMap.get(key) ?? aliasMap.get(key) ?? formerMap.get(key)
+    let pid = lookup(key)
+    // `[[Page#Heading]]` → the subpage made from that section after a split, else the page itself.
+    const hash = key.indexOf('#')
+    if (!pid && hash > 0) {
+      const base = lookup(key.slice(0, hash).trim())
+      if (base) pid = childMap.get(`${base}\u0000${key.slice(hash + 1).trim()}`) ?? base
+    }
     return pid ? `/w/${workspaceId}/p/${pid}` : null
   }
 }

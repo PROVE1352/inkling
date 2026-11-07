@@ -5,6 +5,7 @@ import { copyText } from '../lib/clipboard'
 import { Modal } from './Modal'
 import { Spinner } from './Spinner'
 import { CopyIcon, LinkIcon, LockIcon } from './Icons'
+import { LinkSettings, usePublishOptions } from './ShareLinkOptions'
 import { useT } from '../i18n'
 
 // Public link = /s/<token> on the current origin. Uses location.origin as is so it also works
@@ -43,6 +44,8 @@ export function ShareModal({
 
   const token = status.data?.token ?? null
   const shared = !!status.data?.shared && !!token
+  // Expiry and password picked before publishing (docs/adr/1170-*, 1171-*); defaults from the workspace rules.
+  const options = usePublishOptions(status.data?.policy)
   // Folder sharing publishes every page below it (except private/trashed), so show the scope and
   // the current number of exposed pages.
   const exposedCount = status.data?.exposedCount
@@ -62,7 +65,9 @@ export function ShareModal({
 
   const doShare = () => {
     setError(null)
-    share.mutate(undefined, {
+    if (!options.body) return
+    share.mutate(options.body, {
+      onSuccess: () => options.reset(),
       onError: (err) =>
         setError(err instanceof ApiError ? err.message : t('share.shareFailed')),
     })
@@ -139,6 +144,7 @@ export function ShareModal({
               {t('share.openNewTab')}
             </a>
           </div>
+          <LinkSettings pageId={page.id} status={status.data!} canManage={isOwner} />
           {isOwner ? (
             <button
               type="button"
@@ -162,10 +168,11 @@ export function ShareModal({
             {t(isFolder ? 'share.publishHintFolder' : 'share.publishHintPage')}
           </p>
           {folderNotice}
+          {canPublish && options.view}
           <button
             type="button"
             onClick={doShare}
-            disabled={!canPublish || busy}
+            disabled={!canPublish || busy || !options.body}
             title={!canPublish ? t(isOwner ? 'share.publishDisabled' : 'share.publishOwnerOnly') : undefined}
             className="flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
           >

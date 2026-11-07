@@ -57,7 +57,8 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   `large page: …` line for pages with ≥ 1 MiB of state or ≥ 50k indexed tokens. Outline/section reads answer from
   `page_chunks` only while the docIndexer's freshness record matches the stored or unchanged live state
   (`context/sectionSource.ts`); a new writer of `page_docs` must go through the store hook (or call
-  `forgetDocIndex`) so that record stays truthful. Agent loops that keep a log should write child pages.
+  `forgetDocIndex`) so that record stays truthful. Agent loops that keep a log should write child pages;
+  `split_page` and the per-page "New entries" rotation do it for existing logs ([ADR 1140–1142](docs/adr/1140-split-a-page-at-its-headings.md)).
 - Agent usage guide: [docs/MCP.md](docs/MCP.md).
 - **Edit lock** ([ADR 0970](docs/adr/0970-subtree-edit-lock.md), [0971](docs/adr/0971-lock-evaluation-order-people-and-agents.md)):
   every new write path must call `assertCan`/`assertPageEditable` (`editLock.ts`) after the membership check, and

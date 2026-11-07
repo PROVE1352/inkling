@@ -18,6 +18,7 @@ lists both.
 - [Connecting your AI (MCP)](#connecting-your-ai-mcp)
 - [Importing from Notion](#importing-from-notion)
 - [Export](#export)
+- [Long pages: split into subpages](#long-pages-split-into-subpages)
 - [Trash and version history](#trash-and-version-history)
 - [Settings and the sidebar](#settings-and-the-sidebar)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -206,6 +207,28 @@ Only workspace owners and admins can publish or stop sharing.
 **Web shares** in the sidebar lists everything published in the workspace. Private pages and canvases can't be
 shared. Owners can turn public links off for the whole workspace in Workspace settings → **Public links**.
 
+### Expiry and password
+
+Before you click **Publish to web**, the same dialog lets you choose:
+
+- **Expires**: **Never**, in 1, 7 or 30 days, or **On a date…** (the link works until the end of that day).
+  The server's clock decides, not the visitor's. After that, visitors see "This link has expired" and
+  nothing about the page.
+- **Require a password** (4 characters or more). Visitors enter it once per link and are not asked again
+  for 12 hours. Send it separately from the link. Repeated wrong guesses slow down further tries on that
+  link and block the IP address that keeps guessing. A password-protected link shows no title or text in
+  chat previews and is kept out of search engines.
+
+For a link that is already public, **Change expiry** extends it or removes the expiry, and **Set password**,
+**Change** and **Remove** manage the password. Changing the password asks everyone again, including people
+who already opened the page. Expired links stay in **Web shares** (marked **Expired**) until you extend or
+stop them. **Stop sharing** also clears the expiry and password; publishing again makes a new address.
+
+Owners can set rules for new links in Workspace settings → **Public links**: **Default expiry for new
+links** (pre-selected, the publisher can still change it) and **Require a password on public links** (new
+links need one and it can't be removed). Neither changes links that already exist. Expiry and password
+changes are in the audit log; the password itself is never stored in plain form or logged.
+
 ## Edit lock
 
 An edit lock protects a page and everything under it. Others can still read and comment.
@@ -310,6 +333,18 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 - Database: **Export view as CSV** / **Export view as Excel**.
 - Whole workspace: workspace menu → **Export all (.zip)**. An owner may limit who can do this.
 - **Send to Notion** in the **⋯** menu works only if your server is set up for it.
+
+## Long pages: split into subpages
+
+- A page that keeps growing (an experiment log, a journal) gets slow to open, save and search. The page's ⋯ menu →
+  **Split into subpages…** cuts it at its headings: pick H1, H2 or H3, untick sections you want to keep, and each
+  remaining heading becomes a subpage with everything under it. The page keeps a link to each subpage where its
+  section was, and its version history keeps the page as it was. Comments move with their blocks, links to the
+  page keep working, and people who have the page open see it change in place.
+- **New entries** at the bottom of the same dialog decides where appends from AI agents and the API go: on the
+  page itself (default), into one subpage per month (`2026-11`), or into a new subpage once the current one
+  passes a size. Typing in the page is not affected.
+- When something keeps appending to a large page of yours, you get one notification for it (once per page).
 
 ## Trash and version history
 

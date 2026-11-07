@@ -46,6 +46,8 @@ function describe(n: NotificationDTO): string {
       return t('notifications.approvalRequest', { actor, title })
     case 'approval_result':
       return t('notifications.approvalResult', { actor, title })
+    case 'large_page':
+      return t('notifications.largePage', { title })
     default: {
       const never: never = n.type
       return String(never)
@@ -90,6 +92,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
     // NotificationDTO has no workspaceId for page notifications, so navigate within the current workspace (see report).
     if ((n.type === 'workspace_added' || n.type === 'webhook_disabled') && n.workspaceId) navigate(`/w/${n.workspaceId}`)
     else if (n.type === 'backup_failed' && wsId) navigate(`/w/${wsId}/admin`)
+    else if (n.type === 'large_page' && n.pageId && wsId) navigate(`/w/${wsId}/p/${n.pageId}?split=1`)
     else if (n.pageId && wsId) navigate(`/w/${wsId}/p/${n.pageId}`)
   }
 

@@ -1,16 +1,28 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { createHash, createHmac } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
+import { unlockShareSchema } from '@inkling/shared'
 import type { PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
 import { db } from '../db/index'
 import { files, pageDocs, pages } from '../db/schema'
 import { hashShareToken } from '../secretsAtRest'
 import { env } from '../env'
 import { notFound } from '../errors'
-import { recordFailure } from '../guard'
+import { assertAccount, recordFailure } from '../guard'
+import {
+  assertShareOpen,
+  checkSharePassword,
+  padResponseTime,
+  publicFileCacheControl,
+  setUnlockCookie,
+  shareExpired,
+  shareExpiredError,
+  sharePasswordInvalidError,
+} from '../shareAccess'
+import type { ShareGate } from '../shareAccess'
 import { BoundedLru } from '../lru'
 import { liveWorkspace } from '../workspaceLive'
 import { collectionTableMdShared } from '../md/exporter'
@@ -28,6 +40,8 @@ import type { AnyBlock } from '../md/convert'
 
 // Public route rate limit: a gentle 60/min per route, separate from the global 300/min.
 const PUBLIC_RATE_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
+// Password attempts: as strict as sign-in (docs/adr/1171-*), on top of the per-link backoff and IP ban.
+const UNLOCK_RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } }
 
 // Safe rasters allowed to render inline (cannot run scripts). Everything else (pdf/video/svg...) is an attachment.
 // Intentionally identical to the same-named set in files.ts, to keep the public routes self-contained.
@@ -73,6 +87,11 @@ export interface SharedPage {
  */
 function refFor(token: string, pageId: string): string {
   return createHmac('sha256', token).update(pageId).digest('base64url').slice(0, 22)
+}
+
+/** The page a token points at, with its expiry and password gate (docs/adr/1170-*, 1171-*). */
+export interface SharedRoot extends SharedPage {
+  gate: ShareGate
 }
 
 /** One page of a folder share's subtree (the root folder itself excluded). */
@@ -132,7 +151,7 @@ export async function loadSharedSubtree(
 
 /** Folder-share context: token → (root folder, subtree, two-way ref map). null if the token is not a folder token. */
 export interface FolderShare {
-  root: SharedPage
+  root: SharedRoot
   pages: SubtreePage[]
   refById: Map<string, string>
   byRef: Map<string, SubtreePage>
@@ -141,6 +160,11 @@ export interface FolderShare {
 export async function loadFolderShare(token: string): Promise<FolderShare | null> {
   const root = await findSharedPageByToken(token)
   if (!root || root.kind !== 'folder') return null
+  return buildFolderShare(root, token)
+}
+
+/** Folder-share context for a root already looked up (and gated) by the caller. */
+export async function buildFolderShare(root: SharedRoot, token: string): Promise<FolderShare> {
   const list = await loadSharedSubtree(root.id, root.workspaceId)
   const refById = new Map<string, string>()
   const byRef = new Map<string, SubtreePage>()
@@ -184,10 +208,15 @@ function publicizeChildAssetUrl(url: string | null, token: string, ref: string):
   return fid ? publicChildFileUrl(token, ref, fid) : url
 }
 
-/** Shared file streaming (after the gate). Only safe rasters are inline; everything else is an attachment. */
+/**
+ * Shared file streaming (after the gate). Only safe rasters are inline; everything else is an
+ * attachment. Cache lifetime follows the link: never past its expiry, browser-only for password
+ * links (docs/adr/1170-*, 1171-*).
+ */
 function sendPublicFile(
   reply: FastifyReply,
   file: { id: string; mime: string; name: string },
+  gate: ShareGate,
 ) {
   const filePath = uploadPath(file.id)
   if (!existsSync(filePath)) throw notFound()
@@ -199,7 +228,7 @@ function sendPublicFile(
     'Content-Disposition',
     `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
   )
-  reply.header('Cache-Control', 'public, max-age=300')
+  reply.header('Cache-Control', publicFileCacheControl(gate))
   reply.header('ETag', file.id)
   return reply.send(createReadStream(filePath))
 }
@@ -213,7 +242,8 @@ function uploadPath(id: string): string {
  * No session/membership/workspace conditions: only a valid token, excluding soft-deleted pages.
  * scope='private' is excluded here defensively (publish already blocks it; belt and braces).
  */
-export async function findSharedPageByToken(token: string): Promise<SharedPage | null> {
+export async function findSharedPageByToken(token: string): Promise<SharedRoot | null> {
+  const tokenHash = hashShareToken(token)
   const row = (
     await db
       .select({
@@ -225,12 +255,16 @@ export async function findSharedPageByToken(token: string): Promise<SharedPage |
         icon: pages.icon,
         coverUrl: pages.coverUrl,
         updatedAt: pages.updatedAt,
+        // The gate is read from the same row; expiry is compared on the server clock by the caller,
+        // so an expired link answers 410 instead of looking like an unknown token.
+        expiresAt: pages.shareExpiresAt,
+        passwordHash: pages.sharePasswordHash,
       })
       .from(pages)
       .where(
         and(
           // stored as SHA-256 (docs/adr/1110-*); a 64-hex value is never a raw token
-          eq(pages.shareToken, hashShareToken(token)),
+          eq(pages.shareToken, tokenHash),
           isNull(pages.deletedAt),
           eq(pages.scope, 'shared'),
           // A soft-deleted workspace's links stop working at once and come back on restore (ADR 0910).
@@ -239,7 +273,9 @@ export async function findSharedPageByToken(token: string): Promise<SharedPage |
       )
       .limit(1)
   )[0]
-  return row ?? null
+  if (!row) return null
+  const { expiresAt, passwordHash, ...page } = row
+  return { ...page, gate: { tokenHash, expiresAt, passwordHash } }
 }
 
 /**
@@ -366,10 +402,11 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       await recordFailure(req, 'share-token')
       throw notFound()
     }
+    // Expired → 410, password without an unlock → 401 (docs/adr/1170-*, 1171-*).
+    assertShareOpen(req, reply, page.gate)
     // Folder share: return the live subtree as a tree (bodies are fetched one by one via /p/:ref).
     if (page.kind === 'folder') {
-      const share = await loadFolderShare(token)
-      if (!share) throw notFound()
+      const share = await buildFolderShare(page, token)
       setPagePublicHeaders(reply)
       const dto: PublicFolderDTO = {
         kind: 'folder',
@@ -414,6 +451,7 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       await recordFailure(req, 'share-token')
       throw notFound()
     }
+    assertShareOpen(req, reply, page.gate)
     // A folder token only serves the folder's own icon/cover (subpage attachments use /p/:ref/f/:fileId).
     if (page.kind !== 'doc' && page.kind !== 'collection' && page.kind !== 'folder') {
       throw notFound()
@@ -431,22 +469,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     if (!allowed.has(fileId)) throw notFound()
     if (!(await fileOwnerPageIsPublic(file.pageId))) throw notFound()
 
-    const filePath = uploadPath(fileId)
-    if (!existsSync(filePath)) throw notFound()
-
-    // Only safe rasters inline, everything else as an attachment. Active types (svg etc.) are already blocked at upload.
-    const inline = SAFE_INLINE_MIME.has(file.mime)
-    reply.header('Content-Type', file.mime)
-    reply.header('X-Content-Type-Options', 'nosniff')
-    reply.header('Content-Security-Policy', "default-src 'none'; sandbox")
-    reply.header(
-      'Content-Disposition',
-      `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-    )
-    // Keep the public cache short (minimizes how long content lingers after unsharing).
-    reply.header('Cache-Control', 'public, max-age=300')
-    reply.header('ETag', file.id)
-    return reply.send(createReadStream(filePath))
+    // Only safe rasters inline, everything else as an attachment. Active types (svg etc.) are
+    // already blocked at upload. The public cache stays short (content lingers little after unsharing).
+    return sendPublicFile(reply, file, page.gate)
   })
 
   // ── Folder-share subpages ──────────────────────────────────────────
@@ -455,11 +480,7 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
   app.get('/public/:token/p/:ref', { config: PUBLIC_RATE_LIMIT }, async (req, reply) => {
     const { token, ref } = refParamSchema.parse(req.params)
 
-    const share = await loadFolderShare(token)
-    if (!share) {
-      await recordFailure(req, 'share-token')
-      throw notFound()
-    }
+    const share = await openFolderShare(req, reply, token)
     const page = share.byRef.get(ref)
     if (!page) throw notFound()
     if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
@@ -501,11 +522,7 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     async (req, reply) => {
       const { token, ref, fileId } = refFileParamSchema.parse(req.params)
 
-      const share = await loadFolderShare(token)
-      if (!share) {
-        await recordFailure(req, 'share-token')
-        throw notFound()
-      }
+      const share = await openFolderShare(req, reply, token)
       const page = share.byRef.get(ref)
       if (!page) throw notFound()
 
@@ -519,9 +536,62 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       if (!allowed.has(fileId)) throw notFound()
       if (!(await fileOwnerPageIsPublic(file.pageId))) throw notFound()
 
-      return sendPublicFile(reply, file)
+      return sendPublicFile(reply, file, share.root.gate)
     },
   )
+
+  // Password entry (docs/adr/1171-*). Right password → 204 + an unlock cookie scoped to
+  // /api/public/<token>. Every outcome runs one argon2 verify (a dummy hash when there is nothing to
+  // compare with) and is answered no sooner than SHARE_UNLOCK_FLOOR_MS after the request arrived.
+  // Wrong passwords count against the link (backoff for everyone on it) and the IP (ban); the
+  // password is never logged or stored.
+  app.post('/public/:token/unlock', { config: UNLOCK_RATE_LIMIT }, async (req, reply) => {
+    const startedAt = Date.now()
+    const { token } = tokenParamSchema.parse(req.params)
+    const { password } = unlockShareSchema.parse(req.body ?? {})
+    reply.header('Cache-Control', 'no-store')
+    reply.header('X-Robots-Tag', 'noindex, nofollow')
+    const linkKey = `share:${hashShareToken(token)}`
+    // A link with piled-up wrong passwords is delayed for everyone before the expensive check.
+    assertAccount(linkKey)
+
+    const page = await findSharedPageByToken(token)
+    const expired = !!page && shareExpired(page.gate)
+    const ok = await checkSharePassword(page && !expired ? page.gate.passwordHash : null, password)
+    let failure: Error | null = null
+    if (!page) {
+      await recordFailure(req, 'share-token')
+      failure = notFound()
+    } else if (expired) {
+      failure = shareExpiredError()
+    } else if (page.gate.passwordHash && !ok) {
+      await recordFailure(req, 'share-password', linkKey)
+      failure = sharePasswordInvalidError()
+    } else if (page.gate.passwordHash) {
+      setUnlockCookie(reply, token, page.gate)
+    }
+    await padResponseTime(startedAt)
+    if (failure) throw failure
+    return reply.code(204).send()
+  })
+}
+
+/**
+ * Folder token → gated folder share for the child routes. Unknown token or a token that is not a
+ * folder → 404 counted as a guess (as before); expired or locked → the gate's answer.
+ */
+async function openFolderShare(req: FastifyRequest, reply: FastifyReply, token: string): Promise<FolderShare> {
+  const root = await findSharedPageByToken(token)
+  if (!root) {
+    await recordFailure(req, 'share-token')
+    throw notFound()
+  }
+  assertShareOpen(req, reply, root.gate)
+  if (root.kind !== 'folder') {
+    await recordFailure(req, 'share-token')
+    throw notFound()
+  }
+  return buildFolderShare(root, token)
 }
 
 /**

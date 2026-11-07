@@ -14,6 +14,7 @@ import type { AuthModeDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
 import {
   DELEGATED_EMAIL_SUFFIX,
   consumeResetCode,
+  externalAccountName,
   consumeVerifyToken,
   isDelegatedEmail,
   issueResetCode,
@@ -55,6 +56,8 @@ import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
 import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i18n'
 import { toSidebarPrefsDTO } from './sidebarPrefs'
+import { linkedLogins } from './oidc'
+import { oidcEnabled } from '../oidc'
 import {
   createLoginChallenge,
   dropChallenge,
@@ -202,6 +205,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     mailEnabled,
     emailVerificationRequired: verificationEnforced(),
     experimental: enabledExperimentalFeatures(),
+    // OpenID Connect sign-in button (docs/adr/1160-*); the name only, nothing else of the configuration.
+    oidc: oidcEnabled() ? { name: env.oidc.name } : null,
     // Extension field (shared DTO unchanged): only when the operator set DEFAULT_LOCALE, so an
     // unset server lets the browser language decide (docs/adr/0901-*).
     defaultLocale: env.defaultLocaleConfigured ? env.defaultLocale : null,
@@ -385,6 +390,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // An account created by OpenID Connect sign-in has no password here, and the typed one must not
+    // travel on to the delegated auth server either (docs/adr/1161-*).
+    if (local && local.origin === 'oidc') throw await fail()
+
     // --- 2) Delegate to the external auth server ---
     const delegatedUrl = env.delegatedAuthUrl
     if (!delegatedUrl) throw await fail()
@@ -512,14 +521,16 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       name: user.name,
       isAdmin: user.isAdmin,
       origin: extra?.origin ?? 'local',
-      // Delegated accounts are not subject to verification, so report true (hides the banner)
-      emailVerified: extra?.origin === 'delegated' || !!extra?.emailVerifiedAt,
+      // Delegated and OIDC-created accounts are not subject to verification, so report true (hides the banner)
+      emailVerified: extra?.origin === 'delegated' || extra?.origin === 'oidc' || !!extra?.emailVerifiedAt,
       // Extension field: saved UI language (null = automatic)
       locale: normalizeLocale(extra?.locale),
       // Extension field: sidebar menu order / hidden menus (docs/adr/1020-*), so the first paint is right
       sidebar: toSidebarPrefsDTO(extra?.sidebarPrefs),
       // Extension field: two-step verification is on (docs/adr/1061-*)
       twoFactor: await twoFactorEnabled(user.id),
+      // Linked OpenID Connect sign-ins, for Settings › Account (docs/adr/1161-*)
+      logins: await linkedLogins(user.id),
     }
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
     if (user.isAdmin) {
@@ -670,7 +681,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
       if (!u) throw forbidden()
       if (u.origin !== 'local') {
-        throw new AppError(400, 'DELEGATED_ACCOUNT', `${env.delegatedAuthName} passwords can't be changed here`)
+        throw new AppError(400, 'DELEGATED_ACCOUNT', `${externalAccountName(u.origin)} passwords can't be changed here`)
       }
       assertNotBanned(req)
       assertAccount(me.email)
@@ -744,7 +755,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       .limit(1)
     if (!u) throw forbidden()
     if (u.origin !== 'local') {
-      throw new AppError(400, 'DELEGATED_ACCOUNT', `Delegated login (${env.delegatedAuthName}) accounts don't need email verification`)
+      throw new AppError(400, 'DELEGATED_ACCOUNT', `${externalAccountName(u.origin)} accounts don't need email verification`)
     }
     if (u.emailVerifiedAt) return { ok: true, alreadyVerified: true }
 

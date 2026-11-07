@@ -12,7 +12,9 @@ import { AppError } from './errors'
  * period after turning it on has passed, a member who does not satisfy it gets 403
  * TWO_FACTOR_REQUIRED from every workspace-scoped route (requireMembership / findVisiblePage) and
  * from the collaboration socket. Satisfying it: TOTP turned on (`user_totp.enabled_at`), or a
- * delegated sign-in account, whose second factor is the upstream service's (docs/adr/1061-*).
+ * delegated sign-in account, whose second factor is the upstream service's (docs/adr/1061-*), or an
+ * account created by an OpenID Connect sign-in, whose second factor is the provider's
+ * (docs/adr/1162-*; OIDC_REQUIRE_MFA makes every such sign-in prove it).
  * Agent (MCP) requests run as the token's owner, so the owner's state decides.
  */
 
@@ -23,9 +25,9 @@ export function twoFactorRequired(workspaceId: string): AppError {
   return new AppError(403, 'TWO_FACTOR_REQUIRED', TWO_FACTOR_REQUIRED_MESSAGE, undefined, { workspaceId })
 }
 
-/** SQL: `userId` satisfies a 2FA requirement (2FA on, or a delegated account). */
+/** SQL: `userId` satisfies a 2FA requirement (2FA on, or a delegated or OIDC-created account). */
 export function userSatisfiesSql(userId: string | SQL): SQL {
-  return sql`exists (select 1 from users tfu where tfu.id = ${userId} and (tfu.origin = 'delegated'
+  return sql`exists (select 1 from users tfu where tfu.id = ${userId} and (tfu.origin in ('delegated', 'oidc')
     or exists (select 1 from user_totp tft where tft.user_id = tfu.id and tft.enabled_at is not null)))`
 }
 

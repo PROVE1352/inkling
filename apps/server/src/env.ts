@@ -16,6 +16,56 @@ function localeEnv(v: string | undefined): 'en' | 'ko' | null {
   return null
 }
 
+/** Comma/space separated list, trimmed, lower-cased, empty entries dropped. */
+function listEnv(v: string | undefined): string[] {
+  return (v ?? '')
+    .split(/[\s,]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean)
+}
+
+export interface OidcEnv {
+  issuer: string | null
+  clientId: string | null
+  /** Never logged, never returned by any route (docs/adr/1160-*). */
+  clientSecret: string | null
+  /** Button label: "Sign in with <name>" */
+  name: string
+  /** Email domains allowed to sign in (empty = any account the provider issues). */
+  allowedDomains: string[]
+  /** Create an Inkling account on the first sign-in of an unknown identity. */
+  autoCreate: boolean
+  /** Link to an existing local account with the same, provider-verified email (docs/adr/1161-*). */
+  linkExisting: boolean
+  /** Treat the provider's email as verified even without `email_verified` (single-tenant providers only). */
+  trustEmail: boolean
+  /** Refuse sign-ins whose id_token shows no second factor (amr/acr, docs/adr/1162-*). */
+  requireMfa: boolean
+  /** acr values to request; a returned acr in this list counts as a second factor. */
+  acrValues: string[]
+  scopes: string
+  /** The one signature algorithm accepted for id_tokens. */
+  alg: 'RS256' | 'PS256' | 'ES256'
+}
+
+function readOidcEnv(): OidcEnv {
+  const algRaw = (process.env.OIDC_ID_TOKEN_ALG?.trim().toUpperCase() || 'RS256') as OidcEnv['alg']
+  return {
+    issuer: process.env.OIDC_ISSUER?.trim() || null,
+    clientId: process.env.OIDC_CLIENT_ID?.trim() || null,
+    clientSecret: process.env.OIDC_CLIENT_SECRET?.trim() || null,
+    name: process.env.OIDC_NAME?.trim() || 'SSO',
+    allowedDomains: listEnv(process.env.OIDC_ALLOWED_DOMAINS),
+    autoCreate: process.env.OIDC_AUTO_CREATE?.trim() === '1',
+    linkExisting: process.env.OIDC_LINK_EXISTING?.trim() === '1',
+    trustEmail: process.env.OIDC_TRUST_EMAIL?.trim() === '1',
+    requireMfa: process.env.OIDC_REQUIRE_MFA?.trim() === '1',
+    acrValues: (process.env.OIDC_ACR_VALUES ?? '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+    scopes: process.env.OIDC_SCOPES?.trim() || 'openid email profile',
+    alg: algRaw,
+  }
+}
+
 export const env = {
   port: Number(process.env.PORT ?? 3001),
   /**
@@ -58,6 +108,12 @@ export const env = {
   delegatedEmailDomain: (process.env.DELEGATED_EMAIL_DOMAIN?.trim() || 'delegated.local')
     .replace(/^@/, '')
     .toLowerCase(),
+  /**
+   * Sign-in with an OpenID Connect provider (docs/adr/1160-*, 1161-*, 1162-*). On when OIDC_ISSUER,
+   * OIDC_CLIENT_ID and OIDC_CLIENT_SECRET are all set (the boot check refuses a half-filled set and
+   * requires PUBLIC_URL). The client secret is only ever sent to the token endpoint.
+   */
+  oidc: readOidcEnv(),
   /**
    * Public site origin (e.g. https://notes.example.com). Used for the issuer and endpoint URLs of
    * the MCP OAuth metadata, resource_metadata in WWW-Authenticate, and og:url.

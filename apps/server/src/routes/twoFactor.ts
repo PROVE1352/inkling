@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { getUser, requireUser, verifyPassword } from '../auth'
 import { db } from '../db/index'
 import { users } from '../db/schema'
-import { env } from '../env'
+import { externalAccountName } from '../accounts'
 import { AppError, forbidden } from '../errors'
 import { assertAccount, assertNotBanned, recordFailure, recordSuccess } from '../guard'
 import { secretBoxAvailable } from '../secretBox'
@@ -54,7 +54,7 @@ export async function registerTwoFactorRoutes(app: FastifyInstance): Promise<voi
       throw new AppError(
         400,
         'DELEGATED_ACCOUNT',
-        `${env.delegatedAuthName} accounts use the second factor of their own sign-in service`,
+        `${externalAccountName(u.origin)} accounts use the second factor of their own sign-in service`,
       )
     }
     return u

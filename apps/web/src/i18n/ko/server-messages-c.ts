@@ -34,4 +34,14 @@ export default {
   'A Notion export is imported as its .zip file': 'Notion 내보내기는 받은 .zip 파일 그대로 가져옵니다',
   // routes/admin.ts (docs/adr/1061-*)
   'Turn off your own two-step verification in Settings': '본인의 2단계 인증은 설정에서 끄세요',
+  // routes/public.ts, routes/pages.ts, shareSettings.ts (docs/adr/1170-*, 1171-*, 1172-*)
+  'This link has expired': '만료된 링크입니다',
+  'This page is protected by a password': '비밀번호가 필요한 페이지입니다',
+  'Incorrect password': '비밀번호가 맞지 않습니다',
+  'This workspace requires a password on public links': '이 워크스페이스는 웹 공개 링크에 비밀번호를 걸어야 합니다',
+  'This page has no public link': '이 페이지에는 웹 공개 링크가 없습니다',
+  'Pick an expiry in the future': '지금보다 뒤의 만료 시각을 골라 주세요',
+  'Pick an expiry within ten years': '만료는 10년 안으로 골라 주세요',
+  'Only owners and admins can change public links': '웹 공개 링크는 소유자와 관리자만 바꿀 수 있습니다',
+  'Send expiresAt or expiresInDays, not both': 'expiresAt과 expiresInDays 중 하나만 보내 주세요',
 } satisfies Record<string, string>

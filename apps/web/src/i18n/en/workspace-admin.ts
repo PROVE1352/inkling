@@ -71,7 +71,7 @@ export default {
   'wsTwoFactor.group': 'Security',
   'wsTwoFactor.title': 'Require two-step verification',
   'wsTwoFactor.desc':
-    'Members without two-step verification can no longer open this workspace once the grace period ends. Their agent connections follow them. Delegated sign-in accounts use their sign-in service’s second factor.',
+    'Members without two-step verification can no longer open this workspace once the grace period ends. Their agent connections follow them. Accounts that sign in with a delegated or single sign-on service use that service’s second factor.',
   'wsTwoFactor.unavailable': 'Not available on this server: the administrator has to set APP_SECRET_KEY.',
   'wsTwoFactor.selfFirst': 'Turn on two-step verification for your own account first.',
   'wsTwoFactor.selfFirstLink': 'Open Settings',

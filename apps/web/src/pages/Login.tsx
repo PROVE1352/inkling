@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { loginSchema } from '@inkling/shared'
 import { ApiError, useAuthMode, useLogin, useLoginTotp, useMe, useResendVerification } from '../api'
 import { safeNext } from '../lib/nav'
 import { Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
-import { t as tr, useT } from '../i18n'
+import { t as tr, tMaybe, useT } from '../i18n'
 
 /**
  * Display name of the delegated (external) sign-in service from /auth/mode. The server default is
@@ -16,6 +16,36 @@ export function delegatedDisplayName(raw: string | null | undefined): string {
   const name = raw?.trim()
   if (!name || name === 'External account' || name === '외부 계정') return tr('auth.externalAccount')
   return name
+}
+
+/**
+ * Message for `/login?oidc_error=CODE` (docs/adr/1160-*): the server sends a fixed code, never the
+ * provider's own text.
+ */
+export function oidcErrorText(code: string, name: string): string {
+  return tMaybe(`oidc.error.${code}`) ?? tr('oidc.error.unknown', { name })
+}
+
+/** "Sign in with <name>": a plain link, the server redirects to the provider (a fetch could not follow it). */
+function OidcButton({ name, next }: { name: string; next: string }) {
+  const t = useT()
+  const href = `/api/auth/oidc/start${next !== '/' ? `?returnTo=${encodeURIComponent(next)}` : ''}`
+  return (
+    <>
+      <div className="flex items-center gap-3 text-[11px] text-sub" aria-hidden>
+        <span className="h-px flex-1 bg-line" />
+        {t('login.or')}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <a
+        href={href}
+        data-testid="oidc-login"
+        className="flex items-center justify-center rounded-md border border-line px-3 py-2 text-sm text-ink transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {t('login.oidc', { name })}
+      </a>
+    </>
+  )
 }
 
 export function Login() {
@@ -35,7 +65,11 @@ export function Login() {
   const [email, setEmail] = useState(params.get('email') ?? '')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
-  const [serverError, setServerError] = useState<string | null>(null)
+  const oidcName = mode.data?.oidc?.name ?? null
+  const oidcError = params.get('oidc_error')
+  const [serverError, setServerError] = useState<string | null>(
+    oidcError ? oidcErrorText(oidcError, mode.data?.oidc?.name ?? 'SSO') : null,
+  )
   // Unverified account while email verification is enforced — show the resend button
   const [needsVerify, setNeedsVerify] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null)
@@ -45,6 +79,15 @@ export function Login() {
   const [challenge, setChallenge] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [useRecovery, setUseRecovery] = useState(false)
+
+  // After an OpenID Connect sign-in into an account with Inkling's own 2FA, the server sends the
+  // challenge in the fragment (#totp=…; never sent to a server or put in a Referer). Take it and drop it.
+  useEffect(() => {
+    const m = /^#totp=([A-Za-z0-9_-]{20,200})$/.exec(window.location.hash)
+    if (!m) return
+    setChallenge(m[1])
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  }, [])
 
   // Already signed in: go to next (e.g. an invite link) or home
   if (me.data) return <Navigate to={next} replace />
@@ -256,6 +299,7 @@ export function Login() {
             )}
             {t('auth.signIn')}
           </button>
+          {oidcName && <OidcButton name={oidcName} next={next} />}
         </form>
         )}
 

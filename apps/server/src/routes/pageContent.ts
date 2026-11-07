@@ -11,6 +11,7 @@ import { requestLocale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
 import { createSnapshot, currentSnapshotSource, hasRecentAgentSnapshot } from '../snapshotStore'
 import { actorOf, withEditActor } from '../context/attribution'
+import { pageEditGate } from '../docWriteGate'
 
 /**
  * Replaces or appends to an existing doc page's body from Markdown (for MCP update_page; the web UI does not use it).
@@ -59,7 +60,10 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
       }
 
       // The change feed reads the actor (user + OAuth client) while the store hook indexes this edit.
-      await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode))
+      // Under the write gate (docs/adr/1150-*): a lock change or agent block that commits after the
+      // check above is seen before the edit, or waits until the edit is in the document.
+      const gate = pageEditGate(id, page.workspaceId, user.id, { role, acl })
+      await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode, gate))
 
       // An agent append leaves no "Before" snapshot, so mark it in history with an "AI edit"
       // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots. The

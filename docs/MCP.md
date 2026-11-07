@@ -36,7 +36,8 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 | `list_templates` | read | Templates you can use in a workspace, with their input questions |
 | `get_instructions` | read | The workspace's rules for agents from locked instruction pages: `always` ones in full, the ones matching `forPageId` (nearest first), a list of `manual` ones. Call once per workspace |
 | `patch_section` | write | Change one section (`replace`/`append`/`prepend`/`insert_after`/`delete`) with `baseVersion`; a stale version returns a conflict with the current text |
-| `update_page` | write | Append to / replace the whole body (replace keeps a "Before AI edit" snapshot). Prefer `patch_section` |
+| `update_page` | write | Append to / replace the whole body (replace keeps a "Before AI edit" snapshot). Prefer `patch_section`. On a page that splits itself, `append` goes to its current subpage and the output says which |
+| `split_page` | write | Split a long page into subpages at its headings (`level`, default 2); `dry_run=true` lists the sections first. Block ids, comments and links into the page keep working |
 | `create_page` | write | New page from Markdown (`[[Title]]` becomes a wiki link) |
 | `import_folder` | write | Many Markdown files at once, keeping folders |
 | `update_row` / `create_row` | write | Set / add collection row properties by name; `update_row` needs `baseVersion` |
@@ -81,7 +82,11 @@ Spend calls and tokens in this order (the server instructions say the same):
    estimated tokens, [ADR 1043](adr/1043-large-page-hint-for-agents.md)), read that page by section only and
    write new entries to a child page (`create_page(parentId=<that page>)`, e.g. one per week or per batch of
    runs) instead of appending to it. Every append to a multi-megabyte page re-saves and re-indexes the whole
-   page; a child page stays small, and `find_context` still finds every page.
+   page; a child page stays small, and `find_context` still finds every page. A page that is already large can
+   be cut at its headings with `split_page` ([ADR 1140](adr/1140-split-a-page-at-its-headings.md)); a page whose
+   person turned on "New entries: one subpage per month" (or by size) takes `update_page append` in its current
+   subpage and the output names it ([ADR 1141](adr/1141-logs-that-split-themselves-and-a-one-time-large-page-notice.md)).
+   `[[Page#Heading]]` links to the subpage made from that section.
 
 **Math** ([ADR 0996](adr/0996-math-markdown-notation.md)): `read_page`, `read_pages`, `find_context` and
 `changes_since` show equations as LaTeX, and `create_page`, `update_page` and `patch_section` accept the same:

@@ -57,7 +57,8 @@ export function TwoFactorSettings() {
   const t = useT()
   const me = useMe()
   const mode = useAuthMode()
-  const local = me.data?.origin !== 'delegated'
+  // Delegated and OIDC-created accounts use their sign-in service's second factor (docs/adr/1162-*).
+  const local = !!me.data && (me.data.origin ?? 'local') === 'local'
   const state = useTwoFactorState(!!me.data && local)
   const setup = useTwoFactorSetup()
   const enable = useTwoFactorEnable()
@@ -80,7 +81,12 @@ export function TwoFactorSettings() {
     setMsg({ text: err instanceof ApiError ? err.message : t('twofa.failed'), error: true })
 
   const desc = !local
-    ? t('twofa.delegated', { name: delegatedDisplayName(mode.data?.delegatedName) })
+    ? t('twofa.delegated', {
+        name:
+          me.data.origin === 'oidc'
+            ? (mode.data?.oidc?.name ?? 'SSO')
+            : delegatedDisplayName(mode.data?.delegatedName),
+      })
     : s?.enabled
       ? t('twofa.descOn', { count: s.recoveryCodesLeft })
       : s && !s.available

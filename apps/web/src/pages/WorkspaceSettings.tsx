@@ -514,6 +514,19 @@ function SharingTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
   const [error, setError] = useState<string | null>(null)
   const disabled = settings.data?.settings.publicSharingDisabled ?? false
   const items = shared.data?.items ?? []
+  // Rules for new links (docs/adr/1172-*): default expiry and "password required".
+  const defaultDays = settings.data?.settings.shareDefaultExpiryDays ?? null
+  const expiryOptions = [
+    { value: 'off', label: t('shareLink.never') },
+    ...[1, 7, 30, 90].map((d) => ({ value: String(d), label: t('shareLink.days', { count: d }) })),
+  ]
+  if (defaultDays && !expiryOptions.some((o) => o.value === String(defaultDays))) {
+    expiryOptions.push({ value: String(defaultDays), label: t('shareLink.days', { count: defaultDays }) })
+  }
+  const savePolicy = (patch: { shareDefaultExpiryDays?: number | null; sharePasswordRequired?: boolean }) => {
+    setError(null)
+    update.mutate(patch, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+  }
 
   return (
     <>
@@ -528,6 +541,23 @@ function SharingTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
               if (v) setConfirmOff(true)
               else update.mutate({ publicSharingDisabled: false }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
             }}
+          />
+        </Row>
+        <Row title={t('wsSettings.shareDefaultExpiry')} desc={t('wsSettings.shareDefaultExpiryDesc')}>
+          <Select
+            value={defaultDays ? String(defaultDays) : 'off'}
+            options={expiryOptions}
+            disabled={!can.editSettings || update.isPending || !settings.data}
+            label={t('wsSettings.shareDefaultExpiry')}
+            onChange={(v) => savePolicy({ shareDefaultExpiryDays: v === 'off' ? null : Number(v) })}
+          />
+        </Row>
+        <Row title={t('wsSettings.sharePasswordRequired')} desc={t('wsSettings.sharePasswordRequiredDesc')}>
+          <Toggle
+            checked={settings.data?.settings.sharePasswordRequired ?? false}
+            disabled={!can.editSettings || update.isPending || !settings.data}
+            label={t('wsSettings.sharePasswordRequired')}
+            onChange={(v) => savePolicy({ sharePasswordRequired: v })}
           />
         </Row>
       </Group>

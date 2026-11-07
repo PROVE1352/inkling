@@ -760,6 +760,17 @@ export function useForgotPassword() {
   })
 }
 
+/**
+ * Settings › Account: connect the OpenID Connect provider to the signed-in account (docs/adr/1161-*).
+ * The server answers the provider URL; the caller navigates there. A JSON POST rather than a link, so
+ * the Origin check applies (a cross-site page cannot start a link on someone's account).
+ */
+export function useOidcLink() {
+  return useMutation({
+    mutationFn: (returnTo: string) => api<{ url: string }>('/api/auth/oidc/link', jsonBody({ returnTo })),
+  })
+}
+
 export function useChangePassword() {
   return useMutation({
     mutationFn: (input: ChangePasswordInput) =>
@@ -1595,10 +1606,15 @@ export function useShareStatus(pageId: string | undefined, enabled = true) {
 }
 
 // Publish (owner only). On success the share cache is set from the response so the link shows at once.
+// The optional body (expiry, password; docs/adr/1170-*, 1171-*) only applies to a new link.
 export function useShare(pageId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => api<ShareStatusDTO>(`/api/pages/${pageId}/share`, { method: 'POST' }),
+    mutationFn: (body?: import('@inkling/shared').CreateShareInput) =>
+      api<ShareStatusDTO>(`/api/pages/${pageId}/share`, {
+        method: 'POST',
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }),
     onSuccess: (data) => {
       qc.setQueryData(qk.share(pageId), data)
       qc.invalidateQueries({ queryKey: ['sharedList'] })
@@ -1615,6 +1631,30 @@ export function useUnshare(pageId: string) {
       qc.setQueryData(qk.share(pageId), data)
       qc.invalidateQueries({ queryKey: ['sharedList'] })
     },
+  })
+}
+
+// Change an existing link's expiry or password (owners and admins).
+export function useUpdateShare(pageId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: import('@inkling/shared').UpdateShareInput) =>
+      api<ShareStatusDTO>(`/api/pages/${pageId}/share`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: (data) => {
+      qc.setQueryData(qk.share(pageId), data)
+      qc.invalidateQueries({ queryKey: ['sharedList'] })
+    },
+  })
+}
+
+// A visitor enters a link's password. The server sets an httpOnly cookie scoped to
+// /api/public/<token>; the public queries of that link are then fetched again.
+export function useUnlockShare(token: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (password: string) =>
+      api<void>(`/api/public/${token}/unlock`, { method: 'POST', body: JSON.stringify({ password }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['public', token ?? ''] }),
   })
 }
 
@@ -1954,6 +1994,10 @@ export interface SharedItemDTO {
   token: string
   updatedAt: string
   exposedCount?: number
+  /** ISO, null = never (docs/adr/1170-*). */
+  expiresAt?: string | null
+  expired?: boolean
+  hasPassword?: boolean
 }
 
 export function useSharedList(wsId: string | undefined) {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -8,16 +8,21 @@ import type { CommentDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { broadcastToPage } from '../collab'
 import { currentAgent } from '../agentAccess'
-import { notify } from '../notify/engine'
+import { notifyOutboxRow } from '../notify/engine'
 import type { Recipient } from '../notify/engine'
 import { db } from '../db/index'
-import { comments, pages, users, workspaceMembers } from '../db/schema'
+import { comments, users } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
-import { assertPageCommentable } from '../editLock'
-import { emitWebhookEvent } from '../webhooks'
+import { assertPageCommentable, assertPageEditable, CAP_COMMENT } from '../editLock'
+import { gatedWriteSql, gateWrite } from '../aclVersion'
+import type { CheckedAccess } from '../aclVersion'
+import { assertAgentAllowed } from '../agentAccess'
+import { outboxCommitted, outboxInsertSql, outboxTopics } from '../outbox'
+import type { Exec, OutboxRow } from '../outbox'
+import { webhookOutboxRows } from '../webhooks'
 import { isManagerRole } from '../workspaceAdmin'
 
 /** Display name for a removed/deleted author (comments whose author_id was set null), in the viewer's locale. */
@@ -111,7 +116,12 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
-      const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
+      // Membership + access version, and what the events need (thread root, participants, page
+      // creator/owner, mentioned members), read in parallel.
+      const [{ role, acl }, ctx] = await Promise.all([
+        requireMembershipAcl(page.workspaceId, user.id),
+        commentContext(id, page.workspaceId, body.threadId ?? null, body.mentionUserIds ?? []),
+      ])
       // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
       // from agents only (docs/adr/0970-*). No walk without a lock in the workspace (docs/adr/1071-*).
       await assertPageCommentable(id, user.id, role, acl)
@@ -122,41 +132,17 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
       if (body.threadId) {
         // Reply: the thread root must belong to this page and be a real root (id === threadId).
-        const root = (
-          await db
-            .select({ blockId: comments.blockId })
-            .from(comments)
-            .where(
-              and(
-                eq(comments.id, body.threadId),
-                eq(comments.threadId, body.threadId),
-                eq(comments.pageId, id),
-              ),
-            )
-            .limit(1)
-        )[0]
-        if (!root) throw badRequest('Thread not found')
+        if (ctx.rootBlockId === null) throw badRequest('Thread not found')
         threadId = body.threadId
         // Replies anchor to the same block as the thread root (thread consistency).
-        blockId = root.blockId
+        blockId = ctx.rootBlockId
       } else {
         // New thread: threadId = its own id.
         threadId = commentId
         blockId = body.blockId
       }
 
-      await db.insert(comments).values({
-        id: commentId,
-        pageId: id,
-        blockId,
-        threadId,
-        authorId: user.id,
-        body: body.body,
-        // MCP (bearer) posts carry the OAuth client name; browser sessions leave it null.
-        viaClient: user.via ?? null,
-      })
-
-      await generateCommentNotifications({
+      const events = await commentEvents({
         pageId: id,
         workspaceId: page.workspaceId,
         threadId,
@@ -165,8 +151,25 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         via: user.via ?? null,
         isReply: !!body.threadId,
         body: body.body,
-        mentionUserIds: body.mentionUserIds ?? [],
+        ctx,
       })
+      const values = {
+        id: commentId,
+        pageId: id,
+        blockId,
+        threadId,
+        authorId: user.id,
+        body: body.body,
+        // MCP (bearer) posts carry the OAuth client name; browser sessions leave it null.
+        viaClient: user.via ?? null,
+      }
+      // The comment, its notification event and its webhook deliveries commit together, under the
+      // write gate (docs/adr/1150-*): one statement while the access version and role are still the
+      // ones checked above; otherwise re-checked and written in a gated transaction.
+      await gatedCommentWrite(page.workspaceId, user.id, { role, acl }, id, (exec, checked) =>
+        insertCommentWithEvents(exec, page.workspaceId, user.id, checked, values, events),
+      )
+      outboxCommitted(outboxTopics(events).topics)
 
       // Push to clients that have the page open (invalidate the comment list). The helper isolates failures.
       broadcastToPage(id, { t: 'comments' })
@@ -210,7 +213,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
     const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
     await assertPageCommentable(comment.pageId, user.id, role, acl)
 
-    const updates: Partial<typeof comments.$inferInsert> = {}
+    const updates: { resolved?: '0' | '1'; body?: string } = {}
 
     if (patch.resolved !== undefined) {
       // resolve toggles only on the thread root (the root's resolved is the whole thread's state)
@@ -237,7 +240,10 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       updates.body = patch.body
     }
 
-    await db.update(comments).set(updates).where(eq(comments.id, id))
+    // Under the write gate, like the POST (docs/adr/1150-*).
+    await gatedCommentWrite(page.workspaceId, user.id, { role, acl }, comment.pageId, (exec, checked) =>
+      updateComment(exec, page.workspaceId, user.id, checked, id, updates),
+    )
 
     broadcastToPage(comment.pageId, { t: 'comments' })
 
@@ -296,17 +302,45 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
   })
 }
 
+interface CommentContext {
+  createdBy: string | null
+  ownerId: string | null
+  /** Block of the thread root when `threadId` is a root of this page, else null. */
+  rootBlockId: string | null
+  /** Authors in the thread so far (replies). */
+  participants: string[]
+  /** Of the mentioned ids, the members of the workspace. */
+  mentioned: string[]
+}
+
+/** One statement: everything a new comment's checks and events read besides the membership. */
+async function commentContext(pageId: string, workspaceId: string, threadId: string | null, mentionUserIds: string[]): Promise<CommentContext> {
+  const ids = `{${[...new Set(mentionUserIds)].join(',')}}`
+  const [r] = (await db.execute(sql`
+    SELECT p.created_by AS "createdBy", p.owner_id AS "ownerId",
+           (SELECT c.block_id FROM comments c WHERE c.id = ${threadId} AND c.thread_id = ${threadId} AND c.page_id = ${pageId}) AS "rootBlockId",
+           CASE WHEN ${threadId}::uuid IS NULL THEN '{}'::uuid[] ELSE
+             (SELECT coalesce(array_agg(DISTINCT c.author_id), '{}') FROM comments c WHERE c.thread_id = ${threadId} AND c.author_id IS NOT NULL) END AS participants,
+           (SELECT coalesce(array_agg(m.user_id), '{}') FROM workspace_members m
+             WHERE m.workspace_id = ${workspaceId} AND m.user_id = ANY(${ids}::uuid[])) AS mentioned
+      FROM pages p WHERE p.id = ${pageId}
+  `)) as unknown as CommentContext[]
+  return r ?? { createdBy: null, ownerId: null, rootBlockId: null, participants: [], mentioned: [] }
+}
+
 /**
- * Notifications on comment creation (A3, docs/adr/1000-*). Recipients and their kind:
+ * Outbox rows of a new comment (A3, docs/adr/1000-*, 1150-*). Notification recipients and their kind:
  *   - members in mentionUserIds                         → 'comment_mention' (direct)
  *   - earlier participants of the thread (on a reply)    → 'comment_reply' (direct)
  *   - the page's creator and document owner              → 'comment' (implicit: no subscription needed)
  *   - subscribers at level 'all'                          → 'comment' (activity)
  * The engine keeps one row per person (highest kind), never the actor, only people who can see
- * the page, applies subscription levels and collapses repeats per thread. Runs after the insert,
- * queued: the request does not wait for it.
+ * the page, applies subscription levels and collapses repeats per thread. Plus the workspace
+ * webhooks (Slack/Discord; the shared-page gate is applied at delivery). Agent-written mentions do
+ * not ping a channel (docs/adr/1000-*). The rows commit with the comment; the request does not wait
+ * for recipients.
  */
-async function generateCommentNotifications(args: {
+async function commentEvents(args: {
   pageId: string
   workspaceId: string
   threadId: string
@@ -315,50 +349,22 @@ async function generateCommentNotifications(args: {
   via: string | null
   isReply: boolean
   body: string
-  mentionUserIds: string[]
-}): Promise<void> {
-  const { pageId, workspaceId, threadId, commentId, actorId, via, isReply, body, mentionUserIds } = args
+  ctx: CommentContext
+}): Promise<OutboxRow[]> {
+  const { pageId, workspaceId, threadId, commentId, actorId, via, isReply, body, ctx } = args
   const recipients: Recipient[] = []
-
-  const [pageRow] = await db
-    .select({ createdBy: pages.createdBy, ownerId: pages.ownerId })
-    .from(pages)
-    .where(eq(pages.id, pageId))
-    .limit(1)
-  for (const id of [pageRow?.createdBy, pageRow?.ownerId]) {
+  for (const id of [ctx.createdBy, ctx.ownerId]) {
     if (id) recipients.push({ userId: id, kind: 'comment', reason: 'implicit' })
   }
-
   if (isReply) {
-    const participants = await db
-      .selectDistinct({ authorId: comments.authorId })
-      .from(comments)
-      .where(eq(comments.threadId, threadId))
-    for (const p of participants) {
-      if (p.authorId) recipients.push({ userId: p.authorId, kind: 'comment_reply', reason: 'direct' })
-    }
+    for (const id of ctx.participants) recipients.push({ userId: id, kind: 'comment_reply', reason: 'direct' })
   }
-
   // Mentions: workspace members only (the engine re-checks membership and visibility).
-  const uniqueMentions = [...new Set(mentionUserIds)].filter((m) => m !== actorId)
-  let mentioned: string[] = []
-  if (uniqueMentions.length > 0) {
-    const members = await db
-      .select({ userId: workspaceMembers.userId })
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), inArray(workspaceMembers.userId, uniqueMentions)))
-    mentioned = members.map((m) => m.userId)
-    for (const id of mentioned) recipients.push({ userId: id, kind: 'comment_mention', reason: 'direct' })
-  }
+  const mentioned = ctx.mentioned.filter((m) => m !== actorId)
+  for (const id of mentioned) recipients.push({ userId: id, kind: 'comment_mention', reason: 'direct' })
 
-  // Workspace webhooks (Slack/Discord) — fire-and-forget; shared-page-only gate is applied at delivery.
-  // Agent-written mentions do not ping a channel (docs/adr/1000-*).
-  emitWebhookEvent({ type: 'comment', workspaceId, pageId, actorId, commentId, via })
-  if (mentioned.length > 0 && !via) {
-    emitWebhookEvent({ type: 'mention', workspaceId, pageId, actorId, commentId, mentionedUserIds: mentioned })
-  }
-
-  notify({
+  const rows: OutboxRow[] = []
+  const n = notifyOutboxRow({
     workspaceId,
     pageId,
     actorId,
@@ -370,4 +376,77 @@ async function generateCommentNotifications(args: {
     anchor: null,
     excerpt: body,
   })
+  if (n) rows.push(n)
+  rows.push(...(await webhookOutboxRows({ type: 'comment', workspaceId, pageId, actorId, commentId, via })))
+  if (mentioned.length > 0 && !via) {
+    rows.push(...(await webhookOutboxRows({ type: 'mention', workspaceId, pageId, actorId, commentId, mentionedUserIds: mentioned })))
+  }
+  return rows
+}
+
+/**
+ * Runs `write` (one statement that returns `ok` from `gatedWriteSql`) with the access the request
+ * checked. When the version or role moved on since (or the workspace has no acl row yet), re-checks
+ * membership, agent block and the comment bit under `gateWrite` and writes in that transaction.
+ */
+async function gatedCommentWrite(
+  workspaceId: string,
+  userId: string,
+  checked: CheckedAccess,
+  pageId: string,
+  write: (exec: Exec, checked: CheckedAccess) => Promise<boolean>,
+): Promise<void> {
+  if (await write(db, checked)) return
+  await db.transaction(async (tx) => {
+    const gate = await gateWrite(tx, workspaceId, userId)
+    if (!gate.role) throw forbidden()
+    await assertAgentAllowed(workspaceId, gate.acl.version, tx)
+    await assertPageEditable(pageId, userId, { role: gate.role, acl: gate.acl, exec: tx, bit: CAP_COMMENT })
+    if (!(await write(tx, gate))) throw new Error('comment write: gate changed inside its own transaction')
+  })
+}
+
+async function insertCommentWithEvents(
+  exec: Exec,
+  workspaceId: string,
+  userId: string,
+  checked: CheckedAccess,
+  v: { id: string; pageId: string; blockId: string; threadId: string; authorId: string; body: string; viaClient: string | null },
+  events: OutboxRow[],
+): Promise<boolean> {
+  const g = gatedWriteSql(workspaceId, userId, checked)
+  const queue = events.length
+    ? sql`, queued AS (${outboxInsertSql(events, sql`EXISTS (SELECT 1 FROM written)`)})`
+    : sql``
+  const [r] = (await exec.execute(sql`
+    WITH ${g.ctes},
+      written AS (
+        INSERT INTO comments (id, page_id, block_id, thread_id, author_id, body, via_client)
+        SELECT ${v.id}, ${v.pageId}, ${v.blockId}, ${v.threadId}, ${v.authorId}, ${v.body}, ${v.viaClient} FROM gate_ok
+        RETURNING id
+      )${queue}
+    SELECT ${g.columns}
+  `)) as unknown as { ok: boolean }[]
+  return !!r?.ok
+}
+
+async function updateComment(
+  exec: Exec,
+  workspaceId: string,
+  userId: string,
+  checked: CheckedAccess,
+  id: string,
+  updates: { resolved?: '0' | '1'; body?: string },
+): Promise<boolean> {
+  const g = gatedWriteSql(workspaceId, userId, checked)
+  const [r] = (await exec.execute(sql`
+    WITH ${g.ctes},
+      written AS (
+        UPDATE comments SET resolved = coalesce(${updates.resolved ?? null}::text, resolved), body = coalesce(${updates.body ?? null}::text, body)
+         WHERE id = ${id} AND EXISTS (SELECT 1 FROM gate_ok)
+        RETURNING id
+      )
+    SELECT ${g.columns}
+  `)) as unknown as { ok: boolean }[]
+  return !!r?.ok
 }

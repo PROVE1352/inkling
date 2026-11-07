@@ -762,3 +762,29 @@ Changed rules:
 
 ### Imports (docs/adr/1122-*)
 - zip and folder import responses add `duplicateAttachments`; the Notion report adds `merged: { pages, attachments }` and `attachments` counts files actually stored.
+
+## v0.6.0 additions
+
+### OpenID Connect sign-in (docs/adr/1160–1162)
+- `GET /api/auth/oidc/start?returnTo=/path` (no auth) → 302 to the provider; sets `inkling_oidc` (httpOnly, Lax, Path=/api/auth/oidc, 10 min). `returnTo` must be a same-origin path, else `/`. Not configured → 404 `OIDC_DISABLED`.
+- `POST /api/auth/oidc/link { returnTo? }` (browser session only, bearer 403) → `{ url }`. Delegated accounts 400 `DELEGATED_ACCOUNT`; provider down 503 `OIDC_UNAVAILABLE`.
+- `GET /api/auth/oidc/callback?code&state` (called by the provider) → always 302: success → `returnTo` with the session cookie; Inkling two-step on → `/login?next=<returnTo>#totp=<challenge>` (finish with `POST /auth/login/totp`); failure → `/login?oidc_error=CODE` (link flow: `returnTo?oidc_error=CODE`).
+- Codes: `OIDC_DISABLED`, `OIDC_STATE_INVALID`, `OIDC_CANCELLED`, `OIDC_PROVIDER_ERROR`, `OIDC_UNAVAILABLE`, `OIDC_TOKEN_INVALID`, `OIDC_NO_EMAIL`, `OIDC_EMAIL_UNVERIFIED`, `OIDC_DOMAIN_NOT_ALLOWED`, `OIDC_NO_ACCOUNT`, `OIDC_EMAIL_TAKEN`, `OIDC_MFA_REQUIRED`, `OIDC_ALREADY_LINKED`, `OIDC_LINK_CONFLICT`, `OIDC_LINK_SESSION`, `EMAIL_NOT_VERIFIED`, `RATE_LIMITED`. 30/min/IP on all three routes.
+- `GET /api/auth/mode` adds `oidc: { name } | null`. `GET /api/auth/me` adds `user.logins: [{ provider: 'oidc', name, email, linkedAt, lastUsedAt }]`; `user.origin` may be `'oidc'` (no password: reset/change/verification answer `DELEGATED_ACCOUNT`, `POST /auth/login` answers `INVALID_CREDENTIALS`).
+
+### Splitting pages and log rotation (docs/adr/1140–1142)
+- `POST /api/pages/:id/split` (edit right, document pages, 60/min) `{ level: 1–6, sections?: headingBlockId[] (≤200), preview?: boolean }` → `{ pageId, level, levels: number[6], sections: [{ blockId, anchor, title, blocks, bytes, comments, pageId? }], remainingBlocks, openBy, preview }`. 400 no section / not a document / more than 200; 403 `PAGE_LOCKED`; 409 `SPLIT_CONFLICT` (a moved section changed meanwhile, nothing changed). Subpages are indexed shortly after the response.
+- `GET /api/pages/:id/rotation` (page access) → `{ mode: 'off'|'month'|'size', maxBytes, current: { id, title } | null }`; `PUT` (edit right) `{ mode, maxBytes? (65536–8388608) }` → same.
+- `POST /api/pages/:id/rotation/target` (edit right, 60/min) → `{ pageId, title, rotated, created, mode }`: where an append should go; may create the month or size subpage; sends the one-time `large_page` notification for a large page that does not rotate.
+- Notification type `large_page` (owner, else creator; once per page; no mail). `[[Title#Heading]]` in Markdown input resolves to the subpage of Title named Heading, else to Title.
+
+### Public link expiry and passwords (docs/adr/1170–1172)
+- `POST /api/pages/:id/share` body optional `{ expiresAt?: ISO|null, expiresInDays?: 1–3650, password?: 4–128 chars }` (not both expiry forms), applied only when a new link is made. No expiry given → the workspace `shareDefaultExpiryDays`. No password while the workspace requires one → 403 `SHARE_PASSWORD_POLICY`.
+- `PATCH /api/pages/:id/share` (owners/admins) `{ expiresAt?: ISO|null, expiresInDays?, password?: string|null }`: omitted = unchanged, null = remove. Expiry must be more than 1 minute and at most 10 years ahead (400). 409 `NOT_SHARED`; removing a required password 403 `SHARE_PASSWORD_POLICY`. → `ShareStatusDTO`.
+- `ShareStatusDTO` adds `expiresAt`, `expired`, `hasPassword`, `policy { defaultExpiryDays, passwordRequired }`. `GET /api/workspaces/:id/shared` items add `expiresAt`, `expired`, `hasPassword`; expired links stay listed. The hash is never returned.
+- `POST /api/public/:token/unlock { password }` → 204 + `inkling_share` cookie (Path=/api/public/<token>, HttpOnly, Lax, 12 h, never past the link expiry). Wrong 401 `SHARE_PASSWORD_INVALID`, unknown 404, expired 410. Every answer takes at least 300 ms with one argon2 verify. 10/min/IP plus per-link backoff and IP ban (429 `RATE_LIMITED`).
+- Public routes (`/api/public/:token`, `/f/:fileId`, `/p/:ref`, `/p/:ref/f/:fileId`): expired → 410 `SHARE_EXPIRED` (not counted as a guess); password without a valid cookie → 401 `SHARE_PASSWORD_REQUIRED`; both `no-store` and `X-Robots-Tag: noindex, nofollow`. `/s/…` of such links is a plain shell with a noindex meta and no og/twitter tags.
+- Workspace settings add `shareDefaultExpiryDays` (1–365|null) and `sharePasswordRequired`. Audit actions `share.expiry_changed`, `share.password_set`, `share.password_changed`, `share.password_removed`.
+
+### Events and the write gate (docs/adr/1150–1151)
+- `POST /pages/:id/comments`, `PATCH /comments/:id`, `POST /pages/:id/content` and the section edit wait for a lock change, agent block or member change in progress and answer by its result (403 `PAGE_LOCKED`, 403, 403 `AGENT_BLOCKED`). If the event cannot be written the request answers 500 and nothing is saved.

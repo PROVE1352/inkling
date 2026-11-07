@@ -193,3 +193,10 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** Link previews are cached for 60 s with their placeholder text already rendered, so right after a language switch a preview can show the previous language.
 - **Low** Date cells in databases show the stored `YYYY-MM-DD` value in every language; only calendar/timeline headers and tooltips are localized.
 - **Info** A new account's locale is not saved at sign-up; until the user picks a language (or the browser value is adopted) their emails use `DEFAULT_LOCALE`. Content already created (snapshot labels, default field names, the Tasks document) keeps the language it was created in.
+
+## Added in 0.6.0
+- **Low** An OIDC sign-in cannot be disconnected in the app; remove the row from `user_identities` by hand. Two tabs signing in at once: the first one fails with `OIDC_STATE_INVALID` and must start again. Multi-tenant Entra issuers (`common`, `organizations`) are not supported. With `OIDC_REQUIRE_MFA=0` a workspace that requires two-step verification trusts the provider's own policy for OIDC accounts.
+- **Low** Log rotation applies to MCP `update_page` appends only; REST `/content` and `inklingctl` write to the page itself (call `POST /pages/:id/rotation/target` first). The one-time large-page notice is never sent again for that page.
+- **Low** After a split the new subpages are missing from search for 2–3 s while they are indexed. The `page_created` webhooks of a split are sent after it succeeds, outside the transaction (a split can still be undone before that), so a crash in that moment loses them. The same crash window remains for review-due and digest webhooks and reminders.
+- **Low** The write gate does not cover comment DELETE, quick task add, ink, vault sync, snapshot restore and typing in the editor.
+- **Low** Without `APP_SECRET_KEY` the unlock cookie of password links is signed with a per-process key, so a restart asks visitors again. A link-preview fetched before a password was set may stay in the 6-hour preview cache of signed-in users.

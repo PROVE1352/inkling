@@ -4,8 +4,30 @@ import { blocksToStateBuffer, blocksToXmlFragment } from './convert'
 import type { AnyBlock } from './convert'
 import { getServerEditor } from './editor'
 import { readBlocks } from '../context/sectionPatch'
+import type { DocGate } from '../docWriteGate'
 
 type DirectConnection = Awaited<ReturnType<typeof hocuspocus.openDirectConnection>>
+
+/**
+ * `conn.transact(fn)`, with `fn` applied inside `gate` when given (docs/adr/1150-*). DirectConnection
+ * applies `fn` synchronously when `transact` is called and then awaits the store hooks; the gate's
+ * transaction ends right after the apply and the store is awaited outside it, so the gate never
+ * holds a pool connection while the store waits for one.
+ */
+export async function gatedTransact(conn: DirectConnection, fn: (doc: Y.Doc) => void, gate?: DocGate): Promise<void> {
+  if (!gate) return conn.transact(fn)
+  let stored: Promise<void> | undefined
+  try {
+    await gate(() => {
+      stored = conn.transact(fn)
+    })
+  } catch (err) {
+    // The gate refused (nothing applied), or failed after the apply: settle the store either way.
+    await stored?.catch(() => undefined)
+    throw err
+  }
+  await stored
+}
 
 /**
  * Replace or append blocks in a live doc — the same safe path as snapshot restore.
@@ -21,6 +43,7 @@ export async function writeBlocksToDoc(
   pageId: string,
   incoming: AnyBlock[],
   mode: 'replace' | 'append',
+  gate?: DocGate,
 ): Promise<void> {
   const conn = await hocuspocus.openDirectConnection(pageId)
   try {
@@ -30,10 +53,10 @@ export async function writeBlocksToDoc(
     // them back drops callouts, page embeds and @mentions. Only an empty doc is replaced.
     if (mode === 'append' && !isEffectivelyEmpty(live)) {
       if (incoming.length === 0) return
-      await appendOnConnection(conn, incoming, false)
+      await appendOnConnection(conn, incoming, false, gate)
       return
     }
-    await conn.transact((doc) => {
+    await gatedTransact(conn, (doc) => {
       const frag = doc.getXmlFragment('document')
       let next: AnyBlock[] = incoming
       if (next.length === 0) next = [{ type: 'paragraph', content: [] }]
@@ -44,7 +67,7 @@ export async function writeBlocksToDoc(
         frag.delete(0, frag.length)
         blocksToXmlFragment(next, frag)
       })
-    })
+    }, gate)
   } finally {
     await conn.disconnect()
   }
@@ -63,7 +86,7 @@ function isBlockGroup(x: unknown): x is Y.XmlElement {
  * Returns the document blocks after the edit when `readBack` (a full read; only callers that index
  * by themselves need it).
  */
-async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], readBack: boolean): Promise<AnyBlock[]> {
+async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], readBack: boolean, gate?: DocGate): Promise<AnyBlock[]> {
   const editor = getServerEditor()
   const tmp = editor.blocksToYDoc(incoming as unknown as Parameters<typeof editor.blocksToYDoc>[0], 'document')
   let result: AnyBlock[] = []
@@ -75,7 +98,7 @@ async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], 
     // The new blocks must read back through BlockNote (throws on content the server cannot read).
     readBlocks(tmp)
     let failure: unknown = null
-    await conn.transact((doc) => {
+    await gatedTransact(conn, (doc) => {
       try {
         const frag = doc.getXmlFragment('document')
         if (frag.length === 0) {
@@ -95,7 +118,7 @@ async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], 
       } catch (err) {
         failure = err
       }
-    })
+    }, gate)
     if (failure) throw failure
   } finally {
     tmp.destroy()

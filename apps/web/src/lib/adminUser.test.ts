@@ -9,4 +9,6 @@ test('admin user badge: "Signup key" only for local accounts that actually used 
   assert.equal(userOriginBadge({ origin: 'delegated', signupKey: null }), 'delegated')
   // a delegated mirror never shows the key badge, even with a stray value
   assert.equal(userOriginBadge({ origin: 'delegated', signupKey: 'X' }), 'delegated')
+  // created by an OpenID Connect sign-in (docs/adr/1161-*)
+  assert.equal(userOriginBadge({ origin: 'oidc', signupKey: null }), 'oidc')
 })

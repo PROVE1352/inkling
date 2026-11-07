@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+**/dev-dist
+.env
+.git
+apps/server/data
+docs
+README.md
+backups
+deploy/rclone.conf

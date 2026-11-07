@@ -1,0 +1,26 @@
+{
+  "id": "progress-bar",
+  "name": "Progress Blocks",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.0",
+  "description": "Two dependency-free custom blocks: a progress bar and a counter.",
+  "author": "Inkling examples",
+  "entry": "main.js",
+  "permissions": ["blocks"],
+  "blocks": [
+    {
+      "type": "progress",
+      "title": "Progress bar",
+      "description": "A labelled bar you can step up and down",
+      "defaultData": { "label": "Progress", "value": 30, "max": 100 },
+      "height": 72
+    },
+    {
+      "type": "counter",
+      "title": "Counter",
+      "description": "A shared tally with − / + buttons",
+      "defaultData": { "label": "Count", "count": 0 },
+      "height": 56
+    }
+  ]
+}

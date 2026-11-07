@@ -1,0 +1,20 @@
+{
+  "name": "inkling",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"pnpm --filter @inkling/server dev\" \"pnpm --filter @inkling/web dev\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d db",
+    "db:generate": "pnpm --filter @inkling/server db:generate",
+    "db:migrate": "pnpm --filter @inkling/server db:migrate",
+    "test": "pnpm -r test",
+    "test:db": "pnpm --filter @inkling/server test:db",
+    "check:pins": "node scripts/check-editor-pins.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

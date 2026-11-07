@@ -1,0 +1,15 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  "@node-rs/argon2": true
+  "@tailwindcss/oxide": true
+
+patchedDependencies:
+  "@blocknote/core@0.51.4": patches/@blocknote__core@0.51.4.patch
+
+overrides:
+  prosemirror-view: "1.42.4"

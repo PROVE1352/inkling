@@ -1,0 +1,28 @@
+# Optional overlay: off-site copies of backup sets with rclone (docs/BACKUP.md, docs/adr/0604-*).
+#
+#   BACKUP_RCLONE_REMOTE=b2:my-bucket/inkling          (in .env)
+#   BACKUP_RCLONE_CONFIG=/opt/inkling/rclone.conf      (host path; create it with `rclone config`)
+#   docker compose -f compose.yaml -f deploy/compose.backup-rclone.yaml up -d
+#
+# The official rclone image is only used to copy its static binary into a small volume that the
+# backup sidecar mounts read-only; no extra long-running container.
+services:
+  backup-rclone-bin:
+    image: rclone/rclone:1.68.2
+    restart: "no"
+    entrypoint: ["sh", "-c", "cp /usr/local/bin/rclone /out/rclone && chmod 0755 /out/rclone"]
+    volumes:
+      - nodian-rclone-bin:/out
+
+  backup:
+    depends_on:
+      backup-rclone-bin:
+        condition: service_completed_successfully
+    environment:
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - nodian-rclone-bin:/opt/rclone:ro
+      - ${BACKUP_RCLONE_CONFIG:-./deploy/rclone.conf}:/config/rclone/rclone.conf
+
+volumes:
+  nodian-rclone-bin:

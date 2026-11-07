@@ -1,0 +1,155 @@
+/*
+ * Print / "Export as PDF" (docs/adr/0307-pdf-export-print-css.md).
+ * lib/printPage.ts marks the element to print with [data-print-root] and every ancestor with
+ * [data-print-ancestor], then adds html.nd-printing and calls window.print(). Everything that
+ * is not on that ancestor chain (sidebar, header, panels, portals) is display:none; the chain is
+ * flattened to normal block flow so long pages paginate instead of being clipped by scroll boxes.
+ * Rules only apply while printing (@media print), so screen layout is never affected.
+ */
+@media print {
+  @page {
+    margin: 16mm 14mm;
+  }
+
+  html.nd-printing {
+    /* always print the light palette, even from dark mode */
+    --color-app: #ffffff;
+    --color-side: #f7f7f5;
+    --color-line: #e3e3e0;
+    --color-ink: #1f1f1d;
+    --color-sub: #6b6b68;
+    --color-accent: #4f46e5;
+    --color-accent-soft: #eef0ff;
+    --color-hover: transparent;
+    --color-active: transparent;
+    color-scheme: light;
+  }
+
+  html.nd-printing,
+  html.nd-printing body,
+  html.nd-printing #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: var(--color-ink) !important;
+    padding: 0 !important;
+  }
+
+  html.nd-printing * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* hide everything that is not on the path to the printed element */
+  html.nd-printing body > :not([data-print-ancestor]):not([data-print-root]),
+  html.nd-printing [data-print-ancestor] > :not([data-print-ancestor]):not([data-print-root]) {
+    display: none !important;
+  }
+  html.nd-printing [data-print-ancestor] {
+    display: block !important;
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  html.nd-printing [data-print-root] {
+    position: static !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* app chrome and editor UI inside the printed element */
+  html.nd-printing [data-print-hide],
+  html.nd-printing .bn-side-menu,
+  html.nd-printing .bn-formatting-toolbar,
+  html.nd-printing .bn-link-toolbar,
+  html.nd-printing .bn-suggestion-menu,
+  html.nd-printing .bn-grid-suggestion-menu,
+  html.nd-printing .bn-table-handle,
+  html.nd-printing .bn-table-cell-handle,
+  html.nd-printing .bn-extend-button,
+  html.nd-printing .bn-toggle-add-block-button,
+  html.nd-printing .bn-resize-handle,
+  html.nd-printing .collaboration-cursor__caret,
+  html.nd-printing .collaboration-cursor__label,
+  /* Table row menu button: matched by its aria-label in both UI languages ('행 메뉴' is the Korean
+     label) and by [data-print-hide] for any control that opts out of printing. */
+  html.nd-printing button[aria-label='Row menu'],
+  html.nd-printing button[aria-label='행 메뉴'],
+  html.nd-printing [data-print-hide] {
+    display: none !important;
+  }
+  html.nd-printing .ProseMirror-selectednode {
+    outline: none !important;
+  }
+
+  /* pagination */
+  html.nd-printing h1,
+  html.nd-printing h2,
+  html.nd-printing h3,
+  html.nd-printing [data-content-type='heading'] {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  html.nd-printing img,
+  html.nd-printing figure,
+  html.nd-printing video,
+  html.nd-printing [data-content-type='image'],
+  html.nd-printing .nd-print-avoid,
+  html.nd-printing tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  html.nd-printing img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* code blocks: wrap instead of clipping, keep short blocks together */
+  html.nd-printing pre,
+  html.nd-printing [data-content-type='codeBlock'] pre,
+  html.nd-printing code {
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  html.nd-printing [data-content-type='codeBlock'] {
+    break-inside: avoid;
+  }
+
+  /* tables: let wide tables shrink, long tables continue on the next page */
+  html.nd-printing table {
+    width: 100% !important;
+    table-layout: auto;
+    break-inside: auto;
+  }
+  html.nd-printing thead {
+    display: table-header-group;
+  }
+  html.nd-printing .overflow-x-auto,
+  html.nd-printing .overflow-auto {
+    overflow: visible !important;
+  }
+  html.nd-printing .min-w-max {
+    min-width: 0 !important;
+  }
+
+  /* collection timeline viewport becomes a plain block */
+  html.nd-printing .nd-timeline {
+    height: auto !important;
+  }
+
+  html.nd-printing a {
+    color: inherit !important;
+    text-decoration: underline;
+  }
+}

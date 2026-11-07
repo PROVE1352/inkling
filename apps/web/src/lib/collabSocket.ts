@@ -1,0 +1,232 @@
+import type * as Y from 'yjs'
+import {
+  HocuspocusProvider,
+  HocuspocusProviderWebsocket,
+  type HocuspocusProviderConfiguration,
+} from '@hocuspocus/provider'
+import type { CollabUser } from '../components/OnlineUsers'
+
+// One collab WebSocket per tab (docs/adr/0702-shared-collab-websocket.md).
+//
+// Hocuspocus multiplexes documents over a single socket (messages carry the document name), so
+// the main editor, every page embed, the canvas and the inbox channel can share one connection
+// instead of opening one each (the server caps sockets per IP — collab.ts MAX_CONN_PER_IP).
+//
+// Rules this module enforces:
+// - Providers are created by `openCollab()` from inside an effect (never during render), so a
+//   render React throws away can never leave a live provider attached to the shared socket.
+// - A document name already attached to the shared socket gets a dedicated socket instead:
+//   the provider map (client) and the server connection both key documents by name, so two
+//   providers for one name on one socket would steal each other's messages.
+// - A name that was closed on the shared socket less than REOPEN_GRACE_MS ago also gets a
+//   dedicated socket. The server processes a provider's Close asynchronously, so an Auth for the
+//   same name sent right after it is routed to the dying connection and dropped ("Received an
+//   authentication message on a connection that is already fully authenticated", hocuspocus
+//   server ClientConnection/MessageReceiver) — the new provider would then never sync. This is
+//   hit by e.g. clicking a page embed: the embed of X is released and the editor for X opens
+//   in the same commit.
+// - A name the server denied on the shared socket is never retried on it: the server keeps that
+//   name marked as established for the socket's lifetime and would queue a new Auth forever.
+// - The socket identity is the session cookie sent at upgrade time, so the shared socket is
+//   keyed by user id. A different user (logout → login without reload) never reuses it, and it
+//   is closed as soon as the last provider is released.
+
+export const collabUrl = () =>
+  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab`
+
+const REOPEN_GRACE_MS = 3_000
+
+/**
+ * Watchdog: a document on a connected shared socket that is still not synced after two checks
+ * re-sends its Auth + SyncStep1. Before 0702 a stuck document had its own socket, which the 30 s
+ * no-message check would recycle; on a shared socket the other documents keep it alive. Covers
+ * an Auth the server dropped (e.g. a Close→Auth race beyond the grace window under load).
+ * Re-sending is harmless when the first Auth is merely slow (the server queues it).
+ */
+const SYNC_WATCHDOG_MS = 10_000
+
+type Shared = {
+  ws: HocuspocusProviderWebsocket
+  userKey: string
+  /** document names currently attached */
+  names: Set<string>
+  /** document name → time it was closed on this socket */
+  closedAt: Map<string, number>
+  /** document names the server denied on this socket */
+  denied: Set<string>
+  refs: number
+}
+
+let shared: Shared | null = null
+
+function closeShared(s: Shared) {
+  if (shared === s) shared = null
+  try {
+    s.ws.destroy()
+  } catch {
+    // already torn down
+  }
+}
+
+function acquireShared(userKey: string): Shared {
+  if (shared && shared.userKey !== userKey) {
+    // Another identity: retire the old socket for new providers. It closes when its own
+    // providers are released (they all unmount on logout because they live under AppLayout).
+    const old = shared
+    shared = null
+    if (old.refs === 0) closeShared(old)
+  }
+  if (!shared) {
+    shared = {
+      ws: new HocuspocusProviderWebsocket({ url: collabUrl(), connect: true }),
+      userKey,
+      names: new Set(),
+      closedAt: new Map(),
+      denied: new Set(),
+      refs: 0,
+    }
+  }
+  return shared
+}
+
+export type CollabHandle = {
+  provider: HocuspocusProvider
+  /** true when this provider rides on the tab-wide socket (false = dedicated fallback). */
+  sharedSocket: boolean
+  /** Destroys the provider and drops its socket reference. Call exactly once (effect cleanup). */
+  release: () => void
+}
+
+export type OpenCollabOptions = {
+  name: string
+  document: Y.Doc
+  /** Session owner (user id). Sockets are never shared across identities. */
+  userKey: string
+  onStateless?: HocuspocusProviderConfiguration['onStateless']
+}
+
+/**
+ * Create a Hocuspocus provider for `name` on the tab-wide socket. Must be called from an effect;
+ * pair it with `release()` in that effect's cleanup.
+ */
+export function openCollab(opts: OpenCollabOptions): CollabHandle {
+  const s = acquireShared(opts.userKey)
+  const closed = s.closedAt.get(opts.name)
+  const recentlyClosed = closed !== undefined && Date.now() - closed < REOPEN_GRACE_MS
+  if (closed !== undefined && !recentlyClosed) s.closedAt.delete(opts.name)
+  if (s.names.has(opts.name) || recentlyClosed || s.denied.has(opts.name)) {
+    // Same document already on the shared socket (e.g. a page embedding itself, or the same
+    // embed twice), just closed on it, or denied on it: fall back to a dedicated socket — the
+    // pre-0702 behaviour.
+    const provider = new HocuspocusProvider({
+      url: collabUrl(),
+      name: opts.name,
+      document: opts.document,
+      token: 'cookie',
+      onStateless: opts.onStateless,
+    })
+    let released = false
+    return {
+      provider,
+      sharedSocket: false,
+      release: () => {
+        if (released) return
+        released = true
+        provider.destroy()
+        provider.configuration.websocketProvider?.destroy?.()
+      },
+    }
+  }
+
+  s.names.add(opts.name)
+  s.refs++
+  // The constructor attaches to the socket: if it is already open this immediately sends the
+  // auth + sync step 1 for this document; otherwise it goes out on the socket's 'open'.
+  const provider = new HocuspocusProvider({
+    websocketProvider: s.ws,
+    name: opts.name,
+    document: opts.document,
+    token: 'cookie',
+    // Keep the socket when this provider detaches (destroy / permission denied) — other
+    // documents still use it. The last release closes it below.
+    preserveConnection: true,
+    onStateless: opts.onStateless,
+    onAuthenticationFailed: () => {
+      s.denied.add(opts.name)
+    },
+  })
+  let released = false
+  let strikes = 0
+  const watchdog = window.setInterval(() => {
+    if (released || provider.isSynced || s.denied.has(opts.name) || s.ws.status !== 'connected') {
+      strikes = 0
+      return
+    }
+    const openEvent = s.ws.receivedOnOpenPayload
+    if (++strikes >= 2 && openEvent) {
+      strikes = 0
+      void provider.onOpen(openEvent as Parameters<HocuspocusProvider['onOpen']>[0])
+    }
+  }, SYNC_WATCHDOG_MS)
+  return {
+    provider,
+    sharedSocket: true,
+    release: () => {
+      if (released) return
+      released = true
+      window.clearInterval(watchdog)
+      // destroy(): sends a Close for this document only, detaches it and removes listeners.
+      provider.destroy()
+      s.names.delete(opts.name)
+      s.closedAt.set(opts.name, Date.now())
+      s.refs--
+      if (s.refs <= 0) closeShared(s)
+    },
+  }
+}
+
+/** Socket-level status (a provider attached to an already-open socket gets no 'status' event). */
+export function readStatus(provider: HocuspocusProvider): 'connected' | 'connecting' | 'disconnected' {
+  const st = (provider.configuration.websocketProvider?.status ?? provider.status) as string
+  return st === 'connected' || st === 'connecting' ? st : 'disconnected'
+}
+
+// ---------------------------------------------------------------------------
+// Awareness → online users (docs/adr/0700-awareness-users-equality.md)
+// ---------------------------------------------------------------------------
+
+type AwarenessLike = {
+  clientID: number
+  getStates: () => Map<number, { user?: { name?: string; color?: string } }>
+}
+
+export function readUsers(provider: HocuspocusProvider): CollabUser[] {
+  const awareness = provider.awareness as AwarenessLike | null
+  if (!awareness) return []
+  const selfId = awareness.clientID
+  const out: CollabUser[] = []
+  awareness.getStates().forEach((state, clientId) => {
+    if (clientId === selfId) return
+    const user = state?.user
+    if (user?.name) {
+      out.push({ clientId, name: user.name, color: user.color ?? '#888888' })
+    }
+  })
+  return out
+}
+
+/**
+ * Awareness 'change' fires for every remote cursor move / selection change, but the user list
+ * (who is here, name, colour) almost never changes. Comparing keeps React from re-rendering the
+ * page on each cursor move.
+ */
+export function sameUsers(a: readonly CollabUser[], b: readonly CollabUser[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (x.clientId !== y.clientId || x.name !== y.name || x.color !== y.color) return false
+  }
+  return true
+}

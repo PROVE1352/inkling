@@ -1,0 +1,13 @@
+{
+  "id": "word-stats",
+  "name": "Word Stats",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.0",
+  "description": "Counts words, characters and reading time of the current page.",
+  "author": "Inkling examples",
+  "entry": "main.js",
+  "permissions": ["commands", "read:pages", "storage"],
+  "commands": [
+    { "id": "count-words", "title": "Word stats: count words in this page" }
+  ]
+}

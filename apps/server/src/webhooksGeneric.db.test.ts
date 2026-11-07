@@ -304,7 +304,10 @@ describe('[db] generic webhooks', { skip: !HAS_DB }, async () => {
     assert.equal(rec.error, 'HTTP 503')
     assert.ok(rec.responseExcerpt!.startsWith('down for maintenance x'))
     assert.ok(rec.responseExcerpt!.length <= 200)
-    assert.ok(rec.nextAttemptAt && Date.parse(rec.nextAttemptAt) > Date.now())
+    // nextAttemptAt is now() + backoff in the database; compare on that clock, not the app's
+    // (they can be seconds apart, docs/adr/1243-*)
+    const [{ dbNow }] = (await db.execute(sql`SELECT (extract(epoch from clock_timestamp()) * 1000)::float8 AS "dbNow"`)) as unknown as { dbNow: number }[]
+    assert.ok(rec.nextAttemptAt && Date.parse(rec.nextAttemptAt) > Number(dbNow), 'the retry is scheduled in the future')
     const firstId = hits[0].headers['x-inkling-delivery']
 
     await db.execute(sql`UPDATE outbox SET available_at = now() WHERE id = ${rec.id}`)

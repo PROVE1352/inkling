@@ -814,3 +814,12 @@ Changed rules:
 
 ### find_context (docs/adr/1210–1212)
 - `GET /api/context` sections add `short` (the shortest anchor tail unique in the page) and `heading` (last heading); `more` items add the same fields. Existing fields are unchanged; `read_page` and `patch_section` accept the short anchor.
+
+## v0.8.0 additions
+
+### Admin: status (docs/adr/1230–1233)
+- `GET /api/admin/status` (admin, browser session only; bearer tokens 403; 30/min). `?refresh=1` recomputes the heavy probes (else cached 5 min). → `{ level: 'ok'|'warn'|'error', generatedAt, groups: [{ id: 'backup'|'storage'|'app'|'security'|'update', level, summary, items: [{ key, group, level: 'ok'|'warn'|'error'|'off', data }] }], issues, cache: { hit, ageSec, ttlSec } }`. `off` means not configured, switched off or not applicable and is never an issue. `data` never holds secret values, paths or the database URL.
+- `GET /api/version/latest` adds `securityFix: boolean | null` (a newer release has a Security section; null when there are no notes to read).
+
+### Heavy jobs (docs/adr/1240)
+- `GET /api/pages/:id/export?format=zip`, `GET /api/workspaces/:id/export`, `POST /api/workspaces/:id/import`, `POST /api/workspaces/:id/import-folder` and `POST /api/pages/:id/duplicate` may wait up to `HEAVY_JOBS_WAIT_MS` for a slot, then answer 503 `HEAVY_JOBS_BUSY` (queue full or no slot in time) or 429 `HEAVY_JOBS_PER_USER` (the caller already has `HEAVY_JOBS_PER_USER` jobs running or waiting), both with `Retry-After` in seconds.

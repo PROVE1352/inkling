@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useComments } from '../../api'
+import { FOLDS_EVENT } from '../../lib/headingFolds'
 import type { InklingEditor } from '../CollabEditor'
 import { useT } from '../../i18n'
 
@@ -49,6 +50,8 @@ export function CommentBadges({
       const el = container.querySelector(`[data-id="${blockId}"]`)
       if (!el) return
       const r = el.getBoundingClientRect()
+      // inside a folded section (docs/adr/1221-*): no box, no badge
+      if (r.width === 0 && r.height === 0) return
       next.push({
         blockId,
         count,
@@ -78,7 +81,11 @@ export function CommentBadges({
   useEffect(() => {
     const onResize = () => setTick((v) => v + 1)
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    window.addEventListener(FOLDS_EVENT, onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener(FOLDS_EVENT, onResize)
+    }
   }, [])
 
   // Once more right after the first mount (waits for block DOM to render)

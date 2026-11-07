@@ -398,7 +398,8 @@ describe('[db] auth security', { skip: !HAS_DB }, async () => {
       assert.equal(reused.statusCode, 401)
       assert.equal(reused.json().error.code, 'TOTP_CODE_REUSED')
 
-      const next = totp.hotp(key, nowStep() + 1)
+      const nextStep = nowStep() + 1
+      const next = totp.hotp(key, nextStep)
       const ok = await post('/api/auth/login/totp', { challenge: ch, code: next })
       assert.equal(ok.statusCode, 200, ok.body)
       assert.equal(ok.json().user.id, u.id)
@@ -411,7 +412,9 @@ describe('[db] auth security', { skip: !HAS_DB }, async () => {
       ch = await challengeFor(u.email)
       const replay = await post('/api/auth/login/totp', { challenge: ch, code: next })
       assert.equal(replay.json().error.code, 'TOTP_CODE_REUSED')
-      const older = await post('/api/auth/login/totp', { challenge: ch, code: totp.hotp(key, nowStep() - 1) })
+      // The step just below the one used: inside the server's ±1 window whether or not a 30 s step
+      // boundary passed since `nextStep` was taken (now - 1 is outside it right after a boundary).
+      const older = await post('/api/auth/login/totp', { challenge: ch, code: totp.hotp(key, nextStep - 1) })
       assert.equal(older.json().error.code, 'TOTP_CODE_REUSED', 'an older step than the last one used is refused too')
     })
 
@@ -450,7 +453,9 @@ describe('[db] auth security', { skip: !HAS_DB }, async () => {
     it('expired challenges and a password reset in between are refused', async () => {
       const { u, key } = await enrolled('expiry')
       const ch = await challengeFor(u.email)
-      await db.update(schema.totpLoginChallenges).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.totpLoginChallenges.tokenHash, sha256(ch)))
+      // Expired by the database clock, which the check uses (`expires_at > now()`); the app clock
+      // can be seconds ahead of it (Docker Desktop VM drift, docs/adr/1243-*).
+      await db.update(schema.totpLoginChallenges).set({ expiresAt: sql`now() - interval '1 second'` }).where(eq(schema.totpLoginChallenges.tokenHash, sha256(ch)))
       const r = await post('/api/auth/login/totp', { challenge: ch, code: totp.hotp(key, nowStep() + 1) })
       assert.equal(r.json().error.code, 'TOTP_CHALLENGE_EXPIRED')
 

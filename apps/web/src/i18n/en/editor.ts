@@ -2,6 +2,12 @@
 export default {
   // CollabEditor
   'editor.connecting': 'Connecting…',
+  'editor.placeholder': "Write, or press '/' for blocks",
+
+  // Heading folds and the outline in the margin (docs/adr/1220-*, 1221-*)
+  'fold.fold': 'Fold section',
+  'fold.unfold': 'Unfold section',
+  'toc.label': 'Table of contents',
 
   // Slash menu
   'slash.calloutTitle': 'Callout',

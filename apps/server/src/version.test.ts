@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
-import { isNewerRelease, normalizeVersion, parseRelease, readBuildId, sanitizeBuild } from './version'
+import { isNewerRelease, normalizeVersion, parseRelease, parseReleaseList, readBuildId, sanitizeBuild } from './version'
 
 describe('build id', () => {
   it('reads WEB_DIST/build.json before the env fallback', () => {
@@ -49,5 +49,25 @@ describe('release check', () => {
     assert.equal(isNewerRelease('0.0.9', '0.1.0'), false)
     assert.equal(isNewerRelease(null, '0.1.0'), false)
     assert.equal(isNewerRelease('0.2.0', 'custom-build'), false)
+  })
+
+  it('lists releases: newest stable by semver, security sections of releases newer than this one (ADR 1232)', () => {
+    const rel = (tag: string, body: string | null, extra: object = {}) => ({ tag_name: tag, html_url: `https://github.com/o/r/releases/tag/${tag}`, body, ...extra })
+    const list = [
+      rel('v0.9.0-rc.1', '### Security\n- x', { prerelease: true }),
+      rel('v0.8.1', '### Fixed\n- y'),
+      rel('v0.8.0', '## [0.8.0]\n\n### Security\n- session fix'),
+      rel('v0.7.0', '### Security\n- old'),
+      rel('v0.6.0', ''),
+    ]
+    const r = parseReleaseList(list, '0.7.0')
+    assert.equal(r.latest?.version, '0.8.1')
+    assert.equal(r.securityFix, true)
+    assert.equal(parseReleaseList(list, '0.8.0').securityFix, false)
+    assert.equal(parseReleaseList(list, '0.8.1').securityFix, null) // nothing newer
+    assert.equal(parseReleaseList([rel('v1.0.0', ''), rel('v0.9.0', null)], '0.8.0').securityFix, null) // no notes to read
+    assert.equal(parseReleaseList([rel('v1.0.0', '### 보안\n- 수정')], '0.8.0').securityFix, true)
+    assert.equal(parseReleaseList([rel('v1.0.0', 'Security: see below')], '0.8.0').securityFix, false)
+    assert.deepEqual(parseReleaseList({ message: 'Not Found' }, '0.8.0'), { latest: null, securityFix: null })
   })
 })

@@ -5,6 +5,11 @@
 //   node ../../scripts/run-tests.mjs --db     same files, but DATABASE_URL is required (fail fast)
 //   node ../../scripts/run-tests.mjs --test-name-pattern=merge3        other args go to node --test
 //
+// In --db mode every file shares one database and node --test runs files in parallel processes. A
+// file whose assertions depend on database-wide state that other files also move (the change feed's
+// global high-water mark, docs/adr/1243-*) carries the line `// run-tests: db-exclusive` and runs
+// after the others, alone.
+//
 // Why a script instead of a glob in package.json: npm/pnpm scripts run under `sh`, where `**` is not
 // recursive, so `src/**/*.test.ts` silently misses top-level and deeper files. Node's own
 // `--test` glob expansion would work on Node 22, but an empty match is not an error there, and a
@@ -58,19 +63,35 @@ if (!tsxCli) {
   process.exit(1)
 }
 
+const EXCLUSIVE = /^\/\/ run-tests: db-exclusive\b/m
+const exclusive = dbMode ? files.filter((f) => EXCLUSIVE.test(readFileSync(path.join(pkgDir, f), 'utf8'))) : []
+const shared = files.filter((f) => !exclusive.includes(f))
+
 console.log(
-  `[run-tests] ${pkgName}: ${files.length} file(s)${dbMode ? ' [db mode]' : ''}` +
+  `[run-tests] ${pkgName}: ${shared.length} file(s)${dbMode ? ' [db mode]' : ''}` +
     (!process.env.DATABASE_URL && files.some((f) => readFileSync(path.join(pkgDir, f), 'utf8').includes('[db]'))
       ? ' — DATABASE_URL unset, [db] suites skip'
       : ''),
 )
 
-const child = spawn(
-  process.execPath,
-  [tsxCli, '--test', '--test-reporter=spec', '--test-reporter-destination=stdout', ...passThrough, ...files],
-  { cwd: pkgDir, stdio: 'inherit', env: process.env },
-)
-child.on('exit', (code, signal) => process.exit(signal ? 1 : (code ?? 1)))
+let status = 0
+if (shared.length) status = Math.max(status, await runNodeTest(shared, []))
+if (exclusive.length) {
+  console.log(`[run-tests] ${pkgName}: ${exclusive.length} db-exclusive file(s), alone: ${exclusive.join(', ')}`)
+  status = Math.max(status, await runNodeTest(exclusive, ['--test-concurrency=1']))
+}
+process.exit(status)
+
+function runNodeTest(list, extra) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [tsxCli, '--test', '--test-reporter=spec', '--test-reporter-destination=stdout', ...extra, ...passThrough, ...list],
+      { cwd: pkgDir, stdio: 'inherit', env: process.env },
+    )
+    child.on('exit', (code, signal) => resolve(signal ? 1 : (code ?? 1)))
+  })
+}
 
 function readPkgName(dir) {
   try {

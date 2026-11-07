@@ -29,6 +29,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
   await app.register(import('@fastify/multipart'), { limits: { fileSize: 25 * 1024 * 1024, files: 300 } })
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
+      if (err.retryAfter) reply.header('Retry-After', String(err.retryAfter))
       return reply.code(err.status).send({ error: { ...(err.details ?? {}), code: err.code, message: err.message } })
     }
     if (err instanceof ZodError) {

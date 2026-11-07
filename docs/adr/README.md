@@ -388,6 +388,32 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1213](1213-retrieval-evaluation-dev-test-split.md) | Retrieval evaluation: dev/test split, rank metrics, the field failure as data | Accepted |
 | [1214](1214-hybrid-semantic-search-design-memo.md) | Semantic (hybrid) retrieval for find_context: design memo, not built | Proposed |
 
+## 1220–1229 Reading view
+
+| ADR | Title | Status |
+|---|---|---|
+| [1220](1220-mini-outline-in-the-margin.md) | Outline in the right margin (mini table of contents) | Accepted |
+| [1221](1221-heading-folds-per-device.md) | Folding at headings, per device, without touching the document | Accepted |
+| [1222](1222-block-styling-next-to-notion.md) | Callout, quote, divider, code and toggle styling next to Notion; quieter page open | Accepted |
+
+## 1230–1239 Admin status
+
+| ADR | Title | Status |
+|---|---|---|
+| [1230](1230-admin-status-summary.md) | Server status summary for admins | Accepted |
+| [1231](1231-restart-count-and-error-counter.md) | Restart count from a boot log, error count from the logger | Accepted |
+| [1232](1232-release-check-lists-releases-for-security-fixes.md) | Release check lists recent releases to see security fixes (amends 0994) | Accepted |
+| [1233](1233-admin-status-banner-once-a-day.md) | Admin status banner: one line, the same problem once a day | Accepted |
+
+## 1240–1249 Heavy jobs and test reliability
+
+| ADR | Title | Status |
+|---|---|---|
+| [1240](1240-heavy-job-concurrency-cap.md) | Heavy jobs share a small concurrency cap with a fair queue | Accepted |
+| [1241](1241-zip-export-teardown-on-abort.md) | A zip export closes its entry streams when the download is aborted | Accepted |
+| [1242](1242-two-step-deadline-from-the-database-clock.md) | The two-step verification deadline is set from the database clock | Accepted |
+| [1243](1243-intermittent-db-test-failures.md) | Intermittent `[db]` test failures: one clock bug, the rest shared-database assumptions | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

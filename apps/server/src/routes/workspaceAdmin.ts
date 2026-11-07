@@ -166,7 +166,10 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
       }
       // The grace period runs from when the requirement was turned on; changing only the number of
       // days keeps that moment (shortening it can end the grace period at once).
-      const at = !body.required ? null : (cur.at ?? new Date())
+      // The moment comes from the database clock: the deadline is compared with now() in SQL
+      // (twoFactorBlockedSql), and an app clock ahead of the database's would leave a member
+      // unblocked (and connected) for that skew after a grace of 0 days (docs/adr/1242-*).
+      const at = !body.required ? null : (cur.at ?? sql`now()`)
       await tx
         .update(workspaces)
         .set({ twoFactorRequiredAt: at, twoFactorGraceDays: after.twoFactorGraceDays })

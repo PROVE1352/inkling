@@ -1,6 +1,9 @@
 // Change feed: diff, section change detection, cursor, fold (pure) and changes_since end to end ([db]).
 // docs/adr/0932-*, 0933-*.
 // Run: cd apps/server && DATABASE_URL=postgres://… node ../../scripts/run-tests.mjs --db
+// The merge assertions need that no other process issues a changes_since cursor between two edits
+// (the high-water mark is database-wide, docs/adr/1080-*), so in --db mode this file runs alone:
+// run-tests: db-exclusive
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 
 import assert from 'node:assert/strict'

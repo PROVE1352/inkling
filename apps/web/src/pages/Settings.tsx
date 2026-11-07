@@ -393,6 +393,9 @@ function EditorSection() {
       <Row id="wordCount" title={t('settings.wordCount')} desc={t('settings.wordCountDesc')} deviceOnly>
         <Toggle label={t('settings.wordCount')} checked={prefs.wordCount} onChange={(v) => setPref('wordCount', v)} />
       </Row>
+      <Row id="miniToc" title={t('settings.miniToc')} desc={t('settings.miniTocDesc')} deviceOnly>
+        <Toggle label={t('settings.miniToc')} checked={prefs.miniToc} onChange={(v) => setPref('miniToc', v)} />
+      </Row>
     </Group>
   )
 }

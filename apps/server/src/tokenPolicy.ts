@@ -47,6 +47,7 @@ export const SESSION_ONLY: Rule[] = [
   { method: 'GET', url: '/api/workspaces/:id/delete-preview', reason: 'workspace deletion' },
   { method: 'POST', url: '/api/workspaces/:id/restore', reason: 'workspace deletion' },
   { method: 'GET', url: '/api/workspaces/deleted', reason: 'workspace deletion' },
+  { method: 'GET', url: '/api/admin/status', reason: 'server status summary (admin, docs/adr/1230-*)' },
 ]
 
 /** Refused for a token limited to some workspaces or a subtree: they reach past the range. */

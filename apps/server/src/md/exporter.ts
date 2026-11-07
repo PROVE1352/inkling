@@ -333,8 +333,15 @@ export function lazyFileStream(file: string): Readable {
 
 export interface ExportedZip {
   filename: string
-  stream: NodeJS.ReadableStream
+  /**
+   * The zip. Destroying it (fastify does when the client disconnects) closes every entry stream,
+   * removes the temp dir and calls `onFinish` (docs/adr/1241-*).
+   */
+  stream: NodeJS.ReadableStream & { destroy(err?: Error): unknown }
 }
+
+/** JSZip's Node output stream (readable-stream 2.x): `_helper` drives the worker chain. */
+type ZipOutput = Readable & { _helper?: { pause(): unknown } }
 
 // Export size guards (protects a small host from load) — caps on total attachment bytes and page count.
 const MAX_EXPORT_BYTES = 300 * 1024 * 1024
@@ -358,7 +365,30 @@ export async function exportZip(opts: {
   zipBaseName: string
   /** The exporting user — private pages are included in the tree only for their owner. */
   userId: string
+  /**
+   * Called once when the export is over: the stream ended, failed or was destroyed, or exportZip
+   * threw. The heavy-job slot is released here (docs/adr/1240-*).
+   */
+  onFinish?: () => void
 }): Promise<ExportedZip> {
+  let finished = false
+  const finish = (): void => {
+    if (finished) return
+    finished = true
+    opts.onFinish?.()
+  }
+  try {
+    return await buildZip(opts, finish)
+  } catch (err) {
+    finish()
+    throw err
+  }
+}
+
+async function buildZip(
+  opts: { workspaceId: string; rootPageId: string | null; zipBaseName: string; userId: string },
+  finish: () => void,
+): Promise<ExportedZip> {
   const { workspaceId, rootPageId, userId } = opts
 
   // 1) every live page in the workspace that is visible to me
@@ -474,12 +504,20 @@ export async function exportZip(opts: {
   }
   let seq = 0
   const zip = new JSZip()
+  // Every entry stream, so an aborted download can close the one JSZip is reading (B-M1).
+  const entries = new Set<Readable>()
+  const entry = (file: string): Readable => {
+    const s = lazyFileStream(file)
+    entries.add(s)
+    s.once('close', () => entries.delete(s))
+    return s
+  }
   const ctx: ZipContext = {
     zip,
     put: async (zipPath, content) => {
       const file = path.join(tmpDir, String(++seq))
       await writeFile(file, content, { mode: 0o600 })
-      zip.file(zipPath, lazyFileStream(file))
+      zip.file(zipPath, entry(file))
     },
     fileMimeMap,
     usedAssets: new Set(),
@@ -527,19 +565,32 @@ export async function exportZip(opts: {
       console.warn('[inkling] export: asset file missing on disk, skipping', fileId)
       continue
     }
-    ctx.zip.file(`assets/${fileId}${ext}`, lazyFileStream(diskPath))
+    ctx.zip.file(`assets/${fileId}${ext}`, entry(diskPath))
   }
 
-  const stream = ctx.zip.generateNodeStream({ streamFiles: true })
+  const stream = ctx.zip.generateNodeStream({ streamFiles: true }) as unknown as ZipOutput
   let cleaned = false
   const once = (): void => {
     if (cleaned) return
     cleaned = true
+    // An aborted download leaves JSZip paused in the middle of an entry: stop its worker chain and
+    // close every entry stream (the one being read holds an fd), then drop the spilled pages.
+    stream._helper?.pause()
+    for (const s of entries) s.destroy()
+    entries.clear()
     cleanup()
+    finish()
   }
   stream.on('end', once)
   stream.on('error', once)
   stream.on('close', once)
+  // readable-stream 2.x (JSZip's output) emits no 'close' on destroy(); fastify destroys the payload
+  // when the response closes early, so the teardown hooks _destroy as well.
+  const destroyOrig = stream._destroy.bind(stream)
+  stream._destroy = (err: Error | null, cb: (err?: Error | null) => void) => {
+    once()
+    destroyOrig(err, cb)
+  }
   return { filename: `${sanitizeName(opts.zipBaseName)}.zip`, stream }
 }
 

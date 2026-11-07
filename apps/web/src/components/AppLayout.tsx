@@ -18,6 +18,7 @@ import { NotificationBell } from './NotificationBell'
 import { SearchModal, type SearchMode } from './SearchModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EmailVerifyBanner } from './EmailVerifyBanner'
+import { AdminStatusBanner } from '../status/AdminStatusBanner'
 import { TwoFactorBanner, TwoFactorGate, useTwoFactorRequiredListener } from './TwoFactorRequired'
 import { useHistoryNav } from './NavButtons'
 import { requestPropsFocus } from '../lib/propsFocus'
@@ -357,6 +358,7 @@ export function AppLayout() {
       )}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <AdminStatusBanner />
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />
         <Outlet

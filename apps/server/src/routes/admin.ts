@@ -32,6 +32,7 @@ import { newSignupKey, newTempPassword } from '../util'
 import { resolveLocale } from '../i18n'
 import { disableTwoFactor } from '../twoFactor'
 import { HASH_RE, hashSignupKey, protectSecret, signupKeyHint, tryRevealSecret } from '../secretsAtRest'
+import { registerAdminStatusRoutes } from '../status/routes'
 
 /**
  * Admin-only operations API: issuing/revoking Inkling signup keys, user management (password
@@ -59,6 +60,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }
   const log = (msg: string) => app.log.info(msg)
+  // Server status summary for admins (docs/adr/1230-*)
+  await registerAdminStatusRoutes(app)
 
   /** Load the target user; 404 if missing */
   const loadUser = async (id: string) => {

@@ -42,6 +42,7 @@ const NEXT_STEP: Record<number, string> = {
   409: 'the content changed since you read it; re-read it and retry',
   412: 'the content changed since you read it; re-read it and retry',
   429: 'rate limited; wait a minute before retrying',
+  503: 'the server is busy; wait a minute and retry the same call once',
 }
 
 /** Next-step hints keyed by error code (take precedence over NEXT_STEP). */
@@ -50,6 +51,8 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
     'nothing was written; do not retry or work around the lock (moving or copying the page will not help). ' +
     'Tell the user who can edit it, or leave your suggested change with add_comment if that is allowed (see the can: line of read_page)',
   // docs/adr/1200-*: the connection is limited to some workspaces or one subtree
+  // docs/adr/1240-*: imports, zip exports and copies share a small concurrency cap
+  HEAVY_JOBS_PER_USER: 'the user already has imports, exports or copies running; wait for them to finish before starting another',
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }

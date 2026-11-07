@@ -75,6 +75,7 @@ import { startOutboxWorker, stopOutboxWorker } from './outbox'
 import { clearMailTimers, initNotificationMail } from './notify/mailer'
 import { registerBackupRoutes } from './backup/routes'
 import { registerVersionRoutes } from './version'
+import { noteLoggedError, recordBoot, recordExit } from './status/runtime'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
@@ -155,6 +156,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   // outbox consumers (docs/adr/1080-*): rows still pending stay in the table for the next boot
   await step('outbox stop', () => stopOutboxWorker(), 3_000)
   await step('db close', () => closeDb(), 6_000)
+  // how this process ended, for the restart count of the admin status summary (docs/adr/1231-*)
+  recordExit(exitCode)
   process.exit(exitCode)
 }
 
@@ -197,6 +200,8 @@ async function main(): Promise<void> {
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
+  //    Boot record for the restart count of the admin status summary (docs/adr/1231-*); best effort.
+  recordBoot()
   //    Scratch space for streamed imports/exports (docs/adr/0751-*): anything left there or as a
   //    partial upload belongs to a request of a previous process and is safe to drop at boot.
   await rm(path.join(env.dataDir, 'tmp'), { recursive: true, force: true })
@@ -262,6 +267,14 @@ async function main(): Promise<void> {
   //    keep slow clients from holding workers.
   const app = Fastify({
     logger: {
+      // Count records at level >= 50 (error, fatal) for the admin status summary (docs/adr/1231-*).
+      // Child loggers (req.log) inherit the hook; only a timestamp is kept, never the record.
+      hooks: {
+        logMethod(args, method, level) {
+          if (level >= 50) noteLoggedError()
+          return method.apply(this, args)
+        },
+      },
       // Request URLs carry bearer secrets (iCal feed / public share tokens, OAuth codes, reset
       // codes): mask them before they reach the logs (C-L8).
       serializers: {

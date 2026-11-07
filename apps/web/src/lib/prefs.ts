@@ -15,6 +15,8 @@ export type Prefs = {
   spellcheck: boolean
   /** Character/word count at the bottom right of a document */
   wordCount: boolean
+  /** Outline in the right margin of documents with 3+ headings (docs/adr/1220-*) */
+  miniToc: boolean
   /** Page to open when the app starts */
   launchPage: LaunchPage
   /** Where ⌘N / the sidebar "New page" creates the page */
@@ -119,6 +121,7 @@ export const DEFAULT_PREFS: Prefs = {
   lineWidth: LINE_WIDTH_DEFAULT,
   spellcheck: true,
   wordCount: true,
+  miniToc: true,
   launchPage: 'last',
   newPageLocation: 'root',
   linkPreview: true,

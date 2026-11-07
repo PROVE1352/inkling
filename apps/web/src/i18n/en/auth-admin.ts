@@ -250,6 +250,8 @@ export default {
   'settings.spellcheckDesc': 'Underline typos using the browser spell checker.',
   'settings.wordCount': 'Show word count',
   'settings.wordCountDesc': 'Show character and word counts at the bottom right of a document.',
+  'settings.miniToc': 'Outline in the margin',
+  'settings.miniTocDesc': 'Short lines on the right of a document with three or more headings. Point at them to see the headings and jump.',
   'settings.filesLinks': 'Files & links',
   'settings.launchPage': 'Page on launch',
   'settings.launchPageDesc': 'What to show when the app first opens.',

@@ -29,7 +29,6 @@ import {
 import { Spinner } from '../components/Spinner'
 import { useLayout } from '../components/AppLayout'
 import { ThemeToggle } from '../components/ThemeToggle'
-import { ReleaseNotice } from '../components/UpdateBanner'
 import { NavButtons } from '../components/NavButtons'
 import { CopyIcon, MenuIcon, SearchIcon } from '../components/Icons'
 import { Pager, paginate } from '../components/Pager'
@@ -37,6 +36,7 @@ import { askConfirm } from '../lib/confirm'
 import { Modal } from '../components/Modal'
 import { AdminPluginsSection } from '../plugins/AdminPlugins'
 import { AdminBackupsSection } from '../backup/AdminBackups'
+import { AdminStatusCards } from '../status/AdminStatusCards'
 import { fmtDate as fmtD, fmtDateTime as fmtDT, fmtList, t } from '../i18n'
 import { delegatedDisplayName } from './Login'
 import { AdminUserTokens } from '../components/AdminUserTokens'
@@ -713,8 +713,10 @@ export function Admin() {
           {mode.data?.delegated && ` ${t('admin.introDelegated', { name: delegatedName })}`}
         </p>
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-        <ReleaseNotice />
       </header>
+
+      {/* ---- server status summary (docs/adr/1230-*); its Updates card replaces the old release notice ---- */}
+      <AdminStatusCards />
 
       {/* ---- password reset requests ---- */}
       <section className="mb-10">

@@ -73,6 +73,7 @@ function assertEditable(
 import { recordPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
 import { assertTopLevelInRange, currentRange } from '../tokenRange'
+import { clientGoneSignal, heavyJobs } from '../heavyJobs'
 
 const shortId = (): string => randomUUID().slice(0, 8)
 
@@ -1076,7 +1077,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // Hardening H5: curb amplification abuse via mass tree copies — 20/min per IP for authenticated members.
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
-    async (req) => {
+    async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
 
@@ -1085,125 +1086,128 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (!guard) throw notFound()
     const role = await requireMembership(guard.workspaceId, user.id)
 
-    const [rootRow] = (await db
-      .select(treeRowCols)
-      .from(pages)
-      .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
-      .limit(1)) as SrcRow[]
-    if (!rootRow) throw notFound()
+    // The copy runs in a heavy-job slot (docs/adr/1240-*).
+    return heavyJobs.run(user.id, 'duplicate', async () => {
+      const [rootRow] = (await db
+        .select(treeRowCols)
+        .from(pages)
+        .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
+        .limit(1)) as SrcRow[]
+      if (!rootRow) throw notFound()
 
-    // Collect descendants (BFS → topological order, parents always before children). Cycle/runaway guard.
-    // Audit F1: visibleTo keeps others' private pages inside the subtree from leaking (inside collectSubtree).
-    const ordered = await collectSubtree(rootRow, user.id)
+      // Collect descendants (BFS → topological order, parents always before children). Cycle/runaway guard.
+      // Audit F1: visibleTo keeps others' private pages inside the subtree from leaking (inside collectSubtree).
+      const ordered = await collectSubtree(rootRow, user.id)
 
-    // old id → new id map
-    const idMap = new Map<string, string>()
-    for (const p of ordered) idMap.set(p.id, randomUUID())
+      // old id → new id map
+      const idMap = new Map<string, string>()
+      for (const p of ordered) idMap.set(p.id, randomUUID())
 
-    // root sortOrder = max among siblings + 1000
-    const siblingCond = rootRow.parentId
-      ? eq(pages.parentId, rootRow.parentId)
-      : isNull(pages.parentId)
-    const [{ maxSort }] = await db
-      .select({ maxSort: max(pages.sortOrder) })
-      .from(pages)
-      .where(and(eq(pages.workspaceId, rootRow.workspaceId), siblingCond))
-    const rootSortOrder = (maxSort ?? 0) + 1000
-    const rootTitle = NAMES[await requestLocale(req, user.id)].copyOf(rootRow.title)
+      // root sortOrder = max among siblings + 1000
+      const siblingCond = rootRow.parentId
+        ? eq(pages.parentId, rootRow.parentId)
+        : isNull(pages.parentId)
+      const [{ maxSort }] = await db
+        .select({ maxSort: max(pages.sortOrder) })
+        .from(pages)
+        .where(and(eq(pages.workspaceId, rootRow.workspaceId), siblingCond))
+      const rootSortOrder = (maxSort ?? 0) + 1000
+      const rootTitle = NAMES[await requestLocale(req, user.id)].copyOf(rootRow.title)
 
-    const pageInserts = ordered.map((p) => {
-      const isRoot = p.id === rootRow.id
-      return {
-        id: idMap.get(p.id)!,
-        workspaceId: rootRow.workspaceId,
-        // The root keeps its original parent (an existing page); descendants go under their copied parents.
-        parentId: isRoot ? rootRow.parentId : idMap.get(p.parentId as string)!,
-        kind: p.kind,
-        scope: p.scope,
-        title: isRoot ? rootTitle : p.title,
-        props: p.props,
-        icon: p.icon,
-        sortOrder: isRoot ? rootSortOrder : p.sortOrder,
-        createdBy: user.id,
-      }
-    })
-
-    const oldIds = ordered.map((p) => p.id)
-
-    // a copy of a top-level page is a new top-level page (docs/adr/1202-*); under a parent,
-    // assertPlacement checks the range
-    if (!rootRow.parentId) assertTopLevelInRange(rootRow.workspaceId, user.id)
-    const result = await withTreeLock(rootRow.workspaceId, async (tx) => {
-      // The copy lands next to the original: its parent must still be live (tree lock, ADR 0800).
-      if (rootRow.parentId) {
-        await assertPlacement(tx, {
+      const pageInserts = ordered.map((p) => {
+        const isRoot = p.id === rootRow.id
+        return {
+          id: idMap.get(p.id)!,
           workspaceId: rootRow.workspaceId,
-          parentId: rootRow.parentId,
-          role,
-          userId: user.id,
-          height: orderedHeight(ordered),
-          publicRule: false,
-        })
-      }
-      // 1) Insert pages first (satisfies child-table FKs). FKs are checked at statement end, so a
-      //    child referencing its parent within one multi-row VALUES is safe; BFS order is kept anyway.
-      const inserted = await tx.insert(pages).values(pageInserts).returning(pageColumns)
+          // The root keeps its original parent (an existing page); descendants go under their copied parents.
+          parentId: isRoot ? rootRow.parentId : idMap.get(p.parentId as string)!,
+          kind: p.kind,
+          scope: p.scope,
+          title: isRoot ? rootTitle : p.title,
+          props: p.props,
+          icon: p.icon,
+          sortOrder: isRoot ? rootSortOrder : p.sortOrder,
+          createdBy: user.id,
+        }
+      })
 
-      // 2) page_docs.state + 3) page_texts — copied inside Postgres (INSERT … SELECT over
-      //    an old→new id map), so Yjs states / search text of the whole subtree never pass
-      //    through Node memory (docs/adr/0751-*).
-      await copySubtreeRows(tx, idMap, ['page_docs', 'page_texts', 'page_chunks'])
+      const oldIds = ordered.map((p) => p.id)
 
-      // 4) copy collections (fields)
-      const cols = await tx
-        .select({ pageId: collections.pageId, fields: collections.fields })
-        .from(collections)
-        .where(inArray(collections.pageId, oldIds))
-      if (cols.length > 0) {
-        await tx
-          .insert(collections)
-          .values(cols.map((c) => ({ pageId: idMap.get(c.pageId)!, fields: c.fields })))
-      }
+      // a copy of a top-level page is a new top-level page (docs/adr/1202-*); under a parent,
+      // assertPlacement checks the range
+      if (!rootRow.parentId) assertTopLevelInRange(rootRow.workspaceId, user.id)
+      const result = await withTreeLock(rootRow.workspaceId, async (tx) => {
+        // The copy lands next to the original: its parent must still be live (tree lock, ADR 0800).
+        if (rootRow.parentId) {
+          await assertPlacement(tx, {
+            workspaceId: rootRow.workspaceId,
+            parentId: rootRow.parentId,
+            role,
+            userId: user.id,
+            height: orderedHeight(ordered),
+            publicRule: false,
+          })
+        }
+        // 1) Insert pages first (satisfies child-table FKs). FKs are checked at statement end, so a
+        //    child referencing its parent within one multi-row VALUES is safe; BFS order is kept anyway.
+        const inserted = await tx.insert(pages).values(pageInserts).returning(pageColumns)
 
-      // 5) copy collection_views (new view ids)
-      const views = await tx
-        .select({
-          pageId: collectionViews.pageId,
-          name: collectionViews.name,
-          type: collectionViews.type,
-          config: collectionViews.config,
-          sortOrder: collectionViews.sortOrder,
-        })
-        .from(collectionViews)
-        .where(inArray(collectionViews.pageId, oldIds))
-      if (views.length > 0) {
-        await tx.insert(collectionViews).values(
-          views.map((v) => ({
-            pageId: idMap.get(v.pageId)!,
-            name: v.name,
-            type: v.type,
-            config: v.config,
-            sortOrder: v.sortOrder,
-          })),
-        )
-      }
+        // 2) page_docs.state + 3) page_texts — copied inside Postgres (INSERT … SELECT over
+        //    an old→new id map), so Yjs states / search text of the whole subtree never pass
+        //    through Node memory (docs/adr/0751-*).
+        await copySubtreeRows(tx, idMap, ['page_docs', 'page_texts', 'page_chunks'])
 
-      // 6) copy row templates of the copied collections (docs/adr/1183-*)
-      await copyRowTemplates(tx, idMap, cols.map((c) => c.pageId), user.id)
+        // 4) copy collections (fields)
+        const cols = await tx
+          .select({ pageId: collections.pageId, fields: collections.fields })
+          .from(collections)
+          .where(inArray(collections.pageId, oldIds))
+        if (cols.length > 0) {
+          await tx
+            .insert(collections)
+            .values(cols.map((c) => ({ pageId: idMap.get(c.pageId)!, fields: c.fields })))
+        }
 
-      // Change feed: the copies are new pages; the events commit with them (docs/adr/1150-*).
-      await recordPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user), tx)
+        // 5) copy collection_views (new view ids)
+        const views = await tx
+          .select({
+            pageId: collectionViews.pageId,
+            name: collectionViews.name,
+            type: collectionViews.type,
+            config: collectionViews.config,
+            sortOrder: collectionViews.sortOrder,
+          })
+          .from(collectionViews)
+          .where(inArray(collectionViews.pageId, oldIds))
+        if (views.length > 0) {
+          await tx.insert(collectionViews).values(
+            views.map((v) => ({
+              pageId: idMap.get(v.pageId)!,
+              name: v.name,
+              type: v.type,
+              config: v.config,
+              sortOrder: v.sortOrder,
+            })),
+          )
+        }
 
-      // Response: root first, then descendants (BFS order). returning order is not guaranteed, so map by id.
-      const byId = new Map(inserted.map((r) => [r.id, r]))
-      return ordered.map((p) => toPageDTO(byId.get(idMap.get(p.id)!)!))
-    })
-    outboxCommitted(['change'])
+        // 6) copy row templates of the copied collections (docs/adr/1183-*)
+        await copyRowTemplates(tx, idMap, cols.map((c) => c.pageId), user.id)
 
-    // After commit: task index of the copied docs (best-effort, does not block the response)
-    void reindexPageTasksForPages([...idMap.values()])
+        // Change feed: the copies are new pages; the events commit with them (docs/adr/1150-*).
+        await recordPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user), tx)
 
-    return { pages: result }
+        // Response: root first, then descendants (BFS order). returning order is not guaranteed, so map by id.
+        const byId = new Map(inserted.map((r) => [r.id, r]))
+        return ordered.map((p) => toPageDTO(byId.get(idMap.get(p.id)!)!))
+      })
+      outboxCommitted(['change'])
+
+      // After commit: task index of the copied docs (best-effort, does not block the response)
+      void reindexPageTasksForPages([...idMap.values()])
+
+      return { pages: result }
+    }, clientGoneSignal(reply.raw))
   })
 
   // Expand to canvas (M13) — analyzes a doc page's block structure and creates a new ontology map (canvas).

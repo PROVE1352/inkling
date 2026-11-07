@@ -4,6 +4,12 @@ import type en from '../en/editor'
 export default {
   // CollabEditor
   'editor.connecting': '연결 중…',
+  'editor.placeholder': '글을 쓰거나 /를 눌러 블록을 고르세요',
+
+  // 제목 접기, 오른쪽 목차 (docs/adr/1220-*, 1221-*)
+  'fold.fold': '접기',
+  'fold.unfold': '펼치기',
+  'toc.label': '목차',
 
   // Slash menu
   'slash.calloutTitle': '콜아웃',

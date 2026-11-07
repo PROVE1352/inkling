@@ -60,6 +60,9 @@ import { OnlineUsers } from '../components/OnlineUsers'
 import { Spinner } from '../components/Spinner'
 import { NavButtons } from '../components/NavButtons'
 import { WordCount } from '../components/WordCount'
+import { MiniToc } from '../components/MiniToc'
+import { HeadingFolds } from '../components/HeadingFolds'
+import { revealBlock } from '../lib/headingFolds'
 import { LinkPreview } from '../components/LinkPreview'
 import { PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
 import { printElement } from '../lib/printPage'
@@ -441,7 +444,7 @@ function EditorDropZone({
         columnRef.current = el
       }}
       style={fullWidth ? undefined : { maxWidth: `calc(${textWidth}px + 108px + 3rem)` }}
-      className={`group/page nd-enter mx-auto py-6 sm:py-10 ${
+      className={`group/page nd-fade mx-auto py-6 sm:py-10 ${
         fullWidth ? 'max-w-none px-4 sm:px-10' : 'px-4 sm:px-6'
       } ${isOver ? 'rounded-md ring-2 ring-accent/40' : ''}`}
     >
@@ -641,6 +644,7 @@ export function PageView() {
     } catch {
       // ignore
     }
+    revealBlock(blockId)
     const el = bodyRef.current?.querySelector(`[data-id="${blockId}"]`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [])
@@ -920,6 +924,9 @@ export function PageView() {
         </div>
 
         {isDoc && editor && prefs.wordCount && <WordCount key={page?.id} editor={editor} />}
+        {isDoc && editor && page && prefs.miniToc && !isPhone && (
+          <MiniToc key={page.id} editor={editor} containerRef={bodyRef} columnRef={inkColumnRef} />
+        )}
         </div>
 
         {wsId && prefs.linkPreview && <LinkPreview wsId={wsId} containerRef={bodyRef} />}
@@ -932,6 +939,10 @@ export function PageView() {
             containerRef={bodyRef}
             onClose={() => setPenMode(false)}
           />
+        )}
+
+        {isDoc && page && editor && (
+          <HeadingFolds key={page.id} editor={editor} pageId={page.id} containerRef={bodyRef} disabled={penMode} />
         )}
 
         {isDoc && page && (

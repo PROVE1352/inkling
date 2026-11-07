@@ -28,6 +28,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Container memory: `APP_MEM_LIMIT` / `NODE_OPTIONS` and `PG_MEM_LIMIT` / `PG_SHM_SIZE` (see sections 1 and 2); backup sidecar 256m.
 - [ ] Base `compose.yaml` services share the `x-logging` anchor; overlay files (Caddy, rclone) cannot reuse it, so give their services their own `logging:` block.
 - [ ] Import limits: folder depth 32, pages created per import capped by `IMPORT_MAX_PAGES` (default 5000), zip entries measured by actual decompressed bytes. Size caps are env-configurable: `IMPORT_MAX_UPLOAD_MB` (25), `IMPORT_MAX_UNPACKED_MB` (50), `IMPORT_MAX_ENTRY_MB` (25), `IMPORT_MAX_FILES` (300). Raising them for Notion exports raises peak memory by about the upload size (twice for nested part archives); see docs/adr/0961-*.
+- [ ] Heavy-job cap (docs/adr/1240-*): imports (Markdown, zip, Notion, folder), zip exports and subtree duplicates take one of `HEAVY_JOBS_MAX` slots (default 2; set `1` on containers under 768 MB or when the `IMPORT_MAX_*` caps are raised). Others wait in a fair queue of `HEAVY_JOBS_QUEUE_MAX` (16) for at most `HEAVY_JOBS_WAIT_MS` (60000) and then get `503 HEAVY_JOBS_BUSY` with `Retry-After`; one person may have `HEAVY_JOBS_PER_USER` (2) running or waiting, one more gets `429 HEAVY_JOBS_PER_USER`. A zip export holds its slot until the download ends or the client disconnects. The limits are per process.
 
 ### Database timeouts
 
@@ -45,6 +46,38 @@ The app sets these on every pool connection: `statement_timeout` 15 s, `idle_in_
 - [ ] Watch for app restarts: a crash loop usually means the database is down or its disk is full.
 - [ ] Admin › Backups shows the last success, the last restore test and the sidecar heartbeat.
 - [ ] Check free disk weekly.
+
+### Reading the status summary
+
+Admins see a server status summary at the top of **Admin**, and a one-line banner at the top of the
+app when something needs attention (docs/adr/1230-*, 1233-*). The same data is
+`GET /api/admin/status` (admin, browser session only; `?refresh=1` skips the 5-minute cache).
+
+- **Colours.** Green = ok, amber = warning, red = problem, grey = switched off or not set up here.
+  Grey rows never raise the banner. Outside `NODE_ENV=production` the settings checks (secret key,
+  `PUBLIC_URL`, cookies, sign-ups, database password, missing sidecar) are grey: they are meant for
+  the production server.
+- **The banner** shows the first problem and how many more there are. A problem (item + level) is
+  shown at most once a day per admin and browser; a new problem, or a warning that becomes a
+  problem, shows at once. Opening Admin counts as seeing them. Closing it hides it for the session.
+- **Freshness.** Disk space, database size, uploads, large pages, stored secrets and migrations are
+  measured at most every 5 minutes ("Checked … ago", **Check again** to measure now). Backup state,
+  restarts, errors and settings are read on every request.
+
+| Card · row | What it means | What to do |
+|---|---|---|
+| Backups · Backup service | The sidecar's heartbeat (every 60 s). Red after 10 minutes of silence. | `docker compose ps backup`, `docker compose logs backup` (BACKUP.md "Troubleshooting"). |
+| Backups · Last backup | Amber when one scheduled run was missed (older than 2 × the schedule interval + 1 h), red when the last run failed or the newest set is over 7 days old. | Admin › Backups shows the failure message; fix it, then **Back up now**. |
+| Backups · Verification / Restore test | Red when the last check failed; the restore test is amber when older than 2 × `BACKUP_RESTORE_TEST_DAYS`. | `./deploy/backup.sh restore-test`, BACKUP.md "Restore test". |
+| Backups · Off-site copy / Encryption | Grey when no `BACKUP_RCLONE_REMOTE` (still worth fixing: 3-2-1 rule). Encryption is amber only when unencrypted sets are copied off-site. The passphrase itself is never shown. | BACKUP.md "Off-site copies", "Encryption". |
+| Storage · Data disk | Free space on the `DATA_DIR` volume. Amber below 2 × (database + uploads) or 10 %, red below 512 MB or 3 %. | Free space or grow the disk before the database runs out (section "Incidents"). |
+| Storage · Backup disk | Amber below 2 × the last set + `BACKUP_MIN_FREE_MB`, red when the next run would not fit. "Same disk as the data" means one disk holds both. | Lower `BACKUP_KEEP_*`, move the backup volume, add an off-site copy. |
+| Storage · Database / Uploads / Large pages | Facts. Large pages (≥ 1 MiB of state or ≥ 50k tokens, docs/adr/1103-*) are listed per workspace in its settings. | Split long logs into subpages. |
+| App · Restarts in 24 h | From `DATA_DIR/status/boots.json`. Amber at any restart without a clean shutdown (OOM kill, crash, `docker kill`), or at 3 clean restarts in production; red at 3 unclean ones (crash loop). Deploys count as clean restarts. | `docker compose logs --tail 200 app`; exit 137 = memory (section 2). |
+| App · Errors logged in 24 h | Log records at level error/fatal. Amber at 10 in 24 h, red at 50 in one hour. Only the count is kept. | `docker compose logs app \| grep '"level":50'`. |
+| App · Database schema | Applied migrations vs. the ones this server ships. Red when they differ (e.g. a database restored from a newer release). | Upgrade to the release that wrote the database (section "Upgrades"). |
+| Security settings | Amber in production when `APP_SECRET_KEY` or `PUBLIC_URL` is missing, cookies are not `Secure`, anyone can sign up (`SIGNUP_REQUIRE_KEY=0`, or `OIDC_AUTO_CREATE=1` without `OIDC_ALLOWED_DOMAINS`), or the database password is empty, equal to the user name, a common default or shorter than 12 characters (judged on the server; the value is never shown). Red when sealed secrets exist but `APP_SECRET_KEY` is gone. | Section 0 "Before first deploy". |
+| Updates | Grey unless `UPDATE_CHECK=github`. Amber when a newer release exists, red when a release newer than this server has a "Security" section in its notes (docs/adr/1232-*). | Section "Upgrades". |
 
 ### Upgrades
 

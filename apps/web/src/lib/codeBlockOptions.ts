@@ -63,13 +63,39 @@ export const supportedLanguages: Record<string, Lang> = {
   "objective-c": { name: "Objective C", aliases: ["objective-c","objc"] },
 }
 
+type Highlighter = Awaited<ReturnType<NonNullable<CodeBlockOptions['createHighlighter']>>>
+type TokensOptions = { lang?: string } & Record<string, unknown>
+
+/**
+ * Token colours for both themes (docs/adr/1222-*). BlockNote's parser asks Shiki for the first loaded
+ * theme only (github-dark), so code was light-on-dark even on the light theme. Every `codeToTokens`
+ * call is answered with Shiki's dual-theme output instead: no inline colour, `--shiki-light` and
+ * `--shiki-dark` on each token, and index.css picks one by the app theme. A theme switch is then pure
+ * CSS (no re-highlighting). Everything else on the highlighter passes through unchanged.
+ */
+export function withBothThemes(h: Highlighter): Highlighter {
+  const codeToTokens = (code: string, options: TokensOptions) =>
+    (h.codeToTokens as (c: string, o: unknown) => unknown)(code, {
+      lang: options.lang,
+      themes: { light: 'github-light', dark: 'github-dark' },
+      defaultColor: false,
+    })
+  return new Proxy(h, {
+    get(target, prop) {
+      if (prop === 'codeToTokens') return codeToTokens
+      const v = Reflect.get(target, prop, target)
+      return typeof v === 'function' ? v.bind(target) : v
+    },
+  })
+}
+
 export const codeBlockOptions = {
   defaultLanguage: 'javascript',
   supportedLanguages,
   createHighlighter: () =>
-    import('@blocknote/code-block').then((m) => {
+    import('@blocknote/code-block').then(async (m) => {
       const create = m.codeBlockOptions.createHighlighter
       if (!create) throw new Error('code-block: no highlighter')
-      return create()
+      return withBothThemes(await create())
     }),
 } satisfies Partial<CodeBlockOptions>

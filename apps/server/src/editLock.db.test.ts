@@ -53,6 +53,7 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
   const Y = await import('yjs')
   const { WebSocket } = await import('ws')
   const { reindexPageChunks } = await import('./context/chunkIndex')
+  const { drainChangeLog } = await import('./context/changeLog')
   const { stateToBlocks } = await import('./md/convert')
   const { memberNameClash } = await import('./clientName')
   const app = await h.buildTestApp()
@@ -474,6 +475,10 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       P = JSON.parse(created.text).id
       const state = (await db.select({ state: schema.pageDocs.state }).from(schema.pageDocs).where(eq(schema.pageDocs.pageId, P)))[0].state
       await reindexPageChunks(P, stateToBlocks(state))
+      // last_edit / "edited by" come from page_changes, which the outbox consumer writes after the
+      // response (docs/adr/1080-* "Lag, stated"). Under load the reads below beat the background
+      // pass, so wait for it as the other page_changes readers in the tests do (docs/adr/1243-*).
+      await drainChangeLog()
     })
     after(async () => mcpM.close())
 

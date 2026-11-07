@@ -1,6 +1,10 @@
 // Transactional outbox (docs/adr/1080-*, 1081-*): crash recovery, concurrent consumers, change-feed
 // lag, retries, dedupe and purge. Real process kills (SIGKILL) run a child process through tsx.
 // Run: cd apps/server && DATABASE_URL=postgres://… node ../../scripts/run-tests.mjs --db
+// The crash tests need the child's change row to reach the child's own consumer; with other files'
+// consumers running, they can take it first (change rows have no affinity), three rounds in a row
+// under load. In --db mode this file runs after the others, alone (docs/adr/1243-*):
+// run-tests: db-exclusive
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 
 import assert from 'node:assert/strict'
@@ -270,10 +274,19 @@ describe('[db] outbox', { skip: !HAS_DB }, async () => {
       assert.equal(await count(), 0)
       assert.deepEqual(await pendingFor(wsN.id), [{ topic: 'notify', n: 1 }])
       await orphan(wsN.id)
-      await engine.flushNotifications()
+      // Orphaned, the row may be claimed by any process's consumer, including another [db] test
+      // file's (they share this database), and flushNotifications skips a row such a pass holds
+      // (SKIP LOCKED). Wait until the row has left the outbox, whoever committed it; then it must
+      // have been written exactly once (docs/adr/1243-*).
+      for (let i = 0; i < 400; i++) {
+        await engine.flushNotifications()
+        if ((await pendingFor(wsN.id)).length === 0) break
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      assert.deepEqual(await pendingFor(wsN.id), [])
+      assert.equal(await count(), 1)
       await engine.flushNotifications()
       assert.equal(await count(), 1)
-      assert.deepEqual(await pendingFor(wsN.id), [])
     })
 
     it('a crash after the HTTP call redelivers once with the same delivery id (at least once)', async () => {

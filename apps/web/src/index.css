@@ -222,6 +222,10 @@ select:disabled {
 .nd-backdrop {
   animation: nd-fade 0.15s ease-out backwards;
 }
+/* Shown only if still there after 400 ms (the editor's "Connecting…" pill): a fast open never flashes it. */
+.nd-late {
+  animation: nd-fade 0.15s ease-out 0.4s backwards;
+}
 .nd-drawer-l {
   animation: nd-slide-l 0.2s ease-out backwards;
 }
@@ -238,6 +242,7 @@ select:disabled {
   .nd-pop,
   .nd-fade,
   .nd-backdrop,
+  .nd-late,
   .nd-drawer-l,
   .nd-drawer-r,
   .nd-sheet {
@@ -323,6 +328,115 @@ select:disabled {
   background: color-mix(in srgb, var(--color-side) 70%, transparent);
 }
 
+/* ------------------------------------------------------------------ */
+/* Quote, divider, code, toggle, placeholder — next to Notion (docs/adr/1222-*).                   */
+/* Measured on a public Notion page on 2026-11-08: divider line rgba(28,19,1,.11) / dark             */
+/* rgba(255,255,235,.1) in a 13px block. Quote, code and toggle were not on that page; their values  */
+/* follow Notion's defaults (quote: 3px bar in the text colour, text not greyed; code: a light box   */
+/* in light mode, 85% monospace).                                                                    */
+/* ------------------------------------------------------------------ */
+.bn-editor [data-content-type='quote'] blockquote {
+  border-left: 3px solid currentColor;
+  color: inherit;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.bn-editor .bn-block-content[data-content-type='divider'] {
+  padding: 6px 0;
+}
+.bn-editor [data-content-type='divider'] hr {
+  margin: 0;
+  border-top-color: rgba(28, 19, 1, 0.11);
+}
+.dark .bn-editor [data-content-type='divider'] hr {
+  border-top-color: rgba(255, 255, 235, 0.1);
+}
+/* Code: BlockNote draws a black box with white text in both themes. A quiet box in the side-bar tone,
+   token colours from Shiki's light and dark GitHub themes (lib/codeBlockOptions.ts asks Shiki for both
+   and the theme picks one here). */
+.bn-editor .bn-block-content[data-content-type='codeBlock'] {
+  background-color: var(--color-side);
+  color: var(--color-ink);
+  border-radius: 8px;
+  margin: 4px 0;
+}
+.bn-editor .bn-block-content[data-content-type='codeBlock'] > pre {
+  padding: 34px 20px 20px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+.bn-editor .bn-block-content[data-content-type='codeBlock'] .shiki {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style, inherit);
+  font-weight: var(--shiki-light-font-weight, inherit);
+}
+.dark .bn-editor .bn-block-content[data-content-type='codeBlock'] .shiki {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style, inherit);
+  font-weight: var(--shiki-dark-font-weight, inherit);
+}
+.bn-editor .bn-block-content[data-content-type='codeBlock'] > div > select {
+  color: var(--color-sub);
+  top: 9px;
+  left: 16px;
+  font-size: 0.75rem;
+}
+.bn-editor .bn-block-content[data-content-type='codeBlock'] > div > select > option {
+  color: var(--color-ink);
+}
+/* Toggle: a smaller triangle in the ink colour, turned with a short ease like Notion's. */
+.bn-editor .bn-toggle-button {
+  color: var(--color-ink);
+  border-radius: 4px;
+  transition: transform 0.15s ease-out;
+}
+.bn-editor .bn-toggle-button > svg {
+  width: 16px;
+  height: 16px;
+}
+.bn-editor .bn-toggle-button:hover {
+  background-color: var(--color-hover);
+}
+/* Empty-block hint: upright and pale. BlockNote sets it in italics, which slants Hangul into a fake
+   oblique, and in the side-menu grey, which reads like real text on the dark theme. */
+.bn-editor .bn-block-content:has(.ProseMirror-trailingBreak:only-child):after {
+  font-style: normal;
+  color: color-mix(in srgb, var(--color-sub) 70%, transparent);
+}
+/* Indent guide of nested blocks: a hairline in the theme line colour instead of the side-menu grey. */
+.bn-container .bn-block-group .bn-block-group > .bn-block-outer:not([data-prev-depth-changed])::before {
+  border-left-color: var(--color-line);
+}
+/* Block handles (+ ⠿) fade in instead of popping in. Opacity only, so the menu's own positioning is
+   untouched; prefers-reduced-motion turns it off with every other transition (top of this file). */
+@keyframes nd-handle-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.bn-container .bn-side-menu {
+  animation: nd-handle-in 0.12s ease-out backwards;
+}
+/* Heading folds (docs/adr/1221-*): the fold arrow takes the 22px just left of a heading's text, so the
+   handles of a heading step one arrow further left: [+][⠿][▸] Heading, as in Notion's toggle headings. */
+/* The floating wrapper moves, not only the menu inside it: the wrapper is what takes the pointer, and left
+   in place it would sit on the arrow. `translate` composes with the transform floating-ui sets. */
+[data-floating-ui-focusable]:has(> .bn-side-menu[data-block-type='heading']) {
+  translate: -22px 0;
+}
+.bn-container .bn-side-menu .mantine-UnstyledButton-root svg {
+  color: color-mix(in srgb, var(--color-sub) 75%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bn-container .bn-side-menu {
+    animation: none;
+  }
+}
+
 /* Editor body text (fixed 16px by default) also follows the zoom setting via rem — identical at 100%. */
 .bn-container .bn-default-styles {
   font-size: 1rem;
@@ -378,6 +492,12 @@ select:disabled {
   .bn-editor [data-content-type='table'] th,
   .bn-editor [data-content-type='table'] td {
     padding: 4px 8px;
+  }
+  .bn-editor .bn-block-content[data-content-type='codeBlock'] > pre {
+    padding: 30px 14px 14px;
+  }
+  .nd-callout {
+    padding: 10px 12px 10px 10px;
   }
 }
 
@@ -533,16 +653,39 @@ select:disabled {
 }
 
 /* Callout block (M14) — the per-type accent is injected inline as --nd-callout-accent (same for light/dark).
-   color-mix derives the background tint so it looks right in both themes. */
+   Shaped like Notion's callout (measured 2026-11-08: radius 10px, 12px padding, a flat tint, no stripe):
+   the type colour is only a light tint, so a page with several callouts stays calm. The icon sits in a box
+   one text line high, so it lines up with the first line however long the text is. docs/adr/1222-*. */
 .nd-callout {
   --nd-callout-accent: #3b82f6;
   display: flex;
+  align-items: flex-start;
   gap: 0.5rem;
-  margin: 0.375rem 0;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  border-left: 3px solid var(--nd-callout-accent);
-  background: color-mix(in srgb, var(--nd-callout-accent) 11%, transparent);
+  width: 100%;
+  margin: 0.25rem 0;
+  padding: 12px 14px 12px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--nd-callout-accent) 8%, var(--color-app));
+}
+.dark .nd-callout {
+  background: color-mix(in srgb, var(--nd-callout-accent) 13%, var(--color-app));
+}
+.nd-callout > :first-child {
+  display: flex;
+  align-items: center;
+  height: 1.5em;
+}
+.nd-callout > :first-child > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 4px;
+  font-size: 1.125rem;
+}
+.nd-callout > :first-child > button:hover {
+  background: var(--color-hover);
 }
 .nd-callout-body {
   flex: 1 1 auto;

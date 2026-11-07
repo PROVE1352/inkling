@@ -15,6 +15,7 @@ import split from './en/split'
 import shareLinks from './en/share-links'
 import webhooks from './en/webhooks'
 import apiTokens from './en/api-tokens'
+import adminStatus from './en/admin-status'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -36,6 +37,7 @@ export const en = {
   ...shareLinks,
   ...webhooks,
   ...apiTokens,
+  ...adminStatus,
 }
 
 export type MessageKey = keyof typeof en

@@ -8,7 +8,7 @@ import { compareSemver } from './plugins/manifest'
 import { safeFetch } from './safeFetch'
 
 // Build/version exposure and the optional release check
-// (docs/adr/0990-build-id-and-version-header.md, 0991-*, 0994-*).
+// (docs/adr/0990-build-id-and-version-header.md, 0991-*, 0994-*, 1232-*).
 //
 // The web build writes dist/build.json ({ build }) next to index.html (apps/web/vite.config.ts).
 // The server reads it from WEB_DIST once at boot, so the id it advertises is, by construction,
@@ -80,40 +80,81 @@ export function isNewerRelease(latest: string | null, current: string): boolean 
   return compareSemver(l, c) > 0
 }
 
-let cached: { at: number; ttl: number; latest: LatestRelease | null } | null = null
-let inflight: Promise<LatestRelease | null> | null = null
+/** What one release check found (docs/adr/1232-*). */
+export interface ReleaseCheck {
+  latest: LatestRelease | null
+  /**
+   * Whether a release newer than this server has a "Security" section in its notes: true / false,
+   * or null when no newer release has notes to read (the release body is empty).
+   */
+  securityFix: boolean | null
+}
 
-async function fetchLatestRelease(repo: string): Promise<LatestRelease | null> {
-  if (!REPO_RE.test(repo)) return null
+/** A "## Security" / "### Security" heading (Keep a Changelog) or the Korean "보안" in release notes. */
+const SECURITY_HEADING_RE = /^#{2,4}\s*(?:Security\b|보안)/im
+
+/**
+ * GitHub `releases?per_page=N` body → the newest stable release by semver, and whether any release
+ * newer than `current` carries a Security section. Drafts and pre-releases are ignored.
+ */
+export function parseReleaseList(body: unknown, current: string): ReleaseCheck {
+  if (!Array.isArray(body)) return { latest: null, securityFix: null }
+  let latest: LatestRelease | null = null
+  let securityFix: boolean | null = null
+  for (const item of body) {
+    const r = parseRelease(item)
+    if (!r) continue
+    if (!latest || compareSemver(r.version, latest.version) > 0) latest = r
+    if (!isNewerRelease(r.version, current)) continue
+    const notes = (item as { body?: unknown }).body
+    if (typeof notes !== 'string' || !notes.trim()) continue
+    if (SECURITY_HEADING_RE.test(notes)) securityFix = true
+    else if (securityFix === null) securityFix = false
+  }
+  return { latest, securityFix }
+}
+
+let cached: { at: number; ttl: number; check: ReleaseCheck } | null = null
+let inflight: Promise<ReleaseCheck> | null = null
+const NO_CHECK: ReleaseCheck = { latest: null, securityFix: null }
+
+async function fetchReleases(repo: string): Promise<ReleaseCheck> {
+  if (!REPO_RE.test(repo)) return NO_CHECK
   // Only the public repository name goes out. Generic User-Agent (GitHub requires one): no host
-  // name, instance URL, user, email or version is sent.
-  const res = await safeFetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+  // name, instance URL, user, email or version is sent. One request lists the recent releases, so
+  // a security fix in a release between this one and the newest is seen too (docs/adr/1232-*).
+  const res = await safeFetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, {
     headers: { 'User-Agent': 'inkling-update-check', Accept: 'application/vnd.github+json' },
     allowedHosts: ['api.github.com'],
     maxRedirects: 0,
     timeoutMs: 5000,
-    maxBytes: 256 * 1024,
+    maxBytes: 1024 * 1024,
     truncate: false,
     allowedContentTypes: ['application/json'],
   })
-  if (res.status !== 200) return null
-  return parseRelease(JSON.parse(res.body.toString('utf8')))
+  if (res.status !== 200) return NO_CHECK
+  return parseReleaseList(JSON.parse(res.body.toString('utf8')), SERVER_VERSION)
+}
+
+/** Release check, cached for a day (an hour after a failure). Failures resolve to "nothing found". */
+export async function releaseCheck(now = Date.now()): Promise<ReleaseCheck> {
+  if (updateEnv.check !== 'github') return NO_CHECK
+  if (cached && now - cached.at < cached.ttl) return cached.check
+  if (!inflight) {
+    inflight = fetchReleases(updateEnv.checkRepo)
+      .catch(() => NO_CHECK)
+      .then((check) => {
+        cached = { at: Date.now(), ttl: check.latest ? DAY_MS : RETRY_MS, check }
+        inflight = null
+        return check
+      })
+  }
+  return inflight
 }
 
 /** Latest release, cached for a day (an hour after a failure). Failures resolve to null. */
 export async function latestRelease(now = Date.now()): Promise<LatestRelease | null> {
-  if (updateEnv.check !== 'github') return null
-  if (cached && now - cached.at < cached.ttl) return cached.latest
-  if (!inflight) {
-    inflight = fetchLatestRelease(updateEnv.checkRepo)
-      .catch(() => null)
-      .then((latest) => {
-        cached = { at: Date.now(), ttl: latest ? DAY_MS : RETRY_MS, latest }
-        inflight = null
-        return latest
-      })
-  }
-  return inflight
+  return (await releaseCheck(now)).latest
 }
 
 /**
@@ -134,13 +175,15 @@ export function registerVersionRoutes(api: FastifyInstance): void {
     updateMode: updateEnv.mode,
   }))
   api.get('/version/latest', { preHandler: requireAdmin }, async () => {
-    if (updateEnv.check !== 'github') return { enabled: false, current: SERVER_VERSION, latest: null, updateAvailable: false }
-    const latest = await latestRelease()
+    if (updateEnv.check !== 'github') return { enabled: false, current: SERVER_VERSION, latest: null, updateAvailable: false, securityFix: false }
+    const { latest, securityFix } = await releaseCheck()
+    const updateAvailable = isNewerRelease(latest?.version ?? null, SERVER_VERSION)
     return {
       enabled: true,
       current: SERVER_VERSION,
       latest,
-      updateAvailable: isNewerRelease(latest?.version ?? null, SERVER_VERSION),
+      updateAvailable,
+      securityFix: updateAvailable ? securityFix : false,
     }
   })
 }

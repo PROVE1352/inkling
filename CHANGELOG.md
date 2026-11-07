@@ -7,6 +7,48 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-08
+
+No database migration.
+
+### Added
+- Outline in the right margin: short lines per heading on documents with three or more headings; hover or focus to
+  list them and jump. Settings → Editor → Outline in the margin, per device (docs/adr/1220-*).
+- Heading folds: hover a top-level heading and click the arrow to fold its section. Kept per device and page; the
+  document is not changed and nothing is sent to other editors. A fold opens when the cursor enters it, on jumps from
+  the outline, comments or `?block=` links, and on ⌘F (docs/adr/1221-*).
+- Admin status summary: cards at the top of Admin (backups, storage, app, security settings, updates) and, when
+  something needs attention, a one-line banner for admins that shows the same problem at most once a day.
+  `GET /api/admin/status` (admin, browser session only). See docs/OPERATIONS.md "Reading the status summary"
+  (docs/adr/1230-*…1233-*).
+- Heavy-job cap: imports (Markdown, zip, Notion, folder), zip exports and page duplicates share `HEAVY_JOBS_MAX` slots
+  (default 2) with a fair queue per person. Over the limit: 503 `HEAVY_JOBS_BUSY` or 429 `HEAVY_JOBS_PER_USER` with
+  `Retry-After`. New env `HEAVY_JOBS_MAX`, `HEAVY_JOBS_QUEUE_MAX`, `HEAVY_JOBS_WAIT_MS`, `HEAVY_JOBS_PER_USER`
+  (docs/adr/1240-*).
+
+### Changed
+- Callouts (no side stripe, radius 10, light tint), quotes (bar in text colour, text not greyed), dividers (lighter
+  line), code blocks (light box with light colours on the light theme), toggle arrow, and the empty-block hint
+  (upright, new wording) follow Notion more closely (docs/adr/1222-*).
+- Opening a page: "Connecting…" shows only after 400 ms, the page fades without sliding, block handles fade in.
+- The release check (`UPDATE_CHECK=github`) lists the last 20 releases in its one daily request and reports whether a
+  newer release has a Security section; `GET /api/version/latest` adds `securityFix` (docs/adr/1232-*).
+- `/workspaces/:id/import` writes the upload to disk before reading it.
+
+### Fixed
+- An aborted zip download no longer leaves an open file, its temp folder or its slot behind (docs/adr/1241-*).
+- A workspace two-step requirement with 0 grace days now blocks at once even when the app clock runs ahead of the
+  database clock (docs/adr/1242-*).
+- Intermittent `[db]` test failures: one clock bug, the rest tests that assumed a database of their own; such files now
+  run alone (`// run-tests: db-exclusive`) (docs/adr/1243-*).
+
+### Performance
+- Eight concurrent zip imports: memory growth +198–206 MB → +104–142 MB with 2 slots (total time 2.4–3.0 → 3.9–4.0 s).
+  20 aborted exports: open files +18 → 0. Targeted flaky tests under load: 15 of 24 runs failing → 0 of 36.
+- Admin status: 0.6 ms from cache, about 30 ms when recomputed (20,000 pages).
+- Margin outline and folds on a 2,000-block page: scroll p95 17.6–18.5 → 18.2–18.6 ms, typing p50 within noise.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## [0.7.0] - 2026-11-07
 
 Database migration 0037 (row templates, webhook deliveries and secrets, API tokens and connection ranges) only adds

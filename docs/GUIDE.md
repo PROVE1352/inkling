@@ -106,6 +106,18 @@ The panel button at the top right of a page opens the right panel: **Properties*
 **Backlinks**, **Unlinked mentions** (text that names this page but isn't linked yet), **Outgoing links**,
 **Tags**, **Aliases**, **Local graph** and **History**. ⌘; jumps to the properties.
 
+### Reading long pages
+
+- **Outline in the margin**: a document with three or more headings shows a short line per heading at the right
+  edge when the window is wide enough. Point at the lines to see the headings and click one to go there; the
+  heading you are reading is the darker line. Turn it off in Settings → Editor → **Outline in the margin**.
+- **Folding**: point at a top-level heading and click the arrow left of it to fold everything up to the next
+  heading of the same or a higher level. Click again to unfold. Folds are remembered per page on this device only
+  and never change the document, so others see it unfolded. A folded section opens by itself when the cursor moves
+  into it (for example Enter at the end of the heading), when you jump to something inside it from the outline,
+  a comment or a task, and when you press ⌘F (Ctrl+F) to search the page with the browser. Pen mode and printing
+  show the whole page. Headings nested inside other blocks don't fold.
+
 ### Pen mode
 
 **Pen mode** in the page header's **⋯** menu lets you write and highlight on a document with a pen or finger.
@@ -415,7 +427,7 @@ Saved to your account (the same on every device):
 
 Saved on this device only (marked **This device** next to the setting):
 
-- **Editor**: line width (600–1200 px of body text or full; 700 px by default, the per-page "Full width" still wins), spell check, word count.
+- **Editor**: line width (600–1200 px of body text or full; 700 px by default, the per-page "Full width" still wins), spell check, word count, outline in the margin.
 - **Files & links**: page on launch, new page location, link preview, confirm before deleting.
 - **Appearance**: theme (light, dark, system), zoom. The theme item in a document's ⋯ menu does the same.
 

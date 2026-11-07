@@ -17,6 +17,7 @@ import {
 import { t, useT } from '../i18n'
 import { consumePropsFocus } from '../lib/propsFocus'
 import { reloadOnceForStaleChunk } from '../lib/pwa'
+import { revealBlock } from '../lib/headingFolds'
 import { computeOutline, type Outline } from '../lib/docOutline'
 import { kindLabel } from '../lib/pageIcon'
 import { PageIconGlyph } from './PageIconGlyph'
@@ -375,6 +376,7 @@ export function RightPanel({
   }, [pages.data])
 
   const scrollToBlock = (id: string) => {
+    revealBlock(id)
     const el = document.querySelector(`[data-id="${id}"]`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }

@@ -19,6 +19,7 @@ import { userColor } from '../lib/colors'
 import { openCollab, readStatus, readUsers, sameUsers } from '../lib/collabSocket'
 import { capUndoHistory } from '../lib/undoCap'
 import { pinAnchor } from '../lib/pinAnchor'
+import { revealBlock } from '../lib/headingFolds'
 import { useTheme } from '../lib/theme'
 import { pageEmbedSpec } from './blocks/PageEmbed'
 import { mentionSpec } from './blocks/Mention'
@@ -31,7 +32,14 @@ import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
 import { MentionMenu } from './MentionMenu'
 import { SlashMenu } from './SlashMenu'
-import { getLocale, useT } from '../i18n'
+import { getLocale, t, useT } from '../i18n'
+
+/** BlockNote's dictionary for the app locale, with our own empty-block hint (BlockNote's Korean one
+ *  repeats "입력" three times). Block-type hints (heading, list) stay BlockNote's. */
+function editorDictionary() {
+  const base = getLocale() === 'ko' ? bnKo : bnEn
+  return { ...base, placeholders: { ...base.placeholders, default: t('editor.placeholder') } }
+}
 
 // Loose type so parents (PageView etc.) can share the editor instance
 export type InklingEditor = BlockNoteEditor<any, any, any>
@@ -182,10 +190,12 @@ export function CollabEditor({
     onCollabChange?.({ status, synced, users, scope })
   }, [status, synced, users, scope, onCollabChange])
 
+  // The "Connecting…" pill fades in only when the connection takes longer than 400 ms (`nd-late`),
+  // so a normal page open does not flash it for one frame (docs/adr/1222-*).
   if (!provider) {
     return (
       <div className="relative">
-        <div className="pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
+        <div className="nd-late pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
           {t('editor.connecting')}
         </div>
       </div>
@@ -239,7 +249,7 @@ function CollabEditorBody({
       },
       // BlockNote's own UI strings follow the app locale. The app remounts on a language change,
       // so choosing the dictionary once at editor creation is enough.
-      dictionary: getLocale() === 'ko' ? bnKo : bnEn,
+      dictionary: editorDictionary(),
       uploadFile: (file: File) => uploadFile(wsId, file, pageId),
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
@@ -278,6 +288,8 @@ function CollabEditorBody({
     let tries = 0
     let timer = 0
     const tick = () => {
+      // a block inside a folded section is hidden: open that fold first (docs/adr/1221-*)
+      revealBlock(anchorBlock)
       const find = () =>
         document.querySelector(`.bn-block-outer[data-id="${CSS.escape(anchorBlock)}"], [data-id="${CSS.escape(anchorBlock)}"]`)
       const el = find()
@@ -376,7 +388,7 @@ function CollabEditorBody({
   return (
     <div className="relative" onClickCapture={onClickCapture}>
       {!synced && (
-        <div className="pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
+        <div className="nd-late pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
           {t('editor.connecting')}
         </div>
       )}
@@ -431,7 +443,7 @@ export function LocalDocEditor({
         provider: { awareness: undefined },
         showCursorLabels: 'activity',
       },
-      dictionary: getLocale() === 'ko' ? bnKo : bnEn,
+      dictionary: editorDictionary(),
       ...(placeholder ? { placeholders: { emptyDocument: placeholder } } : {}),
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>

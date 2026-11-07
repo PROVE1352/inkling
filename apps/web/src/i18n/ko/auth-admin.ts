@@ -250,6 +250,8 @@ export default {
   'settings.spellcheckDesc': '브라우저 맞춤법 검사로 오타에 밑줄을 표시합니다.',
   'settings.wordCount': '단어 수 표시',
   'settings.wordCountDesc': '문서 오른쪽 아래에 글자 수와 단어 수를 표시합니다.',
+  'settings.miniToc': '오른쪽 목차',
+  'settings.miniTocDesc': '제목이 셋 이상인 문서의 오른쪽 여백에 제목마다 짧은 줄을 그립니다. 마우스를 올리면 목차가 펼쳐지고 누르면 그 제목으로 갑니다.',
   'settings.filesLinks': '파일 · 링크',
   'settings.launchPage': '앱 시작 시 열 페이지',
   'settings.launchPageDesc': '앱을 처음 열었을 때 보여줄 화면입니다.',

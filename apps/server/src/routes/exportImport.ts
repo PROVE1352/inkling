@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, readFile, rename, rm } from 'node:fs/promises'
@@ -27,6 +27,7 @@ import { findVisiblePage, toPageDTO } from '../pageDto'
 import { markCreatedVia } from '../notify/provenance'
 import type { PageScope } from '@inkling/shared'
 import { assertTopLevelInRange } from '../tokenRange'
+import { clientGoneSignal, heavyJobs } from '../heavyJobs'
 
 // Import caps come from md/importLimits.ts (env-configurable, docs/adr/0961-*).
 const MAX_FILE_BYTES = importLimits.maxUploadBytes
@@ -112,6 +113,20 @@ function dirEntry(name: string): ImportEntry {
  * socket a longer idle window; the route is rate limited (20/min) (docs/adr/0751-*).
  */
 const EXPORT_SOCKET_TIMEOUT_MS = 10 * 60_000
+/**
+ * Fastify destroys a stream payload when the response closes early, but only once it is sending
+ * it. A client that leaves while the zip is still being rendered closes the response before that:
+ * destroy the zip then too, so its entries, temp dir and heavy-job slot are released
+ * (docs/adr/1241-*). Destroying a stream that already ended is a no-op for its teardown.
+ */
+function destroyWithResponse(raw: FastifyReply['raw'], stream: { destroy(err?: Error): unknown }): void {
+  const onClose = (): void => {
+    if (!raw.writableFinished) stream.destroy()
+  }
+  if (raw.destroyed) onClose()
+  else raw.once('close', onClose)
+}
+
 function relaxSocketTimeout(req: { raw: { socket?: { setTimeout?(ms: number): unknown } } }): void {
   // injected requests (MCP, tests) have a socket stub without setTimeout
   if (typeof req.raw.socket?.setTimeout === 'function') req.raw.socket.setTimeout(EXPORT_SOCKET_TIMEOUT_MS)
@@ -137,12 +152,16 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
 
     if (format === 'zip') {
       relaxSocketTimeout(req)
+      // A heavy-job slot from before rendering until the zip stream ends or is destroyed (docs/adr/1240-*).
+      const release = await heavyJobs.acquire(user.id, 'export-zip', clientGoneSignal(reply.raw))
       const { filename, stream } = await exportZip({
         workspaceId: page.workspaceId,
         rootPageId: id,
         zipBaseName: page.title,
         userId: user.id,
+        onFinish: release,
       })
+      destroyWithResponse(reply.raw, stream)
       reply.header('Content-Type', 'application/zip')
       attachHeader(reply, filename)
       return reply.send(stream)
@@ -189,14 +208,22 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     // Export policy (docs/adr/0950-*). Per-page exports (/pages/:id/export) stay open to members:
     // read_page and the editor's own export use them, and they cover one visible page at a time.
     if (!roleMeets(role, ws.exportPolicy)) throw forbidden('The workspace settings do not allow you to export it')
-    // A streamed download has no transaction to share: the event is written before streaming starts.
-    await recordAudit(db, {
-      workspaceId: id,
-      actor: user,
-      action: 'export.downloaded',
-      target: { type: 'workspace', id, label: ws.name },
-      after: { format: 'zip' },
-    })
+    // A heavy-job slot until the zip stream ends or is destroyed (docs/adr/1240-*); taken before the
+    // audit event so a refused (503/429) export is not logged as downloaded.
+    const release = await heavyJobs.acquire(user.id, 'export-zip', clientGoneSignal(reply.raw))
+    try {
+      // A streamed download has no transaction to share: the event is written before streaming starts.
+      await recordAudit(db, {
+        workspaceId: id,
+        actor: user,
+        action: 'export.downloaded',
+        target: { type: 'workspace', id, label: ws.name },
+        after: { format: 'zip' },
+      })
+    } catch (err) {
+      release()
+      throw err
+    }
 
     relaxSocketTimeout(req)
     const { filename, stream } = await exportZip({
@@ -204,7 +231,9 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       rootPageId: null,
       zipBaseName: ws.name,
       userId: user.id,
+      onFinish: release,
     })
+    destroyWithResponse(reply.raw, stream)
     reply.header('Content-Type', 'application/zip')
     attachHeader(reply, filename)
     return reply.send(stream)
@@ -219,7 +248,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       preHandler: requireUser,
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
-    async (req) => {
+    async (req, reply) => {
       const user = getUser(req)
       const id = idParam(req.params)
       const role = await requireMembership(id, user.id)
@@ -298,7 +327,13 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         for (const d of dirs) entries.push(dirEntry(d))
 
         const stats: ImportStats = { duplicateAttachments: 0 }
-        const created = await importEntries({ entries, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
+        // Spooling the parts to disk is cheap; the import itself takes a heavy-job slot (docs/adr/1240-*).
+        const created = await heavyJobs.run(
+          user.id,
+          'import-folder',
+          () => importEntries({ entries, workspaceId: id, parentId, userId: user.id, scope, role }, stats),
+          clientGoneSignal(reply.raw),
+        )
         if (created.length === 0) {
           throw badRequest('No .md files to import')
         }
@@ -319,7 +354,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       // Hardening H5: throttle bulk zip import amplification — 20/min per authenticated member IP.
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
-    async (req) => {
+    async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
     const role = await requireMembership(id, user.id)
@@ -343,83 +378,100 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } })
     if (!mp) throw badRequest('No files to upload')
 
-    let buffer: Buffer
+    // The upload is spooled to a private temp file first and read into memory only inside a
+    // heavy-job slot (docs/adr/1240-*): a slow or queued upload holds neither a slot nor a buffer.
+    const tmpDir = path.join(env.dataDir, 'tmp', `import-${randomUUID()}`)
+    await mkdir(tmpDir, { recursive: true })
     try {
-      buffer = await mp.toBuffer()
-    } catch (err) {
-      if (isTooLargeError(err)) {
+      const diskPath = path.join(tmpDir, 'upload')
+      let size: number
+      try {
+        size = await streamToFile(mp.file, diskPath, MAX_FILE_BYTES)
+      } catch (err) {
+        if (isTooLargeError(err)) {
+          throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
+        }
+        throw err
+      }
+      if (mp.file.truncated || size < 0) {
         throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
       }
-      throw err
-    }
-    if (mp.file.truncated || buffer.length > MAX_FILE_BYTES) {
-      throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
-    }
 
-    const filename = mp.filename || 'import'
-    const mime = mp.mimetype
-    const lower = filename.toLowerCase()
-    const isZip =
-      lower.endsWith('.zip') ||
-      mime === 'application/zip' ||
-      mime === 'application/x-zip-compressed'
-    const isMd =
-      lower.endsWith('.md') ||
-      lower.endsWith('.markdown') ||
-      lower.endsWith('.txt') ||
-      mime === 'text/markdown' ||
-      mime === 'text/plain'
+      const filename = mp.filename || 'import'
+      const mime = mp.mimetype
+      const lower = filename.toLowerCase()
+      const isZip =
+        lower.endsWith('.zip') ||
+        mime === 'application/zip' ||
+        mime === 'application/x-zip-compressed'
+      const isMd =
+        lower.endsWith('.md') ||
+        lower.endsWith('.markdown') ||
+        lower.endsWith('.txt') ||
+        mime === 'text/markdown' ||
+        mime === 'text/plain'
 
-    if (source === 'notion' && !isZip) {
-      throw new AppError(415, 'UNSUPPORTED_TYPE', 'A Notion export is imported as its .zip file')
-    }
-    if (!isZip && !isMd) {
-      throw new AppError(415, 'UNSUPPORTED_TYPE', 'Only .md or .zip files can be imported')
-    }
-
-    if (isZip && source !== 'markdown') {
-      let zip: JSZip
-      try {
-        zip = await JSZip.loadAsync(buffer)
-      } catch {
-        throw badRequest('Not a readable zip archive')
+      if (source === 'notion' && !isZip) {
+        throw new AppError(415, 'UNSUPPORTED_TYPE', 'A Notion export is imported as its .zip file')
       }
-      const names = Object.values(zip.files).filter((e) => !e.dir).map((e) => e.name)
-      if (source === 'notion' || looksLikeNotionExport(names)) {
-        const locale = await requestLocale(req, user.id)
-        const { pages, report } = await importNotionZip({
-          buffer,
-          zip,
-          workspaceId: id,
-          parentId,
-          userId: user.id,
-          scope,
-          role,
-          detected: source === 'notion' ? 'explicit' : 'auto',
-          tableViewName: locale === 'ko' ? '표' : 'Table',
-        })
-        return { pages: pages.map(toPageDTO), report }
+      if (!isZip && !isMd) {
+        throw new AppError(415, 'UNSUPPORTED_TYPE', 'Only .md or .zip files can be imported')
       }
+
+      return await heavyJobs.run(
+        user.id,
+        'import',
+        async () => {
+          const buffer = await readFile(diskPath)
+          if (isZip && source !== 'markdown') {
+            let zip: JSZip
+            try {
+              zip = await JSZip.loadAsync(buffer)
+            } catch {
+              throw badRequest('Not a readable zip archive')
+            }
+            const names = Object.values(zip.files).filter((e) => !e.dir).map((e) => e.name)
+            if (source === 'notion' || looksLikeNotionExport(names)) {
+              const locale = await requestLocale(req, user.id)
+              const { pages, report } = await importNotionZip({
+                buffer,
+                zip,
+                workspaceId: id,
+                parentId,
+                userId: user.id,
+                scope,
+                role,
+                detected: source === 'notion' ? 'explicit' : 'auto',
+                tableViewName: locale === 'ko' ? '표' : 'Table',
+              })
+              return { pages: pages.map(toPageDTO), report }
+            }
+          }
+
+          const stats: ImportStats = { duplicateAttachments: 0 }
+          const created = isZip
+            ? await importZip({ buffer, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
+            : await importMarkdown({
+                buffer,
+                filename,
+                workspaceId: id,
+                parentId,
+                userId: user.id,
+                scope,
+                role,
+              })
+
+          await markCreatedVia(created.map((p) => p.id), user)
+          // `report` stays reserved for the Notion importer's report (its presence tells the client which
+          // importer ran); the zip/folder importers only add the de-duplication count (docs/adr/1122-*).
+          return isZip
+            ? { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
+            : { pages: created.map(toPageDTO) }
+        },
+        clientGoneSignal(reply.raw),
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
-
-    const stats: ImportStats = { duplicateAttachments: 0 }
-    const created = isZip
-      ? await importZip({ buffer, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
-      : await importMarkdown({
-          buffer,
-          filename,
-          workspaceId: id,
-          parentId,
-          userId: user.id,
-          scope,
-          role,
-        })
-
-    await markCreatedVia(created.map((p) => p.id), user)
-    // `report` stays reserved for the Notion importer's report (its presence tells the client which
-    // importer ran); the zip/folder importers only add the de-duplication count (docs/adr/1122-*).
-    return isZip
-      ? { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
-      : { pages: created.map(toPageDTO) }
   })
 }

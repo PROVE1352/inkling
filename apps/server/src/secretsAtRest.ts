@@ -103,6 +103,46 @@ export const NOT_HASHED = `!~ '^[0-9a-f]{64}$'`
 export const NOT_SEALED = `NOT LIKE 'v1.%'`
 
 /**
+ * Stored copies and outside URLs that are sealed with APP_SECRET_KEY (docs/adr/1111-*). Shared by the
+ * boot pass and the read-only count of the admin status summary (docs/adr/1230-*).
+ */
+const SEALED_COLUMNS: { table: string; col: string; aad: string; purpose: SecretPurpose; pk: string; ws: string | null }[] = [
+  { table: 'pages', col: 'share_token_enc', aad: 'id', purpose: 'share-token', pk: 'id', ws: 'workspace_id' },
+  { table: 'workspaces', col: 'invite_code_enc', aad: 'id', purpose: 'invite-code', pk: 'id', ws: 'id' },
+  { table: 'signup_keys', col: 'key_enc', aad: 'key', purpose: 'signup-key', pk: 'key', ws: null },
+  { table: 'workspace_webhooks', col: 'url', aad: 'id', purpose: 'webhook-url', pk: 'id', ws: 'workspace_id' },
+    // signing secrets of generic hooks (docs/adr/1190-*); NULL for Slack / Discord hooks
+  { table: 'workspace_webhooks', col: 'secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
+  { table: 'workspace_webhooks', col: 'previous_secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
+  { table: 'collection_sheet_syncs', col: 'url', aad: 'page_id', purpose: 'sheet-sync-url', pk: 'page_id', ws: 'workspace_id' },
+]
+
+/** Plaintext and sealed values of one sealed column (optionally limited by a workspace predicate). */
+async function countSealedColumn(t: (typeof SEALED_COLUMNS)[number], where = ''): Promise<{ plain: number; sealed: number }> {
+  const [c] = await rows<{ plain: number; sealed: number }>(
+    sql.raw(`SELECT count(*) FILTER (WHERE ${t.col} ${NOT_SEALED})::int AS plain,
+                    count(*) FILTER (WHERE ${t.col} LIKE 'v1.%')::int AS sealed
+               FROM ${t.table} WHERE ${t.col} IS NOT NULL${where}`),
+  )
+  return { plain: Number(c?.plain ?? 0), sealed: Number(c?.sealed ?? 0) }
+}
+
+/**
+ * Read-only: stored copies / URLs still in plaintext, and sealed ones, across the whole database.
+ * The admin status summary uses it for the same numbers the boot warning prints; it never writes.
+ */
+export async function countSecretsAtRest(): Promise<{ plaintext: number; sealed: number }> {
+  let plaintext = 0
+  let sealed = 0
+  for (const t of SEALED_COLUMNS) {
+    const c = await countSealedColumn(t)
+    plaintext += c.plain
+    sealed += c.sealed
+  }
+  return { plaintext, sealed }
+}
+
+/**
  * Convert every lookup secret still stored in plaintext to its hash (keeping a protected copy for
  * "copy link"), and seal every stored copy / URL that is still plaintext when APP_SECRET_KEY is set.
  * Runs after the schema migrations and before the server listens. Idempotent: each step selects
@@ -162,25 +202,11 @@ export async function migrateSecretsAtRest(opts: { workspaceIds?: string[] } = {
   }
 
   // 4) Copies and URLs: seal what is still plaintext (key set), or count it (no key).
-  const targets: { table: string; col: string; aad: string; purpose: SecretPurpose; pk: string; ws: string | null }[] = [
-    { table: 'pages', col: 'share_token_enc', aad: 'id', purpose: 'share-token', pk: 'id', ws: 'workspace_id' },
-    { table: 'workspaces', col: 'invite_code_enc', aad: 'id', purpose: 'invite-code', pk: 'id', ws: 'id' },
-    { table: 'signup_keys', col: 'key_enc', aad: 'key', purpose: 'signup-key', pk: 'key', ws: null },
-    { table: 'workspace_webhooks', col: 'url', aad: 'id', purpose: 'webhook-url', pk: 'id', ws: 'workspace_id' },
-    // signing secrets of generic hooks (docs/adr/1190-*); NULL for Slack / Discord hooks
-    { table: 'workspace_webhooks', col: 'secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
-    { table: 'workspace_webhooks', col: 'previous_secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
-    { table: 'collection_sheet_syncs', col: 'url', aad: 'page_id', purpose: 'sheet-sync-url', pk: 'page_id', ws: 'workspace_id' },
-  ]
-  for (const t of targets) {
+  for (const t of SEALED_COLUMNS) {
     if (!keyed) {
-      const [c] = await rows<{ plain: number; sealed: number }>(
-        sql.raw(`SELECT count(*) FILTER (WHERE ${t.col} ${NOT_SEALED})::int AS plain,
-                        count(*) FILTER (WHERE ${t.col} LIKE 'v1.%')::int AS sealed
-                   FROM ${t.table} WHERE ${t.col} IS NOT NULL${t.ws ? scope(t.ws) : ''}`),
-      )
-      report.plaintext += Number(c?.plain ?? 0)
-      report.unreadable += Number(c?.sealed ?? 0)
+      const c = await countSealedColumn(t, t.ws ? scope(t.ws) : '')
+      report.plaintext += c.plain
+      report.unreadable += c.sealed
       continue
     }
     for (const r of await rows<{ pk: string; aad: string; v: string }>(

@@ -232,6 +232,13 @@
       "when": 1794033924435,
       "tag": "0032_drop_page_is_template",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794037867142,
+      "tag": "0033_sidebar_prefs",
+      "breakpoints": true
     }
   ]
 }

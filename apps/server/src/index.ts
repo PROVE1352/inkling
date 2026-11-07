@@ -32,6 +32,7 @@ import { registerExportImportRoutes } from './routes/exportImport'
 import { registerFileDownloadRoute, registerFileRoutes } from './routes/files'
 import { registerInkRoutes } from './routes/ink'
 import { registerNotificationRoutes } from './routes/notifications'
+import { registerSidebarPrefsRoutes } from './routes/sidebarPrefs'
 import { registerActivityRoutes } from './routes/activity'
 import { registerInboxRoutes } from './routes/inbox'
 import { registerNotionRoutes } from './routes/notion'
@@ -390,6 +391,8 @@ async function main(): Promise<void> {
       await registerBookmarkRoutes(api)
       await registerCommentRoutes(api)
       await registerNotificationRoutes(api)
+      // Per-user sidebar menu order / hidden menus (docs/adr/1020-*)
+      await registerSidebarPrefsRoutes(api)
       // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)
       await registerActivityRoutes(api)
       await registerInboxRoutes(api)

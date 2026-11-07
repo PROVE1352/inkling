@@ -10,7 +10,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
 } from '@inkling/shared'
-import type { AuthModeDTO, UserDTO } from '@inkling/shared'
+import type { AuthModeDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
 import {
   DELEGATED_EMAIL_SUFFIX,
   consumeResetCode,
@@ -53,6 +53,7 @@ import { appOrigin, resetCodeMail, sendMail, verifyMail } from '../mail'
 import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
 import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i18n'
+import { toSidebarPrefsDTO } from './sidebarPrefs'
 
 /**
  * Account boundary: Inkling and the external auth server (DELEGATED_AUTH_URL) share accounts in
@@ -423,11 +424,16 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/me', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const [extra] = await db
-      .select({ origin: users.origin, emailVerifiedAt: users.emailVerifiedAt, locale: users.locale })
+      .select({
+        origin: users.origin,
+        emailVerifiedAt: users.emailVerifiedAt,
+        locale: users.locale,
+        sidebarPrefs: users.sidebarPrefs,
+      })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1)
-    const out: UserDTO & { locale: Locale | null } = {
+    const out: UserDTO & { locale: Locale | null; sidebar: SidebarPrefsDTO } = {
       id: user.id,
       email: user.email,
       name: user.name,
@@ -437,6 +443,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       emailVerified: extra?.origin === 'delegated' || !!extra?.emailVerifiedAt,
       // Extension field: saved UI language (null = automatic)
       locale: normalizeLocale(extra?.locale),
+      // Extension field: sidebar menu order / hidden menus (docs/adr/1020-*), so the first paint is right
+      sidebar: toSidebarPrefsDTO(extra?.sidebarPrefs),
     }
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
     if (user.isAdmin) {

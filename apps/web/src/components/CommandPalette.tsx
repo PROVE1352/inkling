@@ -14,6 +14,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CalendarDayIcon,
+  CalendarIcon,
   CanvasIcon,
   ContrastIcon,
   DatabaseIcon,
@@ -22,6 +23,7 @@ import {
   FileTextIcon,
   FolderIcon,
   GraphIcon,
+  HistoryIcon,
   PanelLeftIcon,
   PanelRightIcon,
   PlugIcon,
@@ -177,6 +179,9 @@ export function CommandPalette({
       },
       { key: 'tags', icon: <TagIcon size={16} />, label: t('palette.tags'), run: () => navigate(`/w/${wsId}/tags`) },
       { key: 'shared', icon: <GlobeIcon size={16} />, label: t('palette.webShares'), run: () => navigate(`/w/${wsId}/shared`) },
+      // Every sidebar menu has a command here too, so a menu hidden from the sidebar stays reachable (docs/adr/1020-*).
+      { key: 'calendar', icon: <CalendarIcon size={16} />, label: t('palette.calendar'), run: () => navigate(`/w/${wsId}/calendar`) },
+      { key: 'activity', icon: <HistoryIcon size={16} />, label: t('palette.activity'), run: () => navigate(`/w/${wsId}/activity`) },
       { key: 'trash', icon: <TrashIcon size={16} />, label: t('palette.openTrash'), run: onOpenTrash },
       {
         key: 'right-panel',
@@ -208,6 +213,12 @@ export function CommandPalette({
         label: t('common.settings'),
         hint: modKey(','),
         run: () => navigate(`/w/${wsId}/settings`),
+      },
+      {
+        key: 'customize-sidebar',
+        icon: <PanelLeftIcon size={16} />,
+        label: t('palette.customizeSidebar'),
+        run: () => navigate(`/w/${wsId}/settings#sidebar`),
       },
       { key: 'mcp', icon: <PlugIcon size={16} />, label: t('palette.mcpConnections'), run: () => navigate('/settings/connections') },
     ]

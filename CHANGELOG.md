@@ -7,6 +7,15 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-07
+
+Database migration 0033 (adds `users.sidebar_prefs`) is applied on first boot. Take a backup before upgrading.
+
+- Sidebar menus (docs/adr/1020-*): choose which of Search, Graph, Tags, Web shares, Due, Calendar, Activity and Today
+  appear at the top of the sidebar and in what order, in Settings → Sidebar (toggle, drag or ↑/↓, "Reset to
+  default"), or right-click / long-press a menu → "Hide from sidebar". Saved to your account, so all your devices
+  match; hidden menus still open from the ⌘P palette (which gains Calendar and Activity) and their shortcuts.
+
 ## [0.3.0] - 2026-11-07
 
 Database migrations 0031 (notifications) and 0032 (drops the unused `pages.is_template` column) are applied on

@@ -139,6 +139,30 @@ export default {
   'palette.placeholder': '명령 실행 또는 페이지 이동…',
   'palette.sectionActions': '액션',
 
+  'palette.calendar': '캘린더',
+  'palette.activity': '활동',
+  'palette.customizeSidebar': '사이드바 메뉴 설정',
+
+  'sidebar.hideFromSidebar': '사이드바에서 숨기기',
+  'sidebar.customize': '사이드바 설정…',
+  'sidebar.menuOptions': '사이드바 메뉴 옵션',
+  'sidebar.hidden': '\'{name}\' 메뉴를 숨겼습니다. 설정 → 사이드바에서 다시 켤 수 있습니다.',
+
+  'sidebarSettings.title': '사이드바',
+  'sidebarSettings.desc':
+    '사이드바 위쪽에 보일 메뉴와 순서를 고릅니다. 계정에 저장되어 모든 기기에 똑같이 적용됩니다. 숨긴 메뉴도 명령 팔레트와 단축키로 열 수 있습니다.',
+  'sidebarSettings.listLabel': '사이드바 메뉴',
+  'sidebarSettings.show': '{name} 표시',
+  'sidebarSettings.moveUp': '{name} 위로 이동',
+  'sidebarSettings.moveDown': '{name} 아래로 이동',
+  'sidebarSettings.dragHandle': '{name} 끌어서 순서 바꾸기',
+  'sidebarSettings.dragInstructions':
+    '순서를 바꾸려면 스페이스로 메뉴를 잡고 방향키로 옮긴 뒤 스페이스로 놓습니다. Esc는 취소입니다.',
+  'sidebarSettings.reset': '기본값으로 되돌리기',
+  'sidebarSettings.allHidden': '모든 메뉴를 숨겼습니다. 설정은 사이드바 아래쪽에 항상 있습니다.',
+  'sidebarSettings.saveFailed': '사이드바 설정을 저장하지 못해 변경을 되돌렸습니다.',
+  'sidebarSettings.moved': '{name}: {total}개 중 {pos}번째로 이동했습니다.',
+
   'sidebar.graph': '그래프',
   'sidebar.tags': '태그',
   'sidebar.webShares': '웹 공유',

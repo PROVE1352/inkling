@@ -138,6 +138,30 @@ export default {
   'palette.placeholder': 'Run a command or jump to a page…',
   'palette.sectionActions': 'Actions',
 
+  'palette.calendar': 'Calendar',
+  'palette.activity': 'Activity',
+  'palette.customizeSidebar': 'Customize sidebar menus',
+
+  'sidebar.hideFromSidebar': 'Hide from sidebar',
+  'sidebar.customize': 'Customize sidebar…',
+  'sidebar.menuOptions': 'Sidebar menu options',
+  'sidebar.hidden': 'Hidden "{name}". Show it again in Settings → Sidebar.',
+
+  'sidebarSettings.title': 'Sidebar',
+  'sidebarSettings.desc':
+    'Choose which menus appear at the top of the sidebar and in what order. Saved to your account, so all your devices match. Hidden menus still open from the command palette and their shortcuts.',
+  'sidebarSettings.listLabel': 'Sidebar menus',
+  'sidebarSettings.show': 'Show {name}',
+  'sidebarSettings.moveUp': 'Move {name} up',
+  'sidebarSettings.moveDown': 'Move {name} down',
+  'sidebarSettings.dragHandle': 'Drag to reorder {name}',
+  'sidebarSettings.dragInstructions':
+    'To reorder, press Space to pick up the menu, use the arrow keys to move it, and press Space again to drop it. Escape cancels.',
+  'sidebarSettings.reset': 'Reset to default',
+  'sidebarSettings.allHidden': 'Every menu is hidden. Settings stays at the bottom of the sidebar.',
+  'sidebarSettings.saveFailed': 'Could not save the sidebar settings. The change was undone.',
+  'sidebarSettings.moved': '{name} moved to position {pos} of {total}.',
+
   'sidebar.graph': 'Graph',
   'sidebar.tags': 'Tags',
   'sidebar.webShares': 'Web shares',

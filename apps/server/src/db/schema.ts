@@ -58,6 +58,11 @@ export const users = pgTable('users', {
   mustVerifyEmail: boolean('must_verify_email').notNull().default(false),
   /** UI/email language ('en' | 'ko'). null = follow DEFAULT_LOCALE / the browser (docs/adr/0901-*). */
   locale: text('locale'),
+  /**
+   * Sidebar menu order / hidden menus ({ order, hidden }, docs/adr/1020-*). null = default (every
+   * menu, built-in order). Validated by sidebarPrefsSchema; unknown ids are ignored by the client.
+   */
+  sidebarPrefs: jsonb('sidebar_prefs').$type<{ order: string[]; hidden: string[] }>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

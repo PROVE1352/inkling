@@ -59,6 +59,7 @@ import type {
   TagCountDTO,
   TemplateDTO,
   UpdatePageInput,
+  SidebarPrefsDTO,
   SignupKeyDTO,
   UserDTO,
   ViewConfig,
@@ -70,8 +71,8 @@ import type {
 } from '@inkling/shared'
 
 // Extension fields the server adds without changing the shared DTOs (docs/adr/0901-*).
-/** /auth/me: the user's saved UI language (null = follow the server/browser default). */
-export type MeDTO = UserDTO & { locale?: Locale | null }
+/** /auth/me: the user's saved UI language (null = follow the server/browser default) and sidebar menus (docs/adr/1020-*). */
+export type MeDTO = UserDTO & { locale?: Locale | null; sidebar?: SidebarPrefsDTO }
 /** /auth/mode: DEFAULT_LOCALE when the operator set one. */
 export type AuthModeExtDTO = AuthModeDTO & { defaultLocale?: Locale | null }
 

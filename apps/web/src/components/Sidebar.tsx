@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import type { PageScope } from '@inkling/shared'
+import { SIDEBAR_MENU_IDS, type PageScope, type SidebarMenuId } from '@inkling/shared'
 import {
   useBookmarks,
   useCreatePage,
@@ -17,6 +17,11 @@ import { useNewPage } from '../lib/newPage'
 import { pageIcon } from '../lib/pageIcon'
 import { modKey } from '../lib/platform'
 import { useT } from '../i18n'
+import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
+import { resolveSidebarMenu, setEntryHidden, toSidebarPrefs, visibleSidebarMenu } from '../lib/sidebarMenu'
+import { toast } from '../lib/toast'
+import { SIDEBAR_MENU_META, isSidebarMenuId } from './sidebarMenus'
+import { SidebarMenuPopup, useMenuContextTrigger, type MenuCtx } from './SidebarMenuContext'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { PageTree } from './PageTree'
 import { TrashModal } from './TrashModal'
@@ -163,131 +168,212 @@ export function Sidebar({
     logout.mutate(undefined, { onSuccess: () => navigate('/login', { replace: true }) })
   }
 
+  // Top menus (docs/adr/1020-*): saved order/visibility from the server, merged with this build's menus.
+  const sidebarPrefs = useSidebarPrefs()
+  const saveSidebar = useSaveSidebarPrefs()
+  const visibleMenus = visibleSidebarMenu(sidebarPrefs, SIDEBAR_MENU_IDS) as SidebarMenuId[]
+  const [menuCtx, setMenuCtx] = useState<MenuCtx | null>(null)
+  const closeMenuCtx = useCallback(() => setMenuCtx(null), [])
+  const menuTrigger = useMenuContextTrigger(setMenuCtx)
+  const hideMenu = (id: SidebarMenuId) => {
+    const prev = sidebarPrefs
+    const next = toSidebarPrefs(
+      setEntryHidden(resolveSidebarMenu(prev, SIDEBAR_MENU_IDS), id, true),
+      SIDEBAR_MENU_IDS,
+      prev,
+    )
+    saveSidebar.mutate(next, {
+      onSuccess: () =>
+        toast({
+          message: t('sidebar.hidden', { name: t(SIDEBAR_MENU_META[id].label) }),
+          actionLabel: t('toast.undo'),
+          onAction: () => saveSidebar.mutate(prev),
+        }),
+    })
+  }
+
+  const menuButtons: Record<SidebarMenuId, ReactNode> = {
+    search: (
+      <button
+        key="search"
+        data-sidebar-menu="search"
+        {...menuTrigger('search')}
+        type="button"
+        onClick={onOpenSearch}
+        className="flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+      >
+        <SearchIcon size={16} />
+        {t('common.search')}
+        <span className="ml-auto text-xs text-sub/70">{modKey('K')}</span>
+      </button>
+    ),
+    graph: (
+      <button
+        key="graph"
+        data-sidebar-menu="graph"
+        {...menuTrigger('graph')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/graph`)}
+        aria-current={graphActive ? 'page' : undefined}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          graphActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <GraphIcon size={16} />
+        {t('sidebar.graph')}
+      </button>
+    ),
+    tags: (
+      <button
+        key="tags"
+        data-sidebar-menu="tags"
+        {...menuTrigger('tags')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/tags`)}
+        aria-current={tagsActive ? 'page' : undefined}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          tagsActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <TagIcon size={16} />
+        {t('sidebar.tags')}
+      </button>
+    ),
+    shared: (
+      <button
+        key="shared"
+        data-sidebar-menu="shared"
+        {...menuTrigger('shared')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/shared`)}
+        aria-current={sharedActive ? 'page' : undefined}
+        title={t('sidebar.webSharesTitle')}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          sharedActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <GlobeIcon size={16} />
+        <span className="flex-1 text-left">{t('sidebar.webShares')}</span>
+        {sharedCount > 0 && <span className="text-xs text-sub">{sharedCount}</span>}
+      </button>
+    ),
+    due: (
+      <button
+        key="due"
+        data-sidebar-menu="due"
+        {...menuTrigger('due')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/due`)}
+        aria-current={dueActive ? 'page' : undefined}
+        title={t('sidebar.dueTitle')}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          dueActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <AlarmIcon size={16} />
+        <span className="flex-1 text-left">{t('sidebar.due')}</span>
+        {dueBadge > 0 && (
+          <span
+            data-testid="due-badge"
+            title={
+              dueOverdue > 0
+                ? t('sidebar.dueBadgeOverdue', { overdue: dueOverdue, today: dueBadge - dueOverdue })
+                : t('sidebar.dueBadgeToday', { today: dueBadge })
+            }
+            className={`min-w-5 rounded-full px-1.5 text-center text-[11px] font-medium ${
+              dueOverdue > 0 ? 'bg-red-500/15 text-red-500' : 'bg-hover text-sub'
+            }`}
+          >
+            {dueBadge}
+          </span>
+        )}
+      </button>
+    ),
+    calendar: (
+      <button
+        key="calendar"
+        data-sidebar-menu="calendar"
+        {...menuTrigger('calendar')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/calendar`)}
+        aria-current={calendarActive ? 'page' : undefined}
+        title={t('sidebar.calendarTitle')}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          calendarActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <CalendarIcon size={16} />
+        {t('sidebar.calendar')}
+      </button>
+    ),
+    activity: (
+      <button
+        key="activity"
+        data-sidebar-menu="activity"
+        {...menuTrigger('activity')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/activity`)}
+        aria-current={activityActive ? 'page' : undefined}
+        title={t('activity.sidebarTitle')}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          activityActive
+            ? 'bg-active font-medium text-ink'
+            : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <HistoryIcon size={16} />
+        {t('activity.title')}
+      </button>
+    ),
+    today: (
+      <button
+        key="today"
+        data-sidebar-menu="today"
+        {...menuTrigger('today')}
+        type="button"
+        onClick={() => openDaily()}
+        disabled={dailyBusy}
+        title={t('sidebar.todayTitle')}
+        className="flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
+      >
+        <CalendarDayIcon size={16} />
+        {t('common.today')}
+      </button>
+    ),
+  }
+
   return (
     <aside className="flex h-full flex-col bg-side transition-colors duration-200">
       <div className="p-2">
         {workspaces.data && <WorkspaceSwitcher wsId={wsId} workspaces={workspaces.data} />}
       </div>
 
-      <div className="px-2">
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-        >
-          <SearchIcon size={16} />
-          {t('common.search')}
-          <span className="ml-auto text-xs text-sub/70">{modKey('K')}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/graph`)}
-          aria-current={graphActive ? 'page' : undefined}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            graphActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <GraphIcon size={16} />
-          {t('sidebar.graph')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/tags`)}
-          aria-current={tagsActive ? 'page' : undefined}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            tagsActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <TagIcon size={16} />
-          {t('sidebar.tags')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/shared`)}
-          aria-current={sharedActive ? 'page' : undefined}
-          title={t('sidebar.webSharesTitle')}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            sharedActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <GlobeIcon size={16} />
-          <span className="flex-1 text-left">{t('sidebar.webShares')}</span>
-          {sharedCount > 0 && <span className="text-xs text-sub">{sharedCount}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/due`)}
-          aria-current={dueActive ? 'page' : undefined}
-          title={t('sidebar.dueTitle')}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            dueActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <AlarmIcon size={16} />
-          <span className="flex-1 text-left">{t('sidebar.due')}</span>
-          {dueBadge > 0 && (
-            <span
-              data-testid="due-badge"
-              title={
-                dueOverdue > 0
-                  ? t('sidebar.dueBadgeOverdue', { overdue: dueOverdue, today: dueBadge - dueOverdue })
-                  : t('sidebar.dueBadgeToday', { today: dueBadge })
-              }
-              className={`min-w-5 rounded-full px-1.5 text-center text-[11px] font-medium ${
-                dueOverdue > 0 ? 'bg-red-500/15 text-red-500' : 'bg-hover text-sub'
-              }`}
-            >
-              {dueBadge}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/calendar`)}
-          aria-current={calendarActive ? 'page' : undefined}
-          title={t('sidebar.calendarTitle')}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            calendarActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <CalendarIcon size={16} />
-          {t('sidebar.calendar')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/activity`)}
-          aria-current={activityActive ? 'page' : undefined}
-          title={t('activity.sidebarTitle')}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            activityActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <HistoryIcon size={16} />
-          {t('activity.title')}
-        </button>
-        <button
-          type="button"
-          onClick={() => openDaily()}
-          disabled={dailyBusy}
-          title={t('sidebar.todayTitle')}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
-        >
-          <CalendarDayIcon size={16} />
-          {t('common.today')}
-        </button>
-      </div>
+      {/* Top menus: order and visibility follow the person's saved choice (docs/adr/1020-*). Right-click
+          or long-press a menu to hide it; Settings → Sidebar brings it back. */}
+      {visibleMenus.length > 0 && (
+        <div className="px-2" data-testid="sidebar-menus">
+          {visibleMenus.map((id) => menuButtons[id])}
+        </div>
+      )}
+      {menuCtx && isSidebarMenuId(menuCtx.id) && (
+        <SidebarMenuPopup
+          ctx={menuCtx}
+          label={t(SIDEBAR_MENU_META[menuCtx.id].label)}
+          onHide={() => hideMenu(menuCtx.id as SidebarMenuId)}
+          onCustomize={() => navigate(`/w/${wsId}/settings#sidebar`)}
+          onClose={closeMenuCtx}
+        />
+      )}
 
       <div ref={newMenuRef} className="relative flex gap-0.5 px-2 pb-1 pt-1">
         <button

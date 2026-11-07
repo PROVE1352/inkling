@@ -19,6 +19,7 @@ import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { ApiError, useAuthMode, useChangePassword, useMe, useResendVerification } from '../api'
 import { IcalSettings } from '../components/IcalSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
+import { SidebarSettings } from '../components/SidebarSettings'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { useT, type TKey } from '../i18n'
@@ -217,6 +218,7 @@ export function Settings() {
           <AccountGroup />
           <NotificationSettings />
           <IcalSettings />
+          <SidebarSettings />
           <DeletedWorkspacesList />
 
           <p className="mb-6 px-1 text-xs text-sub">

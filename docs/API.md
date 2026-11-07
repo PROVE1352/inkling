@@ -36,7 +36,7 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 | POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. Failure → 401 `INVALID_CREDENTIALS` (never reveal whether the email exists; same message). Unverified account in enforced-verification mode (only when the password is correct) → 403 `EMAIL_NOT_VERIFIED`. If there are no admins, bootstrap promotion applies. |
 | POST | `/api/auth/logout` | - | 204 + cookie cleared. The session row is deleted. |
-| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), and `pendingResetRequests` for admins. |
+| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), `sidebar: SidebarPrefsDTO` (sidebar menu order / hidden menus, see [Sidebar menus](#sidebar-menus-per-user-docsadr1020-); `{ order: [], hidden: [] }` when never customized), and `pendingResetRequests` for admins. |
 | PATCH | `/api/auth/me/locale` | `{ "locale": "en" \| "ko" \| null }` | `{ "locale": "en" \| "ko" \| null }`. Requires a session. Saves the account's UI and email language (`null` = automatic: browser language / `DEFAULT_LOCALE`). Anything else → 400 `VALIDATION`. |
 | POST | `/api/auth/reset-password` | `resetPasswordSchema` `{ email, code, newPassword }` | `{ ok: true }`. Code = a reset code from an admin or automatic email (single use, 24h), or the **maxUses=1** sign-up key that person registered with. On success all of that account's sessions are deleted, remaining codes are revoked and pending requests are resolved. Failure (unknown account, delegated account, wrong code alike) → 400 `INVALID_RESET` with the same message. 10/min + blocking on accumulated failures. |
 | POST | `/api/auth/forgot-password` | `forgotPasswordSchema` `{ email, note? }` | Always `{ ok: true }` (never reveal whether the account exists). Only existing accounts are processed: verified email + mail enabled → a reset code email is sent automatically (in the background, at most one per 5 minutes). Otherwise (unverified, mail disabled, delegated account) → merged into a single pending row in `password_reset_requests` (refreshed at most once a minute). Input without `@` is treated as a delegated ID. 5/min. |
@@ -48,6 +48,21 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 - Brute-force protection: failures on the auth routes above, MCP OAuth and public share tokens are counted per IP; over the limit →
   429 `RATE_LIMITED` + `Retry-After` (uniform wording). Per account there is only backoff (no lockout). Full policy:
   deploy/DEPLOY.md 3-F.
+
+## Sidebar menus (per user, docs/adr/1020-*)
+
+Which top-of-sidebar menus a person shows and in what order, stored on the account (`users.sidebar_prefs`, migration
+0033) so every device matches. Browser sessions only: no cookie → 401, an agent's bearer token → 403.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/me/sidebar` | – | `SidebarPrefsDTO { order: string[], hidden: string[] }`; `{ order: [], hidden: [] }` when never customized (also returned as `user.sidebar` by `GET /api/auth/me`). |
+| PUT | `/api/me/sidebar` | `sidebarPrefsSchema` `{ order, hidden }` | The stored value. Replaces the whole value; both lists empty = back to the default (stored as NULL). Ids match `^[a-z][a-z0-9-]{0,31}$`, at most 32 per list, duplicates dropped (first kept); anything else → 400 `VALIDATION` and nothing changes. |
+
+- Built-in ids in default order (`SIDEBAR_MENU_IDS`): `search, graph, tags, shared, due, calendar, activity, today`.
+- The server validates the shape, not the vocabulary: well-formed ids it does not know are stored. Clients ignore
+  unknown ids when drawing and keep them when saving. A known id missing from `order` (a menu added later) shows at
+  its default position, right after the menu that precedes it by default; ids in `hidden` are not shown.
 
 ## Admin (`requireAdmin`: cookie session + `isAdmin`, bearer 403)
 

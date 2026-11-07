@@ -234,6 +234,12 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1006](1006-comment-tools-for-agents.md) | Comment thread tools for agents | Accepted |
 | [1007](1007-member-name-clash-per-workspace.md) | Client names vs member names: exact, per workspace, warning for common apps | Accepted |
 
+## 1020–1039 Personal preferences
+
+| ADR | Title | Status |
+|---|---|---|
+| [1020](1020-per-user-sidebar-menu-customization.md) | Sidebar menus: per-user order and visibility, stored on the account | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

@@ -859,3 +859,6 @@ export * from './notifications'
 
 // Math (KaTeX) node names and the `$…$` rule shared by the editor and the server schema
 export * from './math'
+
+// Per-user sidebar menu order / visibility (docs/adr/1020-*)
+export * from './sidebar'

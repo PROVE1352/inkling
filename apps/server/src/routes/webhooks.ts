@@ -11,12 +11,18 @@ import { workspaces, workspaceWebhooks } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import {
+  assertPublicWebhookHost,
   invalidateWebhookCache,
+  listDeliveries,
   maskedHookUrl,
   maskWebhookUrl,
   MAX_WEBHOOKS_PER_WORKSPACE,
+  newWebhookSecret,
   parseWebhookUrl,
+  resendDelivery,
+  SECRET_ROTATION_GRACE_MS,
   sendTestMessage,
+  storeHookSecret,
   storeHookUrl,
   toWebhookDTO,
   WebhookUrlError,
@@ -31,9 +37,21 @@ const eventsSchema = z
 const createSchema = z.object({
   url: z.string().min(1).max(512),
   events: eventsSchema,
-  /** Only consulted for loopback URLs in webhook test mode; otherwise inferred from the host. */
-  kind: z.enum(['slack', 'discord']).optional(),
+  /**
+   * 'generic' (signed JSON to any public https endpoint, docs/adr/1190-*) must be chosen explicitly.
+   * 'slack' / 'discord' are inferred from the host; the hint only matters for loopback URLs in
+   * webhook test mode.
+   */
+  kind: z.enum(['slack', 'discord', 'generic']).optional(),
 })
+
+const rotateSchema = z.object({
+  /** Keep signing with the old secret for 24 h (default) so receivers can switch without a gap. */
+  keepPrevious: z.boolean().optional(),
+})
+
+const deliveriesQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).optional() })
+const deliveryParams = z.object({ id: z.uuid(), deliveryId: z.string().regex(/^[1-9][0-9]{0,17}$/) })
 
 const updateSchema = z.object({
   events: eventsSchema.optional(),
@@ -77,6 +95,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       let parsed
       try {
         parsed = parseWebhookUrl(body.url, body.kind)
+        if (parsed.kind === 'generic') await assertPublicWebhookHost(parsed.url)
       } catch (e) {
         if (e instanceof WebhookUrlError) throw badRequest(e.message)
         throw e
@@ -88,12 +107,22 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       if (n >= MAX_WEBHOOKS_PER_WORKSPACE) {
         throw new AppError(409, 'LIMIT_REACHED', `At most ${MAX_WEBHOOKS_PER_WORKSPACE} webhooks per workspace`)
       }
+      // Generic hooks sign every delivery; the secret is returned in this response only.
+      const secret = parsed.kind === 'generic' ? newWebhookSecret() : null
       const row = await db.transaction(async (tx) => {
         // The id is chosen here: it is the AAD that binds the sealed URL to this row (docs/adr/1111-*).
         const id = randomUUID()
         const [row] = await tx
           .insert(workspaceWebhooks)
-          .values({ id, workspaceId, kind: parsed.kind, url: storeHookUrl(id, parsed.url), events: body.events, createdBy: user.id })
+          .values({
+            id,
+            workspaceId,
+            kind: parsed.kind,
+            url: storeHookUrl(id, parsed.url),
+            secret: secret ? storeHookSecret(id, secret) : null,
+            events: body.events,
+            createdBy: user.id,
+          })
           .returning()
         // the masked URL only: the full URL is a secret (docs/adr/0946-*)
         await recordAudit(tx, {
@@ -106,7 +135,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         return row
       })
       invalidateWebhookCache(workspaceId)
-      return { webhook: toWebhookDTO(row) }
+      return { webhook: toWebhookDTO(row), secret }
     },
   )
 
@@ -119,7 +148,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     if (body.enabled !== undefined) {
       set.enabled = body.enabled ? '1' : '0'
       // Re-enabling clears the failure streak so the hook gets a fresh budget.
-      if (body.enabled) Object.assign(set, { failureCount: 0, autoDisabledAt: null })
+      if (body.enabled) Object.assign(set, { failureCount: 0, autoDisabledAt: null, failingSince: null })
     }
     if (Object.keys(set).length === 0) return { webhook: toWebhookDTO(hook) }
     const row = await db.transaction(async (tx) => {
@@ -177,7 +206,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       const user = getUser(req)
       const hook = await loadHook(idParam(req.params), user)
       const ws = (await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, hook.workspaceId)).limit(1))[0]
-      const result = await sendTestMessage(hook, ws?.name ?? 'Workspace')
+      const result = await sendTestMessage(hook, ws?.name ?? 'Workspace', { id: user.id, name: user.name })
       const fresh = (await db.select().from(workspaceWebhooks).where(eq(workspaceWebhooks.id, hook.id)).limit(1))[0]
       return {
         ok: result.ok,
@@ -185,6 +214,63 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         error: result.ok ? null : result.error,
         webhook: toWebhookDTO(fresh ?? hook),
       }
+    },
+  )
+
+  // Signing secret of a generic hook: a new one, shown once (docs/adr/1190-*). The old one keeps
+  // being signed with for 24 h unless `keepPrevious: false` (a leaked secret is revoked at once).
+  app.post(
+    '/webhooks/:id/secret',
+    { preHandler: requireUser, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const user = getUser(req)
+      const hook = await loadHook(idParam(req.params), user)
+      if (hook.kind !== 'generic') throw badRequest('Only generic webhooks have a signing secret')
+      const body = rotateSchema.parse(req.body ?? {})
+      const keep = body.keepPrevious !== false && !!hook.secret
+      const secret = newWebhookSecret()
+      const until = keep ? new Date(Date.now() + SECRET_ROTATION_GRACE_MS) : null
+      const row = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(workspaceWebhooks)
+          // the stored (sealed) old value is moved as is: same purpose and AAD
+          .set({ secret: storeHookSecret(hook.id, secret), previousSecret: keep ? hook.secret : null, previousSecretUntil: until })
+          .where(eq(workspaceWebhooks.id, hook.id))
+          .returning()
+        await recordAudit(tx, {
+          workspaceId: hook.workspaceId,
+          actor: user,
+          action: 'webhook.updated',
+          target: { type: 'webhook', id: hook.id, label: maskedHookUrl(hook) },
+          after: { secret: 'rotated', previousValidUntil: until ? until.toISOString() : null },
+        })
+        return row
+      })
+      return { webhook: toWebhookDTO(row), secret }
+    },
+  )
+
+  // Recent deliveries (docs/adr/1191-*).
+  app.get('/webhooks/:id/deliveries', { preHandler: requireUser }, async (req) => {
+    const user = getUser(req)
+    const hook = await loadHook(idParam(req.params), user)
+    const q = deliveriesQuery.parse(req.query ?? {})
+    return { deliveries: await listDeliveries(hook.id, q.limit ?? 30) }
+  })
+
+  // Send a recorded delivery again: same delivery id, re-resolved and re-signed now.
+  app.post(
+    '/webhooks/:id/deliveries/:deliveryId/resend',
+    { preHandler: requireUser, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const user = getUser(req)
+      const p = deliveryParams.parse(req.params)
+      const hook = await loadHook(p.id, user)
+      if (hook.enabled !== '1') throw new AppError(409, 'WEBHOOK_DISABLED', 'Enable the webhook before sending deliveries again')
+      const r = await resendDelivery(hook.id, Number(p.deliveryId))
+      if (r === 'gone') throw new AppError(410, 'DELIVERY_GONE', 'This delivery is too old to send again')
+      if (r === 'busy') throw new AppError(409, 'DELIVERY_IN_FLIGHT', 'This delivery is being sent right now')
+      return reply.code(202).send({ ok: true })
     },
   )
 }

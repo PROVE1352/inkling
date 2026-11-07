@@ -200,3 +200,9 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** After a split the new subpages are missing from search for 2–3 s while they are indexed. The `page_created` webhooks of a split are sent after it succeeds, outside the transaction (a split can still be undone before that), so a crash in that moment loses them. The same crash window remains for review-due and digest webhooks and reminders.
 - **Low** The write gate does not cover comment DELETE, quick task add, ink, vault sync, snapshot restore and typing in the editor.
 - **Low** Without `APP_SECRET_KEY` the unlock cookie of password links is signed with a per-process key, so a restart asks visitors again. A link-preview fetched before a password was set may stay in the 6-hour preview cache of signed-in users.
+
+## Added in 0.7.0
+- **Low** A token or connection limited to a subtree can still list the workspace's members, see the root page's parent id and relation target ids outside the range, and download legacy files that have no page. `changes_since` does not report pages that left the range; resync after changing a range. Agent instruction pages stay readable outside the range (by design, docs/adr/1200-*).
+- **Low** Personal API tokens are not agents, so a workspace owner cannot block them like an MCP connection (docs/adr/0947-*), and creating one does not ask for the password again.
+- **Low** `find_context` still misses a section when its key word is common in the workspace (lexical ranking; semantic search is a design memo, docs/adr/1214-*). A rare word that is unrelated to the question can win.
+- **Low** Generic webhooks accept port 443 only (put n8n's 5678 behind a proxy). The row template editor has no live co-editing; relation defaults are not supported yet.

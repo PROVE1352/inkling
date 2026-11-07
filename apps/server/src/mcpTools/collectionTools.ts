@@ -4,11 +4,11 @@
  * Reads go through GET /api/pages/:id/collection/query and GET /api/pages/:id/row (filter, sort
  * and keyset pagination run in SQL; read-only tokens can use them). Writes go through the same
  * routes as the web app: PATCH /api/pages/:id/props (with the optional baseVersion check) and
- * POST /api/pages/:id/collection/rows/batch. Property names are mapped to field ids and values are
+ * POST /api/pages/:id/collection/rows (row templates, docs/adr/1181-*). Property names are mapped to field ids and values are
  * validated here (collectionQuery/values.ts) so a bad value is an error, never a silent drop.
  */
 import { z } from 'zod'
-import type { CollectionField } from '@inkling/shared'
+import type { CollectionField, CreateRowResultDTO, RowTemplateListDTO } from '@inkling/shared'
 import type { CollectionRowDTO, QueryRowsDTO } from '../routes/collectionQuery'
 import { sanitizeBatchProps } from '../routes/collectionsExt'
 import { opsHelp } from '../collectionQuery/filter'
@@ -124,6 +124,37 @@ function droppedLinks(fields: CollectionField[], sent: Record<string, string[]>,
   return notes
 }
 
+async function loadRowTemplates(ctx: ToolCtx, collectionId: string): Promise<RowTemplateListDTO> {
+  return (await call(ctx, 'GET', `/api/pages/${collectionId}/collection/row-templates`)).json() as RowTemplateListDTO
+}
+
+/** `template` argument → template id (null = empty row, undefined = the collection's default). */
+function pickRowTemplate(list: RowTemplateListDTO, ref: string | undefined): string | null | undefined {
+  if (ref === undefined) return undefined
+  const r = ref.trim()
+  if (r.toLowerCase() === 'none' || r === '') return null
+  const byId = list.templates.find((t) => t.id === r.toLowerCase())
+  if (byId) return byId.id
+  const hits = list.templates.filter((t) => t.name.trim().toLowerCase() === r.toLowerCase())
+  if (hits.length === 1) return hits[0].id
+  const names = list.templates.map((t) => `"${cleanText(t.name)}" (${t.id})`).join(', ') || '(none)'
+  if (hits.length > 1) throw new ToolError(`${hits.length} row templates are named "${cleanText(r)}"; pass an id: ${hits.map((h) => h.id).join(', ')}`)
+  throw new ToolError(`No row template "${cleanText(r)}" in this collection. Templates: ${names}. Pass "none" for an empty row. Nothing was written.`)
+}
+
+/** One line per template for query_rows describe (ids outside, names are member-written). */
+function templateLines(list: RowTemplateListDTO): string[] {
+  if (list.templates.length === 0) return ['Row templates: (none; create_row makes empty rows)']
+  return [
+    'Row templates (create_row template=name or id; default applies when omitted, "none" = empty row):',
+    ...list.templates.map(
+      (t) =>
+        `- ${cleanText(t.name)}${t.isDefault ? ' [default]' : ''} (${t.id})` +
+        (t.inputs.length ? `; inputs: ${t.inputs.map((i) => cleanText(i.default ? `${i.name}|${i.default}` : i.name)).join('; ')}` : ''),
+    ),
+  ]
+}
+
 export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
   server.registerTool(
     'query_rows',
@@ -162,6 +193,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const r = res.json() as QueryRowsDTO
       const head = `Collection "${r.collection.title || 'Untitled'}" (${r.collection.id})`
       if (describe) {
+        const tpls = await loadRowTemplates(ctx, r.collection.id)
         return text(
           [
             head,
@@ -171,6 +203,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
             'Operators:',
             OPS_SUMMARY,
             'Duplicate or reserved names: use #fieldId (ids: ' + r.fields.map((f) => `${f.name}=#${f.id}`).join(', ') + ')',
+            ...templateLines(tpls),
           ].join('\n'),
         )
       }
@@ -251,16 +284,20 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Create collection row',
       description:
-        'Add a row to a collection. properties use property NAMES and the same value rules as update_row. ' +
+        'Add a row to a collection. properties use property NAMES and the same value rules as update_row; they win over ' +
+        'the template\'s defaults. template: a row template name or id (see query_rows describe=true); omitted = the ' +
+        'collection\'s default template, "none" = an empty row. inputs answer the template\'s {{input:…}} prompts. ' +
         'Returns the new row id and version.',
       inputSchema: {
         collectionId: uuid().describe('Collection page id'),
-        title: z.string().max(500).optional().describe('Row title'),
+        title: z.string().max(500).optional().describe('Row title (default: the template\'s title pattern)'),
         properties: z.record(z.string().max(100), z.unknown()).optional().describe('{ "Property name": value }'),
+        template: z.string().max(100).optional().describe('Row template name or id; "none" = empty row; omitted = default template'),
+        inputs: z.record(z.string().max(200), z.string().max(2000)).optional().describe('{ "Prompt": "answer" } for {{input:…}} prompts'),
       },
       annotations: { destructiveHint: false },
     },
-    wrapWrite(ctx, async ({ collectionId, title, properties = {} }) => {
+    wrapWrite(ctx, async ({ collectionId, title, properties = {}, template, inputs }) => {
       const def = (
         await call(ctx, 'GET', `/api/pages/${collectionId}/collection/query`, { query: { describe: '1' } })
       ).json() as QueryRowsDTO
@@ -276,12 +313,19 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const props = Object.fromEntries(Object.entries(mapped.props).filter(([, v]) => v !== null))
       assertSanitized(fields, props)
       const rel = await resolveRelationRefs(ctx, mapped)
+      const tpls = await loadRowTemplates(ctx, collectionId)
+      const templateId = pickRowTemplate(tpls, template)
       const created = (
-        await call(ctx, 'POST', `/api/pages/${collectionId}/collection/rows/batch`, {
-          json: { rows: [{ title: title ?? mapped.title ?? '', props }] },
+        await call(ctx, 'POST', `/api/pages/${collectionId}/collection/rows`, {
+          json: {
+            title: title ?? mapped.title ?? '',
+            props,
+            ...(templateId !== undefined ? { template: templateId } : {}),
+            ...(inputs ? { inputs } : {}),
+          },
         })
-      ).json() as { rows: { id: string }[] }
-      const rowId = created.rows[0]?.id
+      ).json() as CreateRowResultDTO
+      const rowId = created.row?.id
       if (!rowId) throw new ToolError('The row was not created')
       const notes: string[] = []
       const relLinks = Object.fromEntries(Object.entries(rel).filter(([, ids]) => ids.length))
@@ -296,9 +340,11 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         notes.push(...droppedLinks(fields, relLinks, (res.json() as { row: { props: Record<string, unknown> } }).row.props))
       }
       const row = await getRow(ctx, rowId)
+      const used = tpls.templates.find((t) => t.id === created.templateId)
       return text(
         withApplies(await loadAgentContext(ctx, [rowId]), [
           `Created row ${rowId} in "${cleanText(def.collection.title || 'Untitled')}". Version: ${row.row.version}`,
+          used ? `Template: ${cleanText(used.name)} (${used.id})` : 'Template: none (empty row)',
           wrapUntrusted(rowLines(row.columns, row.row.cells), { source: 'rows', id: rowId }),
           ...notes,
         ].join('\n')),

@@ -2,7 +2,7 @@ import { basename, extname } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { importMarkdown, listWorkspaces, selectWorkspace } from '../api'
 import { strFlag } from '../args'
-import { loadConfig } from '../config'
+import { credentialOf, loadConfig } from '../config'
 import { ApiError } from '../http'
 
 /**
@@ -22,8 +22,9 @@ export async function cmdPush(
   }
 
   const config = await loadConfig()
-  if (!config.cookie) {
-    throw new Error('Not logged in. Run `inklingctl login` first')
+  const auth = credentialOf(config)
+  if (!auth) {
+    throw new Error('Not logged in. Run `inklingctl login` first, or set INKLING_TOKEN')
   }
   const server = strFlag(flags, 'server') ?? config.server
 
@@ -42,10 +43,10 @@ export async function cmdPush(
 
   let workspaces
   try {
-    workspaces = await listWorkspaces(server, config.cookie)
+    workspaces = await listWorkspaces(server, auth)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      throw new Error('Session expired. Run `inklingctl login` again')
+      throw new Error('Session expired or token revoked. Run `inklingctl login` again (or check INKLING_TOKEN)')
     }
     throw err
   }
@@ -53,10 +54,10 @@ export async function cmdPush(
 
   let created
   try {
-    created = await importMarkdown(server, config.cookie, ws.id, parentId, uploadName, content)
+    created = await importMarkdown(server, auth, ws.id, parentId, uploadName, content)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      throw new Error('Session expired. Run `inklingctl login` again')
+      throw new Error('Session expired or token revoked. Run `inklingctl login` again (or check INKLING_TOKEN)')
     }
     throw err
   }

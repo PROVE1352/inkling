@@ -31,6 +31,8 @@ import type { PageRow } from '../pageDto'
 import { assertPlacement, withTreeLock } from '../pageTree'
 import { collectInputs, hasVariables, renderString } from './variables'
 import type { VarContext } from './variables'
+import { insertRowTemplates, snapshotRowTemplates } from '../rowTemplates'
+import type { TRowTemplate } from '../rowTemplates'
 
 /**
  * Template tree model (docs/adr/0920-*, 0921-*).
@@ -68,6 +70,11 @@ export interface TNode {
   /** Collection schema and views. */
   fields?: CollectionField[]
   views?: TemplateView[]
+  /**
+   * Row templates of a collection (docs/adr/1183-*). Their variables are kept as written: they
+   * are filled when a row is created, so they are not inputs of this template.
+   */
+  rowTemplates?: TRowTemplate[]
   children: TNode[]
 }
 
@@ -147,7 +154,7 @@ export function contentToTree(content: unknown, name: string, icon: string | nul
 // ---------------------------------------------------------------------------
 
 /** All text runs of a document state that substitution may touch (code excluded). */
-function docTexts(state: Uint8Array): string[] {
+export function docTexts(state: Uint8Array): string[] {
   const out: string[] = []
   if (state.length === 0) return out
   const doc = new Y.Doc()
@@ -454,6 +461,9 @@ export async function snapshotTree(
       const n = nodes.get(v.pageId)!
       ;(n.views ??= []).push({ name: v.name, type: v.type, config: (v.config ?? {}) as ViewConfig, sortOrder: v.sortOrder })
     }
+    // Row templates travel with their collection (docs/adr/1183-*).
+    const rts = await snapshotRowTemplates(collIds, (cid) => nodes.get(cid)?.fields ?? [])
+    for (const [cid, list] of rts) nodes.get(cid)!.rowTemplates = list
     // Rows: drop person values.
     for (const id of collIds) {
       const coll = nodes.get(id)!
@@ -600,6 +610,7 @@ interface Prepared {
   state?: Buffer
   fields?: CollectionField[]
   views?: TemplateView[]
+  rowTemplates?: TRowTemplate[]
 }
 
 /**
@@ -684,6 +695,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
         return f
       })
       p.views = structuredClone(node.views ?? [])
+      if (node.rowTemplates?.length) p.rowTemplates = node.rowTemplates
     }
     prepared.push(p)
   }
@@ -737,6 +749,12 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
         (p.views ?? []).map((v) => ({ pageId: p.id, name: v.name, type: v.type, config: v.config, sortOrder: v.sortOrder })),
       )
       if (views.length > 0) await tx.insert(collectionViews).values(views)
+      await insertRowTemplates(
+        tx,
+        colls
+          .filter((p) => p.rowTemplates?.length)
+          .map((p) => ({ collectionId: p.id, templates: p.rowTemplates!, userId: a.userId, remapHref })),
+      )
     }
     const byId = new Map(inserted.map((r) => [r.id, r]))
     return prepared.map((p) => byId.get(p.id)!)

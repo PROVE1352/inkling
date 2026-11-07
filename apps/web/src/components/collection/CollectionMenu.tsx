@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { DownloadIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, UploadIcon } from '../Icons'
+import { DownloadIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, TemplateIcon, UploadIcon } from '../Icons'
+import { useT } from '../../i18n'
 import { S } from './strings'
 
-/** Collection toolbar "⋯" menu: import / export / copy / sheets sync (experimental). */
+/** Collection toolbar "⋯" menu: row templates / import / export / copy / sheets sync (experimental). */
 export function CollectionMenu({
+  onRowTemplates,
   onImport,
   onExportCsv,
   onExportXlsx,
   onCopyTsv,
   onSheetSync,
 }: {
+  /** row templates (docs/adr/1180-*) */
+  onRowTemplates?: () => void
   /** omitted when the collection is read-only (edit lock) */
   onImport?: () => void
   onExportCsv: () => void
@@ -18,6 +22,7 @@ export function CollectionMenu({
   /** shown only when the experimental `sheets-sync` flag is enabled */
   onSheetSync?: () => void
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -57,6 +62,11 @@ export function CollectionMenu({
       </button>
       {open && (
         <div className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+          {onRowTemplates && (
+            <button type="button" className={`${item} border-b border-line`} onClick={run(onRowTemplates)}>
+              <TemplateIcon size={14} /> {t('rowTpl.manage')}
+            </button>
+          )}
           {onImport && (
             <button type="button" className={item} onClick={run(onImport)}>
               <UploadIcon size={14} /> {S.importFile}

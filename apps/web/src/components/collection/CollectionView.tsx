@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import type { CollectionField, RowDTO, ViewConfig, ViewType } from '@inkling/shared'
+import type { CollectionField, RowDTO, RowTemplateDTO, ViewConfig, ViewType } from '@inkling/shared'
 import {
   qk,
   usePages,
   useCollection,
-  useCreatePage,
   useCreateView,
   useDeletePage,
   useDeleteView,
+  useMe,
   useMembers,
   useUpdateFields,
   useUpdatePage,
@@ -17,6 +18,13 @@ import {
   type CollectionBundle,
 } from '../../api'
 import { applyView, orderedFields } from '../../lib/collection'
+import {
+  useCreateRow,
+  useCreateRowTemplate,
+  useDeleteRowTemplate,
+  useRowTemplates,
+  useUpdateRowTemplate,
+} from '../../lib/rowTemplatesApi'
 import { useExperimental } from '../../lib/collectionApi'
 import { applyGridPaste } from '../../lib/collectionPaste'
 import { OPTION_COLORS } from '../../lib/optionColors'
@@ -30,6 +38,8 @@ import { CollectionMenu } from './CollectionMenu'
 import { FieldsModal } from './FieldsModal'
 import { GalleryView } from './GalleryView'
 import { ImportModal } from './ImportModal'
+import { NewRowButton, RowInputsModal, RowTemplatesModal } from './RowTemplateMenus'
+import { RowTemplateEditor } from './RowTemplateEditor'
 import { CollectionReadOnlyContext } from './readOnlyContext'
 import { CollectionRefsContext } from './refsContext'
 import { SheetSyncModal } from './SheetSyncModal'
@@ -59,8 +69,22 @@ export function CollectionView({
   const updateView = useUpdateView(pageId)
   const deleteView = useDeleteView(pageId)
   const updateProps = useUpdateProps(pageId)
-  const createPage = useCreatePage(wsId)
   const updatePage = useUpdatePage(wsId)
+  // Row templates (docs/adr/1180-*): every "new row" goes through one create call.
+  const me = useMe()
+  const navigate = useNavigate()
+  const rowTemplates = useRowTemplates(pageId)
+  const createRow = useCreateRow(wsId, pageId)
+  const createTemplate = useCreateRowTemplate(pageId)
+  const updateTemplate = useUpdateRowTemplate(pageId)
+  const deleteTemplate = useDeleteRowTemplate(pageId)
+  const [manageOpen, setManageOpen] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null)
+  const [askInputs, setAskInputs] = useState<{
+    template: RowTemplateDTO
+    props?: Record<string, unknown>
+    open?: boolean
+  } | null>(null)
   const deletePage = useDeletePage(wsId)
 
   const [fieldsOpen, setFieldsOpen] = useState(false)
@@ -183,40 +207,49 @@ export function CollectionView({
       onSuccess: () => qc.invalidateQueries({ queryKey: qk.collection(pageId) }),
     })
 
-  const onCreateRow = () =>
-    createPage.mutate(
-      { workspaceId: wsId, parentId: pageId, kind: 'doc', title: '' },
-      { onSuccess: () => qc.invalidateQueries({ queryKey: qk.collection(pageId) }) },
+  const templates = rowTemplates.data?.templates ?? []
+  const runCreate = (
+    template: RowTemplateDTO | null,
+    props?: Record<string, unknown>,
+    open?: boolean,
+    inputs?: Record<string, string>,
+  ) =>
+    createRow.mutate(
+      { template: template ? template.id : null, ...(props ? { props } : {}), ...(inputs ? { inputs } : {}) },
+      {
+        onSuccess: (r) => {
+          setAskInputs(null)
+          if (open) navigate(`/w/${wsId}/p/${r.row.id}`)
+        },
+      },
     )
+  /** undefined = the default template (none → empty row), null = empty row. Prompts for inputs first. */
+  const requestCreate = (templateId: string | null | undefined, props?: Record<string, unknown>, open?: boolean) => {
+    const tpl =
+      templateId === null
+        ? null
+        : templateId === undefined
+          ? (templates.find((x) => x.isDefault) ?? null)
+          : (templates.find((x) => x.id === templateId) ?? null)
+    if (tpl && tpl.inputs.length > 0) setAskInputs({ template: tpl, props, open })
+    else runCreate(tpl, props, open)
+  }
 
+  const onCreateRow = () => requestCreate(undefined)
+
+  // Board column "+": the column's option over the template's values, in the same request.
   const onCreateRowInColumn = (optionId: string | null) => {
     if (!view || view.type !== 'board') return
     const groupId = view.config.groupByFieldId
-    createPage.mutate(
-      { workspaceId: wsId, parentId: pageId, kind: 'doc', title: '' },
-      {
-        onSuccess: (row) => {
-          if (optionId && groupId) {
-            updateProps.mutate({ id: row.id, props: { [groupId]: optionId } })
-          } else {
-            qc.invalidateQueries({ queryKey: qk.collection(pageId) })
-          }
-        },
-      },
-    )
+    requestCreate(undefined, optionId && groupId ? { [groupId]: optionId } : undefined)
   }
 
-  // Calendar: [＋] on a date cell creates a row, then stores that date in the date field.
-  // (updateProps' onSettled invalidates the collection so the new row shows up; same pattern as onCreateRowInColumn)
+  // Calendar: [＋] on a date cell creates a row with that date (over the template's values).
   const onCreateRowOnDate = (dateFieldId: string, date: string) =>
-    createPage.mutate(
-      { workspaceId: wsId, parentId: pageId, kind: 'doc', title: '' },
-      {
-        onSuccess: (row) => {
-          updateProps.mutate({ id: row.id, props: { [dateFieldId]: date } })
-        },
-      },
-    )
+    requestCreate(undefined, { [dateFieldId]: date })
+
+  const onNewTemplate = () =>
+    createTemplate.mutate({ name: t('rowTpl.newTemplateName') }, { onSuccess: (tpl) => setEditingTemplate(tpl.id) })
 
   const onReorderRow = async (rowId: string, sortOrder: number) => {
     // Optimistically update sortOrder in the cached collection rows (so board reordering doesn't jump).
@@ -304,7 +337,17 @@ export function CollectionView({
                 </button>
               </>
             )}
+            {!readOnly && (
+              <NewRowButton
+                templates={templates}
+                busy={createRow.isPending}
+                onCreate={(id, o) => requestCreate(id, undefined, o?.open)}
+                onNewTemplate={onNewTemplate}
+                onManage={() => setManageOpen(true)}
+              />
+            )}
             <CollectionMenu
+              onRowTemplates={() => setManageOpen(true)}
               onImport={
                 readOnly
                   ? undefined
@@ -331,7 +374,7 @@ export function CollectionView({
           wsId={wsId}
           pageId={pageId}
           onCreateRow={onCreateRow}
-          creatingRow={createPage.isPending}
+          creatingRow={createRow.isPending}
         />
       ) : view?.type === 'timeline' ? (
         <TimelineView
@@ -383,7 +426,7 @@ export function CollectionView({
           onUpdateConfig={onUpdateConfig}
           onOpenFields={() => setFieldsOpen(true)}
           onCreateRow={onCreateRow}
-          creatingRow={createPage.isPending}
+          creatingRow={createRow.isPending}
         />
       ) : null}
 
@@ -420,6 +463,41 @@ export function CollectionView({
       />
       {sheetsSync && (
         <SheetSyncModal open={syncOpen} onClose={() => setSyncOpen(false)} pageId={pageId} />
+      )}
+      <RowTemplatesModal
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        templates={templates}
+        readOnly={readOnly}
+        onEdit={(id) => {
+          setManageOpen(false)
+          setEditingTemplate(id)
+        }}
+        onNew={() => {
+          setManageOpen(false)
+          onNewTemplate()
+        }}
+        onSetDefault={(id, isDefault) => updateTemplate.mutate({ id, input: { isDefault } })}
+        onDelete={(id) => deleteTemplate.mutate(id)}
+      />
+      <RowInputsModal
+        template={askInputs?.template ?? null}
+        busy={createRow.isPending}
+        onCancel={() => setAskInputs(null)}
+        onCreate={(inputs) => askInputs && runCreate(askInputs.template, askInputs.props, askInputs.open, inputs)}
+      />
+      {editingTemplate && me.data && (
+        <RowTemplateEditor
+          templateId={editingTemplate}
+          collectionId={pageId}
+          collectionTitle={pageMeta?.title ?? ''}
+          wsId={wsId}
+          fields={fields}
+          members={members.data}
+          me={me.data}
+          readOnly={readOnly}
+          onClose={() => setEditingTemplate(null)}
+        />
       )}
     </div>
     </CollectionReadOnlyContext.Provider>

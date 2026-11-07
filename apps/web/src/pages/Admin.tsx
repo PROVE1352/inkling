@@ -39,6 +39,7 @@ import { AdminPluginsSection } from '../plugins/AdminPlugins'
 import { AdminBackupsSection } from '../backup/AdminBackups'
 import { fmtDate as fmtD, fmtDateTime as fmtDT, fmtList, t } from '../i18n'
 import { delegatedDisplayName } from './Login'
+import { AdminUserTokens } from '../components/AdminUserTokens'
 
 const PER_PAGE = 5
 
@@ -1086,6 +1087,7 @@ export function Admin() {
                           {t('admin.twofaOff')}
                         </button>
                       )}
+                      <AdminUserTokens userId={u.id} name={u.name} className={smallBtn} />
                       {local && !u.emailVerifiedAt && (
                         <>
                           {mailEnabled && (

@@ -7,11 +7,14 @@ import editor from './en/editor'
 import lib from './en/lib'
 import collection from './en/collection'
 import templates from './en/templates'
+import rowTemplates from './en/row-templates'
 import workspaceAdmin from './en/workspace-admin'
 import notifications from './en/notifications'
 import largePages from './en/large-pages'
 import split from './en/split'
 import shareLinks from './en/share-links'
+import webhooks from './en/webhooks'
+import apiTokens from './en/api-tokens'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -25,11 +28,14 @@ export const en = {
   ...lib,
   ...collection,
   ...templates,
+  ...rowTemplates,
   ...workspaceAdmin,
   ...notifications,
   ...largePages,
   ...split,
   ...shareLinks,
+  ...webhooks,
+  ...apiTokens,
 }
 
 export type MessageKey = keyof typeof en

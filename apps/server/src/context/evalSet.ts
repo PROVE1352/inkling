@@ -14,6 +14,13 @@ export interface EvalQuestion {
   q: string
   page: string
   anchor: string
+  /** Other sections that also answer the question (graded as relevant in the rank metrics). */
+  also?: { page: string; anchor: string }[]
+  /**
+   * dev: used while tuning weights; test: held out, looked at only for the final numbers
+   * (docs/adr/1213-*).
+   */
+  split: 'dev' | 'test'
 }
 
 export const EVAL_PAGES: EvalPage[] = [
@@ -350,7 +357,143 @@ Service level agreement: the uptime we promise to Enterprise customers.`,
   },
 ]
 
-export const EVAL_QUESTIONS: EvalQuestion[] = [
+/**
+ * Contest and offsite pages (docs/adr/1213-*): reproduce the failures reported on find_context
+ * after 0.6 — a query of common words ("서울", "AI", "해커톤") plus one rare key phrase ("팀 구성")
+ * ranked pages that repeat the common words above the section that holds the rare phrase, and one
+ * long page filled most of the results. Deep heading paths (H1 › H2 › H3) reproduce the long
+ * location lines. Fictional content written for this test.
+ */
+export const CONTEST_PAGES: EvalPage[] = [
+  {
+    title: '00 대회요강',
+    markdown: `2026 해커톤 공식 요강에서 우리에게 필요한 부분만 옮겨 적었다.
+
+# 요강 요약
+
+## 참가 자격
+참가 연령은 만 19세에서 34세까지다. 팀당 3명에서 5명이며 개인 참가는 받지 않는다.
+
+## 일정과 제출
+
+### 예선 서류
+예선은 서류 심사다. 11월 8일 18시까지 기획서 PDF 한 부를 온라인 접수 페이지에 올린다. 마감 뒤에는 고칠 수 없다.
+
+### 본선 진행
+본선 장소는 성수 행사장이고 11월 21일 오전 10시부터 24시간 동안 진행한다. 노트북과 충전기는 각자 챙긴다.
+
+## 심사 기준
+배점은 문제 정의 30점, 기술 구현 30점, 사회적 가치 20점, 발표 20점이다. 동점이면 기술 구현 점수가 높은 쪽이 앞선다.
+
+## 준비 사항
+
+### 우리 팀 체크리스트
+- [ ] 팀 구성: 기획 1명, 백엔드 2명, 프론트엔드 1명, 디자인 1명으로 다섯 명 채우기
+- [ ] 팀장과 발표 담당 정하기
+- [ ] 참가 신청서에 팀원 전원의 재학 또는 재직 증명 첨부`,
+  },
+  {
+    title: '03 방향 메모',
+    markdown: `# 방향 메모
+
+## 결정된 것
+팀 구성은 다섯 명으로 확정했다. 주제는 어르신 디지털 금융 사기 예방으로 정했고 발표는 민서가 맡는다.
+
+## 아직 못 정한 것
+데이터를 공공 API로 받을지 직접 모을지, 시연을 웹으로 할지 앱으로 할지.
+
+## 버린 아이디어
+지하철 혼잡도 예측은 비슷한 서비스가 많아서 버렸다. 반려동물 산책 매칭도 검증할 데이터가 없어서 접었다.`,
+  },
+  {
+    title: '심사 증언 모음',
+    markdown: `지난해 서울 AI 해커톤 심사위원과 참가자에게 들은 이야기를 모았다.
+
+# 2025 서울 AI 해커톤 심사 증언
+
+## 심사위원 A
+서울 AI 해커톤은 AI를 쓰는 이유가 분명한 팀을 높게 본다. 해커톤 시연에서 AI 모델이 실제로 돌아가는지가 중요했다.
+
+## 심사위원 B
+서울 해커톤 심사에서는 문제를 겪는 사람을 직접 만난 팀이 눈에 띄었다. AI 기술 자랑보다 서울 시민의 불편을 구체적으로 말하는 팀이 좋았다.
+
+## 심사위원 C
+AI 해커톤이라고 AI만 보는 것은 아니다. 서울시 데이터를 제대로 쓴 팀에 가산점을 줬다.
+
+## 수상팀 D
+우리 팀은 발표 구성이 탄탄하다는 평을 들었다. 서울 AI 해커톤 본선 내내 시연 영상을 다듬었다.
+
+## 수상팀 E
+해커톤 마지막 세 시간은 AI 데모 안정화에만 썼다. 서울 지역 문제를 고른 것이 점수에 도움이 됐다.
+
+## 탈락팀 F
+AI 모델 정확도만 강조하다가 서울 시민에게 왜 필요한지 설명하지 못했다. 해커톤 심사위원 질문에 답이 막혔다.`,
+  },
+  {
+    title: '현장 투표 전략',
+    markdown: `# 서울 AI 해커톤 현장 투표 전략
+
+## 투표 방식
+서울 AI 해커톤 본선에는 참가자 상호 투표가 20% 반영된다. 해커톤 참가 팀은 각자 세 표를 가진다.
+
+## 부스 동선
+AI 데모 부스는 입구 쪽이 유리하다. 서울 해커톤 지난 대회에서도 입구 쪽 팀이 표를 많이 받았다.
+
+## 피해야 할 것
+다른 팀에게 표를 부탁하는 행위는 감점이다. AI 해커톤 운영진이 현장에서 지켜본다.`,
+  },
+  {
+    title: '팀 운영 메모',
+    markdown: `# 팀 운영
+
+## 회식
+팀 회식은 매달 마지막 금요일 저녁에 한다. 장소는 돌아가면서 정하고 예산은 1인 3만 원이다.
+
+## 주간 1:1
+팀장은 팀원마다 격주로 30분씩 1:1을 한다. 안건은 전날까지 공유 문서에 적는다.
+
+## 휴가 공유
+휴가는 팀 캘린더에 먼저 올리고 메신저 채널에 알린다.`,
+  },
+  {
+    title: 'Offsite 2026 plan',
+    markdown: `Planning notes for the Lumen team offsite.
+
+# Plan
+
+## Venue
+We hold a booking at a lakeside lodge for 40 people from May 12 to 14; the deposit is due April 1.
+
+## Budget
+Team building budget is $120 per person, capped at $4,000 in total; travel is paid from the department budget.
+
+## Agenda
+Day one is strategy, day two is hack sessions, day three is free.`,
+  },
+  {
+    title: 'Offsite 2026 retro',
+    markdown: `How the Lumen offsite 2026 went.
+
+# Lumen offsite 2026 retro
+
+## Seoul trip
+The Lumen offsite 2026 team trip to Seoul was the highlight; the team liked the city walk.
+
+## Food
+The Lumen team loved the offsite dinners; the barbecue on day two was the favourite meal.
+
+## Sessions
+Lumen offsite 2026 sessions ran long; the team wants shorter talks next offsite.
+
+## Team games
+The Lumen offsite team games were fun but the team building quiz was too hard.
+
+## Feedback survey
+Thirty Lumen team members answered the offsite 2026 survey; 80% want another offsite.`,
+  },
+]
+
+const BASE_QUESTIONS: Omit<EvalQuestion, 'split'>[] = [
   { q: 'how do I roll back a bad deploy', page: 'Deploy runbook', anchor: 'rollback' },
   { q: 'how long are nightly backups kept', page: 'Backup policy', anchor: 'retention' },
   { q: 'when does the nightly backup run', page: 'Backup policy', anchor: 'schedule' },
@@ -380,6 +523,91 @@ export const EVAL_QUESTIONS: EvalQuestion[] = [
   { q: 'search p95 latency after tuning', page: 'Search architecture', anchor: 'performance' },
   { q: '검색 지연 개선', page: '주간회의록 2026-10-12', anchor: '지난주-회고' },
 ]
+
+const REQ = '요강-요약/준비-사항/우리-팀-체크리스트'
+const DECIDED = '방향-메모/결정된-것'
+
+/** Questions on CONTEST_PAGES (and two more on the wiki); the split is fixed here, not computed. */
+const CONTEST_QUESTIONS: EvalQuestion[] = [
+  { q: '서울 AI 해커톤 팀 구성', page: '00 대회요강', anchor: REQ, also: [{ page: '03 방향 메모', anchor: DECIDED }], split: 'dev' },
+  { q: '해커톤 팀 구성 확정', page: '03 방향 메모', anchor: DECIDED, also: [{ page: '00 대회요강', anchor: REQ }], split: 'test' },
+  { q: '해커톤 예선 서류 마감', page: '00 대회요강', anchor: '요강-요약/일정과-제출/예선-서류', split: 'dev' },
+  { q: 'AI 해커톤 심사 기준 배점', page: '00 대회요강', anchor: '요강-요약/심사-기준', split: 'test' },
+  { q: '본선 장소와 시간', page: '00 대회요강', anchor: '요강-요약/일정과-제출/본선-진행', split: 'dev' },
+  { q: '아직 못 정한 것', page: '03 방향 메모', anchor: '방향-메모/아직-못-정한-것', split: 'test' },
+  { q: '버린 아이디어', page: '03 방향 메모', anchor: '방향-메모/버린-아이디어', split: 'dev' },
+  {
+    q: '서울 AI 해커톤 투표 전략',
+    page: '현장 투표 전략',
+    anchor: '서울-ai-해커톤-현장-투표-전략/투표-방식',
+    also: [
+      { page: '현장 투표 전략', anchor: '서울-ai-해커톤-현장-투표-전략/부스-동선' },
+      { page: '현장 투표 전략', anchor: '서울-ai-해커톤-현장-투표-전략/피해야-할-것' },
+    ],
+    split: 'test',
+  },
+  {
+    q: '심사위원 증언',
+    page: '심사 증언 모음',
+    anchor: '2025-서울-ai-해커톤-심사-증언/심사위원-a',
+    also: [
+      { page: '심사 증언 모음', anchor: '2025-서울-ai-해커톤-심사-증언/심사위원-b' },
+      { page: '심사 증언 모음', anchor: '2025-서울-ai-해커톤-심사-증언/심사위원-c' },
+    ],
+    split: 'dev',
+  },
+  { q: 'Lumen offsite 2026 team building budget', page: 'Offsite 2026 plan', anchor: 'plan/budget', split: 'dev' },
+  { q: 'offsite venue booking deposit', page: 'Offsite 2026 plan', anchor: 'plan/venue', split: 'test' },
+  { q: 'what did people say about the offsite food', page: 'Offsite 2026 retro', anchor: 'lumen-offsite-2026-retro/food', split: 'dev' },
+  { q: '주간 회의 베타 테스트 인원', page: '주간회의록 2026-10-12', anchor: '결정-사항', split: 'test' },
+  { q: '운영 권한 팀장 승인', page: '온보딩 체크리스트', anchor: '권한-신청', split: 'dev' },
+  { q: '팀 회식', page: '팀 운영 메모', anchor: '팀-운영/회식', split: 'dev' },
+  { q: '팀 휴가 공유', page: '팀 운영 메모', anchor: '팀-운영/휴가-공유', split: 'test' },
+  { q: '팀장 1:1 안건', page: '팀 운영 메모', anchor: '팀-운영/주간-1-1', split: 'test' },
+  { q: '참가 자격 연령', page: '00 대회요강', anchor: '요강-요약/참가-자격', split: 'dev' },
+  { q: 'Lumen offsite Seoul trip', page: 'Offsite 2026 retro', anchor: 'lumen-offsite-2026-retro/seoul-trip', split: 'test' },
+]
+
+/**
+ * Every question. The 28 wiki questions of ADR 0927 are split by position (every third one is
+ * held out as test); the contest questions carry their split explicitly.
+ */
+export const EVAL_QUESTIONS: EvalQuestion[] = [
+  ...BASE_QUESTIONS.map((q, i): EvalQuestion => ({ ...q, split: i % 3 === 2 ? 'test' : 'dev' })),
+  ...CONTEST_QUESTIONS,
+]
+
+/**
+ * Other contest notes (another team's workspace in the field report): 30 short pages that repeat
+ * "서울", "AI", "해커톤", "팀" in varied sentences and never say "구성", so the common words of the
+ * contest questions are common in the corpus, as they were in the reporting user's notes. Without
+ * them the 32-page wiki is too small for document frequencies to say which words are common.
+ */
+export function contestNoisePages(n = 30): EvalPage[] {
+  const lines = [
+    '서울 AI 해커톤 현장 분위기를 정리했다.',
+    'AI 심사위원은 해커톤 시연을 가장 중요하게 봤다.',
+    '서울 지역 팀이 절반 넘게 참가했다.',
+    '해커톤 발표 시간은 팀마다 5분이었다.',
+    '현장 투표는 본선 마지막 날 진행됐다.',
+    'AI 모델 데모가 멈춘 팀이 여럿 있었다.',
+    '서울시 공공데이터를 쓴 팀이 상을 받았다.',
+    '해커톤 운영진이 밤새 간식을 챙겨 줬다.',
+    '우리 팀은 AI 기능보다 문제 정의를 먼저 설명했다.',
+    '서울 AI 해커톤 수상작은 대부분 생활 문제를 다뤘다.',
+  ]
+  const headings = ['현장 메모', '심사 관찰', '발표 메모', '다른 팀 이야기', '배운 점']
+  return Array.from({ length: n }, (_, i) => {
+    const sections = [0, 1, 2].map((k) => {
+      const body = [0, 1, 2].map((j) => lines[(i * 7 + k * 3 + j) % lines.length]).join(' ')
+      return `## ${headings[(i + k) % headings.length]}\n${body}`
+    })
+    return { title: `대회 후기 ${i + 1}`, markdown: `# ${2020 + (i % 6)} 서울 AI 해커톤 후기\n\n${sections.join('\n\n')}` }
+  })
+}
+
+/** Wiki + contest pages + other contest notes: the corpus the questions above are asked against. */
+export const ALL_EVAL_PAGES: EvalPage[] = [...EVAL_PAGES, ...CONTEST_PAGES, ...contestNoisePages()]
 
 // ---------------------------------------------------------------------------
 // padding: real pages are longer than the fixture sections above

@@ -26,6 +26,7 @@ import { env } from '../env'
 import { findVisiblePage, toPageDTO } from '../pageDto'
 import { markCreatedVia } from '../notify/provenance'
 import type { PageScope } from '@inkling/shared'
+import { assertTopLevelInRange } from '../tokenRange'
 
 // Import caps come from md/importLimits.ts (env-configurable, docs/adr/0961-*).
 const MAX_FILE_BYTES = importLimits.maxUploadBytes
@@ -234,6 +235,8 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         parentId = parentQuery
         scope = parent.scope
       }
+      // a subtree-limited connection imports only under its subtree (docs/adr/1202-*)
+      if (!parentId) assertTopLevelInRange(id, user.id)
 
       // Each part is streamed to a private temp dir and imported entry by entry
       // (docs/adr/0751-*). Previously every part was buffered, re-zipped with JSZip, the zip
@@ -333,6 +336,8 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       parentId = parentQuery
       scope = parent.scope
     }
+    // a subtree-limited connection imports only under its subtree (docs/adr/1202-*)
+    if (!parentId) assertTopLevelInRange(id, user.id)
 
     // Per-request cap overrides the global multipart fileSize (IMPORT_MAX_UPLOAD_MB).
     const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } })

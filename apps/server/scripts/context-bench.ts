@@ -17,13 +17,17 @@ import { performance } from 'node:perf_hooks'
 import { sql } from 'drizzle-orm'
 
 const argPages = Number(process.argv[process.argv.indexOf('--pages') + 1]) || 5000
+/** Held-out test questions are reported only with --final (docs/adr/1213-*): tune on dev only. */
+const FINAL = process.argv.includes('--final')
 
 async function main() {
   const h = await import('../src/mcpTools/testHarness')
   const { db, closeDb } = await import('../src/db/index')
   const schema = await import('../src/db/schema')
-  const { EVAL_PAGES, EVAL_QUESTIONS, padPages, fillerText } = await import('../src/context/evalSet')
-  const { runEval } = await import('../src/context/evalRun')
+  const { ALL_EVAL_PAGES: EVAL_PAGES, EVAL_QUESTIONS, padPages, fillerText } = await import('../src/context/evalSet')
+  const { runEval, runRankEval } = await import('../src/context/evalRun')
+  const { renderFindContext } = await import('../src/mcpTools/contextTools')
+  const { estimateTokens } = await import('../src/context/tokens')
   const { findContext } = await import('../src/context/retrieve')
   const { reindexPageChunks } = await import('../src/context/chunkIndex')
   const { blocksToStateBuffer } = await import('../src/md/convert')
@@ -59,7 +63,8 @@ async function main() {
 
   // 2) distractors sharing the wiki's vocabulary
   const vocab = 'deploy rollback backup retention schedule restore paging incident severity limit requests minute plan price member flag rollout search index latency cache session database migration alert error rate vacation approval review release launch beta'.split(' ')
-  const vocabKo = '배포 롤백 백업 보존 일정 복구 장애 등급 호출 회의 결정 출시 검색 인덱스 지연 캐시 세션 연결 권한 승인 디자인 성능 정리 대비'.split(' ')
+  // 서울/AI/해커톤/심사/팀 make the contest questions' common words common here too (docs/adr/1213-*).
+  const vocabKo = '배포 롤백 백업 보존 일정 복구 장애 등급 호출 회의 결정 출시 검색 인덱스 지연 캐시 세션 연결 권한 승인 디자인 성능 정리 대비 서울 AI 해커톤 심사 팀'.split(' ')
   const headings = ['Overview', 'Schedule', 'Notes', 'Decisions', 'Open questions', 'Rollout', 'Retention', 'Limits', '결정 사항', '일정', '회고', '참고']
   let x = 7
   const rnd = (n: number) => {
@@ -101,6 +106,56 @@ async function main() {
   // 3) quality and cost
   const small = await runEval(mcp.tool, EVAL_QUESTIONS, unpaddedIds, { workspaceId: wsSmall.id })
   const big = await runEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
+  const rankSmall = await runRankEval(mcp.tool, EVAL_QUESTIONS, unpaddedIds, { workspaceId: wsSmall.id })
+  const rankBig = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
+
+  // 3b) location overhead: the same budget (1,500, as in the field report), body vs everything else
+  const bodyStats = { body: 0, total: 0, fragments: 0, more: 0 }
+  for (const q of EVAL_QUESTIONS) {
+    const r = await findContext({ userId: owner.id, query: q.q, workspaceIds: [ws.id], budget: 1500 })
+    const out = renderFindContext(q.q, r)
+    bodyStats.total += estimateTokens(out)
+    for (const fr of r.fragments) bodyStats.body += estimateTokens(fr.text.split('\n').filter((l) => !l.startsWith('§')).join('\n'))
+    bodyStats.fragments += r.fragments.length
+    bodyStats.more += r.more.length
+  }
+  const perQ = (v: number) => Math.round((v / EVAL_QUESTIONS.length) * 10) / 10
+
+  // 3c) location format alone: the same ranking packed and printed with the full anchor/path
+  // (pre-1212 format, honest header cost) vs the short anchor and heading tail. Budget 1500.
+  // Second pass with the relevance floor off, so every answer fills the budget: what the shorter
+  // location buys when the budget is the limit (as in the field report: 5 results filling 1,500).
+  const rank = (await import('../src/context/rank')) as { FLOOR?: { relative: number; absolute: number } }
+  const hasFormats = !!rank.FLOOR // code before ADR 1212 has one location format only
+  const savedFloor = { ...rank.FLOOR }
+  const fmtRuns: Record<string, Record<'full' | 'short', { body: number; total: number; loc: number; frags: number }>> = {}
+  const bodyOf = (fr: { text: string }) => estimateTokens(fr.text.split('\n').filter((l) => !l.startsWith('§')).join('\n'))
+  for (const mode of hasFormats ? (['floor', 'fill'] as const) : []) {
+  if (mode === 'fill') Object.assign(rank.FLOOR!, { relative: 0, absolute: 0 })
+  const fmt = { full: { body: 0, total: 0, loc: 0, frags: 0 }, short: { body: 0, total: 0, loc: 0, frags: 0 } }
+  fmtRuns[mode] = fmt
+  for (const q of EVAL_QUESTIONS) {
+    for (const loc of ['full', 'short'] as const) {
+      const r = await findContext({ userId: owner.id, query: q.q, workspaceIds: [ws.id], budget: 1500, location: loc })
+      let out = renderFindContext(q.q, r)
+      if (loc === 'full' && r.more.length) {
+        // the pre-1212 "Also relevant" lines: one per section with title, full path and page id
+        const i = out.indexOf('Also relevant (not shown):')
+        const j = out.indexOf('\n\n', i) >= 0 ? out.indexOf('\n\n', i) : out.indexOf('\n</untrusted_content>', i)
+        const old = ['Also relevant (not shown):', ...r.more.map((m) => `- ${m.title || 'Untitled'}${m.headingPath ? ` › ${m.headingPath}` : ''} (page ${m.pageId} §${m.anchor}, ~${m.tokens} tok)`)].join('\n')
+        out = out.slice(0, i) + old + out.slice(j)
+      }
+      const body = r.fragments.reduce((a, fr) => a + bodyOf(fr), 0)
+      fmt[loc].body += body
+      fmt[loc].total += estimateTokens(out)
+      fmt[loc].loc += estimateTokens(out) - body
+      fmt[loc].frags += r.fragments.length
+    }
+  }
+  }
+  if (hasFormats) Object.assign(rank.FLOOR!, savedFloor)
+  const fmtLine = (name: string, f: (typeof fmtRuns)['floor']) =>
+    `location format (${name}), same ranking, budget 1500, per question: full path → output ${perQ(f.full.total)} tok, section text ${perQ(f.full.body)}, other ${perQ(f.full.loc)}, fragments ${perQ(f.full.frags)}; short → output ${perQ(f.short.total)}, section text ${perQ(f.short.body)}, other ${perQ(f.short.loc)}, fragments ${perQ(f.short.frags)}`
 
   // 4) latency (direct calls; 3 rounds over all questions)
   const lat: number[] = []
@@ -151,11 +206,22 @@ async function main() {
     `| padded + ${argPages} distractors | before | ${big.before.meanTokens} | ${big.before.medianTokens} | ${big.before.meanCalls} | ${f(big.before.success)} | – | – | ${f(big.before.pageAt1)} | ${f(big.before.pageAt3)} |`,
     `| padded + ${argPages} distractors | after | ${big.after.meanTokens} | ${big.after.medianTokens} | ${big.after.meanCalls} | ${f(big.after.success)} | ${f(big.after.sectionAt1)} | ${f(big.after.sectionAt3)} | ${f(big.after.pageAt1)} | ${f(big.after.pageAt3)} |`,
     '',
+    'rank metrics (shown sections, default budget):',
+    '| set | split | n | MRR | recall@5 | nDCG@5 | precision@5 (of shown) | P@5 (÷5) |',
+    '|---|---|---|---|---|---|---|---|',
+    ...([['unpadded wiki', rankSmall], [`padded + ${argPages} distractors`, rankBig]] as const).flatMap(([name, r]) =>
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} |`),
+    ),
+    '',
+    ...(hasFormats ? [fmtLine('with the relevance floor', fmtRuns.floor), fmtLine('floor off, budget filled', fmtRuns.fill)] : []),
+    `budget 1500, per question (all ${EVAL_QUESTIONS.length}): output ${perQ(bodyStats.total)} tok, section text ${perQ(bodyStats.body)} tok, other ${perQ(bodyStats.total - bodyStats.body)} tok, fragments ${perQ(bodyStats.fragments)}, also-relevant ${perQ(bodyStats.more)}`,
+    '',
     `find_context latency (direct): p50 ${f(pct(lat, 0.5))} ms, p95 ${f(pct(lat, 0.95))} ms; old search route (1 term): p50 ${f(pct(latOld, 0.5))} ms, p95 ${f(pct(latOld, 0.95))} ms`,
     `reindex after a one-section edit (padded page): p50 ${f(pct(editMs, 0.5))} ms, p95 ${f(pct(editMs, 0.95))} ms`,
     '',
-    'misses (after, large set):',
-    ...big.rows.filter((r) => r.after.sectionRank !== 1).map((r) => `- rank ${r.after.sectionRank} found=${r.after.found}: ${r.q}`),
+    'dev questions not at rank 1 (large set):',
+    ...rankBig.rows.filter((r) => r.split === 'dev' && r.firstRank !== 1).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)}: ${r.q}`),
+    ...(FINAL ? ['', 'test questions not at rank 1 (large set):', ...rankBig.rows.filter((r) => r.split === 'test' && r.firstRank !== 1).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)}: ${r.q}`)] : []),
     '',
     'candidate probe plan:',
     ...plan.map((p) => `  ${p['QUERY PLAN']}`),

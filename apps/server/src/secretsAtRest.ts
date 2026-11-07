@@ -21,7 +21,7 @@ import { openSecret, sealSecret, secretBoxAvailable } from './secretBox'
 export const HASH_RE = /^[0-9a-f]{64}$/
 const SEALED_PREFIX = 'v1.'
 
-export type SecretPurpose = 'share-token' | 'invite-code' | 'signup-key' | 'webhook-url' | 'sheet-sync-url'
+export type SecretPurpose = 'share-token' | 'invite-code' | 'signup-key' | 'webhook-url' | 'webhook-secret' | 'sheet-sync-url'
 
 function sha256hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex')
@@ -167,6 +167,9 @@ export async function migrateSecretsAtRest(opts: { workspaceIds?: string[] } = {
     { table: 'workspaces', col: 'invite_code_enc', aad: 'id', purpose: 'invite-code', pk: 'id', ws: 'id' },
     { table: 'signup_keys', col: 'key_enc', aad: 'key', purpose: 'signup-key', pk: 'key', ws: null },
     { table: 'workspace_webhooks', col: 'url', aad: 'id', purpose: 'webhook-url', pk: 'id', ws: 'workspace_id' },
+    // signing secrets of generic hooks (docs/adr/1190-*); NULL for Slack / Discord hooks
+    { table: 'workspace_webhooks', col: 'secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
+    { table: 'workspace_webhooks', col: 'previous_secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
     { table: 'collection_sheet_syncs', col: 'url', aad: 'page_id', purpose: 'sheet-sync-url', pk: 'page_id', ws: 'workspace_id' },
   ]
   for (const t of targets) {

@@ -350,6 +350,44 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1171](1171-public-link-passwords.md) | Public links can have a password; unlock cookies per link | Accepted |
 | [1172](1172-workspace-rules-for-new-public-links.md) | Workspace rules for new public links: default expiry, password required | Accepted |
 
+## 1180–1189 Row templates
+
+| ADR | Title | Status |
+|---|---|---|
+| [1180](1180-row-templates-stored-apart-from-pages.md) | Row templates: a table of their own, never pages | Accepted |
+| [1181](1181-one-create-path-for-rows.md) | One create path for rows; template values reuse the template and MCP grammars | Accepted |
+| [1182](1182-row-template-editor-on-a-local-document.md) | The row template editor: the page editor on a local Yjs document | Accepted |
+| [1183](1183-row-templates-in-copies-and-files.md) | Row templates travel with their database in copies and template files, not in exports | Accepted |
+| [1184](1184-row-template-permissions-and-leaks.md) | Row template permissions follow the database; what a template can carry into a row | Accepted |
+
+## 1190–1199 Webhooks
+
+| ADR | Title | Status |
+|---|---|---|
+| [1190](1190-generic-webhooks-and-signatures.md) | Generic webhooks: signed JSON to any public https endpoint | Accepted |
+| [1191](1191-webhook-delivery-records-and-resend.md) | Webhook delivery records, resend, and what of a response is kept | Accepted |
+| [1192](1192-generic-webhook-auto-disable.md) | Generic webhooks are disabled after 24 hours of failures, not after five events | Accepted |
+
+## 1200–1209 Connection range and API tokens
+
+| ADR | Title | Status |
+|---|---|---|
+| [1200](1200-connection-range-workspaces-or-subtree.md) | A connection can be limited to some workspaces or one page's subtree | Accepted |
+| [1201](1201-personal-api-tokens-for-rest.md) | Personal API tokens for the REST API | Accepted |
+| [1202](1202-range-enforced-at-the-permission-boundary.md) | The range is enforced at the permission boundary, not in the tools | Accepted |
+| [1203](1203-inklingctl-api-token-auth.md) | inklingctl signs in with an API token; cli-token.sh stays for sessions | Accepted |
+| [1204](1204-browser-only-routes-for-bearer-tokens.md) | One table of routes that bearer tokens may not call | Accepted |
+
+## 1210–1219 Retrieval quality
+
+| ADR | Title | Status |
+|---|---|---|
+| [1210](1210-find-context-idf-weighted-ranking.md) | find_context ranking: idf-weighted BM25, adjacency of query words, Korean word groups | Accepted |
+| [1211](1211-find-context-per-page-diversification.md) | find_context: at most two sections per page, the second only when it is nearly as good | Accepted |
+| [1212](1212-find-context-short-section-locations.md) | find_context: the last heading and a short anchor instead of the whole path | Accepted |
+| [1213](1213-retrieval-evaluation-dev-test-split.md) | Retrieval evaluation: dev/test split, rank metrics, the field failure as data | Accepted |
+| [1214](1214-hybrid-semantic-search-design-memo.md) | Semantic (hybrid) retrieval for find_context: design memo, not built | Proposed |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

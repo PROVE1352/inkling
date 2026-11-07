@@ -6,6 +6,7 @@ import { db } from './db/index'
 import { oauthClients, oauthCodes, oauthGrants, users } from './db/schema'
 import { env } from './env'
 import type { AuthUser } from './auth'
+import { rootWorkspaceSql, scopeFromColumns } from './tokenRange'
 
 // ---------------------------------------------------------------------------
 // Shared OAuth 2.1 helpers for the remote MCP connector (routes in routes/oauth.ts, MCP in mcp.ts)
@@ -217,6 +218,10 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
       grantId: oauthGrants.id,
       lastUsedAt: oauthGrants.lastUsedAt,
       scope: oauthGrants.scope,
+      rangeKind: oauthGrants.rangeKind,
+      rangeWorkspaceIds: oauthGrants.rangeWorkspaceIds,
+      rangePageId: oauthGrants.rangePageId,
+      rootWorkspaceId: rootWorkspaceSql(oauthGrants.rangePageId),
       clientName: oauthClients.name,
       clientId: oauthClients.id,
       id: users.id,
@@ -249,6 +254,8 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
     // per-workspace agent blocks and access records (docs/adr/0947-*)
     grantId: row.grantId,
     clientId: row.clientId,
+    // what this connection may see (docs/adr/1200-*); null = everything the user can see
+    range: scopeFromColumns(row.id, row, row.rootWorkspaceId),
   }
 }
 

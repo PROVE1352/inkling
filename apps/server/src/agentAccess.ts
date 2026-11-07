@@ -6,6 +6,7 @@ import { db } from './db/index'
 import { AppError } from './errors'
 import { BoundedLru } from './lru'
 import { clientNameClashesInWorkspace } from './clientName'
+import { currentRange, rangeWorkspaceSql } from './tokenRange'
 
 /**
  * Per-workspace agent blocks (docs/adr/0947-*).
@@ -60,13 +61,18 @@ function blockMatch(scope: AgentScope, workspaceId: SQL | AnyPgColumn | string):
 }
 
 /**
- * "The current agent (if any) is not blocked in the workspace in `workspaceIdCol`", for WHERE
- * clauses of cross-workspace queries. `true` outside an agent request.
+ * "The current agent (if any) is not blocked in the workspace in `workspaceIdCol`, and the workspace
+ * is in the current connection range (if any)", for WHERE clauses of cross-workspace queries.
+ * `true` outside agent and range-limited requests.
  */
 export function agentAllowedSql(workspaceIdCol: AnyPgColumn | SQL): SQL {
   const scope = currentAgent()
-  if (!scope) return sql`true`
-  return sql`not ${blockMatch(scope, workspaceIdCol)}`
+  // Also the workspace part of a limited connection's range (docs/adr/1200-*): every
+  // cross-workspace list already calls this, for OAuth grants and API tokens alike.
+  const range = currentRange()
+  if (!scope) return range ? rangeWorkspaceSql(workspaceIdCol, range) : sql`true`
+  const blocked = sql`not ${blockMatch(scope, workspaceIdCol)}`
+  return range ? sql`(${blocked} and ${rangeWorkspaceSql(workspaceIdCol, range)})` : blocked
 }
 
 // Access records are written at most once a minute per (workspace, grant), like oauth_grants.last_used_at.

@@ -3,7 +3,7 @@ import { mkdir, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { boolFlag, strFlag } from '../args'
 import { listWorkspaces, selectWorkspace } from '../api'
-import { loadConfig } from '../config'
+import { credentialOf, loadConfig } from '../config'
 import { joinLines, merge3 } from '../sync/diff3'
 import type { PageMarkdown, SyncPage } from '../sync/syncApi'
 import { RevisionMismatch, SyncApi } from '../sync/syncApi'
@@ -95,10 +95,11 @@ export async function cmdSync(flags: Record<string, string | boolean>, positiona
     throw new Error(`Vault directory not found: ${dir}`)
   }
   const config = await loadConfig()
-  if (!config.cookie) throw new Error('Not logged in — run `inklingctl login` first')
+  const auth = credentialOf(config)
+  if (!auth) throw new Error('Not logged in — run `inklingctl login` first, or set INKLING_TOKEN')
   const server = strFlag(flags, 'server') ?? config.server
-  const ws = selectWorkspace(await listWorkspaces(server, config.cookie), strFlag(flags, 'workspace'))
-  const run = new SyncRun(root, new SyncApi(server, config.cookie, ws.id), server, ws.id, boolFlag(flags, 'dry-run'))
+  const ws = selectWorkspace(await listWorkspaces(server, auth), strFlag(flags, 'workspace'))
+  const run = new SyncRun(root, new SyncApi(server, auth, ws.id), server, ws.id, boolFlag(flags, 'dry-run'))
   await run.run()
 }
 

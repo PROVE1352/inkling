@@ -35,6 +35,7 @@ import { reindexPageTasks } from '../md/taskIndex'
 import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from '../md/textIndex'
 import { findVisiblePage, visibleTo } from '../pageDto'
+import { assertTopLevelInRange } from '../tokenRange'
 
 /**
  * Obsidian vault two-way sync — server side (experimental `vault-sync`, registered only when the
@@ -460,6 +461,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       const body = createBodySchema.parse(req.body)
 
       const parentId = body.parentId ?? null
+      // a subtree-limited connection creates only under its subtree (docs/adr/1202-*)
+      if (!parentId) assertTopLevelInRange(workspaceId, user.id)
       if (parentId) {
         const parent = await findVisiblePage(parentId, user.id)
         if (!parent || parent.workspaceId !== workspaceId) throw badRequest('Invalid parent page')

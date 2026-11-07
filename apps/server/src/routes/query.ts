@@ -9,6 +9,7 @@ import { indexEpoch, workspaceVersion } from '../versions'
 import { AppError } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { compileQuery, QueryCompileError, takeLimit } from '../query/compile'
+import { rangeCacheKey } from '../tokenRange'
 
 /**
  * Dataview-style Query block endpoint (stable feature).
@@ -102,7 +103,9 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
 
       // Index epoch: derived indexes trail pages.updated_at by the docIndexer debounce.
       const version = `${await workspaceVersion(workspaceId)}|${indexEpoch()}`
-      const key = `${user.id}|${workspaceId}|${today}|${tz}|${body.source}`
+      // The connection range is part of the key (docs/adr/1200-*): a browser result must never
+      // answer a range-limited token of the same user, nor the other way round.
+      const key = `${user.id}|${rangeCacheKey(user.id)}|${workspaceId}|${today}|${tz}|${body.source}`
       const hit = cacheGet(key, version)
       if (hit) return { ...hit, cached: true }
 

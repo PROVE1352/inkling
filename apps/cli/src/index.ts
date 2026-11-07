@@ -22,6 +22,8 @@ const USAGE = `inklingctl — command-line client for Inkling
 Usage:
   inklingctl login  [--server <url>] [--email <email>]              log in (prompt / pipe / env vars)
                    also reads INKLING_EMAIL and INKLING_PASSWORD (non-interactive)
+  inklingctl login  --token [--server <url>]                        save an API token instead (prompt, pipe
+                   or INKLING_TOKEN); make one in Settings › Connections
   inklingctl ls                                                     list workspaces
   inklingctl pull   [--workspace <name|id>] [--vault <path>]
                    [--subdir <name>] [--dry-run]                   place a workspace in a vault (replaces its folder)
@@ -32,6 +34,7 @@ Usage:
                    server needs EXPERIMENTAL_FEATURES=vault-sync)
 
 Config file: ~/.inkling.json (mode 0600)
+INKLING_TOKEN=ink_pat_… overrides the saved login for one run (nothing is written).
 `
 
 async function run(): Promise<number> {

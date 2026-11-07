@@ -126,6 +126,20 @@ Create one with **New database**. Each row is a page; **Open row as a page** ope
   saves the current view.
 - **Google Sheets sync…** mirrors a published sheet into a database (experimental, only if your server has it on).
 
+### Row templates
+
+A row template fills in a new row: its title, property values and body. Make one from **New row ▾ → New
+template** or **⋯ → Row templates…** and edit it like a page. Property values can be relative: a date can be
+**Today** or **Days after today**, a person can be **Person who adds the row**. The title and text can use
+template variables such as `{{date}}` or `{{input:Topic|Weekly}}` ([TEMPLATES.md](TEMPLATES.md#row-templates)).
+
+- **New row** uses the template marked **Default for new rows** (an empty row when there is none). **▾** picks
+  another template or **Empty row** and opens the new row.
+- The board's **+** in a column and the calendar's **+** on a day use the default template too, with the
+  column's value or the day's date on top.
+- Everyone who can see the database can use its templates; changing them needs edit access (an edit lock
+  applies). Templates are not pages: they don't show up in search, links, the graph or the sidebar.
+
 ## Graph, canvas and query blocks
 
 - **Graph** (⌘G): every page and its links. **Graph settings** has a title search, **Show orphans**, **Show tags**,
@@ -282,6 +296,18 @@ The consent screen asks for one:
 
 To change it later, disconnect and connect again.
 
+### What the AI can see
+
+The same screen asks what the app may see:
+
+- **Everything I can see**: every workspace you are a member of.
+- **Only some workspaces**: tick the workspaces. The app doesn't see the others.
+- **Only one page and the pages under it**: pick a page. The app sees that page and everything below it, and can
+  create new pages only there. Workspace templates are not available to it.
+
+You can change this later without reconnecting: Settings → Connections → **Manage connections** → **Change range**.
+A link from a page in range to a page outside shows only the link text written in the page.
+
 ### What the AI can and can't do
 
 It can:
@@ -314,6 +340,23 @@ pages it edited show the last AI edit. Before an AI replaces a whole page, a **B
   **Possible prompt-injection text**. This is a warning only and may be a false positive.
 
 More: [MCP.md](MCP.md).
+
+### API tokens for scripts
+
+For scripts and `inklingctl`, make a personal API token on the same screen (**API tokens** → **New token**).
+Give it a name, an expiry (30, 90 or 365 days, or never), read only or read and write, and the same range choice
+as above. The token is shown once; copy it then. Send it as `Authorization: Bearer ink_pat_…`:
+
+```sh
+curl -H "Authorization: Bearer $INKLING_TOKEN" https://notes.example.com/api/workspaces
+```
+
+A token acts as you, inside its range. It can't manage tokens, connections, passwords, two-step verification,
+members, public links, webhooks or admin settings: those stay in the signed-in web app. The list shows when and
+from which address each token was last used; **Revoke** stops it at once. Changing or resetting your password
+revokes every token (like disconnecting your AI apps). If a workspace requires two-step verification and your
+account doesn't have it, tokens are refused in that workspace too. An instance admin can revoke a member's tokens
+in Admin → Users.
 
 ## Importing from Notion
 

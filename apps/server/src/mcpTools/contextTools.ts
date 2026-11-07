@@ -57,9 +57,15 @@ export function renderFindContext(
   }
   const head = `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`
   const data: string[] = []
+  // Location = last heading + short anchor (docs/adr/1212-*); the full path only where a short one
+  // would be ambiguous on the page. Older result objects without short/heading print the full form.
+  const shortOf = (s: { anchor: string; short?: string }) => s.short ?? s.anchor
+  const fragmentNo = new Map<string, number>()
   r.fragments.forEach((f, i) => {
-    const path = f.headingPath ? ` › ${f.headingPath}` : ''
-    const versions = f.sections.map((s) => `§${s.anchor} v=${s.version}`).join(', ')
+    if (!fragmentNo.has(f.pageId)) fragmentNo.set(f.pageId, i + 1)
+    const heading = f.sections[0]?.heading ?? f.headingPath
+    const path = heading ? ` › ${heading}` : ''
+    const versions = f.sections.map((s) => `§${shortOf(s)} v=${s.version}`).join(', ')
     const facts = ac ? pageFacts(ac, f.pageId) : null
     const flag = ac ? suspiciousNote(flaggedRules(ac, f.pageId, f.sections.map((s) => s.anchor))) : ''
     const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}${facts.large ? '; large page' : ''}` : ''
@@ -67,8 +73,14 @@ export function renderFindContext(
     data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))})`, f.text)
   })
   if (r.more.length) {
+    // One line per page; a page already shown is referred to by its result number.
     data.push('', 'Also relevant (not shown):')
-    for (const m of r.more) data.push(`- ${m.title || 'Untitled'}${m.headingPath ? ` › ${m.headingPath}` : ''} (page ${m.pageId} §${m.anchor}, ~${m.tokens} tok)`)
+    const byPage = new Map<string, typeof r.more>()
+    for (const m of r.more) byPage.set(m.pageId, [...(byPage.get(m.pageId) ?? []), m])
+    for (const [pageId, list] of byPage) {
+      const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${pageId})`
+      data.push(`- ${where}: ${list.map((m) => `§${shortOf(m)} ~${m.tokens} tok`).join(', ')}`)
+    }
   }
   if (r.titleOnly.length) {
     data.push('', 'Title matches without text:')

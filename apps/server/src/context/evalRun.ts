@@ -49,6 +49,107 @@ export function parseFragments(out: string): { pageId: string; anchors: string[]
   return res
 }
 
+/**
+ * Does a printed anchor refer to the expected (full) anchor? find_context prints the shortest
+ * suffix of the anchor path that is unique on its page (docs/adr/1212-*), so a suffix match on the
+ * same page is exact.
+ */
+export function sameSection(expected: string, printed: string): boolean {
+  return expected === printed || expected.endsWith(`/${printed}`)
+}
+
+/** Sections in the order find_context shows them (fragment order, then sections within a fragment). */
+export function rankedSections(out: string): { pageId: string; anchor: string }[] {
+  const res: { pageId: string; anchor: string }[] = []
+  for (const f of parseFragments(out)) for (const a of f.anchors) res.push({ pageId: f.pageId, anchor: a })
+  return res
+}
+
+export interface RankMetrics {
+  n: number
+  mrr: number
+  recallAt5: number
+  ndcgAt5: number
+  precisionAt5: number
+  /** Textbook precision@5: relevant among the first five / 5. */
+  pAt5: number
+}
+
+export interface RankRow {
+  q: string
+  split: 'dev' | 'test'
+  /** 1-based position of the first relevant section among the shown sections, 0 = not shown. */
+  firstRank: number
+  mrr: number
+  recallAt5: number
+  ndcgAt5: number
+  precisionAt5: number
+  pAt5: number
+  shown: number
+}
+
+/**
+ * Rank metrics over the sections a find_context call shows (docs/adr/1213-*). Binary relevance:
+ * the expected section plus `also`. MRR = 1/rank of the first relevant section; recall@5 = relevant
+ * sections among the first five / all relevant; nDCG@5 with log2 discounts against the ideal order;
+ * precisionAt5 = relevant among the first five / number shown in the first five (a budget-packed tool
+ * may show fewer than five, and showing less noise is the point), 0 when nothing is shown; pAt5 = the
+ * textbook relevant-in-top-5 / 5.
+ */
+export function scoreRanking(out: string, relevant: { pageId: string; anchor: string }[]): Omit<RankRow, 'q' | 'split'> {
+  const shown = rankedSections(out)
+  const isRel = (s: { pageId: string; anchor: string }) => relevant.some((r) => r.pageId === s.pageId && sameSection(r.anchor, s.anchor))
+  const hits = shown.map(isRel)
+  const first = hits.indexOf(true) + 1
+  const top = hits.slice(0, 5)
+  const found = new Set<number>()
+  shown.slice(0, 5).forEach((s, i) => {
+    if (!hits[i]) return
+    const j = relevant.findIndex((r) => r.pageId === s.pageId && sameSection(r.anchor, s.anchor))
+    found.add(j)
+  })
+  let dcg = 0
+  top.forEach((h, i) => {
+    if (h) dcg += 1 / Math.log2(i + 2)
+  })
+  let idcg = 0
+  for (let i = 0; i < Math.min(5, relevant.length); i++) idcg += 1 / Math.log2(i + 2)
+  return {
+    firstRank: first,
+    mrr: first ? 1 / first : 0,
+    recallAt5: found.size / relevant.length,
+    ndcgAt5: idcg ? dcg / idcg : 0,
+    precisionAt5: top.length ? top.filter(Boolean).length / top.length : 0,
+    pAt5: top.filter(Boolean).length / 5,
+    shown: shown.length,
+  }
+}
+
+export async function runRankEval(
+  tool: ToolFn,
+  questions: EvalQuestion[],
+  pageIdByTitle: Map<string, string>,
+  findArgs: Record<string, unknown> = {},
+): Promise<{ rows: RankRow[]; dev: RankMetrics; test: RankMetrics }> {
+  const rows: RankRow[] = []
+  for (const qq of questions) {
+    const id = (t: string) => {
+      const v = pageIdByTitle.get(t)
+      if (!v) throw new Error(`eval page missing: ${t}`)
+      return v
+    }
+    const relevant = [{ pageId: id(qq.page), anchor: qq.anchor }, ...(qq.also ?? []).map((a) => ({ pageId: id(a.page), anchor: a.anchor }))]
+    const fc = await tool('find_context', { query: qq.q, ...findArgs })
+    rows.push({ q: qq.q, split: qq.split, ...scoreRanking(fc.text, relevant) })
+  }
+  const summary = (split: 'dev' | 'test'): RankMetrics => {
+    const xs = rows.filter((r) => r.split === split)
+    const m = (k: keyof RankMetrics & keyof RankRow) => Number(mean(xs.map((r) => r[k] as number)).toFixed(3))
+    return { n: xs.length, mrr: m('mrr'), recallAt5: m('recallAt5'), ndcgAt5: m('ndcgAt5'), precisionAt5: m('precisionAt5'), pAt5: m('pAt5') }
+  }
+  return { rows, dev: summary('dev'), test: summary('test') }
+}
+
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b)
   return s.length ? s[Math.floor((s.length - 1) / 2)] : 0
@@ -101,7 +202,7 @@ export async function runEval(
     // ---- after
     const fc = await tool('find_context', { query: qq.q, ...findArgs })
     const frags = parseFragments(fc.text)
-    const sectionRank = frags.findIndex((f) => f.pageId === expected && f.anchors.includes(qq.anchor)) + 1
+    const sectionRank = frags.findIndex((f) => f.pageId === expected && f.anchors.some((a) => sameSection(qq.anchor, a))) + 1
     const pageRankAfter = frags.findIndex((f) => f.pageId === expected) + 1
     let aCalls = 1
     let aTokens = estimateTokens(fc.text)

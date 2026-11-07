@@ -3,6 +3,7 @@ import { and, eq, lt, ne, sql } from 'drizzle-orm'
 import { hashPassword } from './auth'
 import { db } from './db/index'
 import {
+  apiTokens,
   icalTokens,
   oauthGrants,
   emailVerifications,
@@ -109,6 +110,8 @@ export async function setPassword(
     // OAuth/MCP grants (access + 60-day refresh tokens) were minted under the old password:
     // someone who connected a client with a stolen session must not keep access (TODO #3).
     await tx.delete(oauthGrants).where(eq(oauthGrants.userId, userId))
+    // Personal API tokens follow the same rule (docs/adr/1201-*).
+    await tx.delete(apiTokens).where(eq(apiTokens.userId, userId))
     // The iCal feed URL is a bearer credential as well: a reset must cut it off (A-M3).
     await tx.delete(icalTokens).where(eq(icalTokens.userId, userId))
     await tx

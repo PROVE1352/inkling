@@ -10,7 +10,7 @@ export default {
   'wsSettings.tabAgents': 'Connected agents',
   'wsSettings.tabAudit': 'Audit log',
   'wsSettings.tabReview': 'Review',
-  'wsSettings.tabWebhooks': 'Slack & Discord',
+  'wsSettings.tabWebhooks': 'Webhooks',
   'wsSettings.tabDanger': 'Danger zone',
   'wsSettings.readOnlyNote': 'Only owners can change these settings. You can see what applies to you.',
   'wsSettings.saveFailed': "Couldn't save the setting.",

@@ -17,7 +17,7 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
   const { db, closeDb } = await import('../db/index')
   const schema = await import('../db/schema')
   const { eq, and } = await import('drizzle-orm')
-  const { EVAL_PAGES: RAW_PAGES, EVAL_QUESTIONS, padPages } = await import('./evalSet')
+  const { ALL_EVAL_PAGES: RAW_PAGES, EVAL_QUESTIONS, padPages } = await import('./evalSet')
   // Padded to typical wiki-page length (1–2k tokens); scripts/context-bench.ts also reports the unpadded set.
   const EVAL_PAGES = padPages(RAW_PAGES)
   const { runEval } = await import('./evalRun')
@@ -76,10 +76,76 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.ok(s.after.meanCalls < s.before.meanCalls, 'fewer calls than the old flow')
   })
 
+  it('rank metrics (dev/test) and the field case: common words + a rare key phrase (docs/adr/1210-1213)', async () => {
+    const { runRankEval, rankedSections, sameSection } = await import('./evalRun')
+    const r = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle)
+    console.log('[rank] dev ', JSON.stringify(r.dev))
+    console.log('[rank] test', JSON.stringify(r.test))
+    assert.ok(r.dev.mrr >= 0.8 && r.test.mrr >= 0.75, 'MRR')
+    assert.ok(r.dev.recallAt5 >= 0.85 && r.test.recallAt5 >= 0.8, 'recall@5')
+
+    const out = (await mcp.tool('find_context', { query: '서울 AI 해커톤 팀 구성', budget: 1500 })).text
+    const shown = rankedSections(out)
+    const req = idByTitle.get('00 대회요강')!
+    const at = shown.findIndex((x) => x.pageId === req && sameSection('요강-요약/준비-사항/우리-팀-체크리스트', x.anchor)) + 1
+    assert.ok(at >= 1 && at <= 3, `checklist at ${at}:\n${out}`)
+    const memo = idByTitle.get('03 방향 메모')!
+    assert.ok(out.includes(memo), 'the decisions section is shown or listed under Also relevant')
+    // no page fills the results: at most two sections of one page
+    const perPage = new Map<string, number>()
+    for (const x of shown) perPage.set(x.pageId, (perPage.get(x.pageId) ?? 0) + 1)
+    assert.ok(Math.max(...perPage.values()) <= 2, out)
+    // the location is the last heading and a short anchor, not the whole path
+    assert.match(out, /\[\d\] 00 대회요강 › 우리 팀 체크리스트\n\(page [0-9a-f-]{36}; §우리-팀-체크리스트 v=/)
+  })
+
+  it('short anchors from find_context round-trip through read_page and patch_section; full paths still work', async () => {
+    const req = idByTitle.get('00 대회요강')!
+    const refs: [string, string][] = []
+    for (const q of ['해커톤 예선 서류 마감', '본선 장소와 시간', '참가 자격 연령', '서울 AI 해커톤 팀 구성']) {
+      const out = (await mcp.tool('find_context', { query: q })).text
+      for (const m of out.matchAll(new RegExp(`\\(page ${req}; ([^)]*)\\)`, 'g'))) {
+        for (const x of m[1].matchAll(/§(\S+) v=([0-9a-f]+)/g)) refs.push([x[1], x[2]])
+      }
+    }
+    assert.ok(refs.length >= 3, JSON.stringify(refs))
+    assert.ok(refs.every(([a]) => !a.includes('/')), 'unique leaf headings print one segment')
+    for (const [short, v] of refs) {
+      const sec = await mcp.tool('read_page', { pageId: req, section: short })
+      assert.equal(sec.isError, false, sec.text)
+      assert.match(sec.text, new RegExp(`v=${v}`), `${short}: ${sec.text}`)
+    }
+    for (const ref of ['요강-요약/일정과-제출/예선-서류', '요강 요약 › 일정과 제출 › 예선 서류', '예선-서류', '예선 서류']) {
+      const sec = await mcp.tool('read_page', { pageId: req, section: ref })
+      assert.equal(sec.isError, false, `${ref}: ${sec.text}`)
+      assert.match(sec.text, /기획서 PDF/)
+    }
+    // a repeated leaf heading prints as much of the path as it takes to be unique, and resolves
+    const dup = await mcp.tool('create_page', {
+      workspaceId: ws.id,
+      title: 'Twin headings',
+      markdown: '# Alpha\n\n## Decided\nnothing yet\n\n# Beta\n\n## Decided\nzorblat wins',
+    })
+    const dupId = (JSON.parse(dup.text) as { id: string }).id
+    const out = (await mcp.tool('find_context', { query: 'zorblat' })).text
+    const m = new RegExp(`\\[1\\] Twin headings › Beta › Decided\\n\\(page ${dupId}; §beta/decided v=([0-9a-f]+)`).exec(out)
+    assert.ok(m, out)
+    const sec = await mcp.tool('read_page', { pageId: dupId, section: 'beta/decided' })
+    assert.match(sec.text, /zorblat/)
+    // patch_section with a short anchor and its version
+    const [short, v] = refs[0]
+    const p = await mcp.tool('patch_section', { pageId: req, section: short, mode: 'append', markdown: '확인 완료.', baseVersion: v })
+    assert.equal(p.isError, false, p.text)
+    const p2 = await mcp.tool('patch_section', { pageId: dupId, section: 'beta/decided', mode: 'replace', markdown: 'zorblat lost', baseVersion: m[1] })
+    assert.equal(p2.isError, false, p2.text)
+    assert.match((await mcp.tool('read_page', { pageId: dupId, section: 'alpha/decided' })).text, /nothing yet/)
+  })
+
   it('deterministic output: same call → same bytes, also after an unrelated edit', async () => {
     const calls: [string, Record<string, unknown>][] = [
       ['find_context', { query: 'backup retention schedule' }],
       ['find_context', { query: '결정 사항 배포' }],
+      ['find_context', { query: '서울 AI 해커톤 팀 구성', budget: 1500 }],
       ['read_page', { pageId: idByTitle.get('Backup policy')!, outline: true }],
       ['read_page', { pageId: idByTitle.get('Backup policy')!, section: 'retention' }],
       ['read_pages', { pageIds: [idByTitle.get('Backup policy')!, idByTitle.get('Glossary')!] }],

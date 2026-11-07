@@ -3,15 +3,18 @@ import type { SQL } from 'drizzle-orm'
 import { db } from '../db/index'
 import { agentAllowedSql } from '../agentAccess'
 import { escapeLike } from '../util'
-import type { Candidate, Fragment, Scored } from './rank'
-import { pack, queryTerms, scoreCandidate, TOP_K, TopK, tsqueryText } from './rank'
+import type { Candidate, Fragment, Scored, SectionLabel } from './rank'
+import { fullLabel, idf, pack, queryGroups, scoreCandidate, TOP_K, TopK, tsqueryText, UNSEEN_WEIGHT } from './rank'
+import { headingTail, shortAnchors } from './chunker'
 import { isCjkCode } from './tokens'
+import { pageInRangeSql } from '../tokenRange'
 
 /**
- * find_context retrieval (docs/adr/0927-*): candidate chunks from three index probes (full-text
- * OR-prefix query on the section index, trigram ILIKE on chunk text, page titles), permission
- * filtered in SQL (live workspaces the user belongs to, live pages, visibleTo), ranked in Node with
- * a size-k heap and packed into a token budget.
+ * find_context retrieval (docs/adr/0927-*, 1210-*–1212-*): candidate chunks from three index probes
+ * (full-text OR-prefix query on the section index, trigram ILIKE on chunk text, page titles),
+ * permission filtered in SQL (live workspaces the user belongs to, live pages, visibleTo), word
+ * weights (idf) from the same query, ranked in Node with a size-k heap, diversified per page and
+ * packed into a token budget with short section anchors.
  */
 
 export const DEFAULT_BUDGET = 3500
@@ -29,12 +32,16 @@ export interface FindContextOptions {
   workspaceIds: string[]
   budget?: number
   now?: number
+  /** Benchmarks only: 'full' prints the full anchor and heading path (the pre-1212 location format). */
+  location?: 'short' | 'full'
+  /** Benchmarks only: receives the word weights and the ranked candidates (never used by routes). */
+  explain?: (info: { groups: { word: string; variants: string[] }[]; df: number[]; n: number; idf: number[]; ranked: Scored[]; candidates: number }) => void
 }
 
 export interface FindContextResult {
   fragments: Fragment[]
   /** Relevant sections that did not fit the budget. */
-  more: { pageId: string; title: string; anchor: string; headingPath: string; tokens: number }[]
+  more: { pageId: string; title: string; anchor: string; headingPath: string; short: string; heading: string; tokens: number }[]
   /** Pages whose title matches but that have no indexed text (folders, collections, empty pages). */
   titleOnly: { pageId: string; title: string; kind: string }[]
   budget: number
@@ -59,14 +66,15 @@ export async function memberWorkspaceIds(userId: string): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
-/** The visibleTo() rule (pageDto.ts) for raw SQL over the alias `p`. */
+/** The visibleTo() rule (pageDto.ts) for raw SQL over the alias `p`, connection range included (docs/adr/1200-*). */
 function visibleSql(userId: string): SQL {
-  return sql`(p.scope = 'shared' OR (p.scope = 'private' AND p.created_by = ${userId}))`
+  return sql`(p.scope = 'shared' OR (p.scope = 'private' AND p.created_by = ${userId})) AND ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, userId)}`
 }
 
 export async function findContext(opts: FindContextOptions): Promise<FindContextResult> {
   const budget = Math.min(MAX_BUDGET, Math.max(MIN_BUDGET, Math.floor(opts.budget ?? DEFAULT_BUDGET)))
-  const terms = queryTerms(opts.query)
+  const groups = queryGroups(opts.query)
+  const terms = groups.flatMap((g) => g.variants)
   const empty: FindContextResult = { fragments: [], more: [], titleOnly: [], budget, usedTokens: 0, candidates: 0 }
   if (terms.length === 0 || opts.workspaceIds.length === 0) return empty
 
@@ -76,29 +84,48 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   // so "최적화" sits inside "성능최적화". Shorter terms have no trigrams (whole-index scan), and for
   // spaced languages the prefix query already finds words; an ILIKE recheck over thousands of
   // chunks was the slowest part of the query (ADR 0927).
+  const isInfix = (t: string) => [...t].length >= 3 && isCjkCode(t.charCodeAt(0))
   const long = terms.filter((t) => [...t].length >= 3)
-  const infix = long.filter((t) => isCjkCode(t.charCodeAt(0)))
+  const infix = long.filter(isInfix)
   const textLike = infix.length
     ? sql.join(infix.map((t) => sql`c.text ILIKE ${`%${escapeLike(t)}%`}`), sql` OR `)
     : null
-  // Coverage: how many query terms a chunk (or its page title) contains — cheap on the stored vector.
-  const coverage = sql.join(
-    terms.map((t) => {
-      const pat = `%${escapeLike(t)}%`
-      const inText = infix.includes(t)
-        ? sql`(c.tsv @@ to_tsquery('simple', ${`'${t}':*`}) OR c.text ILIKE ${pat})`
-        : sql`c.tsv @@ to_tsquery('simple', ${`'${t}':*`})`
-      return sql`(${inText} OR p.title ILIKE ${pat})::int`
-    }),
-    sql` + `,
-  )
   const titleLike = long.length
     ? sql.join(long.map((t) => sql`p.title ILIKE ${`%${escapeLike(t)}%`}`), sql` OR `)
     : sql`false`
   const titleCond = sql`(to_tsvector('simple'::regconfig, p.title) @@ q.tsq OR ${titleLike})`
 
-  // Candidates from three index probes; `bonus` marks trigram (infix) and title hits so they are
-  // not cut by the coarse ORDER BY, which otherwise only sees ts_rank on the stored vector.
+  // Per query word (all its forms): does the chunk contain it (stored vector, + infix ILIKE), does
+  // the page title contain it. Computed once per candidate row; the document frequencies and the
+  // coarse order both come from these flags (docs/adr/1210-*).
+  const textMatch = groups.map((g) => {
+    const likes = g.variants.filter(isInfix).map((v) => sql`c.text ILIKE ${`%${escapeLike(v)}%`}`)
+    const tsv = sql`c.tsv @@ to_tsquery('simple', ${tsqueryText(g.variants)})`
+    return likes.length ? sql`(${tsv} OR ${sql.join(likes, sql` OR `)})` : tsv
+  })
+  const titleMatch = groups.map((g) => sql`(${sql.join(g.variants.map((v) => sql`p.title ILIKE ${`%${escapeLike(v)}%`}`), sql` OR `)})`)
+  const headingMatch = groups.map((g) => sql`(${sql.join(g.variants.map((v) => sql`c.heading_path ILIKE ${`%${escapeLike(v)}%`}`), sql` OR `)})`)
+  const col = (prefix: string, i: number) => sql.raw(`${prefix}${i}`)
+  const mCols = sql.join(
+    groups.map((_, i) => sql`(${textMatch[i]})::int AS ${col('m', i)}, (${headingMatch[i]})::int AS ${col('h', i)}`),
+    sql`, `,
+  )
+  const tCols = sql.join(titleMatch.map((t, i) => sql`(${t})::int AS ${col('t', i)}`), sql`, `)
+  const dfCols = sql.join(groups.map((_, i) => sql.raw(`coalesce(sum(m${i}), 0)::int AS d${i}`)), sql`, `)
+  // Same formula as rank.ts idf(), including the df = 0 weight.
+  const wCols = sql.join(
+    groups.map((_, i) => sql.raw(`CASE WHEN df.d${i} = 0 THEN ${UNSEEN_WEIGHT}::float8 ELSE ln(1 + (scope.n - df.d${i} + 0.5) / (df.d${i} + 0.5)) END AS w${i}`)),
+    sql`, `,
+  )
+  const wSum = sql.raw(groups.map((_, i) => `w.w${i}`).join(' + '))
+  // Coarse order before the 300-row cut: idf-weighted share of words found (text or title) plus
+  // idf-weighted title and heading shares, so a rare word outweighs several common ones here too.
+  // Only integer flags and the precomputed weights: no tsvector is read here.
+  const coarse = sql.raw(groups.map((_, i) => `w.w${i} * (GREATEST(matched.m${i}, t.t${i}) + 0.3::float8 * (t.t${i} + matched.h${i}))`).join(' + '))
+
+  // Candidates from three index probes; `bonus` marks trigram (infix) hits so they are not cut by
+  // the coarse ORDER BY. N = chunks in the searched workspaces and df = chunks containing the word
+  // are workspace statistics (not filtered by page visibility; they only weigh words).
   const rows = (await db.execute(sql`
     WITH q AS (SELECT to_tsquery('simple', ${tsq}) AS tsq),
     cand AS (
@@ -107,29 +134,43 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
       ${textLike ? sql`UNION ALL SELECT c.page_id, c.ord, 0.05 FROM page_chunks c
        WHERE c.workspace_id = ANY(${ws}::uuid[]) AND (${textLike})` : sql``}
       UNION ALL
-      SELECT c.page_id, c.ord, 0.3 FROM pages p JOIN page_chunks c ON c.page_id = p.id, q
+      SELECT c.page_id, c.ord, 0 FROM pages p JOIN page_chunks c ON c.page_id = p.id, q
        WHERE p.workspace_id = ANY(${ws}::uuid[]) AND p.deleted_at IS NULL AND ${titleCond}
          AND c.ord < ${TITLE_CHUNKS}
     ),
     best AS (
       SELECT cand.page_id, cand.ord, max(cand.bonus) AS bonus FROM cand GROUP BY cand.page_id, cand.ord
     ),
-    ranked AS (
-      SELECT best.page_id, best.ord, ts_rank(c.tsv, q.tsq) AS rank, best.bonus
+    matched AS (
+      SELECT best.page_id, best.ord, best.bonus, ${mCols}
         FROM best JOIN page_chunks c ON c.page_id = best.page_id AND c.ord = best.ord
-        JOIN pages p ON p.id = c.page_id, q
+    ),
+    df AS (SELECT ${dfCols} FROM matched),
+    scope AS (SELECT count(*)::float8 AS n FROM page_chunks c WHERE c.workspace_id = ANY(${ws}::uuid[])),
+    w AS MATERIALIZED (SELECT ${wCols} FROM df, scope),
+    ranked AS (
+      SELECT matched.page_id, matched.ord
+        FROM matched JOIN pages p ON p.id = matched.page_id
+        CROSS JOIN LATERAL (SELECT ${tCols}) t, w
        WHERE p.deleted_at IS NULL AND ${visibleSql(opts.userId)}
-       ORDER BY (${coverage}) + ts_rank(c.tsv, q.tsq) + best.bonus DESC, p.updated_at DESC, best.page_id, best.ord
+       ORDER BY (${coarse}) / (${wSum}) + matched.bonus DESC, p.updated_at DESC, matched.page_id, matched.ord
        LIMIT ${CANDIDATE_LIMIT}
     )
     SELECT c.page_id AS "pageId", p.workspace_id AS "workspaceId", p.title, c.ord, c.anchor,
            c.heading_path AS "headingPath", c.part, c.text, c.token_estimate AS tokens,
-           c.section_hash AS version, p.updated_at AS "updatedAt", ranked.rank
+           c.section_hash AS version, p.updated_at AS "updatedAt",
+           scope.n AS "scopeChunks", to_json(df) AS df
       FROM ranked
       JOIN page_chunks c ON c.page_id = ranked.page_id AND c.ord = ranked.ord
-      JOIN pages p ON p.id = c.page_id
+      JOIN pages p ON p.id = c.page_id, df, scope
      ORDER BY c.page_id, c.ord
-  `)) as unknown as (Omit<Candidate, 'updatedAt' | 'rank'> & { updatedAt: Date | string; rank: number | string })[]
+  `)) as unknown as (Omit<Candidate, 'updatedAt'> & { updatedAt: Date | string; scopeChunks: number | string; df: Record<string, number> | string })[]
+
+  // Word weights from the statistics every row carries (the same for all rows).
+  const stats = rows[0]
+  const dfRow = stats ? (typeof stats.df === 'string' ? (JSON.parse(stats.df) as Record<string, number>) : stats.df) : {}
+  const n = stats ? Number(stats.scopeChunks) : 0
+  const weights = groups.map((_, i) => idf(n, Number(dfRow[`d${i}`]) || 0))
 
   // Recency is measured against the newest candidate, not the clock: same documents → same output.
   let newest = 0
@@ -137,21 +178,34 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   const now = opts.now ?? newest
   const phrase = opts.query.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
   const top = new TopK<Scored>(TOP_K)
-  const scoredAll: Scored[] = []
   for (const r of rows) {
     const c: Candidate = {
-      ...r,
+      pageId: r.pageId,
+      workspaceId: r.workspaceId,
+      title: r.title,
+      ord: r.ord,
+      anchor: r.anchor,
+      headingPath: r.headingPath,
+      part: r.part,
+      text: r.text,
+      tokens: r.tokens,
+      version: r.version,
       updatedAt: r.updatedAt instanceof Date ? r.updatedAt : new Date(r.updatedAt),
-      rank: Number(r.rank) || 0,
     }
-    const s: Scored = { ...c, score: scoreCandidate(c, { terms, phrase, now }) }
-    scoredAll.push(s)
+    top.push({ ...c, score: scoreCandidate(c, { groups, idf: weights, phrase, now }) })
   }
-
-  for (const s of scoredAll) top.push(s)
-
   const ranked = top.sorted()
-  const { fragments, usedTokens, overflow } = pack(ranked, terms, budget)
+  opts.explain?.({ groups, df: groups.map((_, i) => Number(dfRow[`d${i}`]) || 0), n, idf: weights, ranked, candidates: rows.length })
+
+  // Short anchors need every anchor of the pages that may be shown (docs/adr/1212-*). These page
+  // ids passed the permission filter above.
+  const labels = await sectionLabels([...new Set(ranked.map((c) => c.pageId))])
+  const label = (c: { pageId: string; anchor: string; headingPath: string }): SectionLabel => {
+    if (opts.location === 'full') return fullLabel(c)
+    const short = labels.get(c.pageId)?.get(c.anchor) ?? c.anchor
+    return { short, heading: headingTail(c.headingPath, short.split('/').length) }
+  }
+  const { fragments, usedTokens, overflow } = pack(ranked, terms, budget, { label })
 
   // Title-only pages (no indexed text) and the best overflow sections as pointers.
   const titleRows = (await db.execute(sql`
@@ -163,14 +217,35 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
      ORDER BY p.updated_at DESC, p.id LIMIT 5
   `)) as unknown as { pageId: string; title: string; kind: string }[]
 
-  const shownPages = new Set(fragments.map((f) => `${f.pageId}#${f.anchor}`))
+  // Every section already shown (all sections of merged fragments, not only the first).
+  const shown = new Set(fragments.flatMap((f) => f.sections.map((s) => `${f.pageId}#${s.anchor}`)))
   const more: FindContextResult['more'] = []
   for (const o of overflow) {
     const key = `${o.pageId}#${o.anchor}`
-    if (shownPages.has(key)) continue
-    shownPages.add(key)
-    more.push({ pageId: o.pageId, title: o.title, anchor: o.anchor, headingPath: o.headingPath, tokens: o.tokens })
+    if (shown.has(key)) continue
+    shown.add(key)
+    const l = label(o)
+    more.push({ pageId: o.pageId, title: o.title, anchor: o.anchor, headingPath: o.headingPath, short: l.short, heading: l.heading, tokens: o.tokens })
     if (more.length >= 5) break
   }
   return { fragments, more, titleOnly: titleRows, budget, usedTokens, candidates: rows.length }
+}
+
+/** Per page: anchor → short anchor (shortest suffix unique on that page). */
+async function sectionLabels(pageIds: string[]): Promise<Map<string, Map<string, string>>> {
+  const out = new Map<string, Map<string, string>>()
+  if (pageIds.length === 0) return out
+  const rows = (await db.execute(sql`
+    SELECT page_id AS "pageId", anchor FROM page_chunks
+     WHERE page_id = ANY(${uuidArray(pageIds)}::uuid[]) AND part = 0
+     ORDER BY page_id, ord
+  `)) as unknown as { pageId: string; anchor: string }[]
+  const byPage = new Map<string, string[]>()
+  for (const r of rows) {
+    const list = byPage.get(r.pageId) ?? []
+    list.push(r.anchor)
+    byPage.set(r.pageId, list)
+  }
+  for (const [id, anchors] of byPage) out.set(id, shortAnchors(anchors))
+  return out
 }

@@ -11,6 +11,10 @@ inklingctl sync ~/Vault/Inkling --workspace "Team notes"     # run it whenever y
 inklingctl sync ~/Vault/Inkling --workspace "Team notes" --dry-run
 ```
 
+Instead of a password login you can use an API token (Settings → Connections → API tokens):
+`inklingctl login --token`, or `INKLING_TOKEN=ink_pat_… inklingctl sync …` for one run. A token limited to one
+page's subtree syncs only that subtree, and new top-level notes are refused. See [apps/cli/README.md](../apps/cli/README.md).
+
 Use a dedicated folder per workspace; the first run links the folder to that workspace and later
 runs refuse a different one.
 

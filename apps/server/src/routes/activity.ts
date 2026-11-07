@@ -15,6 +15,7 @@ import { findVisiblePage } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 import { snapshotBlocks } from '../snapshotStore'
 import type { AnyBlock } from '../md/convert'
+import { pageInRangeSql } from '../tokenRange'
 
 /**
  * Activity screen and diffs for people (docs/adr/1005-*). Reads the change log the agent feed
@@ -82,6 +83,7 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
        WHERE c.workspace_id = ${id}
          AND ${liveWorkspace(sql`c.workspace_id`)}
          AND (c.scope = 'shared' OR c.owner_id = ${user.id})
+         AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, user.id)}
          ${q.before ? sql`AND c.seq < ${q.before}::bigint` : sql``}
          ${q.actor === 'human' ? sql`AND c.via_client IS NULL` : q.actor === 'ai' ? sql`AND c.via_client IS NOT NULL` : sql``}
          ${q.via ? sql`AND c.via_client = ${q.via}` : sql``}
@@ -126,6 +128,7 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
     const clients = (await db.execute(sql`
       SELECT DISTINCT via_client AS via FROM page_changes
        WHERE workspace_id = ${id} AND via_client IS NOT NULL AND (scope = 'shared' OR owner_id = ${user.id})
+         AND ${pageInRangeSql(sql`page_id`, sql`workspace_id`, user.id)}
        ORDER BY 1 LIMIT 50
     `)) as unknown as { via: string }[]
     const dto: ActivityPageDTO = { items, next: more ? page[page.length - 1].seq : null, clients: clients.map((c) => c.via) }
@@ -142,6 +145,7 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
              c.before_text AS before, c.after_text AS after, c.large, p.title
         FROM page_changes c
         JOIN pages p ON p.id = c.page_id AND p.deleted_at IS NULL AND (p.scope = 'shared' OR p.created_by = ${user.id})
+         AND ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, user.id)}
         LEFT JOIN users u ON u.id = c.actor_id
        WHERE c.seq = ${seq}::bigint
          AND (c.scope = 'shared' OR c.owner_id = ${user.id})

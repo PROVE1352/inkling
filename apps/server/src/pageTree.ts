@@ -5,6 +5,7 @@ import { badRequest, forbidden } from './errors'
 import { isManagerRole } from './workspaceAdmin'
 import { actorFor, assertCan } from './editLock'
 import { bumpAcl } from './aclVersion'
+import { assertPlacementInRange } from './tokenRange'
 
 /**
  * Page tree integrity (docs/adr/0800-*).
@@ -110,6 +111,7 @@ function publicAncestors(chain: ChainRow[]): Set<string> {
  *  - 400 when the parent is missing, in another workspace or in the trash,
  *  - 400 when the parent chain contains `movingId` (cycle) or the result would exceed
  *    TREE_MAX_DEPTH (also the answer for a pre-existing cycle above the parent),
+ *  - 403 OUT_OF_RANGE when a range-limited connection places outside its range (docs/adr/1202-*),
  *  - 403 PAGE_LOCKED when the actor may not edit the parent (or, for a move, the moved subtree),
  *  - 403 when the parent is inside a publicly shared folder, the actor is not a workspace owner
  *    and the placement would newly expose content there (docs/adr/0802-*).
@@ -151,6 +153,10 @@ export async function assertPlacement(
   if (capped || chain.length + 1 + height > TREE_MAX_DEPTH) {
     throw badRequest(`Pages can be nested at most ${TREE_MAX_DEPTH} levels deep`)
   }
+
+  // Connection range (docs/adr/1202-*): a subtree-limited connection creates and moves only inside
+  // its subtree (the parent's chain must contain the root, and so must the moved page's).
+  await assertPlacementInRange(tx, opts.workspaceId, chain.map((r) => r.id), opts.movingId)
 
   // Edit lock: nothing may be created under, or moved into, a page the actor cannot edit; a move
   // also needs the whole moved subtree (docs/adr/0970-*).

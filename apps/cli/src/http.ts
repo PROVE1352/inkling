@@ -1,9 +1,11 @@
 /**
  * Server API call wrapper — uses the built-in fetch of Node 22+.
- * Attaches the cookie, parses Set-Cookie, normalizes errors.
+ * Attaches the credential (API token or session cookie), parses Set-Cookie, normalizes errors.
  */
 
 const SESSION_COOKIE = 'inkling_sid'
+/** Personal API tokens (Settings › Connections › API tokens) start with this. */
+export const API_TOKEN_PREFIX = 'ink_pat_'
 
 export class ApiError extends Error {
   status: number
@@ -28,7 +30,11 @@ export interface FetchOptions {
   // String (JSON) or FormData (multipart upload) — for FormData, fetch adds the boundary.
   body?: string | FormData
   headers?: Record<string, string>
-  cookie?: string
+  /**
+   * The credential: an API token (`ink_pat_…`, sent as `Authorization: Bearer`) or the saved session
+   * cookie string (`inkling_sid=…`, sent as `Cookie`).
+   */
+  auth?: string
 }
 
 /** Raw fetch — returns the Response as is. Network failures become a readable error. */
@@ -38,7 +44,8 @@ export async function apiFetch(
   opts: FetchOptions = {},
 ): Promise<Response> {
   const headers = new Headers(opts.headers)
-  if (opts.cookie) headers.set('Cookie', opts.cookie)
+  if (opts.auth?.startsWith(API_TOKEN_PREFIX)) headers.set('Authorization', `Bearer ${opts.auth}`)
+  else if (opts.auth) headers.set('Cookie', opts.auth)
   try {
     return await fetch(joinUrl(server, pathname), {
       method: opts.method ?? 'GET',

@@ -18,6 +18,7 @@ import type { AuditActor } from './workspaceAdmin'
 import { BoundedLru } from './lru'
 import { aclForPages, bumpAcl, cacheable, pageAccess, recountLockedPages } from './aclVersion'
 import type { AclState } from './aclVersion'
+import { pageIdsInRange } from './tokenRange'
 
 /**
  * Edit lock (docs/adr/0970-*, evaluation order in 0971-*).
@@ -380,7 +381,8 @@ export async function pageLockStatus(pageId: string, actor: AccessActor): Promis
     pageId,
     locked: !!root,
     own: target.editLocked,
-    lockRoot: root ? { id: root.id, title: root.title } : null,
+    // the lock may come from above a range-limited connection's subtree: no title then (docs/adr/1202-*)
+    lockRoot: root ? { id: root.id, title: (await pageIdsInRange([root.id], actor.userId)).has(root.id) ? root.title : '' } : null,
     owner: root?.ownerId ? person(root.ownerId) : null,
     editors: presets
       ? presets.editorIds

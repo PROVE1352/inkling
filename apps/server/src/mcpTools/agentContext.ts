@@ -4,6 +4,8 @@ import type { AgentContextDTO } from '../routes/editLock'
 import { runAsAgent } from '../agentAccess'
 import type { AgentScope } from '../agentAccess'
 import { getBearerUser } from '../oauth'
+import { runInRange } from '../tokenRange'
+import type { RangeScope } from '../tokenRange'
 import { ToolError } from './core'
 import type { ToolCtx } from './core'
 import { cleanText, editPhrase } from './trust'
@@ -15,14 +17,18 @@ const idsSchema = z.array(z.uuid())
 
 // The /mcp handler builds ctx.user from the token (getBearerUser), so grant and client are set;
 // a ctx built without them (tests) resolves them from the token once.
-const scopes = new WeakMap<ToolCtx, Promise<AgentScope | null>>()
-function agentScopeOf(ctx: ToolCtx): Promise<AgentScope | null> {
+const scopes = new WeakMap<ToolCtx, Promise<{ agent: AgentScope; range: RangeScope | null } | null>>()
+function agentScopeOf(ctx: ToolCtx): Promise<{ agent: AgentScope; range: RangeScope | null } | null> {
   let p = scopes.get(ctx)
   if (!p) {
     p = (async () => {
-      const u = ctx.user.grantId && ctx.user.clientId ? ctx.user : await getBearerUser(ctx.token)
+      const u = ctx.user.grantId && ctx.user.clientId && ctx.user.range !== undefined ? ctx.user : await getBearerUser(ctx.token)
       if (!u?.grantId || !u.clientId) return null
-      return { userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }
+      return {
+        agent: { userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null },
+        // the connection range (docs/adr/1200-*), entered here exactly as requireUser does
+        range: u.range ?? null,
+      }
     })()
     scopes.set(ctx, p)
   }
@@ -47,7 +53,8 @@ export async function loadAgentContext(ctx: ToolCtx, ids: string[], opts: { read
   const run = () => agentContextFor(ctx.user.id, uniq, { read: opts.read })
   const scope = await agentScopeOf(ctx)
   if (!scope) throw new ToolError('Request failed (HTTP 401): the access token is no longer valid; reconnect the Inkling connector')
-  return runAsAgent(scope, run)
+  const { range } = scope
+  return runAsAgent(scope.agent, range ? () => runInRange(range, run) : run)
 }
 
 /** `applies: A; B (get_instructions)` or null when nothing applies. Deterministic order (server). */

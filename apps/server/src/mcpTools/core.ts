@@ -49,6 +49,9 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   PAGE_LOCKED:
     'nothing was written; do not retry or work around the lock (moving or copying the page will not help). ' +
     'Tell the user who can edit it, or leave your suggested change with add_comment if that is allowed (see the can: line of read_page)',
+  // docs/adr/1200-*: the connection is limited to some workspaces or one subtree
+  OUT_OF_RANGE:
+    'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }
 
 /** Call an existing REST route as the token user; 4xx/5xx become a ToolError carrying the server message */

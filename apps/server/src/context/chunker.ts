@@ -351,8 +351,41 @@ export function chunkBlocks(blocks: AnyBlock[]): Chunk[] {
 }
 
 /**
- * Resolve a section reference: exact anchor, anchor without `~n`, heading block id, heading text
- * or heading path ("A › B" / "A > B" / "A/B"), case-insensitive. Returns null when nothing matches.
+ * Shortest suffix of each anchor (by `/` segments) that no other anchor of the same page equals or
+ * ends with (docs/adr/1212-*): `00-요강/준비-사항/우리-팀-체크리스트` → `우리-팀-체크리스트` unless
+ * another section of the page ends the same way. findSection resolves these suffixes, so they can be
+ * passed to read_page(section=…) and patch_section like full anchors.
+ */
+export function shortAnchors(anchors: string[]): Map<string, string> {
+  const uniq = [...new Set(anchors)]
+  const out = new Map<string, string>()
+  for (const a of uniq) {
+    const segs = a.split('/')
+    let short = a
+    for (let k = 1; k < segs.length; k++) {
+      const suffix = segs.slice(segs.length - k).join('/')
+      const clash = uniq.some((o) => o !== a && (o === suffix || o.endsWith(`/${suffix}`)))
+      if (!clash) {
+        short = suffix
+        break
+      }
+    }
+    out.set(a, short)
+  }
+  return out
+}
+
+/** The last `segments` headings of a heading path string ("A › B › C", 1 → "C"). */
+export function headingTail(headingPath: string, segments: number): string {
+  if (!headingPath) return ''
+  const parts = headingPath.split(PATH_SEP)
+  return parts.slice(Math.max(0, parts.length - segments)).join(PATH_SEP)
+}
+
+/**
+ * Resolve a section reference: exact anchor, a suffix of exactly one anchor (find_context's short
+ * anchors), anchor without `~n`, heading block id, heading text or heading path ("A › B" / "A > B" /
+ * "A/B"), case-insensitive. Returns null when nothing matches.
  */
 export function findSection<T extends Pick<Section, 'anchor' | 'blockId' | 'headingPath'>>(sections: T[], ref: string): T | null {
   const r = ref.trim().replace(/^§/, '').replace(/^#/, '')
@@ -360,6 +393,9 @@ export function findSection<T extends Pick<Section, 'anchor' | 'blockId' | 'head
   const exact = sections.find((s) => s.anchor === r || s.blockId === r)
   if (exact) return exact
   const lower = r.toLowerCase()
+  // A short anchor as find_context prints it (docs/adr/1212-*): a suffix of exactly one anchor.
+  const bySuffix = sections.filter((s) => s.anchor.toLowerCase().endsWith(`/${lower}`))
+  if (bySuffix.length === 1 && !sections.some((s) => s.anchor.toLowerCase() === lower)) return bySuffix[0]
   const slugRef = r
     .split(/\s*(?:›|>|\/)\s*/)
     .map(slugify)

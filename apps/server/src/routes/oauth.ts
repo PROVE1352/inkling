@@ -8,7 +8,9 @@ import { oauthClients, oauthCodes, oauthGrants } from '../db/schema'
 import { AppError, forbidden, notFound } from '../errors'
 import { recordFailure } from '../guard'
 import { isWellKnownClient, memberNameClashes, reservedClientName } from '../clientName'
+import { accessRangeSchema, updateGrantRangeSchema } from '@inkling/shared'
 import type { ClientNameNotice } from '@inkling/shared'
+import { rangeToColumns, rangeView, validateRange } from '../tokenRange'
 import { idParam } from '../helpers'
 import {
   ACCESS_TOKEN_TTL_MS,
@@ -42,6 +44,7 @@ import {
  *   GET    /api/oauth/authorize/info   client info for the consent screen + pre-validation
  *   POST   /api/oauth/authorize        allow/deny → { redirectTo }
  *   GET    /api/oauth/grants           connected apps
+ *   PATCH  /api/oauth/grants/:id       change the connection's range (docs/adr/1200-*)
  *   DELETE /api/oauth/grants/:id       disconnect (tokens revoked immediately)
  */
 
@@ -241,6 +244,10 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
         accessExpiresAt: new Date(now + ACCESS_TOKEN_TTL_MS),
         refreshHash: sha256(refreshToken),
         refreshExpiresAt: new Date(now + REFRESH_TOKEN_TTL_MS),
+        // the range chosen on the consent screen (docs/adr/1200-*); refresh never changes it
+        rangeKind: row.rangeKind,
+        rangeWorkspaceIds: row.rangeWorkspaceIds,
+        rangePageId: row.rangePageId,
       })
       return reply
         .header('Cache-Control', 'no-store')
@@ -344,6 +351,11 @@ const authorizeBodySchema = authorizeQuerySchema.extend({
    * only for 'read' gets 'read'. Absent (an older SPA build) = what the client requested.
    */
   access: z.enum(['read', 'write']).optional(),
+  /**
+   * What the connection may see (docs/adr/1200-*): everything, some workspaces, or one subtree.
+   * Absent (an older SPA build) = everything, as before.
+   */
+  range: accessRangeSchema.optional(),
 })
 
 /** Validates client_id + redirect_uri — on failure answer 400 instead of redirecting (no open redirect) */
@@ -420,8 +432,11 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
         return back({ error: 'invalid_target', error_description: 'Unknown resource' })
       }
 
+      const range = b.range ?? { kind: 'all' as const }
+      await validateRange(user.id, range)
       const code = newOpaqueToken('ink_code_')
       await db.insert(oauthCodes).values({
+        ...rangeToColumns(range),
         codeHash: sha256(code),
         clientId: b.client_id,
         userId: user.id,
@@ -443,6 +458,9 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
         id: oauthGrants.id,
         clientName: oauthClients.name,
         scope: oauthGrants.scope,
+        rangeKind: oauthGrants.rangeKind,
+        rangeWorkspaceIds: oauthGrants.rangeWorkspaceIds,
+        rangePageId: oauthGrants.rangePageId,
         createdAt: oauthGrants.createdAt,
         lastUsedAt: oauthGrants.lastUsedAt,
       })
@@ -450,16 +468,35 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       .innerJoin(oauthClients, eq(oauthClients.id, oauthGrants.clientId))
       .where(eq(oauthGrants.userId, user.id))
       .orderBy(desc(oauthGrants.createdAt))
-    return {
-      grants: rows.map((r) => ({
+    const grants = []
+    for (const r of rows) {
+      grants.push({
         id: r.id,
         clientName: r.clientName,
         // additive: legacy (null/'notes') grants report full access
         access: canWriteFromScopes(r.scope ?? '') ? ('write' as const) : ('read' as const),
+        // additive (docs/adr/1200-*): what the connection may see
+        range: await rangeView(user.id, r),
         createdAt: r.createdAt.toISOString(),
         lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
-      })),
+      })
     }
+    return { grants }
+  })
+
+  // change what a connection may see (docs/adr/1200-*); takes effect on its next request
+  app.patch('/oauth/grants/:id', { preHandler: requireCookieUser }, async (req) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const { range } = updateGrantRangeSchema.parse(req.body)
+    await validateRange(user.id, range)
+    const updated = await db
+      .update(oauthGrants)
+      .set(rangeToColumns(range))
+      .where(and(eq(oauthGrants.id, id), eq(oauthGrants.userId, user.id)))
+      .returning({ id: oauthGrants.id })
+    if (updated.length === 0) throw notFound()
+    return { ok: true }
   })
 
   // disconnect — access/refresh tokens revoked immediately

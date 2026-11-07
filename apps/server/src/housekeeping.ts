@@ -5,6 +5,7 @@ import { db, relaxStatementTimeout } from './db/index'
 import { files, notifications, sessions } from './db/schema'
 import { env } from './env'
 import { purgeExpiredOAuth } from './oauth'
+import { purgeExpiredApiTokens } from './apiTokens'
 import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
@@ -118,7 +119,7 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     const t = await purgeOldTrash(now, log)
     const w = await purgeExpiredWorkspaces(now, log)
     // MCP OAuth: expired authorization codes and connections whose refresh token has expired too
-    const o = await purgeExpiredOAuth(now)
+    const o = (await purgeExpiredOAuth(now)) + (await purgeExpiredApiTokens(now))
     // Expired password reset codes and email verification tokens
     const a = await purgeExpiredAccountTokens(now)
     // Change feed log retention (an older cursor gets resync_required)
@@ -126,7 +127,7 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     const e = await purgeOldAuditEvents(now)
     if (s.length || n.length || t || w || o || a || c || e) {
       log(
-        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,
+        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,
       )
     }
     // Page read counters (docs/adr/0953-*): write the buffer, drop days past retention

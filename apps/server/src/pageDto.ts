@@ -6,6 +6,7 @@ import { pages } from './db/schema'
 import { liveWorkspace } from './workspaceLive'
 import { agentAllowedSql } from './agentAccess'
 import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
+import { visibleRangeSql } from './tokenRange'
 
 /**
  * Shared projection that selects only the pages columns the API responses need.
@@ -99,13 +100,18 @@ export async function findLivePage(id: string): Promise<PageRow | null> {
  * where the 30-day purge removes them; they are never re-shared.
  *
  * Reused by every path that exposes pages (list / single-page guard / search / trash / backlinks / export tree / collab).
+ * Inside a request of a range-limited connection it also requires the page to be in that range.
  * It references the pages table, so use it only in the where clause of queries that FROM/JOIN pages.
  */
 export function visibleTo(userId: string): SQL {
-  return or(
+  const visible = or(
     eq(pages.scope, 'shared'),
     and(eq(pages.scope, 'private'), eq(pages.createdBy, userId)),
   ) as SQL
+  // A connection limited to some workspaces or one subtree (docs/adr/1200-*): every path that uses
+  // this condition is narrowed with it. Nothing is added for browser sessions and unlimited tokens.
+  const range = visibleRangeSql(userId)
+  return range ? (and(visible, range) as SQL) : visible
 }
 
 /**

@@ -897,6 +897,7 @@ export interface InkDTO {
 // Collection extensions (relations/rollups, batch rows, spreadsheet, sheets sync, iCal)
 export * from './collectionExt'
 export * from './templates'
+export * from './rowTemplates'
 export * from './csv'
 
 // Dataview-style query language (Query block + POST /workspaces/:id/query)
@@ -919,3 +920,6 @@ export * from './sidebar'
 
 // Disjoint sets (union by size + path compression): link islands, import de-duplication (docs/adr/1120-*)
 export * from './unionFind'
+
+// Connection range (OAuth grants, API tokens) and personal API tokens (docs/adr/1200-*, 1201-*)
+export * from './accessTokens'

@@ -397,3 +397,76 @@ function CollabEditorBody({
     </div>
   )
 }
+
+/**
+ * The page editor over a local Y.Doc with no server connection: row templates
+ * (docs/adr/1182-*). Same schema, menus, uploads and paste handling as a page, so whatever the
+ * editor can write survives (callouts, mentions, embeds). The caller loads the document and saves
+ * its updates; there is no presence or live sync.
+ */
+export function LocalDocEditor({
+  doc,
+  wsId,
+  uploadPageId,
+  me,
+  readOnly = false,
+  placeholder,
+}: {
+  doc: Y.Doc
+  wsId: string
+  /** Uploads are attached to this page (the collection), so they follow its visibility. */
+  uploadPageId: string
+  me: UserDTO
+  readOnly?: boolean
+  placeholder?: string
+}) {
+  const { resolved } = useTheme()
+  const navigate = useNavigate()
+  const editor = useCreateBlockNote(
+    {
+      schema,
+      collaboration: {
+        fragment: doc.getXmlFragment('document'),
+        user: { name: me.name, color: userColor(me.id) },
+        provider: { awareness: undefined },
+        showCursorLabels: 'activity',
+      },
+      dictionary: getLocale() === 'ko' ? bnKo : bnEn,
+      ...(placeholder ? { placeholders: { emptyDocument: placeholder } } : {}),
+      uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
+      pasteHandler: ({ event, editor, defaultPasteHandler }) =>
+        handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+    },
+    [doc],
+  )
+  useEffect(() => capUndoHistory(editor), [editor])
+  // Same seeding as CollabEditorBody: an empty fragment gets a real first paragraph.
+  useEffect(() => {
+    if (readOnly) return
+    try {
+      const frag = doc.getXmlFragment('document')
+      if (frag.length === 0 && editor.isEmpty && editor.document.length > 0) {
+        editor.replaceBlocks(editor.document, [{ type: 'paragraph' }])
+      }
+    } catch {
+      // not fatal: the first keystroke creates the block
+    }
+  }, [readOnly, doc, editor])
+  const onClickCapture = (e: React.MouseEvent) => {
+    const href = (e.target as HTMLElement).closest('a')?.getAttribute('href')
+    if (href && href.startsWith('/w/')) {
+      e.preventDefault()
+      navigate(href)
+    }
+  }
+  return (
+    <div className="relative" onClickCapture={onClickCapture}>
+      <BlockNoteView editor={editor} theme={resolved} slashMenu={false} editable={!readOnly}>
+        <SlashMenu editor={editor} />
+        <WikilinkMenu editor={editor} wsId={wsId} />
+        <MentionMenu editor={editor} wsId={wsId} />
+        <QueryBlockPortals editor={editor} wsId={wsId} />
+      </BlockNoteView>
+    </div>
+  )
+}

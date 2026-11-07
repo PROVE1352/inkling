@@ -10,6 +10,7 @@ import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
+import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
 import { reviewFactsFor } from './review'
 import { countReads } from './pageReads'
@@ -181,7 +182,12 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   const server = new McpServer(
     { name: 'inkling', version: '1.0.0' },
     {
-      instructions: ctx.canWrite ? SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS + ' ' + READ_ONLY_INSTRUCTION,
+      // read-only (docs/adr/0935-*) and range-limited (docs/adr/1200-*) connections are told so
+      instructions: [
+        SERVER_INSTRUCTIONS,
+        ctx.canWrite ? null : READ_ONLY_INSTRUCTION,
+        rangeInstruction(ctx.user.range ?? null),
+      ].filter(Boolean).join(' '),
     },
   )
 

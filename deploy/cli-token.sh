@@ -2,7 +2,13 @@
 # Issue Inkling sessions for the CLI / agents.
 # Logs inklingctl (or curl) in without handing over a password — the same result as copying
 # the inkling_sid cookie from a browser, made with one command on the server.
-# Especially useful for accounts with no Inkling password, such as delegated-login accounts.
+#
+# The usual way now is a personal API token: Settings › Connections › API tokens, then
+# `inklingctl login --token` or INKLING_TOKEN=ink_pat_… (docs/adr/1201-*). A token can be read-only,
+# limited to some workspaces or one page's subtree, expires on its own, and is shown with its last
+# use; a session from this script is full access for N days. Keep this script for the cases a token
+# does not cover: an operator issuing access from the server shell for someone who cannot open the
+# web app, or rescuing a CLI setup. Sessions from here also stop working when the password is set.
 #
 #   ./deploy/cli-token.sh new someone@example.com              # 30-day session
 #   ./deploy/cli-token.sh new someone@example.com 7 "Mac agent"   # 7 days, with a note

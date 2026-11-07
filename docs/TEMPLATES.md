@@ -16,7 +16,10 @@ Design records: [ADR 0920](adr/0920-template-model.md) (model and clean-up),
 | Kind | What it creates |
 |---|---|
 | Document | One page with its body. |
-| Structure | A page tree: the root page plus sub-pages, folders, databases (fields, views and optionally starter rows) and canvases. Links between its pages, database relations and canvas cards point at the new pages. |
+| Structure | A page tree: the root page plus sub-pages, folders, databases (fields, views, row templates and optionally starter rows) and canvases. Links between its pages, database relations and canvas cards point at the new pages. |
+
+A database's own [row templates](#row-templates) are a separate thing: they fill in a new row
+of that database.
 
 ### Built-in templates
 
@@ -190,7 +193,71 @@ pages/p5.canvas
 - Fields and views use the same shapes as the API (`CollectionField`, `ViewConfig`). A relation
   whose target is not in the template imports as a text field; person values are dropped.
 
+## Row templates
+
+A database can keep up to 20 row templates for its **New row** button. A row template has a
+name and icon, a **title** pattern, **property values** and a **body**, and one of them can be the
+default. Design records: [ADR 1180](adr/1180-row-templates-stored-apart-from-pages.md) (model),
+[1181](adr/1181-one-create-path-for-rows.md) (creating rows, values),
+[1182](adr/1182-row-template-editor-on-a-local-document.md) (editor),
+[1183](adr/1183-row-templates-in-copies-and-files.md) (copies and files),
+[1184](adr/1184-row-template-permissions-and-leaks.md) (permissions).
+
+- **New row** uses the default template, or makes an empty row when there is none. **▾** next to
+  it picks a template or **Empty row**. The board's **+** in a column and the calendar's **+** on a
+  day use the default too; the column's value or the day's date is applied on top of the template.
+- The template's icon becomes the row's icon. A title typed when creating the row wins over the
+  title pattern.
+- The title, text and URL values and the body use the [variables](#variables) above. `{{title}}`
+  is the row's title. `{{input:…}}` prompts are asked before the row is created (MCP clients pass
+  `inputs`). Variables are filled when a row is created, never when the template is saved or
+  copied.
+
+Property values are stored like row values, with two relative forms:
+
+| Property | Template value | Becomes |
+|---|---|---|
+| Date | `today`, `today+7`, `today-1` or `2026-12-01` | The creator's date (their time zone), shifted by the days |
+| Person | `me` or a member | `me` is whoever adds the row |
+| Select, multi-select | Option ids | The same options |
+| Text, URL | Text with variables | The rendered text |
+| Number, checkbox | The value | The same value |
+| Relation, rollup | not available | Set on each row |
+
+A value that no longer fits (a deleted option, a field that changed type, a person who left the
+workspace) is dropped when the row is created; the row is still created.
+
+Editing opens the template like a page: the same editor, with the property values above the
+body. Changes save as you type. Anyone who can see the database can use its templates; creating,
+editing, deleting and choosing the default need edit access to the database, and its
+[edit lock](GUIDE.md#edit-lock) applies. Row templates are not pages, so they never appear in search,
+backlinks, query blocks, the graph, the sidebar, webhooks or MCP page lists.
+
+**Copies.** Duplicating a database copies its row templates. **Save as template** keeps them
+with the database (person values other than `me` are dropped, as for rows), and creating a page
+from that template gives the new database the same row templates. Template files carry them in
+`inkling-template.json` (below). The workspace Markdown export does not include them, the same as
+views.
+
+```json
+{
+  "ref": "p1", "kind": "collection", "title": "Meetings",
+  "fields": [ … ], "views": [ … ],
+  "rowTemplates": [
+    { "name": "Weekly", "icon": "📋", "title": "{{date}} {{input:Topic|Weekly}} meeting",
+      "props": { "status": "plan", "date": "today", "owner": "me" },
+      "default": true, "file": "pages/p1-t0.md" }
+  ],
+  "children": [ … ]
+}
+```
+
 ## API and MCP
 
 REST routes are listed in [API.md → Templates](API.md#templates). MCP clients get
 `list_templates` and `create_from_template` ([MCP.md](MCP.md)).
+
+Row templates: `GET`/`POST /api/pages/:id/collection/row-templates`, `GET`/`PATCH`/`DELETE
+/api/collection-row-templates/:id`, and `POST /api/pages/:id/collection/rows` to create one row
+(`template` omitted → the default, `null` → an empty row). MCP `create_row` takes `template` (a
+name or id, or `"none"`) and `inputs`; `query_rows` with `describe: true` lists the templates.

@@ -58,6 +58,7 @@ import { bumpAcl, gateWrite } from '../aclVersion'
 import type { AclState } from '../aclVersion'
 import { assertAgentAllowed } from '../agentAccess'
 import { recordRename } from '../formerTitles'
+import { copyRowTemplates } from '../rowTemplates'
 
 /** Edit-lock guard inside a transaction (docs/adr/0970-*). */
 function assertEditable(
@@ -71,6 +72,7 @@ function assertEditable(
 }
 import { recordPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
+import { assertTopLevelInRange, currentRange } from '../tokenRange'
 
 const shortId = (): string => randomUUID().slice(0, 8)
 
@@ -290,6 +292,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const role = await requireMembership(body.workspaceId, user.id)
 
     const parentId = body.parentId ?? null
+    // a subtree-limited connection creates only under its subtree (docs/adr/1202-*)
+    if (!parentId) assertTopLevelInRange(body.workspaceId, user.id)
     // scope: with a parent, the parent's scope is forced (body.scope ignored); at the root, body.scope (default shared)
     if (parentId) {
       const parent = await findVisiblePage(parentId, user.id)
@@ -468,6 +472,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (body.parentId !== undefined) {
         const newParentId = body.parentId
         if (newParentId === null) {
+          // moving to the top level leaves every subtree range (docs/adr/1202-*)
+          assertTopLevelInRange(page.workspaceId, user.id)
           updates.parentId = null
         } else {
           if (newParentId === id) throw badRequest('A page cannot be its own parent')
@@ -996,6 +1002,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           .where(eq(pages.id, cur.parentId))
           .limit(1)
         if (!parent || parent.deletedAt) {
+          // promotion leaves a subtree range unless the page is the range's root (docs/adr/1202-*)
+          if (currentRange(user.id)?.rootPageId !== id) assertTopLevelInRange(target.workspaceId, user.id)
           await tx.update(pages).set({ parentId: null }).where(eq(pages.id, id))
         }
       }
@@ -1059,7 +1067,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
   // Duplicate a page (template) — recursively copies the target + its descendant tree.
   //  - root: same parentId and scope, title "Copy of …" (creator's locale), sortOrder = siblings' max + 1000.
   //  - descendants: under the new parent (the copy), keeping relative structure/sortOrder/scope.
-  //  - copies page_docs.state / props / kind / icon / page_texts; for collections also fields and views.
+  //  - copies page_docs.state / props / kind / icon / page_texts; for collections also fields, views and row templates.
   //  - wikilink hrefs are not rewritten in v1 (they keep pointing at the original pages).
   app.post(
     '/pages/:id/duplicate',
@@ -1122,6 +1130,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const oldIds = ordered.map((p) => p.id)
 
+    // a copy of a top-level page is a new top-level page (docs/adr/1202-*); under a parent,
+    // assertPlacement checks the range
+    if (!rootRow.parentId) assertTopLevelInRange(rootRow.workspaceId, user.id)
     const result = await withTreeLock(rootRow.workspaceId, async (tx) => {
       // The copy lands next to the original: its parent must still be live (tree lock, ADR 0800).
       if (rootRow.parentId) {
@@ -1176,6 +1187,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           })),
         )
       }
+
+      // 6) copy row templates of the copied collections (docs/adr/1183-*)
+      await copyRowTemplates(tx, idMap, cols.map((c) => c.pageId), user.id)
 
       // Change feed: the copies are new pages; the events commit with them (docs/adr/1150-*).
       await recordPageEvents([...idMap.values()].map((pid) => ({ pageId: pid, kind: 'page_added' as const })), actorOf(user), tx)
@@ -1247,6 +1261,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .where(and(eq(pages.workspaceId, page.workspaceId), parentCond))
       const sortOrder = (maxSort ?? 0) + 1000
 
+      if (!page.parentId) assertTopLevelInRange(page.workspaceId, user.id)
       const row = await withTreeLock(page.workspaceId, async (tx) => {
         if (page.parentId) {
           await assertPlacement(tx, {

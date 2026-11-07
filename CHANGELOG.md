@@ -7,11 +7,56 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-07
+
+Database migration 0037 (row templates, webhook deliveries and secrets, API tokens and connection ranges) only adds
+tables and columns. Existing MCP connections keep seeing everything; a connection's range only narrows access.
+
+### Added
+- Database row templates: up to 20 per database with a title pattern, property values (relative dates such as
+  `today+7`, "whoever adds the row") and a body edited in the page editor; one can be the default. "New row ▾" picks a
+  template or an empty row, and the board column and calendar day "+" use the default. Templates are not pages, so they
+  never appear in search, links, the graph or MCP page lists. They travel with Duplicate, Save as template and template
+  files. MCP `create_row` takes `template` and `inputs` (docs/adr/1180-*…1184-*).
+- Generic webhooks: signed JSON (`X-Inkling-Signature: t=…,v1=…`, HMAC-SHA256) to any public https endpoint such as
+  n8n or Zapier, with ids, names, titles and links only. The secret is shown once; a new secret keeps the old one valid
+  for 24 h. Recent deliveries, Resend and Send test event in the settings; receiving guide in
+  [docs/WEBHOOKS.md](docs/WEBHOOKS.md) (docs/adr/1190-*…1192-*).
+- Connection ranges: an MCP connection or API token sees everything, chosen workspaces, or one page and the pages under
+  it. Chosen on the consent screen and changeable in Settings → Connections; enforced at the permission boundary and
+  tested route by route (docs/adr/1200-*, 1202-*).
+- Personal API tokens for the REST API (`Authorization: Bearer ink_pat_…`): expiry, read-only or read-write, range;
+  shown once, stored hashed, last use and IP listed, revoked with a password change; admins can revoke a user's tokens.
+  `inklingctl login --token` and `INKLING_TOKEN` (docs/adr/1201-*, 1203-*). Browser-only routes refuse bearer tokens,
+  listed in one table (docs/adr/1204-*).
+- Retrieval evaluation for `find_context` with dev/test questions (MRR, recall@5, nDCG@5) and the scripts
+  `context-tune.ts` and `context-explain.ts` (docs/adr/1213-*).
+
 ### Changed
+- `find_context` ranking weighs words by how rare they are in the searched workspaces (BM25-style idf), counts query
+  words that stand next to each other, and treats Korean particles and verb endings as one word (docs/adr/1210-*). A page
+  shows at most two sections, the second only when it is nearly as good (docs/adr/1211-*). Results print the last
+  heading and a short anchor (`§우리-팀-체크리스트`) instead of the whole heading path twice, "Also relevant" is one line
+  per page, and the budget counts the real header size (a 1,500 budget used to print about 2,500 tokens).
+  `read_page` and `patch_section` accept the short anchor (docs/adr/1212-*).
+- All new-row paths (web, board, calendar, MCP `create_row`) use `POST /api/pages/:id/collection/rows`; a board or
+  calendar row is one request instead of two. MCP `create_row` now sends the `page_created` webhook.
+- A generic webhook is turned off after five failed events spanning at least 24 hours; Slack and Discord keep five
+  failed events. The settings tab is called "Webhooks".
+- Setting or resetting a password also revokes API tokens. `GET /workspaces` returns no invite codes to tokens.
 - Easier-to-read pages: more space above headings than below (H1 32 px, H2 24 px, H3 16 px; was 14 px for all), so
   sections read as blocks; headings at weight 600 instead of 700; body text on dark one step brighter (#f0efed);
   Korean lines wrap between words instead of mid-word. Public pages follow the same rules. Measured against a Notion
   page with the same 16/24 px body text, where only these differed.
+
+### Performance
+- `find_context` on 15,693 chunks: dev MRR 0.848 → 0.897, recall@5 0.897 → 0.920; held-out test MRR 0.806 → 0.944,
+  recall@5 0.861 → 0.926. On a copy of real data the field query that failed now shows one of its two answer sections
+  (5th); the other still misses, because its key word is common there (docs/adr/1210-*, 1214-*).
+- Board and calendar rows 1.6–1.9× faster (one request). Webhook consumer: 6.5 → 5.6 statements per delivery.
+- Regression: `find_context` p50 26.6 → 35.3 ms, p95 63.3 → 88.7 ms (per-word flags). A subtree range adds 0.5–0.8 ms to
+  `read_page`; lists and search under a range are faster because they return less.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## [0.6.0] - 2026-11-07
 

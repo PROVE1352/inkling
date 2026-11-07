@@ -15,6 +15,7 @@ import { editTaskInDoc, TaskEditError } from '../md/taskEdit'
 import { forgetDocIndex } from '../docIndexer'
 import { reindexPageTasks } from '../md/taskIndex'
 import { findVisiblePage, visibleTo } from '../pageDto'
+import { assertTopLevelInRange } from '../tokenRange'
 
 /**
  * Title of the workspace document that collects quick-added tasks (one per workspace, top level
@@ -62,6 +63,8 @@ async function findOrCreateTodoDoc(workspaceId: string, userId: string, locale: 
         .limit(1)
     )[0]
     if (found) return found.id
+    // the to-do document is a top-level page: not for a subtree-limited connection (docs/adr/1202-*)
+    assertTopLevelInRange(workspaceId, userId)
     const [{ maxSort }] = await tx
       .select({ maxSort: sql<number | null>`max(${pages.sortOrder})` })
       .from(pages)

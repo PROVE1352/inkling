@@ -1,0 +1,41 @@
+// Workspace webhooks: generic (signed JSON) hooks, signing secrets and the delivery list
+// (docs/adr/1190-*, 1191-*, 1192-*). The older Slack / Discord keys stay in auth-admin.ts.
+export default {
+  'webhooks.introAll':
+    'Send a short summary and link to Slack or Discord, or signed JSON events to any https endpoint (n8n, Zapier, your own server). Pages in the private (🔒) section are never sent.',
+  'webhooks.kindLabel': 'Type',
+  'webhooks.kindChat': 'Slack / Discord',
+  'webhooks.kindGeneric': 'Generic (JSON)',
+  'webhooks.genericUrlLabel': 'Endpoint URL (https)',
+  'webhooks.genericUrlPlaceholder': 'https://example.com/inkling-events',
+  'webhooks.genericHint':
+    'Each request is signed with HMAC-SHA256 in X-Inkling-Signature. Events carry ids, names, titles and links; comment text is not sent. See docs/WEBHOOKS.md for verifying requests.',
+  'webhooks.secretTitle': 'Signing secret',
+  'webhooks.secretOnce': 'Copy it now: it is shown only once. Your endpoint uses it to check X-Inkling-Signature.',
+  'webhooks.copy': 'Copy',
+  'webhooks.copied': 'Copied',
+  'webhooks.secretDone': 'I saved it',
+  'webhooks.secretSet': 'Requests are signed',
+  'webhooks.secretOldUntil': 'The old secret is also signed with until {time}',
+  'webhooks.rotate': 'New secret',
+  'webhooks.rotateConfirm':
+    'Create a new signing secret? Requests are signed with both secrets for 24 hours so your endpoint can switch without missing events.',
+  'webhooks.rotateRevokeConfirm': 'Create a new signing secret and stop signing with the old one now? Requests your endpoint checks with the old secret will fail.',
+  'webhooks.rotateOk': 'Create',
+  'webhooks.revokeOld': 'Stop using the old secret at once',
+  'webhooks.deliveries': 'Recent deliveries',
+  'webhooks.deliveriesEmpty': 'No deliveries yet.',
+  'webhooks.statusOk': 'Delivered',
+  'webhooks.statusRetrying': 'Retrying',
+  'webhooks.statusFailed': 'Failed',
+  'webhooks.attempts_one': '{count} attempt',
+  'webhooks.attempts_other': '{count} attempts',
+  'webhooks.nextRetry': 'next try {time}',
+  'webhooks.resend': 'Resend',
+  'webhooks.resent': 'Queued again',
+  'webhooks.eventTest': 'Test event',
+  'webhooks.testEvent': 'Send test event',
+  'webhooks.failingSince': 'Failing since {time}. A generic webhook is turned off after 24 hours of failures.',
+  'webhooks.response': 'Response: {text}',
+  'webhooks.ms': '{ms} ms',
+}

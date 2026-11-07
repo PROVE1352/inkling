@@ -3,6 +3,7 @@ import type { SQL } from 'drizzle-orm'
 import { QUERY_LIMITS } from '@inkling/shared'
 import type { CmpOp, QExpr, QSource, QueryAst } from '@inkling/shared'
 import { visibleTo } from '../pageDto'
+import { pageInRangeSql } from '../tokenRange'
 
 /**
  * Compiles a parsed Dataview-subset query (QueryAst) into ONE parameterized SQL statement.
@@ -333,6 +334,8 @@ export function compileQuery(ast: QueryAst, ctx: CompileContext): CompiledQuery 
                              -- the target must be visible to the viewer (pageDto.visibleTo):
                              -- otherwise FROM [[title]] is an oracle for others' private titles
                              AND ("tp"."scope" = 'shared' OR "tp"."created_by" = ${ctx.userId})
+                             -- and in a limited connection's range (docs/adr/1200-*)
+                             AND ${pageInRangeSql(sql`"tp"."id"`, sql`"tp"."workspace_id"`, ctx.userId)}
                              AND lower("tp"."title") = ${s.title.toLowerCase()})`
       case 'not':
         return sql`NOT ${source(s.s)}`

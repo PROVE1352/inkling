@@ -11,7 +11,7 @@ export default {
   'wsSettings.tabAgents': '연결된 에이전트',
   'wsSettings.tabAudit': '감사 로그',
   'wsSettings.tabReview': '검토',
-  'wsSettings.tabWebhooks': 'Slack·Discord',
+  'wsSettings.tabWebhooks': '웹훅',
   'wsSettings.tabDanger': '위험 구역',
   'wsSettings.readOnlyNote': '이 설정은 소유자만 바꿀 수 있습니다. 나에게 적용되는 값을 볼 수 있습니다.',
   'wsSettings.saveFailed': '설정을 저장하지 못했습니다.',

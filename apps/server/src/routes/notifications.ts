@@ -11,6 +11,7 @@ import { visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { registerNotificationSettingsRoutes } from './notificationSettings'
+import { currentRange, rangeWorkspaceSql } from '../tokenRange'
 
 const markReadSchema = z.object({
   ids: z.array(z.uuid()).max(500).optional(),
@@ -46,6 +47,9 @@ function visibleNotifCond(userId: string): SQL {
     // Soft-deleted workspace (ADR 0910): its page and workspace notifications disappear with it,
     // except the `workspace_deleted` notice itself, which is the point.
     or(isNull(notifications.pageId), liveWorkspace(pages.workspaceId)),
+    // A range-limited connection (docs/adr/1200-*): workspace notifications of workspaces in range
+    // only (page notifications are narrowed by visibleTo above). `true` otherwise.
+    or(isNull(notifications.workspaceId), rangeWorkspaceSql(notifications.workspaceId, currentRange(userId))),
     or(
       isNull(notifications.workspaceId),
       eq(notifications.type, 'workspace_deleted'),
@@ -121,16 +125,23 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const user = getUser(req)
     const { ids } = markReadSchema.parse(req.body ?? {})
 
+    // A range-limited connection marks only notifications it can see (docs/adr/1200-*).
+    const visibleOnly = currentRange(user.id)
+      ? inArray(
+          notifications.id,
+          db.select({ id: notifications.id }).from(notifications).leftJoin(pages, eq(pages.id, notifications.pageId)).where(visibleNotifCond(user.id)),
+        )
+      : undefined
     if (ids && ids.length > 0) {
       await db
         .update(notifications)
         .set({ read: '1' })
-        .where(and(eq(notifications.userId, user.id), inArray(notifications.id, ids)))
+        .where(and(eq(notifications.userId, user.id), inArray(notifications.id, ids), visibleOnly))
     } else {
       await db
         .update(notifications)
         .set({ read: '1' })
-        .where(and(eq(notifications.userId, user.id), eq(notifications.read, '0')))
+        .where(and(eq(notifications.userId, user.id), eq(notifications.read, '0'), visibleOnly))
     }
 
     const unread = await countUnread(user.id)

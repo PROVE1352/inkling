@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { AnyBlock } from '../md/convert'
-import { chunkBlocks, cjkBigrams, findSection, MAX_CHUNK_TOKENS, slugify, splitSections } from './chunker'
-import { pack, queryTerms, scoreCandidate, TopK, tsqueryText } from './rank'
+import { chunkBlocks, cjkBigrams, findSection, headingTail, MAX_CHUNK_TOKENS, shortAnchors, slugify, splitSections } from './chunker'
+import { diversify, idf, occurrences, pack, queryGroups, queryTerms, scoreCandidate, TopK, tsqueryText } from './rank'
 import type { Scored } from './rank'
 import { estimateTokens, truncateToTokens } from './tokens'
 
@@ -87,6 +87,26 @@ describe('chunker', () => {
     assert.equal(cjkBigrams('주간회의 회의 abc'), '주간 간회 회의')
   })
 
+  it('short anchors: shortest unique suffix per page; findSection resolves them', () => {
+    const anchors = ['_intro', '요강/준비/우리-팀-체크리스트', '요강/결정된-것', '메모/결정된-것', 'a', 'b/a', 'setup/backups', 'setup/backups~2']
+    const m = shortAnchors(anchors)
+    assert.equal(m.get('_intro'), '_intro')
+    assert.equal(m.get('요강/준비/우리-팀-체크리스트'), '우리-팀-체크리스트')
+    assert.equal(m.get('요강/결정된-것'), '요강/결정된-것')
+    assert.equal(m.get('메모/결정된-것'), '메모/결정된-것')
+    assert.equal(m.get('a'), 'a')
+    assert.equal(m.get('b/a'), 'b/a')
+    assert.equal(m.get('setup/backups~2'), 'backups~2')
+    assert.equal(headingTail('요강 › 준비 › 우리 팀 체크리스트', 1), '우리 팀 체크리스트')
+    assert.equal(headingTail('요강 › 결정된 것', 2), '요강 › 결정된 것')
+    const s = splitSections([h('Setup', 1), p('a'), h('Backups', 2), p('b'), h('Setup', 1), h('Backups', 2), p('c'), h('Deep', 1), h('Leaf', 2), p('d')])
+    for (const [full, short] of shortAnchors(s.map((x) => x.anchor))) assert.equal(findSection(s, short)?.anchor, full, short)
+    // the full anchor and heading paths keep working
+    assert.equal(findSection(s, 'deep/leaf')?.anchor, 'deep/leaf')
+    assert.equal(findSection(s, 'Deep › Leaf')?.anchor, 'deep/leaf')
+    assert.equal(findSection(s, 'backups~2')?.anchor, 'setup/backups~2')
+  })
+
   it('findSection resolves anchors, heading text, paths and block ids', () => {
     const s = splitSections([h('Setup', 1, 'b1'), p('a'), h('Backups', 2, 'b2'), p('b')])
     assert.equal(findSection(s, 'setup/backups')?.blockId, 'b2')
@@ -150,17 +170,60 @@ describe('ranking', () => {
     tokens: 100,
     version: 'v',
     updatedAt: new Date(),
-    rank: 0,
     score: 1,
     ...o,
   })
 
+  const input = (q: string, df: number[] = [], n = 1000) => {
+    const groups = queryGroups(q)
+    return { groups, idf: groups.map((_, i) => idf(n, df[i] ?? 10)), phrase: q, now: Date.now() }
+  }
+
   it('scores heading and title hits above body-only hits', () => {
-    const now = Date.now()
-    const base = { terms: ['rollback'], phrase: 'rollback', now }
+    const base = input('rollback')
     const body = scoreCandidate(cand({ headingPath: 'Other', text: 'do a rollback now and then more words here' }), base)
     const head = scoreCandidate(cand({ headingPath: 'Rollback', text: 'do a rollback now and then more words here' }), base)
     assert.ok(head > body)
+  })
+
+  it('idf: a rare word outweighs several common ones (docs/adr/1210-*)', () => {
+    // "서울 ai 해커톤" are in 600 of 1,000 chunks, "팀" in 300, "구성" in 5
+    const inp = input('서울 AI 해커톤 팀 구성', [600, 600, 600, 300, 5])
+    const common = scoreCandidate(cand({ headingPath: '심사위원 A', text: '서울 AI 해커톤은 AI를 쓰는 이유가 분명한 팀을 높게 본다. 서울 해커톤.' }), inp)
+    const rare = scoreCandidate(cand({ headingPath: '우리 팀 체크리스트', text: '- [ ] 팀 구성: 기획 1명, 백엔드 2명으로 다섯 명 채우기' }), inp)
+    assert.ok(rare > common, `${rare} > ${common}`)
+    assert.ok(idf(1000, 5) > 4 * idf(1000, 600))
+  })
+
+  it('adjacent query words score above the same words apart', () => {
+    const inp = input('팀 구성', [300, 20])
+    const near = scoreCandidate(cand({ text: '이번 팀 구성은 다섯 명으로 확정했다 그리고 다른 이야기도 했다' }), inp)
+    const far = scoreCandidate(cand({ text: '우리 팀은 발표 구성이 탄탄하다는 평을 들었다 그리고 다른 이야기' }), inp)
+    assert.ok(near > far, `${near} > ${far}`)
+  })
+
+  it('occurrences: Korean 2+ characters anywhere, 1-character words and ASCII at word starts', () => {
+    assert.deepEqual(occurrences('주간회의 회의', '회의'), [2, 5])
+    assert.deepEqual(occurrences('스팀 팀을 팀', '팀'), [3, 6])
+    assert.deepEqual(occurrences('explanation plan lumen-plan', 'plan'), [12, 23])
+  })
+
+  it('query groups: particles and endings as variants of one word, never below two characters', () => {
+    assert.deepEqual(queryGroups('구성하는 팀을 결정된 회의'), [
+      { word: '구성하는', variants: ['구성하는', '구성'] },
+      { word: '팀을', variants: ['팀을'] },
+      { word: '결정된', variants: ['결정된', '결정'] },
+      { word: '회의', variants: ['회의'] },
+    ])
+  })
+
+  it('diversify: a page keeps two sections at full score, further ones are discounted', () => {
+    const items = [1, 0.95, 0.9, 0.85].map((score, i) => cand({ pageId: 'p1', ord: i, anchor: `s${i}`, score }))
+    const d = diversify([...items, cand({ pageId: 'p2', ord: 0, anchor: 'x', score: 0.6 })], 2, 0.5)
+    assert.deepEqual(d.map((c) => [c.pageId, c.score]), [['p1', 1], ['p1', 0.95], ['p2', 0.6], ['p1', 0.45], ['p1', 0.2125]])
+    // parts of one section count once
+    const parts = diversify([cand({ ord: 0, anchor: 'a', score: 1 }), cand({ ord: 1, anchor: 'a', score: 0.9 }), cand({ ord: 2, anchor: 'b', score: 0.8 })], 1, 0.5)
+    assert.deepEqual(parts.map((c) => c.score), [1, 0.9, 0.4])
   })
 
   it('packs within budget, merges neighbours, drops duplicate texts, truncates the tail', () => {

@@ -3,6 +3,8 @@ import { Navigate, useLocation, useSearchParams } from 'react-router'
 import { ApiError, useMe, useOAuthAuthorize, useOAuthClientInfo } from '../api'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
 import { fmtList, useT } from '../i18n'
+import type { AccessRange } from '@inkling/shared'
+import { RangePicker } from '../components/RangePicker'
 
 /**
  * OAuth consent screen for MCP connectors (/oauth/authorize).
@@ -26,6 +28,8 @@ export function OAuthAuthorize() {
   const [accessChoice, setAccessChoice] = useState<'read' | 'write' | null>(null)
   const readOnlyRequested = info.data?.requestedAccess === 'read'
   const access: 'read' | 'write' = readOnlyRequested ? 'read' : (accessChoice ?? 'write')
+  // What the connection may see (docs/adr/1200-*); null while a workspace or page is still to be picked.
+  const [range, setRange] = useState<AccessRange | null>({ kind: 'all' })
   // Loopback callbacks (CLIs such as Codex, Claude Code) show instructions instead of redirecting right
   // away — if the CLI runs on a remote server over SSH, nothing listens on the browser's 127.0.0.1 and
   // the redirect ends in "can't connect".
@@ -51,6 +55,7 @@ export function OAuthAuthorize() {
         resource: params.get('resource') ?? undefined,
         decision,
         access,
+        ...(decision === 'allow' && range ? { range } : {}),
       },
       {
         onSuccess: ({ redirectTo }) => {
@@ -175,6 +180,8 @@ export function OAuthAuthorize() {
           ))}
           {readOnlyRequested && <p className="text-xs text-sub">{t('oauth.accessReadRequested')}</p>}
         </fieldset>
+        <RangePicker name="oauth-range" onChange={setRange} />
+        <p className="-mt-1 text-xs text-sub">{t('oauth.rangeNote')}</p>
         <ul className="list-disc space-y-1 pl-5 text-xs text-sub">
           <li>{access === 'write' ? t('oauth.scopeRead') : t('oauth.scopeReadOnly')}</li>
           <li>{t('oauth.scopePrivate')}</li>
@@ -201,7 +208,7 @@ export function OAuthAuthorize() {
           <button
             type="button"
             onClick={() => decide('allow')}
-            disabled={authorize.isPending}
+            disabled={authorize.isPending || !range}
             className="flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
           >
             {authorize.isPending && <Spinner size={16} className="border-white/40 border-t-white" />}

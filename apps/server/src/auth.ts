@@ -14,6 +14,11 @@ import {
   readBearer,
 } from './oauth'
 import { hashSessionToken, mayBeLegacyToken } from './sessionTokens'
+import { getApiTokenUser, isApiTokenShaped } from './apiTokens'
+import { assertNotBanned, recordFailure } from './guard'
+import { runInRange } from './tokenRange'
+import { assertBearerRouteAllowed } from './tokenPolicy'
+import type { RangeScope } from './tokenRange'
 import { newSessionToken } from './util'
 
 export const SESSION_COOKIE = 'inkling_sid'
@@ -38,13 +43,24 @@ export interface AuthUser {
   grantId?: string
   /** Set only for MCP (OAuth bearer) requests: the registered OAuth client id (docs/adr/0947-*). */
   clientId?: string
+  /** Set only for personal API token requests (docs/adr/1201-*): the token's id. */
+  tokenId?: string
+  /**
+   * Bearer requests only: the connection's range (docs/adr/1200-*); null or absent = everything the
+   * user can see. requireUser runs the request inside it (tokenRange.ts).
+   */
+  range?: RangeScope | null
 }
 
 // Add the authenticated user to FastifyRequest (declaration merging)
 declare module 'fastify' {
   interface FastifyRequest {
     user?: AuthUser
-    /** How the request authenticated: 'bearer' = MCP OAuth access token (no admin API) */
+    /**
+     * How the request authenticated: 'bearer' = an MCP OAuth access token (through /mcp only) or a
+     * personal API token (`user.tokenId` set). Both are refused by every browser-only route
+     * (`authVia !== 'cookie'`) and by the admin API.
+     */
     authVia?: 'cookie' | 'bearer'
   }
   interface FastifyContextConfig {
@@ -59,6 +75,10 @@ declare module 'fastify' {
 /** The 403 a read-only MCP token gets on a write route (the MCP tools answer earlier, in wrapWrite). */
 export const READ_ONLY_TOKEN_MESSAGE =
   "This connection is read-only (scope 'read'). Reconnect the Inkling connector and allow write access to edit notes"
+
+/** The 403 a read-only personal API token gets on a write route (docs/adr/1201-*). */
+export const READ_ONLY_API_TOKEN_MESSAGE =
+  'This API token is read-only. Make a read and write token in Settings › Connections to change notes'
 
 // ---------------------------------------------------------------------------
 // Password hashing (@node-rs/argon2 default options)
@@ -199,13 +219,16 @@ export function requireUser(
   // As a preHandler: continue the request inside the agent scope for bearer requests, so
   // requireMembership / findVisiblePage can enforce per-workspace agent blocks (docs/adr/0947-*).
   // The scope has to be entered here, around `done`: the handler runs from inside that call.
+  // A limited connection (docs/adr/1200-*) also runs inside its range, for OAuth grants and API
+  // tokens alike; the access checks (requireMembership, visibleTo, agentAllowedSql) read it.
   auth.then(
     () => {
       const u = req.user
+      const next = u?.range ? () => runInRange(u.range!, () => done()) : () => done()
       if (req.authVia === 'bearer' && u?.grantId && u.clientId) {
-        runAsAgent({ userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }, () => done())
+        runAsAgent({ userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }, next)
       } else {
-        done()
+        next()
       }
     },
     (err: Error) => done(err),
@@ -214,6 +237,30 @@ export function requireUser(
 
 async function authenticate(req: FastifyRequest): Promise<void> {
   const bearer = readBearer(req.headers.authorization)
+  if (bearer !== null && isApiTokenShaped(bearer)) {
+    // Personal API token (docs/adr/1201-*): the REST API from outside, as its owner, within its
+    // scope and range. Not an agent connection: agent blocks, agent lock rules and "via" labels are
+    // for OAuth clients (docs/adr/0947-*, 0971-*), so writes read as the person's own.
+    assertNotBanned(req)
+    const user = await getApiTokenUser(bearer, req.ip)
+    if (!user) {
+      await recordFailure(req, 'api-token')
+      throw unauthorized('Invalid or expired API token')
+    }
+    req.user = user
+    req.authVia = 'bearer'
+    if (
+      !canWriteFromScopes(user.scope) &&
+      req.method !== 'GET' &&
+      req.method !== 'HEAD' &&
+      req.routeOptions?.config?.bearerReadOnlyOk !== true
+    ) {
+      throw forbidden(READ_ONLY_API_TOKEN_MESSAGE)
+    }
+    // Browser-only routes and routes that reach past the token's range (tokenPolicy.ts).
+    assertBearerRouteAllowed(req, user.range)
+    return
+  }
   if (bearer !== null) {
     // The token is valid only in the /mcp handler's internal inject; direct REST use from outside is refused.
     if (req.headers[MCP_INTERNAL_HEADER] !== MCP_INTERNAL_SECRET) {
@@ -233,6 +280,8 @@ async function authenticate(req: FastifyRequest): Promise<void> {
     ) {
       throw forbidden(READ_ONLY_TOKEN_MESSAGE)
     }
+    // Same route rules as API tokens (no MCP tool calls these; this is the backstop).
+    assertBearerRouteAllowed(req, user.range)
     return
   }
   const token = req.cookies?.[SESSION_COOKIE]

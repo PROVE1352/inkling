@@ -68,14 +68,14 @@ export class RevisionMismatch extends Error {
 export class SyncApi {
   constructor(
     private server: string,
-    private cookie: string,
+    private auth: string,
     private workspaceId: string,
   ) {}
 
   changes(since: string | null): Promise<ChangesResponse> {
     const qs = since ? `?since=${encodeURIComponent(since)}` : ''
     return apiJson<ChangesResponse>(this.server, `/api/workspaces/${this.workspaceId}/sync/changes${qs}`, {
-      cookie: this.cookie,
+      auth: this.auth,
     })
   }
 
@@ -87,7 +87,7 @@ export class SyncApi {
         `/api/workspaces/${this.workspaceId}/sync/read`,
         {
           method: 'POST',
-          cookie: this.cookie,
+          auth: this.auth,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: ids.slice(i, i + 100) }),
         },
@@ -101,7 +101,7 @@ export class SyncApi {
   async write(pageId: string, markdown: string, expectedRevision: string): Promise<PageMarkdown> {
     const res = await apiFetch(this.server, `/api/pages/${pageId}/sync/md`, {
       method: 'PUT',
-      cookie: this.cookie,
+      auth: this.auth,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markdown, expectedRevision }),
     })
@@ -121,7 +121,7 @@ export class SyncApi {
   }): Promise<{ page: { id: string; parentId: string | null; title: string } } & Partial<PageMarkdown>> {
     return apiJson(this.server, `/api/workspaces/${this.workspaceId}/sync/pages`, {
       method: 'POST',
-      cookie: this.cookie,
+      auth: this.auth,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
@@ -132,7 +132,7 @@ export class SyncApi {
     const qs = expectedRevision ? `?expectedRevision=${encodeURIComponent(expectedRevision)}` : ''
     const res = await apiFetch(this.server, `/api/pages/${pageId}/sync${qs}`, {
       method: 'DELETE',
-      cookie: this.cookie,
+      auth: this.auth,
     })
     if (res.status === 204) return 'ok'
     if (res.status === 412) return 'changed'
@@ -145,7 +145,7 @@ export class SyncApi {
   async patch(pageId: string, body: { title?: string; parentId?: string | null }): Promise<void> {
     await apiJson(this.server, `/api/pages/${pageId}`, {
       method: 'PATCH',
-      cookie: this.cookie,
+      auth: this.auth,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
@@ -157,13 +157,13 @@ export class SyncApi {
     const r = await apiJson<{ file: { id: string } }>(
       this.server,
       `/api/files?workspaceId=${this.workspaceId}&pageId=${pageId}`,
-      { method: 'POST', cookie: this.cookie, body: form },
+      { method: 'POST', auth: this.auth, body: form },
     )
     return r.file.id
   }
 
   async download(fileId: string): Promise<{ data: Buffer; mime: string }> {
-    const res = await apiFetch(this.server, `/files/${fileId}`, { cookie: this.cookie })
+    const res = await apiFetch(this.server, `/files/${fileId}`, { auth: this.auth })
     if (!res.ok) throw await toError(res)
     return {
       data: Buffer.from(await res.arrayBuffer()),

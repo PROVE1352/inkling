@@ -788,3 +788,29 @@ Changed rules:
 
 ### Events and the write gate (docs/adr/1150–1151)
 - `POST /pages/:id/comments`, `PATCH /comments/:id`, `POST /pages/:id/content` and the section edit wait for a lock change, agent block or member change in progress and answer by its result (403 `PAGE_LOCKED`, 403, 403 `AGENT_BLOCKED`). If the event cannot be written the request answers 500 and nothing is saved.
+
+## v0.7.0 additions
+
+### Row templates (docs/adr/1180–1184)
+- `GET /api/pages/:id/collection/row-templates` (anyone who can see the database) → `{ templates: RowTemplateDTO[], defaultId }`; `RowTemplateDTO { id, collectionId, name, icon, title, props, isDefault, sortOrder, inputs, hasBody, updatedAt }`.
+- `POST /api/pages/:id/collection/row-templates` (database editable; edit lock → 403 `PAGE_LOCKED`) `{ name, icon?, title?, props?, fromRowId?, isDefault? }` → `{ template }`. At most 20 (400). Props by field id; dates `YYYY-MM-DD`, `today`, `today±N`; person = member id or `me`; relation/rollup and invalid values dropped.
+- `GET /api/collection-row-templates/:id` → `{ template, state }` (base64 Yjs update of the body, '' when empty). `PATCH` `{ name?, icon?, title?, props?, update? (base64 Yjs update merged into the body; damaged 400 `TEMPLATE_INVALID`, > 2 MiB 400 `TEMPLATE_TOO_LARGE`), isDefault?, sortOrder? }` → `{ template }`. `DELETE` → 204.
+- `POST /api/pages/:id/collection/rows` `{ template?: uuid|null, title?, props?, inputs?, tz? }`: omitted template → the default (none → empty row), `null` → empty row, unknown → 404 `TEMPLATE_NOT_FOUND`. Given props override the template; a typed title wins over the pattern. → `{ row, templateId, cursor? }`. Placement and edit lock as for page creation; `page_created` webhook and assignment events.
+
+### Webhooks (docs/adr/1190–1192, [WEBHOOKS.md](WEBHOOKS.md))
+- `POST /api/workspaces/:id/webhooks` (owner) `{ url, events, kind? }` → `{ webhook, secret }`. Slack/Discord are inferred from the host (`secret: null`); `kind: 'generic'` must be explicit: https, port 443, no credentials or fragment, every DNS answer public, else 400. The `whsec_…` secret is returned only here and on rotation. At most 10 (409 `LIMIT_REACHED`).
+- `WebhookDTO` adds `failingSince`, `hasSecret`, `previousSecretUntil`. `PATCH /api/webhooks/:id { events?, enabled? }` (re-enabling resets the failure state); `DELETE` → 204.
+- `POST /api/webhooks/:id/test` (5/min) → `{ ok, status, error, webhook }`, signed `type: "test"` for generic hooks.
+- `POST /api/webhooks/:id/secret { keepPrevious? = true }` (generic only, 10/min) → `{ webhook, secret }`; the old secret also signs for 24 h unless `keepPrevious: false`.
+- `GET /api/webhooks/:id/deliveries?limit=` (default 30, max 100) → `{ deliveries: [{ id, event, status, attempts, statusCode, error, durationMs, responseExcerpt (non-2xx, ≤ 200 chars), nextAttemptAt, createdAt, updatedAt, canResend }] }`.
+- `POST /api/webhooks/:id/deliveries/:deliveryId/resend` (10/min) → 202 with the same delivery id; 409 `WEBHOOK_DISABLED` / `DELIVERY_IN_FLIGHT`; 410 `DELIVERY_GONE`.
+
+### API tokens and connection ranges (docs/adr/1200–1204)
+- Every `/api` route accepts `Authorization: Bearer ink_pat_…`. Read-only tokens get 403 on non-GET. Routes in the browser-only table (ADR 1204) answer 403 to any bearer token. OAuth `ink_at_` tokens stay for `/mcp`.
+- `GET /api/tokens` → `{ tokens }`; `POST /api/tokens { name, expiresInDays: 30|90|365|null, access: 'read'|'write', range }` → 201 `{ token, secret }` (`no-store`; more than 50 → 409 `TOO_MANY_TOKENS`); `PATCH /api/tokens/:id { name?, range? }`; `DELETE /api/tokens/:id` → 204. Session only.
+- Admin (cookie): `GET /api/admin/users/:id/api-tokens`, `DELETE /api/admin/users/:id/api-tokens` → `{ revoked }`, `DELETE /api/admin/api-tokens/:id` → 204.
+- OAuth: `POST /api/oauth/authorize` takes an optional `range` (default everything); `GET /api/oauth/grants` items add `range`; `PATCH /api/oauth/grants/:id { range }` (session only).
+- `AccessRange = { kind: 'all' } | { kind: 'workspaces', workspaceIds (1–20) } | { kind: 'subtree', pageId }`. Errors: 403 `OUT_OF_RANGE`, 400 `INVALID_RANGE`, 401 for an invalid or expired token.
+
+### find_context (docs/adr/1210–1212)
+- `GET /api/context` sections add `short` (the shortest anchor tail unique in the page) and `heading` (last heading); `more` items add the same fields. Existing fields are unchanged; `read_page` and `patch_section` accept the short anchor.

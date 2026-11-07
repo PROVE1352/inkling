@@ -9,6 +9,7 @@ import type { AclState } from './aclVersion'
 import { newInviteCode } from './util'
 import { hashInviteCode, protectSecret, tryRevealSecret } from './secretsAtRest'
 import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
+import { assertWorkspaceInRange } from './tokenRange'
 import type { WorkspaceRole } from '@inkling/shared'
 
 // Both db and a transaction (tx) structurally satisfy the select method.
@@ -44,7 +45,8 @@ export function revealInviteCode(ws: { id: string; inviteCodeEnc: string | null 
 /**
  * Check workspace membership: 403 if not a member, 404 if the workspace is soft-deleted
  * (docs/adr/0910-*), 403 AGENT_BLOCKED for an agent connection blocked in this workspace
- * (docs/adr/0947-*), otherwise return the role. Every `/workspaces/:id/*` and page/file route goes
+ * (docs/adr/0947-*), 403 OUT_OF_RANGE outside a limited connection's range (docs/adr/1200-*),
+ * otherwise return the role. Every `/workspaces/:id/*` and page/file route goes
  * through here, so this one check hides a deleted workspace from all of them.
  */
 export async function requireMembership(
@@ -74,6 +76,8 @@ async function membership(
   userId: string,
   acl: 'none' | 'version' | 'full',
 ): Promise<{ role: WorkspaceRole; acl: AclState | null }> {
+  // A connection limited to other workspaces or to a subtree elsewhere (docs/adr/1200-*).
+  assertWorkspaceInRange(workspaceId, userId)
   const c = aclColumns(sql`${workspaceMembers.workspaceId}`)
   const base = {
     role: workspaceMembers.role,

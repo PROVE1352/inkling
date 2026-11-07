@@ -9,8 +9,8 @@ export interface Workspace {
 }
 
 /** GET /api/workspaces — requires auth. ApiError(401) when not logged in. */
-export async function listWorkspaces(server: string, cookie: string): Promise<Workspace[]> {
-  const data = await apiJson<{ workspaces: Workspace[] }>(server, '/api/workspaces', { cookie })
+export async function listWorkspaces(server: string, auth: string): Promise<Workspace[]> {
+  const data = await apiJson<{ workspaces: Workspace[] }>(server, '/api/workspaces', { auth })
   return data.workspaces
 }
 
@@ -30,11 +30,11 @@ export interface MeUser {
   name: string
 }
 
-/** GET /api/auth/me — the user when logged in, otherwise null. */
-export async function me(server: string, cookie: string | undefined): Promise<MeUser | null> {
-  if (!cookie) return null
+/** GET /api/auth/me — the user when logged in (session cookie or API token), otherwise null. */
+export async function me(server: string, auth: string | undefined): Promise<MeUser | null> {
+  if (!auth) return null
   try {
-    const data = await apiJson<{ user: MeUser }>(server, '/api/auth/me', { cookie })
+    const data = await apiJson<{ user: MeUser }>(server, '/api/auth/me', { auth })
     return data.user
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return null
@@ -45,10 +45,10 @@ export async function me(server: string, cookie: string | undefined): Promise<Me
 /** GET /api/workspaces/:id/export → zip binary buffer. */
 export async function exportWorkspaceZip(
   server: string,
-  cookie: string,
+  auth: string,
   workspaceId: string,
 ): Promise<Buffer> {
-  const res = await apiFetch(server, `/api/workspaces/${workspaceId}/export`, { cookie })
+  const res = await apiFetch(server, `/api/workspaces/${workspaceId}/export`, { auth })
   if (!res.ok) {
     let message = `Export failed (HTTP ${res.status})`
     try {
@@ -75,7 +75,7 @@ export interface ImportedPage {
  */
 export async function importMarkdown(
   server: string,
-  cookie: string,
+  auth: string,
   workspaceId: string,
   parentId: string | null,
   filename: string,
@@ -87,7 +87,7 @@ export async function importMarkdown(
   const data = await apiJson<{ pages: ImportedPage[] }>(
     server,
     `/api/workspaces/${workspaceId}/import${qs}`,
-    { method: 'POST', cookie, body: form },
+    { method: 'POST', auth, body: form },
   )
   return data.pages
 }

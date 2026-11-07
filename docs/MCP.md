@@ -25,7 +25,7 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 
 | Tool | Kind | Description |
 |---|---|---|
-| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, `§anchor` and version `v=…` |
+| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant" |
 | `read_page` | read | A page as Markdown. `outline=true` lists sections (`§anchor`, ~tokens, `v=`), `section=<anchor or heading>` reads one, `maxChars` caps the body |
 | `read_pages` | read | Up to 20 pages in one call within a budget (default 8,000) |
 | `list_workspaces` | read | Your workspaces |
@@ -58,8 +58,17 @@ Spend calls and tokens in this order (the server instructions say the same):
 
 0. **`get_instructions(workspaceId)`** once per workspace; the rules there are the only instructions that come
    from the notes.
-1. **`find_context(query)`** — one call, ranked sections with `page <id>; §anchor v=<version>`. Use specific words;
+1. **`find_context(query)`** — one call, ranked sections. Each result is two header lines and the text:
+   `[n] Page title › Heading` and `(page <id>; §anchor v=<version>; can: …)`. The anchor is the shortest form that is
+   unique on that page (`§decided`, or `§beta/decided` when two sections are called "Decided"); pass it as it is to
+   `read_page(section=…)` and `patch_section` — full anchors and `A › B` heading paths keep working. A page shows at
+   most two sections (the second only when it scores close to the best result); the rest are listed under
+   "Also relevant (not shown)", one line per page (`page of [n]: §a ~N tok` for a page already shown).
+   Ranking weighs rare words above common ones and query words that stand next to each other ("팀 구성") above the
+   same words apart, so put the specific word in the query; a query of only very common words returns little.
    Korean and English both work, but a question in one language does not find a page written only in the other.
+   Ranking and output: [ADR 1210](adr/1210-find-context-idf-weighted-ranking.md),
+   [1211](adr/1211-find-context-per-page-diversification.md), [1212](adr/1212-find-context-short-section-locations.md).
 2. Not enough? **`read_page(pageId, outline=true)`** then **`read_page(pageId, section=anchor)`**; several pages at
    once with **`read_pages(ids)`**. Full `read_page` and `list_pages` are for when you really need everything.
 3. **Edit** with `patch_section(pageId, section, markdown, mode, baseVersion)` using the `v=` you read. On
@@ -143,6 +152,29 @@ The consent screen offers **Read and write** (default) or **Read only**. Clients
 "this connection is read-only …" and the server instructions say so. Change access by disconnecting in
 Settings → MCP connections and connecting again.
 
+### Range: all notes, some workspaces, or one subtree
+
+The consent screen also asks what the connection may see ([ADR 1200](adr/1200-connection-range-workspaces-or-subtree.md)):
+
+- **Everything I can see** (default): every workspace you are a member of, as before.
+- **Only some workspaces**: the connection sees those workspaces only. `list_workspaces` lists them; any other
+  workspace answers `OUT_OF_RANGE`.
+- **Only one page and the pages under it**: the connection sees that page and its descendants (database rows
+  included) in that page's workspace. Search, `find_context`, `read_pages`, `changes_since`, `query_rows`, backlinks,
+  the inbox and every list leave everything else out; a page outside answers "not found". New pages can only be
+  created under the subtree, moves cannot take a page out of it or bring one in, and workspace templates are not
+  available (`OUT_OF_RANGE`). The range follows the root page: a page someone moves under it comes into range, a
+  page moved away leaves it. If the root page is deleted for good, the connection sees nothing (never everything).
+
+The range is enforced by the same checks the web app uses (every tool calls the REST API), and the server
+instructions tell the model about it. Change it any time in Settings → Connections → **Change range**; the next
+request uses the new range, no reconnect needed. Workspace instruction pages (`get_instructions`, the `applies:`
+line) still reach a subtree connection even when the instruction page itself lies outside the subtree: they are
+the workspace's rules for agents.
+
+Links: a page in range that links to a page outside shows the link text as it is stored in the page; the current
+title, id and content of the target are not looked up (the same rule as links to someone else's private page).
+
 ### Attribution
 
 Edits, comments and created pages made through MCP are labelled "<you> (via <app name>)" in version history,
@@ -151,10 +183,15 @@ connection named exactly like another member of a workspace is refused in that w
 unless it is a common app name. An append by an agent adds an "AI edit" snapshot (at most one per page every 10 minutes); a
 replace keeps the "Before AI edit" snapshot.
 
-## Disconnecting
+## Disconnecting and API tokens
 
 On the web, open the command palette (⌘P, or Ctrl+P on Windows and Linux; ⌘K is search) → **Manage MCP connections** (`/settings/connections`), or Settings → Connections → **Manage connections**, then **Disconnect** next to the app.
 The access and refresh tokens are invalidated immediately. To remove the Claude Code side, run `claude mcp remove inkling`.
+
+Scripts that call the REST API directly (not MCP) use a personal API token from the same screen
+(`Authorization: Bearer ink_pat_…`, [ADR 1201](adr/1201-personal-api-tokens-for-rest.md)). It takes the same read-only /
+read and write choice and the same range. MCP access tokens (`ink_at_…`) still only work at `/mcp`, and API tokens
+do not work at `/mcp`.
 
 ## Operations notes
 
@@ -166,4 +203,6 @@ The access and refresh tokens are invalidated immediately. To remove the Claude 
   `0028_agent_context` adds the section index (`page_chunks`, `page_chunk_index`), the change feed (`page_changes`)
   and `via_client` columns; existing pages are indexed by a background backfill after boot (50 pages per batch).
 - **Service worker**: `/mcp`, `/.well-known` and `/oauth/(token|register)` are excluded from the SPA fallback. `/oauth/authorize` is the SPA consent screen.
-- Cleanup: housekeeping (hourly) deletes expired authorization codes and connections whose refresh tokens have also expired.
+- Cleanup: housekeeping (hourly) deletes expired authorization codes and connections whose refresh tokens have also expired. Expired API tokens are deleted by the same job.
+- **Migration** for ranges and API tokens: adds `range_kind`, `range_workspace_ids`, `range_page_id` to `oauth_codes` and
+  `oauth_grants` (null = everything, so existing connections are unchanged) and the `api_tokens` table.

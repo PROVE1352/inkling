@@ -10,6 +10,7 @@ import { reserveCursor } from './changeLog'
 import { diffText } from './diff'
 import type { WorkBudget } from './diff'
 import { estimateTokens, truncateToTokens } from './tokens'
+import { pageInRangeSql } from '../tokenRange'
 
 /**
  * Change feed reader: `changes_since(cursor)` (docs/adr/0932-*, diff: 0933-*).
@@ -494,6 +495,8 @@ async function loadRows(userId: string, from: number, to: number, workspaceId: s
               WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)}
                 AND ${agentAllowedSql(sql`m.workspace_id`)})
        AND (c.scope = 'shared' OR c.owner_id = ${userId})
+       -- a range-limited connection sees only changes of pages in its range (docs/adr/1200-*)
+       AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, userId)}
      ORDER BY c.seq
      LIMIT ${FEED_MAX_ROWS + 1}
   `)) as unknown as (Omit<FeedRow, 'seq' | 'changedAt'> & { seq: string; changedAt: number })[]

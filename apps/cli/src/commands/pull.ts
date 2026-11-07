@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { boolFlag, strFlag } from '../args'
 import { exportWorkspaceZip, listWorkspaces, selectWorkspace } from '../api'
-import { DEFAULT_SUBDIR, loadConfig, saveConfig } from '../config'
+import { credentialOf, DEFAULT_SUBDIR, loadConfig, saveConfig } from '../config'
 import { ApiError } from '../http'
 import { isInside, resolveTarget } from '../paths'
 
@@ -73,8 +73,9 @@ async function countFiles(dir: string): Promise<number> {
 /** inklingctl pull [--workspace X] [--vault P] [--subdir S] [--dry-run] */
 export async function cmdPull(flags: Record<string, string | boolean>): Promise<void> {
   const config = await loadConfig()
-  if (!config.cookie) {
-    throw new Error('Not logged in. Run `inklingctl login` first')
+  const auth = credentialOf(config)
+  if (!auth) {
+    throw new Error('Not logged in. Run `inklingctl login` first, or set INKLING_TOKEN')
   }
 
   const vault = strFlag(flags, 'vault') ?? config.vault
@@ -87,10 +88,10 @@ export async function cmdPull(flags: Record<string, string | boolean>): Promise<
   // 1) Pick the workspace
   let workspaces
   try {
-    workspaces = await listWorkspaces(config.server, config.cookie)
+    workspaces = await listWorkspaces(config.server, auth)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      throw new Error('Session expired. Run `inklingctl login` again')
+      throw new Error('Session expired or token revoked. Run `inklingctl login` again (or check INKLING_TOKEN)')
     }
     throw err
   }
@@ -104,7 +105,7 @@ export async function cmdPull(flags: Record<string, string | boolean>): Promise<
   process.stderr.write(`Target: ${targetDir}\n`)
 
   // 3) Download the export zip
-  const buffer = await exportWorkspaceZip(config.server, config.cookie, ws.id)
+  const buffer = await exportWorkspaceZip(config.server, auth, ws.id)
 
   // The staging path is a hidden name under subdir (always inside the vault).
   const token = randomBytes(6).toString('hex')

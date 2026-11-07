@@ -1,20 +1,21 @@
 import { listWorkspaces } from '../api'
-import { loadConfig } from '../config'
+import { credentialOf, loadConfig } from '../config'
 import { ApiError } from '../http'
 
 /** inklingctl ls — list workspaces (id, name, role). */
 export async function cmdLs(): Promise<void> {
   const config = await loadConfig()
-  if (!config.cookie) {
-    throw new Error('Not logged in. Run `inklingctl login` first')
+  const auth = credentialOf(config)
+  if (!auth) {
+    throw new Error('Not logged in. Run `inklingctl login` first, or set INKLING_TOKEN')
   }
 
   let workspaces
   try {
-    workspaces = await listWorkspaces(config.server, config.cookie)
+    workspaces = await listWorkspaces(config.server, auth)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      throw new Error('Session expired. Run `inklingctl login` again')
+      throw new Error('Session expired or token revoked. Run `inklingctl login` again (or check INKLING_TOKEN)')
     }
     throw err
   }

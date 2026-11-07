@@ -17,6 +17,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+import { rangeColumns } from './schema-range'
 
 /** Stored full-text vector (section index, docs/adr/0926-*). */
 const tsvector = customType<{ data: string }>({
@@ -428,6 +429,34 @@ export const collectionViews = pgTable('collection_views', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/** Row templates of a collection (docs/adr/1180-*): never pages, so no index or list sees them. */
+export const collectionRowTemplates = pgTable(
+  'collection_row_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    collectionId: uuid('collection_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    icon: text('icon'),
+    /** Title pattern with template variables */
+    title: text('title').notNull().default(''),
+    /** Property defaults by field id (relative forms: today+7, me) */
+    props: jsonb('props').notNull().default(sql`'{}'::jsonb`),
+    /** Body: Yjs V1 update of the 'document' fragment; null = empty */
+    state: bytea('state'),
+    isDefault: boolean('is_default').notNull().default(false),
+    sortOrder: doublePrecision('sort_order').notNull().default(0),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('collection_row_templates_coll_idx').on(t.collectionId, t.sortOrder),
+    uniqueIndex('collection_row_templates_default_uq').on(t.collectionId).where(sql`${t.isDefault}`),
+  ],
+)
+
 /** Inline comments: threads anchored to a block. parentId=null is a thread root, otherwise a reply */
 export const comments = pgTable(
   'comments',
@@ -790,6 +819,8 @@ export const oauthCodes = pgTable('oauth_codes', {
   redirectUri: text('redirect_uri').notNull(),
   codeChallenge: text('code_challenge').notNull(),
   scope: text('scope'),
+  // Connection range chosen on the consent screen, copied to the grant (docs/adr/1200-*).
+  ...rangeColumns(),
   resource: text('resource'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -811,6 +842,8 @@ export const oauthGrants = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     scope: text('scope'),
+    // What this connection may see (docs/adr/1200-*); range_kind null = 'all' (grants made before it).
+    ...rangeColumns(),
     accessHash: text('access_hash').notNull().unique(),
     accessExpiresAt: timestamp('access_expires_at', { withTimezone: true }).notNull(),
     refreshHash: text('refresh_hash').notNull().unique(),
@@ -844,3 +877,5 @@ export * from './schema-titles'
 export * from './schema-split'
 // OpenID Connect identities and pending sign-ins (docs/adr/1160-*, 1161-*)
 export * from './schema-identities'
+// Personal API tokens (docs/adr/1201-*)
+export * from './schema-apiTokens'

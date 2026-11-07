@@ -10,6 +10,7 @@ import { requireMembership } from '../helpers'
 import { KINDS, typesForInbox } from '../notify/kinds'
 import type { NotifyKind } from '../notify/kinds'
 import { liveWorkspace } from '../workspaceLive'
+import { currentRange, pageInRangeSql } from '../tokenRange'
 
 /**
  * Agent inbox (docs/adr/1003-*): the notifications addressed to the connecting person that an
@@ -54,6 +55,7 @@ export async function readInbox(
     n.user_id = ${userId} AND n.acked_at IS NULL AND n.type IN (${typeList})
     ${q.workspaceId ? sql`AND coalesce(n.workspace_id, p.workspace_id) = ${q.workspaceId}` : sql``}
     AND (n.page_id IS NULL OR (p.id IS NOT NULL AND p.deleted_at IS NULL AND (p.scope = 'shared' OR p.created_by = ${userId})))
+    AND (n.page_id IS NULL OR ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, userId)})
     AND EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = coalesce(n.workspace_id, p.workspace_id) AND m.user_id = ${userId})
     AND ${liveWorkspace(sql`coalesce(n.workspace_id, p.workspace_id)`)}
     AND ${agentAllowedSql(sql`coalesce(n.workspace_id, p.workspace_id)`)}`
@@ -144,9 +146,16 @@ export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
     const types = sql.join(typesForInbox([...INBOX_KINDS]).map((t) => sql`${t}`), sql`, `)
     const byIds = b.ids?.length ? sql`seq = ANY(${`{${b.ids.join(',')}}`}::bigint[])` : sql`false`
     const byCursor = b.cursor ? sql`seq <= ${b.cursor}::bigint` : sql`false`
+    // A range-limited connection acknowledges only items it could read (docs/adr/1200-*).
+    const inRange = currentRange(user.id)
+      ? sql`AND seq IN (SELECT n.seq FROM notifications n LEFT JOIN pages p ON p.id = n.page_id
+             WHERE n.user_id = ${user.id}
+               AND ${agentAllowedSql(sql`coalesce(n.workspace_id, p.workspace_id)`)}
+               AND (n.page_id IS NULL OR ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, user.id)}))`
+      : sql``
     const rows = (await db.execute(sql`
       UPDATE notifications SET acked_at = now()
-       WHERE user_id = ${user.id} AND acked_at IS NULL AND type IN (${types}) AND (${byIds} OR ${byCursor})
+       WHERE user_id = ${user.id} AND acked_at IS NULL AND type IN (${types}) AND (${byIds} OR ${byCursor}) ${inRange}
       RETURNING seq
     `)) as unknown as { seq: string }[]
     return { acked: rows.length }

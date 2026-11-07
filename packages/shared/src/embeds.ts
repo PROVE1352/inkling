@@ -357,7 +357,8 @@ export interface LinkPreviewDTO {
   favicon: string | null
 }
 
-export type WebhookKind = 'slack' | 'discord'
+/** generic: signed JSON events to any public https endpoint (docs/adr/1190-*, docs/WEBHOOKS.md). */
+export type WebhookKind = 'slack' | 'discord' | 'generic'
 /**
  * review_due: a once-a-day digest of documents past their review date (docs/adr/0952-*).
  * assigned: a member was made a document owner or put in a person cell; agent_digest: a once-a-day
@@ -379,4 +380,63 @@ export interface WebhookDTO {
   lastError: string | null
   lastSuccessAt: string | null
   createdAt: string
+  /** First failed event of the current failure streak (null when the last event went through). */
+  failingSince: string | null
+  /** generic hooks: a signing secret exists (its value is shown only on create and rotation). */
+  hasSecret: boolean
+  /** generic hooks: the secret before the last rotation is still signed with until then. */
+  previousSecretUntil: string | null
+}
+
+/**
+ * POST /api/workspaces/:id/webhooks and POST /api/webhooks/:id/secret: the signing secret of a
+ * generic hook, returned once (docs/adr/1190-*).
+ */
+export interface WebhookSecretDTO {
+  webhook: WebhookDTO
+  secret: string | null
+}
+
+/** One recent delivery of a hook (docs/adr/1191-*). `id` is X-Inkling-Delivery (null for test events). */
+export interface WebhookDeliveryDTO {
+  id: string | null
+  event: WebhookEvent | 'test'
+  status: 'ok' | 'retrying' | 'failed'
+  attempts: number
+  statusCode: number | null
+  error: string | null
+  durationMs: number | null
+  responseExcerpt: string | null
+  nextAttemptAt: string | null
+  createdAt: string
+  updatedAt: string
+  /** The outbox row still exists, so it can be sent again (done: 7 days, failed: 30 days). */
+  canResend: boolean
+}
+
+/**
+ * Body of a generic webhook delivery, version 1 (docs/WEBHOOKS.md). Fields are only added within a
+ * version; a removal or a change of meaning bumps `version`.
+ */
+export interface WebhookPayloadV1 {
+  version: 1
+  /** Delivery id, equal to the X-Inkling-Delivery header; stable across retries and resends. */
+  id: string
+  type: WebhookEvent | 'test'
+  /** When the event was queued (ISO 8601). */
+  occurredAt: string
+  workspace: { id: string; name: string }
+  /** Who caused the event; null for reminders, digests and test events. */
+  actor: { id: string; name: string; via: string | null } | null
+  page?: { id: string; title: string; url: string | null }
+  /** comment / mention: the comment (its text is not sent; read it through the API). */
+  comment?: { id: string }
+  /** mention: the mentioned members; assigned: the assigned members. */
+  users?: { id: string; name: string }[]
+  /** assigned: the person field's name, or 'owner'. */
+  field?: string | null
+  /** review_due / agent_digest: the shared pages of the digest (at most 50) and their total. */
+  pages?: { id: string; title: string; url: string | null; owner?: { id: string; name: string } | null }[]
+  total?: number
+  url?: string | null
 }

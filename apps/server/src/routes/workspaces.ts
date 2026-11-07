@@ -176,6 +176,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const result: WorkspaceDTO[] = rows.map((r) =>
       toWorkspaceDTO(r, r.role, r.policy, twoFactorStatus(r.twoFactorRequiredAt, r.twoFactorGraceDays, satisfied)),
     )
+    // Tokens (MCP, API) never see invite codes: joining is browser-only (docs/adr/1201-*).
+    if (req.authVia === 'bearer') for (const w of result) w.inviteCode = ''
     return { workspaces: result }
   })
 

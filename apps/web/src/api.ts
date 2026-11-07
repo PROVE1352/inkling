@@ -1924,6 +1924,8 @@ export interface OAuthGrantDTO {
   clientName: string
   /** 'read' = read-only connection; absent on older servers (= full access) */
   access?: 'read' | 'write'
+  /** What the connection may see (docs/adr/1200-*); absent on older servers (= everything) */
+  range?: import('@inkling/shared').AccessRangeView
   createdAt: string
   lastUsedAt: string | null
 }
@@ -1940,6 +1942,8 @@ export interface OAuthAuthorizeInput {
   decision: 'allow' | 'deny'
   /** The user's consent choice; the server never grants more than the client requested */
   access?: 'read' | 'write'
+  /** What the connection may see (docs/adr/1200-*); absent = everything */
+  range?: import('@inkling/shared').AccessRange
 }
 
 // App name for the consent screen — includes upfront client_id/redirect_uri validation (400 on failure).
@@ -2011,7 +2015,7 @@ export function useSharedList(wsId: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Link preview cards + workspace webhooks (Slack / Discord)
+// Link preview cards + workspace webhooks (Slack / Discord / generic JSON)
 // ---------------------------------------------------------------------------
 
 export function useLinkPreview(url: string | undefined) {
@@ -2042,8 +2046,8 @@ export function useWebhooks(wsId: string, enabled = true) {
 export function useCreateWebhook(wsId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { url: string; events: WebhookEventType[] }) =>
-      api<{ webhook: WebhookDTOType }>(`/api/workspaces/${wsId}/webhooks`, jsonBody(input)),
+    mutationFn: (input: { url: string; events: WebhookEventType[]; kind?: 'generic' }) =>
+      api<{ webhook: WebhookDTOType; secret: string | null }>(`/api/workspaces/${wsId}/webhooks`, jsonBody(input)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['webhooks', wsId] }),
   })
 }
@@ -2073,7 +2077,40 @@ export function useTestWebhook(wsId: string) {
         `/api/webhooks/${id}/test`,
         { method: 'POST' },
       ),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['webhooks', wsId] }),
+    onSettled: (_d, _e, id) => {
+      void qc.invalidateQueries({ queryKey: ['webhooks', wsId] })
+      void qc.invalidateQueries({ queryKey: ['webhookDeliveries', id] })
+    },
+  })
+}
+
+/** Generic hooks: a new signing secret, returned once (docs/adr/1190-*). */
+export function useRotateWebhookSecret(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, keepPrevious }: { id: string; keepPrevious: boolean }) =>
+      api<{ webhook: WebhookDTOType; secret: string }>(`/api/webhooks/${id}/secret`, jsonBody({ keepPrevious })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['webhooks', wsId] }),
+  })
+}
+
+/** Recent deliveries of a hook (docs/adr/1191-*); refreshed while one is waiting for a retry. */
+export function useWebhookDeliveries(hookId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['webhookDeliveries', hookId],
+    queryFn: () =>
+      api<{ deliveries: import('@inkling/shared').WebhookDeliveryDTO[] }>(`/api/webhooks/${hookId}/deliveries`).then((r) => r.deliveries),
+    enabled,
+    refetchInterval: (q) => (q.state.data?.some((d) => d.status === 'retrying') ? 5_000 : false),
+  })
+}
+
+export function useResendWebhookDelivery(hookId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (deliveryId: string) =>
+      api<{ ok: boolean }>(`/api/webhooks/${hookId}/deliveries/${deliveryId}/resend`, { method: 'POST' }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['webhookDeliveries', hookId] }),
   })
 }
 

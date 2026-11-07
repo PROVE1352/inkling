@@ -5,8 +5,10 @@ import path from 'node:path'
 /** Schema of the ~/.inkling.json config file. */
 export interface InklingConfig {
   server: string
-  /** The full saved session cookie string ("inkling_sid=..."). */
+  /** The full saved session cookie string ("inkling_sid=..."), from `inklingctl login`. */
   cookie?: string
+  /** A personal API token (`ink_pat_…`), from `inklingctl login --token`. Used before the cookie. */
+  token?: string
   vault?: string
   subdir?: string
 }
@@ -41,9 +43,27 @@ export async function loadConfig(): Promise<InklingConfig> {
   return {
     server: typeof obj.server === 'string' && obj.server ? obj.server : DEFAULT_SERVER,
     cookie: typeof obj.cookie === 'string' ? obj.cookie : undefined,
+    token: typeof obj.token === 'string' ? obj.token : undefined,
     vault: typeof obj.vault === 'string' ? obj.vault : undefined,
     subdir: typeof obj.subdir === 'string' ? obj.subdir : undefined,
   }
+}
+
+/**
+ * What authenticates requests, first match wins: the INKLING_TOKEN environment variable, the saved
+ * API token, the saved session cookie. Undefined = not logged in.
+ */
+export function credentialOf(config: InklingConfig): string | undefined {
+  const env = process.env.INKLING_TOKEN?.trim()
+  return env || config.token || config.cookie || undefined
+}
+
+/** Where the credential came from, for `inklingctl status`. */
+export function credentialSource(config: InklingConfig): 'env' | 'token' | 'cookie' | null {
+  if (process.env.INKLING_TOKEN?.trim()) return 'env'
+  if (config.token) return 'token'
+  if (config.cookie) return 'cookie'
+  return null
 }
 
 /** Save the config with mode 0600 (protects the sensitive cookie). */

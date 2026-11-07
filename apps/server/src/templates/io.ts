@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
   collectionFieldSchema,
   pagePropertySchema,
+  ROW_TEMPLATES_MAX,
   templateCategorySchema,
   TEMPLATE_MAX_HEIGHT,
   TEMPLATE_MAX_PAGES,
@@ -19,6 +20,8 @@ import type { AnyBlock } from '../md/convert'
 import { buildTitleResolver, readZipEntryCapped } from '../md/importer'
 import { parseFrontmatter } from '../md/syncMd'
 import { assertTreeLimits, walk } from './structure'
+import { sanitizeTemplateProps } from '../rowTemplates'
+import type { TRowTemplate } from '../rowTemplates'
 import type { NodeKind, TNode } from './structure'
 
 /**
@@ -140,6 +143,23 @@ export async function exportTemplate(
           : f,
       )
       out.views = (node.views ?? []).map((v) => ({ name: v.name, type: v.type, config: v.config }))
+      // Row templates (docs/adr/1183-*): one Markdown body each, next to the page files.
+      if (node.rowTemplates?.length) {
+        out.rowTemplates = await Promise.all(
+          node.rowTemplates.map(async (t, i) => {
+            const file = `pages/${ref}-t${i}.md`
+            zip.file(file, await docMarkdown(t.state, titles))
+            return {
+              name: t.name,
+              ...(t.icon ? { icon: t.icon } : {}),
+              title: t.title,
+              props: t.props,
+              ...(t.isDefault ? { default: true } : {}),
+              file,
+            }
+          }),
+        )
+      }
     }
     if (node.props && parent?.kind === 'collection') {
       const rel = new Set((parent.fields ?? []).filter((f) => f.type === 'relation').map((f) => f.id))
@@ -184,8 +204,27 @@ interface ManifestNode {
   properties?: z.infer<typeof pagePropertySchema>[]
   fields?: unknown[]
   views?: { name: string; type: z.infer<typeof viewTypeSchema>; config?: unknown }[]
+  rowTemplates?: ManifestRowTemplate[]
   children: ManifestNode[]
 }
+
+interface ManifestRowTemplate {
+  name: string
+  icon?: string | null
+  title?: string
+  props?: Record<string, unknown>
+  default?: boolean
+  file?: string
+}
+
+const manifestRowTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  icon: z.string().max(16).nullish(),
+  title: z.string().max(300).optional(),
+  props: z.record(z.string().max(40), z.unknown()).optional(),
+  default: z.boolean().optional(),
+  file: z.string().max(200).optional(),
+})
 
 const manifestNodeSchema: z.ZodType<ManifestNode> = z.lazy(() =>
   z.object({
@@ -201,6 +240,7 @@ const manifestNodeSchema: z.ZodType<ManifestNode> = z.lazy(() =>
       .array(z.object({ name: z.string().trim().min(1).max(60), type: viewTypeSchema, config: z.unknown().optional() }))
       .max(20)
       .optional(),
+    rowTemplates: z.array(manifestRowTemplateSchema).max(ROW_TEMPLATES_MAX).optional(),
     children: z.array(manifestNodeSchema).max(TEMPLATE_MAX_PAGES),
   }),
 )
@@ -377,6 +417,27 @@ export async function importTemplateFile(args: {
         const c = viewConfigSchema.safeParse(v.config ?? {})
         return { name: v.name, type: v.type, config: c.success ? c.data : {}, sortOrder: i * 1000 }
       })
+      if (n.rowTemplates?.length) {
+        const list: TRowTemplate[] = []
+        let seenDefault = false
+        for (const t of n.rowTemplates) {
+          if (t.file && !/^pages\/[^/]+\.md$/.test(t.file)) throw invalid('The template manifest is not valid')
+          const md = t.file ? await read(t.file) : null
+          // Person defaults other than 'me' name people of another workspace: dropped.
+          const props = sanitizeTemplateProps(node.fields, t.props)
+          for (const f of node.fields) if (f.type === 'person' && props[f.id] !== 'me') delete props[f.id]
+          list.push({
+            name: t.name,
+            icon: t.icon ?? null,
+            title: t.title ?? '',
+            props,
+            ...(md ? { state: await mdToState(parseFrontmatter(md).body, resolve) } : {}),
+            isDefault: t.default === true && !seenDefault,
+          })
+          if (t.default) seenDefault = true
+        }
+        node.rowTemplates = list
+      }
     }
     if (n.props && parent?.kind === 'collection') {
       const fields = new Map((parent.fields ?? []).map((f) => [f.id, f]))

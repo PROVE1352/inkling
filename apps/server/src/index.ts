@@ -45,6 +45,8 @@ import { registerActivityRoutes } from './routes/activity'
 import { registerInboxRoutes } from './routes/inbox'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
+import { registerApiTokenRoutes } from './routes/apiTokens'
+import { rateLimitKey } from './rateLimitKey'
 import { registerPageContentRoutes } from './routes/pageContent'
 import { registerEditLockRoutes } from './routes/editLock'
 import { registerContextRoutes } from './routes/context'
@@ -333,6 +335,8 @@ async function main(): Promise<void> {
     // handler's AppError branch answer 429 + the {error:{code,message}} app format.
     errorResponseBuilder: () =>
       new AppError(429, 'RATE_LIMITED', RATE_LIMIT_MESSAGE),
+    // Per API token, not per IP, for personal API tokens (docs/adr/1201-*); everyone else by IP.
+    keyGenerator: rateLimitKey,
   })
 
   // Brute-force protection: IPs banned for repeated failures get a 429 on auth/token paths before any expensive work.
@@ -471,6 +475,8 @@ async function main(): Promise<void> {
       await registerPublicRoutes(api)
       // MCP connector consent screen and connected-app management (session cookie only)
       await registerOAuthApiRoutes(api)
+      // Personal API tokens for the REST API (docs/adr/1201-*; session cookie only)
+      await registerApiTokenRoutes(api)
       // Plugin API v0 (experimental: plugins) — docs/PLUGINS.md
       if (isExperimentalEnabled('plugins')) await registerPluginRoutes(api)
       // Dataview-style Query block (stable) — docs/QUERY.md

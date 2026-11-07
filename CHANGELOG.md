@@ -7,6 +7,12 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+### Changed
+- Easier-to-read pages: more space above headings than below (H1 32 px, H2 24 px, H3 16 px; was 14 px for all), so
+  sections read as blocks; headings at weight 600 instead of 700; body text on dark one step brighter (#f0efed);
+  Korean lines wrap between words instead of mid-word. Public pages follow the same rules. Measured against a Notion
+  page with the same 16/24 px body text, where only these differed.
+
 ## [0.6.0] - 2026-11-07
 
 Database migration 0036 (sign-in identities, log rotation, public-link expiry and passwords) only adds tables and

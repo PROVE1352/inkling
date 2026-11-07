@@ -259,6 +259,11 @@ select:disabled {
   background-color: transparent;
   color: var(--color-ink);
 }
+/* Body text on dark is a step brighter than the UI ink (#e6e6e4), as in Notion (#f0efed): long reading
+   is crisper, menus and labels stay as they are. */
+.dark .bn-container .bn-editor {
+  color: #f0efed;
+}
 
 /* Document header (cover, icon, title, notices) starts where the body text starts: the editor keeps
    a 54px side gutter for the block handles (⠿ / +, BlockNote's .bn-editor padding-inline), so the
@@ -270,15 +275,33 @@ select:disabled {
 /* Heading scale (all widths): BlockNote's H1 is 3em (48px) — larger than the page title (36px).
    One step down per level, close to Obsidian's default theme: H1 1.75em, H2 1.4em, H3 1.2em.
    --prev-level mirrors --level, or a heading turned back into a paragraph animates from the wrong size. */
+/* Room above a heading, little below it, so a heading belongs to the text that follows and sections read
+   as blocks (Notion and Obsidian leave about 1.5–2 lines above). Measured against Notion: 14px made
+   sections run together. A heading at the very top of the page does not need the space. */
 .bn-editor [data-content-type='heading'] {
-  padding-top: 14px;
+  padding-top: 32px;
   --level: 1.75em;
 }
 .bn-editor [data-content-type='heading'][data-level='2'] {
+  padding-top: 24px;
   --level: 1.4em;
 }
 .bn-editor [data-content-type='heading'][data-level='3'] {
+  padding-top: 16px;
   --level: 1.2em;
+}
+.bn-editor > .bn-block-group > .bn-block-outer:first-child > .bn-block > [data-content-type='heading'] {
+  padding-top: 3px;
+}
+/* Headings step by size, not by weight: 600 like Notion and Obsidian (700 made a page look loud). */
+.bn-editor [data-content-type='heading'] :is(h1, h2, h3, h4, h5, h6),
+.bn-editor [data-content-type='heading'] .bn-inline-content {
+  font-weight: 600;
+}
+/* Korean wraps at word boundaries instead of mid-word ("있습니|다"); long URLs still break. */
+.bn-editor .bn-inline-content {
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .bn-editor [data-prev-level='1'] {
   --prev-level: 1.75em;
@@ -332,13 +355,15 @@ select:disabled {
     display: none;
   }
   .bn-editor [data-content-type='heading'] {
-    padding-top: 12px;
+    padding-top: 24px;
     --level: 1.5em;
   }
   .bn-editor [data-content-type='heading'][data-level='2'] {
+    padding-top: 18px;
     --level: 1.3em;
   }
   .bn-editor [data-content-type='heading'][data-level='3'] {
+    padding-top: 12px;
     --level: 1.15em;
   }
   .bn-editor [data-prev-level='1'] {
@@ -376,16 +401,23 @@ select:disabled {
   color: var(--color-ink);
   font-size: 1rem;
   line-height: 1.7;
-  word-break: break-word;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+.dark .nd-public-body {
+  color: #f0efed;
 }
 .nd-public-body h1,
 .nd-public-body h2,
 .nd-public-body h3,
 .nd-public-body h4 {
-  color: var(--color-ink);
-  font-weight: 700;
+  color: inherit;
+  font-weight: 600;
   line-height: 1.3;
-  margin: 1.4em 0 0.5em;
+  margin: 1.8em 0 0.4em;
+}
+.nd-public-body > :first-child {
+  margin-top: 0;
 }
 .nd-public-body h1 {
   font-size: 1.6rem;

@@ -47,6 +47,8 @@ export const workspaceAuditEvents = pgTable(
     index('workspace_audit_ws_id_idx').on(t.workspaceId, t.id),
     index('workspace_audit_ws_action_idx').on(t.workspaceId, t.action, t.id),
     index('workspace_audit_created_idx').on(t.createdAt),
+    // Hourly retention purge walks each workspace's old rows by range (docs/PERFORMANCE.md).
+    index('workspace_audit_ws_created_idx').on(t.workspaceId, t.createdAt),
   ],
 )
 

@@ -1,27 +1,42 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
-import { pageChanges, pages } from '../db/schema'
-import { currentEditActor } from './attribution'
+import { pageChanges } from '../db/schema'
+import { drainOutbox, enqueue, failRow, kickOutbox, OUTBOX_ORIGIN, registerOutboxHandler } from '../outbox'
+import type { Exec, RetryPolicy } from '../outbox'
+import { currentEditActor, liveEditors } from './attribution'
 import { notifyPageEdited } from '../notify/producers'
 import type { EditActor } from './attribution'
 import { computeSectionChanges } from './sectionChanges'
-import type { SectionChange } from './sectionChanges'
+import type { SectionChange, SectionChangeKind } from './sectionChanges'
 
 /**
- * Change feed writer (docs/adr/0932-*).
+ * Change feed writer (docs/adr/0932-*, ordering and outbox: docs/adr/1080-*).
  *
  * Contract with the section index (context/chunkIndex.ts): after a page's chunks are rewritten,
- * reindexPageChunks calls `recordSectionChanges` once with the section lists before and after.
- * Page-level events (title, parent, trash, restore, visibility, duplicate) come from the page
- * routes through `logPageEvents`.
+ * reindexPageChunks calls `recordSectionChanges` once with the section lists before and after, in
+ * the transaction that rewrote the chunks. Page-level events (title, parent, trash, restore,
+ * visibility, duplicate) come from the page routes through `logPageEvents`.
  *
- * Ordering: every write goes through one process-wide promise chain and each statement runs in
- * its own autocommit, so seq order == commit order and a reader that saw seq N has seen every
- * row ≤ N (no cursor gaps). The chain is in-memory, like the collab state: single instance.
+ * Write path: the caller only computes the section diff (CPU) and inserts ONE outbox row
+ * (topic 'change'). Nothing waits for other writers.
  *
- * Merge: consecutive edits of the same section within MERGE_WINDOW_MS collapse into one row
- * (first before, newest after, new seq) — but only rows above the high-water mark, the highest
- * seq ever handed out in a cursor, so a merge never rewrites a row an agent has already passed.
+ * Consumer (`runChangeBatch`): under a transaction-scoped advisory lock — one writer of
+ * page_changes per database, whichever process gets it — it takes the committed pending rows in
+ * outbox-id order, assigns seqs (bigserial), applies the merge rule and deletes the outbox rows, all
+ * in one transaction. Because seqs are only handed out while holding the lock and the lock is
+ * released after the commit is visible, seq order == commit order: a reader that saw seq N has
+ * seen every row ≤ N. `reserveCursor` takes the same lock, so a merge never races a reservation.
+ *
+ * Merge: consecutive edits of the same section within MERGE_WINDOW_MS collapse into one row (first
+ * before, newest after, new seq) — but only rows above the high-water mark (change_feed_state, the
+ * highest seq ever handed out in a cursor), so a merge never rewrites a row an agent has already
+ * passed. `changed_at` is the log time (the consumer's clock after taking the lock), so it grows
+ * with seq like before.
+ *
+ * Lag: changes_since drains pending rows before it reserves its end (`reserveCursor`), so a change
+ * whose write committed before the call is in that call's window. Other readers of page_changes
+ * (activity, provenance badge, review) see it after the background consumer: kicked in-process on
+ * commit, NOTIFY across processes, OUTBOX_POLL_MS (1 s) poll as the ceiling.
  */
 
 export interface SectionState {
@@ -54,54 +69,76 @@ export const MERGE_WINDOW_MS = 10 * 60_000
 const INSERT_BATCH = 500
 const MAX_VIA_CHARS = 80
 const MAX_TITLE_BYTES = 1024
+/** Lines with "@" kept for agent-written plain-text mentions (notify/producers.ts). */
+const MAX_MENTION_TEXT = 8 * 1024
+
+/** pg_advisory_xact_lock key of the single page_changes writer (any constant unique in the app). */
+export const CHANGE_LOG_LOCK = 932_1080
+/** Outbox rows per consumer transaction. */
+export const CHANGE_BATCH = 200
+/** Consumer passes changes_since runs before reserving (each ≤ CHANGE_BATCH rows). */
+const RESERVE_DRAIN_PASSES = 20
+const CHANGE_RETRY: RetryPolicy = { baseMs: 500, factor: 2, capMs: 60_000, maxAttempts: 10 }
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 // ---------------------------------------------------------------------------
-// serialisation + high-water mark
+// outbox payloads
 // ---------------------------------------------------------------------------
 
-let chain: Promise<unknown> = Promise.resolve()
-
-/** Run `fn` after every change-log write queued before it (process-wide). */
-export function serialized<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(fn)
-  chain = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  return run
+interface StoredChange {
+  kind: SectionChangeKind
+  anchor: string
+  prevAnchor: string | null
+  headingPath: string
+  /** Capped like the stored row: null when absent OR too large (then *Large is true). */
+  before: string | null
+  after: string | null
+  beforeLarge: boolean
+  afterLarge: boolean
+  /** Agent writes only: the "@" lines of before/after, for text mentions. */
+  mBefore?: string
+  mAfter?: string
 }
 
-/** Highest seq ever included in a cursor; null until first use after boot. */
-let highWater: number | null = null
+type ChangeOp =
+  | {
+      op: 'sections'
+      pageId: string
+      workspaceId: string
+      scope: string
+      ownerId: string | null
+      actor: EditActor | null
+      /** People typing in the page at log time (excluded from "page you follow changed"). */
+      typing: string[]
+      changes: StoredChange[]
+    }
+  | {
+      op: 'page_added'
+      pageId: string
+      workspaceId: string
+      scope: string
+      ownerId: string | null
+      actor: EditActor | null
+      text: string | null
+    }
+  | {
+      op: 'events'
+      workspaceId: string
+      actor: EditActor | null
+      events: { pageId: string; kind: PageEventKind; before: string | null; after: string | null; scope: string; ownerId: string | null }[]
+    }
+  | { op: 'relabel'; pageIds: string[]; via: string; userId: string }
 
-async function maxSeq(): Promise<{ seq: number; at: number }> {
-  const rows = (await db.execute(
-    sql`SELECT coalesce(max(seq), 0)::text AS m, (extract(epoch from now()) * 1000)::float8 AS t FROM page_changes`,
-  )) as unknown as { m: string; t: number }[]
-  return { seq: Number(rows[0].m), at: Math.floor(Number(rows[0].t)) }
-}
-
-async function loadHighWater(): Promise<number> {
-  // First use after boot: every existing row may already be behind someone's cursor.
-  if (highWater === null) highWater = (await maxSeq()).seq
-  return highWater
-}
-
-/**
- * Take the current end of the log for a cursor. Runs in the write chain, so no merge can be
- * deciding between "read max" and "raise the high-water mark". `at` is the database clock.
- */
-export function reserveCursor(): Promise<{ seq: number; at: number }> {
-  return serialized(async () => {
-    const cur = await maxSeq()
-    highWater = Math.max(highWater ?? 0, cur.seq)
-    return cur
-  })
-}
-
-/** Test hook. */
-export function changeLogHighWater(): number | null {
-  return highWater
+function pagesOf(op: ChangeOp): string[] {
+  switch (op.op) {
+    case 'events':
+      return [...new Set(op.events.map((e) => e.pageId))]
+    case 'relabel':
+      return op.pageIds
+    default:
+      return [op.pageId]
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -122,11 +159,22 @@ function capTitle(s: string | null | undefined): string | null {
   return Buffer.byteLength(s, 'utf8') <= MAX_TITLE_BYTES ? s : s.slice(0, 300)
 }
 
+function mentionLines(s: string | null): string {
+  if (!s) return ''
+  const out = s
+    .split('\n')
+    .filter((l) => /[@＠﹫]/.test(l))
+    .join('\n')
+  return out.length > MAX_MENTION_TEXT ? out.slice(0, MAX_MENTION_TEXT) : out
+}
+
+const actorJson = (a: EditActor | null | undefined): EditActor | null => (a ? { userId: a.userId, via: capVia(a.via) } : null)
+
 type NewRow = typeof pageChanges.$inferInsert
 
-async function insertRows(rows: NewRow[]): Promise<void> {
+async function insertRows(exec: Tx, rows: NewRow[]): Promise<void> {
   for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-    await db.insert(pageChanges).values(rows.slice(i, i + INSERT_BATCH))
+    await exec.insert(pageChanges).values(rows.slice(i, i + INSERT_BATCH))
   }
 }
 
@@ -136,136 +184,68 @@ function pageText(sections: SectionState[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// section changes (from the section index)
+// write side: section changes (from the section index)
 // ---------------------------------------------------------------------------
 
-export function recordSectionChanges(delta: PageSectionDelta): Promise<void> {
+/**
+ * Queue the section changes of one reindex. Pass the transaction that rewrote the chunks so the
+ * log entry commits (or not) with them; without one it autocommits and kicks the consumer.
+ */
+export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec): Promise<void> {
   // Captured now: the REST request that caused this index pass is still in flight.
-  const actor = currentEditActor(delta.pageId) ?? null
+  const actor = actorJson(currentEditActor(delta.pageId))
+  let op: ChangeOp
   if (delta.firstIndex && delta.before.length === 0) {
-    return serialized(() => writePageAdded(delta, actor))
-  }
-  const changes = computeSectionChanges(delta.before, delta.after)
-  if (changes.length === 0) return Promise.resolve()
-  return serialized(() => writeSectionChanges(delta, changes, actor)).then(() =>
-    // Followers of the page and agent-written "@Name" (docs/adr/1001-*, 1002-*): queued, best effort.
-    notifyPageEdited({
+    const text = pageText(delta.after)
+    op = {
+      op: 'page_added',
       pageId: delta.pageId,
       workspaceId: delta.workspaceId,
-      actor,
-      sections: changes
-        .filter((c) => c.kind !== 'moved')
-        .map((c) => ({ anchor: c.anchor, before: c.before, after: c.after })),
-    }).catch((err) => console.error('[inkling] page update notification failed', delta.pageId, err)),
-  )
-}
-
-async function writePageAdded(delta: PageSectionDelta, actor: EditActor | null): Promise<void> {
-  const text = pageText(delta.after)
-  const ok = fits(text)
-  // One page_added per page, ever (a duplicate's copy is logged by the route, then indexed later).
-  await db.execute(sql`
-    INSERT INTO page_changes (workspace_id, page_id, anchor, heading_path, kind, after_text, large, scope, owner_id, actor_id, via_client)
-    SELECT ${delta.workspaceId}, ${delta.pageId}, NULL, '', 'page_added', ${ok ? text : null}, ${!ok},
-           ${delta.scope}, ${delta.ownerId},
-           -- No in-flight writer (e.g. the page was created empty and filled later): the creator
-           -- and the client it was created through (pages.created_via, docs/adr/1005-*).
-           ${actor ? sql`${actor.userId}::uuid` : sql`(SELECT created_by FROM pages WHERE id = ${delta.pageId})`},
-           ${actor ? sql`${capVia(actor.via)}::text` : sql`(SELECT created_via FROM pages WHERE id = ${delta.pageId})`}
-    WHERE NOT EXISTS (SELECT 1 FROM page_changes WHERE page_id = ${delta.pageId} AND kind = 'page_added')
-  `)
-}
-
-async function writeSectionChanges(delta: PageSectionDelta, changes: SectionChange[], actor: EditActor | null): Promise<void> {
-  const hwm = await loadHighWater()
-  const actorId = actor?.userId ?? null
-  const via = capVia(actor?.via)
-
-  // Latest row per modified anchor (one query on the (page_id, anchor, seq) index).
-  const modified = changes.filter((c) => c.kind === 'modified')
-  const latest = new Map<string, {
-    seq: number
-    kind: string
-    beforeText: string | null
-    scope: string
-    ownerId: string | null
-    actorId: string | null
-    viaClient: string | null
-    fresh: boolean
-  }>()
-  if (modified.length) {
-    const rows = await db
-      .selectDistinctOn([pageChanges.anchor], {
-        seq: pageChanges.seq,
-        anchor: pageChanges.anchor,
-        kind: pageChanges.kind,
-        beforeText: pageChanges.beforeText,
-        scope: pageChanges.scope,
-        ownerId: pageChanges.ownerId,
-        actorId: pageChanges.actorId,
-        viaClient: pageChanges.viaClient,
-        fresh: sql<boolean>`${pageChanges.changedAt} > now() - make_interval(secs => ${MERGE_WINDOW_MS / 1000})`,
-      })
-      .from(pageChanges)
-      .where(and(eq(pageChanges.pageId, delta.pageId), inArray(pageChanges.anchor, modified.map((c) => c.anchor))))
-      .orderBy(pageChanges.anchor, desc(pageChanges.seq))
-    for (const r of rows) if (r.anchor !== null) latest.set(r.anchor, { ...r, seq: Number(r.seq) })
-  }
-
-  const inserts: NewRow[] = []
-  for (const c of changes) {
-    const prev = c.kind === 'modified' ? latest.get(c.anchor) : undefined
-    const mergeable =
-      prev &&
-      (prev.kind === 'modified' || prev.kind === 'added') &&
-      prev.seq > hwm &&
-      prev.fresh &&
-      prev.scope === delta.scope &&
-      prev.ownerId === delta.ownerId &&
-      prev.actorId === actorId &&
-      prev.viaClient === via
-    if (prev && mergeable) {
-      const afterOk = fits(c.after)
-      if (prev.kind === 'modified' && prev.beforeText !== null && afterOk && prev.beforeText === c.after) {
-        // Edited back to where this unseen row started: nothing left to report.
-        await db.delete(pageChanges).where(eq(pageChanges.seq, prev.seq))
-        continue
-      }
-      const large = (prev.kind === 'modified' && prev.beforeText === null) || !afterOk
-      // One statement: new seq (moves the row to the end of the log), newest after.
-      await db.execute(sql`
-        UPDATE page_changes
-           SET seq = nextval(pg_get_serial_sequence('page_changes', 'seq')),
-               after_text = ${afterOk ? c.after : null}, large = ${large},
-               heading_path = ${c.headingPath}, changed_at = now()
-         WHERE seq = ${prev.seq}
-      `)
-      continue
-    }
-    const isMove = c.kind === 'moved'
-    const beforeOk = isMove || fits(c.before)
-    const afterOk = isMove || fits(c.after)
-    inserts.push({
-      workspaceId: delta.workspaceId,
-      pageId: delta.pageId,
-      anchor: c.anchor,
-      prevAnchor: c.prevAnchor,
-      headingPath: c.headingPath,
-      kind: c.kind,
-      beforeText: beforeOk ? c.before : null,
-      afterText: afterOk ? c.after : null,
-      large: !beforeOk || !afterOk,
       scope: delta.scope,
       ownerId: delta.ownerId,
-      actorId,
-      viaClient: via,
-    })
+      actor,
+      text: fits(text) ? text : null,
+    }
+  } else {
+    const changes = computeSectionChanges(delta.before, delta.after)
+    if (changes.length === 0) return
+    op = {
+      op: 'sections',
+      pageId: delta.pageId,
+      workspaceId: delta.workspaceId,
+      scope: delta.scope,
+      ownerId: delta.ownerId,
+      actor,
+      typing: liveEditors(delta.pageId),
+      changes: changes.map((c) => storeChange(c, !!actor?.via)),
+    }
   }
-  if (inserts.length) await insertRows(inserts)
+  await enqueue(exec ?? db, [{ topic: 'change', workspaceId: delta.workspaceId, payload: op }])
+}
+
+function storeChange(c: SectionChange, agent: boolean): StoredChange {
+  const isMove = c.kind === 'moved'
+  const beforeOk = isMove || fits(c.before)
+  const afterOk = isMove || fits(c.after)
+  const out: StoredChange = {
+    kind: c.kind,
+    anchor: c.anchor,
+    prevAnchor: c.prevAnchor,
+    headingPath: c.headingPath,
+    before: beforeOk ? c.before : null,
+    after: afterOk ? c.after : null,
+    beforeLarge: !beforeOk,
+    afterLarge: !afterOk,
+  }
+  if (agent && !isMove && c.after && c.after.includes('@')) {
+    out.mBefore = mentionLines(c.before)
+    out.mAfter = mentionLines(c.after)
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
-// page-level events (from the page routes)
+// write side: page-level events (from the page routes)
 // ---------------------------------------------------------------------------
 
 export type PageEventKind =
@@ -284,44 +264,42 @@ export interface PageEvent {
   after?: string | null
 }
 
-export function recordPageEvents(events: PageEvent[], actor: EditActor | null): Promise<void> {
-  if (events.length === 0) return Promise.resolve()
-  return serialized(async () => {
-    // Workspace, owner and current visibility of every page in one query per 1000 ids.
-    const info = new Map<string, { workspaceId: string; scope: string; createdBy: string | null }>()
-    const ids = [...new Set(events.map((e) => e.pageId))]
-    for (let i = 0; i < ids.length; i += 1000) {
-      const rows = await db
-        .select({ id: pages.id, workspaceId: pages.workspaceId, scope: pages.scope, createdBy: pages.createdBy })
-        .from(pages)
-        .where(inArray(pages.id, ids.slice(i, i + 1000)))
-      for (const r of rows) info.set(r.id, r)
-    }
-    const rows: NewRow[] = []
-    for (const e of events) {
-      const p = info.get(e.pageId)
-      if (!p) continue // purged meanwhile
-      // A visibility change is stored with the union of both sides, so everyone who could see
-      // the page before OR after gets the row (made-shared: new readers; made-private: "removed").
-      const scope =
-        e.kind === 'page_visibility' ? (e.before === 'shared' || e.after === 'shared' ? 'shared' : 'private') : p.scope
-      const small = e.kind === 'page_renamed' ? capTitle : (s: string | null | undefined) => s ?? null
-      rows.push({
-        workspaceId: p.workspaceId,
-        pageId: e.pageId,
-        anchor: null,
-        headingPath: '',
-        kind: e.kind,
-        beforeText: small(e.before),
-        afterText: small(e.after),
-        scope,
-        ownerId: p.createdBy,
-        actorId: actor?.userId ?? null,
-        viaClient: capVia(actor?.via),
-      })
-    }
-    if (rows.length) await insertRows(rows)
+/**
+ * Queue page-level events: ONE statement that reads each page's workspace, owner and visibility
+ * now (log time) and writes one outbox row per workspace.
+ */
+export async function recordPageEvents(events: PageEvent[], actor: EditActor | null, exec?: Exec): Promise<void> {
+  if (events.length === 0) return
+  const data = events.map((e, i) => {
+    const small = e.kind === 'page_renamed' ? capTitle : (s: string | null | undefined) => s ?? null
+    return { ord: i, page_id: e.pageId, kind: e.kind, before: small(e.before), after: small(e.after) }
   })
+  const x = exec ?? db
+  // A visibility change is stored with the union of both sides, so everyone who could see the
+  // page before OR after gets the row (made-shared: new readers; made-private: "removed").
+  const out = (await x.execute(sql`
+    WITH ev AS (
+      SELECT x.ord, x.page_id, x.kind, x.before, x.after
+        FROM jsonb_to_recordset(${JSON.stringify(data)}::jsonb) AS x(ord int, page_id uuid, kind text, before text, after text)
+    ), ins AS (
+      INSERT INTO outbox (topic, origin, workspace_id, payload)
+      SELECT 'change', ${OUTBOX_ORIGIN}, p.workspace_id, jsonb_build_object(
+               'op', 'events',
+               'workspaceId', p.workspace_id,
+               'actor', ${JSON.stringify(actorJson(actor))}::jsonb,
+               'events', jsonb_agg(jsonb_build_object(
+                  'pageId', ev.page_id, 'kind', ev.kind, 'before', ev.before, 'after', ev.after,
+                  'scope', CASE WHEN ev.kind = 'page_visibility'
+                                THEN CASE WHEN ev.before = 'shared' OR ev.after = 'shared' THEN 'shared' ELSE 'private' END
+                                ELSE p.scope END,
+                  'ownerId', p.created_by) ORDER BY ev.ord))
+        FROM ev JOIN pages p ON p.id = ev.page_id
+       GROUP BY p.workspace_id
+      RETURNING id
+    )
+    SELECT pg_notify('inkling_outbox', ${`change:${OUTBOX_ORIGIN}`}) AS z FROM ins LIMIT 1
+  `)) as unknown as unknown[]
+  if (out.length > 0 && x === db) kickOutbox('change')
 }
 
 /** Route helper: best effort, after the route's own transaction; never fails the request. */
@@ -331,6 +309,310 @@ export async function logPageEvents(events: PageEvent[], actor: EditActor | null
   } catch (err) {
     console.error('[inkling] change feed: page event write failed', err)
   }
+}
+
+/**
+ * Provenance of pages created by an agent request (notify/provenance.ts): `page_added` rows of
+ * these pages get the client name. Queued behind the page_added rows of the same request, so it
+ * also reaches rows that are still in the outbox.
+ */
+export async function recordCreatedVia(pageIds: string[], via: string, userId: string, exec?: Exec): Promise<void> {
+  if (pageIds.length === 0) return
+  const op: ChangeOp = { op: 'relabel', pageIds, via, userId }
+  await enqueue(exec ?? db, [{ topic: 'change', payload: op }])
+}
+
+// ---------------------------------------------------------------------------
+// consumer
+// ---------------------------------------------------------------------------
+
+/** Fault injection for the crash tests: runs after the batch's writes, before its commit. */
+export const changeLogTestHooks: { beforeCommit?: () => void | Promise<void> } = {}
+
+let log: (msg: string) => void = (m) => console.error(m)
+export function setChangeLogLogger(fn: (msg: string) => void): void {
+  log = fn
+}
+
+let stateRowExists = false
+
+/**
+ * The high-water mark and the batch's log time (the clock after the lock, so it grows with seq
+ * across batches) in one round trip. The row is created at first use with max(seq): every row
+ * that existed before may already be behind a cursor.
+ */
+async function highWaterAndClock(tx: Tx): Promise<{ hwm: number; at: Date }> {
+  if (!stateRowExists) {
+    await tx.execute(sql`
+      INSERT INTO change_feed_state (id, high_water) SELECT 1, coalesce(max(seq), 0) FROM page_changes
+      ON CONFLICT (id) DO NOTHING
+    `)
+    stateRowExists = true
+  }
+  const rows = (await tx.execute(sql`
+    SELECT high_water::text AS h, clock_timestamp() AS t FROM change_feed_state WHERE id = 1
+  `)) as unknown as { h: string; t: Date | string }[]
+  if (!rows[0]) {
+    stateRowExists = false // deleted under us (tests, restore): recreate next time
+    throw new Error('change_feed_state row missing')
+  }
+  return { hwm: Number(rows[0].h), at: new Date(rows[0].t) }
+}
+
+/**
+ * One consumer pass. Returns the number of outbox rows materialised. Fast path: the whole batch
+ * in one transaction without savepoints; if any row fails, the batch is rolled back and redone
+ * with a savepoint per row so only the failing rows are retried.
+ */
+export async function runChangeBatch(): Promise<number> {
+  try {
+    return await changePass(false)
+  } catch (err) {
+    log(`[change-log] batch failed, isolating rows: ${String(err)}`)
+    return changePass(true)
+  }
+}
+
+async function changePass(isolate: boolean): Promise<number> {
+  let notified = false
+  const n = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHANGE_LOG_LOCK})`)
+    const rows = (await tx.execute(sql`
+      SELECT id::text AS id, payload, attempts, origin, available_at <= clock_timestamp() AS due
+        FROM outbox WHERE topic = 'change' AND state = 'pending'
+       ORDER BY outbox.id LIMIT ${CHANGE_BATCH}
+         FOR UPDATE SKIP LOCKED
+    `)) as unknown as { id: string; payload: ChangeOp; attempts: number; origin: string | null; due: boolean }[]
+    if (rows.length === 0) return 0
+    const { hwm, at } = await highWaterAndClock(tx)
+    // Rows of one page are applied in order: a page with a failed or not-yet-due row waits.
+    const blocked = new Set<string>()
+    const done: string[] = []
+    for (const r of rows) {
+      const ids = pagesOf(r.payload)
+      if (!r.due || ids.some((id) => blocked.has(id))) {
+        for (const id of ids) blocked.add(id)
+        continue
+      }
+      if (!isolate) {
+        if (await applyOp(tx, r.payload, hwm, at, r.origin)) notified = true
+        done.push(r.id)
+        continue
+      }
+      try {
+        const res = await tx.transaction((sp) => applyOp(sp, r.payload, hwm, at, r.origin))
+        if (res) notified = true
+        done.push(r.id)
+      } catch (err) {
+        for (const id of ids) blocked.add(id)
+        const s = await failRow(tx, 'change', Number(r.id), r.attempts + 1, err, CHANGE_RETRY)
+        log(`[change-log] outbox row ${r.id} failed (${s}): ${String(err)}`)
+      }
+    }
+    if (done.length) await tx.execute(sql`DELETE FROM outbox WHERE id = ANY(${`{${done.join(',')}}`}::bigint[])`)
+    await changeLogTestHooks.beforeCommit?.()
+    return done.length
+  })
+  if (notified) kickOutbox('notify')
+  return n
+}
+
+registerOutboxHandler('change', runChangeBatch, CHANGE_BATCH)
+
+/** Process every committed change-log row (tests, shutdown, readers that need their own writes). */
+export function drainChangeLog(maxPasses = 50): Promise<number> {
+  return drainOutbox('change', maxPasses)
+}
+
+/** Returns true when it queued notification events. */
+async function applyOp(tx: Tx, op: ChangeOp, hwm: number, at: Date, origin: string | null): Promise<boolean> {
+  switch (op.op) {
+    case 'page_added':
+      await writePageAdded(tx, op, at)
+      return false
+    case 'sections':
+      return writeSectionChanges(tx, op, hwm, at, origin)
+    case 'events': {
+      const rows: NewRow[] = op.events.map((e) => ({
+        workspaceId: op.workspaceId,
+        pageId: e.pageId,
+        anchor: null,
+        headingPath: '',
+        kind: e.kind,
+        beforeText: e.before,
+        afterText: e.after,
+        scope: e.scope,
+        ownerId: e.ownerId,
+        actorId: op.actor?.userId ?? null,
+        viaClient: capVia(op.actor?.via),
+        changedAt: at,
+      }))
+      if (rows.length) await insertRows(tx, rows)
+      return false
+    }
+    case 'relabel': {
+      const ids = sql`${`{${op.pageIds.join(',')}}`}::uuid[]`
+      await tx.execute(sql`
+        UPDATE page_changes SET via_client = ${capVia(op.via)}, actor_id = coalesce(actor_id, ${op.userId}::uuid)
+         WHERE page_id = ANY(${ids}) AND kind = 'page_added' AND via_client IS NULL
+      `)
+      return false
+    }
+  }
+}
+
+async function writePageAdded(tx: Tx, op: Extract<ChangeOp, { op: 'page_added' }>, at: Date): Promise<void> {
+  const actor = op.actor
+  // One page_added per page, ever (a duplicate's copy is logged by the route, then indexed later).
+  await tx.execute(sql`
+    INSERT INTO page_changes (workspace_id, page_id, anchor, heading_path, kind, after_text, large, scope, owner_id, actor_id, via_client, changed_at)
+    SELECT ${op.workspaceId}, ${op.pageId}, NULL, '', 'page_added', ${op.text}, ${op.text === null},
+           ${op.scope}, ${op.ownerId},
+           -- No in-flight writer (e.g. the page was created empty and filled later): the creator
+           -- and the client it was created through (pages.created_via, docs/adr/1005-*).
+           ${actor ? sql`${actor.userId}::uuid` : sql`(SELECT created_by FROM pages WHERE id = ${op.pageId})`},
+           ${actor ? sql`${capVia(actor.via)}::text` : sql`(SELECT created_via FROM pages WHERE id = ${op.pageId})`},
+           ${at.toISOString()}::timestamptz
+    WHERE NOT EXISTS (SELECT 1 FROM page_changes WHERE page_id = ${op.pageId} AND kind = 'page_added')
+  `)
+}
+
+async function writeSectionChanges(
+  tx: Tx,
+  op: Extract<ChangeOp, { op: 'sections' }>,
+  hwm: number,
+  at: Date,
+  origin: string | null,
+): Promise<boolean> {
+  const actorId = op.actor?.userId ?? null
+  const via = capVia(op.actor?.via)
+  const changes = op.changes
+
+  // Latest row per modified anchor (one query on the (page_id, anchor, seq) index).
+  const modified = changes.filter((c) => c.kind === 'modified')
+  const latest = new Map<string, {
+    seq: number
+    kind: string
+    beforeText: string | null
+    scope: string
+    ownerId: string | null
+    actorId: string | null
+    viaClient: string | null
+    fresh: boolean
+  }>()
+  if (modified.length) {
+    const rows = await tx
+      .selectDistinctOn([pageChanges.anchor], {
+        seq: pageChanges.seq,
+        anchor: pageChanges.anchor,
+        kind: pageChanges.kind,
+        beforeText: pageChanges.beforeText,
+        scope: pageChanges.scope,
+        ownerId: pageChanges.ownerId,
+        actorId: pageChanges.actorId,
+        viaClient: pageChanges.viaClient,
+        fresh: sql<boolean>`${pageChanges.changedAt} > ${at.toISOString()}::timestamptz - make_interval(secs => ${MERGE_WINDOW_MS / 1000})`,
+      })
+      .from(pageChanges)
+      .where(and(eq(pageChanges.pageId, op.pageId), inArray(pageChanges.anchor, modified.map((c) => c.anchor))))
+      .orderBy(pageChanges.anchor, desc(pageChanges.seq))
+    for (const r of rows) if (r.anchor !== null) latest.set(r.anchor, { ...r, seq: Number(r.seq) })
+  }
+
+  const inserts: NewRow[] = []
+  for (const c of changes) {
+    const prev = c.kind === 'modified' ? latest.get(c.anchor) : undefined
+    const mergeable =
+      prev &&
+      (prev.kind === 'modified' || prev.kind === 'added') &&
+      prev.seq > hwm &&
+      prev.fresh &&
+      prev.scope === op.scope &&
+      prev.ownerId === op.ownerId &&
+      prev.actorId === actorId &&
+      prev.viaClient === via
+    if (prev && mergeable) {
+      const afterOk = !c.afterLarge
+      if (prev.kind === 'modified' && prev.beforeText !== null && afterOk && prev.beforeText === c.after) {
+        // Edited back to where this unseen row started: nothing left to report.
+        await tx.delete(pageChanges).where(eq(pageChanges.seq, prev.seq))
+        latest.delete(c.anchor)
+        continue
+      }
+      const large = (prev.kind === 'modified' && prev.beforeText === null) || !afterOk
+      // One statement: new seq (moves the row to the end of the log), newest after.
+      await tx.execute(sql`
+        UPDATE page_changes
+           SET seq = nextval(pg_get_serial_sequence('page_changes', 'seq')),
+               after_text = ${afterOk ? c.after : null}, large = ${large},
+               heading_path = ${c.headingPath}, changed_at = ${at.toISOString()}::timestamptz
+         WHERE seq = ${prev.seq}
+      `)
+      continue
+    }
+    inserts.push({
+      workspaceId: op.workspaceId,
+      pageId: op.pageId,
+      anchor: c.anchor,
+      prevAnchor: c.prevAnchor,
+      headingPath: c.headingPath,
+      kind: c.kind,
+      beforeText: c.before,
+      afterText: c.after,
+      large: c.beforeLarge || c.afterLarge,
+      scope: op.scope,
+      ownerId: op.ownerId,
+      actorId,
+      viaClient: via,
+      changedAt: at,
+    })
+  }
+  if (inserts.length) await insertRows(tx, inserts)
+
+  // Followers of the page and agent-written "@Name" (docs/adr/1001-*, 1002-*): queued in this
+  // transaction, so they exist exactly when the log rows do.
+  const sections = changes
+    .filter((c) => c.kind !== 'moved')
+    .map((c) => ({ anchor: c.anchor, before: c.mBefore ?? c.before, after: c.mAfter ?? c.after }))
+  if (sections.length === 0) return false
+  await notifyPageEdited({ pageId: op.pageId, workspaceId: op.workspaceId, actor: op.actor, sections, typing: op.typing }, tx, origin)
+  return true
+}
+
+// ---------------------------------------------------------------------------
+// cursor reservation (reader side)
+// ---------------------------------------------------------------------------
+
+/**
+ * Take the current end of the log for a cursor. First materialises every committed outbox row
+ * (bounded: RESERVE_DRAIN_PASSES × CHANGE_BATCH), then, under the writer lock, raises the
+ * high-water mark to the end and returns it. `at` is the database clock after the lock: every row
+ * materialised later carries a later changed_at.
+ */
+export async function reserveCursor(): Promise<{ seq: number; at: number }> {
+  // Usually the background consumer was faster: one cheap probe instead of a consumer pass.
+  const [due] = (await db.execute(sql`
+    SELECT EXISTS (SELECT 1 FROM outbox WHERE topic = 'change' AND state = 'pending' AND available_at <= now()) AS d
+  `)) as unknown as { d: boolean }[]
+  if (due?.d) await drainOutbox('change', RESERVE_DRAIN_PASSES)
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHANGE_LOG_LOCK})`)
+    // The end is max(seq), or the mark if newer rows were all purged meanwhile (a cursor handed
+    // out earlier must never be "past the end").
+    const rows = (await tx.execute(sql`
+      INSERT INTO change_feed_state AS s (id, high_water)
+      SELECT 1, coalesce(max(seq), 0) FROM page_changes
+      ON CONFLICT (id) DO UPDATE SET high_water = greatest(s.high_water, EXCLUDED.high_water)
+      RETURNING high_water::text AS m, (extract(epoch from clock_timestamp()) * 1000)::float8 AS t
+    `)) as unknown as { m: string; t: number }[]
+    return { seq: Number(rows[0].m), at: Math.floor(Number(rows[0].t)) }
+  })
+}
+
+/** Test hook: the persisted high-water mark (null before first use). */
+export async function changeLogHighWater(): Promise<number | null> {
+  const rows = (await db.execute(sql`SELECT high_water::text AS h FROM change_feed_state WHERE id = 1`)) as unknown as { h: string }[]
+  return rows[0] ? Number(rows[0].h) : null
 }
 
 // ---------------------------------------------------------------------------

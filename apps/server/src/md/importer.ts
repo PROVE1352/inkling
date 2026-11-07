@@ -25,6 +25,7 @@ import { reindexPageTasks } from './taskIndex'
 import { reindexPageChunks } from '../context/chunkIndex'
 import { reindexPageText } from './textIndex'
 import { mimeForExt } from './mime'
+import { dropLeadingTitleHeading } from './titleHeading'
 import { importLimits, mbLabel } from './importLimits'
 
 // Caps guard against zip bombs / huge imports exhausting memory. All are env-configurable with the
@@ -127,7 +128,8 @@ export async function importMarkdown(args: ImportArgs): Promise<PageRow[]> {
 
   const batchMap = new Map<string, string>([[title.toLowerCase(), page.id]])
   const resolveTitle = await buildTitleResolver(workspaceId, batchMap, userId)
-  let blocks = await markdownToBlocks(body, resolveTitle)
+  // `# <file name>` as the first line would repeat the page title (md/titleHeading.ts)
+  let blocks = dropLeadingTitleHeading(await markdownToBlocks(body, resolveTitle), title)
   if (blocks.length === 0) blocks = EMPTY_BLOCKS
   await db.insert(pageDocs).values({ pageId: page.id, state: blocksToStateBuffer(blocks) })
   await reindexPageLinks(page.id, blocks)
@@ -442,7 +444,7 @@ export async function importEntries(
       const entry = entryByName.get(node.mdEntryName)
       const raw = entry ? await entry.readText() : ''
       const body = stripFrontmatter(raw)
-      let blocks = await markdownToBlocks(body, resolveTitle, resolveAsset)
+      let blocks = dropLeadingTitleHeading(await markdownToBlocks(body, resolveTitle, resolveAsset), node.title)
       if (blocks.length === 0) blocks = EMPTY_BLOCKS
       await db
         .insert(pageDocs)

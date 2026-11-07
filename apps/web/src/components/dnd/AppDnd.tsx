@@ -24,7 +24,7 @@ import {
 } from '@dnd-kit/core'
 import type { PageMetaDTO, PageScope, UpdatePageInput } from '@inkling/shared'
 import { useMovePages, usePages, useUpdatePage } from '../../api'
-import { pageIcon } from '../../lib/pageIcon'
+import { PageIconGlyph } from '../PageIconGlyph'
 import { toast } from '../../lib/toast'
 import { getActiveEditor } from '../../lib/activeEditor'
 import { getActiveCanvas } from '../../lib/activeCanvas'
@@ -374,7 +374,7 @@ export function AppDnd({ wsId, children }: { wsId: string; children: ReactNode }
           <DragOverlay dropAnimation={null}>
             {activePage ? (
               <div className="pointer-events-none flex max-w-[240px] translate-x-3 translate-y-7 items-center gap-1.5 rounded-md border border-line bg-app px-2 py-1 text-sm text-ink shadow-lg">
-                <span className="shrink-0 text-[15px] leading-none">{pageIcon(activePage, false)}</span>
+                <span className="shrink-0 text-[15px] leading-none"><PageIconGlyph page={activePage} size={15} /></span>
                 <span className="min-w-0 truncate">{activePage.title || t('common.untitled')}</span>
                 {dragIds.length > 1 && (
                   <span className="shrink-0 rounded-full bg-accent px-1.5 text-[11px] font-semibold leading-[18px] text-white">

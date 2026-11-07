@@ -14,6 +14,7 @@ export default {
   'page.themeDark': '다크',
   'page.themeSystem': '시스템',
   'page.themeCycle': '테마: {current} → {next}',
+  'page.addIcon': '아이콘 추가',
   'page.changeIcon': '아이콘 변경',
   'page.toggleSidebar': '사이드바 토글',
   'page.toggleSidebarHint': '사이드바 토글 ({shortcut})',

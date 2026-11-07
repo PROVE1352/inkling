@@ -53,11 +53,20 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
 - Tool output is compact text, deterministic for the same input and documents
   ([ADR 0937](docs/adr/0937-prompt-cache-friendly-deterministic-tool-output.md)); errors say what to do next
   ([ADR 0929](docs/adr/0929-agent-facing-instructions-errors-and-repo-guides.md)).
+- Large pages ([ADR 1040–1043](docs/adr/1043-large-page-hint-for-agents.md)): page-level tools print a fixed
+  `large page: …` line for pages with ≥ 1 MiB of state or ≥ 50k indexed tokens. Outline/section reads answer from
+  `page_chunks` only while the docIndexer's freshness record matches the stored or unchanged live state
+  (`context/sectionSource.ts`); a new writer of `page_docs` must go through the store hook (or call
+  `forgetDocIndex`) so that record stays truthful. Agent loops that keep a log should write child pages.
 - Agent usage guide: [docs/MCP.md](docs/MCP.md).
 - **Edit lock** ([ADR 0970](docs/adr/0970-subtree-edit-lock.md), [0971](docs/adr/0971-lock-evaluation-order-people-and-agents.md)):
   every new write path must call `assertCan`/`assertPageEditable` (`editLock.ts`) after the membership check, and
   anything that creates under a parent goes through `assertPlacement` (its `userId` is required for that reason).
   Comments check the COMMENT bit (`assertPageCommentable`). Lock changes are browser-only.
+  Lock chains, agent blocks and "has instructions" are cached per workspace access version
+  ([ADR 1071](docs/adr/1071-workspace-access-version-and-write-gate.md)): any new code that changes `edit_locked`,
+  `page_access_overrides`, `agent_instructions`, `workspace_agent_blocks`, `pages.owner_id`, `pages.parent_id` or a
+  member's role must call `bumpAcl(tx, workspaceId)` in its transaction, before touching page rows.
 - **Agent instructions** ([ADR 0975](docs/adr/0975-agent-instruction-pages.md)): designated pages must stay locked;
   `get_instructions` and the `applies:` line are the only way rules reach agents.
 - **Untrusted content** ([ADR 0976](docs/adr/0976-data-instruction-boundary-in-mcp-output.md), [0977](docs/adr/0977-injection-signals-and-taint-record.md)):

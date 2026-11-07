@@ -1,6 +1,6 @@
 // 알림·구독(팔로우)·활동 화면·변경 비교·AI 작성 배지 문구 (docs/adr/1000-* .. 1006-*).
 export default {
-  'notifications.replied': '{actor}님이 "{title}"에서 내 댓글에 답글을 남겼습니다',
+  'notifications.replied': '{actor}님이 "{title}"에서 내 코멘트에 답글을 남겼습니다',
   'notifications.pageOwner': '{actor}님이 나를 "{title}"의 소유자로 지정했습니다',
   'notifications.taskAssigned': '{actor}님이 "{title}"에서 나를 담당자로 지정했습니다',
   'notifications.pageUpdate': '{actor}님이 "{title}"을(를) 수정했습니다',
@@ -15,7 +15,7 @@ export default {
   'notifLevel.mentions': '멘션만 (기본)',
   'notifLevel.nothing': '알리지 않음',
   'notifLevel.mute': '음소거',
-  'notifLevel.allDesc': '멘션에 더해 모든 댓글과 수정.',
+  'notifLevel.allDesc': '멘션에 더해 모든 코멘트와 수정.',
   'notifLevel.mentionsDesc': '누가 나를 멘션하거나, 내게 답글을 달거나, 담당자로 지정할 때만.',
   'notifLevel.nothingDesc': '목록에는 조용히 남고 배지나 메일은 없음.',
   'notifLevel.muteDesc': '아무것도 받지 않음. 단 나에게 온 승인 요청은 예외.',
@@ -56,7 +56,7 @@ export default {
   'follow.sourceAncestor': '"{title}"에서 상속',
   'follow.sourceWorkspace': '워크스페이스 설정',
   'follow.sourceDefault': '기본값',
-  'follow.implicit': '내가 만들었거나 소유한 페이지라 새 댓글 스레드는 알림이 옵니다.',
+  'follow.implicit': '내가 만들었거나 소유한 페이지라 새 코멘트 스레드는 알림이 옵니다.',
   'follow.saveFailed': '이 페이지의 알림을 바꾸지 못했습니다.',
   'follow.loadFailed': '이 페이지의 알림 설정을 불러오지 못했습니다.',
   'follow.agentDigestInherited': '상위 페이지에서 이미 이 요약을 받고 있습니다.',

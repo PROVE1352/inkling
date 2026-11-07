@@ -52,8 +52,11 @@ case "$cmd" in
     uid="$(user_id_of "$email")"
     # Same format as the server's auth: randomBytes(32).toString('base64url')
     token="$(python3 -c "import os,base64;print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip('='))")"
+    # The server stores only the SHA-256 of a session token (docs/adr/1060-*).
     psql -q -c "INSERT INTO sessions (token, user_id, expires_at)
-                VALUES ('$token', '$uid', now() + interval '$days days')"
+                VALUES (encode(sha256(convert_to('$token','UTF8')),'hex'), '$uid', now() + interval '$days days')"
+    if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+    hp="$(printf %s "$token" | "${sum[@]}" | cut -c1-8)"
     echo
     echo "  Account: $email"
     echo "  Expires: in ${days} days"
@@ -74,12 +77,13 @@ JSON
     echo "  With curl:"
     echo "    curl -H 'Cookie: inkling_sid=$token' ${PUBLIC_URL}/api/auth/me"
     echo
-    echo "  Revoke: $0 revoke ${token:0:8}"
+    echo "  Revoke: $0 revoke $hp"
     echo
     ;;
   list)
     email="${2:?usage: $0 list <email>}"
     uid="$(user_id_of "$email")"
+    # token_prefix is the start of the stored SHA-256, not of the cookie value.
     psql -c "SELECT left(token,8) AS token_prefix,
                     to_char(created_at,'YYYY-MM-DD HH24:MI') AS created,
                     to_char(expires_at,'YYYY-MM-DD HH24:MI') AS expires

@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { db } from './db/index'
 import { workspaceMembers, workspaces } from './db/schema'
 import { forbidden, notFound } from './errors'
-import { assertAgentAllowed } from './agentAccess'
+import { assertAgentAllowed, currentAgent } from './agentAccess'
+import { aclColumns, toAcl } from './aclVersion'
+import type { AclState } from './aclVersion'
 import { newInviteCode } from './util'
 import type { WorkspaceRole } from '@inkling/shared'
 
@@ -34,24 +36,59 @@ export async function requireMembership(
   workspaceId: string,
   userId: string,
 ): Promise<WorkspaceRole> {
-  const rows = await db
-    .select({ role: workspaceMembers.role, deletedAt: workspaces.deletedAt })
-    .from(workspaceMembers)
-    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(
-      and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.userId, userId),
-      ),
-    )
-    .limit(1)
+  // Agent requests need the access version for the cached block check; browser requests do not
+  // (assertAgentAllowed is a no-op for them), so they keep the plain membership statement.
+  return (await membership(workspaceId, userId, currentAgent() ? 'version' : 'none')).role
+}
+
+/**
+ * requireMembership plus the workspace access state (docs/adr/1071-*), read in the same statement:
+ * the agent-block check is answered from memory while the version is unchanged, and the edit guards
+ * (assertPageEditable / assertPageCommentable) take `acl` instead of looking it up again.
+ */
+export async function requireMembershipAcl(
+  workspaceId: string,
+  userId: string,
+): Promise<{ role: WorkspaceRole; acl: AclState }> {
+  const r = await membership(workspaceId, userId, 'full')
+  return { role: r.role, acl: r.acl! }
+}
+
+async function membership(
+  workspaceId: string,
+  userId: string,
+  acl: 'none' | 'version' | 'full',
+): Promise<{ role: WorkspaceRole; acl: AclState | null }> {
+  const c = aclColumns(sql`${workspaceMembers.workspaceId}`)
+  const base = { role: workspaceMembers.role, deletedAt: workspaces.deletedAt }
+  const where = and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))
+  const rows =
+    acl === 'none'
+      ? (await db
+          .select(base)
+          .from(workspaceMembers)
+          .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+          .where(where)
+          .limit(1)).map((r) => ({ ...r, version: null as string | null, hasLocks: null as boolean | null }))
+      : await db
+          .select({
+            ...base,
+            version: sql<string | null>`${c.version}`,
+            hasLocks: acl === 'full' ? sql<boolean | null>`${c.hasLocks}` : sql<boolean | null>`null::boolean`,
+          })
+          .from(workspaceMembers)
+          .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+          .leftJoin(sql`workspace_acl_versions a`, sql`a.workspace_id = ${workspaceMembers.workspaceId}`)
+          .where(where)
+          .limit(1)
 
   const row = rows[0]
   if (!row) throw forbidden()
   if (row.deletedAt) throw notFound()
+  const state = acl === 'none' ? null : toAcl(workspaceId, row.version, row.hasLocks)
   // Agent (MCP) requests: per-workspace block + access record (docs/adr/0947-*). No-op for cookies.
-  await assertAgentAllowed(workspaceId)
-  return row.role
+  await assertAgentAllowed(workspaceId, state?.version)
+  return { role: row.role, acl: acl === 'full' ? state : null }
 }
 
 const idParamSchema = z.object({ id: z.uuid() })

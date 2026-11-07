@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { NotificationLevel, PageSubscriptionDTO, SetPageSubscriptionInput } from '@inkling/shared'
 import { ApiError } from '../api'
 import { usePageSubscription, useSetPageSubscription } from '../notificationsApi'
 import { useT, type TKey } from '../i18n'
-import { BellIcon } from './Icons'
 import { Spinner } from './Spinner'
 import { levelLabel } from './notifLevel'
 
@@ -128,59 +127,6 @@ export function PageFollowPanel({ pageId }: { pageId: string }) {
         )}
       </p>
       {error && <p className="px-1.5 text-xs text-red-600">{error}</p>}
-    </div>
-  )
-}
-
-/** Bell button for the page header; opens the panel in a popover. */
-export function PageFollowButton({ pageId }: { pageId: string }) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const sub = usePageSubscription(pageId)
-  const following = sub.data?.effective.level === 'all'
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    const id = window.setTimeout(() => document.addEventListener('mousedown', onDown), 0)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.clearTimeout(id)
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label={t('follow.button')}
-        aria-expanded={open}
-        title={t('follow.button')}
-        data-testid="page-follow-button"
-        className={`rounded-md p-1.5 leading-none transition duration-150 hover:bg-hover active:scale-[.98] ${
-          following || open ? 'text-accent' : 'text-sub hover:text-ink'
-        }`}
-      >
-        <span className="relative block">
-          <BellIcon size={18} />
-          {following && <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />}
-        </span>
-      </button>
-      {open && (
-        <div className="nd-pop absolute right-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-1.5rem)] origin-top-right rounded-md border border-line bg-app p-2 shadow-xl">
-          <div className="mb-1 px-1.5 text-xs font-semibold text-ink">{t('follow.button')}</div>
-          <PageFollowPanel pageId={pageId} />
-        </div>
-      )}
     </div>
   )
 }

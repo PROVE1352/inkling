@@ -63,6 +63,7 @@ import {
   stripRowProperties,
   uniqueTitle,
 } from './notionParse'
+import { dropLeadingTitleHeading } from './titleHeading'
 import type { NotionColumnType } from './notionParse'
 import { reindexPageTags } from './tagIndex'
 import { reindexPageTasks } from './taskIndex'
@@ -837,7 +838,8 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
       const pre = preprocessNotionMarkdown(body)
       report.r.callouts += pre.stats.callouts
       report.r.equations += pre.stats.equations
-      let blocks = await markdownToBlocks(pre.md, resolveTitle)
+      // Safety net after splitLeadingTitle: a first H1 that still equals the title (md/titleHeading.ts)
+      let blocks = dropLeadingTitleHeading(await markdownToBlocks(pre.md, resolveTitle), lead.title ?? n.title)
 
       // resolve every relative / Notion reference, uploading the attachments it points at
       const resolved = new Map<string, string | null>()

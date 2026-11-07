@@ -8,8 +8,9 @@ export type LaunchPage = 'last' | 'home'
 export type NewPageLocation = 'root' | 'child' | 'sibling'
 
 export type Prefs = {
-  /** Readable line length — when off, every document uses the full width */
-  readableLineLength: boolean
+  /** Body text width in px (LINE_WIDTH_MIN–LINE_WIDTH_MAX), or 0 = full width. Replaces the old
+   *  on/off "readable line length" (on → LINE_WIDTH_DEFAULT, off → 0, migrated in load()). */
+  lineWidth: number
   /** Editor spell check (the spellcheck attribute) */
   spellcheck: boolean
   /** Character/word count at the bottom right of a document */
@@ -104,8 +105,15 @@ export const DEFAULT_LOCAL_GRAPH_PREFS: LocalGraphPrefs = {
   outgoing: true,
 }
 
+export const LINE_WIDTH_MIN = 600
+export const LINE_WIDTH_MAX = 1200
+/** Close to Obsidian's default readable line length */
+export const LINE_WIDTH_DEFAULT = 700
+/** lineWidth value for "full width" */
+export const LINE_WIDTH_FULL = 0
+
 export const DEFAULT_PREFS: Prefs = {
-  readableLineLength: true,
+  lineWidth: LINE_WIDTH_DEFAULT,
   spellcheck: true,
   wordCount: true,
   launchPage: 'last',
@@ -121,6 +129,16 @@ export const DEFAULT_PREFS: Prefs = {
 export const ZOOM_MIN = 80
 export const ZOOM_MAX = 130
 
+/** Stored line width → a valid value. Older saves only have readableLineLength (true/false). */
+export function normalizeLineWidth(width: unknown, legacyReadable?: unknown): number {
+  if (typeof width === 'number' && Number.isFinite(width)) {
+    if (width <= LINE_WIDTH_FULL) return LINE_WIDTH_FULL
+    return Math.min(LINE_WIDTH_MAX, Math.max(LINE_WIDTH_MIN, Math.round(width)))
+  }
+  if (legacyReadable === false) return LINE_WIDTH_FULL
+  return LINE_WIDTH_DEFAULT
+}
+
 const KEY = 'inkling:prefs'
 const listeners = new Set<() => void>()
 
@@ -128,11 +146,12 @@ function load(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
-      const p = JSON.parse(raw) as Partial<Prefs>
+      const { readableLineLength, ...p } = JSON.parse(raw) as Partial<Prefs> & { readableLineLength?: unknown }
       // A shallow merge would drop newly added fields of nested objects → merge one level deeper.
       return {
         ...DEFAULT_PREFS,
         ...p,
+        lineWidth: normalizeLineWidth(p.lineWidth, readableLineLength),
         graph: { ...DEFAULT_GRAPH_PREFS, ...(p.graph ?? {}) },
         localGraph: { ...DEFAULT_LOCAL_GRAPH_PREFS, ...(p.localGraph ?? {}) },
         calendar: { ...DEFAULT_CALENDAR_PREFS, ...(p.calendar ?? {}) },

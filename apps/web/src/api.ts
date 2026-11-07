@@ -72,7 +72,7 @@ import type {
 
 // Extension fields the server adds without changing the shared DTOs (docs/adr/0901-*).
 /** /auth/me: the user's saved UI language (null = follow the server/browser default) and sidebar menus (docs/adr/1020-*). */
-export type MeDTO = UserDTO & { locale?: Locale | null; sidebar?: SidebarPrefsDTO }
+export type MeDTO = UserDTO & { locale?: Locale | null; sidebar?: SidebarPrefsDTO; twoFactor?: boolean }
 /** /auth/mode: DEFAULT_LOCALE when the operator set one. */
 export type AuthModeExtDTO = AuthModeDTO & { defaultLocale?: Locale | null }
 
@@ -585,19 +585,89 @@ export function useToggleBookmark(wsId: string) {
 // Auth mutations
 // ---------------------------------------------------------------------------
 
+/**
+ * POST /auth/login answers either a session (`user`) or, for accounts with two-step verification,
+ * a challenge for POST /auth/login/totp (docs/adr/1061-*).
+ */
+export type LoginResult = { user: UserDTO } | { totpRequired: true; challenge: string }
+
 export function useLogin() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: LoginInput) =>
-      api<{ user: UserDTO }>('/api/auth/login', jsonBody(input)).then((r) => r.user),
-    onSuccess: (user) => {
-      qc.setQueryData(qk.me, user)
+    mutationFn: (input: LoginInput) => api<LoginResult>('/api/auth/login', jsonBody(input)),
+    onSuccess: (r) => {
+      if (!('user' in r)) return
+      qc.setQueryData(qk.me, r.user)
       // Refetch to fill fields only /auth/me has (origin, verification status, admin badge)
       qc.invalidateQueries({ queryKey: qk.me })
       qc.invalidateQueries({ queryKey: qk.workspaces })
     },
   })
 }
+
+/** Second sign-in step: the challenge + an authenticator code or a recovery code. */
+export function useLoginTotp() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { challenge: string; code: string }) =>
+      api<{ user: UserDTO; recoveryCodeUsed: boolean }>('/api/auth/login/totp', jsonBody(input)),
+    onSuccess: (r) => {
+      qc.setQueryData(qk.me, r.user)
+      qc.invalidateQueries({ queryKey: qk.me })
+      qc.invalidateQueries({ queryKey: qk.workspaces })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Two-step verification settings (docs/adr/1061-*)
+// ---------------------------------------------------------------------------
+
+export type TwoFactorStateDTO = {
+  enabled: boolean
+  pending: boolean
+  recoveryCodesLeft: number
+  /** false when the server has no APP_SECRET_KEY (turning it on answers 501) */
+  available: boolean
+}
+
+const twoFactorKey = ['auth', '2fa'] as const
+
+export function useTwoFactorState(enabled = true) {
+  return useQuery({
+    queryKey: twoFactorKey,
+    queryFn: () => api<TwoFactorStateDTO>('/api/auth/2fa'),
+    enabled,
+  })
+}
+
+function useTwoFactorMutation<TIn, TOut>(fn: (input: TIn) => Promise<TOut>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: twoFactorKey })
+      qc.invalidateQueries({ queryKey: qk.me })
+    },
+  })
+}
+
+export const useTwoFactorSetup = () =>
+  useTwoFactorMutation((password: string) =>
+    api<{ secret: string; uri: string }>('/api/auth/2fa/setup', jsonBody({ password })),
+  )
+export const useTwoFactorEnable = () =>
+  useTwoFactorMutation((code: string) =>
+    api<{ recoveryCodes: string[] }>('/api/auth/2fa/enable', jsonBody({ code })),
+  )
+export const useTwoFactorDisable = () =>
+  useTwoFactorMutation((input: { password: string; code: string }) =>
+    api<{ ok: true }>('/api/auth/2fa/disable', jsonBody(input)),
+  )
+export const useTwoFactorRecoveryCodes = () =>
+  useTwoFactorMutation((input: { password: string; code: string }) =>
+    api<{ recoveryCodes: string[] }>('/api/auth/2fa/recovery-codes', jsonBody(input)),
+  )
 
 export function useRegister() {
   const qc = useQueryClient()
@@ -1614,6 +1684,12 @@ export const useIssueResetCode = () =>
     api<{ code: string; expiresAt: string }>(`/api/admin/users/${id}/reset-code`, {
       method: 'POST',
     }),
+  )
+
+/** Admin: turn off a member's two-step verification (lost phone); their sessions end. */
+export const useAdminDisableTwoFactor = () =>
+  useAdminUserMutation((id: string) =>
+    api<{ ok: true; wasOn: boolean }>(`/api/admin/users/${id}/2fa`, { method: 'DELETE' }),
   )
 
 export const useDeleteUser = () =>

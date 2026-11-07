@@ -7,13 +7,17 @@
  *  - Privacy: events are re-resolved at delivery time; anything on a page that is not
  *    scope='shared' (or is deleted / moved out of the workspace) is dropped. Messages contain a
  *    short summary + link, never page bodies.
- *  - Delivery: in-memory queue, per-workspace token bucket, retries with exponential backoff
- *    (Retry-After honoured), auto-disable after N consecutive failed events + owner notification.
+ *  - Delivery: one outbox row per (event, hook) (docs/adr/1081-*): survives a restart, leased while
+ *    the HTTP call is in flight (at-least-once; `X-Inkling-Delivery` carries a stable id), dedupe key
+ *    per event so a re-emitted comment/mention/page_created is a no-op, per-workspace token bucket,
+ *    retries with capped exponential backoff (Retry-After honoured), auto-disable after N
+ *    consecutive failed events + owner notification.
  *  - Test mode: WEBHOOK_TEST_ALLOW_LOOPBACK=1 (ignored when NODE_ENV=production) additionally
  *    accepts http://127.0.0.1:<port>/… so smoke tests can use a local fake receiver.
  *
  * See docs/adr/0504-workspace-webhooks.md.
  */
+import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { WebhookDTO, WebhookEvent, WebhookKind } from '@inkling/shared'
 import { WEBHOOK_EVENTS } from '@inkling/shared'
@@ -21,6 +25,8 @@ import { broadcastToUser } from './collab'
 import { db } from './db/index'
 import { comments, notifications, pages, users, workspaceMembers, workspaceWebhooks } from './db/schema'
 import { env } from './env'
+import { kickOutbox, OUTBOX_ORIGIN, ownedOrOrphaned, registerOutboxHandler, wakeAt } from './outbox'
+import type { Exec, RetryPolicy } from './outbox'
 import { safeFetch, SafeFetchError } from './safeFetch'
 import { liveWorkspace } from './workspaceLive'
 
@@ -40,13 +46,16 @@ const PROVIDERS: Record<WebhookKind, { hosts: string[]; prefix: string; pathRe: 
 export const MAX_WEBHOOKS_PER_WORKSPACE = 10
 /** Consecutive failed events before a hook is disabled automatically. */
 export const AUTO_DISABLE_AFTER = 5
-const RETRY_DELAYS_MS = [2_000, 10_000, 60_000]
+/** 1 try + 3 retries after 2 s, 10 s, 50 s (cap 60 s), like the in-memory queue before. */
+export const WEBHOOK_RETRY: RetryPolicy = { baseMs: 2_000, factor: 5, capMs: 60_000, maxAttempts: 4 }
 const PAGE_CREATED_DELAY_MS = 20_000
 const BUCKET_CAPACITY = 20
 const BUCKET_REFILL_PER_SEC = 20 / 60
+/** Pending deliveries per workspace; beyond this new events are dropped (flood guard). */
 const QUEUE_MAX_PER_WS = 200
-const QUEUE_MAX_TOTAL = 5000
 const MAX_CONCURRENCY = 4
+/** A claimed delivery is retried by any consumer after this (crash during the HTTP call). */
+export const WEBHOOK_LEASE_MS = 30_000
 
 export function webhookTestMode(): boolean {
   return process.env.WEBHOOK_TEST_ALLOW_LOOPBACK === '1' && process.env.NODE_ENV !== 'production'
@@ -131,6 +140,8 @@ export interface WebhookEventInput {
   field?: string | null
   /** OAuth client name when an agent caused the event; shown as "Alice via X". */
   via?: string | null
+  /** Idempotency key of the event (default: derived for comment / mention / page_created). */
+  key?: string
 }
 
 interface Message {
@@ -318,7 +329,7 @@ export type DeliveryResult =
   | { ok: true; status: number }
   | { ok: false; retryable: boolean; retryAfterMs?: number; error: string }
 
-export async function deliver(hook: Pick<HookRow, 'kind' | 'url'>, body: string): Promise<DeliveryResult> {
+export async function deliver(hook: Pick<HookRow, 'kind' | 'url'>, body: string, deliveryId?: string): Promise<DeliveryResult> {
   const p = PROVIDERS[hook.kind]
   let u: URL
   try {
@@ -331,7 +342,7 @@ export async function deliver(hook: Pick<HookRow, 'kind' | 'url'>, body: string)
     const res = await safeFetch(hook.url, {
       method: 'POST',
       body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(deliveryId ? { 'x-inkling-delivery': deliveryId } : {}) },
       ...(loop ? { unsafeAllowLoopbackForTests: true } : { allowedHosts: p.hosts, allowedPathPrefixes: [p.prefix] }),
       maxRedirects: 0,
       maxBytes: 16 * 1024,
@@ -351,19 +362,20 @@ export async function deliver(hook: Pick<HookRow, 'kind' | 'url'>, body: string)
   }
 }
 
-interface Job {
+interface WebhookJob {
   hookId: string
-  workspaceId: string
   event: WebhookEventInput
-  attempt: number
-  notBefore: number
 }
 
-const queue: Job[] = []
-const perWs = new Map<string, number>()
+interface ClaimedRow {
+  id: string
+  workspaceId: string
+  payload: WebhookJob
+  attempts: number
+}
+
 const buckets = new Map<string, { tokens: number; at: number }>()
-let running = 0
-let timer: NodeJS.Timeout | null = null
+let inflight = 0
 let log: (msg: string) => void = () => {}
 
 function takeToken(ws: string): number {
@@ -379,67 +391,68 @@ function takeToken(ws: string): number {
   return Math.ceil(((1 - b.tokens) / BUCKET_REFILL_PER_SEC) * 1000)
 }
 
-function push(job: Job): void {
-  const n = perWs.get(job.workspaceId) ?? 0
-  if (n >= QUEUE_MAX_PER_WS || queue.length >= QUEUE_MAX_TOTAL) {
-    log(`[webhooks] queue full, dropping ${job.event.type} for workspace ${job.workspaceId}`)
-    return
-  }
-  perWs.set(job.workspaceId, n + 1)
-  queue.push(job)
-  schedule()
-}
-
-let timerAt = 0
-
-/** (Re)arm the single wake-up timer for the earliest due job (capped at 30 s). */
-function schedule(): void {
-  // While all workers are busy, runJob's finally re-arms the timer; avoid a setTimeout(0) spin.
-  if (queue.length === 0 || running >= MAX_CONCURRENCY) return
-  let next = Infinity
-  for (const j of queue) if (j.notBefore < next) next = j.notBefore
-  const at = Math.min(next, Date.now() + 30_000)
-  if (timer && timerAt <= at) return
-  if (timer) clearTimeout(timer)
-  timerAt = at
-  timer = setTimeout(() => {
-    timer = null
-    void pump()
-  }, Math.max(0, at - Date.now()))
-  timer.unref?.()
-}
-
-async function pump(): Promise<void> {
-  const now = Date.now()
-  while (running < MAX_CONCURRENCY) {
-    const idx = queue.findIndex((j) => j.notBefore <= now)
-    if (idx < 0) break
-    const job = queue[idx]
-    const wait = takeToken(job.workspaceId)
-    if (wait > 0) {
-      job.notBefore = now + wait
-      continue
-    }
-    queue.splice(idx, 1)
-    const left = (perWs.get(job.workspaceId) ?? 1) - 1
-    // Drop idle workspaces so the maps stay bounded by workspaces with queued jobs (ADR 0752 inv.).
-    if (left > 0) perWs.set(job.workspaceId, left)
-    else {
-      perWs.delete(job.workspaceId)
-      const b = buckets.get(job.workspaceId)
-      if (b && b.tokens >= BUCKET_CAPACITY - 1) buckets.delete(job.workspaceId)
-    }
-    running++
-    void runJob(job).finally(() => {
-      running--
-      schedule()
-      if (queue.some((j) => j.notBefore <= Date.now())) void pump()
+/**
+ * One consumer pass: lease up to the free concurrency slots of due rows (SKIP LOCKED, so several
+ * consumers take disjoint rows; an expired lease is taken again) and start their deliveries.
+ */
+export async function runWebhookPass(): Promise<number> {
+  const free = MAX_CONCURRENCY - inflight
+  if (free <= 0) return 0
+  const rows = (await db.execute(sql`
+    UPDATE outbox SET locked_until = now() + make_interval(secs => ${WEBHOOK_LEASE_MS / 1000}), attempts = attempts + 1
+     WHERE id IN (
+       SELECT id FROM outbox
+        WHERE topic = 'webhook' AND state = 'pending' AND available_at <= now()
+          AND (locked_until IS NULL OR locked_until < now()) AND ${ownedOrOrphaned()}
+        ORDER BY id LIMIT ${free}
+          FOR UPDATE SKIP LOCKED)
+    RETURNING id::text AS id, workspace_id AS "workspaceId", payload, attempts
+  `)) as unknown as ClaimedRow[]
+  for (const r of rows) {
+    inflight++
+    void runJob(r).finally(() => {
+      inflight--
+      kickOutbox('webhook')
     })
   }
-  schedule()
+  if (rows.length === 0) await armNextWake()
+  return rows.length
 }
 
-async function runJob(job: Job): Promise<void> {
+registerOutboxHandler('webhook', runWebhookPass, MAX_CONCURRENCY)
+
+/** Wake up when the next delayed / backed-off / leased row becomes due (capped at 30 s). */
+async function armNextWake(): Promise<void> {
+  const [r] = (await db.execute(sql`
+    SELECT (extract(epoch from min(greatest(available_at, coalesce(locked_until, available_at))) - now()) * 1000)::float8 AS ms
+      FROM outbox WHERE topic = 'webhook' AND state = 'pending'
+  `)) as unknown as { ms: number | null }[]
+  if (r?.ms !== null && r?.ms !== undefined) wakeAt('webhook', Math.min(30_000, Math.max(0, Number(r.ms)) + 5))
+}
+
+/** Finish a leased row, unless another consumer took it over (lease expired: attempts moved on). */
+async function settle(r: ClaimedRow, state: 'done' | 'dead', error: string | null): Promise<void> {
+  await db.execute(sql`
+    UPDATE outbox SET state = ${state}, finished_at = now(), locked_until = NULL, last_error = ${error?.slice(0, 300) ?? null}
+     WHERE id = ${r.id} AND state = 'pending' AND attempts = ${r.attempts}
+  `)
+}
+
+async function retryLater(r: ClaimedRow, delayMs: number, error: string, countAttempt = true): Promise<void> {
+  await db.execute(sql`
+    UPDATE outbox SET locked_until = NULL, last_error = ${error.slice(0, 300)},
+           attempts = ${countAttempt ? r.attempts : r.attempts - 1},
+           available_at = now() + make_interval(secs => ${delayMs / 1000})
+     WHERE id = ${r.id} AND state = 'pending' AND attempts = ${r.attempts}
+  `)
+  wakeAt('webhook', delayMs)
+}
+
+/** Fault injection for the crash tests: runs after the HTTP call, before the row is finished. */
+export const webhookTestHooks: { afterSend?: (r: { id: string; attempts: number }) => void | Promise<void> } = {}
+
+async function runJob(r: ClaimedRow): Promise<void> {
+  const job = r.payload
   try {
     // A job queued before its workspace was soft-deleted is dropped here (ADR 0910).
     const hook = (
@@ -449,23 +462,41 @@ async function runJob(job: Job): Promise<void> {
         .where(and(eq(workspaceWebhooks.id, job.hookId), liveWorkspace(workspaceWebhooks.workspaceId)))
         .limit(1)
     )[0]
-    if (!hook || hook.enabled !== '1' || hook.workspaceId !== job.workspaceId) return
+    if (!hook || hook.enabled !== '1' || hook.workspaceId !== r.workspaceId) return await settle(r, 'done', 'skipped: hook gone or disabled')
     const msg = await buildMessage(job.event, hook.workspaceId)
-    if (!msg) return
-    const result = await deliver(hook, formatPayload(hook.kind, msg))
+    if (!msg) return await settle(r, 'done', 'skipped: not deliverable')
+    const wait = takeToken(hook.workspaceId)
+    if (wait > 0) return await retryLater(r, wait, 'rate limited', false)
+    const result = await deliver(hook, formatPayload(hook.kind, msg), r.id)
+    await webhookTestHooks.afterSend?.({ id: r.id, attempts: r.attempts })
     if (result.ok) {
+      await settle(r, 'done', null)
       await recordSuccess(hook.id)
       return
     }
-    if (result.retryable && job.attempt < RETRY_DELAYS_MS.length) {
-      const delay = result.retryAfterMs ?? RETRY_DELAYS_MS[job.attempt]
-      push({ ...job, attempt: job.attempt + 1, notBefore: Date.now() + delay })
+    if (result.retryable && r.attempts < WEBHOOK_RETRY.maxAttempts) {
+      await retryLater(r, result.retryAfterMs ?? backoff(r.attempts), result.error)
       return
     }
+    await settle(r, 'dead', result.error)
     await recordFailure(hook, result.error)
   } catch (err) {
     log(`[webhooks] job failed: ${String(err)}`)
+    try {
+      if (r.attempts < WEBHOOK_RETRY.maxAttempts) await retryLater(r, backoff(r.attempts), String(err))
+      else await settle(r, 'dead', String(err))
+    } catch {
+      // the lease expires and another pass retries it
+    }
+  } finally {
+    // Drop idle workspaces' buckets so the map stays bounded (ADR 0752 inv.).
+    const b = buckets.get(r.workspaceId)
+    if (b && b.tokens >= BUCKET_CAPACITY - 1) buckets.delete(r.workspaceId)
   }
+}
+
+function backoff(attempts: number): number {
+  return Math.min(WEBHOOK_RETRY.capMs, WEBHOOK_RETRY.baseMs * Math.pow(WEBHOOK_RETRY.factor, Math.max(0, attempts - 1)))
 }
 
 async function recordSuccess(hookId: string): Promise<void> {
@@ -538,24 +569,70 @@ export async function hasEnabledHook(workspaceId: string, event: WebhookEvent): 
   return (await enabledHooks(workspaceId)).some((h) => h.events.includes(event))
 }
 
+/** Natural idempotency key of an event, when it has one. */
+function eventKey(ev: WebhookEventInput): string | null {
+  if (ev.key) return ev.key
+  switch (ev.type) {
+    case 'comment':
+      return ev.commentId ? `comment:${ev.commentId}` : null
+    case 'mention':
+      return ev.commentId ? `mention:${ev.commentId}` : null
+    case 'page_created':
+      return `page_created:${ev.pageId}`
+    default:
+      return null
+  }
+}
+
+/**
+ * Queue an event for every enabled hook of the workspace subscribed to it, with `exec` (the
+ * producer's transaction, or `db`). Returns the number of deliveries queued. Privacy filtering
+ * happens at delivery.
+ */
+export async function enqueueWebhookEvent(exec: Exec, ev: WebhookEventInput): Promise<number> {
+  const hooks = (await enabledHooks(ev.workspaceId)).filter((h) => h.events.includes(ev.type))
+  if (hooks.length === 0) return 0
+  const key = eventKey(ev) ?? randomUUID()
+  const delay = ev.type === 'page_created' ? PAGE_CREATED_DELAY_MS : 0
+  const rows = hooks.map((h) => ({ k: `wh:${key}:${h.id}`, p: { hookId: h.id, event: ev } satisfies WebhookJob }))
+  const out = (await exec.execute(sql`
+    WITH cap AS (
+      SELECT count(*) AS n FROM outbox WHERE topic = 'webhook' AND state = 'pending' AND workspace_id = ${ev.workspaceId}
+    ), ins AS (
+      INSERT INTO outbox (topic, origin, dedupe_key, workspace_id, payload, available_at)
+      SELECT 'webhook', ${OUTBOX_ORIGIN}, x.k, ${ev.workspaceId}, x.p, now() + make_interval(secs => ${delay / 1000})
+        FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS x(k text, p jsonb), cap
+       WHERE cap.n < ${QUEUE_MAX_PER_WS}
+      ON CONFLICT (dedupe_key) DO NOTHING
+      RETURNING id
+    )
+    SELECT (SELECT n FROM cap)::int AS pending, (SELECT count(*) FROM ins)::int AS n,
+           (SELECT pg_notify('inkling_outbox', ${`webhook:${OUTBOX_ORIGIN}`}) FROM ins LIMIT 1) AS z
+  `)) as unknown as { pending: number; n: number }[]
+  const n = Number(out[0]?.n ?? 0)
+  if (Number(out[0]?.pending ?? 0) >= QUEUE_MAX_PER_WS) log(`[webhooks] queue full, dropping ${ev.type} for workspace ${ev.workspaceId}`)
+  if (n > 0 && exec === db) {
+    if (delay > 0) wakeAt('webhook', delay)
+    else kickOutbox('webhook')
+  }
+  return n
+}
+
+const emitting = new Set<Promise<unknown>>()
+
 /**
  * Fire-and-forget: queue an event for every enabled hook of the workspace subscribed to it.
- * Never throws and never blocks the caller's request. Privacy filtering happens at delivery.
+ * Never throws and never blocks the caller's request.
  */
 export function emitWebhookEvent(ev: WebhookEventInput): void {
-  void (async () => {
-    try {
-      const hooks = await enabledHooks(ev.workspaceId)
-      if (hooks.length === 0) return
-      const delay = ev.type === 'page_created' ? PAGE_CREATED_DELAY_MS : 0
-      for (const h of hooks) {
-        if (!h.events.includes(ev.type)) continue
-        push({ hookId: h.id, workspaceId: ev.workspaceId, event: ev, attempt: 0, notBefore: Date.now() + delay })
-      }
-    } catch (err) {
-      log(`[webhooks] emit failed: ${String(err)}`)
-    }
-  })()
+  const p = enqueueWebhookEvent(db, ev).catch((err) => log(`[webhooks] emit failed: ${String(err)}`))
+  emitting.add(p)
+  void p.finally(() => emitting.delete(p))
+}
+
+/** Wait for in-flight emits (tests). */
+export async function flushWebhookEmits(): Promise<void> {
+  while (emitting.size) await Promise.allSettled([...emitting])
 }
 
 /** Send a fixed test message right away (bypasses the queue, still rate-limited per workspace). */
@@ -579,8 +656,8 @@ export function initWebhooks(logger: (msg: string) => void): void {
   log = logger
 }
 
-/** Exposed for tests/diagnostics. */
+/** Exposed for tests/diagnostics: deliveries in flight in this process. */
 export function _queueSize(): number {
-  return queue.length
+  return inflight
 }
 

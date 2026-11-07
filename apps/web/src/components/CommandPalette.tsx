@@ -3,7 +3,7 @@ import { WorkspaceAvatar } from './WorkspaceAvatar'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useCreatePage, usePages, useWorkspaces } from '../api'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { getTheme, setTheme, type Theme } from '../lib/theme'
 import { toISODate } from '../lib/time'
 import { useDailyNote } from '../lib/dailyNote'
@@ -251,7 +251,7 @@ export function CommandPalette({
       .slice(0, 8)
       .map((p) => ({
         key: `page-${p.id}`,
-        icon: pageIcon(p),
+        icon: <PageIconGlyph page={p} size={16} />,
         label: p.title || t('common.untitled'),
         hint: t('common.page'),
         run: () => navigate(`/w/${wsId}/p/${p.id}`),

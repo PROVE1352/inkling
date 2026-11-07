@@ -123,6 +123,9 @@ export async function computeReviewScores(workspaceId: string, now = new Date(),
   const windowDays = Math.min(90, env.changeFeedRetentionDays)
   const nowIso = now.toISOString()
   const only = pageIds ? sql`AND p.id IN (${sql.join(pageIds.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``
+  // Single pages: only the changes the score reads (the pages and their link neighbours) instead of
+  // aggregating the whole workspace's change feed (page_changes_page_idx).
+  const chgOnly = pageIds ? sql`AND c.page_id IN (SELECT id FROM cand UNION SELECT b FROM nb)` : sql``
 
   const rows = (await db.execute(sql`
     WITH cand AS (
@@ -133,6 +136,11 @@ export async function computeReviewScores(workspaceId: string, now = new Date(),
        WHERE p.workspace_id = ${workspaceId} AND p.deleted_at IS NULL AND p.kind = 'doc'
          AND (parent.id IS NULL OR parent.kind <> 'collection') ${only}
     ),
+    nb AS (
+      SELECT l.source_page_id AS a, l.target_page_id AS b FROM page_links l JOIN cand ON cand.id = l.source_page_id
+      UNION
+      SELECT l.target_page_id AS a, l.source_page_id AS b FROM page_links l JOIN cand ON cand.id = l.target_page_id
+    ),
     chg AS (
       SELECT c.page_id,
              count(DISTINCT (c.changed_at AT TIME ZONE 'UTC')::date)
@@ -141,13 +149,8 @@ export async function computeReviewScores(workspaceId: string, now = new Date(),
                FILTER (WHERE c.changed_at > ${nowIso}::timestamptz - interval '30 days') AS d30,
              max(c.changed_at) AS last_edit
         FROM page_changes c
-       WHERE c.workspace_id = ${workspaceId} AND c.anchor IS NOT NULL
+       WHERE c.workspace_id = ${workspaceId} AND c.anchor IS NOT NULL ${chgOnly}
        GROUP BY c.page_id
-    ),
-    nb AS (
-      SELECT l.source_page_id AS a, l.target_page_id AS b FROM page_links l JOIN cand ON cand.id = l.source_page_id
-      UNION
-      SELECT l.target_page_id AS a, l.source_page_id AS b FROM page_links l JOIN cand ON cand.id = l.target_page_id
     ),
     nbr AS (
       SELECT nb.a AS page_id, avg(coalesce(chg.dw, 0))::float8 AS nd

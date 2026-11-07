@@ -19,13 +19,18 @@ import { estimateTokens, isCjkCode } from './tokens'
 
 /** Bump when chunk text/anchors change shape: the boot backfill then re-indexes every page. */
 // 2: page_chunks.suspicious (injection heuristics, docs/adr/0977-*; INJECTION_RULES_VERSION 1).
-export const CHUNKER_VERSION = 2
+// 3: no 200 KB text cap, the whole document is indexed up to MAX_CHUNKS_PER_PAGE (docs/adr/1040-*).
+export const CHUNKER_VERSION = 3
 export const MAX_CHUNK_TOKENS = 600
 export const INTRO_ANCHOR = '_intro'
-/** Index at most this much text per page (same cap as page_texts). */
-const MAX_PAGE_TEXT_BYTES = 200 * 1024
-const MAX_CHUNKS_PER_PAGE = 2_000
-const PATH_SEP = ' › '
+/**
+ * Safety bound on index rows per page (≈ 3M estimated tokens). The section index covers the whole
+ * document below it; a page at the bound is treated as partially indexed (outline/section reads
+ * then decode the document instead of answering from the index, docs/adr/1041-*).
+ */
+export const MAX_CHUNKS_PER_PAGE = 5_000
+/** Separator of heading path titles in `headingPath` strings. */
+export const PATH_SEP = ' › '
 
 export interface Section {
   anchor: string
@@ -40,6 +45,7 @@ export interface Section {
   text: string
   /** Short version id of the section (heading path + body): patch_section's baseVersion. */
   version: string
+  /** Sum of the estimates of the section's index parts (so the index and a decode agree, docs/adr/1041-*). */
   tokens: number
 }
 
@@ -217,7 +223,7 @@ export function splitSections(blocks: AnyBlock[]): Section[] {
       end,
       text,
       version: sectionVersion(cur.path, text),
-      tokens: estimateTokens(text),
+      tokens: sectionTokens(text),
     })
   }
 
@@ -292,6 +298,13 @@ function splitBody(text: string): string[] {
   return parts
 }
 
+/** Token estimate of a section body as the index stores it: the sum over its parts. */
+export function sectionTokens(text: string): number {
+  let n = 0
+  for (const part of splitBody(text)) n += estimateTokens(part)
+  return n
+}
+
 function sha1(...parts: (string | number | null)[]): string {
   const h = createHash('sha1')
   for (const p of parts) h.update(String(p ?? '')).update('\u0000')
@@ -302,17 +315,15 @@ export function joinPath(path: string[]): string {
   return path.join(PATH_SEP)
 }
 
-/** Sections → index rows (bounded by MAX_PAGE_TEXT_BYTES and MAX_CHUNKS_PER_PAGE). */
+/** Sections → index rows (the whole document, bounded only by MAX_CHUNKS_PER_PAGE). */
 export function chunkSections(sections: Section[]): Chunk[] {
   const chunks: Chunk[] = []
-  let bytes = 0
   for (const s of sections) {
     const headingPath = joinPath(s.headingPath)
     const parts = splitBody(s.text)
     for (let p = 0; p < parts.length; p++) {
-      if (chunks.length >= MAX_CHUNKS_PER_PAGE || bytes > MAX_PAGE_TEXT_BYTES) return chunks
+      if (chunks.length >= MAX_CHUNKS_PER_PAGE) return chunks
       const text = parts[p]
-      bytes += Buffer.byteLength(text, 'utf8')
       const grams = cjkBigrams(`${p === 0 ? headingPath : ''} ${text}`)
       const tokens = estimateTokens(text)
       const suspicious = scanInjection(`${p === 0 ? headingPath : ''}\n${text}`)
@@ -343,7 +354,7 @@ export function chunkBlocks(blocks: AnyBlock[]): Chunk[] {
  * Resolve a section reference: exact anchor, anchor without `~n`, heading block id, heading text
  * or heading path ("A › B" / "A > B" / "A/B"), case-insensitive. Returns null when nothing matches.
  */
-export function findSection(sections: Section[], ref: string): Section | null {
+export function findSection<T extends Pick<Section, 'anchor' | 'blockId' | 'headingPath'>>(sections: T[], ref: string): T | null {
   const r = ref.trim().replace(/^§/, '').replace(/^#/, '')
   if (!r) return null
   const exact = sections.find((s) => s.anchor === r || s.blockId === r)

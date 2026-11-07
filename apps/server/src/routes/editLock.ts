@@ -8,10 +8,12 @@ import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { pages } from '../db/schema'
 import { forbidden, notFound } from '../errors'
+import { isLargePage } from '../context/largePage'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 import { agentAllowedSql, currentAgent } from '../agentAccess'
+import { aclColumns, toAcl } from '../aclVersion'
 import { actorFor, CAP_COMMENT, CAP_EDIT, capsFor, pageLockStatus, setPageLock } from '../editLock'
 import {
   applicableInstructions,
@@ -108,9 +110,84 @@ export interface AgentContextDTO {
     lastEdit: { name: string | null; via: string | null } | null
     /** Sections whose indexed text matched injection heuristics (docs/adr/0977-*), by anchor. */
     suspicious: { anchor: string; rules: string[] }[]
+    /** Stored state ≥ 1 MiB or indexed body ≥ 50k tokens (docs/adr/1043-*): tools add a read-by-section hint. */
+    large: boolean
   }[]
   /** Instructions that apply to any of the pages, in output order (titles only). */
   applies: { pageId: string; title: string; mode: string }[]
+}
+
+/**
+ * Per-page facts for MCP tool output (GET /pages/agent-context and, without the HTTP round trip,
+ * mcpTools/agentContext.ts — docs/adr/1070-*). Must run in the caller's agent scope (runAsAgent) so
+ * agent blocks and agent lock rules apply. `ids`: at most 50 page ids, output follows their order.
+ * The workspace access version read with the pages keys the lock-chain and instruction caches
+ * (docs/adr/1071-*).
+ */
+export async function agentContextFor(userId: string, ids: string[], opts: { read?: boolean } = {}): Promise<AgentContextDTO> {
+  if (!ids.length) return { pages: [], applies: [] }
+  const acl = aclColumns(sql`pages.workspace_id`)
+  // Visible, live pages in live workspaces the caller belongs to (and that do not block this agent).
+  const rows = (await db.execute(sql`
+    SELECT pages.id, pages.workspace_id AS "workspaceId", m.role,
+           cu.name AS "createdBy", lc.seq IS NOT NULL AS "hasChange",
+           au.name AS "editorName", lc.via_client AS "via",
+           (SELECT octet_length(d.state) FROM page_docs d WHERE d.page_id = pages.id) AS "stateBytes",
+           (SELECT sum(c.token_estimate) FROM page_chunks c WHERE c.page_id = pages.id) AS "tokens",
+           ${acl.version} AS "aclVersion", ${acl.hasLocks} AS "hasLocks"
+      FROM pages
+      JOIN workspace_members m ON m.workspace_id = pages.workspace_id AND m.user_id = ${userId}
+      LEFT JOIN workspace_acl_versions a ON a.workspace_id = pages.workspace_id
+      LEFT JOIN users cu ON cu.id = pages.created_by
+      LEFT JOIN LATERAL (
+        SELECT c.seq, c.actor_id, c.via_client FROM page_changes c WHERE c.page_id = pages.id ORDER BY c.seq DESC LIMIT 1
+      ) lc ON true
+      LEFT JOIN users au ON au.id = lc.actor_id
+     WHERE pages.id = ANY(${`{${ids.join(',')}}`}::uuid[])
+       AND ${and(isNull(pages.deletedAt), visibleTo(userId), liveWorkspace(pages.workspaceId), agentAllowedSql(pages.workspaceId))}
+  `)) as unknown as {
+    id: string
+    workspaceId: string
+    role: 'owner' | 'admin' | 'member'
+    createdBy: string | null
+    hasChange: boolean
+    editorName: string | null
+    via: string | null
+    stateBytes: number | string | null
+    tokens: number | string | null
+    aclVersion: number | string
+    hasLocks: boolean
+  }[]
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  const ordered = ids.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => !!r)
+  const aclOf = new Map(ordered.map((r) => [r.id, toAcl(r.workspaceId, r.aclVersion, r.hasLocks)]))
+  // Caps per page with the caller's role in that page's workspace (no walk without locks, cached chains otherwise).
+  const caps = new Map<string, number>()
+  for (const role of new Set(ordered.map((r) => r.role))) {
+    const subset = ordered.filter((r) => r.role === role).map((r) => r.id)
+    for (const [k, v] of await capsFor(db, subset, actorFor(userId, role), aclOf)) caps.set(k, v)
+  }
+  const versions = new Map(ordered.map((r) => [r.workspaceId, Number(r.aclVersion)]))
+  const applies = await applicableInstructions(
+    ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })),
+    versions,
+  )
+  const flags = await suspiciousSections(ordered.map((r) => r.id))
+  if (opts.read && flags.size) await markTainted()
+  return {
+    pages: ordered.map((r) => {
+      const c = caps.get(r.id) ?? 0
+      return {
+        id: r.id,
+        can: ['read', ...(c & CAP_COMMENT ? ['comment'] : []), ...(c & CAP_EDIT ? ['edit'] : [])].join(','),
+        createdBy: r.createdBy,
+        lastEdit: r.hasChange ? { name: r.editorName, via: r.via } : null,
+        suspicious: (flags.get(r.id) ?? []).map((f) => ({ anchor: f.anchor, rules: f.rules })),
+        large: isLargePage(Number(r.stateBytes ?? 0), Number(r.tokens ?? 0)),
+      }
+    }),
+    applies: applies.map((a) => ({ pageId: a.pageId, title: a.title, mode: a.mode })),
+  }
 }
 
 export async function registerEditLockRoutes(app: FastifyInstance): Promise<void> {
@@ -170,53 +247,6 @@ export async function registerEditLockRoutes(app: FastifyInstance): Promise<void
   app.get('/pages/agent-context', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const { ids, read } = contextQuerySchema.parse(req.query)
-    // Visible, live pages in live workspaces the caller belongs to (and that do not block this agent).
-    const rows = (await db.execute(sql`
-      SELECT pages.id, pages.workspace_id AS "workspaceId", m.role,
-             cu.name AS "createdBy", lc.seq IS NOT NULL AS "hasChange",
-             au.name AS "editorName", lc.via_client AS "via"
-        FROM pages
-        JOIN workspace_members m ON m.workspace_id = pages.workspace_id AND m.user_id = ${user.id}
-        LEFT JOIN users cu ON cu.id = pages.created_by
-        LEFT JOIN LATERAL (
-          SELECT c.seq, c.actor_id, c.via_client FROM page_changes c WHERE c.page_id = pages.id ORDER BY c.seq DESC LIMIT 1
-        ) lc ON true
-        LEFT JOIN users au ON au.id = lc.actor_id
-       WHERE pages.id = ANY(${`{${ids.join(',')}}`}::uuid[])
-         AND ${and(isNull(pages.deletedAt), visibleTo(user.id), liveWorkspace(pages.workspaceId), agentAllowedSql(pages.workspaceId))}
-    `)) as unknown as {
-      id: string
-      workspaceId: string
-      role: 'owner' | 'admin' | 'member'
-      createdBy: string | null
-      hasChange: boolean
-      editorName: string | null
-      via: string | null
-    }[]
-    const byId = new Map(rows.map((r) => [r.id, r]))
-    const ordered = ids.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => !!r)
-    // Caps per page with the caller's role in that page's workspace (one lock walk for all pages).
-    const caps = new Map<string, number>()
-    for (const role of new Set(ordered.map((r) => r.role))) {
-      const subset = ordered.filter((r) => r.role === role).map((r) => r.id)
-      for (const [k, v] of await capsFor(db, subset, actorFor(user.id, role))) caps.set(k, v)
-    }
-    const applies = await applicableInstructions(ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })))
-    const flags = await suspiciousSections(ordered.map((r) => r.id))
-    if (read === '1' && flags.size) await markTainted()
-    const dto: AgentContextDTO = {
-      pages: ordered.map((r) => {
-        const c = caps.get(r.id) ?? 0
-        return {
-          id: r.id,
-          can: ['read', ...(c & CAP_COMMENT ? ['comment'] : []), ...(c & CAP_EDIT ? ['edit'] : [])].join(','),
-          createdBy: r.createdBy,
-          lastEdit: r.hasChange ? { name: r.editorName, via: r.via } : null,
-          suspicious: (flags.get(r.id) ?? []).map((f) => ({ anchor: f.anchor, rules: f.rules })),
-        }
-      }),
-      applies: applies.map((a) => ({ pageId: a.pageId, title: a.title, mode: a.mode })),
-    }
-    return dto
+    return agentContextFor(user.id, ids, { read: read === '1' })
   })
 }

@@ -1,5 +1,6 @@
 # HTTPS overlay — once the domain is ready:
-#   DOMAIN=inkling.example.com docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --build
+#   DOMAIN=inkling.example.com docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
+#   (source build instead of the published image: add -f compose.build.yaml and --build)
 # Caddy issues and renews Let's Encrypt certificates automatically.
 services:
   caddy:

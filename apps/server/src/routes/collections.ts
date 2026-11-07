@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { actorFor, assertAllEditable, assertPageEditable, roleForPage } from '../editLock'
+import { actorFor, assertAllEditable, assertPageEditable } from '../editLock'
 import { and, asc, eq, isNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -28,11 +28,13 @@ import { db, retryOnDeadlock } from '../db/index'
 import { ifNoneMatch } from '../httpCache'
 import { workspaceVersion } from '../versions'
 import { collectionViews, collections, pages } from '../db/schema'
-import { AppError, badRequest, notFound } from '../errors'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { rowVersionSql } from '../collectionQuery/compile'
 import { actorOf, withEditActor } from '../context/attribution'
 import { z } from 'zod'
-import { idParam, requireMembership } from '../helpers'
+import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
+import { gateWrite } from '../aclVersion'
+import { assertAgentAllowed } from '../agentAccess'
 import { findVisiblePage, pageColumns, toRowDTO, visibleTo } from '../pageDto'
 import { newAssignees, notifyTaskAssignments } from '../notify/producers'
 import type { PageRow } from '../pageDto'
@@ -317,8 +319,8 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         .limit(1)
     )[0]
     if (!target) throw notFound()
-    await requireMembership(target.workspaceId, user.id)
-    await assertPageEditable(id, user.id)
+    const { role, acl } = await requireMembershipAcl(target.workspaceId, user.id)
+    await assertPageEditable(id, user.id, { role, acl })
 
     const body = updatePropsSchema.parse(req.body)
     const { baseVersion } = baseVersionSchema.parse(req.body)
@@ -343,6 +345,14 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const { row, merged, version, assigned } = await withEditActor([id], actorOf(user), () =>
       retryOnDeadlock(() =>
       db.transaction(async (tx) => {
+        // Write gate (docs/adr/1071-*): an access change that committed since the check above is
+        // re-checked here; one that starts now waits for this write.
+        const gate = await gateWrite(tx, target.workspaceId, user.id)
+        if (gate.acl.version !== acl.version || gate.role !== role) {
+          if (!gate.role) throw forbidden()
+          await assertAgentAllowed(target.workspaceId, gate.acl.version, tx)
+          await assertPageEditable(id, user.id, { role: gate.role, acl: gate.acl, exec: tx })
+        }
         const [cur] = (await tx.execute(
           sql`SELECT props, ${rowVersionSql()} AS version FROM pages WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`,
         )) as unknown as { props: Record<string, unknown> | null; version: string }[]
@@ -380,7 +390,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         const mirrored = pairSyncs.flatMap((p) =>
           p.field.relation?.twoWay ? [...p.oldIds, ...p.newIds].filter((r) => !(p.oldIds.includes(r) && p.newIds.includes(r))) : [],
         )
-        if (mirrored.length) await assertAllEditable(tx, mirrored, actorFor(user.id, await roleForPage(id, user.id)))
+        if (mirrored.length) await assertAllEditable(tx, mirrored, actorFor(user.id, gate.role))
         for (const p of pairSyncs) await syncPairedLinks(tx, p.field, id, p.oldIds, p.newIds)
         // version read after the pair sync (a self-referencing two-way relation may touch this row)
         const [r] = await tx

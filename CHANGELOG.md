@@ -7,6 +7,77 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-07
+
+Database migration 0034 (two-step verification, outbox, workspace access versions) is applied on first boot. Take a
+backup before upgrading ([docs/BACKUP.md](docs/BACKUP.md)) and stop the old server before starting the new one against
+the same database (docs/adr/1080-*). Session tokens are converted to hashes at start-up, so going back to 0.3.x signs
+everyone out. Set `APP_SECRET_KEY` (32+ characters) if members should be able to turn on two-step verification.
+
+### Security
+- Session tokens are stored as SHA-256; existing sessions are converted at start-up and nobody is signed out
+  (docs/adr/1060-*).
+- State-changing API requests and the collaboration socket are refused (403 `CROSS_SITE_REQUEST`) when the browser
+  Origin is not `PUBLIC_URL`/`APP_URL`. Requests with an `Authorization` header (MCP, CLI) are not affected
+  (docs/adr/1062-*).
+
+### Added
+- Two-step verification with an authenticator app (TOTP) and 10 single-use recovery codes, in Settings; admins can turn
+  it off for a member who lost their phone. Requires `APP_SECRET_KEY` (docs/adr/1061-*).
+- Settings shows the running version and build at the bottom, and the server's when they differ.
+- Settings → Editor → Line width: a 600–1200 px slider or "Full" per device, 700 px by default (replaces "Readable line
+  length": on → 700 px, off → Full). A page's "Full width" still wins.
+- User guide for invited users ([docs/GUIDE.md](docs/GUIDE.md), [한국어](docs/GUIDE.ko.md)); README.ko.md rewritten;
+  SECURITY.md covers supported versions, private vulnerability reporting and scope.
+
+### Large pages
+- The section index now covers the whole page (it stopped at 200 KB), so the newest entries of a long log are found by
+  `find_context`; page_texts keeps the first and last 100 KB, so `search` finds them too. The first boot re-indexes only
+  pages that may have been cut (docs/adr/1040-*).
+- `read_page` outline/section answer from the section index while it reflects the document: on a 4.5 MB page outline
+  150 → 7 ms and a repeated section 165 → 7 ms. `update_page` append 1.6 s → 0.55 s; `patch_section` append −20–35%.
+  Stores of an unchanged document no longer write, snapshot, re-index or bump `updated_at` (docs/adr/1041-*, 1042-*).
+- MCP tools print a "large page" line (state ≥ 1 MiB or ≥ 50k tokens) asking agents to read by section and write new
+  entries to child pages (docs/adr/1043-*).
+
+### Performance
+- MCP page tools compute the agent context in process instead of a second REST call (docs/adr/1070-*): `read_page`
+  2 → 1 internal request, 14.4 → 10.4 statements, p50 10.8 → 9.0 ms; `update_page` 39.6 → 33.6 statements, p50
+  30.3 → 27.3 ms.
+- Workspace access version and write gate (docs/adr/1071-*): writes in a workspace without locks skip the lock walk;
+  with locks it runs once per page and version. Agent blocks and instruction pages are cached by that version, so a block
+  or a lock change applies to the very next call. Lock, block, move and owner changes wait for writes in progress.
+- Change feed, notifications and webhooks go through a transactional outbox (docs/adr/1080-*, 1081-*). Writes no longer
+  queue behind each other's change-log writes (title PATCH at 16 concurrent clients p50 −14%, a write in another
+  workspace during a burst −37%), and change-feed order also holds with more than one server process. Notifications
+  survive a crash or restart and are written exactly once; webhooks are delivered at least once with a stable
+  `X-Inkling-Delivery` header, retried with capped backoff. The activity screen may trail a write by up to 1 s. Comment
+  POST at 16 concurrent clients is slower (+38% p50).
+- Review score of one page 117 → 4.3 ms; audit-log cleanup with nothing to delete 28–34 → 0.4 ms (new index).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Changed
+- Quieter document screen (docs/adr/1090-*): the top bar keeps bookmark, share, who is online, the right panel and the
+  notification bell; pen mode, edit lock, page notifications, PDF export and theme moved to the ⋯ menu (a dot on ⋯ and
+  a check on the item show a lock or a followed page).
+- Editor look: no lighter box behind the body in dark mode, table borders in the theme line colour, body headings one
+  step smaller than the page title (H1 1.75em, H2 1.4em, H3 1.2em). Cover, icon and title start on the same line as the
+  body text.
+- Pages without a chosen icon show a muted line icon in the sidebar and lists instead of 📄/📁, and no default icon above
+  the title.
+- Markdown, zip and Notion imports drop a first `# Heading` that repeats the page title. Existing pages are unchanged.
+- Korean UI wording: 코멘트 (not 댓글), 데이터베이스 (not 컬렉션), 버전 히스토리.
+
+### Deployment
+- Prebuilt images: every release is published as a multi-arch image (linux/amd64, linux/arm64),
+  `ghcr.io/prove1352/inkling:X.Y.Z` (also `X.Y` and `latest`). Pin a release with `INKLING_VERSION` in `.env`
+  (docs/adr/1050-*).
+- `compose.yaml` runs that image by default: upgrade with backup → `git pull` → `docker compose pull app` →
+  `docker compose up -d app` ([docs/OPERATIONS.md](docs/OPERATIONS.md)). `docker compose up -d --build` still builds
+  from source; to keep source builds apart from releases, add `compose.build.yaml` (docs/adr/1051-*).
+- CI tests the upgrade from every earlier release with data before an image is published (docs/adr/1052-*).
+- `deploy/cli-token.sh` stores session tokens hashed; revoke by the printed hash prefix.
+
 ## [0.3.1] - 2026-11-07
 
 Database migration 0033 (adds `users.sidebar_prefs`) is applied on first boot. Take a backup before upgrading.

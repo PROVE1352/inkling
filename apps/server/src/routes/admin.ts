@@ -24,12 +24,13 @@ import { db } from '../db/index'
 import { closeUserConnections } from '../liveConnections'
 import { lockWorkspaceMembers } from '../helpers'
 import { purgeWorkspacesTx, unlinkUploadBlobs } from '../workspaceDeletion'
-import { ipBans, pages, passwordResetCodes, passwordResetRequests, signupKeys, users } from '../db/schema'
+import { ipBans, pages, passwordResetCodes, passwordResetRequests, signupKeys, users, userTotp } from '../db/schema'
 import { env, mailEnabled } from '../env'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { appOrigin, inviteMail, resetCodeMail, sendMail, tempPasswordMail, verifyMail } from '../mail'
 import { newSignupKey, newTempPassword } from '../util'
 import { resolveLocale } from '../i18n'
+import { disableTwoFactor } from '../twoFactor'
 
 /**
  * Admin-only operations API: issuing/revoking Inkling signup keys, user management (password
@@ -214,14 +215,18 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         signupKeyMaxUses: signupKeys.maxUses,
         emailVerifiedAt: users.emailVerifiedAt,
         createdAt: users.createdAt,
+        twoFactorAt: userTotp.enabledAt,
       })
       .from(users)
       .leftJoin(signupKeys, eq(signupKeys.key, users.signupKey))
+      .leftJoin(userTotp, eq(userTotp.userId, users.id))
       .orderBy(desc(users.createdAt))
     return {
-      users: rows.map(({ signupKeyMaxUses, ...u }) => ({
+      users: rows.map(({ signupKeyMaxUses, twoFactorAt, ...u }) => ({
         ...u,
         signupKeyRecovery: u.origin === 'local' && signupKeyMaxUses === 1,
+        // Extension field (docs/adr/1061-*)
+        twoFactor: !!twoFactorAt,
       })),
     }
   })
@@ -362,6 +367,20 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const password = newTempPassword()
     await setPassword(u.id, password, { resolvedBy: me.id })
     return { password }
+  })
+
+  /**
+   * Turn off a member's two-step verification (lost phone and recovery codes, docs/adr/1061-*).
+   * Their sessions are signed out too; they sign in with the password alone and can set 2FA up again.
+   */
+  app.delete('/admin/users/:id/2fa', admin, async (req) => {
+    const { id } = req.params as { id: string }
+    const me = getUser(req)
+    const u = await loadUser(id)
+    if (u.id === me.id) throw badRequest('Turn off your own two-step verification in Settings')
+    const wasOn = await disableTwoFactor(u.id)
+    if (wasOn) await revokeSessions(u.id)
+    return { ok: true, wasOn }
   })
 
   /** Issue a one-time reset code (24 hours). Only its hash is stored. All of the user's sessions are deleted. */

@@ -160,6 +160,59 @@ export function liveDocState(name: string): Uint8Array | null {
   return doc ? Y.encodeStateAsUpdate(doc) : null
 }
 
+/** The in-memory document, or null. Never read it through BlockNote directly (see sectionPatch.ts). */
+export function liveDoc(name: string): Y.Doc | null {
+  return instance?.documents.get(name) ?? null
+}
+
+// ---------------------------------------------------------------------------
+// Live document vs stored state (docs/adr/1041-*)
+// ---------------------------------------------------------------------------
+
+interface LiveMeta {
+  /** Updates applied since the document was loaded. */
+  seq: number
+  /** `seq` at which the document equalled the stored state `storedStamp`. */
+  storedSeq: number
+  /** page_docs.updated_at (text) of that stored state; null when there is none (new page). */
+  storedStamp: string | null
+}
+
+const liveMeta = new WeakMap<Y.Doc, LiveMeta>()
+
+/** Starts counting updates of a just-loaded document that equals the stored state `stamp`. */
+export function trackLiveDoc(doc: Y.Doc, stamp: string | null): void {
+  if (liveMeta.has(doc)) return
+  const meta: LiveMeta = { seq: 0, storedSeq: 0, storedStamp: stamp }
+  liveMeta.set(doc, meta)
+  doc.on('update', () => {
+    meta.seq++
+  })
+}
+
+/** Update counter of a tracked document (captured by the store hook when it encodes the state). */
+export function liveDocSeq(doc: Y.Doc): number | null {
+  return liveMeta.get(doc)?.seq ?? null
+}
+
+/** The store hook persisted (or found already persisted) the document as it was at `seq`. */
+export function noteLiveStored(doc: Y.Doc, seq: number | null, stamp: string | null): void {
+  const meta = liveMeta.get(doc)
+  if (!meta || seq === null || seq < meta.storedSeq) return
+  meta.storedSeq = seq
+  meta.storedStamp = stamp
+}
+
+/**
+ * Stamp of the stored state an open document still equals (no update since it was loaded or
+ * stored), or null when it has changed since or is not tracked.
+ */
+export function liveDocStamp(doc: Y.Doc): string | null {
+  const meta = liveMeta.get(doc)
+  if (!meta || meta.seq !== meta.storedSeq) return null
+  return meta.storedStamp
+}
+
 function openPageDocNames(): string[] {
   if (!instance) return []
   return [...instance.documents.keys()].filter((n) => !n.startsWith('inbox:'))

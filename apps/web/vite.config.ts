@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { createHash, randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 // Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import,
 // KaTeX for pages with math — lib/katex.ts).
@@ -19,6 +20,10 @@ const BUILD_ID =
 export default defineConfig({
   define: {
     __INKLING_BUILD__: JSON.stringify(BUILD_ID),
+    // Release version shown at the bottom of Settings (apps/web/package.json, bumped per release).
+    __INKLING_VERSION__: JSON.stringify(
+      (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version,
+    ),
   },
   plugins: [
     {

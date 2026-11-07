@@ -149,6 +149,8 @@ export interface AdminUserDTO {
   signupKeyRecovery: boolean
   emailVerifiedAt: string | null
   createdAt: string
+  /** Two-step verification is on (docs/adr/1061-*). Optional: older servers omit it. */
+  twoFactor?: boolean
 }
 
 /** Admin: password reset request queue */

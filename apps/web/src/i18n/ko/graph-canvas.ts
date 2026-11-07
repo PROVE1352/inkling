@@ -96,7 +96,7 @@ export default {
   'rightPanel.aliases': '별칭',
   'rightPanel.removeAlias': '별칭 {name} 삭제',
   'rightPanel.addAlias': '별칭 추가 (Enter · 쉼표)',
-  'rightPanel.history': '히스토리',
+  'rightPanel.history': '버전 히스토리',
   'rightPanel.noVersions': '저장된 버전이 없습니다.',
   'rightPanel.viewAll': '전체 보기',
   'rightPanel.properties': '속성',

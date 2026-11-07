@@ -64,6 +64,15 @@ services:
       retries: 30
 
   app:
+    # Prebuilt multi-arch image (amd64/arm64) published for every release (docs/adr/1050-*, 1051-*).
+    # INKLING_VERSION pins a release without the v (e.g. 0.3.1); empty = latest.
+    #   docker compose pull app && docker compose up -d app   → run the published image
+    #   docker compose up -d --build app                      → build from this checkout instead
+    # When the image is not on this machine, `up` pulls it and falls back to building if the pull
+    # fails. A `--build` result is tagged with this same name, so a later `docker compose pull`
+    # replaces it with the published image; to keep source builds apart for good, add
+    # compose.build.yaml (or its two lines in your compose.override.yaml).
+    image: ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}
     build: .
     logging: *default-logging
     restart: unless-stopped
@@ -92,6 +101,9 @@ services:
       COOKIE_SECURE: "${COOKIE_SECURE:-0}"
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       PUBLIC_URL: ${PUBLIC_URL:-}
+      # Encrypts two-step verification secrets (>= 32 chars, `openssl rand -base64 32`). Keep it outside
+      # the database/data backups; without it two-step verification cannot be turned on (docs/adr/1061-*).
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
       # Comma-separated feature flags; plugin directory (default <DATA_DIR>/plugins);
       # extra CSP frame-src origins for embeds; version shown in the UI/backups (default package.json).
       EXPERIMENTAL_FEATURES: ${EXPERIMENTAL_FEATURES:-}

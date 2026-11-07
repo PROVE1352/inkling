@@ -15,6 +15,8 @@ import { blocksToMarkdown, stateToBlocks } from './md/convert'
 import { lockTree, TREE_MAX_DEPTH } from './pageTree'
 import { isManagerRole, recordAudit } from './workspaceAdmin'
 import type { AuditActor } from './workspaceAdmin'
+import { BoundedLru } from './lru'
+import { bumpAcl } from './aclVersion'
 
 /**
  * Agent instruction pages (docs/adr/0975-*).
@@ -160,12 +162,53 @@ export interface AppliedInstruction extends InstructionRow {
   rank: [number, number] | null
 }
 
+// "This workspace has designation rows at all", per access version (designations change only in
+// setInstruction / removeInstruction / unlock, which bump it; docs/adr/1071-*). Only the negative
+// answer saves work: rows themselves (titles, trash state) are always read fresh. TTL = memory bound.
+const instructionPresence = new BoundedLru<{ v: number; any: boolean }>(20_000, 60 * 60_000)
+
+/** Workspaces of `wsIds` that may have instructions, given their access versions. */
+async function workspacesWithInstructions(wsIds: string[], versions: Map<string, number>): Promise<string[]> {
+  const known = new Map<string, boolean>()
+  for (const ws of wsIds) {
+    const hit = instructionPresence.get(ws)
+    if (hit && hit.v === versions.get(ws)) known.set(ws, hit.any)
+  }
+  const unknown = wsIds.filter((ws) => !known.has(ws))
+  if (unknown.length) {
+    // Read after the versions (the caller read them first): never older than its label.
+    const rows = (await db.execute(sql`
+      SELECT DISTINCT workspace_id AS ws FROM agent_instructions WHERE workspace_id = ANY(${`{${unknown.join(',')}}`}::uuid[])
+    `)) as unknown as { ws: string }[]
+    const present = new Set(rows.map((r) => r.ws))
+    for (const ws of unknown) {
+      known.set(ws, present.has(ws))
+      instructionPresence.set(ws, { v: versions.get(ws)!, any: present.has(ws) })
+    }
+  }
+  return wsIds.filter((ws) => known.get(ws))
+}
+
+/** Test hook: forget the presence cache. */
+export function _resetInstructionPresence(): void {
+  instructionPresence.clear()
+}
+
 /**
  * Instructions that apply to the given pages (always + matching), in output order. For several
  * pages the union is returned: always ones first, then matching ones by their best rank.
+ * `versions` (workspace → access version, read by the caller before this call) lets workspaces
+ * without any designation skip the query.
  */
-export async function applicableInstructions(pages_: { id: string; workspaceId: string }[]): Promise<AppliedInstruction[]> {
-  const wsIds = [...new Set(pages_.map((p) => p.workspaceId))].sort()
+export async function applicableInstructions(
+  pages_: { id: string; workspaceId: string }[],
+  versions?: Map<string, number>,
+): Promise<AppliedInstruction[]> {
+  let wsIds = [...new Set(pages_.map((p) => p.workspaceId))].sort()
+  if (versions && wsIds.every((ws) => versions.has(ws))) {
+    wsIds = await workspacesWithInstructions(wsIds, versions)
+    if (!wsIds.length) return []
+  }
   const rows = await instructionRows(wsIds)
   if (!rows.length) return []
   const needChains = rows.some((r) => r.mode === 'match')
@@ -251,6 +294,7 @@ export async function setInstruction(
   const head = await loadLockTarget(db, pageId)
   const affected = await db.transaction(async (tx) => {
     await lockTree(tx, head.workspaceId)
+    await bumpAcl(tx, head.workspaceId)
     const target = await loadLockTarget(tx, pageId)
     if (target.scope !== 'shared') throw badRequest('Only shared pages can be agent instructions')
     if (target.kind !== 'doc') throw badRequest('Only document pages can be agent instructions')
@@ -296,6 +340,7 @@ export async function removeInstruction(pageId: string, actor: AuditActor, role:
   if (!isManagerRole(role)) throw forbidden('Only workspace owners and admins can change agent instructions')
   const head = await loadLockTarget(db, pageId)
   await db.transaction(async (tx) => {
+    await bumpAcl(tx, head.workspaceId)
     const removed = await tx.delete(agentInstructions).where(eq(agentInstructions.pageId, pageId)).returning({ mode: agentInstructions.mode })
     if (removed.length) {
       await recordAudit(tx, {

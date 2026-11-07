@@ -1,0 +1,94 @@
+# Upgrade path. Rationale: docs/adr/1052-upgrade-path-ci.md
+#
+#   upgrade - one leg per earlier release: build that release's image and this commit's image, let
+#             the old one create and fill a Postgres 16 database through its API, then boot the new
+#             one on the same database and data volume (migrations run in its boot transaction) and
+#             compare health, migration journal, row counts and the data read back through the API.
+#
+# Also called by release-image.yml before an image is published (workflow_call).
+# Reproduce locally: see "Running CI locally" in CONTRIBUTING.md and scripts/upgrade-test/run.sh.
+name: Upgrade path
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/server/**'
+      - 'packages/shared/**'
+      - 'Dockerfile'
+      - 'pnpm-lock.yaml'
+      - 'scripts/upgrade-test/**'
+      - '.github/workflows/upgrade.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  upgrade:
+    name: Upgrade from ${{ matrix.from.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        from:
+          # v0.1.0 was released without a git tag: this is its commit (migrations 0000-0027;
+          # CHANGELOG puts 0028-0030 in 0.2.0). Switch to the tag name once v0.1.0 is tagged.
+          - { name: v0.1.0, ref: 9dc9a9bf1bb9823ead79e65d9bd79d6ca5f05d3c }
+          - { name: v0.2.0, ref: v0.2.0 }
+          - { name: v0.3.0, ref: v0.3.0 }
+          - { name: v0.3.1, ref: v0.3.1 }
+    steps:
+      # Two separate checkouts so neither build context contains the other tree.
+      - uses: actions/checkout@v4
+        with:
+          path: new
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.from.ref }}
+          path: old
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      # A released tree never changes, so its cache (one scope per release) is reused on every run.
+      - name: Build ${{ matrix.from.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: old
+          file: old/Dockerfile
+          load: true
+          push: false
+          tags: inkling-upg:old
+          cache-from: type=gha,scope=upgrade-${{ matrix.from.name }}
+          cache-to: type=gha,mode=max,scope=upgrade-${{ matrix.from.name }}
+
+      # Reads the cache the CI `docker` job writes (default scope); four legs writing the same
+      # scope at once would only race, so this step does not write it.
+      - name: Build image from this commit
+        uses: docker/build-push-action@v6
+        with:
+          context: new
+          file: new/Dockerfile
+          load: true
+          push: false
+          tags: inkling-upg:new
+          cache-from: type=gha
+
+      - name: Upgrade ${{ matrix.from.name }} -> this commit
+        run: bash new/scripts/upgrade-test/run.sh inkling-upg:old inkling-upg:new

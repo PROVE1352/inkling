@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import type { PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
+import type { PageKind, PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
 import { usePublicPage } from '../api'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Spinner } from '../components/Spinner'
 import { ChevronDownIcon, ChevronRightIcon, MenuIcon, XIcon } from '../components/Icons'
-import { kindEmoji } from '../lib/pageIcon'
+import { KindIcon } from '../components/PageIconGlyph'
 import { findTreePath, usePublicChildPage } from '../lib/publicShare'
 import { safeUrl, sanitizeHtml } from '../lib/sanitizeHtml'
 import { renderMathIn } from '../lib/katex'
@@ -87,8 +87,16 @@ function PublicNotFound() {
   )
 }
 
-/** Icon: <img> if it's an image the server rewrote to a public file path, otherwise emoji text. */
-function IconGlyph({ icon, className }: { icon: string; className?: string }) {
+/** Icon: <img> if it's an image the server rewrote to a public file path, otherwise emoji text.
+ *  No icon set → a muted line icon for the page kind (same as the app's sidebar). */
+function IconGlyph({ icon, kind = 'doc', className }: { icon: string | null; kind?: PageKind; className?: string }) {
+  if (!icon) {
+    return (
+      <span className={`inline-flex items-center text-sub ${className ?? ''}`} aria-hidden="true">
+        <KindIcon kind={kind} size={15} />
+      </span>
+    )
+  }
   const src = icon.startsWith('/api/public/') ? safeUrl(icon, 'media') : null
   if (src) {
     return <img src={src} alt="" className={`inline-block h-[1em] w-[1em] object-cover ${className ?? ''}`} />
@@ -222,7 +230,7 @@ function PublicFolderView({
           !currentRef ? 'bg-active text-ink' : 'text-ink'
         }`}
       >
-        <IconGlyph icon={folder.icon || '📁'} className="shrink-0" />
+        <IconGlyph icon={folder.icon} kind="folder" className="shrink-0" />
         <span className="truncate">{folder.title || t('common.untitled')}</span>
       </Link>
       <div className="mt-1">
@@ -253,7 +261,7 @@ function PublicFolderView({
   } else if (node && node.kind === 'canvas') {
     pane = (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-24 text-center">
-        <div className="text-4xl">{kindEmoji('canvas')}</div>
+        <KindIcon kind="canvas" size={36} className="text-sub" />
         <h1 className="text-lg font-semibold text-ink">{node.title || t('common.untitled')}</h1>
         <p className="text-sm text-sub">{t('public.canvasUnsupported')}</p>
       </div>
@@ -337,7 +345,6 @@ function TreeRow({
   const hasChildren = node.children.length > 0
   const open = expanded.has(node.ref)
   const active = currentRef === node.ref
-  const icon = node.icon || kindEmoji(node.kind, open)
   return (
     <div>
       <div
@@ -368,7 +375,7 @@ function TreeRow({
             active ? 'font-medium text-ink' : 'text-ink'
           } ${node.kind === 'canvas' ? 'opacity-60' : ''}`}
         >
-          <IconGlyph icon={icon} className="shrink-0" />
+          <IconGlyph icon={node.icon} kind={node.kind} className="shrink-0" />
           <span className="truncate">{node.title || t('common.untitled')}</span>
         </Link>
       </div>
@@ -405,9 +412,11 @@ function FolderOverview({
 }) {
   return (
     <div className="nd-enter mx-auto w-full max-w-3xl flex-1 px-6 pb-24 pt-10">
-      <div className="mb-1 text-5xl leading-none">
-        <IconGlyph icon={icon || '📁'} />
-      </div>
+      {icon && (
+        <div className="mb-1 text-5xl leading-none">
+          <IconGlyph icon={icon} />
+        </div>
+      )}
       <h1 className="mb-6 text-4xl font-bold text-ink">{title || t('common.untitled')}</h1>
       {nodes.length === 0 ? (
         <p className="text-sm text-sub">{t('public.noPages')}</p>
@@ -419,7 +428,7 @@ function FolderOverview({
                 to={`/s/${token}/p/${n.ref}`}
                 className="flex items-center gap-2.5 rounded-md border border-line px-3 py-2.5 text-sm text-ink transition-colors duration-150 hover:bg-hover"
               >
-                <IconGlyph icon={n.icon || kindEmoji(n.kind)} className="shrink-0" />
+                <IconGlyph icon={n.icon} kind={n.kind} className="shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{n.title || t('common.untitled')}</span>
                 {n.kind === 'folder' && (
                   <span className="shrink-0 text-xs text-sub">{t('public.itemCount', { count: n.children.length })}</span>

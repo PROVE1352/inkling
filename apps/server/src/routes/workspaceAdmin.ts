@@ -33,6 +33,7 @@ import {
 } from '../db/schema'
 import { badRequest, forbidden, notFound } from '../errors'
 import { idParam, lockWorkspaceMembers, memberRoleTx, requireMembership } from '../helpers'
+import { bumpAcl } from '../aclVersion'
 import { canWriteFromScopes } from '../oauth'
 import { findVisiblePage } from '../pageDto'
 import { assertPageEditable } from '../editLock'
@@ -262,6 +263,9 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
 
     const block = await db.transaction(async (tx) => {
       await lockWorkspaceMembers(tx, id)
+      // New access version + exclusive write gate: agent writes in flight finish first, later ones
+      // see the block (docs/adr/1071-*).
+      await bumpAcl(tx, id)
       const myRole = await memberRoleTx(tx, id, user.id)
       if (!myRole) throw forbidden()
       requireManager(myRole)
@@ -312,6 +316,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     await requireMembership(id, user.id)
     await db.transaction(async (tx) => {
       await lockWorkspaceMembers(tx, id)
+      await bumpAcl(tx, id)
       const myRole = await memberRoleTx(tx, id, user.id)
       if (!myRole) throw forbidden()
       requireManager(myRole)
@@ -435,7 +440,12 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
       }
     }
     const [prev] = await db.select({ ownerId: pages.ownerId }).from(pages).where(eq(pages.id, page.id)).limit(1)
-    await db.update(pages).set({ ownerId }).where(eq(pages.id, page.id))
+    // The owner of a lock page is one of its implicit editors: new access version in the same
+    // transaction (docs/adr/1071-*).
+    await db.transaction(async (tx) => {
+      await bumpAcl(tx, page.workspaceId)
+      await tx.update(pages).set({ ownerId }).where(eq(pages.id, page.id))
+    })
     await computeReviewScores(page.workspaceId, new Date(), [page.id])
     // A new owner hears about it (docs/adr/1000-*); after the write, queued.
     if (ownerId && ownerId !== prev?.ownerId) {

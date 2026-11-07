@@ -8,6 +8,10 @@ import { MenuIcon } from '../components/Icons'
 import { ALT, MOD, NEW_PAGE_KEY, combo, isMac, isStandalone, modKey } from '../lib/platform'
 import {
   DEFAULT_PREFS,
+  LINE_WIDTH_DEFAULT,
+  LINE_WIDTH_FULL,
+  LINE_WIDTH_MAX,
+  LINE_WIDTH_MIN,
   ZOOM_MAX,
   ZOOM_MIN,
   setPref,
@@ -18,8 +22,10 @@ import {
 import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { ApiError, useAuthMode, useChangePassword, useMe, useResendVerification } from '../api'
 import { IcalSettings } from '../components/IcalSettings'
+import { TwoFactorSettings } from '../components/TwoFactorSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
 import { SidebarSettings } from '../components/SidebarSettings'
+import { VersionInfo } from '../components/VersionInfo'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { useT, type TKey } from '../i18n'
@@ -216,6 +222,7 @@ export function Settings() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="nd-enter mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
           <AccountGroup />
+          <TwoFactorSettings />
           <NotificationSettings />
           <IcalSettings />
           <SidebarSettings />
@@ -226,16 +233,43 @@ export function Settings() {
           </p>
 
           <Group title={t('settings.editor')}>
-            <Row
-              id="readableLineLength"
-              title={t('settings.readableLineLength')}
-              desc={t('settings.readableLineLengthDesc')}
-            >
-              <Toggle
-                label={t('settings.readableLineLength')}
-                checked={prefs.readableLineLength}
-                onChange={(v) => setPref('readableLineLength', v)}
+            <Row id="lineWidth" title={t('settings.lineWidth')} desc={t('settings.lineWidthDesc')}>
+              <input
+                type="range"
+                min={LINE_WIDTH_MIN}
+                max={LINE_WIDTH_MAX}
+                step={20}
+                value={prefs.lineWidth === LINE_WIDTH_FULL ? LINE_WIDTH_MAX : prefs.lineWidth}
+                aria-label={t('settings.lineWidth')}
+                aria-valuetext={
+                  prefs.lineWidth === LINE_WIDTH_FULL ? t('settings.lineWidthFull') : `${prefs.lineWidth}px`
+                }
+                onChange={(e) => setPref('lineWidth', Number(e.target.value))}
+                className={`w-20 accent-[var(--color-accent)] sm:w-32 ${
+                  prefs.lineWidth === LINE_WIDTH_FULL ? 'opacity-40' : ''
+                }`}
               />
+              <span className="w-12 text-right text-sm tabular-nums text-ink sm:w-14" data-line-width-value>
+                {prefs.lineWidth === LINE_WIDTH_FULL ? t('settings.lineWidthFull') : `${prefs.lineWidth}px`}
+              </span>
+              <button
+                type="button"
+                aria-pressed={prefs.lineWidth === LINE_WIDTH_FULL}
+                onClick={() =>
+                  setPref('lineWidth', prefs.lineWidth === LINE_WIDTH_FULL ? LINE_WIDTH_DEFAULT : LINE_WIDTH_FULL)
+                }
+                className={`${zoomBtn} ${prefs.lineWidth === LINE_WIDTH_FULL ? 'bg-accent-soft text-accent' : ''}`}
+              >
+                {t('settings.lineWidthFull')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPref('lineWidth', LINE_WIDTH_DEFAULT)}
+                disabled={prefs.lineWidth === LINE_WIDTH_DEFAULT}
+                className="hidden rounded-md px-2 py-0.5 text-xs text-sub sm:block transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-40"
+              >
+                {t('common.reset')}
+              </button>
             </Row>
             <Row id="spellcheck" title={t('settings.spellcheck')} desc={t('settings.spellcheckDesc')}>
               <Toggle
@@ -440,6 +474,7 @@ export function Settings() {
               </p>
             </div>
           </Group>
+          <VersionInfo />
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
 import { usePurgePage, useRestorePage, useTrash } from '../api'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { relativeTime } from '../lib/time'
 import { ConfirmPopover } from './ConfirmPopover'
 import { RestoreIcon, TrashIcon, XIcon } from './Icons'
@@ -83,7 +83,7 @@ export function TrashModal({
                 className="group flex items-center gap-2 px-3 py-2 text-sm hover:bg-hover"
               >
                 <span className="shrink-0 text-[15px] leading-none">
-                  {pageIcon(page)}
+                  <PageIconGlyph page={page} size={15} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-ink">{page.title || t('common.untitled')}</div>

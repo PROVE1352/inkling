@@ -1,0 +1,213 @@
+# Release image. Rationale: docs/adr/1050-prebuilt-multi-arch-images-on-ghcr.md
+#
+#   meta     - resolves the tag into image tags: X.Y.Z always; X.Y and `latest` only for a stable
+#              vX.Y.Z that is the highest release in its minor series / overall (so a late patch of
+#              an older line or a backfill never moves them); pre-releases (v1.2.0-rc.1) get X.Y.Z only
+#   upgrade  - upgrade.yml (old releases -> this commit); on a tag push nothing is published unless
+#              it passes. Skipped for manual backfills, whose code already shipped.
+#   build    - one native runner per architecture (ubuntu-24.04 = amd64, ubuntu-24.04-arm = arm64),
+#              each pushes its image by digest only
+#   merge    - joins both digests into one multi-arch manifest list under the resolved tags
+#
+# Manual run (Actions -> Release image -> Run workflow, tag v0.3.1) (re)publishes an existing tag.
+name: Release image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish, e.g. v0.3.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-image-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  # GHCR names must be lowercase; github.repository_owner is "PROVE1352".
+  IMAGE: ghcr.io/prove1352/inkling
+
+jobs:
+  meta:
+    name: Resolve version
+    if: github.repository == 'PROVE1352/inkling'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      sha: ${{ steps.v.outputs.sha }}
+      version: ${{ steps.v.outputs.version }}
+      tags: ${{ steps.v.outputs.tags }}
+      build_id: ${{ steps.v.outputs.build_id }}
+    steps:
+      # Full history with tags: needed to find the highest release.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: v
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z or vX.Y.Z-pre)"; exit 1
+          fi
+          sha=$(git rev-parse --verify "refs/tags/$TAG^{commit}") || { echo "::error::tag $TAG not found"; exit 1; }
+          version=${TAG#v}
+          minor="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          tags="$version"
+          if [ -z "${BASH_REMATCH[4]}" ]; then
+            stable=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+            [ "$(grep -E "^v${minor//./\\.}\." <<<"$stable" | tail -1)" = "$TAG" ] && tags="$tags $minor"
+            [ "$(tail -1 <<<"$stable")" = "$TAG" ] && tags="$tags latest"
+          fi
+          {
+            echo "tag=$TAG"
+            echo "sha=$sha"
+            echo "version=$version"
+            echo "tags=$tags"
+            echo "build_id=$TAG-${sha::7}"
+          } >>"$GITHUB_OUTPUT"
+          echo "### $IMAGE: $tags (from $TAG, ${sha::7})" >>"$GITHUB_STEP_SUMMARY"
+
+  upgrade:
+    name: Upgrade path
+    needs: meta
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/upgrade.yml
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: [meta, upgrade]
+    # Runs after a passed upgrade test, or without it for a manual backfill (upgrade skipped).
+    if: >-
+      !cancelled() && needs.meta.result == 'success' &&
+      (needs.upgrade.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.upgrade.result == 'skipped'))
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Platform slug
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >>"$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same INKLING_BUILD on both architectures, so the id a client compares (docs/adr/0990-*)
+      # does not depend on which one the server runs. The source label links the package to the repo.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: INKLING_BUILD=${{ needs.meta.outputs.build_id }}
+          labels: |
+            org.opencontainers.image.title=Inkling
+            org.opencontainers.image.description=Self-hosted notes with databases, links and a built-in MCP server
+            org.opencontainers.image.source=https://github.com/PROVE1352/inkling
+            org.opencontainers.image.url=https://github.com/PROVE1352/inkling
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.meta.outputs.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=release-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish multi-arch manifest
+    needs: [meta, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ needs.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          for t in $TAGS; do tag_args+=(-t "$IMAGE:$t"); done
+          sources=()
+          for d in *; do sources+=("$IMAGE@sha256:$d"); done
+          [ "${#sources[@]}" = 2 ] || { echo "::error::expected 2 digests, got ${#sources[@]}"; exit 1; }
+          docker buildx imagetools create "${tag_args[@]}" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/PROVE1352/inkling" \
+            --annotation "index:org.opencontainers.image.description=Self-hosted notes with databases, links and a built-in MCP server" \
+            --annotation "index:org.opencontainers.image.licenses=MIT" \
+            "${sources[@]}"
+
+      - name: Check both architectures are published
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAGS: ${{ needs.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          platforms=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' \
+            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' | sort | tr '\n' ' ')
+          echo "platforms: $platforms"
+          [ "$platforms" = "linux/amd64 linux/arm64 " ] || { echo "::error::unexpected platforms: $platforms"; exit 1; }
+          echo "Published $IMAGE ($TAGS) for $platforms" >>"$GITHUB_STEP_SUMMARY"

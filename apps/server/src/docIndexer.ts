@@ -40,6 +40,8 @@ const MAX_PENDING = 200
 
 interface Pending {
   state: Uint8Array
+  /** page_docs.updated_at (text) of the stored state, or null when unknown (docs/adr/1041-*). */
+  stamp: string | null
   firstAt: number
   timer: NodeJS.Timeout
 }
@@ -58,6 +60,12 @@ interface Signature {
 const pending = new Map<string, Pending>()
 const running = new Map<string, Promise<void>>()
 const signatures = new Map<string, Signature>()
+/**
+ * Freshness record (docs/adr/1041-*): page → stamp (page_docs.updated_at as text) of the stored
+ * state whose section index pass completed last. Outline/section reads answer from page_chunks
+ * only while this equals the current stored (or live, unchanged) state and no pass is queued.
+ */
+const indexedStamps = new Map<string, string>()
 
 function digest(s: string): string {
   return createHash('sha1').update(s).digest('base64')
@@ -66,7 +74,17 @@ function digest(s: string): string {
 /** Test/bench hook: counters of what the pipeline actually did. */
 export const docIndexStats = { runs: 0, conversions: 0, links: 0, text: 0, tags: 0, tasks: 0, chunks: 0, mentions: 0 }
 
-async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
+function rememberStamp(pageId: string, stamp: string | null): void {
+  indexedStamps.delete(pageId)
+  if (stamp === null) return
+  indexedStamps.set(pageId, stamp)
+  if (indexedStamps.size > MAX_SIGNATURES) {
+    const oldest = indexedStamps.keys().next().value
+    if (oldest !== undefined) indexedStamps.delete(oldest)
+  }
+}
+
+async function runIndex(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
   docIndexStats.runs++
   const blocks = stateToBlocks(state)
   docIndexStats.conversions++
@@ -107,10 +125,13 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
     docIndexStats.tasks++
     await reindexPageTasks(pageId, blocks)
   }
+  let chunksOk = true
   if (!fresh || fresh.chunks !== next.chunks) {
     // Section index for agent retrieval + change feed (docs/adr/0926-*, 0932-*); diffed per row inside.
     docIndexStats.chunks++
-    await reindexPageChunks(pageId, blocks, { chunks })
+    chunksOk = await reindexPageChunks(pageId, blocks, { chunks })
+    // A failed write must not be remembered as done: the next pass retries it.
+    if (!chunksOk) next.chunks = ''
   }
   if (!fresh || fresh.mentions !== next.mentions) {
     // @mentions in the body → notifications for people newly mentioned (docs/adr/1002-*).
@@ -127,14 +148,15 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
     const oldest = signatures.keys().next().value
     if (oldest !== undefined) signatures.delete(oldest)
   }
+  rememberStamp(pageId, chunksOk ? stamp : null)
 }
 
 /** Runs one index pass for the page, chained after any pass already in flight for it. */
-function runSerial(pageId: string, state: Uint8Array): Promise<void> {
+function runSerial(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
   const before = running.get(pageId) ?? Promise.resolve()
   const job = before
     .catch(() => {})
-    .then(() => runIndex(pageId, state))
+    .then(() => runIndex(pageId, state, stamp))
     .catch((err) => console.error('[inkling] store indexing failed', pageId, err))
   running.set(pageId, job)
   void job.finally(() => {
@@ -146,19 +168,23 @@ function runSerial(pageId: string, state: Uint8Array): Promise<void> {
 /**
  * Schedules (or, with immediate=true, runs and awaits) derived-index maintenance for a page.
  * The newest state always wins; an immediate run supersedes a pending debounced one.
+ * `stamp` identifies the stored state (page_docs.updated_at as text) for the freshness record.
  */
 export function scheduleDocIndex(
   pageId: string,
   state: Uint8Array,
   immediate: boolean,
+  stamp: string | null = null,
 ): Promise<void> {
   const p = pending.get(pageId)
+  // Until a pass for this state completes, the section index may trail the document.
+  indexedStamps.delete(pageId)
   if (immediate) {
     if (p) {
       clearTimeout(p.timer)
       pending.delete(pageId)
     }
-    return runSerial(pageId, state)
+    return runSerial(pageId, state, stamp)
   }
   const now = Date.now()
   const firstAt = p?.firstAt ?? now
@@ -171,23 +197,61 @@ export function scheduleDocIndex(
       const o = pending.get(oldest)!
       clearTimeout(o.timer)
       pending.delete(oldest)
-      void runSerial(oldest, o.state)
+      void runSerial(oldest, o.state, o.stamp)
     }
   }
   const timer = setTimeout(() => {
     const cur = pending.get(pageId)
     if (!cur) return
     pending.delete(pageId)
-    void runSerial(pageId, cur.state)
+    void runSerial(pageId, cur.state, cur.stamp)
   }, wait)
   timer.unref?.()
-  pending.set(pageId, { state, firstAt, timer })
+  pending.set(pageId, { state, stamp, firstAt, timer })
   return Promise.resolve()
+}
+
+/**
+ * Runs the page's pending (debounced) pass now, if there is one, and waits for the page's passes.
+ * The store hook calls it when it skips an unchanged state that would have indexed immediately.
+ */
+export function flushDocIndex(pageId: string): Promise<void> {
+  const p = pending.get(pageId)
+  if (p) {
+    clearTimeout(p.timer)
+    pending.delete(pageId)
+    return runSerial(pageId, p.state, p.stamp)
+  }
+  return running.get(pageId) ?? Promise.resolve()
 }
 
 /** Drops cached signatures (e.g. after an out-of-band reindex) so the next run rewrites all. */
 export function forgetDocIndex(pageId: string): void {
   signatures.delete(pageId)
+  indexedStamps.delete(pageId)
+}
+
+/**
+ * Stamp of the stored state the page's section index reflects, or null when unknown or when a
+ * pass is queued or running (the index may trail the document then). docs/adr/1041-*.
+ */
+export function indexedStamp(pageId: string): string | null {
+  if (pending.has(pageId) || running.has(pageId)) return null
+  return indexedStamps.get(pageId) ?? null
+}
+
+/** No index pass queued or running for the page. */
+export function docIndexIdle(pageId: string): boolean {
+  return !pending.has(pageId) && !running.has(pageId)
+}
+
+/**
+ * Records that page_chunks was verified equal to the stored state `stamp` (a read decoded that
+ * state and compared chunk hashes). Ignored while a pass is queued or running.
+ */
+export function adoptIndexedStamp(pageId: string, stamp: string): void {
+  if (pending.has(pageId) || running.has(pageId)) return
+  rememberStamp(pageId, stamp)
 }
 
 /** Runs every pending index pass now and waits for all in-flight passes (shutdown / tests). */
@@ -195,12 +259,12 @@ export async function flushDocIndexes(): Promise<void> {
   for (const [pageId, p] of [...pending]) {
     clearTimeout(p.timer)
     pending.delete(pageId)
-    void runSerial(pageId, p.state)
+    void runSerial(pageId, p.state, p.stamp)
   }
   await Promise.all([...running.values()])
 }
 
 /** Introspection for the memory-cache inventory (docs/OPERATIONS.md). */
-export function docIndexerSizes(): { pending: number; running: number; signatures: number } {
-  return { pending: pending.size, running: running.size, signatures: signatures.size }
+export function docIndexerSizes(): { pending: number; running: number; signatures: number; indexedStamps: number } {
+  return { pending: pending.size, running: running.size, signatures: signatures.size, indexedStamps: indexedStamps.size }
 }

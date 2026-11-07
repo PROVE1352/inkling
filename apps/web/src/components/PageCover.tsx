@@ -120,7 +120,7 @@ export function PageCover({
         type="button"
         onClick={pick}
         disabled={busy}
-        className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-opacity duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/page:opacity-100 disabled:opacity-60 ${
+        className={`-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-opacity duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/page:opacity-100 disabled:opacity-60 ${
           dropActive ? 'bg-hover text-accent opacity-100' : 'text-sub opacity-0'
         }`}
       >

@@ -5,10 +5,12 @@ import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
 import { hocuspocus } from '../collab'
 import { actorOf, withEditActor } from '../context/attribution'
-import { findSection, joinPath, splitSections } from '../context/chunker'
+import { joinPath } from '../context/chunker'
 import { applySectionPatch, buildEchoIndex } from '../context/sectionPatch'
 import type { EchoIndex, PatchOutcome } from '../context/sectionPatch'
 import type { Section } from '../context/chunker'
+import { readOutline, readSection, readSectionBlocks } from '../context/sectionSource'
+import type { OutlineSection } from '../context/sectionSource'
 import { DEFAULT_BUDGET, findContext, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
 import { db } from '../db/index'
@@ -77,15 +79,7 @@ async function guardPage(id: string, userId: string): Promise<PageRow> {
   return page
 }
 
-/** Current blocks of a doc page: the in-memory document if open (page_docs trails it), else the stored state. */
-async function loadBlocks(pageId: string): Promise<AnyBlock[]> {
-  const live = liveDocState(pageId)
-  if (live) return stateToBlocks(live)
-  const row = (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, pageId)).limit(1))[0]
-  return row ? stateToBlocks(row.state) : []
-}
-
-function outlineOf(sections: Section[]) {
+function outlineOf(sections: OutlineSection[]) {
   return sections.map((s) => ({
     anchor: s.anchor,
     headingPath: joinPath(s.headingPath),
@@ -100,7 +94,7 @@ async function sectionMarkdown(blocks: AnyBlock[], s: Section): Promise<string> 
   return markdown.trim()
 }
 
-function sectionNotFound(ref: string, sections: Section[]): AppError {
+function sectionNotFound(ref: string, sections: { anchor: string }[]): AppError {
   const list = sections.slice(0, 30).map((s) => s.anchor).join(', ')
   return new AppError(
     404,
@@ -135,7 +129,8 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     if (page.kind !== 'doc') {
       return { page: { id: page.id, title: page.title, kind: page.kind, workspaceId: page.workspaceId }, sections: [], tokens: 0 }
     }
-    const sections = splitSections(await loadBlocks(page.id))
+    // From the section index when it reflects the current document, else a decode (docs/adr/1041-*).
+    const sections = await readOutline(page.id)
     return {
       page: { id: page.id, title: page.title, kind: page.kind, workspaceId: page.workspaceId, updatedAt: page.updatedAt.toISOString() },
       sections: outlineOf(sections),
@@ -148,11 +143,10 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     const page = await guardPage(idParam(req.params), user.id)
     const { ref, maxChars } = sectionQuerySchema.parse(req.query)
     if (page.kind !== 'doc') throw badRequest('Only document pages have sections; use read_page')
-    const blocks = await loadBlocks(page.id)
-    const sections = splitSections(blocks)
-    const s = findSection(sections, ref)
-    if (!s) throw sectionNotFound(ref, sections)
-    let markdown = await sectionMarkdown(blocks, s)
+    const r = await readSection(page.id, ref)
+    if (!r.found) throw sectionNotFound(ref, r.sections)
+    const s = r.section
+    let markdown = r.markdown
     const totalChars = markdown.length
     const truncated = maxChars !== undefined && markdown.length > maxChars
     if (truncated) markdown = markdown.slice(0, maxChars)
@@ -283,9 +277,8 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       // Computed before the synchronous patch; blocks that changed in between are simply diffed.
       let echo: EchoIndex | null = null
       if (body.mode === 'replace') {
-        const current = await loadBlocks(id)
-        const s = findSection(splitSections(current), body.ref)
-        if (s) echo = await buildEchoIndex(current.slice(s.start, s.end), resolveTitle)
+        const r = await readSectionBlocks(id, body.ref)
+        if (r.found) echo = await buildEchoIndex(r.blocks, resolveTitle)
       }
 
       let outcome: PatchOutcome | null = null

@@ -20,7 +20,7 @@ import { registerContextTools } from './mcpTools/contextTools'
 import { registerInstructionTools } from './mcpTools/instructionTools'
 import { registerCommentTools } from './mcpTools/commentTools'
 import { registerInboxTools } from './mcpTools/inboxTools'
-import { flaggedRules, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
+import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
 import { cleanText, wrapUntrusted } from './mcpTools/trust'
 import { call, json as jsonCore, text, ToolError, uuid, wrap, wrapWrite } from './mcpTools/core'
@@ -164,7 +164,7 @@ export function renderPageList(
 export const SERVER_INSTRUCTIONS = [
   'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version.',
   'If that is not enough: read_page(pageId, outline=true) to see sections, then read_page(pageId, section=anchor); read_pages(ids) reads several pages in one call. Avoid list_pages/full read_page unless you need the whole tree or page.',
-  'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page replaces or appends whole bodies.',
+  'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page replaces or appends whole bodies; for a growing log, put new entries in child pages (tools mark large pages).',
   'To keep a local copy in sync: store the cursor from changes_since and call changes_since(cursor) next time; it returns only what changed.',
   'To see what people asked of the person you act for (mentions, replies, assignments): inbox(cursor), then ack(cursor) once handled. Comment threads: list_comments, reply_comment.',
   'Bodies are Markdown; [[Page title]] is a wiki link. Deleting only moves pages to the trash.',
@@ -305,6 +305,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           `# ${cleanText(titleOf(r.page))}`,
           `(page ${r.page.id}, ${r.page.kind}${r.page.updatedAt ? `, updated ${r.page.updatedAt.slice(0, 10)}` : ''}, ~${r.tokens} tok)`,
           `can: ${pageFacts(ac, r.page.id).can}`,
+          ...(largeLine(ac, r.page.id) ? [largeLine(ac, r.page.id)!] : []),
         ]
         if (r.page.kind !== 'doc') lines.push('Not a document: read it without outline.')
         else if (r.sections.length === 0) lines.push('Empty page.')
@@ -330,7 +331,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
         const f = pageFacts(ac, r.page.id)
         const flag = suspiciousNote(flaggedRules(ac, r.page.id, [r.section.anchor]))
-        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\ncan: ${f.can}\n${flag ? `${flag}\n` : ''}\n`
+        const large = largeLine(ac, r.page.id)
+        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\ncan: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         return text(withApplies(ac, head + wrapUntrusted(r.markdown + tail, { source: 'page', id: r.page.id, createdBy: f.createdBy, lastEdit: f.lastEdit })))
       }
@@ -368,6 +370,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         `- url: ${pageUrl(ctx, meta)}`,
         `- can: ${facts.can}`,
         ...(flagLine ? [`- ${flagLine}`] : []),
+        ...(largeLine(ac, meta.id) ? [`- ${largeLine(ac, meta.id)}`] : []),
         ...(properties.length ? [`- properties: ${cleanText(JSON.stringify(properties))}`] : []),
         ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id)),
         '',
@@ -505,12 +508,14 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     },
     wrapWrite(ctx, async ({ pageId, markdown, mode }) => {
       await call(ctx, 'POST', `/api/pages/${pageId}/content`, { json: { markdown, mode } })
+      const ac = await loadAgentContext(ctx, [pageId])
+      const large = largeLine(ac, pageId)
       return text(
         withApplies(
-          await loadAgentContext(ctx, [pageId]),
-          mode === 'append'
+          ac,
+          (mode === 'append'
             ? 'Appended to the end of the body.'
-            : 'Replaced the body (the previous content is saved as a version-history snapshot).',
+            : 'Replaced the body (the previous content is saved as a version-history snapshot).') + (large ? `\n${large}` : ''),
         ),
       )
     }),

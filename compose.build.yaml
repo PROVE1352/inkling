@@ -1,0 +1,13 @@
+# Source-build overlay (docs/adr/1051-*): run an image built from this checkout instead of the
+# published ghcr.io/prove1352/inkling image.
+#
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build app
+#   (with HTTPS: -f compose.yaml -f deploy/compose.caddy.yaml -f compose.build.yaml)
+#
+# The build gets its own local name and is never pulled, so `docker compose pull` cannot swap a
+# release in for your build. If you already use a compose.override.yaml (read automatically when
+# no -f is given), copy the two lines under `app:` into it instead of passing -f.
+services:
+  app:
+    image: inkling:local
+    pull_policy: never

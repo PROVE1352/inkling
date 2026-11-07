@@ -24,10 +24,13 @@ import {
 //           (loop guard, sessionStorage).
 
 declare const __INKLING_BUILD__: string
+declare const __INKLING_VERSION__: string
 
 /** Build id compiled into this bundle (vite.config.ts); 'dev' in the dev server and tests. */
 export const CLIENT_BUILD: string =
   typeof __INKLING_BUILD__ === 'string' && !import.meta.env?.DEV ? __INKLING_BUILD__ : DEV_BUILD
+/** Release version of this bundle (apps/web/package.json); 'dev' under the Vite dev server. */
+export const CLIENT_VERSION: string = typeof __INKLING_VERSION__ === 'string' ? __INKLING_VERSION__ : 'dev'
 
 export type UpdateSnapshot = {
   /** A newer build exists (server header or service worker). */

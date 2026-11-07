@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { usePages, useSearch } from '../api'
 import type { PageMetaDTO } from '@inkling/shared'
 import { highlight } from '../lib/highlight'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { relativeTime } from '../lib/time'
 import { SearchIcon } from './Icons'
 import { Spinner } from './Spinner'
@@ -154,7 +154,7 @@ export function SearchModal({
                 }`}
               >
                 <span className="shrink-0 pt-px text-[15px] leading-none">
-                  {pageIcon(page)}
+                  <PageIconGlyph page={page} size={15} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">

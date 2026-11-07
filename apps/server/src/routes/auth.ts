@@ -54,6 +54,14 @@ import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
 import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i18n'
 import { toSidebarPrefsDTO } from './sidebarPrefs'
+import {
+  createLoginChallenge,
+  dropChallenge,
+  takeChallengeAttempt,
+  totpAccountKey,
+  twoFactorEnabled,
+  verifySecondFactor,
+} from '../twoFactor'
 
 /**
  * Account boundary: Inkling and the external auth server (DELEGATED_AUTH_URL) share accounts in
@@ -344,13 +352,23 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     )[0]
 
     if (local && local.origin === 'local') {
+      // An account with piled-up wrong 2FA codes is delayed here too, before the argon2 check:
+      // a correct password must not reset the code counter (docs/adr/1061-*).
+      assertAccount(totpAccountKey(acct))
       const ok = await verifyPassword(local.passwordHash, body.password)
       if (!ok) throw await fail()
-      recordSuccess(req, acct)
       // Reveal the verification state only after the password matched (no account-existence leak).
       if (verificationEnforced() && local.mustVerifyEmail && !local.emailVerifiedAt) {
+        recordSuccess(req, acct)
         throw emailNotVerified()
       }
+      // Two-step verification: no session yet, only a short-lived challenge for POST /auth/login/totp.
+      // The IP counter is not reset until the code is right, so wrong codes add up to an IP ban.
+      if (await twoFactorEnabled(local.id)) {
+        const challenge = await createLoginChallenge(local.id, local.passwordHash)
+        return { totpRequired: true as const, challenge }
+      }
+      recordSuccess(req, acct)
       const isAdmin = local.isAdmin || (await promoteIfNoAdmin(local.id))
       const { token, expiresAt } = await createSession(local.id, {
         expectPasswordHash: local.passwordHash,
@@ -414,6 +432,55 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
+  /**
+   * Second sign-in step (docs/adr/1061-*): the challenge from /auth/login + a 6-digit code or a
+   * recovery code. Five wrong codes void the challenge; wrong codes also count against the IP
+   * (ban) and the account (backoff, not reset by a correct password).
+   */
+  app.post('/auth/login/totp', strictRateLimit, async (req, reply) => {
+    const body = z
+      .object({ challenge: z.string().min(1).max(200), code: z.string().trim().min(1).max(40) })
+      .parse(req.body)
+    const expired = () =>
+      new AppError(401, 'TOTP_CHALLENGE_EXPIRED', 'Sign-in timed out. Enter your password again.')
+    const attempt = await takeChallengeAttempt(body.challenge)
+    if (!attempt) {
+      await recordFailure(req, 'totp')
+      throw expired()
+    }
+    const [u] = await db
+      .select({ id: users.id, email: users.email, name: users.name, isAdmin: users.isAdmin })
+      .from(users)
+      .where(eq(users.id, attempt.userId))
+      .limit(1)
+    if (!u) throw expired()
+    const acct = u.email.toLowerCase()
+    assertAccount(totpAccountKey(acct))
+
+    const result = await verifySecondFactor(u.id, body.code)
+    if (result === 'invalid' || result === 'reused') {
+      await recordFailure(req, 'totp', totpAccountKey(acct))
+      if (attempt.last) {
+        await dropChallenge(body.challenge)
+        throw new AppError(401, 'TOTP_CHALLENGE_EXPIRED', 'Too many wrong codes. Enter your password again.')
+      }
+      throw result === 'reused'
+        ? new AppError(401, 'TOTP_CODE_REUSED', 'This code was already used. Wait for the next one.')
+        : new AppError(401, 'INVALID_TOTP_CODE', 'Incorrect code')
+    }
+    await dropChallenge(body.challenge)
+    recordSuccess(req, acct)
+    recordSuccess(req, totpAccountKey(acct))
+    const isAdmin = u.isAdmin || (await promoteIfNoAdmin(u.id))
+    // Only while the password verified in step one is still the account's (a reset in between voids it).
+    const { token, expiresAt } = await createSession(u.id, { expectPasswordHash: attempt.passwordHash })
+    setSessionCookie(reply, token, expiresAt)
+    return {
+      user: { id: u.id, email: u.email, name: u.name, isAdmin },
+      recoveryCodeUsed: result === 'recovery',
+    }
+  })
+
   app.post('/auth/logout', async (req, reply) => {
     const token = req.cookies?.[SESSION_COOKIE]
     if (token) await destroySession(token)
@@ -433,7 +500,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1)
-    const out: UserDTO & { locale: Locale | null; sidebar: SidebarPrefsDTO } = {
+    const out: UserDTO & { locale: Locale | null; sidebar: SidebarPrefsDTO; twoFactor: boolean } = {
       id: user.id,
       email: user.email,
       name: user.name,
@@ -445,6 +512,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       locale: normalizeLocale(extra?.locale),
       // Extension field: sidebar menu order / hidden menus (docs/adr/1020-*), so the first paint is right
       sidebar: toSidebarPrefsDTO(extra?.sidebarPrefs),
+      // Extension field: two-step verification is on (docs/adr/1061-*)
+      twoFactor: await twoFactorEnabled(user.id),
     }
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
     if (user.isAdmin) {

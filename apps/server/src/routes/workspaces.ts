@@ -48,6 +48,7 @@ import {
   ownerCountTx,
   requireMembership,
 } from '../helpers'
+import { bumpAcl } from '../aclVersion'
 import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { escapeLike } from '../util'
@@ -871,6 +872,8 @@ export async function changeMemberRole(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
+    // Owners/admins pass every lock: a role change is an access change (docs/adr/1071-*).
+    await bumpAcl(tx, workspaceId)
     const myRole = await memberRoleTx(tx, workspaceId, actor.id)
     if (!myRole) throw forbidden()
     if (myRole !== 'owner') throw forbidden('Only owners can change member roles')
@@ -914,6 +917,9 @@ export async function removeMember(
   const isSelf = actor.id === userId
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
+    // Owned lock pages lose their owner below (an implicit editor of the lock): new access
+    // version, taken before any page row is written (docs/adr/1071-*).
+    await bumpAcl(tx, workspaceId)
     const myRole = await memberRoleTx(tx, workspaceId, actor.id)
     if (!myRole) throw forbidden()
     if (!isSelf && !isManagerRole(myRole)) throw forbidden('Only owners and admins can remove members')

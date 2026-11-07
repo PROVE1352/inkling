@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { loginSchema } from '@inkling/shared'
-import { ApiError, useAuthMode, useLogin, useMe, useResendVerification } from '../api'
+import { ApiError, useAuthMode, useLogin, useLoginTotp, useMe, useResendVerification } from '../api'
 import { safeNext } from '../lib/nav'
 import { Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
@@ -40,9 +40,41 @@ export function Login() {
   const [needsVerify, setNeedsVerify] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null)
   const notice = params.get('reset') === '1' ? t('login.passwordChanged') : null
+  // Two-step verification (docs/adr/1061-*): the password was right, the server wants a code.
+  const loginTotp = useLoginTotp()
+  const [challenge, setChallenge] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [useRecovery, setUseRecovery] = useState(false)
 
   // Already signed in: go to next (e.g. an invite link) or home
   if (me.data) return <Navigate to={next} replace />
+
+  const backToPassword = () => {
+    setChallenge(null)
+    setCode('')
+    setUseRecovery(false)
+    setPassword('')
+  }
+
+  const submitCode = (e: React.FormEvent) => {
+    e.preventDefault()
+    setServerError(null)
+    if (!challenge) return
+    if (!code.trim()) return setServerError(t('login.totpRequired'))
+    loginTotp.mutate(
+      { challenge, code: code.trim() },
+      {
+        onSuccess: () => navigate(next, { replace: true }),
+        onError: (err) => {
+          setCode('')
+          if (err instanceof ApiError && err.code === 'TOTP_CHALLENGE_EXPIRED') {
+            backToPassword()
+          }
+          setServerError(err instanceof ApiError ? err.message : t('login.failed'))
+        },
+      },
+    )
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,7 +100,14 @@ export function Login() {
     }
 
     login.mutate(parsed.data, {
-      onSuccess: () => navigate(next, { replace: true }),
+      onSuccess: (r) => {
+        if ('totpRequired' in r) {
+          setChallenge(r.challenge)
+          setCode('')
+          return
+        }
+        navigate(next, { replace: true })
+      },
       onError: (err) => {
         if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
           setServerError(t('login.invalidCredentials'))
@@ -90,6 +129,61 @@ export function Login() {
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
         </div>
 
+        {challenge ? (
+          <form
+            onSubmit={submitCode}
+            className="flex flex-col gap-3 rounded-lg border border-line bg-app p-6"
+            data-testid="totp-step"
+          >
+            <div>
+              <h2 className="text-sm font-semibold text-ink">{t('login.totpTitle')}</h2>
+              <p className="mt-1 text-xs leading-relaxed text-sub">
+                {useRecovery ? t('login.totpRecoveryDesc') : t('login.totpDesc')}
+              </p>
+            </div>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-sub">
+                {useRecovery ? t('twofa.recoveryTitle') : t('twofa.codeLabel')}
+              </span>
+              <input
+                key={useRecovery ? 'recovery' : 'app'}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                autoFocus
+                autoComplete="one-time-code"
+                inputMode={useRecovery ? 'text' : 'numeric'}
+                maxLength={useRecovery ? 11 : 6}
+                placeholder={useRecovery ? 'XXXXX-XXXXX' : '123456'}
+                className="rounded-md border border-line bg-app px-3 py-2 text-center font-mono text-base tracking-[0.3em] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </label>
+            {serverError && <p className="text-xs text-red-600">{serverError}</p>}
+            <button
+              type="submit"
+              disabled={loginTotp.isPending}
+              className="mt-1 flex items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
+            >
+              {loginTotp.isPending && <Spinner size={16} className="border-white/40 border-t-white" />}
+              {t('login.totpVerify')}
+            </button>
+            <div className="flex items-center justify-between text-xs">
+              <button type="button" onClick={backToPassword} className="text-sub hover:text-ink">
+                ← {t('login.totpBack')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseRecovery((v) => !v)
+                  setCode('')
+                  setServerError(null)
+                }}
+                className="text-accent hover:underline"
+              >
+                {useRecovery ? t('login.totpUseApp') : t('login.totpUseRecovery')}
+              </button>
+            </div>
+          </form>
+        ) : (
         <form
           onSubmit={submit}
           className="flex flex-col gap-3 rounded-lg border border-line bg-app p-6"
@@ -163,6 +257,7 @@ export function Login() {
             {t('auth.signIn')}
           </button>
         </form>
+        )}
 
         <p className="mt-4 text-center text-xs text-sub">
           <Link

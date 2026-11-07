@@ -5,30 +5,34 @@ import type { AnyBlock } from './convert'
 import { getServerEditor } from './editor'
 import { readBlocks } from '../context/sectionPatch'
 
+type DirectConnection = Awaited<ReturnType<typeof hocuspocus.openDirectConnection>>
+
 /**
  * Replace or append blocks in a live doc — the same safe path as snapshot restore.
  *   - Never builds Yjs fragments by hand (only the BlockNote conversion blocksToXmlFragment).
  *   - DirectConnection.transact → live propagation to clients viewing it + store hooks (save, reindex).
- *   - append replaces the doc with the existing blocks (ids kept → comment anchors preserved) followed by the new ones.
+ *   - append only inserts the new blocks after the existing ones (existing blocks are never read
+ *     back or rewritten, so callouts, embeds and @mentions survive); only an empty doc is replaced.
  *   - Full convertibility is checked first on a throwaway doc → on failure the live doc is untouched.
- * Returns: the document blocks after the edit (for the caller to reindex right away).
+ * One DirectConnection per call (docs/adr/1042-*): the emptiness check, the edit and the store
+ * share it. The store hook indexes the result before this returns.
  */
 export async function writeBlocksToDoc(
   pageId: string,
   incoming: AnyBlock[],
   mode: 'replace' | 'append',
-): Promise<AnyBlock[]> {
-  if (mode === 'append') {
-    // Append must never rewrite existing blocks: reading them through the server schema and writing
-    // them back drops callouts, page embeds and @mentions. Only an empty doc is replaced.
-    if (!(await isEffectivelyEmpty(pageId))) {
-      if (incoming.length === 0) return readPageBlocks(pageId)
-      return appendBlocksToDoc(pageId, incoming)
-    }
-  }
-  let result: AnyBlock[] = []
+): Promise<void> {
   const conn = await hocuspocus.openDirectConnection(pageId)
   try {
+    const live = conn.document
+    if (!live) throw new Error('Could not open the document')
+    // Append must never rewrite existing blocks: reading them through the server schema and writing
+    // them back drops callouts, page embeds and @mentions. Only an empty doc is replaced.
+    if (mode === 'append' && !isEffectivelyEmpty(live)) {
+      if (incoming.length === 0) return
+      await appendOnConnection(conn, incoming, false)
+      return
+    }
     await conn.transact((doc) => {
       const frag = doc.getXmlFragment('document')
       let next: AnyBlock[] = incoming
@@ -40,122 +44,99 @@ export async function writeBlocksToDoc(
         frag.delete(0, frag.length)
         blocksToXmlFragment(next, frag)
       })
-      // Read a copy: yDocToBlocks on the live doc deletes nodes the server schema does not know.
-      result = readBlocks(doc)
     })
   } finally {
     await conn.disconnect()
   }
-  return result
 }
 
-function countTop(frag: Y.XmlFragment): number {
-  const group = frag.get(0)
-  return group instanceof Y.XmlElement && group.nodeName === 'blockGroup' ? group.length : 0
-}
-
-/** Append clones of BlockNote-built blockContainers to the end of a Y.Doc's top-level blockGroup. */
-function appendContainers(doc: Y.Doc, incoming: AnyBlock[]): void {
-  const frag = doc.getXmlFragment('document')
-  if (frag.length === 0) {
-    // A new doc never edited — nothing to lose, so fill it directly via the BlockNote conversion.
-    blocksToXmlFragment(incoming, frag)
-    return
-  }
-  const group = frag.get(0)
-  if (!(group instanceof Y.XmlElement) || group.nodeName !== 'blockGroup' || frag.length !== 1) {
-    throw new Error('Unexpected document structure; nothing was appended')
-  }
-  // Deep-clone the Y structure BlockNote built (throwaway doc) and insert it — never assemble nodes by hand.
-  const editor = getServerEditor()
-  const tmp = editor.blocksToYDoc(
-    incoming as unknown as Parameters<typeof editor.blocksToYDoc>[0],
-    'document',
-  )
-  const tmpGroup = tmp.getXmlFragment('document').get(0)
-  if (!(tmpGroup instanceof Y.XmlElement) || tmpGroup.nodeName !== 'blockGroup') {
-    throw new Error('Failed to convert the blocks to append')
-  }
-  const clones = tmpGroup.toArray().map((c) => (c as Y.XmlElement).clone())
-  group.insert(group.length, clones)
-  tmp.destroy()
+function isBlockGroup(x: unknown): x is Y.XmlElement {
+  return x instanceof Y.XmlElement && x.nodeName === 'blockGroup'
 }
 
 /**
- * Only *append* blocks to the end of a live doc (existing blocks are not rewritten at all).
- *
- * writeBlocksToDoc(append) reads the existing blocks through the server schema and rewrites everything,
- * so callouts, page embeds and @mentions the server schema lacks get lost on the way. Paths that append
- * to the same doc often, like quick task add, use this function: it only inserts clones of the BlockNote
- * conversion at the end of the top-level blockGroup. It is tried on a cloned doc first (block count =
- * existing + appended, existing blocks unchanged) and applied live only if that passes.
- * Returns: the document blocks after the edit (for immediate reindexing).
+ * Inserts clones of BlockNote-built blockContainers after the last top-level block (never assembles
+ * nodes by hand). The new blocks are verified on their own throwaway doc first: BlockNote must build
+ * one container per block and be able to read them. Existing blocks are not read: inserting at the
+ * end of the top-level group cannot change them (docs/adr/1042-*); count and identity are asserted
+ * after the insert.
+ * Returns the document blocks after the edit when `readBack` (a full read; only callers that index
+ * by themselves need it).
  */
-export async function appendBlocksToDoc(pageId: string, incoming: AnyBlock[]): Promise<AnyBlock[]> {
-  if (incoming.length === 0) throw new Error('No blocks to append')
+async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], readBack: boolean): Promise<AnyBlock[]> {
   const editor = getServerEditor()
-  const conn = await hocuspocus.openDirectConnection(pageId)
+  const tmp = editor.blocksToYDoc(incoming as unknown as Parameters<typeof editor.blocksToYDoc>[0], 'document')
   let result: AnyBlock[] = []
   try {
-    const live = conn.document
-    if (!live) throw new Error('Could not open the document')
-    // 1) Verify on a clone
-    const clone = new Y.Doc()
-    Y.applyUpdate(clone, Y.encodeStateAsUpdate(live))
-    const before = editor.yDocToBlocks(clone, 'document') as unknown as AnyBlock[]
-    const topBefore = countTop(clone.getXmlFragment('document'))
-    appendContainers(clone, incoming)
-    const after = editor.yDocToBlocks(clone, 'document') as unknown as AnyBlock[]
-    const topAfter = countTop(clone.getXmlFragment('document'))
-    clone.destroy()
-    if (topAfter !== topBefore + incoming.length) throw new Error('Append check failed (block count)')
-    if (JSON.stringify(after.slice(0, before.length)) !== JSON.stringify(before)) {
-      throw new Error('Append check failed (existing content changed)')
-    }
-    // 2) Apply live (same synchronous section as the check)
+    const tmpGroup = tmp.getXmlFragment('document').get(0)
+    if (!isBlockGroup(tmpGroup)) throw new Error('Failed to convert the blocks to append')
+    const els = tmpGroup.toArray().filter((c): c is Y.XmlElement => c instanceof Y.XmlElement && c.nodeName === 'blockContainer')
+    if (els.length !== incoming.length) throw new Error('Append check failed (block count)')
+    // The new blocks must read back through BlockNote (throws on content the server cannot read).
+    readBlocks(tmp)
     let failure: unknown = null
     await conn.transact((doc) => {
       try {
-        doc.transact(() => appendContainers(doc, incoming))
-        result = readBlocks(doc)
+        const frag = doc.getXmlFragment('document')
+        if (frag.length === 0) {
+          // A new doc never edited — nothing to lose, so fill it directly via the BlockNote conversion.
+          doc.transact(() => blocksToXmlFragment(incoming, frag))
+        } else {
+          const group = frag.get(0)
+          if (!isBlockGroup(group) || frag.length !== 1) throw new Error('Unexpected document structure; nothing was appended')
+          const at = group.length
+          const clones = els.map((c) => c.clone())
+          doc.transact(() => group.insert(at, clones))
+          if (group.length !== at + clones.length || clones.some((c, i) => group.get(at + i) !== c)) {
+            throw new Error('Append check failed (block count)')
+          }
+        }
+        if (readBack) result = readBlocks(doc)
       } catch (err) {
         failure = err
       }
     })
     if (failure) throw failure
   } finally {
-    await conn.disconnect()
+    tmp.destroy()
   }
   return result
 }
 
-/** Blocks of a page, read from a copy of the live doc (never mutates it). */
-async function readPageBlocks(pageId: string): Promise<AnyBlock[]> {
+/**
+ * Only *append* blocks to the end of a live doc (existing blocks are not rewritten at all).
+ *
+ * writeBlocksToDoc(replace) reads nothing back and rewrites everything, so callouts, page embeds and
+ * @mentions the server schema lacks get lost on the way. Paths that append to the same doc often,
+ * like quick task add, use this function: it only inserts clones of the BlockNote conversion at the
+ * end of the top-level blockGroup, after checking the new blocks on a throwaway doc.
+ * Returns: the document blocks after the edit (for immediate reindexing).
+ */
+export async function appendBlocksToDoc(pageId: string, incoming: AnyBlock[]): Promise<AnyBlock[]> {
+  if (incoming.length === 0) throw new Error('No blocks to append')
   const conn = await hocuspocus.openDirectConnection(pageId)
   try {
-    const live = conn.document
-    if (!live) throw new Error('Could not open the document')
-    return readBlocks(live)
+    if (!conn.document) throw new Error('Could not open the document')
+    return await appendOnConnection(conn, incoming, true)
   } finally {
     await conn.disconnect()
   }
 }
 
-/** True for a never-edited doc or one holding only a single empty paragraph. */
-async function isEffectivelyEmpty(pageId: string): Promise<boolean> {
-  const conn = await hocuspocus.openDirectConnection(pageId)
-  try {
-    const live = conn.document
-    if (!live) throw new Error('Could not open the document')
-    if (live.getXmlFragment('document').length === 0) return true
-    const blocks = readBlocks(live)
-    return (
-      blocks.length === 1 &&
-      blocks[0].type === 'paragraph' &&
-      (!Array.isArray(blocks[0].content) || blocks[0].content.length === 0) &&
-      (!Array.isArray(blocks[0].children) || blocks[0].children.length === 0)
-    )
-  } finally {
-    await conn.disconnect()
-  }
+/**
+ * True for a never-edited doc or one holding only a single empty paragraph. A doc with more than
+ * one top-level container is never empty, so a large document is not read here.
+ */
+function isEffectivelyEmpty(live: Y.Doc): boolean {
+  const frag = live.getXmlFragment('document')
+  if (frag.length === 0) return true
+  const group = frag.get(0)
+  if (frag.length === 1 && isBlockGroup(group) && group.length > 1) return false
+  const blocks = readBlocks(live)
+  return (
+    blocks.length === 1 &&
+    blocks[0].type === 'paragraph' &&
+    (!Array.isArray(blocks[0].content) || blocks[0].content.length === 0) &&
+    (!Array.isArray(blocks[0].children) || blocks[0].children.length === 0)
+  )
 }

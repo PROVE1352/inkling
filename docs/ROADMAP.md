@@ -147,7 +147,7 @@ Fixed the CONFIRMED items from a three-axis adversarial audit:
 ## M19 — Obsidian settings port + PWA conveniences (2026-09-23)
 
 - [x] Settings screen /w/:ws/settings (⌘, · sidebar ⚙ · palette): per-device localStorage (lib/prefs, applied instantly via usePrefs)
-- [x] Editor: readable line length (off = full width; per-page full width takes precedence), spell check (spellcheck), word count status bar (1-second debounce)
+- [x] Editor: line width (per device, 600–1200 px of body text or full, 700 px by default; per-page full width takes precedence), spell check (spellcheck), word count status bar (1-second debounce)
 - [x] Files and links: startup page (last/home, first visit only), new page location (top level/child/same folder → ⌘N and sidebar), link previews (hover 500ms, Markdown export cache)
 - [x] Trash: confirm before deleting (off by default): a shared ConfirmDialog for the tree menu, ⌘⌫ and multi-delete
 - [x] Appearance: zoom 80–130% (root font-size; CSS zoom was rejected because it skews popover/drag coordinates), theme

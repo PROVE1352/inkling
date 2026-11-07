@@ -2,7 +2,8 @@ import { useNavigate } from 'react-router'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { usePages } from '../../../api'
 import { useT } from '../../../i18n'
-import { pageIcon } from '../../../lib/pageIcon'
+import { PageIconGlyph } from '../../PageIconGlyph'
+import { LinkIcon } from '../../Icons'
 import type { RFNodeData } from '../types'
 import { borderColor, tintBackground } from '../canvasColors'
 import { useCanvasContext } from '../canvasContext'
@@ -35,7 +36,7 @@ export function PageNode({ data, selected }: NodeProps) {
       />
       <NodeHandles />
       <span className="shrink-0 text-[15px] leading-none">
-        {target ? pageIcon(target) : '🔗'}
+        {target ? <PageIconGlyph page={target} size={15} /> : <LinkIcon size={15} className="text-sub" />}
       </span>
       <button
         type="button"

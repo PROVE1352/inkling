@@ -8,16 +8,18 @@ import * as Y from 'yjs'
 import type { WebSocket } from 'ws'
 import { z } from 'zod'
 import { getSessionUser, SESSION_COOKIE } from './auth'
+import { upgradeOriginAllowed } from './csrf'
 import { db } from './db/index'
-import { pageDocs, pages, workspaceMembers } from './db/schema'
+import { pages, workspaceMembers } from './db/schema'
 export { flushDocIndexes } from './docIndexer'
 import { visibleTo } from './pageDto'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
-import { flushDocIndexes, scheduleDocIndex } from './docIndexer'
+import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
-import { registerHocuspocus } from './liveConnections'
+import { liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
+import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
 import { trustedClientIp } from './guard'
 import { lifecycle, withRetry } from './lifecycle'
@@ -35,17 +37,37 @@ function isPageDocument(documentName: string): boolean {
   return uuidSchema.safeParse(documentName).success
 }
 
+/**
+ * What page_docs holds for each loaded document (docs/adr/1042-*): the digest of the stored state
+ * and its stamp (page_docs.updated_at as text). A store whose state has the same digest changes
+ * nothing, so it skips the write and the re-index (a DirectConnection stores once on transact and
+ * again on disconnect). Keyed by the document object, so an unload and reload of the same page
+ * never mix their records.
+ */
+const persisted = new WeakMap<Y.Doc, { digest: string; stamp: string | null }>()
+/** What fetch saw, handed to afterLoadDocument of the same load. */
+const loadedStamps = new Map<string, { stamp: string | null; indexed: boolean; digest: string | null }>()
+
+function stateDigest(state: Uint8Array): string {
+  return createHash('sha1').update(state).digest('base64')
+}
+
 // Yjs state persistence extension: stored in page_docs.state (bytea)
 const databaseExtension = new Database({
   fetch: async ({ documentName }) => {
     // Non-UUID documents such as inbox have no persisted state: load as an empty document.
     if (!isPageDocument(documentName)) return null
-    const rows = await db
-      .select({ state: pageDocs.state })
-      .from(pageDocs)
-      .where(eq(pageDocs.pageId, documentName))
-      .limit(1)
-    return rows[0]?.state ?? null
+    const [row] = (await db.execute(sql`
+      SELECT d.state, d.updated_at::text AS stamp,
+             EXISTS (SELECT 1 FROM page_chunk_index m WHERE m.page_id = ${documentName}) AS indexed
+        FROM (SELECT 1) one LEFT JOIN page_docs d ON d.page_id = ${documentName}
+    `)) as unknown as { state: Buffer | null; stamp: string | null; indexed: boolean }[]
+    loadedStamps.set(documentName, {
+      stamp: row?.stamp ?? null,
+      indexed: !!row?.indexed,
+      digest: row?.state ? stateDigest(row.state) : null,
+    })
+    return row?.state ?? null
   },
   store: ({ documentName, state, document, socketId }) => {
     // Non-UUID documents such as inbox are never stored/snapshotted/indexed: skip every store hook.
@@ -54,14 +76,19 @@ const databaseExtension = new Database({
     // DirectConnection store (debounce 0) can run while a client store is mid-flight, and the
     // one holding the older state could finish last and overwrite page_docs. Inside the chain
     // we re-encode from the live Y.Doc, so whichever store runs last writes the newest state.
-    return serialStore(documentName, () =>
-      storeDocument(
+    return serialStore(documentName, () => {
+      const live = document instanceof Y.Doc ? document : null
+      // Update counter at encode time: the live doc equals what this store writes (docs/adr/1041-*).
+      const seq = live ? liveDocSeq(live) : null
+      return storeDocument(
         documentName,
-        document instanceof Y.Doc ? Buffer.from(Y.encodeStateAsUpdate(document)) : state,
+        live ? Buffer.from(Y.encodeStateAsUpdate(live)) : state,
         document,
         socketId,
-      ),
-    )
+        live,
+        seq,
+      )
+    })
   },
 })
 
@@ -84,7 +111,22 @@ async function storeDocument(
   state: Buffer,
   document: { getConnectionsCount?: () => number } | undefined,
   socketId: string | undefined,
+  live: Y.Doc | null = null,
+  seq: number | null = null,
 ): Promise<void> {
+  const lastClientGone = document?.getConnectionsCount?.() === 0
+  const immediate = socketId === 'server' || lastClientGone
+  const digest = stateDigest(state)
+  const prev = live ? persisted.get(live) : undefined
+  if (prev && prev.digest === digest) {
+    // Same bytes as page_docs already holds: no write, no snapshot, no re-index (docs/adr/1042-*).
+    // A pass the previous store left debounced still runs now when this store would have run one.
+    if (live) noteLiveStored(live, seq, prev.stamp)
+    storeStats.skipped++
+    if (immediate) await flushDocIndex(documentName)
+    return
+  }
+  storeStats.written++
   {
     // Auto snapshot of the state we are about to overwrite — decided and copied inside Postgres
     // (no full-state SELECT into Node), skipped from memory while the 10-min throttle is open.
@@ -95,31 +137,40 @@ async function storeDocument(
     // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow so the
     // failure is visible — Hocuspocus keeps the document and stores again on the next change,
     // and the process-level unhandledRejection handler logs instead of crashing (B-H1).
-    await withRetry(
+    const rows = (await withRetry(
       () =>
         db.execute(sql`
           WITH d AS (
             INSERT INTO page_docs (page_id, state, updated_at)
             VALUES (${documentName}, ${state}, now())
             ON CONFLICT (page_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()
-            RETURNING page_id
+            RETURNING page_id, updated_at
+          ), u AS (
+            UPDATE pages SET updated_at = now() WHERE id IN (SELECT page_id FROM d)
           )
-          UPDATE pages SET updated_at = now() WHERE id IN (SELECT page_id FROM d)
+          SELECT updated_at::text AS stamp FROM d
         `),
       {
         attempts: 4,
         onRetry: (err, n) =>
           console.error(`[inkling] collab store of ${documentName} failed (retry ${n}/3)`, err),
       },
-    )
+    )) as unknown as { stamp: string }[]
+    const stamp = rows[0]?.stamp ?? null
+    if (live) {
+      persisted.set(live, { digest, stamp })
+      noteLiveStored(live, seq, stamp)
+    }
 
     // Derived indexes (backlinks, search text, tags, dated tasks). Server-side DirectConnection
     // edits (REST/MCP/sync) and the final store after the last client leaves index right away;
     // live typing is debounced and diffed in docIndexer. Failures never fail the store.
-    const lastClientGone = document?.getConnectionsCount?.() === 0
-    await scheduleDocIndex(documentName, state, socketId === 'server' || lastClientGone)
+    await scheduleDocIndex(documentName, state, immediate, stamp)
   }
 }
+
+/** Test/bench hook: stores written vs skipped as unchanged (docs/adr/1042-*). */
+export const storeStats = { written: 0, skipped: 0 }
 
 /**
  * Hocuspocus instance: used by the snapshots route to push a restore live into an open
@@ -132,6 +183,21 @@ export const hocuspocus = new Hocuspocus({
   // Shutdown is coordinated together with fastify, so disable automatic signal handling
   stopOnSignals: false,
   extensions: [databaseExtension],
+  // Track updates of loaded page documents so reads know when the live doc still equals the
+  // stored (and indexed) state (docs/adr/1041-*).
+  async afterLoadDocument({ documentName, document }) {
+    if (!isPageDocument(documentName)) return
+    const loaded = loadedStamps.get(documentName)
+    loadedStamps.delete(documentName)
+    trackLiveDoc(document, loaded?.stamp ?? null)
+    if (loaded?.digest) persisted.set(document, { digest: loaded.digest, stamp: loaded.stamp })
+    // A page never indexed (created without the indexer, or with no stored state yet) gets its
+    // current state indexed before the first edit, so that edit is diffed against it in the change
+    // feed instead of being the silent first index. Unchanged stores used to do this as a side
+    // effect; they are skipped now (docs/adr/1042-*).
+    if (loaded && !loaded.indexed) await scheduleDocIndex(documentName, Y.encodeStateAsUpdate(document), true, loaded.stamp)
+  },
+
   // Who is typing where (docs/adr/1002-*): attributes body mentions and followed-page updates.
   async onChange(data) {
     const uid = (data.context as { userId?: unknown } | undefined)?.userId
@@ -317,6 +383,13 @@ export function attachCollab(httpServer: HttpServer): void {
       if (hits.length > MAX_UPGRADES_PER_WINDOW) {
         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
         socket.destroy()
+        return
+      }
+
+      // 0) Cross-site WebSocket hijacking (C-L4, docs/adr/1062-*): a browser always sends Origin on
+      //    the handshake, and the session cookie rides along, so another site's page must not open it.
+      if (!upgradeOriginAllowed(req.headers).ok) {
+        reject(socket, '403 Forbidden')
         return
       }
 

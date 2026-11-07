@@ -22,10 +22,15 @@ const AUDIT_PURGE_BATCH = 5_000
 export async function purgeOldAuditEvents(now: Date, maxBatches = 20): Promise<number> {
   let total = 0
   for (let i = 0; i < maxBatches; i++) {
+    // Per workspace, a range scan of (workspace_id, created_at) below that workspace's cutoff
+    // instead of a scan of every event with the retention computed per row (docs/PERFORMANCE.md).
     const rows = (await db.execute(sql`
       DELETE FROM workspace_audit_events WHERE id IN (
-        SELECT e.id FROM workspace_audit_events e JOIN workspaces w ON w.id = e.workspace_id
-         WHERE e.created_at < ${now.toISOString()}::timestamptz - make_interval(days => w.audit_retention_days)
+        SELECT x.id FROM workspaces w CROSS JOIN LATERAL (
+          SELECT e.id FROM workspace_audit_events e
+           WHERE e.workspace_id = w.id
+             AND e.created_at < ${now.toISOString()}::timestamptz - make_interval(days => w.audit_retention_days)
+           LIMIT ${AUDIT_PURGE_BATCH}) x
          LIMIT ${AUDIT_PURGE_BATCH})
       RETURNING id
     `)) as unknown as { id: string }[]

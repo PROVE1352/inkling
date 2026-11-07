@@ -260,7 +260,7 @@ export default {
   'notionImport.menu': 'Notion에서 가져오기 (.zip)',
   'notionImport.title': 'Notion 내보내기 가져오기',
   'notionImport.hint': 'Notion에서 설정 → 내보내기(또는 페이지 ⋯ → 내보내기) → "Markdown & CSV", 하위 페이지 포함, 하위 페이지용 폴더 만들기를 켜고 받은 .zip을 그대로 올리세요.',
-  'notionImport.limits': '페이지는 문서로, CSV 데이터베이스는 컬렉션으로, 이미지와 파일은 첨부로 들어옵니다. 콜아웃은 인용으로, 수식은 수식 블록과 인라인 수식으로 들어옵니다.',
+  'notionImport.limits': '페이지는 문서로, CSV 데이터베이스는 Inkling 데이터베이스로, 이미지와 파일은 첨부로 들어옵니다. 콜아웃은 인용으로, 수식은 수식 블록과 인라인 수식으로 들어옵니다.',
   'notionImport.choose': '.zip 선택',
   'notionImport.importing': '가져오는 중…',
   'notionImport.failed': 'Notion 가져오기에 실패했습니다.',

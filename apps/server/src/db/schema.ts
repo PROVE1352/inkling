@@ -309,6 +309,8 @@ export const pages = pgTable('pages', {
   index('pages_created_by_idx').on(t.createdBy),
   index('pages_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`),
   index('pages_owner_idx').on(t.ownerId),
+  // Lock pages of a workspace (recount of workspace_acl_versions.locked_pages, docs/adr/1071-*).
+  index('pages_ws_locked_idx').on(t.workspaceId).where(sql`${t.editLocked}`),
 ])
 
 export const pageDocs = pgTable('page_docs', {
@@ -768,3 +770,5 @@ export * from './schema-sync'
 export * from './schema-webhooks'
 export * from './schema-editLock'
 export * from './schema-notifications'
+export * from './schema-twoFactor'
+export * from './schema-outbox'

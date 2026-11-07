@@ -14,7 +14,7 @@ import {
 import { copyText, inviteLink } from '../lib/clipboard'
 import { useDailyNote } from '../lib/dailyNote'
 import { useNewPage } from '../lib/newPage'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { modKey } from '../lib/platform'
 import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
@@ -480,7 +480,7 @@ export function Sidebar({
                       }`}
                     >
                       <span className="shrink-0 text-[15px] leading-none">
-                        {pageIcon(b)}
+                        <PageIconGlyph page={b} size={15} />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-left">
                         {b.title || t('common.untitled')}

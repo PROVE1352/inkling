@@ -240,6 +240,51 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 |---|---|---|
 | [1020](1020-per-user-sidebar-menu-customization.md) | Sidebar menus: per-user order and visibility, stored on the account | Accepted |
 
+## 1040–1049 Large pages
+
+| ADR | Title | Status |
+|---|---|---|
+| [1040](1040-index-the-whole-page.md) | The section index covers the whole page; page_texts keeps head + tail | Accepted |
+| [1041](1041-outline-and-section-reads-from-the-index.md) | Outline and section reads answer from the section index when it is provably current | Accepted |
+| [1042](1042-write-path-on-large-pages.md) | Write paths on large pages: one connection, region-only checks, unchanged stores skipped | Accepted |
+| [1043](1043-large-page-hint-for-agents.md) | A one-line "large page" hint in agent tool output | Accepted |
+
+## 1050–1059 Release and upgrade
+
+| ADR | Title | Status |
+|---|---|---|
+| [1050](1050-prebuilt-multi-arch-images-on-ghcr.md) | Prebuilt multi-arch release images on GHCR, built on native runners | Accepted |
+| [1051](1051-compose-image-by-default-source-build-overlay.md) | compose.yaml runs the published image; source builds stay one flag or one overlay away | Accepted |
+| [1052](1052-upgrade-path-ci.md) | Upgrade-path CI: every earlier release's image fills a database, the new image migrates it | Accepted |
+
+## 1060–1069 Authentication
+
+| ADR | Title | Status |
+|---|---|---|
+| [1060](1060-hashed-session-tokens.md) | Session tokens stored as SHA-256, converted in place at boot | Accepted |
+| [1061](1061-totp-two-step-verification.md) | Two-step verification with TOTP, secrets encrypted under APP_SECRET_KEY | Accepted |
+| [1062](1062-origin-check-for-cookie-requests.md) | Cross-site requests refused by Origin; the collab upgrade too | Accepted |
+
+## 1070–1079 Access checks
+
+| ADR | Title | Status |
+|---|---|---|
+| [1070](1070-mcp-agent-context-in-process.md) | MCP agent context in process, not a second REST call | Accepted |
+| [1071](1071-workspace-access-version-and-write-gate.md) | Workspace access version, version-keyed caches and the write gate | Accepted |
+
+## 1080–1089 Background work and outbox
+
+| ADR | Title | Status |
+|---|---|---|
+| [1080](1080-change-log-through-a-transactional-outbox.md) | Change log through a transactional outbox: one writer per database, no request-wide queue | Accepted |
+| [1081](1081-notifications-and-webhooks-through-the-outbox.md) | Notifications and webhooks through the outbox: retries, idempotency, leases | Accepted |
+
+## 1090–1099 Page chrome
+
+| ADR | Title | Status |
+|---|---|---|
+| [1090](1090-quieter-page-chrome-and-line-width-setting.md) | Quieter page chrome: ⋯ menu, line-width slider, title-heading dedupe on import | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

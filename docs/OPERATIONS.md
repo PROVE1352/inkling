@@ -9,6 +9,8 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Run behind TLS: `docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d`. Never expose the base compose's `3000:3000` to the internet (plain HTTP).
 - [ ] Set a strong `POSTGRES_PASSWORD` in `.env` (the default `nodian` is for local development only).
 - [ ] Set `PUBLIC_URL` (or `APP_URL`) to the external origin. Example: `PUBLIC_URL=https://notes.example.com`. It is the only source for mail links, the OAuth issuer and `og:url`; the `Host` header is never trusted for them. When SMTP mail is enabled and neither variable is set, the server refuses to boot.
+  Browsers opening the app under any other origin (a LAN IP, another domain) can read but every write is refused with 403 `CROSS_SITE_REQUEST` (docs/adr/1062-*).
+- [ ] Set `APP_SECRET_KEY` (≥ 32 characters, `openssl rand -base64 32`) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work).
 - [ ] Cookies: when `PUBLIC_URL` is `https`, session cookies are `Secure` automatically. `COOKIE_SECURE` is passed through from `.env` (default `0`); the Caddy overlay sets it to `1`.
 - [ ] Signup keys: with `NODE_ENV=production`, signups require a signup key unless `SIGNUP_REQUIRE_KEY=0` is set explicitly. Create the first admin's key with `./deploy/signup-key.sh new "<name>"` (the server logs this hint at boot).
 - [ ] Set `TZ` to the users' timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to `UTC`; a Korean deployment sets `TZ=Asia/Seoul`.
@@ -44,6 +46,28 @@ The app sets these on every pool connection: `statement_timeout` 15 s, `idle_in_
 - [ ] Check free disk weekly.
 
 ### Upgrades
+
+Releases are published as a multi-arch image, `ghcr.io/prove1352/inkling:<X.Y.Z>` (also `X.Y` and
+`latest`; docs/adr/1050-*). The procedure, with your `-f` files added to each compose command:
+
+```bash
+./deploy/backup.sh                 # 1. backup (ends with "ok set=<id> ...")
+git pull                           # 2. compose files and deploy scripts of the new release
+#    optional: INKLING_VERSION=0.3.1 in .env to pin the release (empty = latest)
+docker compose pull app            # 3. fetch the image
+docker compose up -d app           # 4. restart; migrations run in one transaction at boot
+docker compose logs --tail 50 app  #    check the migration result and "Server listening"
+```
+
+- Source builds use `compose.build.yaml` (or its two lines in `compose.override.yaml`) and
+  `up -d --build app` instead of steps 3–4 (deploy/DEPLOY.md "Image or source build", docs/adr/1051-*).
+- Moving from source builds to the published image changes no data. Do not pull a release older than
+  the code that last migrated the database (an install built from `main` after the latest release waits
+  for the next release).
+- No downgrades: an older release does not know the newer schema. Roll back by restoring the backup from
+  step 1 and pinning `INKLING_VERSION` to the old release.
+- Every release is tested for an upgrade from each earlier release, with data, before its image is
+  published (`.github/workflows/upgrade.yml`, docs/adr/1052-*).
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).

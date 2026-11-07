@@ -32,4 +32,6 @@ export default {
   'No Notion pages found in the archive': '압축 파일에서 Notion 페이지를 찾지 못했습니다',
   'Not a readable zip archive': '읽을 수 없는 zip 파일입니다',
   'A Notion export is imported as its .zip file': 'Notion 내보내기는 받은 .zip 파일 그대로 가져옵니다',
+  // routes/admin.ts (docs/adr/1061-*)
+  'Turn off your own two-step verification in Settings': '본인의 2단계 인증은 설정에서 끄세요',
 } satisfies Record<string, string>

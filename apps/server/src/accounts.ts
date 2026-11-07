@@ -14,6 +14,7 @@ import {
 import { env, mailEnabled } from './env'
 import { sha256 } from './oauth'
 import { closeUserConnections } from './liveConnections'
+import { hashSessionToken } from './sessionTokens'
 import { newSignupKey } from './util'
 
 /**
@@ -97,7 +98,7 @@ export async function setPassword(
       .delete(sessions)
       .where(
         opts.keepSessionToken
-          ? and(eq(sessions.userId, userId), ne(sessions.token, opts.keepSessionToken))
+          ? and(eq(sessions.userId, userId), ne(sessions.token, hashSessionToken(opts.keepSessionToken)))
           : eq(sessions.userId, userId),
       )
     await tx.delete(passwordResetCodes).where(eq(passwordResetCodes.userId, userId))

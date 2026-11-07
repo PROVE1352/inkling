@@ -8,7 +8,8 @@ import type { ReviewFacts } from '../review'
 import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
-import { flaggedRules, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
+import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
+import { LARGE_PAGE_HINT } from '../context/largePage'
 import { suspiciousNote } from '../context/injectionScan'
 import { wrapUntrusted } from './trust'
 
@@ -61,7 +62,7 @@ export function renderFindContext(
     const versions = f.sections.map((s) => `§${s.anchor} v=${s.version}`).join(', ')
     const facts = ac ? pageFacts(ac, f.pageId) : null
     const flag = ac ? suspiciousNote(flaggedRules(ac, f.pageId, f.sections.map((s) => s.anchor))) : ''
-    const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}` : ''
+    const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}${facts.large ? '; large page' : ''}` : ''
     if (i > 0) data.push('')
     data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))})`, f.text)
   })
@@ -74,6 +75,8 @@ export function renderFindContext(
     for (const t of r.titleOnly) data.push(`- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)
   }
   const out = [head, wrapData(data), '', 'Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.']
+  // One hint for all large pages shown (docs/adr/1043-*).
+  if (ac && r.fragments.some((f) => pageFacts(ac, f.pageId).large)) out.push(`Pages marked "large page": ${LARGE_PAGE_HINT.replace(/^large page: /, '')}.`)
   return ac ? withApplies(ac, out.join('\n')) : out.join('\n')
 }
 
@@ -211,8 +214,10 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       }
       const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null }
       const ac = await loadAgentContext(ctx, [pageId])
-      if (!r.section) return text(withApplies(ac, `Done (${mode}). The section was removed.`))
-      return text(withApplies(ac, `Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.`))
+      const large = largeLine(ac, pageId)
+      const tail = large ? `\n${large}` : ''
+      if (!r.section) return text(withApplies(ac, `Done (${mode}). The section was removed.${tail}`))
+      return text(withApplies(ac, `Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.${tail}`))
     }),
   )
 }

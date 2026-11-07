@@ -1,22 +1,53 @@
+import { z } from 'zod'
+import { agentContextFor } from '../routes/editLock'
 import type { AgentContextDTO } from '../routes/editLock'
-import { call } from './core'
+import { runAsAgent } from '../agentAccess'
+import type { AgentScope } from '../agentAccess'
+import { getBearerUser } from '../oauth'
+import { ToolError } from './core'
 import type { ToolCtx } from './core'
 import { cleanText, editPhrase } from './trust'
 import { INJECTION_RULES } from '@inkling/shared'
 import { suspiciousNote } from '../context/injectionScan'
+import { LARGE_PAGE_HINT } from '../context/largePage'
+
+const idsSchema = z.array(z.uuid())
+
+// The /mcp handler builds ctx.user from the token (getBearerUser), so grant and client are set;
+// a ctx built without them (tests) resolves them from the token once.
+const scopes = new WeakMap<ToolCtx, Promise<AgentScope | null>>()
+function agentScopeOf(ctx: ToolCtx): Promise<AgentScope | null> {
+  let p = scopes.get(ctx)
+  if (!p) {
+    p = (async () => {
+      const u = ctx.user.grantId && ctx.user.clientId ? ctx.user : await getBearerUser(ctx.token)
+      if (!u?.grantId || !u.clientId) return null
+      return { userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }
+    })()
+    scopes.set(ctx, p)
+  }
+  return p
+}
 
 /**
  * Per-page facts every page-level tool output starts with (docs/adr/0975-*, 0976-*): which agent
  * instructions apply ("applies:" line, titles only), what this agent may do ("can:"), and who last
- * edited the page (provenance attributes of the untrusted_content wrapper). One REST call.
+ * edited the page (provenance attributes of the untrusted_content wrapper).
+ *
+ * Same function as GET /api/pages/agent-context, called in process (docs/adr/1070-*): the tool's
+ * REST call before it already authenticated the token and checked access, so the second inject
+ * (token lookup, request pipeline) is not repeated. The agent scope is entered here exactly as
+ * requireUser does for an injected request, so blocks and agent lock rules apply unchanged.
  */
 export async function loadAgentContext(ctx: ToolCtx, ids: string[], opts: { read?: boolean } = {}): Promise<AgentContextDTO> {
   const uniq = [...new Set(ids)].slice(0, 50)
   if (!uniq.length) return { pages: [], applies: [] }
-  const query: Record<string, string> = { ids: uniq.join(',') }
-  // read=1: page content is being handed to the agent (taint record, docs/adr/0977-*).
-  if (opts.read) query.read = '1'
-  return (await call(ctx, 'GET', '/api/pages/agent-context', { query })).json() as AgentContextDTO
+  if (!idsSchema.safeParse(uniq).success) throw new ToolError('Request failed (VALIDATION): page ids must be UUIDs')
+  // read: page content is being handed to the agent (taint record, docs/adr/0977-*).
+  const run = () => agentContextFor(ctx.user.id, uniq, { read: opts.read })
+  const scope = await agentScopeOf(ctx)
+  if (!scope) throw new ToolError('Request failed (HTTP 401): the access token is no longer valid; reconnect the Inkling connector')
+  return runAsAgent(scope, run)
 }
 
 /** `applies: A; B (get_instructions)` or null when nothing applies. Deterministic order (server). */
@@ -38,7 +69,13 @@ export function pageFacts(c: AgentContextDTO, id: string) {
     createdBy: p?.createdBy ?? null,
     lastEdit: editPhrase(p?.lastEdit ?? null),
     suspicious: p?.suspicious ?? [],
+    large: p?.large ?? false,
   }
+}
+
+/** The large-page hint line for `id`, or null (docs/adr/1043-*). */
+export function largeLine(c: AgentContextDTO, id: string): string | null {
+  return pageFacts(c, id).large ? LARGE_PAGE_HINT : null
 }
 
 /** Rules flagged on any of `anchors` (all sections when omitted), canonical order. */

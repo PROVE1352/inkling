@@ -74,18 +74,47 @@ const TOUCH_INTERVAL_MS = 60_000
 const touched = new BoundedLru<true>(20_000, TOUCH_INTERVAL_MS)
 // Member-name clash per (workspace, client, user), re-checked at most once a minute (renames apply then).
 const nameClashes = new BoundedLru<boolean>(20_000, TOUCH_INTERVAL_MS)
+// Agent blocks of a workspace, valid only for the access version they were read under (block
+// changes bump it in their transaction, docs/adr/1071-*). The TTL is a memory bound only.
+const blockLists = new BoundedLru<{ v: number; blocks: { u: string; c: string | null }[] }>(20_000, 60 * 60_000)
+
+function blockedIn(blocks: { u: string; c: string | null }[], scope: AgentScope): boolean {
+  return blocks.some((b) => b.u === scope.userId && (b.c === null || b.c === scope.clientId))
+}
+
+/** Is the current agent blocked in `workspaceId`? Cached per access version when one is given. */
+async function isBlocked(scope: AgentScope, workspaceId: string, version?: number, exec: Pick<typeof db, 'execute'> = db): Promise<boolean> {
+  if (version === undefined) {
+    const rows = (await db.execute(sql`select ${blockMatch(scope, sql`${workspaceId}::uuid`)} as blocked`)) as unknown as {
+      blocked: boolean
+    }[]
+    return !!rows[0]?.blocked
+  }
+  const hit = blockLists.get(workspaceId)
+  if (hit && hit.v === version) return blockedIn(hit.blocks, scope)
+  // Read after the version (the caller read it first): the list is never older than its label.
+  const rows = (await exec.execute(sql`
+    select user_id as u, client_id as c from workspace_agent_blocks where workspace_id = ${workspaceId}
+  `)) as unknown as { u: string; c: string | null }[]
+  const blocks = rows.map((r) => ({ u: r.u, c: r.c ?? null }))
+  blockLists.set(workspaceId, { v: version, blocks })
+  return blockedIn(blocks, scope)
+}
 
 /**
  * Throws 403 AGENT_BLOCKED when the current agent connection is blocked in `workspaceId`;
  * otherwise records the access for the "Connected agents" list. No-op outside an agent request.
+ * `aclVersion`: the workspace access version the caller read in the same statement as the
+ * membership (or under the write gate) — the block list is then served from memory while unchanged.
  */
-export async function assertAgentAllowed(workspaceId: string): Promise<void> {
+export async function assertAgentAllowed(
+  workspaceId: string,
+  aclVersion?: number,
+  exec?: Pick<typeof db, 'execute'>,
+): Promise<void> {
   const scope = currentAgent()
   if (!scope) return
-  const rows = (await db.execute(sql`select ${blockMatch(scope, sql`${workspaceId}::uuid`)} as blocked`)) as unknown as {
-    blocked: boolean
-  }[]
-  if (rows[0]?.blocked) throw agentBlocked()
+  if (await isBlocked(scope, workspaceId, aclVersion, exec)) throw agentBlocked()
   // A client named exactly like another member of this workspace is refused here only (docs/adr/1007-*).
   const clashKey = `${workspaceId}:${scope.clientId}:${scope.userId}`
   let clash = nameClashes.get(clashKey)
@@ -114,4 +143,5 @@ export async function assertAgentAllowed(workspaceId: string): Promise<void> {
 export function _resetAgentTouches(): void {
   touched.clear()
   nameClashes.clear()
+  blockLists.clear()
 }

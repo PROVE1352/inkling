@@ -13,7 +13,7 @@ import {
 } from '../api'
 import { toast } from '../lib/toast'
 import { t } from '../i18n'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { type TreeNode, useTreeNav, useTreeRow } from './PageTree'
 import { useTreeDnd } from './dnd/AppDnd'
 import { EmojiPicker } from './EmojiPicker'
@@ -338,7 +338,7 @@ export const PageTreeItem = memo(function PageTreeItem({
           title={t('tree.changeIcon')}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[15px] leading-none hover:bg-hover"
         >
-          {pageIcon(page, isOpen)}
+          <PageIconGlyph page={page} size={15} />
         </button>
 
         {renaming ? (

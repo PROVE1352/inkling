@@ -5,7 +5,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { NavButtons } from '../components/NavButtons'
 import { Spinner } from '../components/Spinner'
 import { MenuIcon, TagIcon } from '../components/Icons'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from '../components/PageIconGlyph'
 import { relativeTime } from '../lib/time'
 import { useT } from '../i18n'
 
@@ -115,7 +115,7 @@ export function TagsView() {
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink transition-colors duration-150 hover:bg-hover"
                       >
                         <span className="shrink-0 text-[15px] leading-none">
-                          {pageIcon(p)}
+                          <PageIconGlyph page={p} size={15} />
                         </span>
                         <span className="min-w-0 flex-1 truncate">
                           {p.title || tr('common.untitled')}

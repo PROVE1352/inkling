@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { usePages } from '../api'
 import { t, useT, type TKey } from '../i18n'
-import { kindLabel, pageIcon } from '../lib/pageIcon'
+import { kindLabel } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 
 // Internal link preview (like Obsidian's "Page preview") — hovering a wikilink in the body (<a href="/w/…/p/…">)
 // or a page mention chip for ~500ms shows the title + the first 12 lines.
@@ -209,7 +210,7 @@ export function LinkPreview({
         }}
         className="mb-1.5 flex w-full items-center gap-1.5 text-left text-sm font-semibold text-ink hover:underline"
       >
-        <span className="shrink-0 text-[15px] leading-none">{page ? pageIcon(page) : '📄'}</span>
+        <span className="shrink-0 text-[15px] leading-none"><PageIconGlyph page={page ?? { icon: null, kind: 'doc' }} size={15} /></span>
         <span className="min-w-0 flex-1 truncate">
           {page ? page.title || tr('common.untitled') : tr('linkPreview.notFound')}
         </span>

@@ -1,5 +1,5 @@
 import { hash, verify } from '@node-rs/argon2'
-import { eq, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
 import { runAsAgent } from './agentAccess'
 import { db } from './db/index'
@@ -13,6 +13,7 @@ import {
   MCP_INTERNAL_SECRET,
   readBearer,
 } from './oauth'
+import { hashSessionToken, mayBeLegacyToken } from './sessionTokens'
 import { newSessionToken } from './util'
 
 export const SESSION_COOKIE = 'inkling_sid'
@@ -75,14 +76,19 @@ export function verifyPassword(hashed: string, password: string): Promise<boolea
 // Sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * Issue a session. Returns the raw token for the cookie; the database keeps only its SHA-256
+ * (C-L7, docs/adr/1060-*).
+ */
 export async function createSession(
   userId: string,
   opts: { expectPasswordHash?: string } = {},
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = newSessionToken()
+  const tokenHash = hashSessionToken(token)
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
   if (opts.expectPasswordHash === undefined) {
-    await db.insert(sessions).values({ token, userId, expiresAt })
+    await db.insert(sessions).values({ token: tokenHash, userId, expiresAt })
     return { token, expiresAt }
   }
   // Password login (A-M3): argon2 verification takes ~100 ms, and a password reset committing in
@@ -90,7 +96,7 @@ export async function createSession(
   // hash that was just verified is still the stored one; otherwise the login is rejected.
   const rows = (await db.execute(sql`
     INSERT INTO sessions (token, user_id, expires_at)
-    SELECT ${token}, u.id, ${expiresAt.toISOString()}::timestamptz FROM users u
+    SELECT ${tokenHash}, u.id, ${expiresAt.toISOString()}::timestamptz FROM users u
      WHERE u.id = ${userId} AND u.password_hash = ${opts.expectPasswordHash}
     RETURNING token
   `)) as unknown as { token: string }[]
@@ -98,7 +104,14 @@ export async function createSession(
   return { token, expiresAt }
 }
 
+/**
+ * Cookie value → user. Looked up by the token's hash; the equality match on a SHA-256 of a
+ * 256-bit random value leaks nothing useful through timing. A legacy plaintext row (inserted by an
+ * older deploy/cli-token.sh after the boot pass) also matches once and is hashed in place.
+ */
 export async function getSessionUser(token: string): Promise<AuthUser | null> {
+  const tokenHash = hashSessionToken(token)
+  const keys = mayBeLegacyToken(token) ? [tokenHash, token] : [tokenHash]
   const rows = await db
     .select({
       id: users.id,
@@ -106,10 +119,11 @@ export async function getSessionUser(token: string): Promise<AuthUser | null> {
       name: users.name,
       isAdmin: users.isAdmin,
       expiresAt: sessions.expiresAt,
+      stored: sessions.token,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(eq(sessions.token, token))
+    .where(inArray(sessions.token, keys))
     .limit(1)
 
   const row = rows[0]
@@ -117,15 +131,21 @@ export async function getSessionUser(token: string): Promise<AuthUser | null> {
 
   // Delete an expired session and treat the request as unauthenticated
   if (row.expiresAt.getTime() <= Date.now()) {
-    await db.delete(sessions).where(eq(sessions.token, token))
+    await db.delete(sessions).where(eq(sessions.token, row.stored))
     return null
+  }
+
+  if (row.stored !== tokenHash) {
+    await db.update(sessions).set({ token: tokenHash }).where(eq(sessions.token, row.stored))
   }
 
   return { id: row.id, email: row.email, name: row.name, isAdmin: row.isAdmin }
 }
 
 export async function destroySession(token: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.token, token))
+  const tokenHash = hashSessionToken(token)
+  const keys = mayBeLegacyToken(token) ? [tokenHash, token] : [tokenHash]
+  await db.delete(sessions).where(inArray(sessions.token, keys))
 }
 
 // ---------------------------------------------------------------------------

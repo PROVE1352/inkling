@@ -69,6 +69,30 @@ export function readBlocks(doc: Y.Doc): AnyBlock[] {
   }
 }
 
+/**
+ * A throwaway doc whose top-level group holds clones of `group`'s children [from, to) — a copy of
+ * one region of a document, so reading or editing it costs the region, not the document
+ * (docs/adr/1042-*).
+ */
+export function copyTopRange(group: Y.XmlElement, from: number, to: number): Y.Doc {
+  const doc = new Y.Doc()
+  const g = new Y.XmlElement('blockGroup')
+  for (const [k, v] of Object.entries(group.getAttributes())) g.setAttribute(k, v as string)
+  doc.getXmlFragment('document').insert(0, [g])
+  g.insert(0, group.toArray().slice(from, to).map((el) => (el as Y.XmlElement | Y.XmlText).clone()))
+  return doc
+}
+
+/** Blocks of `group`'s children [from, to), read through BlockNote on a copy of just that range. */
+export function readTopRange(group: Y.XmlElement, from: number, to: number): AnyBlock[] {
+  const tmp = copyTopRange(group, from, to)
+  try {
+    return getServerEditor().yDocToBlocks(tmp, 'document') as unknown as AnyBlock[]
+  } finally {
+    tmp.destroy()
+  }
+}
+
 // ---------------------------------------------------------------------------
 // what the agent saw: per-block "echo" keys
 // ---------------------------------------------------------------------------
@@ -739,9 +763,17 @@ export function applySectionPatch(
 
   const stats: PatchStats = { strategy: 'insert', kept: 0, edited: 0, inserted: 0, deleted: 0 }
   let firstNewId: string | null = null
+  // The region the edit changes: live top-level indices [liveA, liveB) ↔ visible blocks [visA, visB).
+  // Everything outside it is untouched, so the result is read back for this region only.
+  let liveA = 0
+  let liveB = 0
+  let visA = 0
+  let visB = 0
+  const lenBefore = group.length
 
   if (mode === 'delete') {
     const r = liveRange(top, live, blocks, sec.start, sec.end, secLive)
+    ;[liveA, liveB, visA, visB] = [r.from, r.to, sec.start, sec.end]
     doc.transact(() => {
       group.delete(r.from, r.to - r.from)
       if (group.length === 0) {
@@ -755,6 +787,8 @@ export function applySectionPatch(
   } else if (mode !== 'replace') {
     const { tmp, els } = buildIncoming(incoming)
     const at = mode === 'prepend' ? bodyLive : liveRange(top, live, blocks, sec.start, sec.end, secLive).to
+    const visAt = mode === 'prepend' ? bodyBlock : sec.end
+    ;[liveA, liveB, visA, visB] = [at, at, visAt, visAt]
     const clones = els.map((e) => e.clone())
     doc.transact(() => group.insert(at, clones))
     firstNewId = (clones[0]?.getAttribute('id') as string | undefined) ?? null
@@ -763,20 +797,23 @@ export function applySectionPatch(
   } else {
     // A leading heading in the new Markdown replaces the section heading too.
     const replacesHeading = !isIntro && incoming[0]?.type === 'heading'
-    const r = replacesHeading
-      ? liveRange(top, live, blocks, sec.start, sec.end, secLive)
-      : liveRange(top, live, blocks, bodyBlock, sec.end, bodyLive)
+    const blockFrom = replacesHeading ? sec.start : bodyBlock
+    const r = liveRange(top, live, blocks, blockFrom, sec.end, replacesHeading ? secLive : bodyLive)
+    ;[liveA, liveB, visA, visB] = [r.from, r.to, blockFrom, sec.end]
     const { tmp, els, read } = buildIncoming(incoming)
     try {
       if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
-      /** Runs the edit on `target` (one transaction); returns its stats, expectations and first new id. */
-      const editOn = (target: Y.Doc, strategy: 'merge' | 'splice') => {
+      /**
+       * Runs the edit on `target` (one transaction) for the range starting at top-level index `from`;
+       * returns its stats, expectations and first new id.
+       */
+      const editOn = (target: Y.Doc, strategy: 'merge' | 'splice', from: number) => {
         const tGroup = topGroup(target)
         const tTop = tGroup.toArray() as Y.XmlElement[]
         const tLive = new Map<string, Y.XmlElement>()
         indexContainers(tGroup, tLive)
         const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [] }
-        const startRef = r.from > 0 ? tTop[r.from - 1] : null
+        const startRef = from > 0 ? tTop[from - 1] : null
         target.transact(() => {
           if (strategy === 'merge') {
             syncList(tGroup, r.blocks, read, els, startRef, ctx)
@@ -800,12 +837,16 @@ export function applySectionPatch(
         )
         return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null }
       }
-      /** Dry run on a copy of the document; null when the result validates, else the problem. */
+      /**
+       * Dry run on a copy of the edited region (the range plus the container before it, the insert
+       * anchor) — the edit only touches the range, so its copy validates it like a copy of the whole
+       * document did; null when the result validates, else the problem.
+       */
+      const lo = Math.max(0, r.from - 1)
       const dryRun = (strategy: 'merge' | 'splice'): string | null => {
-        const work = new Y.Doc()
-        Y.applyUpdate(work, Y.encodeStateAsUpdate(doc))
+        const work = copyTopRange(group, lo, r.to)
         try {
-          const res = editOn(work, strategy)
+          const res = editOn(work, strategy, r.from - lo)
           return validate(work, res.expect)
         } catch (err) {
           return err instanceof Error ? err.message : String(err)
@@ -823,7 +864,7 @@ export function applySectionPatch(
       if (problem) throw badRequest(`Could not apply the patch (${problem}); nothing was changed. Use update_page instead.`)
       // The same deterministic edit on the live document (same content, same structure as the copy),
       // written by the live doc's own client so concurrent client edits merge as usual.
-      const res = editOn(doc, strategy)
+      const res = editOn(doc, strategy, r.from)
       Object.assign(stats, res.stats)
       firstNewId = res.firstId
     } finally {
@@ -831,7 +872,9 @@ export function applySectionPatch(
     }
   }
 
-  const after = readBlocks(doc)
+  // Blocks after the edit: unchanged blocks from the first read, the edited region read back.
+  const liveB1 = liveB + (group.length - lenBefore)
+  const after = [...blocks.slice(0, visA), ...readTopRange(group, liveA, liveB1), ...blocks.slice(visB)]
   const nextSections = splitSections(after)
   // The patched section after the edit (by heading block id, else the section holding the first new block).
   let next: Section | null = null

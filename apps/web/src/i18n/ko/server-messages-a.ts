@@ -31,7 +31,7 @@ export default {
   'Only document pages can be expanded to a canvas': '문서 페이지만 캔버스로 펼칠 수 있습니다',
   'Nothing to snapshot': '스냅샷할 내용이 없습니다',
   'Only document pages can be restored': '문서 페이지만 복원할 수 있습니다',
-  'Not a collection page': '컬렉션 페이지가 아닙니다',
+  'Not a collection page': '데이터베이스 페이지가 아닙니다',
   'Duplicate field IDs': '필드 ID가 중복되었습니다',
   "The last view can't be deleted": '마지막 남은 뷰는 삭제할 수 없습니다',
   'Only members of this workspace can be assigned': '담당자는 이 워크스페이스 멤버만 지정할 수 있습니다',
@@ -89,4 +89,7 @@ export default {
   'Folders are not reviewed': '폴더는 검토 대상이 아닙니다',
   'An owner or admin of this workspace has blocked this agent connection here. Other workspaces are not affected':
     '이 워크스페이스의 소유자나 관리자가 이 에이전트 연결을 차단했습니다. 다른 워크스페이스에는 영향이 없습니다',
+  // routes/twoFactor.ts, routes/auth.ts (docs/adr/1061-*)
+  'Sign-in timed out. Enter your password again.': '로그인 시간이 지났습니다. 비밀번호부터 다시 입력해 주세요.',
+  'Too many wrong codes. Enter your password again.': '잘못된 코드를 너무 많이 입력했습니다. 비밀번호부터 다시 입력해 주세요.',
 } satisfies Record<string, string>

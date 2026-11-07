@@ -15,6 +15,7 @@ import {
   useDismissResetRequest,
   useIssueResetCode,
   useIssueTempPassword,
+  useAdminDisableTwoFactor,
   useMarkVerified,
   useMe,
   useResetRequests,
@@ -485,6 +486,7 @@ export function Admin() {
   const setAdmin = useSetAdmin()
   const issueCode = useIssueResetCode()
   const issueTemp = useIssueTempPassword()
+  const disableTwoFactor = useAdminDisableTwoFactor()
   const deleteUser = useDeleteUser()
   const fetchDeletePreview = useAdminDeletePreview()
   const markVerified = useMarkVerified()
@@ -1027,6 +1029,7 @@ export function Admin() {
                         <Badge cls="bg-sub/10 text-sub">{t('admin.external')}</Badge>
                       )}
                       {u.isAdmin && <Badge cls="bg-accent/10 text-accent">{t('admin.adminBadge')}</Badge>}
+                      {u.twoFactor && <Badge cls="bg-emerald-500/10 text-emerald-600">{t('admin.twofaBadge')}</Badge>}
                       <span className="ml-auto text-xs text-sub">{fmtDate(u.createdAt)}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-0.5">
@@ -1048,6 +1051,28 @@ export function Admin() {
                       >
                         {t('admin.tempPasswordShort')}
                       </button>
+                      {u.twoFactor && !isMe && (
+                        <button
+                          type="button"
+                          disabled={disableTwoFactor.isPending}
+                          onClick={() =>
+                            void askConfirm(
+                              t('admin.confirmTwofaOff', { name: u.name, email: u.email }),
+                              t('admin.twofaOff'),
+                            ).then((ok) => {
+                              if (!ok) return
+                              disableTwoFactor.mutate(u.id, {
+                                onSuccess: () => setUserMsg({ slot, text: t('admin.twofaTurnedOff') }),
+                                onError: (err) =>
+                                  setUserMsg({ slot, text: errMsg(err, t('admin.actionFailed')), error: true }),
+                              })
+                            })
+                          }
+                          className={smallBtn}
+                        >
+                          {t('admin.twofaOff')}
+                        </button>
+                      )}
                       {local && !u.emailVerifiedAt && (
                         <>
                           {mailEnabled && (

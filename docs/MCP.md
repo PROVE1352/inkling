@@ -77,6 +77,11 @@ Spend calls and tokens in this order (the server instructions say the same):
    separate from the person's read mark. Your own `@Name` text and mention chips never ping people (they reach them
    quietly and in their digest); reply in their thread or comment instead. Review threads: `list_comments(pageId,
    section)`, answer with `reply_comment`; leave other people's threads for them to resolve.
+7. **Logs and journals grow: split them.** When a tool prints `large page: …` (stored state ≥ 1 MiB or ≥ 50k
+   estimated tokens, [ADR 1043](adr/1043-large-page-hint-for-agents.md)), read that page by section only and
+   write new entries to a child page (`create_page(parentId=<that page>)`, e.g. one per week or per batch of
+   runs) instead of appending to it. Every append to a multi-megabyte page re-saves and re-indexes the whole
+   page; a child page stays small, and `find_context` still finds every page.
 
 **Math** ([ADR 0996](adr/0996-math-markdown-notation.md)): `read_page`, `read_pages`, `find_context` and
 `changes_since` show equations as LaTeX, and `create_page`, `update_page` and `patch_section` accept the same:
@@ -143,7 +148,7 @@ replace keeps the "Before AI edit" snapshot.
 
 ## Disconnecting
 
-On the web, open the command palette (⌘K) → **Manage MCP connections** (`/settings/connections`) → **Disconnect** next to the app.
+On the web, open the command palette (⌘P, or Ctrl+P on Windows and Linux; ⌘K is search) → **Manage MCP connections** (`/settings/connections`), or Settings → Connections → **Manage connections**, then **Disconnect** next to the app.
 The access and refresh tokens are invalidated immediately. To remove the Claude Code side, run `claude mcp remove inkling`.
 
 ## Operations notes

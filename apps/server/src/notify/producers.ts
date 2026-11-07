@@ -5,13 +5,16 @@ import { liveEditors } from '../context/attribution'
 import type { EditActor } from '../context/attribution'
 import { splitSections } from '../context/chunker'
 import type { AnyBlock } from '../md/convert'
-import { emitWebhookEvent } from '../webhooks'
-import { notify } from './engine'
+import { kickOutbox } from '../outbox'
+import type { Exec } from '../outbox'
+import { emitWebhookEvent, enqueueWebhookEvent } from '../webhooks'
+import { enqueueNotify, notify } from './engine'
 import { scanMentions, textMentions } from './mentionScan'
 
 /**
- * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each runs after
- * its write and only queues work (`notify`), so request latency does not depend on recipients.
+ * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each only queues
+ * work in the outbox (docs/adr/1081-*): in its own transaction where it has one, else right after
+ * the write (`notify`), so request latency does not depend on recipients.
  */
 
 /** Owner / person-cell assignment: one event, webhook `assigned` for the channel. */
@@ -104,50 +107,58 @@ export async function syncDocMentions(
   actor: EditActor | null,
 ): Promise<void> {
   const ids = [...new Set(mentions.map((m) => m.userId))].sort()
-  const [prevRow] = (await db.execute(sql`
-    SELECT p.workspace_id AS "workspaceId", p.kind, m.user_ids AS "userIds", m.page_id IS NOT NULL AS "hasRow"
-      FROM pages p LEFT JOIN page_mentions m ON m.page_id = p.id
-     WHERE p.id = ${pageId}
-  `)) as unknown as { workspaceId: string; kind: string; userIds: string[] | null; hasRow: boolean }[]
-  if (!prevRow) return
-  const prev = prevRow.hasRow ? prevRow.userIds : []
-  if (prev && sameSet(prev, ids)) return
-  await db.execute(sql`
-    INSERT INTO page_mentions (page_id, user_ids, updated_at) VALUES (${pageId}, ${JSON.stringify(ids)}::jsonb, now())
-    ON CONFLICT (page_id) DO UPDATE SET user_ids = EXCLUDED.user_ids, updated_at = now()
-  `)
-  // Unknown baseline (page older than this index): record silently, no replay of old mentions.
-  if (prev === null) return
-  const before = new Set(prev)
-  const added = ids.filter((id) => !before.has(id))
-  if (!added.length) return
+  // The mention set and the events it causes commit together: no lost or replayed mention.
+  const queued = await db.transaction(async (tx) => {
+    const [prevRow] = (await tx.execute(sql`
+      SELECT p.workspace_id AS "workspaceId", p.kind, m.user_ids AS "userIds", m.page_id IS NOT NULL AS "hasRow"
+        FROM pages p LEFT JOIN page_mentions m ON m.page_id = p.id
+       WHERE p.id = ${pageId}
+    `)) as unknown as { workspaceId: string; kind: string; userIds: string[] | null; hasRow: boolean }[]
+    if (!prevRow) return false
+    const prev = prevRow.hasRow ? prevRow.userIds : []
+    if (prev && sameSet(prev, ids)) return false
+    await tx.execute(sql`
+      INSERT INTO page_mentions (page_id, user_ids, updated_at) VALUES (${pageId}, ${JSON.stringify(ids)}::jsonb, now())
+      ON CONFLICT (page_id) DO UPDATE SET user_ids = EXCLUDED.user_ids, updated_at = now()
+    `)
+    // Unknown baseline (page older than this index): record silently, no replay of old mentions.
+    if (prev === null) return false
+    const before = new Set(prev)
+    const added = ids.filter((id) => !before.has(id))
+    if (!added.length) return false
 
-  const sections = splitSections(blocks)
-  const sectionOf = (top: number) => sections.find((s) => top >= s.start && top < s.end)?.anchor ?? null
-  // One event per added person (each gets the line that mentions them).
-  for (const userId of added) {
-    const m = mentions.find((x) => x.userId === userId)!
-    notify({
-      workspaceId: prevRow.workspaceId,
-      pageId,
-      actorId: actor?.userId ?? null,
-      via: actor?.via ?? null,
-      recipients: [{ userId, kind: 'doc_mention', reason: 'direct' }],
-      anchor: sectionOf(m.top) ?? m.blockId,
-      excerpt: m.text,
-    })
-  }
-  // People's mentions ping the channel; agent-written ones do not (docs/adr/1002-*).
-  // Only members are named in the channel (a chip can carry any user id).
-  if (!actor?.via) {
-    const members = (await db.execute(sql`
-      SELECT user_id AS "userId" FROM workspace_members
-       WHERE workspace_id = ${prevRow.workspaceId} AND user_id = ANY(${`{${added.join(',')}}`}::uuid[])
-    `)) as unknown as { userId: string }[]
-    const named = added.filter((id) => members.some((m) => m.userId === id) && id !== actor?.userId)
-    if (named.length) {
-      emitWebhookEvent({ type: 'mention', workspaceId: prevRow.workspaceId, pageId, actorId: actor?.userId ?? null, mentionedUserIds: named })
+    const sections = splitSections(blocks)
+    const sectionOf = (top: number) => sections.find((s) => top >= s.start && top < s.end)?.anchor ?? null
+    // One event per added person (each gets the line that mentions them).
+    for (const userId of added) {
+      const m = mentions.find((x) => x.userId === userId)!
+      await enqueueNotify(tx, {
+        workspaceId: prevRow.workspaceId,
+        pageId,
+        actorId: actor?.userId ?? null,
+        via: actor?.via ?? null,
+        recipients: [{ userId, kind: 'doc_mention', reason: 'direct' }],
+        anchor: sectionOf(m.top) ?? m.blockId,
+        excerpt: m.text,
+      })
     }
+    // People's mentions ping the channel; agent-written ones do not (docs/adr/1002-*).
+    // Only members are named in the channel (a chip can carry any user id).
+    if (!actor?.via) {
+      const members = (await tx.execute(sql`
+        SELECT user_id AS "userId" FROM workspace_members
+         WHERE workspace_id = ${prevRow.workspaceId} AND user_id = ANY(${`{${added.join(',')}}`}::uuid[])
+      `)) as unknown as { userId: string }[]
+      const named = added.filter((id) => members.some((m) => m.userId === id) && id !== actor?.userId)
+      if (named.length) {
+        await enqueueWebhookEvent(tx, { type: 'mention', workspaceId: prevRow.workspaceId, pageId, actorId: actor?.userId ?? null, mentionedUserIds: named })
+      }
+    }
+    return true
+  })
+  if (queued) {
+    kickOutbox('notify')
+    kickOutbox('webhook')
   }
 }
 
@@ -166,32 +177,44 @@ export interface ChangedSection {
  * (collapsed per page while unread), and plain-text "@Name" an AGENT added is a quiet mention
  * (agents cannot write mention chips; their mentions never ping, docs/adr/1002-*).
  */
-export async function notifyPageEdited(a: {
-  pageId: string
-  workspaceId: string
-  actor: EditActor | null
-  sections: ChangedSection[]
-}): Promise<void> {
+export async function notifyPageEdited(
+  a: {
+    pageId: string
+    workspaceId: string
+    actor: EditActor | null
+    sections: ChangedSection[]
+    /** People typing in the page when the change was logged (default: now). */
+    typing?: string[]
+  },
+  /** The change-log consumer's transaction: the events commit with the log rows. */
+  exec: Exec = db,
+  /** Outbox affinity of the change that caused this (the instance that saw the edit). */
+  origin?: string | null,
+): Promise<void> {
   if (!a.sections.length) return
-  const typing = liveEditors(a.pageId)
+  const typing = a.typing ?? liveEditors(a.pageId)
   const actorId = a.actor?.userId ?? typing[typing.length - 1] ?? null
   const via = a.actor?.via ?? null
   const first = a.sections[0]
-  notify({
-    workspaceId: a.workspaceId,
-    pageId: a.pageId,
-    actorId,
-    via,
-    recipients: [],
-    followers: 'page_update',
-    exclude: typing,
-    anchor: first.anchor,
-    excerpt: null,
-  })
+  await enqueueNotify(
+    exec,
+    {
+      workspaceId: a.workspaceId,
+      pageId: a.pageId,
+      actorId,
+      via,
+      recipients: [],
+      followers: 'page_update',
+      exclude: typing,
+      anchor: first.anchor,
+      excerpt: null,
+    },
+    origin,
+  )
   if (!via) return
   const added = a.sections.filter((s) => s.after && s.after.includes('@'))
   if (!added.length) return
-  const members = (await db.execute(sql`
+  const members = (await exec.execute(sql`
     SELECT u.id, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ${a.workspaceId}
   `)) as unknown as { id: string; name: string }[]
   const seen = new Set<string>()
@@ -201,15 +224,19 @@ export async function notifyPageEdited(a: {
       if (before.has(userId) || seen.has(userId)) continue
       seen.add(userId)
       const line = (s.after ?? '').split('\n').find((l) => l.includes('@')) ?? ''
-      notify({
-        workspaceId: a.workspaceId,
-        pageId: a.pageId,
-        actorId,
-        via,
-        recipients: [{ userId, kind: 'doc_mention', reason: 'direct' }],
-        anchor: s.anchor,
-        excerpt: line,
-      })
+      await enqueueNotify(
+        exec,
+        {
+          workspaceId: a.workspaceId,
+          pageId: a.pageId,
+          actorId,
+          via,
+          recipients: [{ userId, kind: 'doc_mention', reason: 'direct' }],
+          anchor: s.anchor,
+          excerpt: line,
+        },
+        origin,
+      )
     }
   }
 }

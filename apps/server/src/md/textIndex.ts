@@ -6,8 +6,14 @@ import { pageDocs, pageTexts } from '../db/schema'
 import { stateToBlocks } from './convert'
 import type { AnyBlock } from './convert'
 
-/** Max indexed body text (bytes). Anything beyond is truncated. */
-const MAX_TEXT_BYTES = 200 * 1024
+/**
+ * Max indexed body text (bytes). A longer body keeps its first and last halves (docs/adr/1040-*):
+ * the head says what the page is, the tail holds the newest entries of a growing log. The middle
+ * stays searchable through the section index (find_context), which covers the whole document.
+ */
+export const MAX_TEXT_BYTES = 200 * 1024
+/** Marks the cut between head and tail in page_texts. */
+export const TEXT_CUT_MARK = '\n…\n'
 
 interface InlineLike {
   type?: string
@@ -76,19 +82,36 @@ function collectBlockText(blocks: AnyBlock[], out: string[]): void {
   }
 }
 
+/** True for a UTF-8 continuation byte (10xxxxxx). */
+function isCont(b: number | undefined): boolean {
+  return b !== undefined && (b & 0xc0) === 0x80
+}
+
+/**
+ * Head + tail of a text longer than MAX_TEXT_BYTES, cut on character boundaries: the first and the
+ * last (MAX_TEXT_BYTES − mark) / 2 bytes joined by TEXT_CUT_MARK. Shorter text is returned as is.
+ */
+export function capPlainText(text: string): string {
+  if (text.length * 3 <= MAX_TEXT_BYTES) return text // cheap exit: at most 3 bytes per UTF-16 unit
+  const buf = Buffer.from(text, 'utf8')
+  if (buf.length <= MAX_TEXT_BYTES) return text
+  const half = Math.floor((MAX_TEXT_BYTES - Buffer.byteLength(TEXT_CUT_MARK)) / 2)
+  let headEnd = half
+  while (headEnd > 0 && isCont(buf[headEnd])) headEnd--
+  let tailStart = buf.length - half
+  while (tailStart < buf.length && isCont(buf[tailStart])) tailStart++
+  return buf.subarray(0, headEnd).toString('utf8') + TEXT_CUT_MARK + buf.subarray(tailStart).toString('utf8')
+}
+
 /**
  * Build plain text by joining the inline text of every block, child and table cell with newlines.
- * Links contribute their display text; code block contents are included. Truncated beyond 200KB.
+ * Links contribute their display text; code block contents are included. Beyond MAX_TEXT_BYTES only
+ * the head and the tail are kept (capPlainText).
  */
 export function blocksToPlainText(blocks: AnyBlock[]): string {
   const out: string[] = []
   collectBlockText(blocks, out)
-  let text = out.join('\n')
-  if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
-    // Truncate by bytes (a multibyte char split at the edge becomes U+FFFD — harmless for an index)
-    text = Buffer.from(text, 'utf8').subarray(0, MAX_TEXT_BYTES).toString('utf8')
-  }
-  return text
+  return capPlainText(out.join('\n'))
 }
 
 /**

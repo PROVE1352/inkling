@@ -6,8 +6,8 @@ import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { pageDocs } from '../db/schema'
 import { badRequest, notFound } from '../errors'
-import { idParam, requireMembership } from '../helpers'
-import { blocksToStateBuffer, markdownToBlocks, stripFrontmatter } from '../md/convert'
+import { idParam, requireMembershipAcl } from '../helpers'
+import { markdownToBlocks, stripFrontmatter } from '../md/convert'
 import { writeBlocksToDoc } from '../md/docWrite'
 import { buildTitleResolver } from '../md/importer'
 import { requestLocale } from '../i18n'
@@ -22,7 +22,7 @@ import { actorOf, withEditActor } from '../context/attribution'
  * Safety: no hand-built Yjs fragments. Blocks come from the same markdownToBlocks (BlockNote parser) as
  * import and are injected into the live document through the snapshot-restore path (DirectConnection +
  * blocksToXmlFragment) → open clients see it in real time and the store hook updates the indexes.
- * append replaces the content with the existing blocks (ids kept → comment anchors survive) followed by the new ones.
+ * append inserts the new blocks after the existing ones (existing blocks untouched → comment anchors survive).
  * replace first saves the previous state as a "Before AI edit" snapshot, so it can be undone from version history.
  */
 const contentBodySchema = z.object({
@@ -44,8 +44,9 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
 
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
-      await requireMembership(page.workspaceId, user.id)
-      await assertPageEditable(id, user.id)
+      // Role and the workspace's lock state come with the membership (docs/adr/1071-*).
+      const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id, { role, acl })
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable content')
 
       const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
@@ -69,13 +70,19 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
       }
 
       // The change feed reads the actor (user + OAuth client) while the store hook indexes this edit.
-      const after = await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode))
+      await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode))
 
       // An agent append leaves no "Before" snapshot, so mark it in history with an "AI edit"
-      // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots.
+      // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots. The
+      // result is what the store hook just saved (the doc is usually unloaded by now).
       if (body.mode === 'append' && user.via && !(await hasRecentAgentSnapshot(id))) {
-        const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
-        await createSnapshot(id, liveDocState(id) ?? blocksToStateBuffer(after), label, user.id, user.via)
+        const state =
+          liveDocState(id) ??
+          (await db.select({ state: pageDocs.state }).from(pageDocs).where(eq(pageDocs.pageId, id)).limit(1))[0]?.state
+        if (state) {
+          const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
+          await createSnapshot(id, state, label, user.id, user.via)
+        }
       }
 
       return { ok: true }

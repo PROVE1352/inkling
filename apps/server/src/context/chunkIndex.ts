@@ -4,9 +4,11 @@ import { db } from '../db/index'
 import { pageChunkIndex, pageChunks, pageDocs, pages } from '../db/schema'
 import type { AnyBlock } from '../md/convert'
 import { stateToBlocks } from '../md/convert'
+import { blocksToPlainText, reindexPageText, TEXT_CUT_MARK } from '../md/textIndex'
 import { bumpIndexEpoch } from '../versions'
+import { kickOutbox } from '../outbox'
 import { recordSectionChanges } from './changeLog'
-import type { SectionState } from './changeLog'
+import type { PageSectionDelta, SectionState } from './changeLog'
 import type { Chunk } from './chunker'
 import { CHUNKER_VERSION, chunkBlocks } from './chunker'
 
@@ -20,6 +22,9 @@ import { CHUNKER_VERSION, chunkBlocks } from './chunker'
  */
 
 const UPSERT_BATCH = 400
+/** Caps of CHUNKER_VERSION 2 (a version-2 index under both was complete). */
+const V2_TEXT_CAP_BYTES = 200 * 1024
+const V2_MAX_CHUNKS = 2_000
 
 interface ExistingRow {
   ord: number
@@ -70,11 +75,16 @@ function sectionsOfChunks(chunks: Chunk[]): SectionState[] {
   return out
 }
 
+/**
+ * Returns true when page_chunks matches `blocks` afterwards (written or already equal), false when
+ * the page is gone or the write failed (the outline/section freshness record relies on it,
+ * docs/adr/1041-*).
+ */
 export async function reindexPageChunks(
   pageId: string,
   blocks: AnyBlock[],
   opts: ReindexOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   try {
     chunkIndexStats.runs++
     const chunks = opts.chunks ?? chunkBlocks(blocks)
@@ -89,7 +99,7 @@ export async function reindexPageChunks(
       .leftJoin(pageChunkIndex, eq(pageChunkIndex.pageId, pages.id))
       .where(eq(pages.id, pageId))
       .limit(1)
-    if (!page) return // page gone (purged meanwhile)
+    if (!page) return false // page gone (purged meanwhile)
     const existing: ExistingRow[] = await db
       .select({
         ord: pageChunks.ord,
@@ -108,7 +118,7 @@ export async function reindexPageChunks(
     const hasRemoved = existing.length > removedFrom
     if (changed.length === 0 && !hasRemoved && page.version === CHUNKER_VERSION) {
       chunkIndexStats.skipped++
-      return
+      return true
     }
 
     // Old text of sections whose version changed or that disappeared (for the change feed).
@@ -129,6 +139,26 @@ export async function reindexPageChunks(
       for (const r of rows) oldText.set(r.anchor, oldText.has(r.anchor) ? `${oldText.get(r.anchor)}\n${r.text}` : r.text)
     }
 
+    // Change-feed entry (docs/adr/0932-*, 1080-*): computed before, queued in the same transaction
+    // as the chunk rows, so a crash can never keep the new index and lose the change.
+    const delta: PageSectionDelta | null = logIt
+      ? {
+          pageId,
+          workspaceId: page.workspaceId,
+          scope: page.scope,
+          ownerId: page.createdBy,
+          firstIndex: page.version === null,
+          before: oldSections.map((s, i) => ({
+            anchor: s.anchor,
+            headingPath: s.headingPath,
+            blockId: s.blockId,
+            text: oldText.get(s.anchor) ?? afterByAnchor.get(s.anchor)?.text ?? '',
+            version: s.version,
+            order: i,
+          })),
+          after,
+        }
+      : null
     await db.transaction(async (tx) => {
       for (let i = 0; i < changed.length; i += UPSERT_BATCH) {
         const batch = changed.slice(i, i + UPSERT_BATCH)
@@ -180,7 +210,16 @@ export async function reindexPageChunks(
           target: pageChunkIndex.pageId,
           set: { version: CHUNKER_VERSION, indexedAt: sql`now()` },
         })
+      if (delta) {
+        // In a savepoint: a failed log write never fails the index (it is logged, like before).
+        try {
+          await tx.transaction((sp) => recordSectionChanges(delta, sp))
+        } catch (err) {
+          console.error('[inkling] change feed write failed', pageId, err)
+        }
+      }
     })
+    if (delta) kickOutbox('change')
     // First detection per page and rule goes to the audit log (docs/adr/0977-*); best effort.
     const flagged = [...new Set(chunks.flatMap((c) => c.suspicious))]
     if (flagged.length) await auditSuspicious(pageId, page.workspaceId, flagged, chunks)
@@ -188,32 +227,29 @@ export async function reindexPageChunks(
     chunkIndexStats.rowsDeleted += Math.max(0, existing.length - removedFrom)
     bumpIndexEpoch()
 
-    if (logIt) {
-      const before: SectionState[] = oldSections.map((s, i) => ({
-        anchor: s.anchor,
-        headingPath: s.headingPath,
-        blockId: s.blockId,
-        text: oldText.get(s.anchor) ?? afterByAnchor.get(s.anchor)?.text ?? '',
-        version: s.version,
-        order: i,
-      }))
-      try {
-        await recordSectionChanges({
-          pageId,
-          workspaceId: page.workspaceId,
-          scope: page.scope,
-          ownerId: page.createdBy,
-          firstIndex: page.version === null,
-          before,
-          after,
-        })
-      } catch (err) {
-        console.error('[inkling] change feed write failed', pageId, err)
-      }
-    }
+    return true
   } catch (err) {
     console.error('[inkling] page_chunks reindex failed', pageId, err)
+    return false
   }
+}
+
+/**
+ * Version 2 → 3 only lifted the 200 KB text cap (docs/adr/1040-*). A version-2 index whose rows
+ * stay under that cap was never cut, so it equals what version 3 would write: stamp it as current
+ * instead of decoding every page again at boot. Only pages that may have been cut are re-indexed.
+ */
+async function promoteUncutIndexes(): Promise<number> {
+  const rows = (await db.execute(sql`
+    UPDATE page_chunk_index m SET version = ${CHUNKER_VERSION}
+     WHERE m.version = 2
+       AND NOT EXISTS (
+         SELECT 1 FROM page_chunks c WHERE c.page_id = m.page_id
+          GROUP BY c.page_id HAVING sum(octet_length(c.text)) > ${V2_TEXT_CAP_BYTES} OR count(*) >= ${V2_MAX_CHUNKS}
+       )
+    RETURNING m.page_id
+  `)) as unknown as unknown[]
+  return rows.length
 }
 
 /**
@@ -228,6 +264,10 @@ export async function backfillPageChunks(
   const BATCH = 50
   let total = 0
   try {
+    if (CHUNKER_VERSION === 3) {
+      const promoted = await promoteUncutIndexes()
+      if (promoted > 0) log(`[inkling] page_chunks: ${promoted} complete version-2 indexes kept as version 3`)
+    }
     while (total < maxPages) {
       const rows = await db
         .select({ pageId: pageDocs.pageId, state: pageDocs.state })
@@ -238,7 +278,11 @@ export async function backfillPageChunks(
       if (rows.length === 0) break
       for (const row of rows) {
         try {
-          await reindexPageChunks(row.pageId, stateToBlocks(row.state), { log: false })
+          const blocks = stateToBlocks(row.state)
+          await reindexPageChunks(row.pageId, blocks, { log: false })
+          // A page cut by the old 200 KB cap also gets the head + tail body text (docs/adr/1040-*).
+          const text = blocksToPlainText(blocks)
+          if (text.includes(TEXT_CUT_MARK)) await reindexPageText(row.pageId, blocks, text)
         } catch (err) {
           console.error('[inkling] page_chunks backfill failed for page', row.pageId, err)
         }

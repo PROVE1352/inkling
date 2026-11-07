@@ -175,9 +175,56 @@ body {
   }
 }
 
-/* Blend BlockNote into the app background */
+/* Blend BlockNote into the app background. The variable alone loses to BlockNote's own
+   `.bn-root[data-color-scheme='dark']` (#1f1f1f, a lighter box behind the whole body in dark mode)
+   and ties with `.bn-root` in light mode, so the editor's background is cleared directly as well.
+   Body text uses the app ink colour, the same as the title. */
 .bn-container {
   --bn-colors-editor-background: transparent;
+}
+.bn-container .bn-editor {
+  background-color: transparent;
+  color: var(--color-ink);
+}
+
+/* Document header (cover, icon, title, notices) starts where the body text starts: the editor keeps
+   a 54px side gutter for the block handles (⠿ / +, BlockNote's .bn-editor padding-inline), so the
+   header gets the same inset. Phones drop the gutter (below), and so does the header. */
+.nd-doc-head {
+  padding-inline: 54px;
+}
+
+/* Heading scale (all widths): BlockNote's H1 is 3em (48px) — larger than the page title (36px).
+   One step down per level, close to Obsidian's default theme: H1 1.75em, H2 1.4em, H3 1.2em.
+   --prev-level mirrors --level, or a heading turned back into a paragraph animates from the wrong size. */
+.bn-editor [data-content-type='heading'] {
+  padding-top: 14px;
+  --level: 1.75em;
+}
+.bn-editor [data-content-type='heading'][data-level='2'] {
+  --level: 1.4em;
+}
+.bn-editor [data-content-type='heading'][data-level='3'] {
+  --level: 1.2em;
+}
+.bn-editor [data-prev-level='1'] {
+  --prev-level: 1.75em;
+}
+.bn-editor [data-prev-level='2'] {
+  --prev-level: 1.4em;
+}
+.bn-editor [data-prev-level='3'] {
+  --prev-level: 1.2em;
+}
+
+/* Table cell borders: BlockNote draws #ddd (near white on the dark theme). Use the theme line colour,
+   the same as database tables and query results. */
+.bn-container .bn-editor [data-content-type='table'] th,
+.bn-container .bn-editor [data-content-type='table'] td {
+  border-color: var(--color-line);
+}
+.bn-container .bn-editor [data-content-type='table'] th {
+  background: color-mix(in srgb, var(--color-side) 70%, transparent);
 }
 
 /* Editor body text (fixed 16px by default) also follows the zoom setting via rem — identical at 100%. */
@@ -200,11 +247,12 @@ body {
 /* ① Drop the 54px side gutters (room for block handles) so the title and body share a left edge; */
 /*    with no gutter, hide the hover-based block handles (⠿/+) — on touch they only appeared after */
 /*    a tap and just covered the text. Add/convert blocks with the "/" menu and the format toolbar. */
-/* ② Smaller headings (H1 3em = 48px → only 4–5 characters per line).                             */
+/* ② Smaller headings still (title is 28px here; the global scale above is for wider screens).    */
 /* ③ Minimum table cell width — so narrow cells don't wrap one character per line (overflow scrolls). */
 /* ------------------------------------------------------------------ */
 @media (max-width: 639.98px) {
-  .bn-container .bn-editor {
+  .bn-container .bn-editor,
+  .nd-doc-head {
     padding-inline: 0;
   }
   .bn-container .bn-side-menu {
@@ -212,19 +260,19 @@ body {
   }
   .bn-editor [data-content-type='heading'] {
     padding-top: 12px;
-    --level: 1.6em;
+    --level: 1.5em;
   }
   .bn-editor [data-content-type='heading'][data-level='2'] {
-    --level: 1.35em;
+    --level: 1.3em;
   }
   .bn-editor [data-content-type='heading'][data-level='3'] {
     --level: 1.15em;
   }
   .bn-editor [data-prev-level='1'] {
-    --prev-level: 1.6em;
+    --prev-level: 1.5em;
   }
   .bn-editor [data-prev-level='2'] {
-    --prev-level: 1.35em;
+    --prev-level: 1.3em;
   }
   .bn-editor [data-prev-level='3'] {
     --prev-level: 1.15em;

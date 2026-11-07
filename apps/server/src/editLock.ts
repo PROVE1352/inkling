@@ -15,6 +15,9 @@ import { closePageConnections } from './liveConnections'
 import { descendantsCte, lockTree, TREE_MAX_DEPTH } from './pageTree'
 import { isManagerRole, recordAudit } from './workspaceAdmin'
 import type { AuditActor } from './workspaceAdmin'
+import { BoundedLru } from './lru'
+import { aclForPages, bumpAcl, cacheable, pageAccess, recountLockedPages } from './aclVersion'
+import type { AclState } from './aclVersion'
 
 /**
  * Edit lock (docs/adr/0970-*, evaluation order in 0971-*).
@@ -35,8 +38,11 @@ import type { AuditActor } from './workspaceAdmin'
  * Bits a node does not mention are inherited unchanged (field-wise inheritance).
  *
  * Enforcement is on the server at every write path (REST routes, Hocuspocus read-only
- * connections, assertPlacement for anything created under a parent). No cache: each check is one
- * recursive CTE capped at TREE_MAX_DEPTH, like the tree-integrity walks (docs/adr/0800-*).
+ * connections, assertPlacement for anything created under a parent). A check reads the workspace's
+ * access state (docs/adr/1071-*) first: a workspace without any locked page needs no walk at all;
+ * otherwise the lock chain comes from a cache keyed by the access version, or from one recursive
+ * CTE capped at TREE_MAX_DEPTH (docs/adr/0800-*). A denial is always re-checked against the
+ * database before it is reported, so the error names the current lock node.
  */
 
 export const CAP_EDIT = 1
@@ -71,10 +77,17 @@ export function actorFor(userId: string, role: WorkspaceRole | null): AccessActo
   return { userId, role, agent: currentAgent() !== null }
 }
 
+let walks = 0
+/** Test hook: number of lock walks (lockChains statements) run by this process. */
+export function _lockWalks(): number {
+  return walks
+}
+
 /** Lock nodes on the path of each leaf, top level first. One statement for any number of leaves. */
 export async function lockChains(exec: Exec, leafIds: string[]): Promise<Map<string, LockNode[]>> {
   const out = new Map<string, LockNode[]>(leafIds.map((id) => [id, []]))
   if (!leafIds.length) return out
+  walks++
   const rows = (await exec.execute(sql`
     WITH RECURSIVE up AS (
       SELECT id AS leaf, id, parent_id, edit_locked, 0 AS depth FROM pages WHERE id = ANY(${`{${leafIds.join(',')}}`}::uuid[])
@@ -93,6 +106,45 @@ export async function lockChains(exec: Exec, leafIds: string[]): Promise<Map<str
     out.get(r.leaf)?.push({ id: r.id, title: r.title, ownerId: r.ownerId, overrides: r.ov ?? [] })
   }
   return out
+}
+
+// Lock chains per leaf page, valid only for the access version they were read under
+// (docs/adr/1071-*). The TTL is a memory bound only: validity comes from the version compare.
+const chainCache = new BoundedLru<{ ws: string; v: number; chain: LockNode[] }>(50_000, 60 * 60_000)
+
+/**
+ * Lock chains of `leaves` given their workspace access state: [] without a lock in the workspace,
+ * the cached chain for the same version, else one lockChains walk for all misses (then cached under
+ * the version that was read before the walk).
+ */
+async function chainsFor(exec: Exec, leaves: string[], acl: Map<string, AclState>): Promise<Map<string, LockNode[]>> {
+  const out = new Map<string, LockNode[]>()
+  const miss: string[] = []
+  for (const id of leaves) {
+    const a = acl.get(id)
+    if (a && !a.hasLocks) out.set(id, [])
+    else {
+      const hit = a ? chainCache.get(id) : undefined
+      if (hit && a && hit.v === a.version && hit.ws === a.workspaceId) out.set(id, hit.chain)
+      else miss.push(id)
+    }
+  }
+  if (miss.length) {
+    const fresh = await lockChains(exec, miss)
+    const store = cacheable(exec)
+    for (const id of miss) {
+      const chain = fresh.get(id) ?? []
+      out.set(id, chain)
+      const a = acl.get(id)
+      if (a && store) chainCache.set(id, { ws: a.workspaceId, v: a.version, chain })
+    }
+  }
+  return out
+}
+
+/** Test hook: forget cached lock chains. */
+export function _resetLockChainCache(): void {
+  chainCache.clear()
 }
 
 function applyLayer(caps: number, o: { a: number; d: number } | undefined): number {
@@ -173,10 +225,21 @@ export async function pageLockedError(chain: LockNode[], actor: AccessActor, bit
   return new AppError(403, 'PAGE_LOCKED', message, undefined, { lockedPageId: node.id, editors })
 }
 
-/** Bits of `actor` on each page of `pageIds`. */
-export async function capsFor(exec: Exec, pageIds: string[], actor: AccessActor): Promise<Map<string, number>> {
-  const chains = await lockChains(exec, pageIds)
+/** Bits of `actor` on each page of `pageIds` (`acl`: access states already read for them). */
+export async function capsFor(
+  exec: Exec,
+  pageIds: string[],
+  actor: AccessActor,
+  acl?: Map<string, AclState>,
+): Promise<Map<string, number>> {
+  const chains = await chainsFor(exec, pageIds, acl ?? (await aclForPages(exec, pageIds)))
   return new Map(pageIds.map((id) => [id, effectiveCaps(chains.get(id) ?? [], actor)]))
+}
+
+/** Throws PAGE_LOCKED for `leaf` unless a fresh (uncached) walk grants `bit` after all. */
+async function confirmDenied(exec: Exec, leaf: string, actor: AccessActor, bit: number): Promise<void> {
+  const fresh = (await lockChains(exec, [leaf])).get(leaf) ?? []
+  if (!(effectiveCaps(fresh, actor) & bit)) throw await pageLockedError(fresh, actor, bit)
 }
 
 /** Locked pages strictly below `rootId` (capped walk). */
@@ -197,25 +260,26 @@ export async function assertCan(
   exec: Exec,
   pageId: string,
   actor: AccessActor,
-  opts: { subtree?: boolean; bit?: number } = {},
+  opts: { subtree?: boolean; bit?: number; acl?: AclState } = {},
 ): Promise<void> {
   const bit = opts.bit ?? CAP_EDIT
+  const acl = opts.acl ?? (await aclForPages(exec, [pageId])).get(pageId)
+  // No locked page anywhere in the workspace: nothing to walk (docs/adr/1071-*).
+  if (acl && !acl.hasLocks) return
   const leaves = opts.subtree ? [pageId, ...(await lockedDescendants(exec, pageId))] : [pageId]
-  const chains = await lockChains(exec, leaves)
+  const chains = await chainsFor(exec, leaves, new Map(acl ? leaves.map((l) => [l, acl]) : []))
   for (const leaf of leaves) {
-    const chain = chains.get(leaf) ?? []
-    if (!(effectiveCaps(chain, actor) & bit)) throw await pageLockedError(chain, actor, bit)
+    if (!(effectiveCaps(chains.get(leaf) ?? [], actor) & bit)) await confirmDenied(exec, leaf, actor, bit)
   }
 }
 
-/** Throws 403 PAGE_LOCKED unless `actor` may edit every page of `pageIds` (one statement for all). */
+/** Throws 403 PAGE_LOCKED unless `actor` may edit every page of `pageIds`. */
 export async function assertAllEditable(exec: Exec, pageIds: string[], actor: AccessActor): Promise<void> {
   if (!pageIds.length) return
   const ids = [...new Set(pageIds)].sort()
-  const chains = await lockChains(exec, ids)
+  const chains = await chainsFor(exec, ids, await aclForPages(exec, ids))
   for (const id of ids) {
-    const chain = chains.get(id) ?? []
-    if (!(effectiveCaps(chain, actor) & CAP_EDIT)) throw await pageLockedError(chain, actor)
+    if (!(effectiveCaps(chains.get(id) ?? [], actor) & CAP_EDIT)) await confirmDenied(exec, id, actor, CAP_EDIT)
   }
 }
 
@@ -232,21 +296,33 @@ export async function roleForPage(pageId: string, userId: string): Promise<Works
 
 /**
  * Edit guard for routes: `userId` (as a person or, inside an MCP request, as an agent) may edit
- * `pageId` (and its subtree with `subtree`). `role` is looked up when not given.
+ * `pageId` (and its subtree with `subtree`). `role` and the workspace access state `acl` are looked
+ * up (one statement) when not given; routes pass what requireMembershipAcl already returned.
  */
 export async function assertPageEditable(
   pageId: string,
   userId: string,
-  opts: { subtree?: boolean; role?: WorkspaceRole | null; exec?: Exec } = {},
+  opts: { subtree?: boolean; role?: WorkspaceRole | null; exec?: Exec; acl?: AclState; bit?: number } = {},
 ): Promise<void> {
-  const role = opts.role !== undefined ? opts.role : await roleForPage(pageId, userId)
-  await assertCan(opts.exec ?? db, pageId, actorFor(userId, role), { subtree: opts.subtree })
+  const exec = opts.exec ?? db
+  let role = opts.role
+  let acl = opts.acl
+  if (role === undefined || acl === undefined) {
+    const found = await pageAccess(exec, pageId, userId)
+    if (role === undefined) role = found?.role ?? null
+    acl ??= found?.acl
+  }
+  await assertCan(exec, pageId, actorFor(userId, role), { subtree: opts.subtree, acl, bit: opts.bit })
 }
 
 /** Comment guard (comments are a separate bit: people keep commenting on locked pages). */
-export async function assertPageCommentable(pageId: string, userId: string, role?: WorkspaceRole | null): Promise<void> {
-  const r = role !== undefined ? role : await roleForPage(pageId, userId)
-  await assertCan(db, pageId, actorFor(userId, r), { bit: CAP_COMMENT })
+export async function assertPageCommentable(
+  pageId: string,
+  userId: string,
+  role?: WorkspaceRole | null,
+  acl?: AclState,
+): Promise<void> {
+  await assertPageEditable(pageId, userId, { role, acl, bit: CAP_COMMENT })
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +434,9 @@ function presetRows(pageId: string, people: LockPeople, agents: LockAgents, edit
 export async function applyLockChange(tx: Tx, target: LockTarget, input: SetPageLockInput, actor: AuditActor): Promise<string[]> {
   const label = target.title || 'Untitled'
   const ws = target.workspaceId
+  // Access version + exclusive write gate before any page row is touched (docs/adr/1071-*):
+  // writes in flight finish first, later ones see the new rules.
+  await bumpAcl(tx, ws)
   const before = nodePresets({
     id: target.id,
     title: target.title,
@@ -389,6 +468,7 @@ export async function applyLockChange(tx: Tx, target: LockTarget, input: SetPage
   const nm = (ids: string[]) => ids.map((id) => names.get(id) ?? id)
   if (input.locked !== target.editLocked) {
     await tx.update(pages).set({ editLocked: input.locked }).where(eq(pages.id, target.id))
+    await recountLockedPages(tx, ws)
     await recordAudit(tx, {
       workspaceId: ws,
       actor,

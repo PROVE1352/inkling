@@ -12,6 +12,7 @@ export default {
   'page.themeDark': 'Dark',
   'page.themeSystem': 'System',
   'page.themeCycle': 'Theme: {current} → {next}',
+  'page.addIcon': 'Add icon',
   'page.changeIcon': 'Change icon',
   'page.toggleSidebar': 'Toggle sidebar',
   'page.toggleSidebarHint': 'Toggle sidebar ({shortcut})',

@@ -21,6 +21,34 @@ cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD to a strong value! (used inside the Docker network)
 ```
 
+The clone is still needed for `compose.yaml`, the Caddy overlay and the `deploy/*.sh` scripts, but the
+app itself comes as a prebuilt image, `ghcr.io/prove1352/inkling` (linux/amd64 and linux/arm64), so
+the server never has to run the build (which needs more than 1 GB of memory).
+
+### Image or source build
+
+| | Published image (default) | Source build |
+|---|---|---|
+| Start / update | `docker compose pull app && docker compose up -d app` | `docker compose -f compose.yaml -f compose.build.yaml up -d --build app` |
+| Version | `INKLING_VERSION` in `.env`: `0.3.1`, `0.3` or empty (= `latest`) | whatever is checked out |
+| Image name | `ghcr.io/prove1352/inkling:<version>` | `inkling:local` (never pulled) |
+
+`compose.yaml` names the published image **and** keeps `build: .`, so `docker compose up -d --build`
+still builds from source exactly as before; the result is tagged with the published name, and a later
+`docker compose pull` would replace it with the release. When the image is missing locally (or a pull
+fails, e.g. offline), `up` falls back to building. If you deploy from source on purpose (a fork, local
+patches, an unreleased `main`), use `compose.build.yaml` so the two never mix. With HTTPS, list it last:
+`-f compose.yaml -f deploy/compose.caddy.yaml -f compose.build.yaml`. If you already keep a
+`compose.override.yaml` (read automatically when no `-f` is given), put its two lines under `app:`
+there instead:
+
+```yaml
+services:
+  app:
+    image: inkling:local
+    pull_policy: never
+```
+
 ### Language and time zone
 
 - `DEFAULT_LOCALE` (`en` | `ko`, default `en`): the language of emails and built-in templates for
@@ -39,7 +67,7 @@ TZ=Asia/Seoul
 ## 3-A. Plain HTTP (internal network / testing only)
 
 ```bash
-docker compose up -d --build     # → http://<server-ip>:3000
+docker compose up -d     # → http://<server-ip>:3000
 ```
 
 > ⚠️ **On any non-local (internet-facing) host, the Caddy overlay from 3-B is required.** Running
@@ -57,7 +85,7 @@ docker compose up -d --build     # → http://<server-ip>:3000
    ```
    then start with the overlay:
    ```bash
-   docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --build
+   docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
    ```
 3. Caddy issues the certificate automatically → `https://<domain>`. Cookies switch to Secure mode
    automatically (COOKIE_SECURE=1).
@@ -233,10 +261,30 @@ scripts set the same for every psql / pg_dump / pg_restore they run).
 
 ## 5. Updating
 
+Migrations run automatically, in one transaction, when the new app boots; the old version keeps the
+database until then. Take a backup first, then (add your `-f` files to every compose command):
+
 ```bash
-cd /opt/inkling && git pull && docker compose up -d --build app
-# (migrations run automatically when the app boots)
+cd /opt/inkling
+./deploy/backup.sh                 # ends with "ok set=<id> ..."
+git pull                           # compose files and deploy scripts
+# optional: pin the release in .env, e.g. INKLING_VERSION=0.3.1
+docker compose pull app
+docker compose up -d app
+docker compose logs --tail 50 app  # migration result and "Server listening"
 ```
+
+Source build instead: `git pull && docker compose -f compose.yaml -f compose.build.yaml up -d --build app`
+(or `docker compose up -d --build app` when the two lines are in `compose.override.yaml`).
+
+Moving an existing source-built install to the published image: nothing is migrated by the switch
+itself, the database and volumes stay as they are. Check that the release you pull is not older than
+the code you were running (`git describe --tags` in the checkout; an install built from `main` after the
+latest release must wait for the next release or keep building from source, because an older image
+does not know the newer schema). Then follow the steps above. Every release is tested for an upgrade
+from each earlier release (`.github/workflows/upgrade.yml`). Downgrading is not supported: to go
+back, restore the backup taken before the upgrade (docs/BACKUP.md) and set `INKLING_VERSION` to
+the old release.
 
 On a stop signal (SIGTERM) the app saves collaborative documents being edited to the DB before
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't

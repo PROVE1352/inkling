@@ -6,12 +6,14 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 ## Common rules
 
 - Every REST endpoint uses the `/api` prefix with JSON in and out. Exceptions: `GET /files/:id` (binary), `WS /collab` (Hocuspocus).
-- Authentication: session cookie `inkling_sid` (httpOnly, SameSite=Lax, Path=/, 30 days, Secure when `COOKIE_SECURE=1`).
+- Authentication: session cookie `inkling_sid` (httpOnly, SameSite=Lax, Path=/, 30 days, Secure when `COOKIE_SECURE=1`). The server stores only the SHA-256 of the token (docs/adr/1060-*).
+- Cross-site check: a non-GET/HEAD/OPTIONS `/api` request without an `Authorization` header whose `Origin` (else `Referer`) is not `PUBLIC_URL`/`APP_URL` → 403 `CROSS_SITE_REQUEST`. Clients sending neither header (CLI, curl) are allowed. The `/collab` WebSocket upgrade is checked the same way (docs/adr/1062-*).
 - Error response format: `{ "error": { "code": string, "message": string } }` (`ApiErrorBody`).
   - Codes: `UNAUTHORIZED`(401), `FORBIDDEN`(403), `NOT_FOUND`(404), `VALIDATION`(400),
     `EMAIL_TAKEN`(409), `INVALID_CREDENTIALS`(401), `INVALID_CODE`(404), `INVALID_RESET`(400),
     `EMAIL_NOT_VERIFIED`(403), `DELEGATED_ACCOUNT`(400), `RATE_LIMITED`(429, `Retry-After`),
-    `MAIL_DISABLED`(501), `MAIL_FAILED`(502),
+    `MAIL_DISABLED`(501), `MAIL_FAILED`(502), `CROSS_SITE_REQUEST`(403), `INVALID_TOTP_CODE`(401),
+    `TOTP_CODE_REUSED`(401), `TOTP_CHALLENGE_EXPIRED`(401), `TWO_FACTOR_ALREADY_ON`(409), `TWO_FACTOR_UNAVAILABLE`(501),
     `PAYLOAD_TOO_LARGE`(413), `UNSUPPORTED_TYPE`(415), `INTERNAL`(500).
   - `message` is English. Clients localize by `code`; the web app translates known codes (and some exact messages)
     and falls back to `message` otherwise. Do not match on message text.
@@ -35,8 +37,14 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 | GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }` (no auth required). `defaultLocale: 'en' \| 'ko' \| null` is set only when the operator configured `DEFAULT_LOCALE` (otherwise `null`, and the browser language decides) |
 | POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. Failure → 401 `INVALID_CREDENTIALS` (never reveal whether the email exists; same message). Unverified account in enforced-verification mode (only when the password is correct) → 403 `EMAIL_NOT_VERIFIED`. If there are no admins, bootstrap promotion applies. |
+| POST | `/api/auth/login/totp` | `{ challenge, code }` | Second step for accounts with two-step verification: `POST /api/auth/login` then returns `200 { totpRequired: true, challenge }` without a cookie. `code` is a 6-digit app code or a recovery code. `{ user: UserDTO, recoveryCodeUsed }` + Set-Cookie. 401 `INVALID_TOTP_CODE` / `TOTP_CODE_REUSED` / `TOTP_CHALLENGE_EXPIRED` (5 minutes or 5 failures). 10/min (docs/adr/1061-*) |
+| GET | `/api/auth/2fa` | - | `{ enabled, pending, recoveryCodesLeft, available }`. Browser session, local accounts only (also for the other `/auth/2fa*` routes). |
+| POST | `/api/auth/2fa/setup` | `{ password }` | `{ secret, uri }` (otpauth://). 409 `TWO_FACTOR_ALREADY_ON`, 501 `TWO_FACTOR_UNAVAILABLE` without `APP_SECRET_KEY`. |
+| POST | `/api/auth/2fa/enable` | `{ code }` | `{ recoveryCodes }` (10, shown once). |
+| POST | `/api/auth/2fa/disable` | `{ password, code }` | `{ ok: true }` |
+| POST | `/api/auth/2fa/recovery-codes` | `{ password, code }` | `{ recoveryCodes }` (replaces the old set). |
 | POST | `/api/auth/logout` | - | 204 + cookie cleared. The session row is deleted. |
-| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), `sidebar: SidebarPrefsDTO` (sidebar menu order / hidden menus, see [Sidebar menus](#sidebar-menus-per-user-docsadr1020-); `{ order: [], hidden: [] }` when never customized), and `pendingResetRequests` for admins. |
+| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), `twoFactor` (two-step verification on), `sidebar: SidebarPrefsDTO` (sidebar menu order / hidden menus, see [Sidebar menus](#sidebar-menus-per-user-docsadr1020-); `{ order: [], hidden: [] }` when never customized), and `pendingResetRequests` for admins. |
 | PATCH | `/api/auth/me/locale` | `{ "locale": "en" \| "ko" \| null }` | `{ "locale": "en" \| "ko" \| null }`. Requires a session. Saves the account's UI and email language (`null` = automatic: browser language / `DEFAULT_LOCALE`). Anything else → 400 `VALIDATION`. |
 | POST | `/api/auth/reset-password` | `resetPasswordSchema` `{ email, code, newPassword }` | `{ ok: true }`. Code = a reset code from an admin or automatic email (single use, 24h), or the **maxUses=1** sign-up key that person registered with. On success all of that account's sessions are deleted, remaining codes are revoked and pending requests are resolved. Failure (unknown account, delegated account, wrong code alike) → 400 `INVALID_RESET` with the same message. 10/min + blocking on accumulated failures. |
 | POST | `/api/auth/forgot-password` | `forgotPasswordSchema` `{ email, note? }` | Always `{ ok: true }` (never reveal whether the account exists). Only existing accounts are processed: verified email + mail enabled → a reset code email is sent automatically (in the background, at most one per 5 minutes). Otherwise (unverified, mail disabled, delegated account) → merged into a single pending row in `password_reset_requests` (refreshed at most once a minute). Input without `@` is treated as a delegated ID. 5/min. |
@@ -68,6 +76,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 
 | Method | Path | Body | Response |
 |---|---|---|---|
+| DELETE | `/api/admin/users/:id/2fa` | - | `{ ok, wasOn }`. Turns off the member's two-step verification and signs out their sessions. `GET /api/admin/users` rows carry `twoFactor`. |
 | GET | `/api/admin/signup-keys` | - | `{ keys: SignupKeyDTO[] }` newest first, including the users who signed up with each key |
 | POST | `/api/admin/signup-keys` | `createSignupKeySchema` | `{ key: SignupKeyDTO }` |
 | DELETE | `/api/admin/signup-keys/:key` | - | `{ ok: true }` (accounts that signed up with it are kept) |
@@ -342,7 +351,7 @@ Write (refused for read-only tokens): `patch_section(pageId, section, markdown?,
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/pages/:id/content` | `{ markdown, mode: 'replace'|'append' }` | `{ ok: true }`. Doc pages only (otherwise 400). The same `markdownToBlocks` as import → injected through the same DirectConnection as snapshot restore (applied live; the store hook updates the indexes). append replaces the whole document with the existing blocks (ids kept → comment anchors preserved) followed by the new blocks; replace preserves the previous state as a "Before AI edit" snapshot. 30/min |
+| POST | `/api/pages/:id/content` | `{ markdown, mode: 'replace'|'append' }` | `{ ok: true }`. Doc pages only (otherwise 400). The same `markdownToBlocks` as import → injected through the same DirectConnection as snapshot restore (applied live; the store hook updates the indexes). append inserts the new blocks after the existing ones (existing blocks untouched); replace preserves the previous state as a "Before AI edit" snapshot. 30/min |
 
 ## Agent retrieval and section editing (docs/adr/0926–0930)
 
@@ -351,7 +360,7 @@ Session cookie or MCP bearer (internal inject). Token numbers are estimates (ADR
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/context` | `q` (1–300 chars), `workspaceId?` (else every live workspace I belong to), `budget?` (≤ 12,000, default 3,500) | `{ fragments: [{pageId, workspaceId, title, anchor, headingPath, sections: [{anchor, headingPath, version}], ords, text, tokens, score, truncated}], more: [{pageId, title, anchor, headingPath, tokens}], titleOnly: [{pageId, title, kind}], budget, usedTokens, candidates }`. Only live, visible pages of live workspaces |
-| GET | `/api/pages/:id/outline` | – | `{ page: {id, title, kind, workspaceId, updatedAt}, sections: [{anchor, headingPath, level, tokens, version}], tokens }` (non-doc pages: empty `sections`) |
+| GET | `/api/pages/:id/outline` | – | `{ page: {id, title, kind, workspaceId, updatedAt}, sections: [{anchor, headingPath, level, tokens, version}], tokens }` (non-doc pages: empty `sections`; `tokens` is the sum of the section's index parts; answered from the section index while it is current, docs/adr/1041-*) |
 | GET | `/api/pages/:id/section` | `ref` (anchor, heading text, heading path or heading block id), `maxChars?` | `{ page, section: {anchor, headingPath, level, version}, markdown, truncated, totalChars }`; unknown ref → 404 `SECTION_NOT_FOUND` listing valid anchors |
 | GET | `/api/pages/read` | `ids` (comma-separated, ≤ 20), `budget?` (≤ 30,000, default 8,000) | `{ pages: [{id, title, workspaceId, kind, updatedAt, markdown, tokens, truncated}], omitted: [{id, title, reason}], missing: [id], budget, usedTokens }`; invisible ids are only listed in `missing` |
 | POST | `/api/pages/:id/section` | `{ ref, markdown, mode: replace\|append\|prepend\|insert_after\|delete, baseVersion? }` | `{ ok, section: {anchor, headingPath, version} \| null, sections }`. Doc pages only. Version mismatch → 409 `SECTION_CONFLICT` with `error.current {anchor, headingPath, version, markdown}`, nothing written. replace/delete take a "Before AI edit" snapshot (≤ 1 per page per 2 min). 30/min |
@@ -383,7 +392,7 @@ commenting away from agents). The collab socket of a member who may not edit is 
 | DELETE | `/api/pages/:id/agent-instructions` | – | `PageLockDTO` (designation removed, lock kept) |
 | GET | `/api/workspaces/:id/agent-instructions` | – | `{ instructions: AgentInstructionDTO[] }` (live, locked, shared doc pages only) |
 | GET | `/api/workspaces/:id/agent-instructions/bundle` | `forPageId?` | `{ workspaceId, forPageId, always: [..dto, markdown, truncated], matching: [...], otherMatch, manual, version }` (MCP `get_instructions`) |
-| GET | `/api/pages/agent-context` | `ids` (≤ 50), `read=1?` | `{ pages: [{id, can: "read,comment,edit", createdBy, lastEdit {name, via}\|null, suspicious: [{anchor, rules}]}], applies: [{pageId, title, mode}] }` — used by MCP tools; `read=1` records `oauth_grants.tainted_at` when flagged content is returned to an agent |
+| GET | `/api/pages/agent-context` | `ids` (≤ 50), `read=1?` | `{ pages: [{id, can: "read,comment,edit", createdBy, lastEdit {name, via}\|null, large, suspicious: [{anchor, rules}]}], applies: [{pageId, title, mode}] }` (`large`: state ≥ 1 MiB or ≥ 50k indexed tokens, docs/adr/1043-*). MCP tools compute the same object in process instead of calling this route (docs/adr/1070-*); `read=1` records `oauth_grants.tainted_at` when flagged content is returned to an agent |
 | GET | `/api/pages/:id/suspicious` | – | `SuspiciousSectionsDTO { pageId, sections: [{anchor, headingPath, rules}] }` — injection-like heuristics stored at index time (`page_chunks.suspicious`); a signal only |
 
 `PageMetaDTO.editLocked?: true` marks pages that carry their own lock. New audit actions: `page.locked`,
@@ -396,6 +405,9 @@ OAuth: `POST /oauth/register` refuses a `client_name` that folds to a reserved w
 (403 `CLIENT_NAME_CLASH`, only in workspaces where that member is; common app names such as Claude are exempt), and
 `GET /api/oauth/authorize/info` adds `nameNotice: { member, workspaces[], blocking } | null` for the consent screen
 (docs/adr/1007-*).
+
+
+Access changes wait for writes in progress (docs/adr/1071-*): `PUT /pages/:id/lock`, `PUT|DELETE /pages/:id/agent-instructions`, `POST|DELETE /workspaces/:id/agents/blocks`, `PUT /pages/:id/owner`, role changes, member removal and a `PATCH /pages/:id` that changes `parentId` take the workspace access row exclusively; transactional writes in the same workspace hold it shared (lock_timeout 10 s). The next request after such a change sees the new rules.
 
 ## Provenance (docs/adr/0936-*)
 

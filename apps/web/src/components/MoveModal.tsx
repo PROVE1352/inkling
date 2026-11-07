@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { PageMetaDTO, PageScope, UpdatePageInput } from '@inkling/shared'
 import { ApiError, usePages, useUpdatePage } from '../api'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { LockIcon, UsersIcon } from './Icons'
 import { Modal } from './Modal'
 import { buildTree, type TreeNode } from './PageTree'
@@ -51,7 +51,7 @@ function Row({
         style={{ paddingLeft: 8 + depth * 16 }}
         className="flex w-full items-center gap-2 py-1.5 pr-2 text-left text-sm text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <span className="shrink-0 text-[15px] leading-none">{pageIcon(node.page)}</span>
+        <span className="shrink-0 text-[15px] leading-none"><PageIconGlyph page={node.page} size={15} /></span>
         <span className="min-w-0 flex-1 truncate">{node.page.title || t('common.untitled')}</span>
       </button>
       {node.children.map((c) => (

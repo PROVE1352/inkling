@@ -5,7 +5,7 @@
 <h1 align="center">Inkling</h1>
 
 <p align="center">
-  Notion-style databases and Obsidian-style links, graph and JSON Canvas in one self-hosted app — with
+  Notion-style databases and Obsidian-style links, graph and JSON Canvas in one self-hosted app, with
   real-time collaboration and a built-in MCP server for AI agents. MIT, everything free.
 </p>
 
@@ -17,6 +17,8 @@
 <p align="center">
   English · <a href="README.ko.md">한국어</a>
 </p>
+
+Using an Inkling server someone else runs? Start with the [user guide](docs/GUIDE.md) ([한국어](docs/GUIDE.ko.md)).
 
 ![A document with the backlinks, outgoing links and tags panel](docs/images/1-doc-backlinks.png)
 
@@ -30,15 +32,17 @@
 
 **Write**
 - Block editor (BlockNote): slash menu, tables, code blocks with highlighting, checklists, callouts, images and file drops
+- Math with KaTeX, as display blocks or inline. Type `$x^2$` or press ⌘/Ctrl+Shift+E, then click an equation to edit its LaTeX with a live preview
 - `[[wikilinks]]` with autocomplete, `#tags`, `@mentions` and daily notes
 - Templates for a page or a whole structure (sub-pages, databases with views, canvases): variables, prompts and Obsidian Templater basics, a searchable gallery, .md/.zip import and export ([docs/TEMPLATES.md](docs/TEMPLATES.md))
-- Version history with named snapshots, comments, trash with restore, PDF export (print CSS)
+- Version history with named snapshots that you can compare with the current page, comments, trash with restore, PDF export (print CSS)
 - English and Korean UI; installable PWA; light and dark themes
 
 **Organize & databases**
 - Nested pages and folders, shared and private (🔒) pages per workspace, drag-and-drop ordering
 - Databases with table, board, calendar, gallery and timeline views; text, number, select, multi-select, date, checkbox, person, URL, relation and rollup properties; sort, filter and group
 - Due dates and tasks across the workspace (Due view, global calendar), ⌘K search over titles and bodies
+- Each person picks which sidebar menus (Search, Graph, Tags, Web shares, Due, Calendar, Activity, Today) to show and in what order. The choice is saved to the account, so every device matches
 
 **Connect**
 - Backlinks, unlinked mentions and outgoing links in the right panel
@@ -48,22 +52,31 @@
 
 **Collaborate**
 - Real-time co-editing with Yjs: live cursors, presence, offline edits merge on reconnect
-- Workspaces with invite links, read-only public share links for a page or a folder subtree
+- Workspaces with invite links and owner, admin and member roles. Read-only public share links for a page or a folder subtree, which an owner can switch off for the whole workspace
+- Edit lock for a page and everything under it: only its owner and chosen editors can edit, and agents can separately be limited to commenting or reading. It is checked on every write path, live editing included
+- Notifications for @mentions in pages and comments, replies, owner and person-cell assignments, and edits of pages you follow. Each page or subtree can be set to all activity, mentions (the default), nothing or mute. With SMTP, mentions and replies are mailed right away and the rest arrives in a daily or weekly digest
+- An Activity screen with people's and AI changes, newest first, filters and a diff per change
+- Workspace settings (general, members, public links, connected agents, audit log, review, Slack & Discord, danger zone) and an append-only audit log of admin actions
+- Page owners and review dates, with a list of the documents most likely to be out of date
 - Workspace ownership transfer, and workspace deletion that owners can undo for 30 days
-- Mentions, comment and due-date notifications
 
 **AI & integrations**
-- Built-in MCP server with OAuth 2.1 + PKCE: connect Claude Code, claude.ai or any MCP client per user, seeing only what that user can see ([docs/MCP.md](docs/MCP.md))
+- Built-in MCP server with OAuth 2.1 + PKCE: connect Claude Code, claude.ai or any MCP client per user, seeing only what that user can see ([docs/MCP.md](docs/MCP.md)). Each connection is read only or read and write, and there is no permanent-delete tool
+- Section-level tools so agents spend fewer tokens: `find_context` returns the most relevant sections within a token budget (about 72% fewer tokens per question on a 5,000-page benchmark), `read_page` can read an outline or one section, `patch_section` edits one section with a version check and keeps what a person is typing there, and `changes_since` is a cursor-based change feed. Also `query_rows` / `create_row` / `update_row` for databases, comment tools and an agent inbox
+- Edits, comments and pages made through an agent are labelled "<you> (via <app>)" in history, comments, the change feed and the Activity screen
+- Agent instruction pages: workspace rules written in locked pages, which agents read with `get_instructions`
+- Page text reaches agents marked as untrusted data, and injection-like text is flagged. This is a mitigation; the actual limits are edit locks, connection scopes and per-workspace agent blocks
 - Link previews and embeds (YouTube, Vimeo, Loom, Figma, Spotify, CodePen, Google Docs) through an SSRF-filtered fetcher
 - Slack and Discord webhooks for mentions, comments, due dates and new pages
 - iCal feed of due dates, CSV/XLSX import and export for databases, read-only Google Sheets sync (experimental)
 - Markdown and zip import/export (front matter, attachments, `[[links]]` resolved), upload to Notion
-- Notion export import (Markdown & CSV zip): page tree, links, images and files, CSV databases as collections with typed fields; callouts arrive as quotes and equations as code, and size caps apply (25 MB upload / 50 MB unpacked by default)
+- Notion export import (Markdown & CSV zip): page tree, links, images and files, CSV databases as collections with typed fields; equations arrive as math and callouts as quotes, and size caps apply (25 MB upload / 50 MB unpacked by default)
 
 **Self-hosting & operations**
 - One `docker compose` stack: Postgres, the app, and a backup sidecar; optional Caddy overlay for automatic HTTPS
 - Scheduled, verified, optionally encrypted backups with GFS retention, weekly restore tests and rclone off-site copies ([docs/BACKUP.md](docs/BACKUP.md))
 - Admin page: users, signup keys, password reset queue, IP bans from brute-force protection, backups
+- Open tabs show a notice when a new version is deployed; an optional check for newer GitHub releases
 - Optional SMTP for invitations, password resets and email verification; delegated login against an external auth server
 
 **Experimental** (off unless listed in `EXPERIMENTAL_FEATURES`)
@@ -83,8 +96,13 @@ cp .env.example .env
 # edit .env: PUBLIC_URL=https://notes.example.com, DOMAIN=notes.example.com,
 #            POSTGRES_PASSWORD=<long random string>, BACKUP_PASSPHRASE=<keep a copy off the server>
 
-docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d --build
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 ```
+
+This pulls the prebuilt image `ghcr.io/prove1352/inkling` (amd64 and arm64), so even a 1 GB server
+does not have to build anything. Set `INKLING_VERSION=0.3.1` in `.env` to pin a release (empty =
+`latest`). To build from the checked-out source instead, add `-f compose.build.yaml` and `--build`
+(see [deploy/DEPLOY.md](deploy/DEPLOY.md)).
 
 Caddy obtains and renews the certificate. Then create a signup key for the first account. The
 first account to register becomes the site admin:
@@ -97,8 +115,19 @@ first account to register becomes the site admin:
 
 Open the signup link, paste the key, and you are in. Further keys can be issued from the **Admin** page.
 
-To try it locally without a domain, run `docker compose up -d --build` and open http://localhost:3000
+To try it locally without a domain, run `docker compose up -d` and open http://localhost:3000
 (production mode still asks for a signup key, so run the same `signup-key.sh` command).
+
+To upgrade: take a backup, pull the new image, restart the app (migrations run on boot). Details,
+including how to move from source builds to the published image, are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades):
+
+```bash
+./deploy/backup.sh
+git pull                      # compose files and deploy scripts
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
+```
 
 The compose project, volumes and database role are named `nodian` for historical reasons; keep
 them as they are, or existing data volumes will not be found after an upgrade.

@@ -66,6 +66,6 @@ flowchart LR
 
 ## Deployment
 
-- A single `docker compose up -d --build`: `db` (postgres:16-alpine) + `app` (multi-stage build).
+- A single `docker compose up -d`: `db` (postgres:16-alpine) + `app` (the published multi-arch image `ghcr.io/prove1352/inkling`, or a multi-stage build from source with `compose.build.yaml`; docs/adr/1050-*, 1051-*).
 - All images are multi-arch (x86-64 and ARM64) → they run as-is on Apple Silicon Macs and ARM cloud VMs.
 - Data lives in two volumes: `nodian-db` (Postgres) and `nodian-data` (uploads).

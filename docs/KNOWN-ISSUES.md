@@ -8,8 +8,6 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 
 ## Security
 
-- **Medium** (C-L7) Session tokens are stored in plaintext in `sessions.token`; a database or backup leak yields usable sessions. Fix: store sha256 and convert existing rows in a migration.
-- **Medium** (C-L4) No Origin / `Sec-Fetch-Site` check on state-changing requests or on the `/collab` upgrade; CSRF and cross-site WebSocket protection relies on `SameSite=Lax` alone. Any future fix must exempt `/oauth/token` and `/mcp`, which are called by non-browser clients.
 - **Medium** (C-L2, TODO #4) A successful login resets the IP-wide failure counter, so an attacker with one valid account can interleave its logins to keep guessing other accounts. Fix: reset only that account's counter and let the IP counter decay.
 - **Medium** (C-L14, TODO #6) A single-use signup key stays valid forever as a password-recovery code for the account that used it. Fix: expire recovery after a period, or show and revoke it in the admin screen.
 - **Medium** (C-L9) The collaboration socket has no limits on message rate, awareness payload size, documents per socket or accumulated Yjs size; awareness user names can be spoofed. Fix: token bucket and size checks in `beforeHandleMessage`, server-side awareness identity.
@@ -46,6 +44,12 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (AGENT-S1, docs/adr/0936-*) OAuth client names are self-asserted at dynamic registration; "(via X)" is sanitized (control/bidi characters stripped, 60 characters) but X can imitate another product's name.
 - **Low** (AGENT-S2, docs/adr/0935-*) A refresh request cannot narrow a grant's scope; to downgrade to read-only, disconnect and connect again.
 
+- **Low** (docs/adr/1061-*) Wrong two-step codes are counted per challenge (5) in the database, but the per-account backoff (`totp:<email>`) lives in memory like the other guard counters and resets on restart.
+- **Low** (docs/adr/1061-*) An admin can turn off a member's two-step verification and then reset their password, which together take over the account. Admins are trusted; there is no workspace policy that requires 2FA yet.
+- **Low** (docs/adr/1061-*) Losing or changing `APP_SECRET_KEY` makes every stored TOTP secret unreadable; affected users can only sign in with a recovery code (or an admin turns 2FA off). There is no key rotation.
+- **Low** (docs/adr/1062-*) State-changing requests whose Origin is not `PUBLIC_URL`/`APP_URL` are refused, so an instance reached under a second address (LAN IP, alias domain) is read-only there. There is no extra-origins setting.
+- **Info** (docs/adr/1060-*) A plaintext session row inserted by an older `deploy/cli-token.sh` stays plaintext until its first use (then it is hashed in place).
+
 <!-- fix-web / tests-ci: append Security items above this line -->
 
 ## Concurrency
@@ -76,7 +80,8 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (AGENT-C1, docs/adr/0930-*, 0940-*) `patch_section(replace)` edits the section in place (block alignment + character diff), so concurrent typing merges; characters typed into a block the agent deletes are lost, and a changed table is replaced as one node (typing inside it is not merged). Other live-doc reads (`md/docWrite.ts` writeBlocksToDoc/appendBlocksToDoc, `routes/sync.ts` snapshotPage) still call `yDocToBlocks` on the live document, which deletes callouts, embeds and mentions page-wide; they should read a copy like `context/sectionPatch.ts` `readBlocks`.
 - **Low** (AGENT-C2, docs/adr/0934-*) `create_row` with relation values is two writes (insert, then links); if the second fails the row exists without links (the error says so).
 
-- **Medium** (CF-1, docs/adr/0932-*) Change-feed ordering and merge safety rely on an in-process write chain and high-water mark: single server instance only; a second process writing `page_changes` would need a database lock.
+- ~~**Medium** (CF-1, docs/adr/0932-*) Change-feed ordering and merge safety rely on an in-process write chain and high-water mark: single server instance only; a second process writing `page_changes` would need a database lock.~~ Resolved by docs/adr/1080-*: one consumer per database under an advisory lock, high-water mark in `change_feed_state`.
+- **Low** (CF-7, docs/adr/1080-*) Readers of `page_changes` other than `changes_since` (activity screen, provenance badge / `last_edit`, review scores, AI digest) see a write after the outbox consumer: milliseconds normally, at most the 1 s poll while the process runs. `changes_since` drains first and is not affected.
 
 <!-- fix-web / tests-ci: append Concurrency items above this line -->
 
@@ -94,7 +99,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (B-L7) Housekeeping does not delete expired `ip_bans` rows or unused `oauth_clients`.
 - **Low** (TODO, backup) Backup failures are only visible in Admin › Backups; there is no instance-level alert channel (`notifyBackupFailureExternal` is not wired to mail or an admin webhook).
 - **Low** (TODO #7) With `REQUIRE_EMAIL_VERIFICATION=1`, the first admin cannot log in before verifying, and mail may not be configured yet. Workaround: mark the account verified via SQL or set the flag after the first admin exists.
-- **Info** (TODO, webhooks) The webhook delivery queue and link-preview cache are in memory (single instance); queued deliveries are lost on restart.
+- **Info** (TODO, webhooks) The link-preview cache is in memory (single instance). Webhook deliveries are in the outbox since docs/adr/1081-* and survive a restart; they are at least once: a crash during the HTTP call sends that message again after the 30 s lease (`X-Inkling-Delivery` is stable, but Slack and Discord do not deduplicate on it).
 - **Info** (TODO, vault-sync) `drizzle-kit push --force` drops hand-written indexes (trigram, perf). Since migration 0024 they are declared in the schema, but never run `push` against production.
 - **Info** (TODO #9) When upgrading an existing deployment, its environment (`DELEGATED_AUTH_URL`, `DELEGATED_AUTH_NAME`, `DELEGATED_EMAIL_DOMAIN`, `SIGNUP_REQUIRE_KEY=1`, and any existing `TZ` / `DEFAULT_LOCALE`) must be applied together before the first boot of the new version; changing `DELEGATED_EMAIL_DOMAIN` later splits delegated accounts.
 
@@ -107,7 +112,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (UPD-3, docs/adr/0993-*) When no new service worker takes over within 8 s, the tab unregisters its service worker before reloading; the next load downloads the full precache again.
 - **Info** (UPD-4, docs/adr/0990-*) The build id is time-based unless `INKLING_BUILD` is set, so an image rebuilt from the same source announces a "new version" once.
 
-- **Low** (NOTIFY-O1, docs/adr/1000-*) Notification events are queued in memory after the write; a process crash (not a graceful shutdown, which flushes) loses events not yet processed. Instant-mail timers are rebuilt from `mail_state` by housekeeping.
+- **Low** (NOTIFY-O1, docs/adr/1000-*, 1081-*) Notification events are queued in the outbox table and written exactly once, also across a crash. Remaining gap: producers that call `notify()` / `emitWebhookEvent()` after their own transaction (comment, assignment, owner, reminder and digest routes) insert the event in a separate statement; a crash in the milliseconds between the route's commit and that insert loses the event. After a restart, the previous boot's pending events are picked up 10 s after they became due. Instant-mail timers are rebuilt from `mail_state` by housekeeping.
 - **Low** (NOTIFY-O2, docs/adr/1004-*) Digest mail goes out from 08:00 server-local time, not the recipient's time zone; weekly digests are "7 days since the last one", not a fixed weekday.
 - **Low** (NOTIFY-O3, docs/adr/1002-*) Live typing is attributed to the person who typed in the page most recently (two-minute window); with several people typing at once a mention may be credited to the wrong one. Mentions inside canvases and collection cells are not tracked.
 - **Low** (NOTIFY-O4, docs/adr/1002-*) Agent-written plain-text "@Name" is matched against exact display names; two members with the same name both receive the (quiet) mention.
@@ -137,7 +142,7 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Info** (P, memory audit) A real Safari soak test (one hour of typing with five embeds) is still pending after deployment.
 
 - **Low** (AGENT-P1, docs/adr/0927-*) `find_context` ranks at most 300 candidate chunks chosen by a coarse SQL score; a query made only of very common words is ranked on that coarse score before the cut. Measured p50 49 ms / p95 67 ms on a 15k-chunk workspace.
-- **Low** (AGENT-P2, docs/adr/0926-*) Section text is stored twice (`page_texts` and `page_chunks`, plus a stored tsvector), each capped at 200 KB per page.
+- **Low** (AGENT-P2, docs/adr/0926-*) Section text is stored twice (`page_texts` and `page_chunks`, plus a stored tsvector). `page_chunks` covers the whole page up to 5,000 rows; `page_texts` keeps the first and last ≈ 100 KB of a body over 200 KB, so `search` misses the middle of such a page (`find_context` finds it, docs/adr/1040-*).
 - **Low** (AGENT-P3, docs/adr/0934-*) Collection filters scan the collection's rows (no per-field indexes); very large collections with custom sorts can hit the 3 s timeout (400 `QUERY_TIMEOUT`). `query_rows` with all columns on a large collection costs more tokens than `read_page` (row id + version on every line).
 
 - **Low** (CF-5) Each `changes_since` call may hash up to 2,000 rows × 2 × 16 KB of text; worst case tens of MB per call.

@@ -15,7 +15,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import type { PageMetaDTO } from '@inkling/shared'
 import { useMe, usePages } from '../../api'
 import { openCollab, readStatus } from '../../lib/collabSocket'
-import { pageIcon } from '../../lib/pageIcon'
+import { PageIconGlyph } from '../PageIconGlyph'
 import { useTheme } from '../../lib/theme'
 import { LinkIcon, LockIcon } from '../Icons'
 import { getLocale, useT } from '../../i18n'
@@ -71,7 +71,7 @@ function PageEmbedHeader({
       className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors duration-150 hover:bg-hover"
     >
       <span className="shrink-0 text-base leading-none">
-        {target ? pageIcon(target) : '📄'}
+        <PageIconGlyph page={target ?? { icon: null, kind: 'doc' }} size={16} />
       </span>
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
         {target?.title || (loaded ? t('common.untitled') : t('common.loading'))}

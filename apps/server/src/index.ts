@@ -9,6 +9,9 @@ import type { FastifyInstance } from 'fastify'
 import { enabledExperimentalFeatures } from './features'
 import { lifecycle, withTimeout } from './lifecycle'
 import { assertOriginConfigured } from './origin'
+import { hashLegacySessionTokens } from './sessionTokens'
+import { assertSecretKeyConfig } from './secretBox'
+import { registerOriginCheck } from './csrf'
 import { maskUrlSecrets } from './util'
 import { users } from './db/schema'
 import { startReminderScheduler } from './md/reminders'
@@ -16,6 +19,7 @@ import { startReadFlusher } from './pageReads'
 import { backfillPageTags } from './md/tagIndex'
 import { backfillPageTasks } from './md/taskIndex'
 import { backfillPageTexts } from './md/textIndex'
+import { reconcileAclVersions } from './aclVersion'
 import { backfillPageChunks } from './context/chunkIndex'
 import { env, mailEnabled } from './env'
 import { AppError } from './errors'
@@ -24,6 +28,7 @@ import { guardHook, initGuard, RATE_LIMIT_MESSAGE } from './guard'
 import { registerMcpRoutes } from './mcp'
 import { registerAdminRoutes } from './routes/admin'
 import { registerAuthRoutes } from './routes/auth'
+import { registerTwoFactorRoutes } from './routes/twoFactor'
 import { registerBookmarkRoutes } from './routes/bookmarks'
 import { registerCollectionRoutes } from './routes/collections'
 import { registerIcalApiRoutes, registerIcalFeedRoute } from './routes/ical'
@@ -58,6 +63,7 @@ import { registerShareMetaRoutes } from './routes/shareMeta'
 import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
 import { flushNotifications, initNotifications } from './notify/engine'
+import { startOutboxWorker, stopOutboxWorker } from './outbox'
 import { clearMailTimers, initNotificationMail } from './notify/mailer'
 import { registerBackupRoutes } from './backup/routes'
 import { registerVersionRoutes } from './version'
@@ -138,6 +144,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   if (a) await step('http close', () => a.close(), HTTP_CLOSE_TIMEOUT_MS)
   // buffered page read counts (docs/adr/0953-*) — after HTTP so in-flight reads are counted
   if (stopReadFlusher) await step('read counter flush', () => stopReadFlusher!(), 3_000)
+  // outbox consumers (docs/adr/1080-*): rows still pending stay in the table for the next boot
+  await step('outbox stop', () => stopOutboxWorker(), 3_000)
   await step('db close', () => closeDb(), 6_000)
   process.exit(exitCode)
 }
@@ -175,6 +183,7 @@ async function databaseReady(): Promise<boolean> {
 async function main(): Promise<void> {
   // 0) Configuration that must not silently fall back to request headers (C-M1).
   assertOriginConfigured()
+  assertSecretKeyConfig()
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
@@ -192,6 +201,27 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error('[inkling] Migration failed; the server cannot start', err)
     process.exit(1)
+  }
+  //    Data pass (C-L7, docs/adr/1060-*): sessions stored in plaintext by older versions are hashed
+  //    in place before the server listens, so nobody is signed out. Idempotent.
+  try {
+    const n = await hashLegacySessionTokens()
+    if (n > 0) console.log(`[inkling] hashed ${n} plaintext session token(s)`)
+  } catch (err) {
+    console.error('[inkling] Hashing stored session tokens failed; the server cannot start', err)
+    process.exit(1)
+  }
+  //    Workspace access versions (docs/adr/1071-*): a row per workspace and a locked-page count
+  //    that matches the pages, before any request can take the no-lock fast path. Idempotent.
+  try {
+    const fixed = await reconcileAclVersions()
+    if (fixed > 0) console.log(`[inkling] corrected the locked-page count of ${fixed} workspace(s)`)
+  } catch (err) {
+    console.error('[inkling] Workspace access versions could not be reconciled; the server cannot start', err)
+    process.exit(1)
+  }
+  if (!env.appSecretKey) {
+    console.warn('[inkling] APP_SECRET_KEY is not set — two-step verification cannot be turned on (docs/adr/1061-*).')
   }
 
   // 3) Fastify instance
@@ -356,6 +386,9 @@ async function main(): Promise<void> {
   // 6) Routes: /api group + /files/:id + /api/health
   await app.register(
     async (api) => {
+      // Cross-site state-changing requests are refused (C-L4, docs/adr/1062-*). First, so it runs
+      // before any route of the scope; /oauth/token, /oauth/register and /mcp live outside /api.
+      registerOriginCheck(api)
       // API responses: private + no-store by default, content ETag on GET JSON (ADR 0752).
       registerApiCachePolicy(api)
       // X-Inkling-Build on every /api response + GET /api/version (docs/adr/0990-*). First, so the header hook covers every route.
@@ -369,6 +402,8 @@ async function main(): Promise<void> {
         return reply.code(ok ? 200 : 503).send({ ok, db: ok })
       })
       await registerAuthRoutes(api)
+      // Two-step verification settings (docs/adr/1061-*)
+      await registerTwoFactorRoutes(api)
       await registerAdminRoutes(api)
       await registerWorkspaceRoutes(api)
       await registerWorkspaceAdminRoutes(api)
@@ -448,6 +483,8 @@ async function main(): Promise<void> {
   stopReminders = startReminderScheduler((msg) => app.log.info(msg))
   // Page read counters: flushed every minute (docs/adr/0953-*)
   stopReadFlusher = startReadFlusher((msg) => app.log.info(msg))
+  // Outbox consumers: change log, notifications, webhooks (LISTEN + 1 s poll, docs/adr/1080-*, 1081-*)
+  void startOutboxWorker((msg) => app.log.warn(msg))
 
   // 10) Boot summary (B-M6, C-M10)
   const flags = enabledExperimentalFeatures()

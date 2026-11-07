@@ -72,6 +72,21 @@ runs migrations and `pnpm test:db` against a Postgres 16 service; a third job bu
 image without pushing it. The commands above reproduce the first two jobs; `docker build .`
 reproduces the third. [`act`](https://github.com/nektos/act) should also work, but is not tested.
 
+The upgrade-path workflow (`.github/workflows/upgrade.yml`, docs/adr/1052-*) needs only Docker and
+Node. Build the old release and the current tree from git (not from the working tree, so local edits
+stay out), then run the same script CI runs:
+
+```bash
+git archive v0.2.0 | docker build -t inkling-upg:old -
+git archive HEAD   | docker build -t inkling-upg:new -
+scripts/upgrade-test/run.sh inkling-upg:old inkling-upg:new    # KEEP=1 keeps the containers
+docker rmi inkling-upg:old inkling-upg:new
+```
+
+v0.1.0 has no tag; use its commit `9dc9a9bf1bb9823ead79e65d9bd79d6ca5f05d3c`. The script creates its
+own `postgres:16` container, network and volume (named `inkling-upg-*`) and removes them on exit; it
+never touches the `nodian` compose project.
+
 ## Commits and pull requests
 
 - One logical change per commit. Subject line in the imperative, at most 72 characters, with an

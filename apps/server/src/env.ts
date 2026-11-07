@@ -66,6 +66,13 @@ export const env = {
    */
   publicUrl: (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '') || null,
   /**
+   * APP_SECRET_KEY: server key material for secrets stored encrypted (TOTP secrets, docs/adr/1061-*).
+   * At least 32 characters, e.g. `openssl rand -base64 32`. Unset = two-step verification cannot be
+   * turned on (501). Changing it makes stored TOTP secrets unreadable: affected users sign in with a
+   * recovery code and set 2FA up again. Keep it out of database backups.
+   */
+  appSecretKey: process.env.APP_SECRET_KEY?.trim() || null,
+  /**
    * Whether signup requires an Inkling signup key. Always required in delegated mode (the site
    * is public); in local development (no delegation) turn it on with SIGNUP_REQUIRE_KEY=1.
    */

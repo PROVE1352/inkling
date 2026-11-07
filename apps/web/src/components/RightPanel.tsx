@@ -18,7 +18,8 @@ import { t, useT } from '../i18n'
 import { consumePropsFocus } from '../lib/propsFocus'
 import { reloadOnceForStaleChunk } from '../lib/pwa'
 import { computeOutline, type Outline } from '../lib/docOutline'
-import { pageIcon, kindLabel } from '../lib/pageIcon'
+import { kindLabel } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { OPTION_COLORS } from '../lib/optionColors'
 import { formatDateTime, relativeTime } from '../lib/time'
 import type { InklingEditor } from './CollabEditor'
@@ -456,7 +457,7 @@ export function RightPanel({
                   onClick={() => navigate(`/w/${wsId}/p/${p.id}`)}
                   className="flex w-full items-center gap-1.5 truncate py-0.5 text-left text-xs text-ink hover:text-accent"
                 >
-                  <span className="shrink-0 leading-none">{pageIcon(p)}</span>
+                  <span className="shrink-0 leading-none"><PageIconGlyph page={p} size={13} /></span>
                   <span className="min-w-0 flex-1 truncate">{p.title || tr('common.untitled')}</span>
                 </button>
               </li>
@@ -496,7 +497,7 @@ export function RightPanel({
                     onClick={() => navigate(`/w/${wsId}/p/${p.id}`)}
                     className="flex w-full items-center gap-1.5 truncate py-0.5 text-left text-xs text-ink hover:text-accent"
                   >
-                    <span className="shrink-0 leading-none">{pageIcon(p)}</span>
+                    <span className="shrink-0 leading-none"><PageIconGlyph page={p} size={13} /></span>
                     <span className="min-w-0 flex-1 truncate">{p.title || tr('common.untitled')}</span>
                   </button>
                 </li>
@@ -527,7 +528,7 @@ export function RightPanel({
                         onClick={() => navigate(`/w/${wsId}/p/${id}`)}
                         className="flex w-full items-center gap-1.5 truncate py-0.5 text-left text-xs text-ink hover:text-accent"
                       >
-                        <span className="shrink-0 leading-none">{pageIcon(target)}</span>
+                        <span className="shrink-0 leading-none"><PageIconGlyph page={target} size={13} /></span>
                         <span className="min-w-0 flex-1 truncate">
                           {target.title || tr('common.untitled')}
                         </span>

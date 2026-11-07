@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePages } from '../../api'
 import { useT } from '../../i18n'
-import { pageIcon } from '../../lib/pageIcon'
+import { PageIconGlyph } from '../PageIconGlyph'
 import { CANVAS_PRESETS } from './canvasColors'
 import { LinkIcon, PlusIcon, TrashIcon } from '../Icons'
 
@@ -105,7 +105,7 @@ export function Toolbar({
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
                   >
-                    <span className="shrink-0 text-[14px] leading-none">{pageIcon(p)}</span>
+                    <span className="shrink-0 text-[14px] leading-none"><PageIconGlyph page={p} size={14} /></span>
                     <span className="min-w-0 flex-1 truncate">{p.title || t('common.untitled')}</span>
                   </button>
                 ))

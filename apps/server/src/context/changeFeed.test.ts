@@ -354,7 +354,7 @@ describe('[db] change feed', { skip: !HAS_DB }, async () => {
   const { blocksToStateBuffer } = await import('../md/convert')
   const { withEditActor } = await import('./attribution')
   const { estimateTokens } = await import('./tokens')
-  const { purgeOldChanges } = await import('./changeLog')
+  const { purgeOldChanges, drainChangeLog } = await import('./changeLog')
 
   const app = await H.buildTestApp()
   const alice = await H.makeUser('alice')
@@ -375,10 +375,14 @@ describe('[db] change feed', { skip: !HAS_DB }, async () => {
   async function setDoc(pageId: string, blocks: AnyBlock[]) {
     await db.update(schema.pageDocs).set({ state: blocksToStateBuffer(blocks) }).where(eq(schema.pageDocs.pageId, pageId))
     await reindexPageChunks(pageId, blocks)
+    // The log is written by the outbox consumer (docs/adr/1080-*); tests that read page_changes
+    // directly wait for it (changes_since itself drains before reading).
+    await drainChangeLog()
   }
   async function newPage(owner: { id: string }, title: string, blocks: AnyBlock[], extra: Record<string, unknown> = {}, wsId = ws.id) {
     const pg = await H.makeDocPage(wsId, owner.id, title, blocks, extra)
     await reindexPageChunks(pg.id, blocks)
+    await drainChangeLog()
     return pg
   }
   const cursorIn = (text: string) => {

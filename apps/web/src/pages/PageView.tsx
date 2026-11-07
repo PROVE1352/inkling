@@ -26,10 +26,10 @@ import {
   useUpdatePage,
 } from '../api'
 import { setActiveEditor } from '../lib/activeEditor'
-import { setLastPage, usePrefs } from '../lib/prefs'
+import { LINE_WIDTH_FULL, setLastPage, usePrefs } from '../lib/prefs'
 import { appendFilesToEditor, useFileDropZone } from '../lib/fileDrop'
 import { InkLayer } from '../components/ink/InkLayer'
-import { pageIcon } from '../lib/pageIcon'
+import { KindIcon } from '../components/PageIconGlyph'
 import { modKey } from '../lib/platform'
 import { EDITOR_DROP_ID } from '../components/dnd/AppDnd'
 import { useLayout } from '../components/AppLayout'
@@ -47,21 +47,23 @@ import { RightPanel } from '../components/RightPanel'
 import { ShareModal } from '../components/ShareModal'
 import { PageLockModal } from '../components/PageLockModal'
 import { SuspiciousNotice } from '../components/SuspiciousNotice'
-import { PageFollowButton, PageFollowPanel } from '../components/PageFollow'
+import { PageFollowPanel } from '../components/PageFollow'
+import { usePageSubscription } from '../notificationsApi'
+import { useIsPhone } from '../lib/useMediaQuery'
 import { PageProvenanceBadge } from '../components/PageProvenanceBadge'
 import { Modal } from '../components/Modal'
 import { agentRuleLine, editableByLine, lockRootOf } from '../lib/editLock'
 import { CommentBadges } from '../components/comments/CommentBadges'
 import { OnlineUsers } from '../components/OnlineUsers'
-import { ThemeToggle } from '../components/ThemeToggle'
 import { Spinner } from '../components/Spinner'
 import { NavButtons } from '../components/NavButtons'
 import { WordCount } from '../components/WordCount'
 import { LinkPreview } from '../components/LinkPreview'
-import { ExportPdfButton, PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
+import { PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
 import { printElement } from '../lib/printPage'
 import {
   BellIcon,
+  CheckIcon,
   GlobeIcon,
   LinkIcon,
   LockIcon,
@@ -120,15 +122,29 @@ type HeaderMenuItem = {
   label: string
   icon: ReactNode
   active?: boolean
+  /** A state that is on (lock set, following): accent colour + a check mark at the end */
+  checked?: boolean
   onSelect: () => void
   /** Items that can be pressed repeatedly (like cycling the theme) keep the menu open */
   keepOpen?: boolean
+  testId?: string
 }
 
-// Phone top bar ⋯ menu — folds pen/share/panel/theme away to leave room for the title (breadcrumb).
+// Top bar ⋯ menu (all widths) — the less frequent page actions (pen mode, edit lock, page
+// notifications, print, theme) live here so the bar keeps only bookmark, share, presence, panel and
+// the global bell. On phones it also takes share and the panel, to leave room for the breadcrumb.
+// `badge` puts a small dot on the button when a folded-away state is on (locked, following).
 // Body portal + fixed. The whole app is inside a dnd-kit context, so stopPropagation keeps the menu's
 // pointerdown from leaking into the tree drag sensor (lesson learned in this codebase).
-function PageHeaderMenu({ items, footer }: { items: HeaderMenuItem[]; footer?: ReactNode }) {
+function PageHeaderMenu({
+  items,
+  footer,
+  badge = false,
+}: {
+  items: HeaderMenuItem[]
+  footer?: ReactNode
+  badge?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -171,11 +187,15 @@ function PageHeaderMenu({ items, footer }: { items: HeaderMenuItem[]; footer?: R
         aria-haspopup="menu"
         aria-expanded={open}
         title={tr('common.more')}
-        className={`shrink-0 rounded-md p-1.5 transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] sm:hidden ${
+        data-testid="page-more-menu"
+        className={`shrink-0 rounded-md p-1.5 transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] ${
           open ? 'bg-hover text-ink' : 'text-sub'
         }`}
       >
-        <MoreHorizontalIcon size={18} />
+        <span className="relative block">
+          <MoreHorizontalIcon size={18} />
+          {badge && <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />}
+        </span>
       </button>
       {open &&
         pos &&
@@ -191,17 +211,22 @@ function PageHeaderMenu({ items, footer }: { items: HeaderMenuItem[]; footer?: R
               <button
                 key={it.label}
                 type="button"
-                role="menuitem"
+                role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                aria-checked={it.checked}
+                data-testid={it.testId}
                 onClick={() => {
                   it.onSelect()
                   if (!it.keepOpen) setOpen(false)
                 }}
-                className={`flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm transition-colors hover:bg-hover ${
-                  it.active ? 'text-accent' : 'text-ink'
+                className={`flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm transition-colors hover:bg-hover sm:min-h-9 ${
+                  it.active || it.checked ? 'text-accent' : 'text-ink'
                 }`}
               >
-                <span className="flex w-5 shrink-0 justify-center text-sub">{it.icon}</span>
+                <span className={`flex w-5 shrink-0 justify-center ${it.active || it.checked ? 'text-accent' : 'text-sub'}`}>
+                  {it.icon}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{it.label}</span>
+                {it.checked && <CheckIcon size={14} className="shrink-0 text-accent" />}
               </button>
             ))}
             {footer}
@@ -311,17 +336,33 @@ function PageHeading({
   return (
     <>
       <PageCover wsId={wsId} page={page} readOnly={readOnly} />
-      <button
-        ref={iconBtnRef}
-        type="button"
-        onClick={() => setEmojiOpen((v) => !v)}
-        disabled={readOnly}
-        aria-label={tr('page.changeIcon')}
-        title={readOnly ? undefined : tr('page.changeIcon')}
-        className="mb-1 flex h-12 w-12 items-center justify-center rounded-lg text-4xl leading-none transition-colors duration-150 hover:bg-hover disabled:hover:bg-transparent"
-      >
-        {pageIcon(page)}
-      </button>
+      {page.icon ? (
+        <button
+          ref={iconBtnRef}
+          type="button"
+          onClick={() => setEmojiOpen((v) => !v)}
+          disabled={readOnly}
+          aria-label={tr('page.changeIcon')}
+          title={readOnly ? undefined : tr('page.changeIcon')}
+          className="-ml-1.5 mb-1 flex h-12 w-12 items-center justify-center rounded-lg text-4xl leading-none transition-colors duration-150 hover:bg-hover disabled:hover:bg-transparent"
+        >
+          {page.icon}
+        </button>
+      ) : readOnly ? null : (
+        // No icon chosen: no big default emoji above the title — a quiet "Add icon" that shows on
+        // hover / tap in the page (like "Add cover"); the sidebar tree's icon button works too.
+        <button
+          ref={iconBtnRef}
+          type="button"
+          onClick={() => setEmojiOpen((v) => !v)}
+          className={`-ml-1.5 mb-1 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-sub transition-opacity duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/page:opacity-100 ${
+            emojiOpen ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <KindIcon kind={page.kind} size={14} />
+          {tr('page.addIcon')}
+        </button>
+      )}
       {banner}
       <TitleInput page={page} onCommit={onCommit} onEnter={onEnter} readOnly={readOnly} />
       {emojiOpen && !readOnly && (
@@ -374,12 +415,17 @@ function LockBanner({
 // useDroppable(editor-drop) is registered only while this component is mounted (= the current page is a doc),
 // so canvas/folder/collection pages have no editor-drop target.
 // fullWidth=true drops the container's max-w (full width) and keeps only generous side padding.
+// Otherwise textWidth (the device's "line width" setting) is the width of the body text; the column
+// adds the BlockNote side gutters (54px each, room for the block handles, 0 on phones) and its own
+// padding, so the text itself — not the column — is that wide.
 function EditorDropZone({
   fullWidth,
+  textWidth,
   columnRef,
   children,
 }: {
   fullWidth: boolean
+  textWidth: number
   /** The ink layer uses this element as its "paper" to measure position and scale */
   columnRef: RefObject<HTMLDivElement | null>
   children: ReactNode
@@ -391,8 +437,9 @@ function EditorDropZone({
         setNodeRef(el)
         columnRef.current = el
       }}
+      style={fullWidth ? undefined : { maxWidth: `calc(${textWidth}px + 108px + 3rem)` }}
       className={`group/page nd-enter mx-auto py-6 sm:py-10 ${
-        fullWidth ? 'max-w-none px-4 sm:px-10' : 'max-w-4xl px-4 sm:px-6'
+        fullWidth ? 'max-w-none px-4 sm:px-10' : 'px-4 sm:px-6'
       } ${isOver ? 'rounded-md ring-2 ring-accent/40' : ''}`}
     >
       {children}
@@ -428,9 +475,12 @@ export function PageView() {
   const [shareOpen, setShareOpen] = useState(false)
   const [lockOpen, setLockOpen] = useState(false)
   useEffect(() => setLockOpen(false), [pageId])
-  // Page notifications on phones (the header bell folds into the ⋯ menu there).
+  // Page notifications (in the ⋯ menu). `following` puts a check on the item and a dot on ⋯.
   const [followOpen, setFollowOpen] = useState(false)
   useEffect(() => setFollowOpen(false), [pageId])
+  const pageSub = usePageSubscription(page?.id)
+  const following = pageSub.data?.effective.level === 'all'
+  const isPhone = useIsPhone()
 
   const [collab, setCollab] = useState<CollabState>({
     status: 'connecting',
@@ -614,22 +664,9 @@ export function PageView() {
             {isBookmarked ? '★' : '☆'}
           </button>
         )}
-        {/* Secondary actions — on phones (<640px) they fold into the ⋯ menu (PageHeaderMenu) to leave room for the title. */}
+        {/* Kept in the bar: bookmark (above), share, presence, right panel, ⋯ — and the global bell
+            (AppLayout, fixed in the pr-14 slot). On phones (<640px) share and the panel fold into ⋯ too. */}
         <div className="hidden sm:contents">
-          {isDoc && !lockReadOnly && (
-            <button
-              type="button"
-              onClick={() => setPenMode((v) => !v)}
-              aria-pressed={penMode}
-              aria-label={tr('page.penMode')}
-              title={penMode ? tr('page.penModeOffHint') : tr('page.penModeHint')}
-              className={`rounded-md p-1.5 transition duration-150 hover:bg-hover active:scale-[.98] ${
-                penMode ? 'bg-accent-soft text-accent' : 'text-sub hover:text-ink'
-              }`}
-            >
-              <PenIcon size={18} />
-            </button>
-          )}
           {page && canShare && (
             <button
               type="button"
@@ -649,62 +686,54 @@ export function PageView() {
               </span>
             </button>
           )}
-          {canLock && (
-            <button
-              type="button"
-              onClick={() => setLockOpen(true)}
-              aria-label={tr('lock.title')}
-              title={isLocked ? tr('lock.badgeTitle') : tr('lock.title')}
-              className={`rounded-md p-1.5 leading-none transition duration-150 hover:bg-hover active:scale-[.98] ${
-                isLocked ? 'text-accent' : 'text-sub hover:text-ink'
-              }`}
-            >
-              <LockIcon size={18} />
-            </button>
-          )}
-          {page && <PageFollowButton key={page.id} pageId={page.id} />}
           {(isDoc || isCanvas) && <OnlineUsers users={collab.users} />}
-          {(isDoc || isCanvas) && <StatusDot status={collab.status} />}
-          {page && page.kind !== 'canvas' && page.kind !== 'folder' && (
-            <ExportPdfButton onClick={() => printElement(bodyRef.current, page.title)} />
-          )}
-          <ThemeToggle />
-          <button
-            type="button"
-            onClick={toggleRight}
-            aria-label={tr('page.togglePanel')}
-            title={tr('page.rightPanel')}
-            className={`rounded-md p-1.5 transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] ${
-              rightOpen ? 'text-accent' : 'text-sub'
-            }`}
-          >
-            <PanelRightIcon size={18} />
-          </button>
         </div>
         {(isDoc || isCanvas) && (
-          <span className="flex shrink-0 sm:hidden">
+          <span className="flex shrink-0 px-1">
             <StatusDot status={collab.status} />
           </span>
         )}
+        <button
+          type="button"
+          onClick={toggleRight}
+          aria-label={tr('page.togglePanel')}
+          title={tr('page.rightPanel')}
+          className={`hidden rounded-md p-1.5 transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] sm:block ${
+            rightOpen ? 'text-accent' : 'text-sub'
+          }`}
+        >
+          <PanelRightIcon size={18} />
+        </button>
         <PageHeaderMenu
+          badge={isLocked || following}
           items={[
-            ...(isDoc && !lockReadOnly
-              ? [
-                  {
-                    label: penMode ? tr('page.penModeOff') : tr('page.penMode'),
-                    icon: <PenIcon size={16} />,
-                    active: penMode,
-                    onSelect: () => setPenMode((v) => !v),
-                  },
-                ]
-              : []),
-            ...(page && canShare
+            ...(isPhone && page && canShare
               ? [
                   {
                     label: isShared ? tr('page.sharedToWeb') : tr('page.shareToWeb'),
-                    icon: isShared ? <GlobeIcon size={16} className="text-accent" /> : <GlobeIcon size={16} />,
+                    icon: <GlobeIcon size={16} />,
                     active: isShared,
                     onSelect: () => setShareOpen(true),
+                  },
+                ]
+              : []),
+            ...(isPhone
+              ? [
+                  {
+                    label: rightOpen ? tr('page.closeRightPanel') : tr('page.openRightPanel'),
+                    icon: <PanelRightIcon size={16} />,
+                    active: rightOpen,
+                    onSelect: toggleRight,
+                  },
+                ]
+              : []),
+            ...(isDoc && !lockReadOnly
+              ? [
+                  {
+                    label: tr('page.penMode'),
+                    icon: <PenIcon size={16} />,
+                    checked: penMode,
+                    onSelect: () => setPenMode((v) => !v),
                   },
                 ]
               : []),
@@ -712,8 +741,8 @@ export function PageView() {
               ? [
                   {
                     label: tr('lock.menu'),
-                    icon: <LockIcon size={16} className={isLocked ? 'text-accent' : undefined} />,
-                    active: isLocked,
+                    icon: <LockIcon size={16} />,
+                    checked: isLocked,
                     onSelect: () => setLockOpen(true),
                   },
                 ]
@@ -723,7 +752,9 @@ export function PageView() {
                   {
                     label: tr('follow.button'),
                     icon: <BellIcon size={16} />,
+                    checked: following,
                     onSelect: () => setFollowOpen(true),
+                    testId: 'page-follow-button',
                   },
                 ]
               : []),
@@ -737,12 +768,6 @@ export function PageView() {
                 ]
               : []),
             {
-              label: rightOpen ? tr('page.closeRightPanel') : tr('page.openRightPanel'),
-              icon: <PanelRightIcon size={16} />,
-              active: rightOpen,
-              onSelect: toggleRight,
-            },
-            {
               label: tr('page.themeCycle', { current: tr(THEME_LABEL[theme]), next: tr(THEME_LABEL[nextTheme(theme)]) }),
               icon: theme === 'light' ? <SunIcon size={16} /> : theme === 'dark' ? <MoonIcon size={16} /> : <MonitorIcon size={16} />,
               onSelect: () => setTheme(nextTheme(theme)),
@@ -750,7 +775,7 @@ export function PageView() {
             },
           ]}
           footer={
-            (isDoc || isCanvas) && collab.users.length > 0 ? (
+            isPhone && (isDoc || isCanvas) && collab.users.length > 0 ? (
               <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-sub">
                 <OnlineUsers users={collab.users} />
                 <span>{tr('page.onlineCount', { count: collab.users.length })}</span>
@@ -834,24 +859,29 @@ export function PageView() {
           ) : (
             // Key only on the wrapper (EditorDropZone) — giving siblings the same key confuses React's keyed
             // diff and leaves old elements in the DOM (the cause of the stacked-title bug).
-            // The per-page "Full width" wins; otherwise follow the "Readable line length" setting (off = full width).
+            // The per-page "Full width" wins; otherwise follow the per-device "Line width" setting (0 = full width).
             <EditorDropZone
               key={page.id}
-              fullWidth={page.fullWidth || !prefs.readableLineLength}
+              fullWidth={page.fullWidth || prefs.lineWidth === LINE_WIDTH_FULL}
+              textWidth={prefs.lineWidth}
               columnRef={inkColumnRef}
             >
-              <PageHeading
-                wsId={wsId ?? ''}
-                page={page}
-                onCommit={(t) => {
-                  if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
-                }}
-                onEnter={focusEditor}
-                readOnly={lockReadOnly}
-                banner={lockBanner}
-              />
-              <PageProvenanceBadge pageId={page.id} />
-              <SuspiciousNotice pageId={page.id} />
+              {/* nd-doc-head: same side inset as the editor's block-handle gutter, so cover, icon,
+                  title and notices start on the body text's line (index.css). */}
+              <div className="nd-doc-head">
+                <PageHeading
+                  wsId={wsId ?? ''}
+                  page={page}
+                  onCommit={(t) => {
+                    if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
+                  }}
+                  onEnter={focusEditor}
+                  readOnly={lockReadOnly}
+                  banner={lockBanner}
+                />
+                <PageProvenanceBadge pageId={page.id} />
+                <SuspiciousNotice pageId={page.id} />
+              </div>
               <CollabEditor
                 pageId={page.id}
                 wsId={wsId ?? ''}

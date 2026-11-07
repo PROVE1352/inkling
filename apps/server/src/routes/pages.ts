@@ -44,6 +44,9 @@ import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
 import { assertCan, actorFor } from '../editLock'
 import type { WorkspaceRole } from '@inkling/shared'
+import { bumpAcl, gateWrite } from '../aclVersion'
+import type { AclState } from '../aclVersion'
+import { assertAgentAllowed } from '../agentAccess'
 
 /** Edit-lock guard inside a transaction (docs/adr/0970-*). */
 function assertEditable(
@@ -51,7 +54,7 @@ function assertEditable(
   pageId: string,
   userId: string,
   role: WorkspaceRole,
-  opts: { subtree?: boolean } = {},
+  opts: { subtree?: boolean; acl?: AclState } = {},
 ): Promise<void> {
   return assertCan(tx, pageId, actorFor(userId, role), opts)
 }
@@ -350,7 +353,6 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const visible = await findVisiblePage(id, user.id)
     if (!visible) throw notFound()
-    const role = await requireMembership(visible.workspaceId, user.id)
     const treeChange = body.parentId !== undefined || body.scope !== undefined
     // Names of properties this request may add (fullWidth / date / done), in the editor's locale.
     // Resolved before the transaction so the row lock is not held across the lookup.
@@ -360,6 +362,15 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const { row, privatized, scopeChanged, prev } = await db.transaction(async (tx) => {
       if (treeChange) await lockTree(tx, visible.workspaceId)
+      // A move changes the lock chain of the moved subtree: new access version, exclusive gate
+      // (docs/adr/1071-*). Before any page row lock (lock order: tree → acl → pages).
+      if (body.parentId !== undefined) await bumpAcl(tx, visible.workspaceId)
+      // Membership, agent block and the workspace's lock state, read under the write gate in this
+      // transaction: a lock change waits for this write, or this write sees it (docs/adr/1071-*).
+      const gate = await gateWrite(tx, visible.workspaceId, user.id)
+      if (!gate.role) throw forbidden()
+      await assertAgentAllowed(visible.workspaceId, gate.acl.version, tx)
+      const role = gate.role
       const [page] = await tx
         .select({ ...pageColumns, properties: pages.properties })
         .from(pages)
@@ -371,7 +382,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // level or a scope change carries the whole subtree along, so it needs them on every lock
       // below as well (moves under a parent are checked by assertPlacement).
       const carriesSubtree = (body.parentId === null && page.parentId !== null) || body.scope !== undefined
-      await assertEditable(tx, id, user.id, role, { subtree: carriesSubtree })
+      await assertEditable(tx, id, user.id, role, { subtree: carriesSubtree, acl: gate.acl })
 
       const updates: Partial<typeof pages.$inferInsert> = { updatedAt: new Date() }
 
@@ -813,6 +824,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
       if (!cur) throw notFound()
       if (!cur.deletedAt) throw badRequest('This page is not deleted')
+      // May be promoted to the root below (leaves its old lock chain): new access version first.
+      if (cur.parentId) await bumpAcl(tx, target.workspaceId)
       // Restoring writes the subtree back into place: the locks on its path and inside it apply.
       await assertEditable(tx, id, user.id, role, { subtree: true })
 

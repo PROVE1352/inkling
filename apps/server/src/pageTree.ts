@@ -4,6 +4,7 @@ import { db } from './db/index'
 import { badRequest, forbidden } from './errors'
 import { isManagerRole } from './workspaceAdmin'
 import { actorFor, assertCan } from './editLock'
+import { bumpAcl } from './aclVersion'
 
 /**
  * Page tree integrity (docs/adr/0800-*).
@@ -206,11 +207,21 @@ export async function purgeDeletedSubtrees(
       SELECT p.id, d.depth + 1 FROM pages p JOIN descendants d ON p.parent_id = d.id
        WHERE d.depth < ${TREE_MAX_DEPTH} AND p.deleted_at IS NOT NULL
     )`
-  await tx.execute(sql`
+  // A live page moved to the root leaves the lock chain of its old ancestors: new access version
+  // (docs/adr/1071-*), taken before any page row of this transaction is written.
+  const orphans = (await tx.execute(sql`
     ${cte}
-    UPDATE pages SET parent_id = NULL, updated_at = now()
-     WHERE parent_id IN (SELECT id FROM descendants) AND deleted_at IS NULL
-  `)
+    SELECT DISTINCT p.workspace_id AS ws FROM pages p
+     WHERE p.parent_id IN (SELECT id FROM descendants) AND p.deleted_at IS NULL
+  `)) as unknown as { ws: string }[]
+  for (const o of orphans) await bumpAcl(tx, o.ws)
+  if (orphans.length) {
+    await tx.execute(sql`
+      ${cte}
+      UPDATE pages SET parent_id = NULL, updated_at = now()
+       WHERE parent_id IN (SELECT id FROM descendants) AND deleted_at IS NULL
+    `)
+  }
   const attached = (await tx.execute(sql`
     ${cte}
     SELECT f.id FROM files f WHERE f.page_id IN (SELECT id FROM descendants)

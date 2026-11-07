@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import type { PageMetaDTO } from '@inkling/shared'
 import { useCreatePage, usePages } from '../api'
-import { pageIcon } from '../lib/pageIcon'
+import { PageIconGlyph } from './PageIconGlyph'
 import { relativeTime } from '../lib/time'
 import { FolderPlusIcon, PlusIcon } from './Icons'
 import { Spinner } from './Spinner'
@@ -37,7 +37,7 @@ export function FolderView({ wsId, page }: { wsId: string; page: PageMetaDTO }) 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="mb-1 flex items-center gap-2 text-3xl font-bold text-ink">
-        <span className="text-[28px] leading-none">{pageIcon(page, true)}</span>
+        <span className="text-[28px] leading-none"><PageIconGlyph page={page} size={26} /></span>
         {page.title || t('common.untitled')}
       </h1>
       <p className="mb-6 text-sm text-sub">{t('folder.summary', { count: children.length })}</p>
@@ -79,7 +79,7 @@ export function FolderView({ wsId, page }: { wsId: string; page: PageMetaDTO }) 
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left hover:bg-hover"
               >
                 <span className="shrink-0 text-[17px] leading-none">
-                  {pageIcon(child)}
+                  <PageIconGlyph page={child} size={16} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-ink">
                   {child.title || t('common.untitled')}

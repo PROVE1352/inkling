@@ -280,6 +280,87 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.doesNotMatch(full, /25 days of paid vacation/)
   })
 
+  it('patch_section through the route: typing in the patched section merges, callouts elsewhere survive (ADR 0940)', async () => {
+    const id = idByTitle.get('Vacation policy')!
+    // a callout (web-only block) in another section, written into the live doc like the editor does
+    const conn = await collab.hocuspocus.openDirectConnection(id)
+    await conn.transact((doc) => {
+      const group = doc.getXmlFragment('document').get(0) as Y.XmlElement
+      const bc = new Y.XmlElement('blockContainer')
+      bc.setAttribute('id', 'callout-route-test')
+      const co = new Y.XmlElement('callout')
+      co.setAttribute('type', 'note')
+      bc.insert(0, [co])
+      group.insert(group.length, [bc])
+      const t = new Y.XmlText()
+      co.insert(0, [t])
+      t.insert(0, 'Keep me')
+    })
+    const base = Y.encodeStateAsUpdate(conn.document!)
+    await conn.disconnect()
+    // a client types into the paragraph of the section the agent is about to patch
+    const { readBlocks } = await import('./sectionPatch')
+    const client = new Y.Doc()
+    Y.applyUpdate(client, base)
+    const sv = Y.encodeStateVector(client)
+    // read a copy: yDocToBlocks deletes nodes it does not know (the callout) from the doc it reads
+    const blocks = readBlocks(client) as { id?: string; content?: unknown }[]
+    const target = blocks.find((b) => JSON.stringify(b.content ?? '').includes('Request vacation'))
+    assert.ok(target)
+    const clientGroup = client.getXmlFragment('document').get(0) as Y.XmlElement
+    const el = clientGroup.toArray().find((c) => c instanceof Y.XmlElement && c.getAttribute('id') === target.id) as Y.XmlElement
+    ;((el.get(0) as Y.XmlElement).get(0) as Y.XmlText).insert(0, 'TYPED ')
+    const clientUpdate = Y.encodeStateAsUpdate(client, sv)
+
+    const outline = (await mcp.tool('read_page', { pageId: id, outline: true })).text
+    const v = /§requesting-time-off .* v=([0-9a-f]{12})/.exec(outline)![1]
+    const body = 'Request vacation in the HR tool at least two weeks ahead for absences longer than three days.'
+    const r = await mcp.tool('patch_section', { pageId: id, section: 'requesting-time-off', mode: 'replace', markdown: `${body}\n\nAGENT LINE.`, baseVersion: v })
+    assert.equal(r.isError, false, r.text)
+    const c2 = await collab.hocuspocus.openDirectConnection(id)
+    await c2.transact((doc) => Y.applyUpdate(doc, clientUpdate))
+    const live = c2.document!
+    const ids: string[] = []
+    ;(live.getXmlFragment('document').get(0) as Y.XmlElement).toArray().forEach((c) => ids.push(String((c as Y.XmlElement).getAttribute('id'))))
+    await c2.disconnect()
+    assert.ok(ids.includes('callout-route-test'), 'callout in another section survives')
+    const full = (await mcp.tool('read_page', { pageId: id })).text
+    assert.match(full, /TYPED Request vacation in the HR tool/)
+    assert.match(full, /AGENT LINE\./)
+  })
+
+  it('update_page append keeps web-only blocks (callout) and existing block ids', async () => {
+    const id = idByTitle.get('Vacation policy')!
+    const conn = await collab.hocuspocus.openDirectConnection(id)
+    await conn.transact((doc) => {
+      const group = doc.getXmlFragment('document').get(0) as Y.XmlElement
+      const bc = new Y.XmlElement('blockContainer')
+      bc.setAttribute('id', 'callout-append-test')
+      const co = new Y.XmlElement('callout')
+      co.setAttribute('type', 'note')
+      bc.insert(0, [co])
+      group.insert(0, [bc])
+      const t = new Y.XmlText()
+      co.insert(0, [t])
+      t.insert(0, 'Keep me on append')
+    })
+    const topIds = (doc: Y.Doc) =>
+      (doc.getXmlFragment('document').get(0) as Y.XmlElement).toArray().map((c) => String((c as Y.XmlElement).getAttribute('id')))
+    const before = topIds(conn.document!)
+    await conn.disconnect()
+
+    const r = await mcp.tool('update_page', { pageId: id, mode: 'append', markdown: 'APPENDED LINE.' })
+    assert.equal(r.isError, false, r.text)
+
+    const c2 = await collab.hocuspocus.openDirectConnection(id)
+    const after = topIds(c2.document!)
+    await c2.disconnect()
+    assert.ok(after.includes('callout-append-test'), 'callout survives append')
+    assert.deepEqual(after.slice(0, before.length), before, 'existing blocks keep their ids and order')
+    assert.equal(after.length, before.length + 1)
+    assert.match((await mcp.tool('read_page', { pageId: id })).text, /APPENDED LINE\./)
+  })
+
   it('token cost: patch_section vs update_page replace for a one-section change', async () => {
     const id = idByTitle.get('Logging and monitoring')!
     const full = (await mcp.tool('read_page', { pageId: id })).text

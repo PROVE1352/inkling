@@ -1,11 +1,12 @@
 import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import * as Y from 'yjs'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
 import { hocuspocus } from '../collab'
 import { actorOf, withEditActor } from '../context/attribution'
 import { findSection, joinPath, splitSections } from '../context/chunker'
+import { applySectionPatch, buildEchoIndex } from '../context/sectionPatch'
+import type { EchoIndex, PatchOutcome } from '../context/sectionPatch'
 import type { Section } from '../context/chunker'
 import { DEFAULT_BUDGET, findContext, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
@@ -17,7 +18,6 @@ import { requestLocale } from '../i18n'
 import { liveDocState } from '../liveConnections'
 import { blocksToMarkdown, blocksToStateBuffer, markdownToBlocks, stateToBlocks, stripFrontmatter } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
-import { getServerEditor } from '../md/editor'
 import { exportPageCanvas, exportPageMd } from '../md/exporter'
 import { buildTitleResolver } from '../md/importer'
 import { findVisiblePage, pageColumns, visibleTo } from '../pageDto'
@@ -108,105 +108,8 @@ function sectionNotFound(ref: string, sections: Section[]): AppError {
   )
 }
 
-// ---------------------------------------------------------------------------
-// section patch (Yjs)
-// ---------------------------------------------------------------------------
-
-export type PatchMode = 'replace' | 'append' | 'prepend' | 'insert_after' | 'delete'
-
-export type PatchOutcome =
-  | { status: 'ok'; section: Section | null; sections: Section[] }
-  | { status: 'conflict'; section: Section; blocks: AnyBlock[] }
-  | { status: 'not_found'; sections: Section[] }
-
-/**
- * Applies a section patch to a Y.Doc in one Yjs transaction, touching only the top-level block
- * containers of that section: concurrent edits to other sections merge as usual (CRDT), and blocks
- * outside the range keep their ids (comment anchors survive). Synchronous, so the version check and
- * the edit are atomic with respect to other edits in this process. The incoming blocks are built
- * by BlockNote (blocksToYDoc on a throwaway doc) and cloned in — never assembled by hand.
- */
-export function applySectionPatch(
-  doc: Y.Doc,
-  ref: string,
-  incoming: AnyBlock[],
-  mode: PatchMode,
-  baseVersion: string | undefined,
-): PatchOutcome {
-  const editor = getServerEditor()
-  const blocks = editor.yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
-  const sections = splitSections(blocks)
-  const sec = findSection(sections, ref)
-  if (!sec) return { status: 'not_found', sections }
-  if (baseVersion && baseVersion !== sec.version) return { status: 'conflict', section: sec, blocks }
-
-  const frag = doc.getXmlFragment('document')
-  const group = frag.get(0)
-  if (!(group instanceof Y.XmlElement) || group.nodeName !== 'blockGroup' || frag.length !== 1 || group.length !== blocks.length) {
-    throw badRequest('Unexpected document structure; nothing was changed. Use update_page instead.')
-  }
-  const isIntro = sec.level === 0
-  const bodyStart = isIntro ? sec.start : sec.start + 1
-  let at: number
-  let removeFrom = 0
-  let removeCount = 0
-  switch (mode) {
-    case 'replace': {
-      // A leading heading in the new Markdown replaces the section heading too.
-      const replacesHeading = !isIntro && incoming[0]?.type === 'heading'
-      removeFrom = replacesHeading ? sec.start : bodyStart
-      removeCount = sec.end - removeFrom
-      at = removeFrom
-      break
-    }
-    case 'delete':
-      removeFrom = sec.start
-      removeCount = sec.end - sec.start
-      at = sec.start
-      break
-    case 'prepend':
-      at = bodyStart
-      break
-    case 'append':
-    case 'insert_after':
-      at = sec.end
-      break
-  }
-  if (mode !== 'delete' && incoming.length === 0) throw badRequest('markdown is empty; use mode=delete to remove a section')
-
-  let clones: Y.XmlElement[] = []
-  if (mode !== 'delete') {
-    const tmp = editor.blocksToYDoc(incoming as unknown as Parameters<typeof editor.blocksToYDoc>[0], 'document')
-    const tmpGroup = tmp.getXmlFragment('document').get(0)
-    if (!(tmpGroup instanceof Y.XmlElement) || tmpGroup.nodeName !== 'blockGroup') {
-      tmp.destroy()
-      throw badRequest('Could not convert the Markdown')
-    }
-    clones = tmpGroup.toArray().map((c) => (c as Y.XmlElement).clone())
-    tmp.destroy()
-  }
-  // Never leave a document without blocks.
-  if (removeCount === blocks.length && clones.length === 0) {
-    const tmp = editor.blocksToYDoc([{ type: 'paragraph', content: [] }] as never, 'document')
-    clones = (tmp.getXmlFragment('document').get(0) as Y.XmlElement).toArray().map((c) => (c as Y.XmlElement).clone())
-    tmp.destroy()
-  }
-  doc.transact(() => {
-    if (removeCount > 0) group.delete(removeFrom, removeCount)
-    if (clones.length) group.insert(at, clones)
-  })
-  const after = editor.yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
-  const nextSections = splitSections(after)
-  // The patched section after the edit (by heading block id, else by position).
-  let next: Section | null = null
-  if (mode !== 'delete') {
-    next =
-      (sec.blockId ? nextSections.find((s) => s.blockId === sec.blockId) : undefined) ??
-      nextSections.find((s) => s.start <= at && at < s.end) ??
-      null
-  }
-  return { status: 'ok', section: next, sections: nextSections }
-}
+// Section patch (Yjs): context/sectionPatch.ts (docs/adr/0930-*, 0940-*).
+export type { PatchMode, PatchOutcome } from '../context/sectionPatch'
 
 /** "Before AI edit" snapshots for destructive section patches: at most one per page per 2 minutes. */
 const PATCH_SNAPSHOT_WINDOW_MS = 2 * 60_000
@@ -374,12 +277,21 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
         }
       }
 
+      // What the agent saw of each block (Markdown round trip), so untouched blocks stay untouched.
+      // Computed before the synchronous patch; blocks that changed in between are simply diffed.
+      let echo: EchoIndex | null = null
+      if (body.mode === 'replace') {
+        const current = await loadBlocks(id)
+        const s = findSection(splitSections(current), body.ref)
+        if (s) echo = await buildEchoIndex(current.slice(s.start, s.end), resolveTitle)
+      }
+
       let outcome: PatchOutcome | null = null
       await withEditActor([id], actorOf(user), async () => {
         const conn = await hocuspocus.openDirectConnection(id)
         try {
           await conn.transact((doc) => {
-            outcome = applySectionPatch(doc, body.ref, incoming, body.mode, body.baseVersion)
+            outcome = applySectionPatch(doc, body.ref, incoming, body.mode, body.baseVersion, echo)
           })
         } finally {
           await conn.disconnect()

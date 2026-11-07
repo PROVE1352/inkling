@@ -1,4 +1,5 @@
 import { assertPlacement, withTreeLock } from '../pageTree'
+import { readBlocks } from '../context/sectionPatch'
 import { and, eq, gt, inArray, isNull, isNotNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
@@ -116,7 +117,8 @@ async function snapshotPage(page: MetaRow): Promise<{ blocks: AnyBlock[]; revisi
   const meta = await pageMetaHash(page)
   const live = liveDoc(page.id)
   if (live) {
-    const blocks = getServerEditor().yDocToBlocks(live, 'document') as unknown as AnyBlock[]
+    // Copy read: yDocToBlocks on the live doc deletes nodes the server schema does not know.
+    const blocks = readBlocks(live)
     return { blocks, revision: revisionFromDoc(live, meta) }
   }
   const state = await loadState(page.id)

@@ -180,10 +180,11 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0927](0927-find-context-ranking-and-budget-packing.md) | find_context: index probes, coverage ranking, top-k heap and fractional-knapsack packing | Accepted |
 | [0928](0928-partial-and-batch-reads-compact-output.md) | Partial reads (outline/section), batch reads, compact list/search output | Accepted |
 | [0929](0929-agent-facing-instructions-errors-and-repo-guides.md) | Agent-facing text: server instructions, tool descriptions, errors, AGENTS.md and llms.txt | Accepted |
-| [0930](0930-patch-section-yjs-splice-with-base-version.md) | patch_section: splice one section in the live Yjs document, guarded by a section version | Accepted |
+| [0930](0930-patch-section-yjs-splice-with-base-version.md) | patch_section: splice one section in the live Yjs document, guarded by a section version | Superseded in part by 0940 |
 | [0932](0932-change-feed-cursor.md) | Change feed for agents: cursor, merge window, permissions, retention | Accepted |
 | [0933](0933-change-feed-diff-algorithm.md) | Change feed diff: Myers line diff with sentence units and hard caps | Accepted |
 | [0934](0934-collection-query-tools-for-agents.md) | Collection query and row-update tools for agents | Accepted |
 | [0935](0935-oauth-read-write-scopes.md) | Read-only MCP tokens: OAuth `read` / `write` scopes | Accepted |
 | [0936](0936-via-agent-provenance.md) | "via agent" provenance for MCP writes | Accepted |
 | [0937](0937-prompt-cache-friendly-deterministic-tool-output.md) | Prompt-cache-friendly, deterministic MCP output | Accepted |
+| [0940](0940-patch-section-minimal-yjs-edit.md) | patch_section: minimal Yjs edit (block alignment + character diff) instead of replacing the section; never read the live doc through the server schema | Accepted |

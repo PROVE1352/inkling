@@ -1,6 +1,6 @@
 # 0930. patch_section: splice one section in the live Yjs document, guarded by a section version
 
-- Status: Accepted
+- Status: Accepted; the `replace` edit and the live-doc read are amended by 0940 (minimal Yjs edit)
 - Date: 2026-11-07
 
 ## Context
@@ -43,11 +43,11 @@ lose characters typed between the agent's read and write.
 - **Optional baseVersion everywhere**: last-writer-wins on a section silently drops a human's edit.
 
 ## Trade-offs
-- A human typing *inside* the patched section while the agent replaces it loses the characters typed
-  into the replaced blocks (inherent to replacing a range); the version check makes it a visible
-  conflict whenever the human's edit reached the server before the patch.
-- Blocks the server schema does not know (callout, page embed, mention) inside the patched range are
-  rewritten from Markdown and can lose those features; outside the range they are untouched.
+- (Superseded by 0940.) A human typing *inside* the patched section while the agent replaced it lost
+  the characters typed into the replaced blocks; 0940 edits blocks in place so they merge.
+- (Superseded by 0940.) Blocks the server schema does not know (callout, page embed, mention) inside
+  the range were rewritten from Markdown; worse, reading the live doc with `yDocToBlocks` deleted them
+  in the whole page. 0940 reads a copy and never touches them.
 - Snapshot throttling means two quick destructive patches share one "Before AI edit" snapshot.
 
 ## How others solve it

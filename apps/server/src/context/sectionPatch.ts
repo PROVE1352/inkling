@@ -1,0 +1,846 @@
+import * as Y from 'yjs'
+import { badRequest } from '../errors'
+import { blocksToMarkdown, markdownToBlocks } from '../md/convert'
+import type { AnyBlock, ResolveTitle } from '../md/convert'
+import { getServerEditor } from '../md/editor'
+import { blocksToLightMarkdown, findSection, splitSections } from './chunker'
+import type { Section } from './chunker'
+import { myers } from './diff'
+
+/**
+ * patch_section on the live Yjs document (docs/adr/0930-*, 0940-*).
+ *
+ * `replace` is a minimal edit, not a block swap:
+ *   1. The old section blocks and the new ones are aligned block by block (Myers on a per-block key).
+ *      A block the agent did not change keeps its Yjs item untouched (same id, same text items).
+ *   2. Changed blocks of the same type are edited in place: the text of each Y.XmlText run is diffed
+ *      character by character and only insert/delete/format operations are applied, so characters a
+ *      person typed concurrently (not yet on the server) merge as ordinary CRDT edits.
+ *   3. Only blocks without a counterpart are inserted (clones of containers BlockNote built on a
+ *      throwaway doc) or deleted.
+ *
+ * Things the agent cannot see are never touched: containers the server schema does not know
+ * (callout, page embed, link embed, plugin blocks), inline nodes it does not know (mentions), props
+ * Markdown cannot express (colors, alignment, image width, toggleable headings) and marks Markdown
+ * cannot express (underline, text/background color).
+ *
+ * The edit is first run on a copy of the document and validated there (the copy is read back
+ * through BlockNote: every known block must survive the read, and every edited or inserted block
+ * must read back as the requested content). Only then does the same deterministic edit run on the
+ * live document, so a bug cannot leave half a patch behind; if validation fails the old block splice
+ * runs instead. (Applying the copy's update instead would write under a foreign client id — one new
+ * state-vector entry per patch — and Yjs refuses an update carrying the doc's own id.)
+ *
+ * Never call `yDocToBlocks` on the live document: y-prosemirror deletes the Yjs items of nodes the
+ * schema does not know while reading (its recovery for invalid content), so reading the live doc
+ * would remove every callout and mention in the page. Reads always go through a copy.
+ */
+
+export type PatchMode = 'replace' | 'append' | 'prepend' | 'insert_after' | 'delete'
+
+export interface PatchStats {
+  /** 'merge' = minimal edit, 'splice' = fallback block replacement, 'insert'/'delete' for those modes. */
+  strategy: 'merge' | 'splice' | 'insert' | 'delete'
+  /** Blocks (any depth) left untouched. */
+  kept: number
+  /** Blocks edited in place (id kept). */
+  edited: number
+  inserted: number
+  deleted: number
+}
+
+export type PatchOutcome =
+  | { status: 'ok'; section: Section | null; sections: Section[]; stats: PatchStats }
+  | { status: 'conflict'; section: Section; blocks: AnyBlock[] }
+  | { status: 'not_found'; sections: Section[] }
+
+// ---------------------------------------------------------------------------
+// reading
+// ---------------------------------------------------------------------------
+
+/** Blocks of a Y.Doc read through BlockNote on a copy (the read is destructive for unknown nodes). */
+export function readBlocks(doc: Y.Doc): AnyBlock[] {
+  const copy = new Y.Doc()
+  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc))
+  try {
+    return getServerEditor().yDocToBlocks(copy, 'document') as unknown as AnyBlock[]
+  } finally {
+    copy.destroy()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// what the agent saw: per-block "echo" keys
+// ---------------------------------------------------------------------------
+
+/**
+ * Key of a block as Markdown sees it: the block exported to Markdown on its own and parsed back,
+ * without id and children. The agent's new blocks are parsed from Markdown too, so an untouched
+ * block has the same key even when the Markdown round trip is lossy (colors, toggles, mark combos).
+ */
+export interface EchoEntry {
+  key: string
+  type: string
+}
+export type EchoIndex = Map<string, EchoEntry>
+
+/** Blocks as the server reads them back from Yjs (the form the patch compares). */
+function normalizeBlocks(blocks: AnyBlock[]): AnyBlock[] {
+  if (blocks.length === 0) return []
+  const { tmp, read } = buildIncoming(blocks)
+  tmp.destroy()
+  return read
+}
+
+function fingerprint(b: AnyBlock): string {
+  return JSON.stringify({ ...b, children: undefined })
+}
+
+function keyOf(b: AnyBlock): string {
+  return JSON.stringify([b.type ?? '', b.props ?? {}, b.content ?? null])
+}
+
+/** Echo keys for blocks (and their children) — async, computed before the synchronous patch. */
+export async function buildEchoIndex(blocks: AnyBlock[], resolveTitle: ResolveTitle): Promise<EchoIndex> {
+  const out: EchoIndex = new Map()
+  const visit = async (b: AnyBlock): Promise<void> => {
+    const { markdown } = await blocksToMarkdown([{ ...b, children: [] }], { assetMode: 'absolute' })
+    const parsed = normalizeBlocks(await markdownToBlocks(markdown, resolveTitle))
+    out.set(fingerprint(b), {
+      key: parsed.length === 1 ? keyOf(parsed[0]) : `\u0000multi:${JSON.stringify(parsed.map(keyOf))}`,
+      type: parsed.length === 1 ? (parsed[0].type ?? '') : (b.type ?? ''),
+    })
+    for (const c of b.children ?? []) await visit(c)
+  }
+  for (const b of blocks) await visit(b)
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Markdown expressiveness (guarded by sectionPatch.test.ts against BlockNote's round trip)
+// ---------------------------------------------------------------------------
+
+/** Marks the Markdown round trip keeps; other marks on existing text are never changed. */
+export const MARKDOWN_MARKS = new Set(['bold', 'italic', 'strike', 'code', 'link'])
+/** Block props the Markdown round trip loses; an edit never overwrites them. */
+export const NON_MARKDOWN_PROPS = new Set(['backgroundColor', 'textColor', 'textAlignment', 'isToggleable', 'previewWidth'])
+/** Markdown has no toggle list: a toggle item reads back as a bullet item, so they pair. */
+function pairType(type: string): string {
+  return type === 'toggleListItem' ? 'bulletListItem' : type
+}
+
+// ---------------------------------------------------------------------------
+// Yjs structure helpers (BlockNote 0.51 + y-prosemirror 1.3):
+//   blockGroup > blockContainer{id} > [<content node>{props}, blockGroup?]
+//   <content node> > (Y.XmlText | inline Y.XmlElement)*   (text runs and inline nodes alternate)
+//   table > tableRow > tableHeader|tableCell > tableParagraph > Y.XmlText
+// ---------------------------------------------------------------------------
+
+function isEl(x: unknown, name?: string): x is Y.XmlElement {
+  return x instanceof Y.XmlElement && (name === undefined || x.nodeName === name)
+}
+
+function contentNode(container: Y.XmlElement): Y.XmlElement | null {
+  const first = container.get(0)
+  return isEl(first) && first.nodeName !== 'blockGroup' ? first : null
+}
+
+function childGroup(container: Y.XmlElement): Y.XmlElement | null {
+  for (const ch of container.toArray()) if (isEl(ch, 'blockGroup')) return ch
+  return null
+}
+
+function structureError(): never {
+  throw badRequest('Unexpected document structure; nothing was changed. Use update_page instead.')
+}
+
+function indexContainers(group: Y.XmlElement, map: Map<string, Y.XmlElement>): void {
+  for (const c of group.toArray()) {
+    if (!isEl(c, 'blockContainer')) continue
+    const id = c.getAttribute('id')
+    if (typeof id === 'string') {
+      if (map.has(id)) structureError()
+      map.set(id, c)
+    }
+    const g = childGroup(c)
+    if (g) indexContainers(g, map)
+  }
+}
+
+let inlineNodeNames: Set<string> | null = null
+/** Inline (non-text) nodes the server schema knows, e.g. hardBreak. Others (mention) are opaque. */
+function knownInlineNodes(): Set<string> {
+  if (!inlineNodeNames) {
+    const schema = getServerEditor().editor.pmSchema
+    inlineNodeNames = new Set(
+      Object.values(schema.nodes)
+        .filter((n) => n.isInline && !n.isText)
+        .map((n) => n.name),
+    )
+  }
+  return inlineNodeNames
+}
+
+// ---------------------------------------------------------------------------
+// sequence alignment
+// ---------------------------------------------------------------------------
+
+type Op = { t: '='; i: number; j: number } | { t: '-'; i: number } | { t: '+'; j: number }
+
+/** Edit script between two key lists (common prefix/suffix, then Myers); over the caps: replace all. */
+function align(a: string[], b: string[], maxD: number, maxWork: number): Op[] {
+  let pre = 0
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++
+  let suf = 0
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++
+  const am = a.slice(pre, a.length - suf)
+  const bm = b.slice(pre, b.length - suf)
+  const out: Op[] = []
+  for (let k = 0; k < pre; k++) out.push({ t: '=', i: k, j: k })
+  const mid = am.length && bm.length ? myers(am, bm, maxD, { left: maxWork }) : null
+  if (mid) {
+    let i = pre
+    let j = pre
+    for (const o of mid) {
+      if (o.t === '=') out.push({ t: '=', i: i++, j: j++ })
+      else if (o.t === '-') out.push({ t: '-', i: i++ })
+      else out.push({ t: '+', j: j++ })
+    }
+  } else {
+    for (let k = 0; k < am.length; k++) out.push({ t: '-', i: pre + k })
+    for (let k = 0; k < bm.length; k++) out.push({ t: '+', j: pre + k })
+  }
+  for (let k = 0; k < suf; k++) out.push({ t: '=', i: a.length - suf + k, j: b.length - suf + k })
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// inline (character level) reconcile
+// ---------------------------------------------------------------------------
+
+type Attrs = Record<string, unknown>
+type CharTok = { k: 'c'; ch: string; attrs: Attrs; seg: Y.XmlText; off: number }
+type ElTok = { k: 'e'; key: string; el: Y.XmlElement }
+type Tok = CharTok | ElTok
+
+function tokens(content: Y.XmlElement): Tok[] {
+  const known = knownInlineNodes()
+  const out: Tok[] = []
+  for (const child of content.toArray()) {
+    if (child instanceof Y.XmlText) {
+      let off = 0
+      for (const op of child.toDelta() as { insert: unknown; attributes?: Attrs }[]) {
+        if (typeof op.insert !== 'string') {
+          off += 1 // embed: invisible to the server, keep in place
+          continue
+        }
+        for (const ch of op.insert) {
+          out.push({ k: 'c', ch, attrs: op.attributes ?? {}, seg: child, off })
+          off += ch.length
+        }
+      }
+    } else if (isEl(child) && known.has(child.nodeName)) {
+      out.push({ k: 'e', key: `\u0000${child.nodeName}${JSON.stringify(child.getAttributes())}`, el: child })
+    }
+    // other inline elements (mention, …) are opaque: never part of the diff, never touched
+  }
+  return out
+}
+
+const tokKey = (t: Tok) => (t.k === 'c' ? t.ch : t.key)
+
+function markdownMarks(attrs: Attrs): Attrs {
+  const out: Attrs = {}
+  for (const [k, v] of Object.entries(attrs)) if (MARKDOWN_MARKS.has(k) && v != null) out[k] = v
+  return out
+}
+
+function otherMarks(attrs: Attrs): Attrs {
+  const out: Attrs = {}
+  for (const [k, v] of Object.entries(attrs)) if (!MARKDOWN_MARKS.has(k) && v != null) out[k] = v
+  return out
+}
+
+/** Markdown-expressible mark changes from `from` to `to` ({} when equal). */
+function markChange(from: Attrs, to: Attrs): Attrs {
+  const a = markdownMarks(from)
+  const b = markdownMarks(to)
+  const change: Attrs = {}
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) change[k] = b[k] ?? null
+  }
+  return change
+}
+
+const INLINE_MAX_D = 4_000
+const INLINE_MAX_WORK = 4_000_000
+
+type Cursor = { k: 'text'; seg: Y.XmlText; off: number } | { k: 'after'; ref: Y.XmlElement | Y.XmlText | null }
+
+/**
+ * Turns the inline content of `oldContent` into that of `newContent` with character-level
+ * insert/delete/format operations. Edits are applied from the end backwards so the offsets
+ * recorded for earlier tokens stay valid.
+ */
+function reconcileInline(oldContent: Y.XmlElement, newContent: Y.XmlElement): void {
+  const a = tokens(oldContent)
+  const b = tokens(newContent)
+  const ops = align(a.map(tokKey), b.map(tokKey), INLINE_MAX_D, INLINE_MAX_WORK)
+
+  type Edit =
+    | { kind: 'del'; pos: number; seg: Y.XmlText; off: number; len: number }
+    | { kind: 'delEl'; pos: number; el: Y.XmlElement }
+    | { kind: 'fmt'; pos: number; seg: Y.XmlText; off: number; len: number; change: Attrs; sig: string }
+    | { kind: 'ins'; pos: number; toks: Tok[] }
+  const edits: Edit[] = []
+  let last: Edit | null = null
+  let consumed = 0 // old tokens before the current op = the gap an insertion goes into
+  for (const o of ops) {
+    if (o.t === '+') {
+      if (last && last.kind === 'ins' && last.pos === consumed) last.toks.push(b[o.j])
+      else edits.push((last = { kind: 'ins', pos: consumed, toks: [b[o.j]] }))
+      continue
+    }
+    consumed++
+    const t = a[o.i]
+    if (o.t === '-') {
+      if (t.k === 'e') {
+        edits.push((last = { kind: 'delEl', pos: o.i, el: t.el }))
+      } else if (last && last.kind === 'del' && last.seg === t.seg && last.off + last.len === t.off) {
+        last.len += t.ch.length
+      } else {
+        edits.push((last = { kind: 'del', pos: o.i, seg: t.seg, off: t.off, len: t.ch.length }))
+      }
+      continue
+    }
+    // '=': same character; sync Markdown marks only
+    const nt = b[o.j]
+    if (t.k !== 'c' || nt.k !== 'c') {
+      last = null
+      continue
+    }
+    const change = markChange(t.attrs, nt.attrs)
+    const sig = JSON.stringify(change)
+    if (sig === '{}') {
+      last = null
+      continue
+    }
+    if (last && last.kind === 'fmt' && last.seg === t.seg && last.off + last.len === t.off && last.sig === sig) {
+      last.len += t.ch.length
+    } else {
+      edits.push((last = { kind: 'fmt', pos: o.i, seg: t.seg, off: t.off, len: t.ch.length, change, sig }))
+    }
+  }
+  // Backwards; at equal positions deletions/formats of token `pos` before insertions in gap `pos`.
+  edits.sort((x, y) => y.pos - x.pos || (x.kind === 'ins' ? 1 : 0) - (y.kind === 'ins' ? 1 : 0))
+  for (const e of edits) {
+    if (e.kind === 'del') e.seg.delete(e.off, e.len)
+    else if (e.kind === 'fmt') e.seg.format(e.off, e.len, e.change as Record<string, unknown>)
+    else if (e.kind === 'delEl') {
+      const idx = oldContent.toArray().indexOf(e.el)
+      if (idx >= 0) oldContent.delete(idx, 1)
+    } else insertTokens(oldContent, a, e.pos, e.toks)
+  }
+}
+
+function insertTokens(content: Y.XmlElement, old: Tok[], gap: number, toks: Tok[]): void {
+  const left = gap > 0 ? old[gap - 1] : undefined
+  const right = gap < old.length ? old[gap] : undefined
+  let cur: Cursor
+  if (left?.k === 'c') cur = { k: 'text', seg: left.seg, off: left.off + left.ch.length }
+  else if (right?.k === 'c') cur = { k: 'text', seg: right.seg, off: right.off }
+  else if (left?.k === 'e') cur = { k: 'after', ref: left.el }
+  else if (right?.k === 'e') cur = { k: 'after', ref: previousSibling(content, right.el) }
+  else cur = { k: 'after', ref: lastChild(content) }
+  // Marks Markdown cannot express (underline, colors) continue from the neighbouring text.
+  const inherited = left?.k === 'c' ? otherMarks(left.attrs) : right?.k === 'c' ? otherMarks(right.attrs) : {}
+
+  let i = 0
+  while (i < toks.length) {
+    const t = toks[i]
+    if (t.k === 'e') {
+      cur = insertElement(content, cur, t.el.clone())
+      i++
+      continue
+    }
+    let text = ''
+    const sig = JSON.stringify(t.attrs)
+    while (i < toks.length && toks[i].k === 'c' && JSON.stringify((toks[i] as CharTok).attrs) === sig) {
+      text += (toks[i] as CharTok).ch
+      i++
+    }
+    const attrs = { ...inherited, ...markdownMarks(t.attrs) }
+    if (cur.k === 'text') {
+      cur.seg.insert(cur.off, text, attrs)
+      cur = { k: 'text', seg: cur.seg, off: cur.off + text.length }
+    } else {
+      const seg = new Y.XmlText()
+      insertChildAfter(content, cur.ref, seg)
+      seg.insert(0, text, attrs)
+      cur = { k: 'text', seg, off: text.length }
+    }
+  }
+}
+
+function previousSibling(content: Y.XmlElement, el: Y.XmlElement | Y.XmlText): Y.XmlElement | Y.XmlText | null {
+  const arr = content.toArray()
+  const idx = arr.indexOf(el)
+  return idx > 0 ? (arr[idx - 1] as Y.XmlElement | Y.XmlText) : null
+}
+
+function lastChild(content: Y.XmlElement): Y.XmlElement | Y.XmlText | null {
+  return content.length ? (content.get(content.length - 1) as Y.XmlElement | Y.XmlText) : null
+}
+
+function insertChildAfter(content: Y.XmlElement, ref: Y.XmlElement | Y.XmlText | null, child: Y.XmlElement | Y.XmlText): void {
+  content.insertAfter(ref, [child])
+}
+
+/** Inserts an inline element at the cursor, splitting the text run when the cursor is inside it. */
+function insertElement(content: Y.XmlElement, cur: Cursor, el: Y.XmlElement): Cursor {
+  if (cur.k === 'after') {
+    insertChildAfter(content, cur.ref, el)
+    return { k: 'after', ref: el }
+  }
+  const { seg, off } = cur
+  if (off === 0) {
+    insertChildAfter(content, previousSibling(content, seg), el)
+    return { k: 'text', seg, off: 0 }
+  }
+  if (off >= seg.length) {
+    insertChildAfter(content, seg, el)
+    return { k: 'after', ref: el }
+  }
+  // split: [seg | tail] → [seg, el, tail]
+  const tail = sliceDelta(seg.toDelta() as { insert: unknown; attributes?: Attrs }[], off)
+  seg.delete(off, seg.length - off)
+  const rest = new Y.XmlText()
+  insertChildAfter(content, seg, rest)
+  rest.applyDelta(tail)
+  insertChildAfter(content, seg, el)
+  return { k: 'text', seg: rest, off: 0 }
+}
+
+function sliceDelta(delta: { insert: unknown; attributes?: Attrs }[], from: number): { insert: unknown; attributes?: Attrs }[] {
+  const out: { insert: unknown; attributes?: Attrs }[] = []
+  let pos = 0
+  for (const op of delta) {
+    const len = typeof op.insert === 'string' ? op.insert.length : 1
+    if (pos + len <= from) {
+      pos += len
+      continue
+    }
+    if (typeof op.insert === 'string') {
+      const s = op.insert.slice(Math.max(0, from - pos))
+      if (s) out.push(op.attributes ? { insert: s, attributes: op.attributes } : { insert: s })
+    } else {
+      out.push(op)
+    }
+    pos += len
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// block level reconcile
+// ---------------------------------------------------------------------------
+
+interface Ctx {
+  echo: EchoIndex | null
+  live: Map<string, Y.XmlElement>
+  stats: PatchStats
+  /** Edited/inserted blocks and the content they must read back as (validation). */
+  expect: { id: string; block: AnyBlock | null }[]
+}
+
+function countBlocks(blocks: AnyBlock[] | undefined): number {
+  let n = 0
+  for (const b of blocks ?? []) n += 1 + countBlocks(b.children)
+  return n
+}
+
+/** Copies the new content node's props, except props Markdown cannot express (kept as they are). */
+function reconcileAttrs(oldContent: Y.XmlElement, newContent: Y.XmlElement): void {
+  const cur = oldContent.getAttributes()
+  for (const [k, v] of Object.entries(newContent.getAttributes())) {
+    if (NON_MARKDOWN_PROPS.has(k)) continue
+    if (JSON.stringify(cur[k]) !== JSON.stringify(v)) oldContent.setAttribute(k, v as never)
+  }
+}
+
+function hasInlineContent(el: Y.XmlElement): boolean {
+  return el.toArray().every((c) => c instanceof Y.XmlText || (isEl(c) && c.nodeName !== 'tableRow' && c.nodeName !== 'blockGroup'))
+}
+
+/** One old container ↔ one new container. `same`: the agent did not change this block itself. */
+function reconcileBlock(
+  oldEl: Y.XmlElement,
+  oldBlock: AnyBlock,
+  newEl: Y.XmlElement,
+  newBlock: AnyBlock,
+  same: boolean,
+  ctx: Ctx,
+): void {
+  const oc = contentNode(oldEl)
+  const nc = contentNode(newEl)
+  if (!oc || !nc) structureError()
+  if (same) {
+    ctx.stats.kept++
+    ctx.expect.push({ id: oldBlock.id as string, block: null })
+  } else {
+    ctx.stats.edited++
+    ctx.expect.push({ id: oldBlock.id as string, block: newBlock })
+    const sameNode = oc.nodeName === nc.nodeName || (pairType(oc.nodeName) === pairType(nc.nodeName))
+    if (!sameNode || oc.nodeName === 'table' || !hasInlineContent(oc) || !hasInlineContent(nc)) {
+      // Tables (and anything that is not inline content) are replaced as a whole node; the block id stays.
+      oldEl.insert(0, [nc.clone()])
+      oldEl.delete(1, 1)
+    } else {
+      reconcileAttrs(oc, nc)
+      reconcileInline(oc, nc)
+    }
+  }
+  // children
+  const og = childGroup(oldEl)
+  const ng = childGroup(newEl)
+  const newKids = newBlock.children ?? []
+  if (!og) {
+    if (ng && newKids.length) {
+      oldEl.insert(oldEl.length, [ng.clone()])
+      ctx.stats.inserted += countBlocks(newKids)
+      expectInserted(ng, newKids, ctx)
+    }
+    return
+  }
+  syncList(og, oldBlock.children ?? [], newKids, ng ? (ng.toArray().filter((c) => isEl(c, 'blockContainer')) as Y.XmlElement[]) : [], null, ctx)
+  if (og.length === 0) {
+    const idx = oldEl.toArray().indexOf(og)
+    if (idx >= 0) oldEl.delete(idx, 1)
+  }
+}
+
+function expectInserted(group: Y.XmlElement, blocks: AnyBlock[], ctx: Ctx): void {
+  const els = group.toArray().filter((c) => isEl(c, 'blockContainer')) as Y.XmlElement[]
+  els.forEach((el, k) => {
+    const id = el.getAttribute('id')
+    if (typeof id === 'string' && blocks[k]) ctx.expect.push({ id, block: blocks[k] })
+    const g = childGroup(el)
+    if (g && blocks[k]?.children?.length) expectInserted(g, blocks[k].children!, ctx)
+  })
+}
+
+/**
+ * Makes the visible blocks `oldBlocks` (containers inside `group`) become `newBlocks`.
+ * Containers in `group` that are not in `oldBlocks` (unknown to the server schema) stay where they are.
+ * `start`: the element new blocks go after when they come first (null = start of the group).
+ */
+function syncList(
+  group: Y.XmlElement,
+  oldBlocks: AnyBlock[],
+  newBlocks: AnyBlock[],
+  newEls: Y.XmlElement[],
+  start: Y.XmlElement | null,
+  ctx: Ctx,
+): void {
+  if (newEls.length !== newBlocks.length) structureError()
+  const oldEls = oldBlocks.map((b) => {
+    const el = typeof b.id === 'string' ? ctx.live.get(b.id) : undefined
+    if (!el || el.parent !== group) structureError()
+    return el
+  })
+  const echo = (b: AnyBlock) => ctx.echo?.get(fingerprint(b))
+  const oldKeys = oldBlocks.map((b) => echo(b)?.key ?? `\u0000old:${String(b.id)}`)
+  const newKeys = newBlocks.map(keyOf)
+  const ops = align(oldKeys, newKeys, 2_000, 2_000_000)
+
+  // Within each run of changes pair blocks of the same type (edited in place); the rest is delete/insert.
+  type Act = { t: 'keep' | 'edit'; i: number; j: number } | { t: 'del'; i: number } | { t: 'ins'; j: number }
+  const acts: Act[] = []
+  let k = 0
+  while (k < ops.length) {
+    const o = ops[k]
+    if (o.t === '=') {
+      acts.push({ t: 'keep', i: o.i, j: o.j })
+      k++
+      continue
+    }
+    const dels: number[] = []
+    const ins: number[] = []
+    while (k < ops.length && ops[k].t !== '=') {
+      const x = ops[k] as Op
+      if (x.t === '-') dels.push(x.i)
+      else if (x.t === '+') ins.push(x.j)
+      k++
+    }
+    const oldTypes = dels.map((i) => pairType(echo(oldBlocks[i])?.type ?? oldBlocks[i].type ?? ''))
+    const newTypes = ins.map((j) => pairType(newBlocks[j].type ?? ''))
+    for (const p of align(oldTypes, newTypes, 1_000, 1_000_000)) {
+      if (p.t === '=') acts.push({ t: 'edit', i: dels[p.i], j: ins[p.j] })
+      else if (p.t === '-') acts.push({ t: 'del', i: dels[p.i] })
+      else acts.push({ t: 'ins', j: ins[p.j] })
+    }
+  }
+
+  let anchor: Y.XmlElement | null = start
+  const inserts: { after: Y.XmlElement | null; js: number[] }[] = []
+  const pairs: { i: number; j: number; same: boolean }[] = []
+  const deletes: Y.XmlElement[] = []
+  let open: { after: Y.XmlElement | null; js: number[] } | null = null
+  for (const a of acts) {
+    if (a.t === 'ins') {
+      if (!open) inserts.push((open = { after: anchor, js: [] }))
+      open.js.push(a.j)
+      continue
+    }
+    open = null
+    anchor = oldEls[a.i]
+    if (a.t === 'del') deletes.push(oldEls[a.i])
+    else pairs.push({ i: a.i, j: a.j, same: a.t === 'keep' })
+  }
+  // 1) inserts (their anchors still exist), 2) in-place edits, 3) deletes
+  for (const g of inserts) {
+    const clones = g.js.map((j) => newEls[j].clone())
+    group.insertAfter(g.after, clones)
+    g.js.forEach((j, n) => {
+      const id = clones[n].getAttribute('id')
+      if (typeof id === 'string') ctx.expect.push({ id, block: newBlocks[j] })
+      const cg = childGroup(clones[n])
+      if (cg && newBlocks[j].children?.length) expectInserted(cg, newBlocks[j].children!, ctx)
+      ctx.stats.inserted += 1 + countBlocks(newBlocks[j].children)
+    })
+  }
+  for (const p of pairs) reconcileBlock(oldEls[p.i], oldBlocks[p.i], newEls[p.j], newBlocks[p.j], p.same, ctx)
+  for (const el of deletes) {
+    const idx = group.toArray().indexOf(el)
+    if (idx >= 0) group.delete(idx, 1)
+  }
+  ctx.stats.deleted += deletes.length
+}
+
+// ---------------------------------------------------------------------------
+// entry point
+// ---------------------------------------------------------------------------
+
+/** Containers BlockNote builds for `blocks` on a throwaway doc (plus that doc's reading of them). */
+function buildIncoming(blocks: AnyBlock[]): { tmp: Y.Doc; els: Y.XmlElement[]; read: AnyBlock[] } {
+  const editor = getServerEditor()
+  const tmp = editor.blocksToYDoc(blocks as unknown as Parameters<typeof editor.blocksToYDoc>[0], 'document')
+  const g = tmp.getXmlFragment('document').get(0)
+  if (!isEl(g, 'blockGroup')) {
+    tmp.destroy()
+    throw badRequest('Could not convert the Markdown')
+  }
+  const els = g.toArray().filter((c) => isEl(c, 'blockContainer')) as Y.XmlElement[]
+  // The server's own reading of the new blocks (normalized: "\n" → hardBreak → "\n", default props).
+  const read = readBlocks(tmp)
+  return { tmp, els, read }
+}
+
+function topGroup(doc: Y.Doc): Y.XmlElement {
+  const frag = doc.getXmlFragment('document')
+  const g = frag.get(0)
+  if (frag.length !== 1 || !isEl(g, 'blockGroup')) structureError()
+  return g
+}
+
+interface Range {
+  /** Live index range [from, to) of the top-level group. */
+  from: number
+  to: number
+  /** Visible (server-readable) blocks inside the range. */
+  blocks: AnyBlock[]
+}
+
+/** Section bounds in the live group by block id (unknown containers in between belong to the range). */
+function liveRange(top: Y.XmlElement[], live: Map<string, Y.XmlElement>, blocks: AnyBlock[], blockFrom: number, blockTo: number, liveFrom: number): Range {
+  let to = top.length
+  if (blockTo < blocks.length) {
+    const el = live.get(String(blocks[blockTo].id))
+    to = el ? top.indexOf(el) : -1
+  }
+  if (to < 0 || to < liveFrom) structureError()
+  return { from: liveFrom, to, blocks: blocks.slice(blockFrom, blockTo) }
+}
+
+function liveIndexOf(top: Y.XmlElement[], live: Map<string, Y.XmlElement>, b: AnyBlock): number {
+  const el = live.get(String(b.id))
+  const idx = el ? top.indexOf(el) : -1
+  if (idx < 0) structureError()
+  return idx
+}
+
+/** Validates a patched copy: known blocks all survive a BlockNote read; edited/inserted ones read back as asked. */
+function validate(doc: Y.Doc, expect: Ctx['expect']): string | null {
+  // ids of containers whose content node the server schema knows (and whose ancestors it knows)
+  const schema = getServerEditor().editor.pmSchema
+  const knownIds: string[] = []
+  const walk = (group: Y.XmlElement) => {
+    for (const c of group.toArray()) {
+      if (!isEl(c, 'blockContainer')) continue
+      const cn = contentNode(c)
+      if (!cn || !schema.nodes[cn.nodeName]) continue
+      const id = c.getAttribute('id')
+      if (typeof id === 'string') knownIds.push(id)
+      const g = childGroup(c)
+      if (g) walk(g)
+    }
+  }
+  walk(topGroup(doc))
+  const blocks = readBlocks(doc)
+  const byId = new Map<string, AnyBlock>()
+  const index = (bs: AnyBlock[]) => {
+    for (const b of bs) {
+      byId.set(String(b.id), b)
+      index(b.children ?? [])
+    }
+  }
+  index(blocks)
+  for (const id of knownIds) if (!byId.has(id)) return `block ${id} did not survive the read`
+  for (const e of expect) {
+    const got = byId.get(e.id)
+    if (!got) return `block ${e.id} missing`
+    if (!e.block) continue
+    const norm = (b: AnyBlock) => blocksToLightMarkdown([{ ...b, type: pairType(b.type ?? ''), children: [] }])
+    if (norm(got) !== norm(e.block)) return `block ${e.id} reads back as ${JSON.stringify(norm(got))}, expected ${JSON.stringify(norm(e.block))}`
+  }
+  return null
+}
+
+/**
+ * Applies a section patch to a Y.Doc (normally the live document inside DirectConnection.transact).
+ * Synchronous, so the version check and the edit are atomic with respect to other edits in this
+ * process. `echo` (buildEchoIndex, computed beforehand) lets untouched blocks be recognized through
+ * the lossy Markdown round trip; without it every block of the section is diffed (still minimal).
+ */
+export function applySectionPatch(
+  doc: Y.Doc,
+  ref: string,
+  incoming: AnyBlock[],
+  mode: PatchMode,
+  baseVersion: string | undefined,
+  echo: EchoIndex | null = null,
+  opts: { strategy?: 'merge' | 'splice' } = {},
+): PatchOutcome {
+  const blocks = readBlocks(doc)
+  const sections = splitSections(blocks)
+  const sec = findSection(sections, ref)
+  if (!sec) return { status: 'not_found', sections }
+  if (baseVersion && baseVersion !== sec.version) return { status: 'conflict', section: sec, blocks }
+  if (mode !== 'delete' && incoming.length === 0) throw badRequest('markdown is empty; use mode=delete to remove a section')
+
+  const group = topGroup(doc)
+  const top = group.toArray() as Y.XmlElement[]
+  const live = new Map<string, Y.XmlElement>()
+  indexContainers(group, live)
+  const isIntro = sec.level === 0
+  const secLive = isIntro ? 0 : liveIndexOf(top, live, blocks[sec.start])
+  const bodyLive = isIntro ? 0 : secLive + 1
+  const bodyBlock = isIntro ? sec.start : sec.start + 1
+
+  const stats: PatchStats = { strategy: 'insert', kept: 0, edited: 0, inserted: 0, deleted: 0 }
+  let firstNewId: string | null = null
+
+  if (mode === 'delete') {
+    const r = liveRange(top, live, blocks, sec.start, sec.end, secLive)
+    doc.transact(() => {
+      group.delete(r.from, r.to - r.from)
+      if (group.length === 0) {
+        const { tmp, els } = buildIncoming([{ type: 'paragraph', content: [] }])
+        group.insert(0, els.map((e) => e.clone()))
+        tmp.destroy()
+      }
+    })
+    stats.strategy = 'delete'
+    stats.deleted = r.to - r.from
+  } else if (mode !== 'replace') {
+    const { tmp, els } = buildIncoming(incoming)
+    const at = mode === 'prepend' ? bodyLive : liveRange(top, live, blocks, sec.start, sec.end, secLive).to
+    const clones = els.map((e) => e.clone())
+    doc.transact(() => group.insert(at, clones))
+    firstNewId = (clones[0]?.getAttribute('id') as string | undefined) ?? null
+    tmp.destroy()
+    stats.inserted = countBlocks(incoming)
+  } else {
+    // A leading heading in the new Markdown replaces the section heading too.
+    const replacesHeading = !isIntro && incoming[0]?.type === 'heading'
+    const r = replacesHeading
+      ? liveRange(top, live, blocks, sec.start, sec.end, secLive)
+      : liveRange(top, live, blocks, bodyBlock, sec.end, bodyLive)
+    const { tmp, els, read } = buildIncoming(incoming)
+    try {
+      if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
+      /** Runs the edit on `target` (one transaction); returns its stats, expectations and first new id. */
+      const editOn = (target: Y.Doc, strategy: 'merge' | 'splice') => {
+        const tGroup = topGroup(target)
+        const tTop = tGroup.toArray() as Y.XmlElement[]
+        const tLive = new Map<string, Y.XmlElement>()
+        indexContainers(tGroup, tLive)
+        const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [] }
+        const startRef = r.from > 0 ? tTop[r.from - 1] : null
+        target.transact(() => {
+          if (strategy === 'merge') {
+            syncList(tGroup, r.blocks, read, els, startRef, ctx)
+          } else {
+            // fallback: the visible blocks of the range are replaced; unknown containers stay
+            const olds = r.blocks.map((b) => tLive.get(String(b.id))!)
+            const clones = els.map((e) => e.clone())
+            tGroup.insertAfter(startRef, clones)
+            for (const el of olds) {
+              const idx = tGroup.toArray().indexOf(el)
+              if (idx >= 0) tGroup.delete(idx, 1)
+            }
+            ctx.stats.inserted = countBlocks(read)
+            ctx.stats.deleted = countBlocks(r.blocks)
+            clones.forEach((c, n) => ctx.expect.push({ id: String(c.getAttribute('id')), block: read[n] }))
+          }
+        })
+        // first new or kept top-level block of the range after the edit
+        const firstEl = (tGroup.toArray() as Y.XmlElement[]).find(
+          (el) => isEl(el, 'blockContainer') && ctx.expect.some((e) => e.id === el.getAttribute('id')),
+        )
+        return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null }
+      }
+      /** Dry run on a copy of the document; null when the result validates, else the problem. */
+      const dryRun = (strategy: 'merge' | 'splice'): string | null => {
+        const work = new Y.Doc()
+        Y.applyUpdate(work, Y.encodeStateAsUpdate(doc))
+        try {
+          const res = editOn(work, strategy)
+          return validate(work, res.expect)
+        } catch (err) {
+          return err instanceof Error ? err.message : String(err)
+        } finally {
+          work.destroy()
+        }
+      }
+      let strategy: 'merge' | 'splice' = opts.strategy ?? 'merge'
+      let problem = dryRun(strategy)
+      if (problem && strategy === 'merge') {
+        console.warn(`[patch_section] merge validation failed (${problem}); falling back to block replacement`)
+        strategy = 'splice'
+        problem = dryRun(strategy)
+      }
+      if (problem) throw badRequest(`Could not apply the patch (${problem}); nothing was changed. Use update_page instead.`)
+      // The same deterministic edit on the live document (same content, same structure as the copy),
+      // written by the live doc's own client so concurrent client edits merge as usual.
+      const res = editOn(doc, strategy)
+      Object.assign(stats, res.stats)
+      firstNewId = res.firstId
+    } finally {
+      tmp.destroy()
+    }
+  }
+
+  const after = readBlocks(doc)
+  const nextSections = splitSections(after)
+  // The patched section after the edit (by heading block id, else the section holding the first new block).
+  let next: Section | null = null
+  if (mode !== 'delete') {
+    const at = firstNewId ? after.findIndex((b) => b.id === firstNewId) : -1
+    next =
+      (sec.blockId ? nextSections.find((s) => s.blockId === sec.blockId) : undefined) ??
+      (at >= 0 ? nextSections.find((s) => s.start <= at && at < s.end) : undefined) ??
+      null
+  }
+  return { status: 'ok', section: next, sections: nextSections, stats }
+}

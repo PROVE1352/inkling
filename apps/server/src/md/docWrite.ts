@@ -3,6 +3,7 @@ import { hocuspocus } from '../collab'
 import { blocksToStateBuffer, blocksToXmlFragment } from './convert'
 import type { AnyBlock } from './convert'
 import { getServerEditor } from './editor'
+import { readBlocks } from '../context/sectionPatch'
 
 /**
  * Replace or append blocks in a live doc — the same safe path as snapshot restore.
@@ -17,25 +18,20 @@ export async function writeBlocksToDoc(
   incoming: AnyBlock[],
   mode: 'replace' | 'append',
 ): Promise<AnyBlock[]> {
+  if (mode === 'append') {
+    // Append must never rewrite existing blocks: reading them through the server schema and writing
+    // them back drops callouts, page embeds and @mentions. Only an empty doc is replaced.
+    if (!(await isEffectivelyEmpty(pageId))) {
+      if (incoming.length === 0) return readPageBlocks(pageId)
+      return appendBlocksToDoc(pageId, incoming)
+    }
+  }
   let result: AnyBlock[] = []
   const conn = await hocuspocus.openDirectConnection(pageId)
   try {
     await conn.transact((doc) => {
       const frag = doc.getXmlFragment('document')
-      let next: AnyBlock[]
-      if (mode === 'append') {
-        const existing = getServerEditor().yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
-        // Drop the lone empty paragraph of an empty doc before appending
-        const trimmed =
-          existing.length === 1 &&
-          existing[0].type === 'paragraph' &&
-          (!Array.isArray(existing[0].content) || existing[0].content.length === 0)
-            ? []
-            : existing
-        next = [...trimmed, ...incoming]
-      } else {
-        next = incoming
-      }
+      let next: AnyBlock[] = incoming
       if (next.length === 0) next = [{ type: 'paragraph', content: [] }]
       // Check full conversion first (throwaway doc) — if this throws, the live doc is untouched.
       blocksToStateBuffer(next)
@@ -44,7 +40,8 @@ export async function writeBlocksToDoc(
         frag.delete(0, frag.length)
         blocksToXmlFragment(next, frag)
       })
-      result = getServerEditor().yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
+      // Read a copy: yDocToBlocks on the live doc deletes nodes the server schema does not know.
+      result = readBlocks(doc)
     })
   } finally {
     await conn.disconnect()
@@ -120,7 +117,7 @@ export async function appendBlocksToDoc(pageId: string, incoming: AnyBlock[]): P
     await conn.transact((doc) => {
       try {
         doc.transact(() => appendContainers(doc, incoming))
-        result = editor.yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
+        result = readBlocks(doc)
       } catch (err) {
         failure = err
       }
@@ -130,4 +127,35 @@ export async function appendBlocksToDoc(pageId: string, incoming: AnyBlock[]): P
     await conn.disconnect()
   }
   return result
+}
+
+/** Blocks of a page, read from a copy of the live doc (never mutates it). */
+async function readPageBlocks(pageId: string): Promise<AnyBlock[]> {
+  const conn = await hocuspocus.openDirectConnection(pageId)
+  try {
+    const live = conn.document
+    if (!live) throw new Error('Could not open the document')
+    return readBlocks(live)
+  } finally {
+    await conn.disconnect()
+  }
+}
+
+/** True for a never-edited doc or one holding only a single empty paragraph. */
+async function isEffectivelyEmpty(pageId: string): Promise<boolean> {
+  const conn = await hocuspocus.openDirectConnection(pageId)
+  try {
+    const live = conn.document
+    if (!live) throw new Error('Could not open the document')
+    if (live.getXmlFragment('document').length === 0) return true
+    const blocks = readBlocks(live)
+    return (
+      blocks.length === 1 &&
+      blocks[0].type === 'paragraph' &&
+      (!Array.isArray(blocks[0].content) || blocks[0].content.length === 0) &&
+      (!Array.isArray(blocks[0].children) || blocks[0].children.length === 0)
+    )
+  } finally {
+    await conn.disconnect()
+  }
 }

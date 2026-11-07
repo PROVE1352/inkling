@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router'
 import { ApiError, useMe, useOAuthAuthorize, useOAuthClientInfo } from '../api'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
-import { useT } from '../i18n'
+import { fmtList, useT } from '../i18n'
 
 /**
  * OAuth consent screen for MCP connectors (/oauth/authorize).
@@ -118,12 +118,34 @@ export function OAuthAuthorize() {
     )
   } else {
     const name = info.data.client.name
+    const notice = info.data.nameNotice
     body = (
       <>
         <p className="text-sm text-ink">
           <strong className="font-semibold">{name}</strong>
           {t('oauth.requestSuffix')}
         </p>
+        {notice && (
+          // The app name equals a member's display name: warn (common names) or say where it will be refused.
+          <p
+            role="alert"
+            data-testid="oauth-name-notice"
+            className={`rounded-md border px-2.5 py-2 text-xs leading-relaxed ${
+              notice.blocking
+                ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+                : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+            }`}
+          >
+            {notice.blocking
+              ? t('oauth.nameNoticeBlock', { member: notice.member, workspaces: fmtList(notice.workspaces) })
+              : t('oauth.nameNoticeWarn', {
+                  member: notice.member,
+                  workspaces: fmtList(notice.workspaces),
+                  you: me.data.name,
+                  app: name,
+                })}
+          </p>
+        )}
         <fieldset className="flex flex-col gap-1.5">
           <legend className="mb-1 text-xs font-medium text-ink">{t('oauth.accessLabel')}</legend>
           {(['write', 'read'] as const).map((opt) => (

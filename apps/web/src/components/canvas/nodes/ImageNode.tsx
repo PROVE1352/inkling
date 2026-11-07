@@ -2,6 +2,7 @@ import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { useT } from '../../../i18n'
 import type { RFNodeData } from '../types'
 import { borderColor } from '../canvasColors'
+import { useCanvasContext } from '../canvasContext'
 import { NodeHandles } from './NodeHandles'
 
 // Image dropped onto the canvas. src only accepts attachments uploaded by this app (/files/<uuid>) —
@@ -13,6 +14,7 @@ const FILE_URL_RE =
 export function ImageNode({ data, selected }: NodeProps) {
   const t = useT()
   const d = data as RFNodeData
+  const { readOnly } = useCanvasContext()
   const url = typeof d.url === 'string' && FILE_URL_RE.test(d.url) ? d.url : null
 
   return (
@@ -21,7 +23,7 @@ export function ImageNode({ data, selected }: NodeProps) {
       style={{ borderColor: borderColor(d.color) }}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !readOnly}
         minWidth={60}
         minHeight={60}
         color="var(--color-accent)"

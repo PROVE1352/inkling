@@ -641,6 +641,21 @@ export type NotificationType =
   | 'backup_failed'
   /** An owner deleted a workspace you are a member of (restorable for 30 days) — docs/adr/0910-*. */
   | 'workspace_deleted'
+  // --- docs/adr/1000-* ---------------------------------------------------------------
+  /** Someone replied in a comment thread you took part in. */
+  | 'comment_reply'
+  /** You were made the owner of a document. */
+  | 'page_owner'
+  /** You were put in a person cell of a collection row (task assignment). */
+  | 'task_assigned'
+  /** A page you follow (level "all") changed; repeated edits collapse into one unread item. */
+  | 'page_update'
+  /** Daily summary of AI edits under a page you asked to watch. */
+  | 'agent_digest'
+  /** Reserved: an approval request addressed to you (passes mute). */
+  | 'approval_request'
+  /** Reserved: the decision on an approval you asked for. */
+  | 'approval_result'
 export interface NotificationDTO {
   id: string
   type: NotificationType
@@ -652,6 +667,16 @@ export interface NotificationDTO {
   actorName: string | null
   read: boolean
   createdAt: string
+  /** OAuth client name when an agent caused it ("Alice via Claude"). Additive (docs/adr/1000-*). */
+  via?: string | null
+  /** Collapsed repeats (e.g. 3 edits of a followed page). Additive. */
+  count?: number
+  /** Short plain excerpt (comment text, mentioning line, field name). Additive. */
+  excerpt?: string | null
+  /** Section anchor or block id inside the page. Additive. */
+  anchor?: string | null
+  /** Listed without a badge or mail (agent-written mentions, level "nothing"). Additive. */
+  quiet?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -830,3 +855,7 @@ export * from './query'
 export * from './embeds'
 export * from './workspaceAdmin'
 export * from './editLock'
+export * from './notifications'
+
+// Math (KaTeX) node names and the `$…$` rule shared by the editor and the server schema
+export * from './math'

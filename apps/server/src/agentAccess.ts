@@ -5,6 +5,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from './db/index'
 import { AppError } from './errors'
 import { BoundedLru } from './lru'
+import { clientNameClashesInWorkspace } from './clientName'
 
 /**
  * Per-workspace agent blocks (docs/adr/0947-*).
@@ -71,6 +72,8 @@ export function agentAllowedSql(workspaceIdCol: AnyPgColumn | SQL): SQL {
 // Access records are written at most once a minute per (workspace, grant), like oauth_grants.last_used_at.
 const TOUCH_INTERVAL_MS = 60_000
 const touched = new BoundedLru<true>(20_000, TOUCH_INTERVAL_MS)
+// Member-name clash per (workspace, client, user), re-checked at most once a minute (renames apply then).
+const nameClashes = new BoundedLru<boolean>(20_000, TOUCH_INTERVAL_MS)
 
 /**
  * Throws 403 AGENT_BLOCKED when the current agent connection is blocked in `workspaceId`;
@@ -83,6 +86,20 @@ export async function assertAgentAllowed(workspaceId: string): Promise<void> {
     blocked: boolean
   }[]
   if (rows[0]?.blocked) throw agentBlocked()
+  // A client named exactly like another member of this workspace is refused here only (docs/adr/1007-*).
+  const clashKey = `${workspaceId}:${scope.clientId}:${scope.userId}`
+  let clash = nameClashes.get(clashKey)
+  if (clash === undefined) {
+    clash = await clientNameClashesInWorkspace(scope.clientName, scope.userId, workspaceId)
+    nameClashes.set(clashKey, clash)
+  }
+  if (clash) {
+    throw new AppError(
+      403,
+      'CLIENT_NAME_CLASH',
+      `This connection is named "${scope.clientName}", the same as a member of this workspace, so it is refused here to keep authorship clear. Other workspaces are not affected; connect an app with a different name to work here`,
+    )
+  }
   const key = `${workspaceId}:${scope.grantId}`
   if (touched.get(key)) return
   touched.set(key, true)
@@ -96,4 +113,5 @@ export async function assertAgentAllowed(workspaceId: string): Promise<void> {
 /** Test hook: forget the once-a-minute throttle. */
 export function _resetAgentTouches(): void {
   touched.clear()
+  nameClashes.clear()
 }

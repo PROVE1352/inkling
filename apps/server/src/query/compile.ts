@@ -421,7 +421,6 @@ export function compileQuery(ast: QueryAst, ctx: CompileContext): CompiledQuery 
   const common = sql`"pages"."workspace_id" = ${ctx.workspaceId}
         AND "pages"."deleted_at" IS NULL
         AND ${vis}
-        AND "pages"."is_template" = '0'
         AND ${fromSql}
         AND ${whereSql}`
 

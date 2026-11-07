@@ -1,10 +1,11 @@
 {
   "name": "@inkling/shared",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./math": "./src/math.ts"
   },
   "scripts": {
     "build": "echo 'shared: consumed as TS source'",

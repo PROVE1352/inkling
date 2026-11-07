@@ -5,6 +5,7 @@ import type { CollectionField, CollectionViewDTO, RowDTO, ViewConfig } from '@in
 import { fmtDate, monthNames } from '../../i18n'
 import { applyView } from '../../lib/collection'
 import { useWindowedRows } from '../../lib/useWindowedRows'
+import { useCollectionReadOnly } from './readOnlyContext'
 import { S } from './strings'
 
 type Zoom = NonNullable<ViewConfig['zoom']>
@@ -58,8 +59,11 @@ export function TimelineView({
   onUpdateConfig: (config: ViewConfig) => void
 }) {
   const navigate = useNavigate()
+  const readOnly = useCollectionReadOnly()
   const config = view.config
-  const zoom: Zoom = config.zoom ?? 'week'
+  // Read-only: zoom is kept locally (the saved view config is a page write the lock denies).
+  const [localZoom, setLocalZoom] = useState<Zoom | null>(null)
+  const zoom: Zoom = (readOnly ? localZoom : null) ?? config.zoom ?? 'week'
   const ppd = PX_PER_DAY[zoom]
   const dateFields = fields.filter((f) => f.type === 'date')
   const startF = dateFields.find((f) => f.id === config.startFieldId) ?? dateFields[0]
@@ -228,7 +232,7 @@ export function TimelineView({
           <button
             key={z}
             type="button"
-            onClick={() => onUpdateConfig({ ...config, zoom: z })}
+            onClick={() => (readOnly ? setLocalZoom(z) : onUpdateConfig({ ...config, zoom: z }))}
             className={`rounded border px-2 py-0.5 text-xs ${
               zoom === z ? 'border-accent bg-accent-soft text-accent' : 'border-line text-sub hover:bg-hover'
             }`}
@@ -294,13 +298,17 @@ export function TimelineView({
                   <div
                     className="relative"
                     style={{ width: trackW, backgroundImage: gridBg }}
-                    onPointerDown={live ? undefined : (e) => schedule(e, row)}
-                    title={live ? undefined : S.noDates}
+                    onPointerDown={live || readOnly ? undefined : (e) => schedule(e, row)}
+                    title={live || readOnly ? undefined : S.noDates}
                   >
                     {live && (
                       <div
                         className={`absolute top-1 flex select-none items-center overflow-hidden rounded-md border border-accent/40 bg-accent-soft text-xs text-accent shadow-sm ${
-                          drag?.rowId === row.id ? 'cursor-grabbing opacity-90' : 'cursor-grab'
+                          readOnly
+                            ? 'cursor-pointer'
+                            : drag?.rowId === row.id
+                              ? 'cursor-grabbing opacity-90'
+                              : 'cursor-grab'
                         }`}
                         style={{
                           left: (live[0] - rangeStart) * ppd,
@@ -308,13 +316,14 @@ export function TimelineView({
                           height: ROW_H - 8,
                           touchAction: 'none',
                         }}
-                        onPointerDown={(e) => begin(e, row, 'move', base ?? live)}
-                        onPointerMove={onMove}
-                        onPointerUp={() => end(row)}
-                        onPointerCancel={() => setDrag(null)}
+                        onPointerDown={readOnly ? undefined : (e) => begin(e, row, 'move', base ?? live)}
+                        onPointerMove={readOnly ? undefined : onMove}
+                        onPointerUp={readOnly ? undefined : () => end(row)}
+                        onPointerCancel={readOnly ? undefined : () => setDrag(null)}
+                        onClick={readOnly ? () => navigate(`/w/${wsId}/p/${row.id}`) : undefined}
                         title={`${fmtDay(live[0], { dateStyle: 'medium' })}${live[1] !== live[0] ? ` → ${fmtDay(live[1], { dateStyle: 'medium' })}` : ''}`}
                       >
-                        {endF && (
+                        {endF && !readOnly && (
                           <span
                             className="absolute inset-y-0 left-0 w-2 cursor-ew-resize"
                             onPointerDown={(e) => begin(e, row, 'start', base ?? live)}
@@ -325,7 +334,7 @@ export function TimelineView({
                         {(live[1] - live[0] + 1) * ppd >= 72 && (
                           <span className="truncate px-2">{row.title || S.untitled}</span>
                         )}
-                        {endF && (
+                        {endF && !readOnly && (
                           <span
                             className="absolute inset-y-0 right-0 w-2 cursor-ew-resize"
                             onPointerDown={(e) => begin(e, row, 'end', base ?? live)}

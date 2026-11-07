@@ -23,6 +23,7 @@ import { applyView } from '../../lib/collection'
 import { toISODate, todayISODate } from '../../lib/time'
 import { useIsPhone } from '../../lib/useMediaQuery'
 import { ChevronRightIcon, PlusIcon } from '../Icons'
+import { useCollectionReadOnly } from './readOnlyContext'
 
 // Values are 'YYYY-MM-DD' strings (M3 convention). Build them from local fields (toISODate) to
 // avoid UTC drift, and do all matching/comparison on the strings (no toISOString / Date compares).
@@ -43,7 +44,8 @@ function Chip({ row, wsId }: { row: RowDTO; wsId: string }) {
   const t = useT()
   const navigate = useNavigate()
   const { activeId } = useContext(CalDnd)
-  const { setNodeRef, listeners, attributes } = useDraggable({ id: row.id })
+  const readOnly = useCollectionReadOnly()
+  const { setNodeRef, listeners, attributes } = useDraggable({ id: row.id, disabled: readOnly })
   const dragging = activeId === row.id
   return (
     <div
@@ -74,6 +76,7 @@ function DayCell({
 }) {
   const t = useT()
   const { overDay } = useContext(CalDnd)
+  const readOnly = useCollectionReadOnly()
   const { setNodeRef } = useDroppable({ id: `day:${cell.date}` })
   const active = overDay === cell.date
   const isPhone = useIsPhone()
@@ -99,16 +102,18 @@ function DayCell({
         >
           {cell.day}
         </span>
-        <button
-          type="button"
-          onClick={() => onCreate(cell.date)}
-          aria-label={t('calendarView.newRowOnDate')}
-          title={t('calendarView.newRowOnDate')}
-          // Touch has no hover, so the button used to be tapped while invisible; keep it faintly visible.
-          className="flex h-5 w-5 items-center justify-center rounded text-sub opacity-0 hover:bg-hover hover:text-ink group-hover/day:opacity-100 pointer-coarse:opacity-40"
-        >
-          <PlusIcon size={13} />
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => onCreate(cell.date)}
+            aria-label={t('calendarView.newRowOnDate')}
+            title={t('calendarView.newRowOnDate')}
+            // Touch has no hover, so the button used to be tapped while invisible; keep it faintly visible.
+            className="flex h-5 w-5 items-center justify-center rounded text-sub opacity-0 hover:bg-hover hover:text-ink group-hover/day:opacity-100 pointer-coarse:opacity-40"
+          >
+            <PlusIcon size={13} />
+          </button>
+        )}
       </div>
       <div className="flex min-h-0 flex-col gap-0.5">
         {shown.map((row) => (
@@ -141,6 +146,7 @@ export function CalendarView({
   onCreateRowOnDate: (dateFieldId: string, date: string) => void
 }) {
   const t = useT()
+  const readOnly = useCollectionReadOnly()
   // Month on screen (local time). {year, month0}
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
@@ -222,6 +228,7 @@ export function CalendarView({
         ) : (
           <select
             value=""
+            disabled={readOnly}
             onChange={(e) =>
               e.target.value &&
               onUpdateConfig({ ...view.config, dateFieldId: e.target.value })

@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { and, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { db, relaxStatementTimeout } from './db/index'
 import { files, notifications, sessions } from './db/schema'
 import { env } from './env'
@@ -11,6 +11,7 @@ import { purgeExpiredWorkspaces } from './workspaceDeletion'
 import { purgeOldChanges } from './context/changeLog'
 import { scanReviewDigests, scoreAllWorkspaces } from './review'
 import { flushReads, purgeOldReads } from './pageReads'
+import { runNotificationHousekeeping } from './notify/digest'
 
 const AUDIT_PURGE_BATCH = 5_000
 
@@ -103,7 +104,8 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
       .delete(notifications)
       .where(
         and(
-          eq(notifications.read, '1'),
+          // quiet items (no badge) are never "read" by anyone, so they age out the same way
+          or(eq(notifications.read, '1'), eq(notifications.delivery, 'quiet')),
           lt(notifications.createdAt, new Date(now.getTime() - READ_NOTIFICATION_TTL_MS)),
         ),
       )
@@ -129,6 +131,8 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     await scoreAllWorkspaces(now, log)
     const r = await scanReviewDigests(now, log)
     if (r) log(`[inkling] review digests: ${r} workspace(s)`)
+    // Notification mail sweeps, AI-edit summaries and digest mail (docs/adr/1004-*)
+    await runNotificationHousekeeping(now, log)
   } catch (err) {
     log(`[inkling] cleanup job failed: ${String(err)}`)
   }

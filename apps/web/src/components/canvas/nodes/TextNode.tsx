@@ -11,7 +11,7 @@ import { NodeHandles } from './NodeHandles'
 export function TextNode({ id, data, selected }: NodeProps) {
   const t = useT()
   const d = data as RFNodeData
-  const { commitText } = useCanvasContext()
+  const { commitText, readOnly } = useCanvasContext()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(d.text ?? '')
   const timerRef = useRef<number | undefined>(undefined)
@@ -49,10 +49,10 @@ export function TextNode({ id, data, selected }: NodeProps) {
     <div
       className="group h-full w-full overflow-hidden rounded-lg border text-sm text-ink shadow-sm"
       style={{ borderColor: borderColor(d.color), background: tintBackground(d.color) }}
-      onDoubleClick={startEdit}
+      onDoubleClick={readOnly ? undefined : startEdit}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !readOnly}
         minWidth={120}
         minHeight={60}
         color="var(--color-accent)"

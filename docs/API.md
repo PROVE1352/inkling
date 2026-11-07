@@ -376,8 +376,11 @@ commenting away from agents). The collab socket of a member who may not edit is 
 (first detection per page and rule, no actor).
 
 OAuth: `POST /oauth/register` refuses a `client_name` that folds to a reserved word (Inkling, Admin, System, …;
-400 `invalid_client_metadata`); `POST /api/oauth/authorize` refuses a client whose name folds to a member's display
-name in the user's workspaces (400 `CLIENT_NAME_RESERVED`).
+400 `invalid_client_metadata`); `POST /api/oauth/authorize` refuses the same reserved words (400
+`CLIENT_NAME_RESERVED`). A client named exactly like another member is refused per workspace at request time
+(403 `CLIENT_NAME_CLASH`, only in workspaces where that member is; common app names such as Claude are exempt), and
+`GET /api/oauth/authorize/info` adds `nameNotice: { member, workspaces[], blocking } | null` for the consent screen
+(docs/adr/1007-*).
 
 ## Provenance (docs/adr/0936-*)
 
@@ -389,6 +392,35 @@ name in the user's workspaces (400 `CLIENT_NAME_RESERVED`).
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/changes?cursor&workspaceId&budget&detail` | Changes since a cursor (net per-section diffs within a token budget; `detail` = `none` \| `diff` (default) \| `full`). No cursor → current cursor. Returns `{ status: 'start'\|'ok'\|'resync_required', cursor, text, changes, detailed, listedOnly, rows, more }`. 400 `INVALID_CURSOR` / `CURSOR_WORKSPACE`; `workspaceId` → membership required. Only pages visible at change time are reported; pages no longer visible appear as `removed (no longer visible)` without content. Rows are kept `CHANGE_FEED_RETENTION_DAYS` (default 30) |
+
+## Notifications, subscriptions, activity and the agent inbox (docs/adr/1000–1007)
+
+Notification rows are written by a background queue after the write that caused them (comments, body @mentions,
+document owner, person cells, followed-page edits). `NotificationDTO` adds `via`, `count` (collapsed repeats),
+`excerpt` (≤ 200 plain characters), `anchor` and `quiet` (listed without a badge: agent-written mentions and level
+`nothing`). The unread count ignores quiet rows. New types: `comment_reply`, `page_owner`, `task_assigned`,
+`page_update`, `agent_digest`, reserved `approval_request` (passes mute) and `approval_result`; `doc_mention` is now
+produced.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/api/me/notification-settings` | – | `NotificationSettingsDTO { emailInstant, emailDigest: 'off'\|'daily'\|'weekly', mailAvailable, subscriptions: SubscriptionDTO[] }` (session cookie only) |
+| PATCH | `/api/me/notification-settings` | `{ emailInstant?, emailDigest? }` | same DTO; turning a channel off drops what was waiting for it |
+| GET | `/api/pages/:id/subscription` | – | `PageSubscriptionDTO { own, effective: {level, source: page\|ancestor\|workspace\|default, fromPageId, fromTitle}, agentDigest, implicit }` (session only) |
+| PUT | `/api/pages/:id/subscription` | `{ level: 'all'\|'mentions'\|'nothing'\|'mute'\|null, subtree?, agentDigest? }` | same; `level: null` removes my row (inherit). "Follow" = `all` |
+| GET / PUT | `/api/workspaces/:id/notification-level` | PUT `{ level, agentDigest? }` | `{ level, agentDigest, isDefault }` — my default for the workspace (session only) |
+| GET | `/api/workspaces/:id/activity` | `before, limit (≤100), actor=any\|human\|ai, via, userId, rootId, kind=any\|edit\|page, aiPagesOnly=1` | `ActivityPageDTO { items: ActivityItemDTO[], next, clients }` newest first; rows of other people's private pages are never listed, titles only for pages visible now |
+| GET | `/api/changes/:seq/diff` | – | `ChangeDiffDTO { before, after, ops: [{t:'='\|'-'\|'+', s}] \| null, large, … }`; 404 unless the page is visible now and the row was visible when logged |
+| GET | `/api/pages/:id/snapshots/:sid/diff` | `against=current\|<snapshot id>` | `SnapshotDiffDTO { from, to, ops, large }` (Markdown of both versions, line diff) |
+| GET | `/api/pages/:id/provenance` | – | `PageProvenanceDTO { createdVia, createdByName, lastAgentEdit: {at, via, actorName} \| null }` |
+| GET | `/api/inbox` | `workspaceId?, cursor?, kinds=mention,reply,comment,assigned,…` | `{ items: InboxItem[], more, unacked }` — unacknowledged direct items of the caller in `seq` order (MCP `inbox`) |
+| POST | `/api/inbox/ack` | `{ ids?: string[], cursor?: string }` | `{ acked }` — sets `acked_at`; does not touch `read` |
+
+`PATCH /api/comments/:id` with `resolved` from an agent (bearer) request: 403 `AGENT_RESOLVE_NOT_ALLOWED` unless the
+thread root was written by the token's user. `PageMetaDTO`s are unchanged; `pages.created_via` is set for pages
+created through MCP (`POST /api/pages`, import, import-folder, from-template). Webhook events add `assigned` and
+`agent_digest` (daily). Mail needs SMTP; links use APP_URL/PUBLIC_URL; `NOTIFY_MAIL_DELAY_MS` (default 120000)
+delays instant mail so a burst becomes one message and reading in the app first cancels it.
 
 # Public folder sharing (2026-09-23)
 

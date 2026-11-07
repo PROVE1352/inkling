@@ -130,7 +130,7 @@ export async function computeReviewScores(workspaceId: string, now = new Date(),
         FROM pages p
         LEFT JOIN pages parent ON parent.id = p.parent_id
         LEFT JOIN page_texts t ON t.page_id = p.id
-       WHERE p.workspace_id = ${workspaceId} AND p.deleted_at IS NULL AND p.kind = 'doc' AND p.is_template = '0'
+       WHERE p.workspace_id = ${workspaceId} AND p.deleted_at IS NULL AND p.kind = 'doc'
          AND (parent.id IS NULL OR parent.kind <> 'collection') ${only}
     ),
     chg AS (

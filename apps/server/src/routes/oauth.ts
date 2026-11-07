@@ -7,7 +7,8 @@ import { db } from '../db/index'
 import { oauthClients, oauthCodes, oauthGrants } from '../db/schema'
 import { AppError, forbidden, notFound } from '../errors'
 import { recordFailure } from '../guard'
-import { memberNameClash, reservedClientName } from '../clientName'
+import { isWellKnownClient, memberNameClashes, reservedClientName } from '../clientName'
+import type { ClientNameNotice } from '@inkling/shared'
 import { idParam } from '../helpers'
 import {
   ACCESS_TOKEN_TTL_MS,
@@ -360,8 +361,14 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
   app.get('/oauth/authorize/info', { preHandler: requireCookieUser }, async (req) => {
     const q = authorizeInfoQuerySchema.parse(req.query)
     const client = await validateClientRedirect(q.client_id, q.redirect_uri)
+    const user = getUser(req)
+    const clash = await memberNameClashes(client.name, user.id)
+    const nameNotice: ClientNameNotice | null = clash
+      ? { member: clash.member, workspaces: clash.workspaces.map((w) => w.name), blocking: !isWellKnownClient(client.name) }
+      : null
     return {
       client: { id: client.id, name: client.name },
+      nameNotice,
       redirectHost: new URL(q.redirect_uri).host,
       // 'read' = the client asked only for read access → the consent screen offers read-only only
       requestedAccess: requestedAccess(q.scope),
@@ -390,11 +397,13 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       }
       // A client named like a member would make its writes read as that person's (docs/adr/0978-*).
       const [client] = await db.select({ name: oauthClients.name }).from(oauthClients).where(eq(oauthClients.id, b.client_id)).limit(1)
-      if (client && ((reservedClientName(client.name)) || (await memberNameClash(client.name, user.id)))) {
+      // Product/operator names are refused everywhere; a member's name is handled per workspace at
+      // request time and shown as a notice on the consent screen (docs/adr/1007-*).
+      if (client && reservedClientName(client.name)) {
         throw new AppError(
           400,
           'CLIENT_NAME_RESERVED',
-          `This app calls itself "${client.name}", which matches a reserved name or a member of your workspaces. Connect an app with its own name.`,
+          `This app calls itself "${client.name}", which matches a reserved name. Connect an app with its own name.`,
         )
       }
       if (b.response_type !== 'code') {

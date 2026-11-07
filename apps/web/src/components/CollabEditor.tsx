@@ -18,6 +18,7 @@ import { qk, uploadFile } from '../api'
 import { userColor } from '../lib/colors'
 import { openCollab, readStatus, readUsers, sameUsers } from '../lib/collabSocket'
 import { capUndoHistory } from '../lib/undoCap'
+import { pinAnchor } from '../lib/pinAnchor'
 import { useTheme } from '../lib/theme'
 import { pageEmbedSpec } from './blocks/PageEmbed'
 import { mentionSpec } from './blocks/Mention'
@@ -25,6 +26,7 @@ import { calloutSpec } from './blocks/Callout'
 import { QueryBlockPortals, queryCodeBlockSpec } from './blocks/QueryBlock'
 import { handleUrlPaste, linkEmbedSpec } from './blocks/LinkEmbed'
 import { pluginBlockSpec } from '../plugins/PluginBlock'
+import { inlineMathSpec, mathBlockSpec } from './blocks/Math'
 import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
 import { MentionMenu } from './MentionMenu'
@@ -65,12 +67,17 @@ const schema = BlockNoteSchema.create({
     pluginBlock: pluginBlockSpec,
     // Link embed / preview card (YouTube, Figma, … or OG card). docs/adr/0501-*, 0502-*
     linkEmbed: linkEmbedSpec,
+    // Display equation (KaTeX). Also in the server schema (same config from @inkling/shared), so
+    // server reads keep it and Markdown writes it as $$…$$ (docs/adr/0995-*, 0996-*).
+    math: mathBlockSpec,
   },
   // @mention inline (M13). Like pageEmbed it is not in the server schema, but y-prosemirror safely
   // drops unknown inline XmlElements (only the mention is lost on a round trip — see the report).
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     mention: mentionSpec,
+    // Inline equation `$…$`, known to the server schema like the math block.
+    inlineMath: inlineMathSpec,
   },
 })
 
@@ -271,9 +278,15 @@ function CollabEditorBody({
     let tries = 0
     let timer = 0
     const tick = () => {
-      const el = document.querySelector(`.bn-block-outer[data-id="${CSS.escape(anchorBlock)}"], [data-id="${CSS.escape(anchorBlock)}"]`)
+      const find = () =>
+        document.querySelector(`.bn-block-outer[data-id="${CSS.escape(anchorBlock)}"], [data-id="${CSS.escape(anchorBlock)}"]`)
+      const el = find()
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // instant, then held in place while content above still renders (lib/pinAnchor.ts):
+        // a smooth scroll aims at a position that moves while it runs
+        // (it ends by itself or on user input, not when the param is removed below)
+        el.scrollIntoView({ block: 'center' })
+        pinAnchor(find)
         el.classList.add('nd-block-flash')
         window.setTimeout(() => el.classList.remove('nd-block-flash'), 1600)
       }

@@ -3,6 +3,7 @@ import type { CollectionField, MemberDTO } from '@inkling/shared'
 import { useT } from '../../../i18n'
 import { CheckIcon } from '../../Icons'
 import { FieldValue, OptionBadge } from './FieldValue'
+import { useCollectionReadOnly } from '../readOnlyContext'
 import { RelationCell, RollupValue } from './RelationCell'
 
 const CELL_BTN =
@@ -18,6 +19,8 @@ export type FieldCellProps = {
   onCommit: (value: unknown) => void
   // Add a select/multiSelect option → returns the new optionId (fields PUT). Omit to hide the add UI.
   onAddOption?: (name: string) => string
+  // Display only (page edit lock, docs/adr/0970-*). Also on inside a read-only CollectionView.
+  readOnly?: boolean
 }
 
 function useOutsideClose(
@@ -406,6 +409,14 @@ function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
 
 // Dispatches to the inline cell editor for each field type.
 export function FieldCell(props: FieldCellProps) {
+  const ctxReadOnly = useCollectionReadOnly()
+  if (props.readOnly || ctxReadOnly) {
+    return (
+      <div className="flex min-h-[30px] w-full min-w-0 items-center px-2 py-1">
+        <FieldValue field={props.field} value={props.value} members={props.members} />
+      </div>
+    )
+  }
   switch (props.field.type) {
     case 'checkbox':
       return <CheckboxCell {...props} />

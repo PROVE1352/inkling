@@ -42,7 +42,11 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 | `update_row` / `create_row` | write | Set / add collection row properties by name; `update_row` needs `baseVersion` |
 | `rename_page` / `move_page` | write | Rename / move within the same workspace |
 | `trash_page` | write | Move to trash (restorable for 30 days). **There is no permanent-delete tool** |
-| `add_comment` | write | Comment on a page |
+| `add_comment` | write | Start a comment thread; `section` anchors it to that section's heading (`text`, or the older `body`) |
+| `list_comments` | read | Threads of a page, one line each (`t:<id> \| §section \| open/resolved \| author (via client) \| replies`) plus the text as untrusted data; `section`, `status` = open (default) / resolved / all |
+| `reply_comment` / `resolve_comment` | write | Reply in a thread; resolve (or reopen) a thread — agents may resolve only threads their person started |
+| `inbox` | read | Mentions, replies, comments on your person's pages and assignments, not yet acknowledged, after `cursor`; one line each with `can: edit/comment/read`; cursor on the last line. `kinds`, `budget` (default 2,000) |
+| `ack` | write | Acknowledge inbox items by `ids` or up to a `cursor` (does not mark them read for the person) |
 | `create_from_template` | write | A page or page tree from a template |
 
 Tokens are for `/mcp` only. Calling the REST API directly with the same token is rejected (no member management, public sharing or admin features).
@@ -68,6 +72,22 @@ Spend calls and tokens in this order (the server instructions say the same):
    `find_context`/`read_pages`.
 5. Collections: `query_rows(collectionId, describe=true)` for the schema, then filtered pages of rows; change
    them with `update_row(rowId, properties, baseVersion)`.
+6. **What people asked of your person**: `inbox(cursor)` lists mentions, replies, comments on their pages and
+   assignments (each with `can:` from the edit lock). Handle what is yours, then `ack(cursor)` — acknowledging is
+   separate from the person's read mark. Your own `@Name` text and mention chips never ping people (they reach them
+   quietly and in their digest); reply in their thread or comment instead. Review threads: `list_comments(pageId,
+   section)`, answer with `reply_comment`; leave other people's threads for them to resolve.
+
+**Math** ([ADR 0996](adr/0996-math-markdown-notation.md)): `read_page`, `read_pages`, `find_context` and
+`changes_since` show equations as LaTeX, and `create_page`, `update_page` and `patch_section` accept the same:
+
+- a display equation is `$$` on its own line, the LaTeX (line breaks allowed), `$$` on its own line
+  (`$$x^2$$` alone on a line also works);
+- an inline equation is `$x^2$` — no space after the opening or before the closing `$`;
+- prices stay text: `$5 and $10` is not math (the closing `$` must not be followed by a digit). A literal `$` that
+  would otherwise start math is written `\$`, and the output uses `\$` where needed;
+- `$` inside code spans and fenced code is never math, and ```` ```latex ```` code blocks stay code;
+- in a table cell write `\vert` / `\Vert` instead of `|` / `\|`.
 
 Errors tell you the next step (for example "page not found or not visible to you; use find_context to get a valid id").
 Token numbers in tool output are estimates (ASCII characters / 4, one per Korean/CJK character).
@@ -115,8 +135,10 @@ Settings → MCP connections and connecting again.
 
 ### Attribution
 
-Edits and comments made through MCP are labelled "<you> (via <app name>)" in version history, comments and the
-change feed. An append by an agent adds an "AI edit" snapshot (at most one per page every 10 minutes); a
+Edits, comments and created pages made through MCP are labelled "<you> (via <app name>)" in version history,
+comments, the change feed and the activity screen; pages you create show "Written by AI (via <app name>)". A
+connection named exactly like another member of a workspace is refused in that workspace (`CLIENT_NAME_CLASH`)
+unless it is a common app name. An append by an agent adds an "AI edit" snapshot (at most one per page every 10 minutes); a
 replace keeps the "Before AI edit" snapshot.
 
 ## Disconnecting

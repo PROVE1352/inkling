@@ -218,6 +218,20 @@
       "when": 1794027776422,
       "tag": "0030_edit_lock_instructions",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794031211192,
+      "tag": "0031_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794033924435,
+      "tag": "0032_drop_page_is_template",
+      "breakpoints": true
     }
   ]
 }

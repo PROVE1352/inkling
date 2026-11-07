@@ -7,8 +7,10 @@ import {
   useSnapshotPreview,
   useSnapshots,
 } from '../api'
+import { useSnapshotDiff } from '../notificationsApi'
 import { relativeTime } from '../lib/time'
 import { ConfirmPopover } from './ConfirmPopover'
+import { DiffView } from './DiffView'
 import { HistoryIcon, RestoreIcon, XIcon } from './Icons'
 import { Spinner } from './Spinner'
 import { t, useT, type TKey } from '../i18n'
@@ -65,7 +67,10 @@ export function HistoryModal({
   const [selected, setSelected] = useState<string | null>(initialSid ?? null)
   const [error, setError] = useState<string | null>(null)
   const [confirmRestore, setConfirmRestore] = useState(false)
-  const preview = useSnapshotPreview(pageId, open ? selected : null)
+  // 'diff' = compare the selected snapshot with the current document (docs/adr/1004-*).
+  const [mode, setMode] = useState<'preview' | 'diff'>('preview')
+  const preview = useSnapshotPreview(pageId, open && mode === 'preview' ? selected : null)
+  const diff = useSnapshotDiff(pageId, open && mode === 'diff' ? selected : null, 'current')
 
   useEffect(() => {
     if (!open) return
@@ -176,10 +181,39 @@ export function HistoryModal({
 
           {/* preview */}
           <div className="min-h-0 flex-1 overflow-y-auto">
+            {selected && (
+              <div className="sticky top-0 z-10 flex justify-end gap-1 border-b border-line bg-app px-3 py-1.5">
+                {(['preview', 'diff'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    aria-pressed={mode === m}
+                    className={`rounded-md px-2 py-0.5 text-xs transition-colors duration-150 ${
+                      mode === m ? 'bg-active font-medium text-ink' : 'text-sub hover:bg-hover hover:text-ink'
+                    }`}
+                  >
+                    {m === 'preview' ? t('historyDiff.preview') : t('historyDiff.compare')}
+                  </button>
+                ))}
+              </div>
+            )}
             {!selected ? (
               <p className="px-4 py-10 text-center text-xs text-sub">
                 {t('history.selectHint')}
               </p>
+            ) : mode === 'diff' ? (
+              diff.isLoading ? (
+                <div className="flex justify-center py-10">
+                  <Spinner size={18} />
+                </div>
+              ) : diff.isError || !diff.data ? (
+                <p className="px-4 py-10 text-center text-xs text-red-600">{t('diff.loadFailed')}</p>
+              ) : (
+                <div className="px-4 py-3">
+                  <DiffView ops={diff.data.ops} large={diff.data.large} />
+                </div>
+              )
             ) : preview.isLoading ? (
               <div className="flex justify-center py-10">
                 <Spinner size={18} />

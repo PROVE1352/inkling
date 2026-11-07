@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { pageChanges, pages } from '../db/schema'
 import { currentEditActor } from './attribution'
+import { notifyPageEdited } from '../notify/producers'
 import type { EditActor } from './attribution'
 import { computeSectionChanges } from './sectionChanges'
 import type { SectionChange } from './sectionChanges'
@@ -146,7 +147,17 @@ export function recordSectionChanges(delta: PageSectionDelta): Promise<void> {
   }
   const changes = computeSectionChanges(delta.before, delta.after)
   if (changes.length === 0) return Promise.resolve()
-  return serialized(() => writeSectionChanges(delta, changes, actor))
+  return serialized(() => writeSectionChanges(delta, changes, actor)).then(() =>
+    // Followers of the page and agent-written "@Name" (docs/adr/1001-*, 1002-*): queued, best effort.
+    notifyPageEdited({
+      pageId: delta.pageId,
+      workspaceId: delta.workspaceId,
+      actor,
+      sections: changes
+        .filter((c) => c.kind !== 'moved')
+        .map((c) => ({ anchor: c.anchor, before: c.before, after: c.after })),
+    }).catch((err) => console.error('[inkling] page update notification failed', delta.pageId, err)),
+  )
 }
 
 async function writePageAdded(delta: PageSectionDelta, actor: EditActor | null): Promise<void> {
@@ -156,7 +167,11 @@ async function writePageAdded(delta: PageSectionDelta, actor: EditActor | null):
   await db.execute(sql`
     INSERT INTO page_changes (workspace_id, page_id, anchor, heading_path, kind, after_text, large, scope, owner_id, actor_id, via_client)
     SELECT ${delta.workspaceId}, ${delta.pageId}, NULL, '', 'page_added', ${ok ? text : null}, ${!ok},
-           ${delta.scope}, ${delta.ownerId}, ${actor?.userId ?? null}, ${capVia(actor?.via)}
+           ${delta.scope}, ${delta.ownerId},
+           -- No in-flight writer (e.g. the page was created empty and filled later): the creator
+           -- and the client it was created through (pages.created_via, docs/adr/1005-*).
+           ${actor ? sql`${actor.userId}::uuid` : sql`(SELECT created_by FROM pages WHERE id = ${delta.pageId})`},
+           ${actor ? sql`${capVia(actor.via)}::text` : sql`(SELECT created_via FROM pages WHERE id = ${delta.pageId})`}
     WHERE NOT EXISTS (SELECT 1 FROM page_changes WHERE page_id = ${delta.pageId} AND kind = 'page_added')
   `)
 }

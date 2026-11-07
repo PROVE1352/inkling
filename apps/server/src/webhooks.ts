@@ -125,8 +125,12 @@ export interface WebhookEventInput {
   commentId?: string | null
   /** For 'mention': the mentioned user ids. */
   mentionedUserIds?: string[]
-  /** For 'review_due': every page in the digest (pageId is the first one). docs/adr/0952-* */
+  /** For 'review_due' / 'agent_digest': every page in the digest (pageId is the first one). docs/adr/0952-* */
   pageIds?: string[]
+  /** For 'assigned': the person field's name, or 'owner' (docs/adr/1000-*). */
+  field?: string | null
+  /** OAuth client name when an agent caused the event; shown as "Alice via X". */
+  via?: string | null
 }
 
 interface Message {
@@ -158,14 +162,15 @@ function plainExcerpt(body: string, max = 140): string {
  */
 async function buildMessage(ev: WebhookEventInput, hookWorkspaceId: string): Promise<Message | null> {
   if (ev.type === 'review_due') return buildReviewDigest(ev, hookWorkspaceId)
+  if (ev.type === 'agent_digest') return buildAgentDigest(ev, hookWorkspaceId)
   const page = (
     await db
-      .select({ id: pages.id, title: pages.title, scope: pages.scope, workspaceId: pages.workspaceId, deletedAt: pages.deletedAt, isTemplate: pages.isTemplate })
+      .select({ id: pages.id, title: pages.title, scope: pages.scope, workspaceId: pages.workspaceId, deletedAt: pages.deletedAt })
       .from(pages)
       .where(eq(pages.id, ev.pageId))
       .limit(1)
   )[0]
-  if (!page || page.deletedAt || page.scope !== 'shared' || page.isTemplate === '1') return null
+  if (!page || page.deletedAt || page.scope !== 'shared') return null
   if (page.workspaceId !== hookWorkspaceId || page.workspaceId !== ev.workspaceId) return null
 
   const ids = [ev.actorId, ...(ev.mentionedUserIds ?? [])].filter((x): x is string => !!x)
@@ -174,7 +179,8 @@ async function buildMessage(ev: WebhookEventInput, hookWorkspaceId: string): Pro
     const rows = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, [...new Set(ids)].slice(0, 50)))
     for (const r of rows) names.set(r.id, r.name)
   }
-  const actor = (ev.actorId && names.get(ev.actorId)) || 'Someone'
+  const actorName = (ev.actorId && names.get(ev.actorId)) || 'Someone'
+  const actor = ev.via ? `${actorName} via ${plainExcerpt(ev.via, 60)}` : actorName
   const title = page.title.trim() || 'Untitled'
   const origin = appOrigin()
   const link = origin ? `${origin}/w/${page.workspaceId}/p/${page.id}` : null
@@ -202,6 +208,12 @@ async function buildMessage(ev: WebhookEventInput, hookWorkspaceId: string): Pro
     case 'page_created':
       summary = `${actor} created "${title}"`
       break
+    case 'assigned': {
+      const who = (ev.mentionedUserIds ?? []).map((id) => names.get(id)).filter(Boolean).slice(0, 5)
+      const what = ev.field ? ` (${plainExcerpt(ev.field, 60)})` : ''
+      summary = who.length > 0 ? `${actor} assigned ${who.join(', ')} to "${title}"${what}` : `${actor} assigned someone to "${title}"${what}`
+      break
+    }
     default:
       return null
   }
@@ -228,7 +240,6 @@ async function buildReviewDigest(ev: WebhookEventInput, hookWorkspaceId: string)
         eq(pages.workspaceId, hookWorkspaceId),
         sql`${pages.deletedAt} is null`,
         eq(pages.scope, 'shared'),
-        eq(pages.isTemplate, '0'),
       ),
     )
   if (rows.length === 0) return null
@@ -244,6 +255,36 @@ async function buildReviewDigest(ev: WebhookEventInput, hookWorkspaceId: string)
     excerpt: plainExcerpt(listed.join(' · ') + (more > 0 ? ` (+${more} more)` : ''), 600),
     link: origin ? `${origin}/w/${hookWorkspaceId}/workspace-settings?tab=review` : null,
     title: 'Review due',
+  }
+}
+
+/** The daily AI-edit digest (docs/adr/1004-*): same per-page privacy gate as the review digest. */
+async function buildAgentDigest(ev: WebhookEventInput, hookWorkspaceId: string): Promise<Message | null> {
+  if (ev.workspaceId !== hookWorkspaceId) return null
+  const ids = [...new Set(ev.pageIds ?? [ev.pageId])].slice(0, 100)
+  if (ids.length === 0) return null
+  const rows = await db
+    .select({ id: pages.id, title: pages.title })
+    .from(pages)
+    .where(
+      and(
+        inArray(pages.id, ids),
+        eq(pages.workspaceId, hookWorkspaceId),
+        sql`${pages.deletedAt} is null`,
+        eq(pages.scope, 'shared'),
+      ),
+    )
+  if (rows.length === 0) return null
+  const order = new Map(ids.map((id, i) => [id, i]))
+  rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  const listed = rows.slice(0, DIGEST_LISTED).map((r) => r.title.trim() || 'Untitled')
+  const more = rows.length - listed.length
+  const origin = appOrigin()
+  return {
+    summary: `AI connections edited ${rows.length} page${rows.length === 1 ? '' : 's'} in the last day`,
+    excerpt: plainExcerpt(listed.join(' · ') + (more > 0 ? ` (+${more} more)` : ''), 600),
+    link: origin ? `${origin}/w/${hookWorkspaceId}/activity?actor=ai` : null,
+    title: 'AI activity',
   }
 }
 

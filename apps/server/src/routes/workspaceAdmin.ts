@@ -38,6 +38,7 @@ import { findVisiblePage } from '../pageDto'
 import { assertPageEditable } from '../editLock'
 import { computeReviewScores, ensureReviewScores, listReviewBucket, localISODate, pageReview } from '../review'
 import { countReads } from '../pageReads'
+import { notifyAssigned } from '../notify/producers'
 import {
   capabilitiesFor,
   diffFields,
@@ -433,8 +434,13 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
         if (row?.createdBy !== ownerId) throw badRequest('Only the author can own a private page')
       }
     }
+    const [prev] = await db.select({ ownerId: pages.ownerId }).from(pages).where(eq(pages.id, page.id)).limit(1)
     await db.update(pages).set({ ownerId }).where(eq(pages.id, page.id))
     await computeReviewScores(page.workspaceId, new Date(), [page.id])
+    // A new owner hears about it (docs/adr/1000-*); after the write, queued.
+    if (ownerId && ownerId !== prev?.ownerId) {
+      notifyAssigned({ workspaceId: page.workspaceId, pageId: page.id, actorId: user.id, via: user.via ?? null, kind: 'page_owner', userIds: [ownerId], field: 'owner' })
+    }
     return { review: await pageReview(page.id) }
   })
 

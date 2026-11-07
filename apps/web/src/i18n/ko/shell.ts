@@ -45,6 +45,7 @@ export default {
   'shortcuts.bold': '굵게',
   'shortcuts.italic': '기울임',
   'shortcuts.toggleCheckbox': '체크박스 토글',
+  'shortcuts.inlineMath': '인라인 수식 (선택한 글자를 수식으로)',
   'shortcuts.deleteBlock': '현재 블록 삭제',
   'shortcuts.undo': '실행취소',
 
@@ -235,7 +236,7 @@ export default {
   'notionImport.menu': 'Notion에서 가져오기 (.zip)',
   'notionImport.title': 'Notion 내보내기 가져오기',
   'notionImport.hint': 'Notion에서 설정 → 내보내기(또는 페이지 ⋯ → 내보내기) → "Markdown & CSV", 하위 페이지 포함, 하위 페이지용 폴더 만들기를 켜고 받은 .zip을 그대로 올리세요.',
-  'notionImport.limits': '페이지는 문서로, CSV 데이터베이스는 컬렉션으로, 이미지와 파일은 첨부로 들어옵니다. 콜아웃은 인용으로, 수식은 코드로 들어옵니다.',
+  'notionImport.limits': '페이지는 문서로, CSV 데이터베이스는 컬렉션으로, 이미지와 파일은 첨부로 들어옵니다. 콜아웃은 인용으로, 수식은 수식 블록과 인라인 수식으로 들어옵니다.',
   'notionImport.choose': '.zip 선택',
   'notionImport.importing': '가져오는 중…',
   'notionImport.failed': 'Notion 가져오기에 실패했습니다.',

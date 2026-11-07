@@ -25,6 +25,7 @@ import { midOrder } from '../../lib/sortOrder'
 import { OPTION_DOT_CLASS } from '../../lib/optionColors'
 import { PlusIcon } from '../Icons'
 import { FieldValue } from './cells/FieldValue'
+import { useCollectionReadOnly } from './readOnlyContext'
 import { S } from './strings'
 
 // Cards rendered per column before "Show more" (docs/adr/0709-*). A 10 000-row board rendered
@@ -55,7 +56,8 @@ function Card({
   const t = useT()
   const navigate = useNavigate()
   const { activeId } = useContext(BoardDnd)
-  const { setNodeRef, listeners, attributes } = useDraggable({ id: row.id })
+  const readOnly = useCollectionReadOnly()
+  const { setNodeRef, listeners, attributes } = useDraggable({ id: row.id, disabled: readOnly })
   const { setNodeRef: setDrop } = useDroppable({ id: row.id })
   const dragging = activeId === row.id
 
@@ -111,6 +113,7 @@ function ColumnView({
 }) {
   const t = useT()
   const { overCol } = useContext(BoardDnd)
+  const readOnly = useCollectionReadOnly()
   const { setNodeRef } = useDroppable({ id: colDropId(col.key) })
   const active = overCol === col.key
   const [limit, setLimit] = useState(BOARD_PAGE)
@@ -152,13 +155,15 @@ function ColumnView({
             {S.boardShowMore(Math.min(hidden, BOARD_PAGE))}
           </button>
         )}
-        <button
-          type="button"
-          onClick={onCreate}
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-left text-xs text-sub hover:bg-hover hover:text-ink"
-        >
-          <PlusIcon size={13} /> {t('table.newRow')}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onCreate}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-left text-xs text-sub hover:bg-hover hover:text-ink"
+          >
+            <PlusIcon size={13} /> {t('table.newRow')}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -186,6 +191,7 @@ export function BoardView({
   onReorderRow: (rowId: string, sortOrder: number) => void
 }) {
   const t = useT()
+  const readOnly = useCollectionReadOnly()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
   const sensors = useSensors(
@@ -243,6 +249,7 @@ export function BoardView({
         ) : (
           <select
             value=""
+            disabled={readOnly}
             onChange={(e) =>
               e.target.value &&
               onUpdateConfig({ ...view.config, groupByFieldId: e.target.value })

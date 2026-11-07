@@ -2,6 +2,7 @@ import { NodeResizer, type NodeProps } from '@xyflow/react'
 import type { RFNodeData } from '../types'
 import { borderColor, tintBackground } from '../canvasColors'
 import { LinkIcon } from '../../Icons'
+import { useCanvasContext } from '../canvasContext'
 import { NodeHandles } from './NodeHandles'
 
 function hostOf(url: string): string {
@@ -25,6 +26,7 @@ function isSafeUrl(url: string): boolean {
 // URL card (simple form: shows the domain). Click → new tab.
 export function LinkNode({ data, selected }: NodeProps) {
   const d = data as RFNodeData
+  const { readOnly } = useCanvasContext()
   const url = d.url ?? ''
 
   const open = () => {
@@ -38,7 +40,7 @@ export function LinkNode({ data, selected }: NodeProps) {
       onDoubleClick={open}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !readOnly}
         minWidth={140}
         minHeight={44}
         color="var(--color-accent)"

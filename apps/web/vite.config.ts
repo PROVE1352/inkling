@@ -4,8 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { createHash, randomBytes } from 'node:crypto'
 
-// Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import).
-const LAZY_ONLY = [/[\\/]@shikijs[\\/]langs/, /[\\/]@shikijs[\\/]themes/, /[\\/]exceljs[\\/]/]
+// Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import,
+// KaTeX for pages with math — lib/katex.ts).
+const LAZY_ONLY = [/[\\/]@shikijs[\\/]langs/, /[\\/]@shikijs[\\/]themes/, /[\\/]exceljs[\\/]/, /[\\/]katex[\\/](?!package\.json)/]
 
 // Build id (docs/adr/0990-build-id-and-version-header.md): INKLING_BUILD (e.g. a commit hash passed as
 // a Docker build-arg) or a hash of the build time — works without git. It is compiled into the

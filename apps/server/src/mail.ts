@@ -56,7 +56,7 @@ export interface MailContent {
 }
 
 /** Simple mail made of paragraphs + an optional highlighted code + a button link */
-function compose(opts: {
+export function compose(opts: {
   subject: string
   lines: string[]
   code?: { label: string; value: string }

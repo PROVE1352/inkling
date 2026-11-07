@@ -1768,6 +1768,8 @@ export interface OAuthClientInfo {
   redirectHost: string
   /** 'read' = the client asked only for read access (docs/adr/0935-*) */
   requestedAccess?: 'read' | 'write'
+  /** The app's name equals a member's display name (docs/adr/1000-*); absent on older servers. */
+  nameNotice?: import('@inkling/shared').ClientNameNotice | null
 }
 export interface OAuthGrantDTO {
   id: string

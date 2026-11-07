@@ -5,6 +5,51 @@ version is `0.x`, minor releases may change APIs, MCP tools and the database sch
 automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md); open problems in
 [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md).
 
+## [Unreleased]
+
+## [0.3.0] - 2026-11-07
+
+Database migrations 0031 (notifications) and 0032 (drops the unused `pages.is_template` column) are applied on
+first boot. Pages still flagged as legacy templates, if any, become normal pages (docs/adr/0920-*). Take a backup
+before upgrading ([docs/BACKUP.md](docs/BACKUP.md)).
+
+- Notifications (docs/adr/1000–1004): body @mentions now notify (people's right away; mentions an agent writes
+  arrive quietly and in the digest), plus replies in your threads, document owner and person-cell assignment, and
+  edits of pages you follow. Repeats collapse into one item per page or thread; hourly caps; only people who can see
+  the page are notified.
+- Subscriptions per page or subtree: all / mentions (default) / nothing / mute, "Follow", and a daily summary when AI
+  edits under a page. Mute also silences mentions; only approval requests addressed to you will pass it.
+- Mail: instant mail for mentions, replies and assignments (cancelled when read in the app first) and a daily or
+  weekly digest, with per-user settings in Settings → Notifications (en/ko). Servers without SMTP keep everything in
+  the app. Webhooks gain `assigned` and a daily `agent_digest`.
+- Activity screen: people's and AI changes newest first with filters (people/AI/client/member/subtree/kind/AI-created
+  pages) and a diff per change; version history can compare a snapshot with the current page; pages show "Written by
+  AI · last AI edit".
+- MCP: `inbox` / `ack` (agent inbox with a cursor), `list_comments`, `reply_comment`, `resolve_comment`, and
+  `add_comment(section)`. Agents can resolve only threads their person started. `create_page`, `import_folder` and
+  `create_from_template` now record the client (`via`) on the created pages.
+- Locked pages: canvas nodes, collection cells and the properties panel are read-only in the UI too.
+- OAuth client names: a client named like a member is refused only in the workspaces where that member is (exact
+  match), and common app names such as Claude only get a warning on the consent screen (docs/adr/1007-*).
+
+- Math (KaTeX, docs/adr/0995–0999): display equations ("Math block") and inline equations. Click one to edit its
+  LaTeX with a live preview; create them from the slash menu ("Math"/"수식"), with ⌘/Ctrl+Shift+E, or by typing
+  `$x^2$` (prices like `$5 and $10` stay text). Errors show the source and KaTeX's message; links, images, HTML
+  and macro definitions are refused. Rendered in the browser only (cached, time-sliced, paced per frame), in both
+  themes, on phones, on public share pages and in PDF/print. KaTeX and its fonts load only on pages with math.
+- Markdown and MCP: math is `$$ … $$` (block) and `$…$` (inline) in export, `read_page`/`find_context` output and
+  `update_page`/`patch_section`/import input ([docs/MCP.md](docs/MCP.md)); the server keeps math nodes when it reads
+  a document. Notion import now brings equations (and LaTeX code blocks) in as math instead of code. Existing
+  ```` ```latex ```` code blocks are not converted.
+- Jumping to a block (from the calendar, comments or `?block=`) now stays on the block while the page above it is
+  still rendering, instead of landing far away on long pages (docs/adr/0998-*).
+- Docs: performance log ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
+### Fixed
+- Security: the prompt-injection URL rules backtracked on crafted text (cubic time). 20 KB of text such as
+  `http://?` repeated took up to 19.5 s to index and blocked the server meanwhile; it now takes under 1 ms
+  (180 KB: about 3 ms). Detection is unchanged ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
 ## [0.2.0] - 2026-11-07
 
 Database migrations 0028–0030 are applied on first boot. Take a backup before upgrading
@@ -13,7 +58,8 @@ Database migrations 0028–0030 are applied on first boot. Take a backup before 
 ### Agents (MCP)
 - `find_context`: section-level retrieval that packs the most relevant sections into a token budget,
   instead of searching and reading whole pages. On a 5,000-page benchmark: about 72% fewer tokens per
-  question, one call instead of ~3.7, and the right section included 93% of the time (was 75%).
+  question, one call instead of ~3.7, and the expected answer was in the returned context for 93% of
+  questions (the old search-then-read flow: 75%).
   Benchmark script: `apps/server/scripts/context-bench.ts`.
 - `read_page` gained `outline`, `section` and `maxChars`; new `read_pages` for batch reads.
 - `changes_since`: cursor-based change feed with line diffs, so an agent can update its own notes

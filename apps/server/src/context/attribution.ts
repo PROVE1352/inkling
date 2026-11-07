@@ -42,3 +42,47 @@ export async function withEditActor<T>(pageIds: string[], actor: EditActor, fn: 
 export function currentEditActor(pageId: string): EditActor | undefined {
   return active.get(pageId)?.actor
 }
+
+/**
+ * People typing in the browser editor, per page (docs/adr/1002-*). Live typing reaches the index
+ * 8–30 s after the keystrokes with no request in flight, so the collab `onChange` hook notes who
+ * changed the document; notification producers use it to attribute body mentions to a person and
+ * to leave the editors themselves out of "page you follow changed". Bounded and short-lived.
+ */
+const LIVE_TTL_MS = 2 * 60_000
+const MAX_LIVE_PAGES = 5_000
+const live = new Map<string, Map<string, number>>()
+
+export function noteLiveEdit(pageId: string, userId: string, now = Date.now()): void {
+  let m = live.get(pageId)
+  if (!m) {
+    if (live.size >= MAX_LIVE_PAGES) {
+      const oldest = live.keys().next().value
+      if (oldest !== undefined) live.delete(oldest)
+    }
+    m = new Map()
+    live.set(pageId, m)
+  }
+  m.delete(userId)
+  m.set(userId, now)
+}
+
+/** Users who typed in the page within the last two minutes, most recent last. */
+export function liveEditors(pageId: string, now = Date.now()): string[] {
+  const m = live.get(pageId)
+  if (!m) return []
+  for (const [u, at] of m) if (now - at > LIVE_TTL_MS) m.delete(u)
+  if (m.size === 0) {
+    live.delete(pageId)
+    return []
+  }
+  return [...m.keys()]
+}
+
+/** Who made the edit being indexed now: the in-flight REST/MCP actor, else the latest live typist. */
+export function indexActor(pageId: string): EditActor | null {
+  const a = currentEditActor(pageId)
+  if (a) return a
+  const l = liveEditors(pageId)
+  return l.length ? { userId: l[l.length - 1], via: null } : null
+}

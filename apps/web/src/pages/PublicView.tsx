@@ -9,6 +9,7 @@ import { ChevronDownIcon, ChevronRightIcon, MenuIcon, XIcon } from '../component
 import { kindEmoji } from '../lib/pageIcon'
 import { findTreePath, usePublicChildPage } from '../lib/publicShare'
 import { safeUrl, sanitizeHtml } from '../lib/sanitizeHtml'
+import { renderMathIn } from '../lib/katex'
 import { t } from '../i18n'
 
 // Public (unauthenticated) read-only viewer — /s/:token (+ /s/:token/p/:ref for folder shares). Standalone page without sidebar/app shell.
@@ -105,6 +106,12 @@ function PublicArticle({
 }) {
   const html = useMemo(() => sanitizeHtml(data.html), [data.html])
   const coverUrl = data.coverUrl ? safeUrl(data.coverUrl, 'media') : null
+  // Equations arrive as their LaTeX source (data-latex); KaTeX renders them after sanitizing and
+  // loads only when the page has math (docs/adr/0997-*).
+  const body = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    return body.current ? renderMathIn(body.current) : undefined // on failure the source text stays
+  }, [html])
   return (
     <article className="nd-enter flex-1">
       {coverUrl && (
@@ -123,6 +130,7 @@ function PublicArticle({
 
         {/* Server-rendered HTML. .bn-container keeps a look similar to the editor. */}
         <div
+          ref={body}
           className="bn-container nd-public-body"
           onClick={onBodyClick}
           dangerouslySetInnerHTML={{ __html: html }}

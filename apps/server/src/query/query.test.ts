@@ -85,12 +85,11 @@ describe('query compiler', () => {
     assert.ok(params.some((p) => typeof p === 'string' && p.includes('DROP TABLE')))
   })
 
-  it('always filters by workspace, trash, templates and visibility', () => {
+  it('always filters by workspace, trash and visibility', () => {
     for (const q of ['LIST', 'TASK', 'TABLE file.folder FROM "A"']) {
       const { sql, params } = compile(q)
       assert.match(sql, /"pages"\."workspace_id" = \$/)
       assert.match(sql, /"pages"\."deleted_at" IS NULL/)
-      assert.match(sql, /"pages"\."is_template" = '0'/)
       assert.match(sql, /"pages"\."scope"/) // visibleTo
       assert.ok(params.includes(ctx.userId))
     }

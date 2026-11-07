@@ -10,7 +10,8 @@ export function CollectionMenu({
   onCopyTsv,
   onSheetSync,
 }: {
-  onImport: () => void
+  /** omitted when the collection is read-only (edit lock) */
+  onImport?: () => void
   onExportCsv: () => void
   onExportXlsx: () => void
   onCopyTsv: () => void
@@ -56,9 +57,11 @@ export function CollectionMenu({
       </button>
       {open && (
         <div className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
-          <button type="button" className={item} onClick={run(onImport)}>
-            <UploadIcon size={14} /> {S.importFile}
-          </button>
+          {onImport && (
+            <button type="button" className={item} onClick={run(onImport)}>
+              <UploadIcon size={14} /> {S.importFile}
+            </button>
+          )}
           <button type="button" className={item} onClick={run(onExportCsv)}>
             <DownloadIcon size={14} /> {S.exportCsv}
           </button>

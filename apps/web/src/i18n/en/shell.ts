@@ -44,6 +44,7 @@ export default {
   'shortcuts.bold': 'Bold',
   'shortcuts.italic': 'Italic',
   'shortcuts.toggleCheckbox': 'Toggle checkbox',
+  'shortcuts.inlineMath': 'Inline math (wraps the selection)',
   'shortcuts.deleteBlock': 'Delete current block',
   'shortcuts.undo': 'Undo',
 
@@ -247,7 +248,7 @@ export default {
   'notionImport.menu': 'Import from Notion (.zip)',
   'notionImport.title': 'Import a Notion export',
   'notionImport.hint': 'In Notion: Settings → Export (or ⋯ → Export on a page) → "Markdown & CSV", include subpages and create folders for subpages. Upload the downloaded .zip as is.',
-  'notionImport.limits': 'Pages become documents, CSV databases become collections, images and files are uploaded. Callouts arrive as quotes and equations as code.',
+  'notionImport.limits': 'Pages become documents, CSV databases become collections, images and files are uploaded. Callouts arrive as quotes; equations become math blocks and inline math.',
   'notionImport.choose': 'Choose .zip',
   'notionImport.importing': 'Importing…',
   'notionImport.failed': 'Notion import failed.',

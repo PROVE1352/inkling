@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CollectionViewDTO, ViewType } from '@inkling/shared'
 import { useT } from '../../i18n'
 import { MoreHorizontalIcon, PlusIcon, TrashIcon } from '../Icons'
+import { useCollectionReadOnly } from './readOnlyContext'
 import { VIEW_TYPE_LABEL as TYPE_LABEL } from './strings'
 
 const CREATABLE_TYPES: ViewType[] = ['table', 'board', 'calendar', 'gallery', 'timeline']
@@ -22,6 +23,8 @@ function Tab({
   canDelete: boolean
 }) {
   const t = useT()
+  // Read-only: switching tabs is local state; rename/delete are view writes the lock denies.
+  const readOnly = useCollectionReadOnly()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(view.name)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -75,7 +78,7 @@ function Tab({
         <button
           type="button"
           onClick={onSelect}
-          onDoubleClick={() => active && setRenaming(true)}
+          onDoubleClick={() => active && !readOnly && setRenaming(true)}
           className={`px-1.5 py-1.5 text-sm ${
             active ? 'font-medium text-ink' : 'text-sub hover:text-ink'
           }`}
@@ -84,7 +87,7 @@ function Tab({
         </button>
       )}
 
-      {active && !renaming && (
+      {active && !renaming && !readOnly && (
         <div ref={menuRef} className="relative">
           <button
             type="button"
@@ -144,6 +147,7 @@ export function ViewTabs({
   creating?: boolean
 }) {
   const t = useT()
+  const readOnly = useCollectionReadOnly()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState<ViewType>('table')
@@ -184,58 +188,60 @@ export function ViewTabs({
         />
       ))}
 
-      <div ref={addRef} className="relative">
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          aria-label={t('viewTabs.newView')}
-          title={t('viewTabs.newView')}
-          className="flex items-center gap-0.5 rounded px-1.5 py-1.5 text-sm text-sub hover:bg-hover hover:text-ink"
-        >
-          <PlusIcon size={15} />
-        </button>
-        {adding && (
-          <div className="absolute left-0 top-full z-40 mt-1 w-60 rounded-md border border-line bg-app p-2 shadow-xl">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  submit()
-                }
-              }}
-              placeholder={t('viewTabs.namePlaceholder')}
-              className="mb-2 w-full rounded border border-line bg-app px-2 py-1 text-sm text-ink outline-none focus-visible:border-accent"
-            />
-            <div className="mb-2 grid grid-cols-3 gap-1">
-              {CREATABLE_TYPES.map((vt) => (
-                <button
-                  key={vt}
-                  type="button"
-                  onClick={() => setType(vt)}
-                  className={`flex-1 rounded border px-2 py-1 text-xs ${
-                    type === vt
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-line text-sub hover:bg-hover'
-                  }`}
-                >
-                  {TYPE_LABEL[vt]}
-                </button>
-              ))}
+      {!readOnly && (
+        <div ref={addRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            aria-label={t('viewTabs.newView')}
+            title={t('viewTabs.newView')}
+            className="flex items-center gap-0.5 rounded px-1.5 py-1.5 text-sm text-sub hover:bg-hover hover:text-ink"
+          >
+            <PlusIcon size={15} />
+          </button>
+          {adding && (
+            <div className="absolute left-0 top-full z-40 mt-1 w-60 rounded-md border border-line bg-app p-2 shadow-xl">
+              <input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submit()
+                  }
+                }}
+                placeholder={t('viewTabs.namePlaceholder')}
+                className="mb-2 w-full rounded border border-line bg-app px-2 py-1 text-sm text-ink outline-none focus-visible:border-accent"
+              />
+              <div className="mb-2 grid grid-cols-3 gap-1">
+                {CREATABLE_TYPES.map((vt) => (
+                  <button
+                    key={vt}
+                    type="button"
+                    onClick={() => setType(vt)}
+                    className={`flex-1 rounded border px-2 py-1 text-xs ${
+                      type === vt
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-line text-sub hover:bg-hover'
+                    }`}
+                  >
+                    {TYPE_LABEL[vt]}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={creating}
+                className="w-full rounded bg-accent px-2 py-1 text-sm text-white hover:opacity-90 disabled:opacity-60"
+              >
+                {creating ? t('viewTabs.creating') : t('common.create')}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={creating}
-              className="w-full rounded bg-accent px-2 py-1 text-sm text-white hover:opacity-90 disabled:opacity-60"
-            >
-              {creating ? t('viewTabs.creating') : t('common.create')}
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

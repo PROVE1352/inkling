@@ -23,6 +23,7 @@ import { TrashModal } from './TrashModal'
 import { Spinner } from './Spinner'
 import {
   AlarmIcon,
+  HistoryIcon,
   CalendarDayIcon,
   CalendarIcon,
   CanvasIcon,
@@ -70,6 +71,7 @@ export function Sidebar({
   const dueOverdue = due.data?.counts.overdue ?? 0
   const dueBadge = dueOverdue + (due.data?.counts.today ?? 0)
   const calendarActive = location.pathname === `/w/${wsId}/calendar`
+  const activityActive = location.pathname === `/w/${wsId}/activity`
   const settingsActive = location.pathname === `/w/${wsId}/settings`
   const me = useMe()
   const workspaces = useWorkspaces()
@@ -260,6 +262,20 @@ export function Sidebar({
         >
           <CalendarIcon size={16} />
           {t('sidebar.calendar')}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/w/${wsId}/activity`)}
+          aria-current={activityActive ? 'page' : undefined}
+          title={t('activity.sidebarTitle')}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+            activityActive
+              ? 'bg-active font-medium text-ink'
+              : 'text-sub hover:bg-hover hover:text-ink'
+          }`}
+        >
+          <HistoryIcon size={16} />
+          {t('activity.title')}
         </button>
         <button
           type="button"

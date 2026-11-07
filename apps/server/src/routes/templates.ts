@@ -16,6 +16,7 @@ import { idParam, requireMembership } from '../helpers'
 import { requestLocale } from '../i18n'
 import type { Locale } from '../i18n'
 import { findVisiblePage, toPageDTO } from '../pageDto'
+import { markCreatedVia } from '../notify/provenance'
 import { builtinTemplates, builtinTree, getBuiltinTemplate, isBuiltinKey } from '../templates/builtins'
 import { exportTemplate, importTemplateFile, TEMPLATE_FILE_MAX_BYTES } from '../templates/io'
 import {
@@ -425,6 +426,7 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
         rootTitle,
         rootProperty,
       })
+      await markCreatedVia(result.pages.map((p) => p.id), user)
       const dtos = result.pages.map(toPageDTO)
       return { page: dtos[0], pages: dtos, ...(result.cursor ? { cursor: result.cursor } : {}) }
     },

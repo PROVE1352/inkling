@@ -12,7 +12,7 @@ import { NodeHandles } from './NodeHandles'
 export function PageNode({ data, selected }: NodeProps) {
   const t = useT()
   const d = data as RFNodeData
-  const { wsId } = useCanvasContext()
+  const { wsId, readOnly } = useCanvasContext()
   const navigate = useNavigate()
   const pages = usePages(wsId)
   const target = (pages.data ?? []).find((p) => p.id === d.pageId)
@@ -28,7 +28,7 @@ export function PageNode({ data, selected }: NodeProps) {
       onDoubleClick={open}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !readOnly}
         minWidth={140}
         minHeight={44}
         color="var(--color-accent)"

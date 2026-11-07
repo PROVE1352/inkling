@@ -34,6 +34,7 @@ import { actorOf, withEditActor } from '../context/attribution'
 import { z } from 'zod'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage, pageColumns, toRowDTO, visibleTo } from '../pageDto'
+import { newAssignees, notifyTaskAssignments } from '../notify/producers'
 import type { PageRow } from '../pageDto'
 import { registerCollectionExtRoutes } from './collectionsExt'
 import { nonMemberPersonIds } from '../collectionRelations'
@@ -339,7 +340,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     if (bad.length) throw badRequest('Only members of this workspace can be assigned')
 
     // withEditActor: the edit is attributed to the user / MCP client (docs/adr/0934-*)
-    const { row, merged, version } = await withEditActor([id], actorOf(user), () =>
+    const { row, merged, version, assigned } = await withEditActor([id], actorOf(user), () =>
       retryOnDeadlock(() =>
       db.transaction(async (tx) => {
         const [cur] = (await tx.execute(
@@ -387,11 +388,20 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
           .from(pages)
           .where(eq(pages.id, id))
           .limit(1)
-        return { row: r, merged: (updated?.props ?? {}) as Record<string, unknown>, version: r?.version }
+        return {
+          row: r,
+          merged: (updated?.props ?? {}) as Record<string, unknown>,
+          version: r?.version,
+          assigned: newAssignees(parentFields, oldProps, set),
+        }
       }),
       ),
     )
 
+    // Task assignment (docs/adr/1000-*): people newly put in a person cell hear about it. After the commit, queued.
+    if (assigned.length) {
+      notifyTaskAssignments({ workspaceId: target.workspaceId, rowId: id, actorId: user.id, via: user.via ?? null, changes: assigned })
+    }
     // Relation cells return only visible links (hidden links stay stored but are never exposed in the response).
     const dto = toRowDTO(row, { ...merged })
     if (target.parentId && parentFields.length) {

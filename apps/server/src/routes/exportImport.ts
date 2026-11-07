@@ -24,6 +24,7 @@ import { requestLocale } from '../i18n'
 import JSZip from 'jszip'
 import { env } from '../env'
 import { findVisiblePage, toPageDTO } from '../pageDto'
+import { markCreatedVia } from '../notify/provenance'
 import type { PageScope } from '@inkling/shared'
 
 // Import caps come from md/importLimits.ts (env-configurable, docs/adr/0961-*).
@@ -291,6 +292,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         if (created.length === 0) {
           throw badRequest('No .md files to import')
         }
+        await markCreatedVia(created.map((p) => p.id), user)
         return { pages: created.map(toPageDTO) }
       } finally {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -400,6 +402,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           role,
         })
 
+    await markCreatedVia(created.map((p) => p.id), user)
     return { pages: created.map(toPageDTO) }
   })
 }

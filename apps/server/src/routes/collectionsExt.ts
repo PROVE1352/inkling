@@ -25,6 +25,7 @@ import { badRequest } from '../errors'
 import { isExperimentalEnabled } from '../features'
 import { idParam } from '../helpers'
 import { pageColumns, toRowDTO, visibleTo } from '../pageDto'
+import { newAssignees, notifyTaskAssignments } from '../notify/producers'
 import { escapeLike } from '../util'
 import { requireCollectionPage } from './collections'
 import { nonMemberPersonIds } from '../collectionRelations'
@@ -205,6 +206,13 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           .values(values)
           .returning({ ...pageColumns, props: pages.props })
       })
+      // New rows created with people in person cells are assignments too (docs/adr/1000-*).
+      for (const r of created) {
+        const changes = newAssignees(fieldList, {}, (r.props ?? {}) as Record<string, unknown>)
+        if (changes.length) {
+          notifyTaskAssignments({ workspaceId: page.workspaceId, rowId: r.id, actorId: user.id, via: user.via ?? null, changes })
+        }
+      }
       return {
         rows: created.map((r) => toRowDTO(r, (r.props ?? {}) as Record<string, unknown>)),
       }
@@ -232,8 +240,15 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
         throw badRequest('Person cells may only reference members of this workspace')
       }
       const json = JSON.stringify(payload)
-      // Only children of this collection that the user can see are touched; the merge is done
-      // in SQL so concurrent single-cell edits to other keys are not lost.
+      // Person cells before the write, for assignment notifications (docs/adr/1000-*). Only read
+      // when the batch touches a person field.
+      const personTouched = fieldList.some((f) => f.type === 'person' && payload.some((p) => f.id in p.set))
+      const before = personTouched
+        ? ((await db.execute(sql`
+            SELECT id, props FROM pages
+             WHERE id = ANY(${`{${payload.map((p) => p.id).join(',')}}`}::uuid[]) AND parent_id = ${id}
+          `)) as unknown as { id: string; props: Record<string, unknown> | null }[])
+        : []
       const updated = (await db.execute(sql`
         UPDATE pages SET
           props = (pages.props || x.set) - x.del,
@@ -246,6 +261,17 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           AND ${visibleTo(user.id)}
         RETURNING pages.id
       `)) as unknown as { id: string }[]
+      if (personTouched) {
+        const prevById = new Map(before.map((r) => [r.id, r.props ?? {}]))
+        const done = new Set(updated.map((r) => r.id))
+        for (const p of payload) {
+          if (!done.has(p.id)) continue
+          const changes = newAssignees(fieldList, prevById.get(p.id) ?? {}, p.set)
+          if (changes.length) {
+            notifyTaskAssignments({ workspaceId: page.workspaceId, rowId: p.id, actorId: user.id, via: user.via ?? null, changes })
+          }
+        }
+      }
       return { updated: updated.length }
     },
   )

@@ -217,6 +217,8 @@ export const workspaces = pgTable('workspaces', {
   reviewDigestSentOn: text('review_digest_sent_on'),
   /** Server-local 'YYYY-MM-DD' of the last review priority batch (page_review_scores, docs/adr/0953-*). */
   reviewScoredOn: text('review_scored_on'),
+  /** Server-local 'YYYY-MM-DD' of the last agent_digest webhook (once a day, docs/adr/1004-*). */
+  agentDigestSentOn: text('agent_digest_sent_on'),
 })
 
 export const workspaceMembers = pgTable(
@@ -268,8 +270,6 @@ export const pages = pgTable('pages', {
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),
-  /** Whether this is a template page (shown in the workspace template gallery) */
-  isTemplate: text('is_template', { enum: ['0', '1'] }).notNull().default('0'),
   sortOrder: doublePrecision('sort_order').notNull().default(0),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -291,6 +291,11 @@ export const pages = pgTable('pages', {
    * workspace owners/admins and page_lock_editors. Off by default; the nearest locked ancestor governs.
    */
   editLocked: boolean('edit_locked').notNull().default(false),
+  /**
+   * OAuth client name when the page was created through an agent connection (MCP create_page,
+   * import_folder, create_from_template); null = created in the app (docs/adr/1005-*).
+   */
+  createdVia: text('created_via'),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.
@@ -372,16 +377,24 @@ export const comments = pgTable(
   (t) => [index('comments_page_idx').on(t.pageId), index('comments_thread_idx').on(t.threadId)],
 )
 
-/** Notifications: @mention / comment inbox */
+/**
+ * Notifications: @mention / comment inbox, assignments, followed-page updates (docs/adr/1000-*).
+ * The `type` enum is TypeScript-only (no DB check), like workspace_members.role.
+ */
 export const notifications = pgTable(
   'notifications',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** Monotonic order: the agent inbox cursor (docs/adr/1003-*). */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     type: text('type', {
-      enum: ['comment', 'comment_mention', 'doc_mention', 'reminder', 'workspace_added', 'webhook_disabled', 'backup_failed', 'workspace_deleted'],
+      enum: [
+        'comment', 'comment_mention', 'doc_mention', 'reminder', 'workspace_added', 'webhook_disabled', 'backup_failed', 'workspace_deleted',
+        'comment_reply', 'page_owner', 'task_assigned', 'page_update', 'agent_digest', 'approval_request', 'approval_result',
+      ],
     }).notNull(),
     pageId: uuid('page_id').references(() => pages.id, { onDelete: 'cascade' }),
     // For notifications that point at a workspace rather than a page, such as workspace_added
@@ -392,11 +405,29 @@ export const notifications = pgTable(
     }),
     read: text('read', { enum: ['0', '1'] }).notNull().default('0'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** OAuth client name when an agent caused it (docs/adr/0936-*). */
+    viaClient: text('via_client'),
+    /** 'now' = badge + instant mail; 'quiet' = listed without a badge (agent mentions, level "nothing"). */
+    delivery: text('delivery', { enum: ['now', 'quiet'] }).notNull().default('now'),
+    /** Mail state: null = never mailed, 'instant' = queued for the instant mail, 'digest' = waits for the digest, 'sent'. */
+    mailState: text('mail_state', { enum: ['instant', 'digest', 'sent'] }),
+    /** Collapse key: an unread row with the same key absorbs repeats (count + 1) instead of a new row. */
+    groupKey: text('group_key'),
+    count: integer('count').notNull().default(1),
+    /** Short plain excerpt (comment text, mentioning line, field name), capped. */
+    excerpt: text('excerpt'),
+    /** Section anchor or block id inside the page. */
+    anchor: text('anchor'),
+    /** When the user's agent acknowledged it in the MCP inbox (separate from `read`). */
+    ackedAt: timestamp('acked_at', { withTimezone: true }),
   },
   (t) => [
     index('notifications_user_idx').on(t.userId, t.read),
     // Newest-first list per user stops after 50 rows instead of sorting all of them (ADR 0755).
     index('notifications_user_created_idx').on(t.userId, t.createdAt),
+    index('notifications_user_seq_idx').on(t.userId, t.seq),
+    uniqueIndex('notifications_group_unread_idx').on(t.userId, t.groupKey).where(sql`read = '0' AND group_key IS NOT NULL`),
+    index('notifications_mail_idx').on(t.mailState).where(sql`mail_state IN ('instant', 'digest')`),
   ],
 )
 
@@ -592,6 +623,8 @@ export const pageChanges = pgTable(
     index('page_changes_ws_seq_idx').on(t.workspaceId, t.seq),
     index('page_changes_page_idx').on(t.pageId, t.anchor, t.seq),
     index('page_changes_changed_idx').on(t.changedAt),
+    // Latest (agent) change of one page: provenance badge, activity filters (docs/adr/1005-*).
+    index('page_changes_page_seq_idx').on(t.pageId, t.seq),
   ],
 )
 
@@ -729,3 +762,4 @@ export * from './schema-collections'
 export * from './schema-sync'
 export * from './schema-webhooks'
 export * from './schema-editLock'
+export * from './schema-notifications'

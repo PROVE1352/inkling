@@ -6,6 +6,7 @@ import { useCovers } from '../../lib/collectionApi'
 import { useWindowedRows } from '../../lib/useWindowedRows'
 import { FileTextIcon, PlusIcon } from '../Icons'
 import { FieldValue } from './cells/FieldValue'
+import { useCollectionReadOnly } from './readOnlyContext'
 import { S } from './strings'
 
 const MIN_WIDTH = { sm: 180, md: 240, lg: 320 } as const
@@ -43,6 +44,7 @@ export function GalleryView({
   creatingRow?: boolean
 }) {
   const navigate = useNavigate()
+  const readOnly = useCollectionReadOnly()
   const config = view.config
   const size = config.cardSize ?? 'md'
   const coverMode = config.cardCover ?? 'cover'
@@ -138,15 +140,17 @@ export function GalleryView({
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={onCreateRow}
-        disabled={creatingRow}
-        data-print-hide
-        className="mt-1 flex items-center gap-1.5 rounded-md px-2.5 py-2 text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
-      >
-        <PlusIcon size={15} /> {S.newCard}
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={onCreateRow}
+          disabled={creatingRow}
+          data-print-hide
+          className="mt-1 flex items-center gap-1.5 rounded-md px-2.5 py-2 text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
+        >
+          <PlusIcon size={15} /> {S.newCard}
+        </button>
+      )}
     </div>
   )
 }

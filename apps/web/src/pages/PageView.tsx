@@ -47,6 +47,9 @@ import { RightPanel } from '../components/RightPanel'
 import { ShareModal } from '../components/ShareModal'
 import { PageLockModal } from '../components/PageLockModal'
 import { SuspiciousNotice } from '../components/SuspiciousNotice'
+import { PageFollowButton, PageFollowPanel } from '../components/PageFollow'
+import { PageProvenanceBadge } from '../components/PageProvenanceBadge'
+import { Modal } from '../components/Modal'
 import { agentRuleLine, editableByLine, lockRootOf } from '../lib/editLock'
 import { CommentBadges } from '../components/comments/CommentBadges'
 import { OnlineUsers } from '../components/OnlineUsers'
@@ -58,6 +61,7 @@ import { LinkPreview } from '../components/LinkPreview'
 import { ExportPdfButton, PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
 import { printElement } from '../lib/printPage'
 import {
+  BellIcon,
   GlobeIcon,
   LinkIcon,
   LockIcon,
@@ -424,6 +428,9 @@ export function PageView() {
   const [shareOpen, setShareOpen] = useState(false)
   const [lockOpen, setLockOpen] = useState(false)
   useEffect(() => setLockOpen(false), [pageId])
+  // Page notifications on phones (the header bell folds into the ⋯ menu there).
+  const [followOpen, setFollowOpen] = useState(false)
+  useEffect(() => setFollowOpen(false), [pageId])
 
   const [collab, setCollab] = useState<CollabState>({
     status: 'connecting',
@@ -655,6 +662,7 @@ export function PageView() {
               <LockIcon size={18} />
             </button>
           )}
+          {page && <PageFollowButton key={page.id} pageId={page.id} />}
           {(isDoc || isCanvas) && <OnlineUsers users={collab.users} />}
           {(isDoc || isCanvas) && <StatusDot status={collab.status} />}
           {page && page.kind !== 'canvas' && page.kind !== 'folder' && (
@@ -707,6 +715,15 @@ export function PageView() {
                     icon: <LockIcon size={16} className={isLocked ? 'text-accent' : undefined} />,
                     active: isLocked,
                     onSelect: () => setLockOpen(true),
+                  },
+                ]
+              : []),
+            ...(page
+              ? [
+                  {
+                    label: tr('follow.button'),
+                    icon: <BellIcon size={16} />,
+                    onSelect: () => setFollowOpen(true),
                   },
                 ]
               : []),
@@ -785,7 +802,7 @@ export function PageView() {
                 banner={lockBanner}
               />
               <Suspense fallback={viewFallback}>
-                <CollectionView wsId={wsId ?? ''} pageId={page.id} />
+                <CollectionView wsId={wsId ?? ''} pageId={page.id} readOnly={lockReadOnly} />
               </Suspense>
             </div>
           ) : page.kind === 'canvas' ? (
@@ -809,6 +826,7 @@ export function PageView() {
                     wsId={wsId ?? ''}
                     me={me.data}
                     onCollabChange={handleCollab}
+                    readOnly={lockReadOnly}
                   />
                 </Suspense>
               </div>
@@ -832,6 +850,7 @@ export function PageView() {
                 readOnly={lockReadOnly}
                 banner={lockBanner}
               />
+              <PageProvenanceBadge pageId={page.id} />
               <SuspiciousNotice pageId={page.id} />
               <CollabEditor
                 pageId={page.id}
@@ -877,6 +896,7 @@ export function PageView() {
             page={page}
             editor={isDoc ? editor : null}
             onOpenSearch={openSearch}
+            readOnly={lockReadOnly}
           />
         )}
       </div>
@@ -886,6 +906,11 @@ export function PageView() {
       )}
       {page && wsId && lockOpen && (
         <PageLockModal open={lockOpen} onClose={() => setLockOpen(false)} wsId={wsId} page={page} />
+      )}
+      {page && followOpen && (
+        <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>
+          <PageFollowPanel pageId={page.id} />
+        </Modal>
       )}
     </div>
   )

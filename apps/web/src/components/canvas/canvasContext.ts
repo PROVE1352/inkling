@@ -7,6 +7,8 @@ export type CanvasContextValue = {
   wsId: string
   // Commit a text node edit (debouncing happens inside the node)
   commitText: (id: string, text: string) => void
+  // Page edit lock denies editing (docs/adr/0970-*): no text editing, resizing or connecting
+  readOnly: boolean
 }
 
 export const CanvasContext = createContext<CanvasContextValue | null>(null)

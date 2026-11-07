@@ -26,7 +26,8 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (TODO, docs/adr/0976-*) JSON-output MCP tools (list_pages, search `json`, list_workspaces, the create/rename/move echoes) are not wrapped and get no `applies:` line, to keep their shape; page titles there remain a small injection channel. No MCP tool returns comments yet; one that does must wrap them.
 - **Low** (TODO, docs/adr/0970-*) Live collaboration sockets are re-authenticated when a lock changes, but not when a member's role changes (admin → member); the next reconnect is read-only. File uploads with a `pageId` are not refused on locked pages (inert until a document references them).
 - **Low** (TODO, docs/adr/0970-*) Canvas nodes, collection cells and the properties panel stay editable in the web UI on a locked page (no read-only mode there yet); the server refuses the writes with `PAGE_LOCKED`.
-- **Low** (TODO, docs/adr/0978-*) A member whose display name folds to the same string as an OAuth client's name (e.g. "Claude") blocks that client at consent for everyone in their workspaces until one of them renames.
+- ~~**Low** (TODO, docs/adr/0978-*) A member whose display name folds to the same string as an OAuth client's name (e.g. "Claude") blocks that client at consent for everyone in their workspaces until one of them renames.~~ Resolved by docs/adr/1007-*: exact match, per workspace, common app names warn only.
+- **Low** (NOTIFY-S1, docs/adr/1007-*) A client may still choose a common app name ("Claude") while a member has that display name; writes stay labelled "<person> via Claude", and the consent screen warns.
 - **Info** (TODO, docs/adr/0977-*) `content.suspicious` audit dedupe is best effort: two concurrent re-indexes of one page can record the same rule twice.
 - **Info** (TODO, docs/adr/0950-*) The export policy gates only the whole-workspace zip; any member can still export single pages they can see (by design: agent reads and copy/paste allow it anyway).
 - **Low** (C-L11, last item) The vault-sync manifest hash (`sync.ts`) includes titles of linked pages the caller cannot see, which leaks that they changed.
@@ -106,6 +107,13 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (UPD-3, docs/adr/0993-*) When no new service worker takes over within 8 s, the tab unregisters its service worker before reloading; the next load downloads the full precache again.
 - **Info** (UPD-4, docs/adr/0990-*) The build id is time-based unless `INKLING_BUILD` is set, so an image rebuilt from the same source announces a "new version" once.
 
+- **Low** (NOTIFY-O1, docs/adr/1000-*) Notification events are queued in memory after the write; a process crash (not a graceful shutdown, which flushes) loses events not yet processed. Instant-mail timers are rebuilt from `mail_state` by housekeeping.
+- **Low** (NOTIFY-O2, docs/adr/1004-*) Digest mail goes out from 08:00 server-local time, not the recipient's time zone; weekly digests are "7 days since the last one", not a fixed weekday.
+- **Low** (NOTIFY-O3, docs/adr/1002-*) Live typing is attributed to the person who typed in the page most recently (two-minute window); with several people typing at once a mention may be credited to the wrong one. Mentions inside canvases and collection cells are not tracked.
+- **Low** (NOTIFY-O4, docs/adr/1002-*) Agent-written plain-text "@Name" is matched against exact display names; two members with the same name both receive the (quiet) mention.
+- **Info** (NOTIFY-O5, docs/adr/1003-*) Inbox acknowledgement is per person, not per connection: when one of a person's agents acks an item, their other agents no longer see it.
+- **Info** (NOTIFY-O6, web) On a locked page, "Mark reviewed" and "Save as template" stay available; their server routes were not re-checked against the lock in this change.
+
 <!-- fix-web / tests-ci: append Operations items above this line -->
 
 ## Performance
@@ -153,7 +161,7 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** (AGENT-E2, docs/adr/0926-*) Renaming a heading changes its section anchor; agents holding the old anchor get `SECTION_NOT_FOUND` with the list of current anchors.
 - **Low** (AGENT-E3, docs/adr/0930-*) Inside the range it rewrites, `patch_section` converts Markdown with the server schema, so callouts, page embeds and mentions in that section are lost; blocks outside the section are untouched.
 - **Low** (AGENT-E4, docs/adr/0934-*) `today` in collection filters and writes is the server's UTC date; relation values given as one comma-separated string are split on commas (pass an array for titles with commas).
-- **Info** (AGENT-E5, docs/adr/0936-*) Pages created through MCP (`create_page`, `import_folder`, `create_from_template`) carry no `via` label; their later edits do.
+- ~~**Info** (AGENT-E5, docs/adr/0936-*) Pages created through MCP (`create_page`, `import_folder`, `create_from_template`) carry no `via` label; their later edits do.~~ Resolved by docs/adr/1005-* (`pages.created_via`, `page_added` rows carry the client).
 
 - **Low** (CF-2) Live typing is not attributed per change, so feed rows from the editor show no "by"; only REST/MCP writes carry actor and via.
 - **Low** (CF-3) A section renamed and rewritten in the same edit, in a document without heading block ids (e.g. Markdown import), shows as removed + added rather than renamed.

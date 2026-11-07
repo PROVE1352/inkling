@@ -1,4 +1,5 @@
 import { ServerBlockNoteEditor } from '@blocknote/server-util'
+import { serverSchema } from './serverSchema'
 
 /**
  * ServerBlockNoteEditor singleton.
@@ -10,6 +11,9 @@ import { ServerBlockNoteEditor } from '@blocknote/server-util'
  * without options code blocks survive the yDoc↔blocks↔markdown round trip. The server conversion needs no highlighter.
  *
  * ServerBlockNoteEditor uses JSDOM internally, so it is created lazily on first use to avoid boot cost.
+ *
+ * The schema adds the math block and inline nodes to the defaults (./serverSchema.ts, ADR 0995) so a
+ * server read keeps them. The web's other custom nodes (callout, mention, embeds) are still unknown here.
  */
 let editor: ServerBlockNoteEditor | null = null
 
@@ -42,7 +46,9 @@ function installMemoryStorage(ed: ServerBlockNoteEditor): void {
 
 export function getServerEditor(): ServerBlockNoteEditor {
   if (!editor) {
-    editor = ServerBlockNoteEditor.create()
+    // serverSchema is untyped here (core's types are not resolvable from this package, see serverSchema.ts)
+    type Options = Parameters<typeof ServerBlockNoteEditor.create>[0]
+    editor = ServerBlockNoteEditor.create({ schema: serverSchema } as unknown as Options) as unknown as ServerBlockNoteEditor
     installMemoryStorage(editor)
   }
   return editor

@@ -1,7 +1,7 @@
 // Pure helpers for the Notion "Markdown & CSV" export importer (docs/adr/0960-*).
 // No database or filesystem access here, so everything is unit tested directly.
 import path from 'node:path'
-import { inferColumnType, parseBoolean, parseDate, parseNumber } from '@inkling/shared'
+import { inferColumnType, parseBoolean, parseDate, parseNumber, scanInlineMath } from '@inkling/shared'
 
 // ---------------------------------------------------------------------------
 // names: "Title 0123456789abcdef0123456789abcdef.md" → title + hash
@@ -177,49 +177,59 @@ function outsideFences(md: string, fn: (chunk: string) => string): string {
   return out.join('\n')
 }
 
-/** Inline `$x$` (pandoc rule: no space inside the delimiters, not followed by a digit) → code span. */
+/** Counts inline `$x$` spans (pandoc rule, outside code spans); Notion's `$`x`$` form becomes `$x$`. */
 function inlineMath(line: string, stats: PreprocessStats): string {
-  // leave existing code spans alone
-  return line
-    .split(/(`+[^`]*`+)/)
-    .map((part, i) =>
-      i % 2 === 1
-        ? part
-        : part.replace(/(^|[^\\$])\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?!\d)/g, (_m, pre: string, body: string) => {
-            stats.equations++
-            return `${pre}\`$${body}$\``
-          }),
-    )
-    .join('')
+  const plain = line.replace(/\$`([^`\n]+)`\$/g, (_m, body: string) => `$${body.trim()}$`)
+  plain.split(/(`+[^`]*`+)/).forEach((part, i) => {
+    if (i % 2 === 0) stats.equations += scanInlineMath(part).length
+  })
+  return plain
 }
+
+/**
+ * ```latex fences (Notion code blocks in LaTeX) → `$$` equations, unless the body has a `$$` line.
+ * Counted with the other `$$` blocks afterwards.
+ */
+function latexFencesToMath(md: string): string {
+  return md.replace(
+    /(^|\n)([ \t]*)```(?:latex|tex)[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\n|$)/gi,
+    (m, pre: string, indent: string, body: string) => {
+      if (/^[ \t]*\$\$[ \t]*$/m.test(body)) return m
+      return `${pre}${indent}$$\n${body}\n${indent}$$`
+    },
+  )
+}
+
+/** Block equations stay `$$…$$` for md/math.ts; their `$` are hidden from the inline count meanwhile. */
+const HIDE_DOLLAR = '\u0000'
 
 /**
  * Rewrites Notion-specific Markdown into constructs the BlockNote parser keeps:
  *  - `<aside>` callouts → block quotes (the server schema has no callout block)
- *  - `$$…$$` block equations → ```latex code blocks; inline `$x$` → inline code
+ *  - ```latex code blocks → `$$` equations, so they import as math blocks, like `$$…$$` and `$x$`
+ *    already do in every Markdown import (md/math.ts, docs/adr/0996-*). Notion exports only.
  * `<details><summary>` toggles, tables and `- [ ]` checklists already parse natively.
  */
 export function preprocessNotionMarkdown(md: string): { md: string; stats: PreprocessStats } {
   const stats: PreprocessStats = { callouts: 0, equations: 0 }
-  const text = md.replace(/\r\n?/g, '\n')
+  const text = latexFencesToMath(md.replace(/\r\n?/g, '\n'))
+  const hide = (m: string) => {
+    stats.equations++
+    return m.replaceAll('$', HIDE_DOLLAR)
+  }
   const out = outsideFences(text, (chunk) => {
     let c = chunk.replace(/<aside>\s*([\s\S]*?)\s*<\/aside>/gi, (_m, inner: string) => {
       stats.callouts++
       const lines = inner.split('\n').map((l) => l.replace(/^\s+/, ''))
       return `\n${lines.map((l) => (l ? `> ${l}` : '>')).join('\n')}\n`
     })
-    c = c.replace(/(^|\n)[ \t]*\$\$[ \t]*\n([\s\S]*?)\n[ \t]*\$\$[ \t]*(?=\n|$)/g, (_m, pre: string, body: string) => {
-      stats.equations++
-      return `${pre}\`\`\`latex\n${body.trim()}\n\`\`\``
-    })
-    c = c.replace(/(^|\n)[ \t]*\$\$([^\n$]+)\$\$[ \t]*(?=\n|$)/g, (_m, pre: string, body: string) => {
-      stats.equations++
-      return `${pre}\`\`\`latex\n${body.trim()}\n\`\`\``
-    })
+    c = c.replace(/(^|\n)[ \t]*\$\$[ \t]*\n[\s\S]*?\n[ \t]*\$\$[ \t]*(?=\n|$)/g, hide)
+    c = c.replace(/(^|\n)[ \t]*\$\$[^\n$]+\$\$[ \t]*(?=\n|$)/g, hide)
     return c
       .split('\n')
       .map((l) => (l.includes('$') ? inlineMath(l, stats) : l))
       .join('\n')
+      .replaceAll(HIDE_DOLLAR, '$')
   })
   return { md: out, stats }
 }

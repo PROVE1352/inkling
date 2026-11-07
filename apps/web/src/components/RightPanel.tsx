@@ -133,9 +133,17 @@ function loadSectionState(): Record<SectionKey, boolean> {
   return def
 }
 
-// Alias chip editor — Enter/comma adds, x removes → updatePage({ aliases }).
+// Alias chip editor — Enter/comma adds, x removes → updatePage({ aliases }). Read-only (edit lock): chips only.
 // Trim, dedupe (case-insensitive), drop empties, max 20 (the UI applies the same rules as the server).
-function AliasEditor({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
+function AliasEditor({
+  wsId,
+  page,
+  readOnly = false,
+}: {
+  wsId: string
+  page: PageMetaDTO
+  readOnly?: boolean
+}) {
   const tr = useT()
   const updatePage = useUpdatePage(wsId)
   const [input, setInput] = useState('')
@@ -172,32 +180,36 @@ function AliasEditor({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
             className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
           >
             {a}
-            <button
-              type="button"
-              onClick={() => remove(a)}
-              aria-label={tr('rightPanel.removeAlias', { name: a })}
-              className="leading-none hover:opacity-70"
-            >
-              <XIcon size={11} />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => remove(a)}
+                aria-label={tr('rightPanel.removeAlias', { name: a })}
+                className="leading-none hover:opacity-70"
+              >
+                <XIcon size={11} />
+              </button>
+            )}
           </span>
         ))}
       </div>
-      <input
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault()
-            add()
-          } else if (e.key === 'Backspace' && input === '' && aliases.length > 0) {
-            remove(aliases[aliases.length - 1])
-          }
-        }}
-        onBlur={add}
-        placeholder={tr('rightPanel.addAlias')}
-        className="w-full rounded border border-line bg-transparent px-2 py-1 text-xs text-ink placeholder:text-sub/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-      />
+      {!readOnly && (
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault()
+              add()
+            } else if (e.key === 'Backspace' && input === '' && aliases.length > 0) {
+              remove(aliases[aliases.length - 1])
+            }
+          }}
+          onBlur={add}
+          placeholder={tr('rightPanel.addAlias')}
+          className="w-full rounded border border-line bg-transparent px-2 py-1 text-xs text-ink placeholder:text-sub/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+        />
+      )}
     </div>
   )
 }
@@ -215,6 +227,7 @@ export function RightPanel({
   page,
   editor,
   onOpenSearch,
+  readOnly = false,
 }: {
   open: boolean
   onClose: () => void
@@ -222,6 +235,8 @@ export function RightPanel({
   page: PageMetaDTO
   editor: InklingEditor | null
   onOpenSearch: (q: string) => void
+  /** Page edit lock denies editing (docs/adr/0970-*): properties, aliases and scope are display only. */
+  readOnly?: boolean
 }) {
   const tr = useT()
   const navigate = useNavigate()
@@ -457,7 +472,7 @@ export function RightPanel({
           open={sections.review}
           onToggle={() => toggleSection('review')}
         >
-          {sections.review && <PageReviewCard wsId={wsId} page={page} />}
+          {sections.review && <PageReviewCard wsId={wsId} page={page} readOnly={readOnly} />}
         </Section>
       )}
 
@@ -578,7 +593,7 @@ export function RightPanel({
         open={sections.aliases}
         onToggle={() => toggleSection('aliases')}
       >
-        <AliasEditor wsId={wsId} page={page} />
+        <AliasEditor wsId={wsId} page={page} readOnly={readOnly} />
       </Section>
 
       {showDocSections && (
@@ -646,6 +661,7 @@ export function RightPanel({
                       field={f}
                       value={rowProps[f.id]}
                       members={members.data}
+                      readOnly={readOnly}
                       onCommit={(v) =>
                         updateProps.mutate({ id: page.id, props: { [f.id]: v } })
                       }
@@ -694,15 +710,18 @@ export function RightPanel({
                 <dd className="text-ink">{backlinks.data?.length ?? 0}</dd>
               </div>
             </dl>
-            <button
-              type="button"
-              onClick={toggleScope}
-              disabled={updatePage.isPending}
-              className="flex items-center justify-center gap-1.5 rounded-md border border-line px-2 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
-            >
-              {targetScope === 'private' ? <LockIcon size={12} /> : <UsersIcon size={12} />}
-              {targetScope === 'private' ? tr('rightPanel.makePrivate') : tr('rightPanel.makeShared')}
-            </button>
+            {/* A scope change carries the subtree: the edit lock denies it (docs/adr/0970-*) */}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={toggleScope}
+                disabled={updatePage.isPending}
+                className="flex items-center justify-center gap-1.5 rounded-md border border-line px-2 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
+              >
+                {targetScope === 'private' ? <LockIcon size={12} /> : <UsersIcon size={12} />}
+                {targetScope === 'private' ? tr('rightPanel.makePrivate') : tr('rightPanel.makeShared')}
+              </button>
+            )}
             {scopeError && <p className="text-xs text-red-600">{scopeError}</p>}
             {/* Save as template — same modal as the row menu (templates table → template gallery).
                 The old isTemplate toggle set a field the gallery never reads, so it did nothing (replaced 2026-09-23). */}

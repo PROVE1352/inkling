@@ -57,6 +57,9 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/collections')).registerCollectionRoutes(api)
       await (await import('../routes/exportImport')).registerExportImportRoutes(api)
       await (await import('../routes/comments')).registerCommentRoutes(api)
+      await (await import('../routes/notifications')).registerNotificationRoutes(api)
+      await (await import('../routes/activity')).registerActivityRoutes(api)
+      await (await import('../routes/inbox')).registerInboxRoutes(api)
       await (await import('../routes/oauth')).registerOAuthApiRoutes(api)
     },
     { prefix: '/api' },

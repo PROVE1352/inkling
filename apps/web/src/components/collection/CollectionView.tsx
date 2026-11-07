@@ -30,6 +30,7 @@ import { CollectionMenu } from './CollectionMenu'
 import { FieldsModal } from './FieldsModal'
 import { GalleryView } from './GalleryView'
 import { ImportModal } from './ImportModal'
+import { CollectionReadOnlyContext } from './readOnlyContext'
 import { CollectionRefsContext } from './refsContext'
 import { SheetSyncModal } from './SheetSyncModal'
 import { S } from './strings'
@@ -38,7 +39,16 @@ import { TimelineView } from './TimelineView'
 import { ViewSettings } from './ViewSettings'
 import { ViewTabs } from './ViewTabs'
 
-export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string }) {
+export function CollectionView({
+  wsId,
+  pageId,
+  readOnly = false,
+}: {
+  wsId: string
+  pageId: string
+  /** Page edit lock denies editing (docs/adr/0970-*): display only, no writes from this view. */
+  readOnly?: boolean
+}) {
   const t = useT()
   const qc = useQueryClient()
   const collection = useCollection(pageId)
@@ -248,6 +258,7 @@ export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string 
 
   return (
     <CollectionRefsContext.Provider value={refs}>
+    <CollectionReadOnlyContext.Provider value={readOnly}>
     <div
       className="mt-2"
       onDragOver={(e) => {
@@ -258,6 +269,7 @@ export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string 
         if (!f || !/\.(csv|tsv|xlsx)$/i.test(f.name)) return
         e.preventDefault()
         e.stopPropagation()
+        if (readOnly) return
         setImportFile(f)
         setImportOpen(true)
       }}
@@ -274,28 +286,37 @@ export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string 
         />
         {view && (
           <div className="flex items-center gap-1 pl-2">
-            <ViewSettings
-              view={view}
-              fields={fields}
-              members={members.data}
-              onUpdateConfig={onUpdateConfig}
-            />
-            <button
-              type="button"
-              onClick={() => setFieldsOpen(true)}
-              className="rounded-md px-2 py-1 text-xs text-sub hover:bg-hover hover:text-ink"
-            >
-              {t('collection.properties')}
-            </button>
+            {/* Read-only: filters/sorts/fields are saved on the server (writes the lock denies) */}
+            {!readOnly && (
+              <>
+                <ViewSettings
+                  view={view}
+                  fields={fields}
+                  members={members.data}
+                  onUpdateConfig={onUpdateConfig}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFieldsOpen(true)}
+                  className="rounded-md px-2 py-1 text-xs text-sub hover:bg-hover hover:text-ink"
+                >
+                  {t('collection.properties')}
+                </button>
+              </>
+            )}
             <CollectionMenu
-              onImport={() => {
-                setImportFile(null)
-                setImportOpen(true)
-              }}
+              onImport={
+                readOnly
+                  ? undefined
+                  : () => {
+                      setImportFile(null)
+                      setImportOpen(true)
+                    }
+              }
               onExportCsv={onExportCsv}
               onExportXlsx={onExportXlsx}
               onCopyTsv={() => void onCopyTsv()}
-              onSheetSync={sheetsSync ? () => setSyncOpen(true) : undefined}
+              onSheetSync={sheetsSync && !readOnly ? () => setSyncOpen(true) : undefined}
             />
           </div>
         )}
@@ -356,7 +377,7 @@ export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string 
             onAddOption,
             onUpdateTitle,
             onDeleteRow,
-            onPasteGrid,
+            onPasteGrid: readOnly ? undefined : onPasteGrid,
             refs,
           }}
           onUpdateConfig={onUpdateConfig}
@@ -401,6 +422,7 @@ export function CollectionView({ wsId, pageId }: { wsId: string; pageId: string 
         <SheetSyncModal open={syncOpen} onClose={() => setSyncOpen(false)} pageId={pageId} />
       )}
     </div>
+    </CollectionReadOnlyContext.Provider>
     </CollectionRefsContext.Provider>
   )
 }

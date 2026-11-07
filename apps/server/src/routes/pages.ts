@@ -310,6 +310,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         title: body.title ?? '',
         sortOrder,
         createdBy: user.id,
+        // Agent provenance (docs/adr/1005-*): the client this page was created through.
+        createdVia: user.via ? user.via.slice(0, 100) : null,
         // Global calendar "new page on this date" — a date property shaped like a template's withDate.
         ...(body.date && kind === 'doc'
           ? { properties: [{ id: 'date', name: names.date, type: 'date', value: body.date }] }

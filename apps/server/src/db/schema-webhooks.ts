@@ -19,7 +19,7 @@ export const workspaceWebhooks = pgTable(
     url: text('url').notNull(),
     /** Subscribed events: WebhookEvent[] */
     events: jsonb('events').notNull().default(sql`'[]'::jsonb`),
-    /** '1' = active. Same text-boolean convention as pages.is_template. */
+    /** '1' = active. Text boolean ('0'/'1'). */
     enabled: text('enabled', { enum: ['0', '1'] }).notNull().default('1'),
     /** Consecutive failed deliveries (reset on success). */
     failureCount: integer('failure_count').notNull().default(0),

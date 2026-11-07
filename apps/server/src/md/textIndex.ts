@@ -1,4 +1,5 @@
 import { eq, isNull } from 'drizzle-orm'
+import { INLINE_MATH_TYPE, MATH_BLOCK_TYPE } from '@inkling/shared'
 import { db } from '../db/index'
 import { bumpIndexEpoch } from '../versions'
 import { pageDocs, pageTexts } from '../db/schema'
@@ -13,11 +14,13 @@ interface InlineLike {
   text?: unknown
   href?: unknown
   content?: unknown
+  props?: { latex?: unknown }
 }
 
-/** Extract the display text of one inline (links use their display content). */
+/** Extract the display text of one inline (links use their display content, inline math its LaTeX). */
 function inlineText(inl: InlineLike): string {
   if (!inl || typeof inl !== 'object') return ''
+  if (inl.type === INLINE_MATH_TYPE) return typeof inl.props?.latex === 'string' ? inl.props.latex : ''
   if (inl.type === 'link' && Array.isArray(inl.content)) {
     return (inl.content as InlineLike[]).map(inlineText).join('')
   }
@@ -45,6 +48,7 @@ function isTableContent(c: unknown): c is { rows: { cells: unknown[] }[] } {
 function collectBlockText(blocks: AnyBlock[], out: string[]): void {
   for (const b of blocks) {
     const c = b.content
+    if (b.type === MATH_BLOCK_TYPE && typeof b.props?.latex === 'string' && b.props.latex) out.push(b.props.latex)
     if (Array.isArray(c)) {
       const t = inlinesText(c)
       if (t) out.push(t)

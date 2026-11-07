@@ -128,6 +128,8 @@ type CanvasViewProps = {
   wsId: string
   me: UserDTO
   onCollabChange?: (state: CollabState) => void
+  /** Page edit lock denies editing (docs/adr/0970-*): view, pan and zoom only. */
+  readOnly?: boolean
 }
 
 // Outer: wraps in ReactFlowProvider so CanvasInner can use useReactFlow.
@@ -139,7 +141,7 @@ export function CanvasView(props: CanvasViewProps) {
   )
 }
 
-function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
+function CanvasInner({ pageId, wsId, me, onCollabChange, readOnly = false }: CanvasViewProps) {
   const { resolved } = useTheme()
   const reactFlow = useReactFlow()
   const { doc, cnodes, cedges, status, synced, users } = useCanvasDoc(pageId, me)
@@ -222,6 +224,8 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
   // ---- Local → Y commits (LOCAL_ORIGIN; local RF state is synced immediately too) ----
   const commitNodePatch = useCallback(
     (id: string, patch: Partial<CanvasNode>) => {
+      // Read-only: the server drops this connection's writes, so never diverge the local doc.
+      if (readOnly) return
       let updated: CanvasNode | undefined
       doc.transact(() => {
         const cur = cnodes.get(id) as CanvasNode | undefined
@@ -236,15 +240,16 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
         )
       }
     },
-    [doc, cnodes],
+    [doc, cnodes, readOnly],
   )
 
   const addNode = useCallback(
     (node: CanvasNode) => {
+      if (readOnly) return
       doc.transact(() => cnodes.set(node.id, node), LOCAL_ORIGIN)
       setNodes((nds) => [...nds, toRFNode(node)])
     },
-    [doc, cnodes],
+    [doc, cnodes, readOnly],
   )
 
   const commitText = useCallback(
@@ -340,12 +345,17 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
     },
     [reactFlow, wsId, pageId, addNode],
   )
+  // Kept enabled when read-only so a dropped file never falls through to the browser (which would
+  // open it); the drop itself is then ignored.
   const fileDropActive = useFileDropZone(wrapperRef, (files, point) => {
+    if (readOnly) return
     void dropImages(files, point)
   })
 
   // Register so AppDnd's (the app-level DndContext) canvas-drop handler can call it.
   useEffect(() => {
+    // Read-only: no active canvas, so a sidebar page dropped here adds nothing.
+    if (readOnly) return
     setActiveCanvas({
       addPageNodeAt: (pid, client) => {
         if (pid === pageId) return // dropping a canvas onto itself → no-op
@@ -353,7 +363,7 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
       },
     })
     return () => setActiveCanvas(null)
-  }, [pageId, addPageAt])
+  }, [pageId, addPageAt, readOnly])
 
   // ---- RF event handlers ----
   const onNodesChange: OnNodesChange = useCallback(
@@ -387,7 +397,7 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
 
   const onConnect: OnConnect = useCallback(
     (c: Connection) => {
-      if (!c.source || !c.target) return
+      if (readOnly || !c.source || !c.target) return
       const edge: CanvasEdge = {
         id: newId(),
         fromNode: c.source,
@@ -398,11 +408,12 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
       doc.transact(() => cedges.set(edge.id, edge), LOCAL_ORIGIN)
       setEdges((eds) => [...eds, toRFEdge(edge)])
     },
-    [doc, cedges],
+    [doc, cedges, readOnly],
   )
 
   const onNodesDelete: OnNodesDelete = useCallback(
     (deleted) => {
+      if (readOnly) return
       const ids = new Set(deleted.map((n) => n.id))
       doc.transact(() => {
         for (const id of ids) cnodes.delete(id)
@@ -415,21 +426,23 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
         for (const k of orphan) cedges.delete(k)
       }, LOCAL_ORIGIN)
     },
-    [doc, cnodes, cedges],
+    [doc, cnodes, cedges, readOnly],
   )
 
   const onEdgesDelete: OnEdgesDelete = useCallback(
     (deleted) => {
+      if (readOnly) return
       doc.transact(() => {
         for (const e of deleted) cedges.delete(e.id)
       }, LOCAL_ORIGIN)
     },
-    [doc, cedges],
+    [doc, cedges, readOnly],
   )
 
   // ---- Toolbar: apply color / delete selection ----
   const setColor = useCallback(
     (color?: string) => {
+      if (readOnly) return
       const nSel = nodes.filter((n) => n.selected).map((n) => n.id)
       const eSel = edges.filter((e) => e.selected).map((e) => e.id)
       doc.transact(() => {
@@ -457,10 +470,11 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
         ),
       )
     },
-    [nodes, edges, doc, cnodes, cedges],
+    [nodes, edges, doc, cnodes, cedges, readOnly],
   )
 
   const deleteSelected = useCallback(() => {
+    if (readOnly) return
     const nSel = new Set(nodes.filter((n) => n.selected).map((n) => n.id))
     const eSel = new Set(edges.filter((e) => e.selected).map((e) => e.id))
     if (nSel.size === 0 && eSel.size === 0) return
@@ -479,10 +493,11 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
       })
       for (const k of drop) cedges.delete(k)
     }, LOCAL_ORIGIN)
-  }, [nodes, edges, doc, cnodes, cedges])
+  }, [nodes, edges, doc, cnodes, cedges, readOnly])
 
   // Double-click on empty canvas → new text card at that position
   const onWrapperDoubleClick = (e: React.MouseEvent) => {
+    if (readOnly) return
     const target = e.target as HTMLElement
     if (!target.classList.contains('react-flow__pane')) return
     const pos = reactFlow.screenToFlowPosition({ x: e.clientX, y: e.clientY })
@@ -493,7 +508,7 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
     nodes.filter((n) => n.selected).length + edges.filter((e) => e.selected).length
 
   return (
-    <CanvasContext.Provider value={{ wsId, commitText }}>
+    <CanvasContext.Provider value={{ wsId, commitText, readOnly }}>
       <div
         ref={setWrapperRef}
         className="relative h-full w-full"
@@ -504,24 +519,26 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
             {t('canvas.connecting')}
           </div>
         )}
-        {fileDropActive && (
+        {fileDropActive && !readOnly && (
           <div className="pointer-events-none absolute left-1/2 top-14 z-30 -translate-x-1/2 rounded-full border border-accent/40 bg-app/90 px-3 py-1 text-xs text-accent shadow-sm backdrop-blur">
             {t('canvas.dropImageHint')}
           </div>
         )}
-        {(isDropOver || fileDropActive) && (
+        {(isDropOver || fileDropActive) && !readOnly && (
           <div className="pointer-events-none absolute inset-0 z-30 rounded-md ring-2 ring-inset ring-accent/40" />
         )}
-        <Toolbar
-          wsId={wsId}
-          currentPageId={pageId}
-          selectionCount={selectionCount}
-          onAddText={addText}
-          onAddPage={addPage}
-          onAddLink={addLink}
-          onSetColor={setColor}
-          onDelete={deleteSelected}
-        />
+        {!readOnly && (
+          <Toolbar
+            wsId={wsId}
+            currentPageId={pageId}
+            selectionCount={selectionCount}
+            onAddText={addText}
+            onAddPage={addPage}
+            onAddLink={addLink}
+            onSetColor={setColor}
+            onDelete={deleteSelected}
+          />
+        )}
         <ReactFlow
           ariaLabelConfig={{
             'controls.ariaLabel': t('canvas.a11yControls'),
@@ -540,13 +557,15 @@ function CanvasInner({ pageId, wsId, me, onCollabChange }: CanvasViewProps) {
           onNodeDragStop={onNodeDragStop}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
           colorMode={resolved}
-          deleteKeyCode={['Delete', 'Backspace']}
+          deleteKeyCode={readOnly ? null : ['Delete', 'Backspace']}
           fitView
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          <Controls />
+          <Controls showInteractive={!readOnly} />
           <MiniMap
             pannable
             zoomable

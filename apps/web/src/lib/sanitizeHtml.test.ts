@@ -27,6 +27,18 @@ describe('sanitizeHtml (0852)', () => {
     assert.equal(clean(html), html)
   })
 
+  it('keeps math nodes as the server renders them (source in data-latex and as text, docs/adr/0997-*)', () => {
+    // exact shape of apps/server blocksToFullHTML for a math block and an inline equation
+    const html =
+      '<div class="bn-block-content" data-content-type="math" data-latex="\\frac{a}{b} <x> &amp;"><div class="nd-math-source">\\frac{a}{b} &lt;x&gt; &amp;</div></div>' +
+      '<p class="bn-inline-content">a <span class="nd-math-inline-source" data-inline-content-type="inlineMath" data-latex="x^2">x^2</span> b</p>'
+    assert.equal(clean(html), html)
+    // the attribute keeps the text only; markup inside it never becomes an element
+    const doc = parse(clean('<div data-content-type="math" data-latex="<img src=x onerror=alert(1)>">s</div>'))
+    assert.equal(doc.querySelector('img'), null)
+    assert.equal(doc.querySelector('[data-latex]').getAttribute('data-latex'), '<img src=x onerror=alert(1)>')
+  })
+
   it('keeps public asset URLs, folder-share links, image width and table layout styles', () => {
     const out = clean(
       '<figure style="position: relative; width: 300px;"><img class="bn-visual-media" src="/api/public/tok/files/abc" alt="x.png" width="300"></figure>' +

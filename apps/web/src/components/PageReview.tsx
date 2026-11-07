@@ -9,7 +9,17 @@ import { Spinner } from './Spinner'
 // the page may set the owner and mark it reviewed; reminders come from the workspace review
 // interval and go out through webhooks, not the in-app inbox.
 
-export function PageReviewCard({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
+// readOnly (edit lock, docs/adr/0970-*): owner and living are page writes the lock denies; marking
+// reviewed is not, so it stays.
+export function PageReviewCard({
+  wsId,
+  page,
+  readOnly = false,
+}: {
+  wsId: string
+  page: PageMetaDTO
+  readOnly?: boolean
+}) {
   const t = useT()
   const review = usePageReview(page.id)
   const members = useMembers(wsId)
@@ -32,7 +42,7 @@ export function PageReviewCard({ wsId, page }: { wsId: string; page: PageMetaDTO
         <span className="w-20 shrink-0 text-xs text-sub">{t('review.owner')}</span>
         <select
           value={r.owner?.id ?? ''}
-          disabled={setOwner.isPending}
+          disabled={readOnly || setOwner.isPending}
           aria-label={t('review.owner')}
           onChange={(e) => {
             setError(null)
@@ -78,7 +88,7 @@ export function PageReviewCard({ wsId, page }: { wsId: string; page: PageMetaDTO
           <span className="w-20 shrink-0 text-xs text-sub">{t('review.livingLabel')}</span>
           <select
             value={r.livingOverride === null ? 'auto' : r.livingOverride ? 'yes' : 'no'}
-            disabled={living.isPending}
+            disabled={readOnly || living.isPending}
             aria-label={t('review.livingLabel')}
             onChange={(e) => {
               setError(null)

@@ -97,7 +97,6 @@ export async function loadSharedSubtree(
       JOIN sub s ON p.parent_id = s.id
       WHERE p.deleted_at IS NULL
         AND p.scope = 'shared'
-        AND p.is_template = '0'
         AND p.workspace_id = ${workspaceId}
         AND s.depth < 64
     )

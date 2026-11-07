@@ -42,6 +42,8 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   rebuilt from `page_docs`; a new writer of documents must reindex ([ADR 0750](docs/adr/0750-collab-store-path-db-side-snapshot-debounced-diffed-indexing.md), [ADR 0926](docs/adr/0926-section-index-and-stable-anchors.md)).
 - **ADRs** for decisions with real alternatives: `docs/adr/NNNN-title.md`, next free number in the
   area block, listed in `docs/adr/README.md`.
+- **Performance changes** must add a row to [docs/PERFORMANCE.md](docs/PERFORMANCE.md) with
+  before/after numbers and the method (data size, conditions, tool), including measured-and-rejected ones.
 - **Security reports** go through [SECURITY.md](SECURITY.md), never issues.
 
 ## MCP server

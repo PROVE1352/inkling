@@ -18,6 +18,7 @@ import {
   TrashIcon,
 } from '../Icons'
 import { FieldCell } from './cells/FieldCell'
+import { useCollectionReadOnly } from './readOnlyContext'
 
 type Handlers = {
   wsId: string
@@ -44,6 +45,7 @@ function TitleCell({
 }) {
   const t = useT()
   const navigate = useNavigate()
+  const readOnly = useCollectionReadOnly()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(row.title)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -76,52 +78,56 @@ function TitleCell({
 
   return (
     <div className="group/title flex min-h-[34px] items-center gap-1 border-r border-line px-1.5">
-      {/* row menu on the left */}
-      <div ref={menuRef} className="relative shrink-0">
-        <ConfirmPopover
-          open={confirmOpen}
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => {
-            setConfirmOpen(false)
-            onDeleteRow(row.id)
-          }}
-          message={t('table.deleteRowConfirm')}
-        >
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label={t('table.rowMenu')}
-            data-print-hide
-            className="flex h-5 w-5 items-center justify-center rounded text-sub opacity-0 hover:bg-hover hover:text-ink group-hover/title:opacity-100"
+      {/* row menu on the left (read-only: its only edit action, delete, is denied — keep the slot) */}
+      {readOnly ? (
+        <span className="h-5 w-5 shrink-0" />
+      ) : (
+        <div ref={menuRef} className="relative shrink-0">
+          <ConfirmPopover
+            open={confirmOpen}
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={() => {
+              setConfirmOpen(false)
+              onDeleteRow(row.id)
+            }}
+            message={t('table.deleteRowConfirm')}
           >
-            <MoreHorizontalIcon size={14} />
-          </button>
-        </ConfirmPopover>
-        {menuOpen && (
-          <div className="absolute left-0 top-full z-40 mt-1 w-28 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
             <button
               type="button"
-              onClick={() => {
-                setMenuOpen(false)
-                open()
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label={t('table.rowMenu')}
+              data-print-hide
+              className="flex h-5 w-5 items-center justify-center rounded text-sub opacity-0 hover:bg-hover hover:text-ink group-hover/title:opacity-100"
             >
-              {t('common.open')}
+              <MoreHorizontalIcon size={14} />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false)
-                setConfirmOpen(true)
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-hover"
-            >
-              <TrashIcon size={14} /> {t('common.delete')}
-            </button>
-          </div>
-        )}
-      </div>
+          </ConfirmPopover>
+          {menuOpen && (
+            <div className="absolute left-0 top-full z-40 mt-1 w-28 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  open()
+                }}
+                className="w-full px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
+              >
+                {t('common.open')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setConfirmOpen(true)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-hover"
+              >
+                <TrashIcon size={14} /> {t('common.delete')}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {editing ? (
         <input
@@ -143,7 +149,7 @@ function TitleCell({
       ) : (
         <button
           type="button"
-          onClick={start}
+          onClick={readOnly ? open : start}
           className="min-w-0 flex-1 truncate py-1 text-left text-sm font-medium text-ink"
           title={row.title || t('common.untitled')}
         >
@@ -272,6 +278,7 @@ export function TableView({
   creatingRow?: boolean
 }) {
   const t = useT()
+  const readOnly = useCollectionReadOnly()
   const cols = useMemo(() => orderedFields(fields, view.config), [fields, view.config])
   const display = useMemo(
     () => applyView(rows, fields, view.config),
@@ -390,6 +397,17 @@ export function TableView({
           </div>
           {cols.map((f) => {
             const s = sortFor(f.id)
+            // Read-only: sorts are saved on the view (a write the lock denies), so the header is static.
+            if (readOnly)
+              return (
+                <div
+                  key={f.id}
+                  className="flex items-center gap-1 border-r border-line px-2.5 py-1.5"
+                >
+                  <span className="truncate">{f.name}</span>
+                  {s && <span className="text-accent">{s.dir === 'asc' ? '↑' : '↓'}</span>}
+                </div>
+              )
             return (
               <button
                 key={f.id}
@@ -403,16 +421,20 @@ export function TableView({
               </button>
             )
           })}
-          <button
-            type="button"
-            onClick={onOpenFields}
-            aria-label={t('fields.title')}
-            title={t('fields.title')}
-            data-print-hide
-            className="flex items-center justify-center py-1.5 hover:bg-hover hover:text-ink"
-          >
-            <PlusIcon size={15} />
-          </button>
+          {readOnly ? (
+            <div />
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenFields}
+              aria-label={t('fields.title')}
+              title={t('fields.title')}
+              data-print-hide
+              className="flex items-center justify-center py-1.5 hover:bg-hover hover:text-ink"
+            >
+              <PlusIcon size={15} />
+            </button>
+          )}
         </div>
 
         {/* rows */}
@@ -439,15 +461,17 @@ export function TableView({
         )}
 
         {/* new row */}
-        <button
-          type="button"
-          onClick={onCreateRow}
-          disabled={creatingRow}
-          data-print-hide
-          className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
-        >
-          <PlusIcon size={15} /> {t('table.newRow')}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onCreateRow}
+            disabled={creatingRow}
+            data-print-hide
+            className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
+          >
+            <PlusIcon size={15} /> {t('table.newRow')}
+          </button>
+        )}
       </div>
     </div>
   )

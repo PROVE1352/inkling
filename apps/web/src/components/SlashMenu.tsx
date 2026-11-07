@@ -9,6 +9,7 @@ import type { CalloutType } from './blocks/Callout'
 import { usePluginSlashItems } from '../plugins/integration'
 import { linkEmbedSlashItems } from './blocks/LinkEmbed'
 import { querySlashItem } from './blocks/QueryBlock'
+import { mathSlashItems } from './blocks/Math'
 import { useT } from '../i18n'
 
 // Slash ("/") menu controller (M14).
@@ -54,6 +55,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
         ...pluginItems,
         ...linkEmbedSlashItems(editor),
         querySlashItem(editor),
+        ...mathSlashItems(editor, t),
       ]),
       query,
     )

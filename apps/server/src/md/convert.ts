@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { getServerEditor } from './editor'
+import { extractMath, prepareMathExport } from './math'
 
 // ---------------------------------------------------------------------------
 // Loose structural types — handling BlockNote's generic Block type directly makes inline
@@ -232,9 +233,12 @@ export async function blocksToMarkdown(
     })
   }
 
+  // 3) math nodes → `$$…$$` / `$…$`, written around BlockNote's exporter (md/math.ts, ADR 0996)
+  const finishMath = prepareMathExport(copy)
+
   const editor = getServerEditor()
   const input = copy as unknown as Parameters<typeof editor.blocksToMarkdownLossy>[0]
-  const markdown = await editor.blocksToMarkdownLossy(input)
+  const markdown = finishMath(await editor.blocksToMarkdownLossy(input))
   return { markdown, assetIds: [...new Set(assetIds)] }
 }
 
@@ -251,7 +255,9 @@ export async function markdownToBlocks(
   resolveAsset?: ResolveAsset,
 ): Promise<AnyBlock[]> {
   const editor = getServerEditor()
-  const blocks = (await editor.tryParseMarkdownToBlocks(md)) as unknown as AnyBlock[]
+  // `$$…$$` / `$…$` are cut out before BlockNote's parser sees them (md/math.ts, ADR 0996)
+  const math = extractMath(md)
+  const blocks = math.restore((await editor.tryParseMarkdownToBlocks(math.markdown)) as unknown as AnyBlock[])
 
   // Split [[title]] inside text inlines and replace it with a link/literal
   mapBlockInlines(blocks, (inlines) => expandWikiLinks(inlines, resolveTitle))

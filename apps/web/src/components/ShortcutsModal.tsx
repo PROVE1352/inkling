@@ -54,6 +54,7 @@ export const shortcutGroups = (): Group[] => [
       { label: t('shortcuts.bold'), keys: [modKey('B')] },
       { label: t('shortcuts.italic'), keys: [modKey('I')] },
       { label: t('shortcuts.toggleCheckbox'), keys: [modKey('L')] },
+      { label: t('shortcuts.inlineMath'), keys: [combo(MOD, SHIFT, 'E'), '$…$'] },
       { label: t('shortcuts.deleteBlock'), keys: [modKey('D')] },
       { label: t('shortcuts.undo'), keys: [modKey('Z')] },
     ],

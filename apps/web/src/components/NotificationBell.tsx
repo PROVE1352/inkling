@@ -7,27 +7,57 @@ import { t, useT } from '../i18n'
 import { BellIcon } from './Icons'
 
 // Builds the notification text — actorName commented on / mentioned you in pageTitle. reminder (M17) is a due-date line.
+// The switch is exhaustive over NotificationType, so a new type fails typecheck until it has a line.
 function describe(n: NotificationDTO): string {
   const actor = n.actorName ?? t('notifications.someone')
   const title = n.pageTitle ?? t('notifications.deletedPage')
-  if (n.type === 'workspace_added') {
-    return t('notifications.workspaceAdded', { actor, workspace: n.workspaceName ?? t('notifications.workspaceFallback') })
+  const workspace = n.workspaceName ?? t('notifications.workspaceFallback')
+  switch (n.type) {
+    case 'workspace_added':
+      return t('notifications.workspaceAdded', { actor, workspace })
+    case 'webhook_disabled':
+      return t('notifications.webhookDisabled', { workspace })
+    case 'workspace_deleted':
+      // no navigation target: the workspace is gone for members (owners restore it in Settings)
+      return t('notifications.workspaceDeleted', { actor, workspace })
+    case 'backup_failed':
+      return t('notifications.backupFailed')
+    case 'reminder':
+      return t('notifications.reminderDue', { title })
+    case 'comment_mention':
+    case 'doc_mention':
+      return t('notifications.mentioned', { actor, title })
+    case 'comment':
+      return t('notifications.commented', { actor, title })
+    case 'comment_reply':
+      return t('notifications.replied', { actor, title })
+    case 'page_owner':
+      return t('notifications.pageOwner', { actor, title })
+    case 'task_assigned':
+      return t('notifications.taskAssigned', { actor, title })
+    case 'page_update':
+      // Repeated edits collapse into one item: "3 updates to <title>" instead of one actor.
+      return (n.count ?? 1) > 1
+        ? t('notifications.pageUpdates', { count: n.count ?? 1, title })
+        : t('notifications.pageUpdate', { actor, title })
+    case 'agent_digest':
+      return t('notifications.agentDigest', { title })
+    case 'approval_request':
+      return t('notifications.approvalRequest', { actor, title })
+    case 'approval_result':
+      return t('notifications.approvalResult', { actor, title })
+    default: {
+      const never: never = n.type
+      return String(never)
+    }
   }
-  if (n.type === 'webhook_disabled') {
-    return t('notifications.webhookDisabled', { workspace: n.workspaceName ?? t('notifications.workspaceFallback') })
-  }
-  if (n.type === 'workspace_deleted') {
-    // no navigation target: the workspace is gone for members (owners restore it in Settings)
-    return t('notifications.workspaceDeleted', { actor, workspace: n.workspaceName ?? t('notifications.workspaceFallback') })
-  }
-  if (n.type === 'backup_failed') return t('notifications.backupFailed')
-  if (n.type === 'reminder') {
-    return t('notifications.reminderDue', { title })
-  }
-  if (n.type === 'comment_mention' || n.type === 'doc_mention') {
-    return t('notifications.mentioned', { actor, title })
-  }
-  return t('notifications.commented', { actor, title })
+}
+
+/** "×3" for collapsed repeats (page_update already says "3 updates" in its text). */
+function repeatSuffix(n: NotificationDTO): string | null {
+  const c = n.count ?? 1
+  if (c <= 1 || n.type === 'page_update') return null
+  return t('notifications.times', { count: c })
 }
 
 // Global notification bell (M13) — all my notifications regardless of workspace. Placed at the AppLayout level.
@@ -105,32 +135,44 @@ export function NotificationBell({ wsId }: { wsId: string }) {
               <p className="px-3 py-6 text-center text-xs text-sub">{t('notifications.empty')}</p>
             ) : (
               <ul>
-                {list.map((n) => (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => openItem(n)}
-                      className={`flex w-full flex-col gap-0.5 border-b border-line px-3 py-2 text-left transition-colors hover:bg-hover ${
-                        n.read ? '' : 'bg-accent-soft/40'
-                      }`}
-                    >
-                      <span className="flex items-start gap-1.5">
-                        {!n.read && (
-                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                        )}
-                        {n.type === 'reminder' && (
-                          <span className="shrink-0 text-xs leading-4">⏰</span>
-                        )}
-                        <span className="min-w-0 flex-1 text-xs text-ink">
-                          {describe(n)}
+                {list.map((n) => {
+                  // Quiet items (agent-written mentions, level "nothing") never count as unread.
+                  const unreadItem = !n.read && !n.quiet
+                  const repeat = repeatSuffix(n)
+                  return (
+                    <li key={n.id}>
+                      <button
+                        type="button"
+                        onClick={() => openItem(n)}
+                        title={n.quiet ? t('notifications.quiet') : undefined}
+                        data-quiet={n.quiet || undefined}
+                        className={`flex w-full flex-col gap-0.5 border-b border-line px-3 py-2 text-left transition-colors hover:bg-hover ${
+                          unreadItem ? 'bg-accent-soft/40' : ''
+                        } ${n.quiet ? 'opacity-60' : ''}`}
+                      >
+                        <span className="flex items-start gap-1.5">
+                          {unreadItem && (
+                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                          )}
+                          {n.type === 'reminder' && (
+                            <span className="shrink-0 text-xs leading-4">⏰</span>
+                          )}
+                          <span className="min-w-0 flex-1 text-xs text-ink">
+                            {describe(n)}
+                            {n.via && <span className="text-sub"> {t('comments.via', { client: n.via })}</span>}
+                            {repeat && <span className="ml-1 text-sub">{repeat}</span>}
+                          </span>
                         </span>
-                      </span>
-                      <span className="pl-3 text-[11px] text-sub">
-                        {relativeTime(n.createdAt)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                        {n.excerpt && (
+                          <span className="block truncate pl-3 text-[11px] text-sub">{n.excerpt}</span>
+                        )}
+                        <span className="pl-3 text-[11px] text-sub">
+                          {relativeTime(n.createdAt)}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>

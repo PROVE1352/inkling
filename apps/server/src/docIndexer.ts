@@ -7,6 +7,8 @@ import { reindexPageLinks } from './md/linkIndex'
 import { blocksToTagText, extractTags, reindexPageTags } from './md/tagIndex'
 import { extractTasks, reindexPageTasks } from './md/taskIndex'
 import { blocksToPlainText, reindexPageText } from './md/textIndex'
+import { indexActor } from './context/attribution'
+import { mentionSignature, syncDocMentions } from './notify/producers'
 
 /**
  * Derived-index pipeline for live collaborative documents (docs/adr/0750-*).
@@ -48,6 +50,8 @@ interface Signature {
   tags: string
   tasks: string
   chunks: string
+  /** Sorted mentioned user ids (docs/adr/1002-*). */
+  mentions: string
   at: number
 }
 
@@ -60,7 +64,7 @@ function digest(s: string): string {
 }
 
 /** Test/bench hook: counters of what the pipeline actually did. */
-export const docIndexStats = { runs: 0, conversions: 0, links: 0, text: 0, tags: 0, tasks: 0, chunks: 0 }
+export const docIndexStats = { runs: 0, conversions: 0, links: 0, text: 0, tags: 0, tasks: 0, chunks: 0, mentions: 0 }
 
 async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
   docIndexStats.runs++
@@ -73,12 +77,16 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
   const tags = extractTags(tagText)
   const tasks = extractTasks(blocks)
   const chunks = chunkBlocks(blocks)
+  // Captured before any await: the REST/MCP request that caused this pass is still in flight.
+  const actor = indexActor(pageId)
+  const mention = mentionSignature(state)
   const next: Signature = {
     links: links.join(','),
     text: digest(text),
     tags: tags.join('\u0000'),
     tasks: digest(JSON.stringify(tasks)),
     chunks: digest(chunks.map((c) => c.hash).join(',')),
+    mentions: mention.sig,
     at: Date.now(),
   }
   const prev = signatures.get(pageId)
@@ -103,6 +111,13 @@ async function runIndex(pageId: string, state: Uint8Array): Promise<void> {
     // Section index for agent retrieval + change feed (docs/adr/0926-*, 0932-*); diffed per row inside.
     docIndexStats.chunks++
     await reindexPageChunks(pageId, blocks, { chunks })
+  }
+  if (!fresh || fresh.mentions !== next.mentions) {
+    // @mentions in the body → notifications for people newly mentioned (docs/adr/1002-*).
+    docIndexStats.mentions++
+    await syncDocMentions(pageId, blocks, mention.mentions, actor).catch((err) =>
+      console.error('[inkling] mention sync failed', pageId, err),
+    )
   }
   // Keep the signature's age from the last full rewrite so the TTL really forces one.
   if (fresh) next.at = fresh.at

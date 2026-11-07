@@ -4,12 +4,15 @@ import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createCommentSchema } from '@inkling/shared'
-import type { CommentDTO, NotificationType } from '@inkling/shared'
+import type { CommentDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
-import { broadcastToPage, broadcastToUser } from '../collab'
+import { broadcastToPage } from '../collab'
+import { currentAgent } from '../agentAccess'
+import { notify } from '../notify/engine'
+import type { Recipient } from '../notify/engine'
 import { db } from '../db/index'
-import { comments, notifications, pages, users, workspaceMembers } from '../db/schema'
-import { badRequest, forbidden, notFound } from '../errors'
+import { comments, pages, users, workspaceMembers } from '../db/schema'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
@@ -159,6 +162,9 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         threadId,
         commentId,
         actorId: user.id,
+        via: user.via ?? null,
+        isReply: !!body.threadId,
+        body: body.body,
         mentionUserIds: body.mentionUserIds ?? [],
       })
 
@@ -210,6 +216,15 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       // resolve toggles only on the thread root (the root's resolved is the whole thread's state)
       if (comment.threadId !== id) {
         throw badRequest('Only the thread root can be resolved')
+      }
+      // An agent closes only threads its own person started (docs/adr/1006-*): a remark someone
+      // else made about the page stays open until a person resolves it.
+      if (currentAgent() && comment.authorId !== user.id) {
+        throw new AppError(
+          403,
+          'AGENT_RESOLVE_NOT_ALLOWED',
+          'Agents can only resolve threads started by the person they act for; reply instead and let a person resolve it',
+        )
       }
       updates.resolved = patch.resolved ? '1' : '0'
     }
@@ -282,11 +297,14 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 }
 
 /**
- * Notifications on comment creation (A3).
- *   (a) the page author (createdBy), unless it is me      — 'comment'
- *   (b) earlier participants of the thread (except me)     — 'comment'
- *   (c) workspace members in mentionUserIds (except me)   — 'comment_mention' (mention wins)
- * One notification per person (deduped), never to myself.
+ * Notifications on comment creation (A3, docs/adr/1000-*). Recipients and their kind:
+ *   - members in mentionUserIds                         → 'comment_mention' (direct)
+ *   - earlier participants of the thread (on a reply)    → 'comment_reply' (direct)
+ *   - the page's creator and document owner              → 'comment' (implicit: no subscription needed)
+ *   - subscribers at level 'all'                          → 'comment' (activity)
+ * The engine keeps one row per person (highest kind), never the actor, only people who can see
+ * the page, applies subscription levels and collapses repeats per thread. Runs after the insert,
+ * queued: the request does not wait for it.
  */
 async function generateCommentNotifications(args: {
   pageId: string
@@ -294,69 +312,62 @@ async function generateCommentNotifications(args: {
   threadId: string
   commentId: string
   actorId: string
+  via: string | null
+  isReply: boolean
+  body: string
   mentionUserIds: string[]
 }): Promise<void> {
-  const { pageId, workspaceId, threadId, commentId, actorId, mentionUserIds } = args
-  const recipients = new Map<string, NotificationType>()
+  const { pageId, workspaceId, threadId, commentId, actorId, via, isReply, body, mentionUserIds } = args
+  const recipients: Recipient[] = []
 
-  // (a) page author — pageColumns has no createdBy, so query it directly
   const [pageRow] = await db
-    .select({ createdBy: pages.createdBy })
+    .select({ createdBy: pages.createdBy, ownerId: pages.ownerId })
     .from(pages)
     .where(eq(pages.id, pageId))
     .limit(1)
-  if (pageRow?.createdBy && pageRow.createdBy !== actorId) {
-    recipients.set(pageRow.createdBy, 'comment')
+  for (const id of [pageRow?.createdBy, pageRow?.ownerId]) {
+    if (id) recipients.push({ userId: id, kind: 'comment', reason: 'implicit' })
   }
 
-  // (b) earlier thread participants (includes my new comment, but the actor is excluded)
-  const participants = await db
-    .selectDistinct({ authorId: comments.authorId })
-    .from(comments)
-    .where(eq(comments.threadId, threadId))
-  for (const p of participants) {
-    if (p.authorId && p.authorId !== actorId && !recipients.has(p.authorId)) {
-      recipients.set(p.authorId, 'comment')
+  if (isReply) {
+    const participants = await db
+      .selectDistinct({ authorId: comments.authorId })
+      .from(comments)
+      .where(eq(comments.threadId, threadId))
+    for (const p of participants) {
+      if (p.authorId) recipients.push({ userId: p.authorId, kind: 'comment_reply', reason: 'direct' })
     }
   }
 
-  // (c) mentions — workspace members only; a mention overrides 'comment' (more specific)
+  // Mentions: workspace members only (the engine re-checks membership and visibility).
   const uniqueMentions = [...new Set(mentionUserIds)].filter((m) => m !== actorId)
+  let mentioned: string[] = []
   if (uniqueMentions.length > 0) {
     const members = await db
       .select({ userId: workspaceMembers.userId })
       .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          inArray(workspaceMembers.userId, uniqueMentions),
-        ),
-      )
-    for (const m of members) recipients.set(m.userId, 'comment_mention')
+      .where(and(eq(workspaceMembers.workspaceId, workspaceId), inArray(workspaceMembers.userId, uniqueMentions)))
+    mentioned = members.map((m) => m.userId)
+    for (const id of mentioned) recipients.push({ userId: id, kind: 'comment_mention', reason: 'direct' })
   }
 
   // Workspace webhooks (Slack/Discord) — fire-and-forget; shared-page-only gate is applied at delivery.
-  emitWebhookEvent({ type: 'comment', workspaceId, pageId, actorId, commentId })
-  const mentioned = [...recipients].filter(([, t]) => t === 'comment_mention').map(([id]) => id)
-  if (mentioned.length > 0) {
+  // Agent-written mentions do not ping a channel (docs/adr/1000-*).
+  emitWebhookEvent({ type: 'comment', workspaceId, pageId, actorId, commentId, via })
+  if (mentioned.length > 0 && !via) {
     emitWebhookEvent({ type: 'mention', workspaceId, pageId, actorId, commentId, mentionedUserIds: mentioned })
   }
 
-  if (recipients.size === 0) return
-
-  await db.insert(notifications).values(
-    [...recipients].map(([userId, type]) => ({
-      userId,
-      type,
-      pageId,
-      workspaceId,
-      actorId,
-      commentId,
-    })),
-  )
-
-  // Signal each recipient's inbox channel right away. The helper isolates failures.
-  for (const recipientId of recipients.keys()) {
-    broadcastToUser(recipientId, { t: 'notifications' })
-  }
+  notify({
+    workspaceId,
+    pageId,
+    actorId,
+    via,
+    recipients,
+    followers: 'comment',
+    commentId,
+    threadId,
+    anchor: null,
+    excerpt: body,
+  })
 }

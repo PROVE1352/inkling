@@ -41,6 +41,10 @@ Review of templates before the public release found:
   keep hiding the few legacy rows flagged `'1'`, so nothing that was hidden becomes visible or
   public by surprise. Proposed follow-up migration: `UPDATE pages SET is_template = '0'` after
   notifying owners, then drop the column and the three filters.
+- **Update (2026-11-07):** migration 0032 drops `pages.is_template` and its filters (query,
+  public pages, webhooks, review, digest, mention notifications). Before the drop no row was
+  flagged `'1'` on the reference deployment, so nothing changes visibility. Other deployments
+  with legacy `'1'` rows will see those pages like any other page after upgrading.
 
 ## Trade-offs
 - Yjs states in jsonb are ~33% larger than bytea and the list query must not select them: it

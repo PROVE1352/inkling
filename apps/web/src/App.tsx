@@ -26,6 +26,7 @@ function lazyNamed<K extends string>(
 const loadPageView = () => import('./pages/PageView')
 const PageView = lazyNamed(loadPageView, 'PageView')
 const Admin = lazyNamed(() => import('./pages/Admin'), 'Admin')
+const ActivityView = lazyNamed(() => import('./pages/ActivityView'), 'ActivityView')
 const DueView = lazyNamed(() => import('./pages/DueView'), 'DueView')
 const GlobalCalendar = lazyNamed(() => import('./pages/GlobalCalendar'), 'GlobalCalendar')
 const GraphView = lazyNamed(() => import('./pages/GraphView'), 'GraphView')
@@ -111,6 +112,7 @@ export function App() {
       >
         <Route index element={<Pane><WorkspaceHome /></Pane>} />
         <Route path="admin" element={<Pane><Admin /></Pane>} />
+        <Route path="activity" element={<Pane><ActivityView /></Pane>} />
         <Route path="calendar" element={<Pane><GlobalCalendar /></Pane>} />
         <Route path="due" element={<Pane><DueView /></Pane>} />
         <Route path="graph" element={<Pane><GraphView /></Pane>} />

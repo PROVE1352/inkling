@@ -40,6 +40,8 @@ const T = {
     get reminder() { return t('webhooks.eventReminder') },
     get page_created() { return t('webhooks.eventPageCreated') },
     get review_due() { return t('webhooks.eventReviewDue') },
+    get assigned() { return t('webhooks.eventAssigned') },
+    get agent_digest() { return t('webhooks.eventAgentDigest') },
   } satisfies Record<WebhookEvent, string>,
   kind: { slack: 'Slack', discord: 'Discord' },
 }

@@ -142,13 +142,14 @@ describe('[db] Notion import', { skip: !HAS_DB }, async () => {
     // Getting Started: block types and resolved links
     const gs = (await blocksOf(byTitle.get('Getting Started')!.id))!
     const types = gs.map((b) => b.type)
-    // 12 blocks: callout→quote, toggle, table, 2 checklist items, equation, inline-math paragraph,
-    // image, file (promoted from a lone attachment link), link paragraphs and the fenced code
+    // 12 blocks: callout→quote, toggle, table, 2 checklist items, equation (math block),
+    // inline-math paragraph, image, file (promoted from a lone attachment link), link paragraphs
+    // and the fenced code
     assert.deepEqual(types, [
-      'quote', 'toggleListItem', 'table', 'checkListItem', 'checkListItem', 'codeBlock',
+      'quote', 'toggleListItem', 'table', 'checkListItem', 'checkListItem', 'math',
       'paragraph', 'image', 'file', 'paragraph', 'paragraph', 'codeBlock',
     ])
-    for (const t of ['quote', 'toggleListItem', 'table', 'checkListItem', 'codeBlock', 'image', 'file']) {
+    for (const t of ['quote', 'toggleListItem', 'table', 'checkListItem', 'math', 'codeBlock', 'image', 'file']) {
       assert.ok(types.includes(t), `missing ${t} in ${types.join(',')}`)
     }
     assert.notEqual(types[0], 'heading', 'the title heading is stripped')
@@ -156,8 +157,11 @@ describe('[db] Notion import', { skip: !HAS_DB }, async () => {
     assert.match(JSON.stringify(quote.content), /💡 Read this first/)
     const toggle = gs.find((b) => b.type === 'toggleListItem')!
     assert.equal(toggle.children?.length, 1)
-    const code = gs.find((b) => b.type === 'codeBlock' && b.props?.language === 'latex')
-    assert.ok(code, 'block equation kept as a latex code block')
+    const equation = gs.find((b) => b.type === 'math')
+    assert.equal(equation?.props?.latex, 'E = mc^2', 'block equation imported as a math block')
+    const inline = JSON.stringify(gs[6].content)
+    assert.match(inline, /"type":"inlineMath","props":\{"latex":"a_1 \+ b"\}/, 'inline equation imported as inline math')
+    assert.match(inline, /prices \$5 and \$10 stay/, 'prices are not math')
 
     const links = hrefs(gs)
     const pageLink = (title: string) => `/w/${ws.id}/p/${byTitle.get(title)!.id}`

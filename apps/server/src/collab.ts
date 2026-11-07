@@ -15,6 +15,7 @@ import { visibleTo } from './pageDto'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { flushDocIndexes, scheduleDocIndex } from './docIndexer'
+import { noteLiveEdit } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
 import { registerHocuspocus } from './liveConnections'
 import { parseCookies } from './util'
@@ -131,6 +132,11 @@ export const hocuspocus = new Hocuspocus({
   // Shutdown is coordinated together with fastify, so disable automatic signal handling
   stopOnSignals: false,
   extensions: [databaseExtension],
+  // Who is typing where (docs/adr/1002-*): attributes body mentions and followed-page updates.
+  async onChange(data) {
+    const uid = (data.context as { userId?: unknown } | undefined)?.userId
+    if (typeof uid === 'string' && isPageDocument(data.documentName)) noteLiveEdit(data.documentName, uid)
+  },
   async onAuthenticate(data) {
     // 1) Session -> user from the upgrade request cookie
     const cookies = parseCookies(data.requestHeaders.cookie)

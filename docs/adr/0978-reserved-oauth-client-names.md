@@ -1,6 +1,6 @@
 # 0978. Reserved OAuth client names
 
-- Status: Accepted
+- Status: Accepted; the member-name rule is superseded by [ADR 1007](1007-member-name-clash-per-workspace.md)
 - Date: 2026-11-07
 
 ## Context

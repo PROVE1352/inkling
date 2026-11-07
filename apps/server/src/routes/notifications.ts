@@ -9,6 +9,7 @@ import { db } from '../db/index'
 import { notifications, pages, users, workspaceMembers, workspaces } from '../db/schema'
 import { visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
+import { registerNotificationSettingsRoutes } from './notificationSettings'
 
 const markReadSchema = z.object({
   ids: z.array(z.uuid()).max(500).optional(),
@@ -55,7 +56,7 @@ async function countUnread(userId: string): Promise<number> {
     .select({ n: sql<number>`count(*)::int` })
     .from(notifications)
     .leftJoin(pages, eq(pages.id, notifications.pageId))
-    .where(and(visibleNotifCond(userId), eq(notifications.read, '0')))
+    .where(and(visibleNotifCond(userId), eq(notifications.read, '0'), eq(notifications.delivery, 'now')))
   return n
 }
 
@@ -76,6 +77,11 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         workspaceId: notifications.workspaceId,
         workspaceName: workspaces.name,
         actorName: actor.name,
+        via: notifications.viaClient,
+        count: notifications.count,
+        excerpt: notifications.excerpt,
+        anchor: notifications.anchor,
+        delivery: notifications.delivery,
       })
       .from(notifications)
       .leftJoin(pages, eq(pages.id, notifications.pageId))
@@ -95,6 +101,11 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
       actorName: r.actorName ?? null,
       read: r.read === '1',
       createdAt: r.createdAt.toISOString(),
+      via: r.via,
+      count: r.count,
+      excerpt: r.excerpt,
+      anchor: r.anchor,
+      quiet: r.delivery === 'quiet',
     }))
 
     const unread = await countUnread(user.id)
@@ -121,4 +132,6 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const unread = await countUnread(user.id)
     return { unread }
   })
+
+  await registerNotificationSettingsRoutes(app)
 }

@@ -153,3 +153,23 @@
     text-decoration: underline;
   }
 }
+
+/* Math (docs/adr/0997-*): applies to every print, the share page included. Formulas print whole
+   (no scroll box), display equations are not split across pages, and editing chrome is hidden. */
+@media print {
+  .nd-math-block,
+  .nd-public-body [data-content-type='math'] {
+    overflow: visible !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: transparent !important;
+  }
+  .nd-math-hint,
+  .nd-math-popover,
+  .nd-math-empty {
+    display: none !important;
+  }
+  .katex {
+    color: #000;
+  }
+}

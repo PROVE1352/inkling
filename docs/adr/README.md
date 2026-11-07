@@ -219,7 +219,20 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0975](0975-agent-instruction-pages.md) | Agent instruction pages: always, match, manual | Accepted |
 | [0976](0976-data-instruction-boundary-in-mcp-output.md) | Data / instruction boundary in MCP output | Accepted |
 | [0977](0977-injection-signals-and-taint-record.md) | Injection-like content signals and a taint record (signal, never a block) | Accepted |
-| [0978](0978-reserved-oauth-client-names.md) | Reserved OAuth client names | Accepted |
+| [0978](0978-reserved-oauth-client-names.md) | Reserved OAuth client names | Accepted (member-name part superseded by 1007) |
+
+## 1000–1019 Notifications, agent inbox and activity
+
+| ADR | Title | Status |
+|---|---|---|
+| [1000](1000-notification-engine.md) | Notification engine: one queue, one table, rules in one place | Accepted |
+| [1001](1001-subtree-subscriptions-and-levels.md) | Subtree subscriptions: all, mentions, nothing, mute | Accepted |
+| [1002](1002-body-mentions-and-agent-attribution.md) | Body @mentions: read from Yjs, attributed to a person or an agent | Accepted |
+| [1003](1003-agent-inbox-and-ack.md) | Agent inbox: the person's direct items, a cursor and an explicit ack | Accepted |
+| [1004](1004-notification-mail-digests-and-webhooks.md) | Delivery: instant mail, daily/weekly digest, AI summaries, webhooks | Accepted |
+| [1005](1005-activity-screen-diffs-and-created-via.md) | Activity screen, version diffs and created-via provenance | Accepted |
+| [1006](1006-comment-tools-for-agents.md) | Comment thread tools for agents | Accepted |
+| [1007](1007-member-name-clash-per-workspace.md) | Client names vs member names: exact, per workspace, warning for common apps | Accepted |
 
 ## 099x Client updates
 
@@ -230,3 +243,13 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0992](0992-force-reload-safety.md) | Force mode reloads only when nothing local is unsaved | Accepted |
 | [0993](0993-single-update-notice-and-sw-handoff-fix.md) | One update notice at the app root; the SW hand-off looks up the waiting worker on accept | Accepted |
 | [0994](0994-optional-github-release-check.md) | Optional GitHub release check for admins (off by default) | Accepted |
+
+## 0995–0999 Math (KaTeX)
+
+| ADR | Title | Status |
+|---|---|---|
+| [0995](0995-math-nodes-in-both-editor-schemas.md) | Math nodes in both editor schemas, built from one shared config | Accepted |
+| [0996](0996-math-markdown-notation.md) | Math in Markdown: `$$` blocks and `$…$` spans, cut out around BlockNote's converter | Accepted |
+| [0997](0997-math-rendering-katex-safety-and-loading.md) | Math rendering: KaTeX with safety options, lazy loading, editing UX, share page and print | Accepted |
+| [0998](0998-math-render-scheduling.md) | Math render scheduling: paced insertion, a resident cap, deferral only on math-heavy pages | Accepted |
+| [0999](0999-no-server-side-math-rendering.md) | The server never renders math | Accepted |

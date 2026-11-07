@@ -11,6 +11,10 @@ import { db } from './db/index'
  * letter or digit removed ("ＡＤＭＩＮ", "Adm1n", "a d m i n", "\u0410dmin" with a Cyrillic \u0410 all fold
  * to "admin"). Length and control-character cleanup stay where they were (registration slices to
  * 100 characters; bearer requests sanitise the label).
+ *
+ * Member names are a separate, narrower rule (docs/adr/1007-*, superseding that part of 0978):
+ * exact comparison only (NFKC + case + spacing), enforced per workspace where such a member is,
+ * and only a warning for common app names.
  */
 
 const RESERVED = ['inkling', 'admin', 'administrator', 'system', 'root', 'owner', 'moderator', 'support', 'staff', '관리자', '시스템', '운영자', '잉클링']
@@ -44,19 +48,79 @@ export function reservedClientName(name: string): string | null {
 }
 
 /**
- * Display name of a member of any workspace `userId` belongs to (themselves included) that the
- * client name imitates, or null. Run at consent time: only then is it known whose workspaces the
- * connection will act in, and the check does not reveal names to an anonymous registrant.
+ * Common app names (docs/adr/1007-*). A member whose display name is one of these ("Claude") must
+ * not lock that app out of a whole team, so a clash with such a name is only a warning on the
+ * consent screen. Compared with `exactName`.
  */
+export const WELL_KNOWN_CLIENTS = [
+  'claude', 'claude code', 'claude desktop', 'claude.ai', 'chatgpt', 'openai', 'codex', 'cursor', 'copilot',
+  'github copilot', 'gemini', 'gemini cli', 'windsurf', 'cline', 'continue', 'zed', 'goose', 'vs code', 'vscode',
+  'raycast', 'perplexity', 'mistral', 'le chat', 'jetbrains', 'junie', 'amp', 'warp', 'opencode', 'kiro',
+]
+
+/** Exact comparison key for member-name checks: NFKC, lower case, whitespace collapsed (no look-alike folding). */
+export function exactName(s: string): string {
+  return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const WELL_KNOWN = new Set(WELL_KNOWN_CLIENTS.map(exactName))
+
+export function isWellKnownClient(name: string): boolean {
+  return WELL_KNOWN.has(exactName(name))
+}
+
+/**
+ * Members whose display name equals the client name exactly, in the workspaces of `userId` (other
+ * members only: a person may name their own connection after themselves). Returns the member name
+ * and the workspaces where such a member is, or null.
+ */
+export async function memberNameClashes(
+  name: string,
+  userId: string,
+): Promise<{ member: string; workspaces: { id: string; name: string }[] } | null> {
+  const key = exactName(name)
+  if (!key) return null
+  const rows = (await db.execute(sql`
+    SELECT u.name AS member, w.id, w.name FROM workspace_members me
+      JOIN workspaces w ON w.id = me.workspace_id AND w.deleted_at IS NULL
+      JOIN workspace_members m ON m.workspace_id = me.workspace_id AND m.user_id <> ${userId}
+      JOIN users u ON u.id = m.user_id
+     WHERE me.user_id = ${userId}
+     ORDER BY w.name, w.id
+  `)) as unknown as { member: string; id: string; name: string }[]
+  const hits = rows.filter((r) => exactName(r.member) === key)
+  if (!hits.length) return null
+  const seen = new Set<string>()
+  const workspaces = hits.filter((h) => (seen.has(h.id) ? false : (seen.add(h.id), true))).map((h) => ({ id: h.id, name: h.name }))
+  return { member: hits[0].member, workspaces }
+}
+
+/** The display name of a member of any of `userId`'s workspaces (themselves included) the client name equals exactly. */
 export async function memberNameClash(name: string, userId: string): Promise<string | null> {
-  const f = foldName(name)
-  if (!f) return null
+  const key = exactName(name)
+  if (!key) return null
   const rows = (await db.execute(sql`
     SELECT DISTINCT u.name FROM workspace_members me
       JOIN workspace_members m ON m.workspace_id = me.workspace_id
       JOIN users u ON u.id = m.user_id
      WHERE me.user_id = ${userId}
   `)) as unknown as { name: string }[]
-  for (const r of rows) if (foldName(r.name) === f) return r.name
+  for (const r of rows) if (exactName(r.name) === key) return r.name
   return null
+}
+
+/**
+ * Per-workspace rule (docs/adr/1007-*): an agent connection whose client name equals another
+ * member's display name in THIS workspace is refused here (other workspaces are unaffected), unless
+ * the name is a common app name (warning only). True = refuse.
+ */
+export async function clientNameClashesInWorkspace(clientName: string | null, userId: string, workspaceId: string): Promise<boolean> {
+  if (!clientName || isWellKnownClient(clientName)) return false
+  const key = exactName(clientName)
+  if (!key) return false
+  const rows = (await db.execute(sql`
+    SELECT u.name FROM workspace_members m JOIN users u ON u.id = m.user_id
+     WHERE m.workspace_id = ${workspaceId}::uuid AND m.user_id <> ${userId}::uuid
+  `)) as unknown as { name: string }[]
+  return rows.some((r) => exactName(r.name) === key)
 }

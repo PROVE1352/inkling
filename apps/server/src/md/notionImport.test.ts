@@ -59,15 +59,17 @@ describe('Notion links', () => {
 })
 
 describe('Notion Markdown', () => {
-  it('turns callouts into quotes and equations into code, outside code fences only', () => {
+  it('turns callouts into quotes, keeps equations as $$/$ math and latex fences become $$, outside code fences only', () => {
     const { md, stats } = preprocessNotionMarkdown(
-      '<aside>\n💡 Tip\n</aside>\n\n$$\nE=mc^2\n$$\n\nCost $5 and $10, math $x_1$.\n\n```\n$$ keep $x$\n```\n',
+      '<aside>\n💡 Tip\n</aside>\n\n$$\nE=mc^2\n$$\n\nCost $5 and $10, math $x_1$ and $`y`$.\n\n```\n$$ keep $x$\n```\n\n```latex\n\\frac{a}{b}\n```\n',
     )
     assert.match(md, /^> 💡 Tip$/m)
-    assert.match(md, /```latex\nE=mc\^2\n```/)
-    assert.match(md, /Cost \$5 and \$10, math `\$x_1\$`\./)
+    assert.match(md, /^\$\$\nE=mc\^2\n\$\$$/m)
+    assert.match(md, /Cost \$5 and \$10, math \$x_1\$ and \$y\$\./)
     assert.match(md, /```\n\$\$ keep \$x\$\n```/)
-    assert.deepEqual(stats, { callouts: 1, equations: 2 })
+    assert.match(md, /^\$\$\n\\frac\{a\}\{b\}\n\$\$$/m)
+    assert.doesNotMatch(md, /```latex/)
+    assert.deepEqual(stats, { callouts: 1, equations: 4 })
   })
   it('strips the title heading and row property lines', () => {
     const { title, body } = splitLeadingTitle('# Alpha project\n\nStatus: Active\nTags: a\n\nBody', 'Alpha project')

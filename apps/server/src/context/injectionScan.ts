@@ -47,13 +47,56 @@ const PERMISSION_VERB = /\b(grant|give|make|change|remove|disable|unlock|elevate
 const BASE64_BLOB = /[A-Za-z0-9+/]{200,}={0,2}/
 const HEX_BLOB = /\b[0-9a-fA-F]{128,}\b/
 
-const URL_WITH_QUERY = /https?:\/\/[^\s)>\]"']+\?[^\s)>\]"']*=/i
+/*
+ * URL rules are a single left-to-right pass, not one regex: the old patterns
+ * (`[^…]+\?[^…]*=`) let both classes take `?` and `=`, so a failed match
+ * retried every split point (cubic; 20 KB of `http://?` took 19.5 s on one core).
+ * URL_TOKEN takes maximal runs that never overlap, and each `=` after the `?` is
+ * looked at once, so the cost is linear in the text (docs/PERFORMANCE.md).
+ */
+const URL_TOKEN = /https?:\/\/[^\s)>\]"']+/gi
+/** Markdown image target. Alt text stops at `[`/`]`/newline so starts never rescan each other. */
+const IMAGE_URL = /!\[[^\][\n]{0,300}\]\(\s*(https?:\/\/[^\s)]+)/gi
 /** A query value that is a placeholder for data the agent should fill in. */
-const PLACEHOLDER_VALUE = /https?:\/\/[^\s)>\]"']+\?[^\s)>\]"']*=\s*(\{|<|\$|\[|%7b|%3c|%24|%s\b)/i
+const PLACEHOLDER_HEAD = /^(\{|<|\$|\[|%7b|%3c|%24|%s\b)/i
+const PLACEHOLDER_AFTER = /^\s*(\{|<|\$|\[|%7b|%3c|%24|%s\b)/i
+
+/** Does `url` have `?…=`, and is any query value a placeholder? `after` = text right after the URL. */
+function queryFacts(url: string, after: string): { query: boolean; placeholder: boolean } {
+  const q = url.indexOf('?', url.indexOf('//') + 3)
+  if (q < 0) return { query: false, placeholder: false }
+  let query = false
+  for (let i = url.indexOf('=', q + 1); i >= 0; i = url.indexOf('=', i + 1)) {
+    query = true
+    const value = i + 1 < url.length ? url.slice(i + 1, i + 5) : null
+    if (value !== null ? PLACEHOLDER_HEAD.test(value) : PLACEHOLDER_AFTER.test(after)) return { query, placeholder: true }
+  }
+  return { query, placeholder: false }
+}
+
+function urlFacts(text: string): { query: boolean; placeholder: boolean } {
+  let query = false
+  for (const m of text.matchAll(URL_TOKEN)) {
+    const end = m.index + m[0].length
+    const f = queryFacts(m[0], text.slice(end, end + 256))
+    if (f.placeholder) return f
+    query ||= f.query
+  }
+  return { query, placeholder: false }
+}
+
+function imageExfil(text: string): boolean {
+  for (const m of text.matchAll(IMAGE_URL)) {
+    const end = m.index + m[0].length
+    const url = m[1]
+    // Same rule as the URL scan, with the image class ([^\s)]) as the URL's extent.
+    if (queryFacts(url, text.slice(end, end + 256)).placeholder) return true
+  }
+  return false
+}
 const EXFIL_VERB =
   /\b(append|add|attach|include|put|send|post|visit|open|fetch|load|encode)\b[^.\n]{0,80}\b(url|link|query|parameter|endpoint)\b|(url|링크|주소|쿼리)[^.\n]{0,40}(붙여|추가|넣어|포함)|(보내|전송|방문)/
 const DATA_WORD = /\b(data|contents?|secrets?|tokens?|passwords?|api[\s_-]?keys?|credentials?|conversation|notes?|summary|email)\b|비밀|토큰|비밀번호|내용|데이터|대화|요약/
-const IMAGE_EXFIL = /!\[[^\]]*\]\(\s*https?:\/\/[^\s)]+\?[^\s)]*=\s*(\{|<|\$|\[|%7b|%3c|%24|%s\b)/i
 
 /** NFKC, lower case, invisibles removed, whitespace collapsed — what the phrase rules see. */
 export function normalizeForScan(s: string): string {
@@ -82,10 +125,11 @@ export function scanInjection(text: string): InjectionRule[] {
     const agent = AGENT_CUE.test(l)
     if (agent && TOOL.test(l) && IMPERATIVE.test(l)) hits.add('tool-directive')
     if (agent && PERMISSION_TERM.test(l) && PERMISSION_VERB.test(l)) hits.add('permission-change')
-    if (URL_WITH_QUERY.test(l) && (PLACEHOLDER_VALUE.test(l) || (EXFIL_VERB.test(l) && DATA_WORD.test(l)))) hits.add('exfil-url')
+    const u = urlFacts(l)
+    if (u.query && (u.placeholder || (EXFIL_VERB.test(l) && DATA_WORD.test(l)))) hits.add('exfil-url')
   }
   if (BASE64_BLOB.test(raw) || HEX_BLOB.test(raw)) hits.add('encoded-blob')
-  if (IMAGE_EXFIL.test(raw)) hits.add('image-exfil')
+  if (imageExfil(raw)) hits.add('image-exfil')
   return INJECTION_RULES.filter((r) => hits.has(r))
 }
 

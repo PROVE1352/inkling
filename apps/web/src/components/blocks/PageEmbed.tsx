@@ -6,6 +6,7 @@ import {
   BlockNoteSchema,
   createCodeBlockSpec,
   defaultBlockSpecs,
+  defaultInlineContentSpecs,
 } from '@blocknote/core'
 import { en as bnEn, ko as bnKo } from '@blocknote/core/locales'
 import { codeBlockOptions } from '../../lib/codeBlockOptions'
@@ -18,6 +19,7 @@ import { pageIcon } from '../../lib/pageIcon'
 import { useTheme } from '../../lib/theme'
 import { LinkIcon, LockIcon } from '../Icons'
 import { getLocale, useT } from '../../i18n'
+import { inlineMathSpec, mathBlockSpec } from './Math'
 
 // pageEmbed custom block (`![[transclusion]]`).
 // - prop: pageId. content 'none' (no inline content) → not a PM cursor/edit target.
@@ -222,11 +224,18 @@ const pageEmbedShallowSpec = createReactBlockSpec(pageEmbedConfig, {
   render: ({ block }) => <PageEmbedShallow pageId={block.props.pageId} />,
 })()
 
+// Math nodes are registered here too: the viewer is bound to the live Yjs doc, and y-prosemirror
+// deletes nodes its schema does not know (docs/adr/0995-*).
 const embedSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     codeBlock: createCodeBlockSpec(codeBlockOptions),
     pageEmbed: pageEmbedShallowSpec,
+    math: mathBlockSpec,
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    inlineMath: inlineMathSpec,
   },
 })
 

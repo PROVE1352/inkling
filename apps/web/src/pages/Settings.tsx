@@ -18,6 +18,7 @@ import {
 import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { ApiError, useAuthMode, useChangePassword, useMe, useResendVerification } from '../api'
 import { IcalSettings } from '../components/IcalSettings'
+import { NotificationSettings } from '../components/NotificationSettings'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { useT, type TKey } from '../i18n'
@@ -214,6 +215,7 @@ export function Settings() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="nd-enter mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
           <AccountGroup />
+          <NotificationSettings />
           <IcalSettings />
           <DeletedWorkspacesList />
 

@@ -193,6 +193,23 @@ scaling), and it is a young project with a small user base.
 Design notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Decisions and their reasons are
 recorded as ADRs in [docs/adr/](docs/adr/README.md). The REST contract is in [docs/API.md](docs/API.md).
 
+## Performance
+
+Performance changes are measured before and after on the same data. A few results:
+
+- `find_context` on a 5,000-page benchmark (28 questions): 2,254 → 624 mean tokens per question
+  (−72%), 3.68 → 1.00 tool calls, success rate 0.75 → 0.93
+  ([ADR 0927](docs/adr/0927-find-context-ranking-and-budget-packing.md))
+- `patch_section`: changing one sentence costs about 222 tokens instead of about 2,415 for read +
+  replace ([ADR 0930](docs/adr/0930-patch-section-yjs-splice-with-base-version.md))
+- A person typing in a section while an agent patches it keeps their text in 6/6 test scenarios
+  (was 1/6) ([ADR 0940](docs/adr/0940-patch-section-minimal-yjs-edit.md))
+- Collaboration store path, 1,000 saves of a ~300-block page: 40,006 → 1,042 SQL statements
+  ([ADR 0750](docs/adr/0750-collab-store-path-db-side-snapshot-debounced-diffed-indexing.md))
+
+Every measurement, with its method, and the changes that were measured and rejected:
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## Security
 
 Inkling is designed for a single self-hosted instance shared by people who trust each other within

@@ -32,6 +32,8 @@ import { registerExportImportRoutes } from './routes/exportImport'
 import { registerFileDownloadRoute, registerFileRoutes } from './routes/files'
 import { registerInkRoutes } from './routes/ink'
 import { registerNotificationRoutes } from './routes/notifications'
+import { registerActivityRoutes } from './routes/activity'
+import { registerInboxRoutes } from './routes/inbox'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
 import { registerPageContentRoutes } from './routes/pageContent'
@@ -54,6 +56,8 @@ import { registerLinkPreviewRoutes } from './routes/linkPreview'
 import { registerShareMetaRoutes } from './routes/shareMeta'
 import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
+import { flushNotifications, initNotifications } from './notify/engine'
+import { clearMailTimers, initNotificationMail } from './notify/mailer'
 import { registerBackupRoutes } from './backup/routes'
 import { registerVersionRoutes } from './version'
 
@@ -126,6 +130,9 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   // ERR_SERVER_NOT_RUNNING from the later app.close() is tolerated by Fastify.
   if (appRef?.server.listening) appRef.server.close()
   await step('collab flush', () => destroyCollab(), COLLAB_FLUSH_TIMEOUT_MS)
+  // queued notification events of the last edits (mail timers are dropped; housekeeping resends)
+  clearMailTimers()
+  await step('notification flush', () => flushNotifications(), 3_000)
   const a = appRef
   if (a) await step('http close', () => a.close(), HTTP_CLOSE_TIMEOUT_MS)
   // buffered page read counts (docs/adr/0953-*) — after HTTP so in-flight reads are counted
@@ -274,6 +281,9 @@ async function main(): Promise<void> {
   // CSP frame-src for HTML responses without their own CSP (embed providers) — docs/adr/0501-*
   registerEmbedCsp(app)
   initWebhooks((msg) => app.log.warn(msg))
+  // Notification engine + mail (docs/adr/1000-*, 1004-*)
+  initNotifications((msg) => app.log.warn(msg))
+  initNotificationMail((msg) => app.log.warn(msg))
 
   // 7) Static file serving (in production when WEB_DIST is set)
   if (env.webDist) {
@@ -380,6 +390,9 @@ async function main(): Promise<void> {
       await registerBookmarkRoutes(api)
       await registerCommentRoutes(api)
       await registerNotificationRoutes(api)
+      // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)
+      await registerActivityRoutes(api)
+      await registerInboxRoutes(api)
       await registerFileRoutes(api)
       // Public web sharing (M15): unauthenticated. No session/membership preHandler, only the token + scope gate.
       await registerPublicRoutes(api)

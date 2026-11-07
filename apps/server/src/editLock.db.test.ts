@@ -485,8 +485,8 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       assert.ok(t.trimEnd().endsWith('</untrusted_content>'))
       assert.match(t, /＜\/untrusted_content>/)
       assert.match(t, /hidden\\u200Bword/)
-      // the import that created it logged no actor: only the creator is claimed
-      assert.match(t, /<untrusted_content source="page" id="[0-9a-f-]{36}" created_by="Member" hidden_chars="1">/)
+      // created through MCP: the creation is attributed to the person and the client (docs/adr/1005-*)
+      assert.match(t, /<untrusted_content source="page" id="[0-9a-f-]{36}" created_by="Member" last_edit="Member via Test Agent" hidden_chars="1">/)
       assert.match(t, /^- suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\) in §footer$/m)
       assert.equal((await mcpM.tool('read_page', { pageId: P })).text, t, 'byte-identical')
       const o = (await mcpM.tool('read_page', { pageId: P, outline: true })).text
@@ -497,7 +497,7 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
     it('find_context and read_pages wrap and flag per fragment', async () => {
       const f = (await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text
       assert.match(f, /<untrusted_content source="find_context" hidden_chars="1">/)
-      assert.match(f, /; can: read,comment,edit; suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\)/)
+      assert.match(f, /; can: read,comment,edit; edited by Member via Test Agent; suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\)/)
       assert.equal((await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text, f)
       const rp = (await mcpM.tool('read_pages', { pageIds: [P, X] })).text
       assert.equal((rp.match(/<untrusted_content source="page"/g) ?? []).length, 2)
@@ -537,7 +537,7 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
   })
 
   describe('client names and link resolution', () => {
-    it('a client named like a member is refused at consent', async () => {
+    it('a client named like a member is found by exact name (refused per workspace, docs/adr/1007-*)', async () => {
       assert.equal(await memberNameClash('editor', M.id), 'Editor')
       assert.equal(await memberNameClash('Ｅｄｉｔｏｒ', M.id), 'Editor')
       assert.equal(await memberNameClash('Claude', M.id), null)

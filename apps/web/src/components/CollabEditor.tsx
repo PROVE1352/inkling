@@ -40,6 +40,12 @@ export type CollabState = {
   status: ConnStatus
   synced: boolean
   users: CollabUser[]
+  /**
+   * Scope the server granted this connection ('read-write' by default; 'readonly' e.g. on a page
+   * locked for the caller). Undefined until authenticated. Edits on a read-only connection are
+   * dropped by the server, so the editor must not be editable then.
+   */
+  scope?: string
 }
 
 // Code block highlighting is injected via the schema, not an editor option (Appendix A).
@@ -81,7 +87,7 @@ export function CollabEditor({
   me: UserDTO
   onCollabChange?: (state: CollabState) => void
   onEditorReady?: (editor: InklingEditor | null) => void
-  /** Ink mode — locks the body so the pen does not move the cursor or push text around */
+  /** Ink mode or an edit lock — the body is not editable */
   readOnly?: boolean
 }) {
   // M16: on a stateless broadcast ({t:'comments'}) invalidate the comments cache so it shows at once.
@@ -96,6 +102,7 @@ export function CollabEditor({
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [synced, setSynced] = useState(false)
   const [users, setUsers] = useState<CollabUser[]>([])
+  const [scope, setScope] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const handle = openCollab({
@@ -126,6 +133,10 @@ export function CollabEditor({
       setStatus('disconnected')
     }
     p.on('authenticationFailed', onDenied)
+    // Every (re)authentication carries the granted scope: the server closes live sockets when a
+    // lock changes, so the reconnect brings the new scope. Not reset on disconnect.
+    const onAuthenticated = () => setScope(p.authorizedScope)
+    p.on('authenticated', onAuthenticated)
     // In 2.15 the 'synced' payload is onSyncedParameters = { state: boolean }
     const onSynced = (e: { state: boolean }) => setSynced(e.state)
     p.on('status', onStatus)
@@ -144,10 +155,12 @@ export function CollabEditor({
     onAwareness()
     setSynced(p.isSynced)
     onStatus()
+    if (p.isAuthenticated) onAuthenticated()
     setProvider(p)
     return () => {
       p.off('status', onStatus)
       p.off('authenticationFailed', onDenied)
+      p.off('authenticated', onAuthenticated)
       p.off('synced', onSynced)
       p.awareness?.off('change', onAwareness)
       handle.release()
@@ -159,8 +172,8 @@ export function CollabEditor({
 
   // Report collab state to the parent (PageView) — for the top-bar connection dot / online users
   useEffect(() => {
-    onCollabChange?.({ status, synced, users })
-  }, [status, synced, users, onCollabChange])
+    onCollabChange?.({ status, synced, users, scope })
+  }, [status, synced, users, scope, onCollabChange])
 
   if (!provider) {
     return (
@@ -237,7 +250,8 @@ function CollabEditorBody({
   // (id: "initialBlockId" placeholder), so the empty paragraph on screen is a ghost missing from
   // Yjs, and the side menu's + button has no real block to target until the first keystroke.
   useEffect(() => {
-    if (!synced) return
+    // A read-only (locked) connection cannot write; the server would drop the seed anyway.
+    if (!synced || readOnly) return
     try {
       const frag = doc.getXmlFragment('document')
       if (frag.length === 0 && editor.isEmpty && editor.document.length > 0) {
@@ -246,7 +260,7 @@ function CollabEditorBody({
     } catch {
       // seeding failure is not fatal — the first keystroke creates the block anyway
     }
-  }, [synced, doc, editor])
+  }, [synced, readOnly, doc, editor])
 
   // Block anchor (?block=<id>) — opening a task from the calendar/deadlines scrolls to that block
   // and flashes it. Retries briefly until rendering catches up after sync, then removes the param.

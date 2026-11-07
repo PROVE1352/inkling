@@ -13,6 +13,7 @@
  * child of the relation's target collection in the same workspace. Anything else is dropped from
  * the response, so a viewer never learns that a hidden/trashed row exists.
  */
+import { actorFor, assertAllEditable, roleForPage } from './editLock'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   CollectionField,
@@ -492,6 +493,11 @@ export async function applyFieldsUpdate(
     })
   }
 
+  // Pairing edits another collection's schema: that collection must be editable too (docs/adr/0970-*).
+  const others = [...external.keys()].filter((t) => t !== page.id)
+  if (others.length) {
+    await assertAllEditable(tx, others, actorFor(userId, await roleForPage(page.id, userId)))
+  }
   // apply external edits (row-locked read-modify-write per target collection)
   for (const [target, fns] of external) {
     const locked = await tx.execute(

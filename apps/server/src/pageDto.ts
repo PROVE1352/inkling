@@ -27,6 +27,7 @@ export const pageColumns = {
   createdAt: pages.createdAt,
   updatedAt: pages.updatedAt,
   deletedAt: pages.deletedAt,
+  editLocked: pages.editLocked,
 } as const
 
 export type PageRow = {
@@ -44,6 +45,8 @@ export type PageRow = {
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
+  /** Own edit lock (docs/adr/0970-*); optional so hand-built rows need not carry it. */
+  editLocked?: boolean
 }
 
 export function toPageDTO(row: PageRow): PageMetaDTO {
@@ -62,6 +65,7 @@ export function toPageDTO(row: PageRow): PageMetaDTO {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    ...(row.editLocked ? { editLocked: true as const } : {}),
   }
 }
 

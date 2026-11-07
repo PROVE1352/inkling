@@ -15,6 +15,7 @@ import {
 } from './lib/optimistic'
 import { adoptUserLocale, getLocale, setServerDefaultLocale, t, type Locale } from './i18n'
 import { localizeApiError } from './i18n/errors'
+import { noteServerBuild } from './lib/update'
 import type {
   AdminUserDTO,
   ApiErrorBody,
@@ -159,6 +160,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       ...((init?.headers as Record<string, string> | undefined) ?? {}),
     },
   })
+  noteServerBuild(res.headers) // X-Inkling-Build vs this bundle (lib/update.ts, docs/adr/0991-*)
   if (!res.ok) throw await parseError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
@@ -201,6 +203,7 @@ export function pollingQuery<TRaw, T = TRaw>(
         signal,
         headers: etag ? { 'If-None-Match': etag } : undefined,
       })
+      noteServerBuild(res.headers) // idle tabs mostly poll: check before the 304 early return
       if (res.status === 304 && prev !== undefined) return prev
       if (!res.ok) throw await parseError(res)
       const raw = (await res.json()) as TRaw
@@ -888,7 +891,12 @@ export function useUpdatePage(wsId: string) {
     // mutation wrote (docs/adr/0853-*), never a whole-list snapshot.
     onMutate: ({ id, input }: UpdatePageVars) =>
       optimisticPagesPatch(qc, wsId, new Map([[id, input as Partial<PageMetaDTO>]])),
-    onError: (_err, _vars, ctx) => revertPagesPatch(qc, wsId, ctx?.undo),
+    onError: (err, _vars, ctx) => {
+      revertPagesPatch(qc, wsId, ctx?.undo)
+      // Refused by an edit lock the client did not know about yet: refresh the lock state now
+      // instead of waiting for the next page-list poll.
+      if (isPageLockedError(err)) qc.invalidateQueries({ queryKey: ['pageLock'] })
+    },
     onSettled: () => invalidatePagesIfIdle(qc, wsId),
   })
 }
@@ -1955,6 +1963,9 @@ export const qkAdmin = {
   agents: (wsId: string) => ['wsAgents', wsId] as const,
   reviewDue: (wsId: string, mine: boolean) => ['reviewDue', wsId, mine] as const,
   pageReview: (pageId: string) => ['pageReview', pageId] as const,
+  pageLock: (pageId: string) => ['pageLock', pageId] as const,
+  agentInstructions: (wsId: string) => ['agentInstructions', wsId] as const,
+  suspicious: (pageId: string) => ['suspicious', pageId] as const,
 }
 
 export function useWorkspaceSettings(wsId: string) {
@@ -2164,5 +2175,91 @@ export function useImportNotion(wsId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.pages(wsId) })
     },
+  })
+}
+
+
+// ---------------------------------------------------------------------------
+// Edit lock (docs/adr/0970-*) and agent instruction pages (docs/adr/0975-*)
+// ---------------------------------------------------------------------------
+
+type PageLock = import('@inkling/shared').PageLockDTO
+type AgentInstruction = import('@inkling/shared').AgentInstructionDTO
+
+/** The lock that governs a page (its own or the nearest locked ancestor's). No retry on 4xx. */
+export function usePageLock(pageId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.pageLock(pageId ?? ''),
+    queryFn: () => api<PageLock>(`/api/pages/${pageId}/lock`),
+    enabled: !!pageId && enabled,
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  })
+}
+
+/** Shared success handling: a lock change can affect the whole subtree, so every lock query is refreshed. */
+function useLockMutation<V>(pageId: string, wsId: string, fn: (v: V) => Promise<PageLock>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => {
+      qc.setQueryData(qkAdmin.pageLock(pageId), data)
+      qc.invalidateQueries({ queryKey: ['pageLock'] })
+      qc.invalidateQueries({ queryKey: qk.pages(wsId) })
+      qc.invalidateQueries({ queryKey: qkAdmin.agentInstructions(wsId) })
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
+/** Turn this page's own lock on/off, or change its people/agent rules and editors. */
+export function useSetPageLock(pageId: string, wsId: string) {
+  return useLockMutation(pageId, wsId, (input: import('@inkling/shared').SetPageLockInput) =>
+    api<PageLock>(`/api/pages/${pageId}/lock`, { method: 'PUT', body: JSON.stringify(input) }),
+  )
+}
+
+/** Designate the page as an agent instruction page (owners/admins; the page is locked automatically). */
+export function useSetAgentInstructions(pageId: string, wsId: string) {
+  return useLockMutation(pageId, wsId, (input: import('@inkling/shared').SetAgentInstructionInput) =>
+    api<PageLock>(`/api/pages/${pageId}/agent-instructions`, { method: 'PUT', body: JSON.stringify(input) }),
+  )
+}
+
+/** Remove the agent-instruction designation (the lock stays). */
+export function useRemoveAgentInstructions(pageId: string, wsId: string) {
+  return useLockMutation(pageId, wsId, (_: void) =>
+    api<PageLock>(`/api/pages/${pageId}/agent-instructions`, { method: 'DELETE' }),
+  )
+}
+
+/** Every agent instruction page of a workspace. */
+export function useWorkspaceAgentInstructions(wsId: string, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.agentInstructions(wsId),
+    queryFn: () =>
+      api<{ instructions: AgentInstruction[] }>(`/api/workspaces/${wsId}/agent-instructions`).then((r) => r.instructions),
+    enabled: !!wsId && enabled,
+    retry: false,
+  })
+}
+
+/** A write was refused because the page (or an ancestor) is locked for the caller. */
+export function isPageLockedError(e: unknown): e is ApiError {
+  return e instanceof ApiError && e.code === 'PAGE_LOCKED'
+}
+
+/**
+ * Sections of a doc page whose text matched a prompt-injection heuristic (shown as a warning only;
+ * agents receive that text marked as data). Not real-time: refreshed when the page is reopened.
+ */
+export function usePageSuspicious(pageId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: qkAdmin.suspicious(pageId ?? ''),
+    queryFn: () => api<import('@inkling/shared').SuspiciousSectionsDTO>(`/api/pages/${pageId}/suspicious`),
+    enabled: !!pageId && enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
   })
 }

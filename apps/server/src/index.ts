@@ -35,6 +35,7 @@ import { registerNotificationRoutes } from './routes/notifications'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
 import { registerPageContentRoutes } from './routes/pageContent'
+import { registerEditLockRoutes } from './routes/editLock'
 import { registerContextRoutes } from './routes/context'
 import { registerChangeRoutes } from './routes/changes'
 import { registerTaskRoutes } from './routes/tasks'
@@ -54,6 +55,7 @@ import { registerShareMetaRoutes } from './routes/shareMeta'
 import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
 import { registerBackupRoutes } from './backup/routes'
+import { registerVersionRoutes } from './version'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
@@ -345,6 +347,8 @@ async function main(): Promise<void> {
     async (api) => {
       // API responses: private + no-store by default, content ETag on GET JSON (ADR 0752).
       registerApiCachePolicy(api)
+      // X-Inkling-Build on every /api response + GET /api/version (docs/adr/0990-*). First, so the header hook covers every route.
+      registerVersionRoutes(api)
       // Health checks run every 10–30 s and would dominate the request log, so they are not logged.
       api.get('/health', { logLevel: 'silent' }, async () => ({ ok: true }))
       // Readiness (B-M5): 503 while the database is unreachable. /health stays pure liveness so
@@ -359,6 +363,8 @@ async function main(): Promise<void> {
       await registerWorkspaceAdminRoutes(api)
       await registerPageRoutes(api)
       await registerPageContentRoutes(api)
+      // Edit lock and agent instruction pages (docs/adr/0970-*, 0975-*)
+      await registerEditLockRoutes(api)
       // Agent retrieval: find_context, outline/section, batch read, section patch (docs/adr/0926-0930)
       await registerContextRoutes(api)
       // Change feed for agents: changes_since (docs/adr/0932-*)

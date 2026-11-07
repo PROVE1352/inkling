@@ -7,6 +7,7 @@ import { db } from '../db/index'
 import { oauthClients, oauthCodes, oauthGrants } from '../db/schema'
 import { AppError, forbidden, notFound } from '../errors'
 import { recordFailure } from '../guard'
+import { memberNameClash, reservedClientName } from '../clientName'
 import { idParam } from '../helpers'
 import {
   ACCESS_TOKEN_TTL_MS,
@@ -166,6 +167,16 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     const rawName = str(body.client_name)?.trim() ?? ''
     const name = (rawName || new URL(uris[0] as string).hostname).slice(0, 100)
+    // Names that pass for the product or an operator are refused (docs/adr/0978-*).
+    const reserved = reservedClientName(name)
+    if (reserved) {
+      return oauthError(
+        reply,
+        400,
+        'invalid_client_metadata',
+        `client_name "${name}" is reserved (looks like "${reserved}"); use the name of your app`,
+      )
+    }
     const id = `ink_c_${randomBytes(16).toString('base64url')}`
     const [row] = await db
       .insert(oauthClients)
@@ -376,6 +387,15 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
 
       if (b.decision === 'deny') {
         return back({ error: 'access_denied', error_description: 'The user denied access' })
+      }
+      // A client named like a member would make its writes read as that person's (docs/adr/0978-*).
+      const [client] = await db.select({ name: oauthClients.name }).from(oauthClients).where(eq(oauthClients.id, b.client_id)).limit(1)
+      if (client && ((reservedClientName(client.name)) || (await memberNameClash(client.name, user.id)))) {
+        throw new AppError(
+          400,
+          'CLIENT_NAME_RESERVED',
+          `This app calls itself "${client.name}", which matches a reserved name or a member of your workspaces. Connect an app with its own name.`,
+        )
       }
       if (b.response_type !== 'code') {
         return back({ error: 'unsupported_response_type' })

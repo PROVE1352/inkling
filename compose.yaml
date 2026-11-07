@@ -98,6 +98,12 @@ services:
       PLUGINS_DIR: ${PLUGINS_DIR:-}
       EMBED_EXTRA_FRAME_SRC: ${EMBED_EXTRA_FRAME_SRC:-}
       APP_VERSION: ${APP_VERSION:-}
+      # Client update policy: prompt (default, "new version" banner) | force (reload once edits are
+      # synced). Optional GitHub release check for the admin screen: UPDATE_CHECK=github (off by
+      # default), UPDATE_CHECK_REPO=owner/name. docs/OPERATIONS.md, docs/adr/0991-*, 0994-*.
+      UPDATE_MODE: ${UPDATE_MODE:-}
+      UPDATE_CHECK: ${UPDATE_CHECK:-}
+      UPDATE_CHECK_REPO: ${UPDATE_CHECK_REPO:-}
       # Most pages one import may create (default 5000).
       IMPORT_MAX_PAGES: ${IMPORT_MAX_PAGES:-}
       IMPORT_MAX_UPLOAD_MB: ${IMPORT_MAX_UPLOAD_MB:-}

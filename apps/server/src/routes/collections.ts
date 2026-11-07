@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { actorFor, assertAllEditable, assertPageEditable, roleForPage } from '../editLock'
 import { and, asc, eq, isNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -180,6 +181,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const user = getUser(req)
     const id = idParam(req.params)
     const page = await requireCollectionPage(id, user.id)
+    await assertPageEditable(id, user.id)
 
     const body = updateFieldsSchema.parse(req.body)
     const ids = body.fields.map((f) => f.id)
@@ -230,6 +232,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const user = getUser(req)
     const id = idParam(req.params)
     await requireCollectionPage(id, user.id)
+    await assertPageEditable(id, user.id)
 
     const body = createViewSchema.parse(req.body)
     const [{ maxSort }] = await db
@@ -256,6 +259,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const page = await findVisiblePage(view.pageId, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
+    await assertPageEditable(view.pageId, user.id)
 
     const body = updateViewSchema.parse(req.body)
     const updates: Partial<typeof collectionViews.$inferInsert> = {}
@@ -282,6 +286,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const page = await findVisiblePage(view.pageId, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
+    await assertPageEditable(view.pageId, user.id)
 
     const siblings = await db
       .select({ id: collectionViews.id })
@@ -312,6 +317,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     )[0]
     if (!target) throw notFound()
     await requireMembership(target.workspaceId, user.id)
+    await assertPageEditable(id, user.id)
 
     const body = updatePropsSchema.parse(req.body)
     const { baseVersion } = baseVersionSchema.parse(req.body)
@@ -369,6 +375,11 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
            WHERE id = ${id}
           RETURNING props
         `)) as unknown as { props: Record<string, unknown> }[]
+        // Two-way links are mirrored onto the target rows: those rows must be editable as well.
+        const mirrored = pairSyncs.flatMap((p) =>
+          p.field.relation?.twoWay ? [...p.oldIds, ...p.newIds].filter((r) => !(p.oldIds.includes(r) && p.newIds.includes(r))) : [],
+        )
+        if (mirrored.length) await assertAllEditable(tx, mirrored, actorFor(user.id, await roleForPage(id, user.id)))
         for (const p of pairSyncs) await syncPairedLinks(tx, p.field, id, p.oldIds, p.newIds)
         // version read after the pair sync (a self-referencing two-way relation may touch this row)
         const [r] = await tx

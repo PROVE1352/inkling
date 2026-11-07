@@ -16,6 +16,8 @@ import { describeField, mapWrite, needsMembers, ValueError } from '../collection
 import type { MappedWrite, Member } from '../collectionQuery/values'
 import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { McpServer, ToolCtx } from './core'
+import { loadAgentContext, pageFacts, withApplies } from './agentContext'
+import { cleanText, wrapUntrusted } from './trust'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const today = () => new Date().toISOString().slice(0, 10)
@@ -175,13 +177,20 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       // Deterministic, prompt-cache friendly layout: the stable part (collection + schema) first,
       // then rows in SQL order (unique id tie-break), then the data-dependent footer. Nothing
       // time- or request-dependent is printed.
-      const lines = [head]
-      if (!cursor) lines.push(`Fields: ${r.fields.map((f) => describeField(f, 10)).join('; ') || '(none)'}`)
-      lines.push(['id', 'version', ...r.columns].join(' | '))
-      for (const row of r.rows) lines.push([row.id, row.version, ...row.cells].join(' | '))
-      lines.push(`${r.rows.length} row(s)${r.nextCursor ? ', more available' : ''}`)
-      lines.push(r.nextCursor ? `next cursor: ${r.nextCursor}` : '(end of results)')
-      return text(lines.join('\n'))
+      // Member-written values (title, schema names, cells) sit inside one <untrusted_content> block
+      // (docs/adr/0976-*); ids, counts and the cursor stay outside.
+      const ac = await loadAgentContext(ctx, [r.collection.id], { read: true })
+      const data = [head]
+      if (!cursor) data.push(`Fields: ${r.fields.map((f) => describeField(f, 10)).join('; ') || '(none)'}`)
+      data.push(['id', 'version', ...r.columns].join(' | '))
+      for (const row of r.rows) data.push([row.id, row.version, ...row.cells].join(' | '))
+      const lines = [
+        `collection ${r.collection.id}; can: ${pageFacts(ac, r.collection.id).can}`,
+        wrapUntrusted(data.join('\n'), { source: 'rows', id: r.collection.id }),
+        `${r.rows.length} row(s)${r.nextCursor ? ', more available' : ''}`,
+        r.nextCursor ? `next cursor: ${r.nextCursor}` : '(end of results)',
+      ]
+      return text(withApplies(ac, lines.join('\n')))
     }),
   )
 
@@ -228,11 +237,11 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const out = res.json() as { row: { props: Record<string, unknown> }; version: string }
       const changed = Object.entries(properties).map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
       return text(
-        [
-          `Updated row ${rowId} in "${cur.collection.title || 'Untitled'}". New version: ${out.version}`,
+        withApplies(await loadAgentContext(ctx, [rowId]), [
+          `Updated row ${rowId} in "${cleanText(cur.collection.title || 'Untitled')}". New version: ${out.version}`,
           `Set: ${changed.join('; ')}`,
           ...droppedLinks(cur.fields, rel, out.row.props),
-        ].join('\n'),
+        ].join('\n')),
       )
     }),
   )
@@ -288,11 +297,11 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       }
       const row = await getRow(ctx, rowId)
       return text(
-        [
-          `Created row ${rowId} in "${def.collection.title || 'Untitled'}". Version: ${row.row.version}`,
-          rowLines(row.columns, row.row.cells),
+        withApplies(await loadAgentContext(ctx, [rowId]), [
+          `Created row ${rowId} in "${cleanText(def.collection.title || 'Untitled')}". Version: ${row.row.version}`,
+          wrapUntrusted(rowLines(row.columns, row.row.cells), { source: 'rows', id: rowId }),
           ...notes,
-        ].join('\n'),
+        ].join('\n')),
       )
     }),
   )

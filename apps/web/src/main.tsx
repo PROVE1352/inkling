@@ -6,6 +6,8 @@ import './index.css'
 import { App } from './App'
 import { ApiError } from './api'
 import { initPwa } from './lib/pwa'
+import { addUpdateSafetyCheck, noteServerBuild, setUpdateMode } from './lib/update'
+import { UpdateBanner } from './components/UpdateBanner'
 import { getLocale, setServerDefaultLocale, useLocale } from './i18n'
 
 // Note: StrictMode is deliberately omitted. Its dev double-mount would destroy, in cleanup, the
@@ -27,6 +29,18 @@ const queryClient = new QueryClient({
 
 initPwa()
 
+// Version check (docs/adr/0990-0993): the server's build id and UPDATE_MODE. Every later /api
+// response is checked too (api.ts → noteServerBuild). Force mode never reloads while a mutation
+// is in flight; an older server without /api/version means prompt mode.
+addUpdateSafetyCheck(() => queryClient.isMutating() === 0)
+fetch('/api/version', { credentials: 'same-origin', cache: 'no-store' })
+  .then((r) => {
+    noteServerBuild(r.headers)
+    return r.ok ? r.json() : null
+  })
+  .then((v: { updateMode?: unknown } | null) => setUpdateMode(v?.updateMode))
+  .catch(() => setUpdateMode('prompt'))
+
 // Language: the cached choice/default applies to the first paint; /auth/mode may then update the
 // server default (DEFAULT_LOCALE) and /auth/me the user's saved choice (see i18n/index.ts).
 document.documentElement.lang = getLocale()
@@ -41,7 +55,12 @@ fetch('/api/auth/mode', { credentials: 'same-origin' })
 // (the query cache lives outside and survives).
 function LocaleRoot() {
   const locale = useLocale()
-  return <App key={locale} />
+  return (
+    <>
+      <App key={locale} />
+      <UpdateBanner />
+    </>
+  )
 }
 
 const root = document.getElementById('root')

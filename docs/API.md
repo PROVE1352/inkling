@@ -112,6 +112,9 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 ## Misc
 
 - `GET /api/health` → `{ ok: true }` (no auth required)
+- Every `/api` response carries `X-Inkling-Build: <id>` (the id in `WEB_DIST/build.json`; absent when unknown). A client whose own build differs shows the update banner or reloads (docs/adr/0990-0993).
+- `GET /api/version` → `{ build: string | null, version: string, updateMode: 'prompt' | 'force' }` (no auth required)
+- `GET /api/version/latest` (admin) → `{ enabled, current, latest: { version, url } | null, updateAvailable }`; `enabled: false` unless `UPDATE_CHECK=github` (docs/adr/0994-*)
 - Production (Docker): serves `WEB_DIST` statically + SPA fallback (GET requests outside `/api`, `/files`, `/collab` → index.html)
 
 ---
@@ -306,7 +309,9 @@ allows it on the browser consent screen, notes are read and written **with that 
 
 Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?, section?, maxChars?)`, `read_pages(pageIds[], budget?)`,
 `list_workspaces`, `list_pages(workspaceId, parentId?|'root', depth?, format?)`, `search(query, workspaceId?, format?)`,
-`changes_since(cursor?, workspaceId?, budget?, detail?)`, `query_rows(collectionId, filter?, sort?, fields?, limit?, cursor?, describe?)`, `list_templates`.
+`changes_since(cursor?, workspaceId?, budget?, detail?)`, `query_rows(collectionId, filter?, sort?, fields?, limit?, cursor?, describe?)`, `list_templates`,
+`get_instructions(workspaceId, forPageId?)` (docs/adr/0975-*). Text outputs wrap member-written content in `<untrusted_content …>` and print
+`can:` / `applies:` / `suspicious:` lines (docs/adr/0976-*, 0977-*).
 Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
 `create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
 `rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
@@ -343,6 +348,36 @@ Session cookie or MCP bearer (internal inject). Token numbers are estimates (ADR
 | GET | `/api/pages/:id/collection/query` | Rows of a collection filtered/sorted/paged in SQL. Query: `filter` (compact syntax, see ADR 0934), `sort` ("Due desc, Title"), `fields` (JSON array or comma list, `*` = all), `limit` (1–200, default 25), `cursor` (opaque `nextCursor`), `describe=1` (schema only, adds `definitions`). Returns `{collection, workspaceId, fields, columns, rows: [{id, version, cells}], nextCursor}`. 400 `INVALID_QUERY` / `QUERY_TIMEOUT`. |
 | GET | `/api/pages/:id/row` | One collection row: `{collection, workspaceId, fields (definitions), columns, row: {id, title, version, cells}}`. 400 `NOT_A_ROW` for a page that is not a collection row. |
 | PATCH | `/api/pages/:id/props` | (addition) optional `baseVersion` (row version from the two routes above). Mismatch → 409 `ROW_VERSION_CONFLICT` with `currentVersion`, nothing written. When `baseVersion` is sent the response also has `version`. |
+
+## Edit lock and agent instructions (docs/adr/0970–0978)
+
+Nothing is locked by default. A lock on a page covers its subtree; the nearest locked ancestor governs. Writes by a
+member who may not edit return **403 `PAGE_LOCKED`** with `error.lockedPageId` and `error.editors [{id, name}]`
+(the page owner first); the message names who can edit. Every write route of pages, collections, tasks, ink,
+snapshot restore, document owner/living, sheet sync and vault sync checks it; creation under a locked parent,
+moves into or out of a locked subtree and trash/restore/purge of a subtree that holds a lock the caller cannot
+edit are refused as well. Comments check a separate permission (people may always comment; a lock can take
+commenting away from agents). The collab socket of a member who may not edit is read-only (Hocuspocus
+`authenticated` scope `readonly`; updates are answered with SyncStatus false and dropped).
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/api/pages/:id/lock` | – | `PageLockDTO { pageId, locked, own, lockRoot {id,title}\|null, owner, editors, people: editors\|everyone\|null, agents: same\|comment\|read\|null, canEdit, canComment, canManage, instructions }` for the caller (an MCP request is evaluated as an agent) |
+| PUT | `/api/pages/:id/lock` | `{ locked, people?, agents?, editorIds? }` | `PageLockDTO`. Browser session only (bearer → 403). Owners/admins, or the page owner while they can edit it. Private pages → 400. Audited: `page.locked`, `page.unlocked`, `page.lock_editors_changed`. Unlocking removes an instruction designation (`instructions.removed`). Live sockets of the subtree are closed so clients re-authenticate |
+| PUT | `/api/pages/:id/agent-instructions` | `{ mode: always\|match\|manual, applyTo?: ["page:<id>" \| "Title/**"], description?, sortOrder? }` | `PageLockDTO`. Owners/admins, browser only. Shared doc pages only; locks the page if needed; `match` needs a non-empty `applyTo`. Audited `instructions.set` |
+| DELETE | `/api/pages/:id/agent-instructions` | – | `PageLockDTO` (designation removed, lock kept) |
+| GET | `/api/workspaces/:id/agent-instructions` | – | `{ instructions: AgentInstructionDTO[] }` (live, locked, shared doc pages only) |
+| GET | `/api/workspaces/:id/agent-instructions/bundle` | `forPageId?` | `{ workspaceId, forPageId, always: [..dto, markdown, truncated], matching: [...], otherMatch, manual, version }` (MCP `get_instructions`) |
+| GET | `/api/pages/agent-context` | `ids` (≤ 50), `read=1?` | `{ pages: [{id, can: "read,comment,edit", createdBy, lastEdit {name, via}\|null, suspicious: [{anchor, rules}]}], applies: [{pageId, title, mode}] }` — used by MCP tools; `read=1` records `oauth_grants.tainted_at` when flagged content is returned to an agent |
+| GET | `/api/pages/:id/suspicious` | – | `SuspiciousSectionsDTO { pageId, sections: [{anchor, headingPath, rules}] }` — injection-like heuristics stored at index time (`page_chunks.suspicious`); a signal only |
+
+`PageMetaDTO.editLocked?: true` marks pages that carry their own lock. New audit actions: `page.locked`,
+`page.unlocked`, `page.lock_editors_changed`, `instructions.set`, `instructions.removed`, `content.suspicious`
+(first detection per page and rule, no actor).
+
+OAuth: `POST /oauth/register` refuses a `client_name` that folds to a reserved word (Inkling, Admin, System, …;
+400 `invalid_client_metadata`); `POST /api/oauth/authorize` refuses a client whose name folds to a member's display
+name in the user's workspaces (400 `CLIENT_NAME_RESERVED`).
 
 ## Provenance (docs/adr/0936-*)
 

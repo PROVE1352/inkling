@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { scanInjection } from './injectionScan'
 import type { AnyBlock } from '../md/convert'
 import { estimateTokens, isCjkCode } from './tokens'
 
@@ -17,7 +18,8 @@ import { estimateTokens, isCjkCode } from './tokens'
  */
 
 /** Bump when chunk text/anchors change shape: the boot backfill then re-indexes every page. */
-export const CHUNKER_VERSION = 1
+// 2: page_chunks.suspicious (injection heuristics, docs/adr/0977-*; INJECTION_RULES_VERSION 1).
+export const CHUNKER_VERSION = 2
 export const MAX_CHUNK_TOKENS = 600
 export const INTRO_ANCHOR = '_intro'
 /** Index at most this much text per page (same cap as page_texts). */
@@ -51,6 +53,8 @@ export interface Chunk {
   text: string
   grams: string
   tokens: number
+  /** Injection-like heuristics matched by this chunk (heading path of part 0 included). */
+  suspicious: string[]
   hash: string
   sectionHash: string
 }
@@ -311,6 +315,7 @@ export function chunkSections(sections: Section[]): Chunk[] {
       bytes += Buffer.byteLength(text, 'utf8')
       const grams = cjkBigrams(`${p === 0 ? headingPath : ''} ${text}`)
       const tokens = estimateTokens(text)
+      const suspicious = scanInjection(`${p === 0 ? headingPath : ''}\n${text}`)
       chunks.push({
         ord: chunks.length,
         anchor: s.anchor,
@@ -321,7 +326,8 @@ export function chunkSections(sections: Section[]): Chunk[] {
         text,
         grams,
         tokens,
-        hash: sha1(s.anchor, s.blockId, headingPath, s.level, p, text, s.version),
+        suspicious,
+        hash: sha1(s.anchor, s.blockId, headingPath, s.level, p, text, s.version, suspicious.join(',')),
         sectionHash: s.version,
       })
     }

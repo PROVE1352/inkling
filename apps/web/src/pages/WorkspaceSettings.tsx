@@ -693,7 +693,20 @@ function BlockAllPicker({
 // Audit log
 // ---------------------------------------------------------------------------
 
-const AUDIT_GROUPS = ['', 'member', 'invite', 'share', 'export', 'workspace', 'agent', 'settings', 'webhook'] as const
+const AUDIT_GROUPS = [
+  '',
+  'member',
+  'invite',
+  'share',
+  'page',
+  'instructions',
+  'content',
+  'export',
+  'workspace',
+  'agent',
+  'settings',
+  'webhook',
+] as const
 
 function summarize(v: Record<string, unknown> | null): string {
   if (!v) return ''

@@ -7,6 +7,10 @@ import { countReads } from '../pageReads'
 import type { ReviewFacts } from '../review'
 import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { ToolCtx } from './core'
+import type { AgentContextDTO } from '../routes/editLock'
+import { flaggedRules, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
+import { suspiciousNote } from '../context/injectionScan'
+import { wrapUntrusted } from './trust'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -29,32 +33,48 @@ export function reviewNote(f: ReviewFacts | undefined): string {
   return parts.length ? `; ${parts.join(', ')}` : ''
 }
 
-/** Render find_context results (exported for the evaluation, which measures exactly this text). */
-export function renderFindContext(query: string, r: FindContextResult, review?: Map<string, ReviewFacts>): string {
+/**
+ * Render find_context results (exported for the evaluation, which measures exactly this text).
+ * Everything members wrote (titles, headings, section text) sits inside one <untrusted_content>
+ * block (docs/adr/0976-*); each fragment line says what this agent may do (`can:`) and who last
+ * edited the page. `ac` is optional so the offline evaluation can render without it.
+ */
+export function renderFindContext(
+  query: string,
+  r: FindContextResult,
+  review?: Map<string, ReviewFacts>,
+  ac?: AgentContextDTO,
+): string {
+  const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
   if (r.fragments.length === 0) {
     const lines = [`No sections match "${query}". Try other or fewer words (synonyms, the other language), or list_pages.`]
     if (r.titleOnly.length) {
       lines.push('Pages whose title matches (no text):')
-      for (const t of r.titleOnly) lines.push(`- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)
+      lines.push(wrapData(r.titleOnly.map((t) => `- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)))
     }
-    return lines.join('\n')
+    return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
   }
-  const out: string[] = [`${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`]
+  const head = `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`
+  const data: string[] = []
   r.fragments.forEach((f, i) => {
     const path = f.headingPath ? ` › ${f.headingPath}` : ''
     const versions = f.sections.map((s) => `§${s.anchor} v=${s.version}`).join(', ')
-    out.push('', `[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${reviewNote(review?.get(f.pageId))})`, f.text)
+    const facts = ac ? pageFacts(ac, f.pageId) : null
+    const flag = ac ? suspiciousNote(flaggedRules(ac, f.pageId, f.sections.map((s) => s.anchor))) : ''
+    const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}` : ''
+    if (i > 0) data.push('')
+    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))})`, f.text)
   })
   if (r.more.length) {
-    out.push('', 'Also relevant (not shown):')
-    for (const m of r.more) out.push(`- ${m.title || 'Untitled'}${m.headingPath ? ` › ${m.headingPath}` : ''} (page ${m.pageId} §${m.anchor}, ~${m.tokens} tok)`)
+    data.push('', 'Also relevant (not shown):')
+    for (const m of r.more) data.push(`- ${m.title || 'Untitled'}${m.headingPath ? ` › ${m.headingPath}` : ''} (page ${m.pageId} §${m.anchor}, ~${m.tokens} tok)`)
   }
   if (r.titleOnly.length) {
-    out.push('', 'Title matches without text:')
-    for (const t of r.titleOnly) out.push(`- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)
+    data.push('', 'Title matches without text:')
+    for (const t of r.titleOnly) data.push(`- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)
   }
-  out.push('', 'Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.')
-  return out.join('\n')
+  const out = [head, wrapData(data), '', 'Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.']
+  return ac ? withApplies(ac, out.join('\n')) : out.join('\n')
 }
 
 interface ReadPagesResponse {
@@ -65,16 +85,28 @@ interface ReadPagesResponse {
   usedTokens: number
 }
 
-export function renderReadPages(r: ReadPagesResponse): string {
+export function renderReadPages(r: ReadPagesResponse, ac?: AgentContextDTO): string {
   const out: string[] = []
   for (const p of r.pages) {
-    out.push(`# ${p.title || 'Untitled'}`, `(page ${p.id}, ${p.kind}, updated ${p.updatedAt.slice(0, 10)}${p.truncated ? ', truncated' : ''})`, '', p.markdown, '')
+    const facts = ac ? pageFacts(ac, p.id) : null
+    out.push(
+      `(page ${p.id}, ${p.kind}, updated ${p.updatedAt.slice(0, 10)}${p.truncated ? ', truncated' : ''}${facts ? `; can: ${facts.can}` : ''})`,
+      ...(ac && pageSuspiciousLine(ac, p.id) ? [pageSuspiciousLine(ac, p.id)!] : []),
+      wrapUntrusted(`# ${p.title || 'Untitled'}\n\n${p.markdown}`, {
+        source: 'page',
+        id: p.id,
+        createdBy: facts?.createdBy ?? null,
+        lastEdit: facts?.lastEdit ?? null,
+      }),
+      '',
+    )
   }
   if (r.omitted.length) {
     out.push(`Not shown (budget ${r.budget} tokens used up): ${r.omitted.map((o) => `${o.title || 'Untitled'} (${o.id})`).join(', ')}. Read them in another call or by section.`)
   }
   if (r.missing.length) out.push(`Not found or not visible: ${r.missing.join(', ')} — use find_context to get valid ids.`)
-  return out.join('\n').trim()
+  const textOut = out.join('\n').trim()
+  return ac ? withApplies(ac, textOut) : textOut
 }
 
 export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
@@ -102,7 +134,8 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const shown = result.fragments.map((f) => f.pageId)
       const review = await reviewFactsFor(shown)
       countReads(shown) // read counters, page totals only (docs/adr/0953-*)
-      return text(renderFindContext(query, result, review))
+      const ac = await loadAgentContext(ctx, shown, { read: true })
+      return text(renderFindContext(query, result, review, ac))
     }),
   )
 
@@ -125,7 +158,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       })
       const read = res.json() as ReadPagesResponse
       countReads(read.pages.map((p) => p.id)) // read counters (docs/adr/0953-*)
-      return text(renderReadPages(read))
+      return text(renderReadPages(read, await loadAgentContext(ctx, read.pages.map((p) => p.id), { read: true })))
     }),
   )
 
@@ -177,8 +210,9 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         }
       }
       const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null }
-      if (!r.section) return text(`Done (${mode}). The section was removed.`)
-      return text(`Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.`)
+      const ac = await loadAgentContext(ctx, [pageId])
+      if (!r.section) return text(withApplies(ac, `Done (${mode}). The section was removed.`))
+      return text(withApplies(ac, `Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.`))
     }),
   )
 }

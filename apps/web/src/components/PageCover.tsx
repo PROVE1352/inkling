@@ -10,7 +10,16 @@ import { useT } from '../i18n'
 // Page cover image. With coverUrl: an image band (≈180px, object-cover) with [Change]/[Remove]
 // on hover. Without: only an "Add cover" button on hover.
 // Upload: uploadFile(wsId, file, pageId) → updatePage({ coverUrl }).
-export function PageCover({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
+export function PageCover({
+  wsId,
+  page,
+  readOnly = false,
+}: {
+  wsId: string
+  page: PageMetaDTO
+  /** Edit lock: show the cover only, without change/remove/drop affordances. */
+  readOnly?: boolean
+}) {
   const t = useT()
   const updatePage = useUpdatePage(wsId)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -37,10 +46,14 @@ export function PageCover({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
   // Dropping an image on the cover area makes it the cover. preventDefault here means the
   // body drop zone (PageView) does not handle the event again.
   const dropRef = useRef<HTMLDivElement>(null)
-  const dropActive = useFileDropZone(dropRef, (files) => {
-    const [image] = filterUploadable(files, true)
-    if (image) void onFile(image)
-  })
+  const dropActive = useFileDropZone(
+    dropRef,
+    (files) => {
+      const [image] = filterUploadable(files, true)
+      if (image) void onFile(image)
+    },
+    !readOnly,
+  )
 
   const hiddenInput = (
     <input
@@ -51,6 +64,17 @@ export function PageCover({ wsId, page }: { wsId: string; page: PageMetaDTO }) {
       onChange={(e) => onFile(e.target.files?.[0])}
     />
   )
+
+  if (readOnly) {
+    // Keep the layout (cover or the small spacer) but offer no editing.
+    return page.coverUrl ? (
+      <div className="relative mb-4 h-[180px] w-full overflow-hidden rounded-lg border border-line">
+        <img src={page.coverUrl} alt={t('cover.alt')} className="h-full w-full object-cover" draggable={false} />
+      </div>
+    ) : (
+      <div className="mb-1 h-6" />
+    )
+  }
 
   if (page.coverUrl) {
     return (

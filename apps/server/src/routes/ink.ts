@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm'
+import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { saveInkSchema } from '@inkling/shared'
@@ -63,6 +64,7 @@ export async function registerInkRoutes(app: FastifyInstance): Promise<void> {
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
       await requireMembership(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id)
 
       const body = saveInkSchema.parse(req.body)
       const { expectedUpdatedAt } = expectedSchema.parse(req.body)

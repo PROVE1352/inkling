@@ -1,4 +1,5 @@
 import { asc, inArray, sql } from 'drizzle-orm'
+import { wrapUntrusted } from '../mcpTools/trust'
 import { db } from '../db/index'
 import { pageChanges, pageChunks } from '../db/schema'
 import { env } from '../env'
@@ -31,7 +32,7 @@ export const FEED_MAX_ROWS = 2_000
 /** Share of the budget kept for the one-line list of the entries after the detailed ones. */
 const LIST_RESERVE = 0.25
 /** Fixed allowance for the header/footer lines. */
-const FRAME_TOKENS = 90
+const FRAME_TOKENS = 110 // +20 for the <untrusted_content> wrapper (docs/adr/0976-*)
 const TEXT_BATCH = 40
 const PAGE_TEXT_BATCH = 5
 const MAX_ACTORS_SHOWN = 3
@@ -707,7 +708,8 @@ export async function readChangeFeed(userId: string, opts: FeedOptions): Promise
     lines.push('No changes since the cursor.')
   } else {
     lines.push(`${shown} change${shown === 1 ? '' : 's'} in ${pagesShown} page${pagesShown === 1 ? '' : 's'}.`)
-    lines.push(...out)
+    // Titles, headings and diffs are member-written: one data block (docs/adr/0976-*).
+    if (out.length) lines.push(wrapUntrusted(out.join('\n'), { source: 'changes' }))
     if (listedOnly > 0 || truncatedOne) {
       lines.push(
         `truncated: ${listedOnly} change${listedOnly === 1 ? '' : 's'} listed without detail${truncatedOne ? ' and one cut short' : ''} (budget ${budget} tokens): read those sections with read_pages, or call again with the same cursor and a larger budget.`,

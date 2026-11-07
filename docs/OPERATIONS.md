@@ -51,6 +51,22 @@ The app sets these on every pool connection: `statement_timeout` 15 s, `idle_in_
 - [ ] Single app instance only: reminders, sheet sync, the webhook queue and Hocuspocus state are per process.
 - [ ] After an upgrade, check the boot log for migration success and the list of enabled experimental features.
 
+### Client updates
+
+Open tabs learn about a deploy from the `X-Inkling-Build` header on every `/api` response (the id
+the web build wrote to `WEB_DIST/build.json`; docs/adr/0990-*). What they do is set by:
+
+| Env | Values | Default | Effect |
+|---|---|---|---|
+| `UPDATE_MODE` | `prompt`, `force` | `prompt` | `prompt`: a "A new version is available · Reload" banner on every screen. `force`: the tab reloads by itself once its document edits are acknowledged by the server, no request is in flight and the user has been idle 3 s; a freshly opened tab on an old bundle reloads at once; after 2 minutes without a safe moment, or right after an automatic reload, it shows the banner instead (docs/adr/0991-*, 0992-*). |
+| `UPDATE_CHECK` | `github` or empty | empty (off) | Once a day (on the first admin visit), compare the server version with the latest GitHub release and show "Inkling X.Y.Z is available" in the Admin screen. Only the repository path is requested; nothing about the instance is sent (docs/adr/0994-*). |
+| `UPDATE_CHECK_REPO` | `owner/name` | `PROVE1352/inkling` | Repository for `UPDATE_CHECK=github`. |
+| `INKLING_BUILD` | build-time arg / env | build-time hash | Docker: `docker build --build-arg INKLING_BUILD=$(git rev-parse --short HEAD) .` tags the build. At runtime it is only a fallback when `WEB_DIST` has no `build.json`. |
+
+- [ ] `GET /api/version` returns `{ build, version, updateMode }`; `curl -sI <url>/api/health | grep -i x-inkling-build` shows the id the server advertises.
+- [ ] A reverse proxy or CDN must not strip `X-Inkling-Build` or cache `/api/*`.
+- [ ] Rebuilding without changes still produces a new id (time-based) and one "new version" notice; pass `INKLING_BUILD` to avoid that.
+
 ### Backup and restore
 
 - [ ] Restore is CLI only: run `./deploy/restore.sh --dry-run <set>` first. Details: [BACKUP.md](BACKUP.md).

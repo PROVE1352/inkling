@@ -177,6 +177,8 @@ describe('[db] collection agent tools', { skip: !HAS_DB }, async () => {
       if (l.startsWith('next cursor: ')) next = l.slice('next cursor: '.length)
       else if (l === '(end of results)') break
       else if (/^\d+ row\(s\)/.test(l)) continue
+      // rows sit inside one <untrusted_content> block (docs/adr/0976-*)
+      else if (l === '</untrusted_content>') continue
       else lines.push(l.split(' | '))
     }
     return { header: all[hi].split(' | '), lines, next, text }
@@ -372,8 +374,10 @@ describe('[db] collection agent tools', { skip: !HAS_DB }, async () => {
     assert.equal(a.isError, false, a.text)
     assert.equal(b.text, a.text)
     const lines = a.text.split('\n')
-    assert.match(lines[0], /^Collection "Tasks" \(/)
-    assert.match(lines[1], /^Fields: /)
+    assert.match(lines[0], /^collection [0-9a-f-]{36}; can: read,comment,edit$/)
+    assert.match(lines[1], /^<untrusted_content source="rows" id="[0-9a-f-]{36}">$/)
+    assert.match(lines[2], /^Collection "Tasks" \(/)
+    assert.match(lines[3], /^Fields: /)
     // a row outside the result set (Status = Todo) changes
     const other = rows.find((m) => m.status === 'Todo')!
     await db.update(schema.pages).set({ props: { pt: 999, nt: 'changed' } }).where(eq(schema.pages.id, other.id))

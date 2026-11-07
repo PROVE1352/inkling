@@ -14,7 +14,12 @@ COPY packages/shared/package.json packages/shared/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm --filter @inkling/web build && pnpm --filter @inkling/server build
+# Build id baked into the web bundle and dist/build.json (docs/adr/0990-*), e.g.
+# `docker build --build-arg INKLING_BUILD=$(git rev-parse --short HEAD) .`. Empty (default) →
+# vite.config.ts derives one from the build time; the server reads it back from build.json, so
+# the two always agree without git inside the image.
+ARG INKLING_BUILD=
+RUN INKLING_BUILD="$INKLING_BUILD" pnpm --filter @inkling/web build && pnpm --filter @inkling/server build
 # Extract only the server runtime deps into /out (add the --legacy flag on pnpm versions where deploy fails)
 RUN pnpm --filter @inkling/server deploy --legacy --prod /out
 

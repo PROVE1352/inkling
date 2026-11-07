@@ -1,4 +1,5 @@
 import { assertPlacement, lockTree } from '../pageTree'
+import { assertPageEditable, roleForPage } from '../editLock'
 /**
  * Collection extension routes (registered from registerCollectionRoutes):
  *   GET   /pages/:id/collection/row-options   relation picker (visible rows, title search)
@@ -163,6 +164,8 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
         throw badRequest('Person cells may only reference members of this workspace')
       }
 
+      // Real role for the edit-lock check (the public-folder rule is off for new rows either way).
+      const role = (await roleForPage(id, user.id)) ?? 'member'
       const created = await db.transaction(async (tx) => {
         // The workspace tree lock serialises concurrent batch inserts into the same collection
         // (row cap + sortOrder) and keeps rows from landing under a collection that is being
@@ -171,7 +174,8 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
         await assertPlacement(tx, {
           workspaceId: page.workspaceId,
           parentId: id,
-          role: 'member',
+          role,
+          userId: user.id,
           publicRule: false,
         })
         const [{ n }] = await tx
@@ -215,6 +219,8 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
       const user = getUser(req)
       const id = idParam(req.params)
       const page = await requireCollectionPage(id, user.id)
+      // Rows are the collection's subtree; a row may carry a lock of its own.
+      await assertPageEditable(id, user.id, { subtree: true })
       const body = batchUpdateRowsSchema.parse(req.body)
       const fieldList = await loadFields(id)
       const fields = new Map(fieldList.map((f) => [f.id, f]))

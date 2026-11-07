@@ -367,6 +367,8 @@ export interface PageMetaDTO {
   updatedAt: string
   /** Only set on trash items */
   deletedAt: string | null
+  /** Present (true) only when this page carries its own edit lock; descendants inherit it (docs/adr/0970-*). */
+  editLocked?: true
 }
 
 export interface FileDTO {
@@ -827,3 +829,4 @@ export * from './query'
 // Embeds, link previews, workspace webhooks
 export * from './embeds'
 export * from './workspaceAdmin'
+export * from './editLock'

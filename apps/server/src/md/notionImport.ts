@@ -752,7 +752,7 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
   const created: PageRow[] = await withTreeLock(workspaceId, async (tx) => {
     let scope = args.scope
     if (parentId) {
-      const chain = await assertPlacement(tx, { workspaceId, parentId, role, height: plan.maxDepth })
+      const chain = await assertPlacement(tx, { workspaceId, parentId, role, userId, height: plan.maxDepth })
       scope = chain[0].scope
     }
     const topBase = await nextSortOrderBase(tx, workspaceId, parentId)

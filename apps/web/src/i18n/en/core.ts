@@ -126,4 +126,5 @@ export default {
   'errors.BAN_NOT_FOUND': 'That block no longer exists.',
   'errors.REQUEST_NOT_FOUND': 'Request not found.',
   'errors.TEMPLATE_NOT_FOUND': 'Template not found.',
+  'errors.PAGE_LOCKED': 'This page is locked for editing. Ask someone who can edit it.',
 } satisfies Record<string, string>

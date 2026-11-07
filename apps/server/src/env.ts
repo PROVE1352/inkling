@@ -132,3 +132,21 @@ export const env = {
 
 /** Whether mail can be sent */
 export const mailEnabled = !!(env.smtp.host && env.mailFrom)
+
+/**
+ * Client update policy and optional release check (docs/adr/0991-*, 0994-*).
+ * - UPDATE_MODE: 'prompt' (default) shows a "new version" banner when a tab runs an older build;
+ *   'force' reloads the tab by itself once its collaborative edits are synced.
+ * - UPDATE_CHECK: 'github' lets the server compare its version with the latest GitHub release
+ *   (shown to admins only). Off by default; nothing about the instance is sent.
+ * - UPDATE_CHECK_REPO: owner/name of the repository to compare against.
+ * - INKLING_BUILD: build id fallback when WEB_DIST has no build.json (web served elsewhere).
+ */
+export const updateEnv = {
+  mode: (process.env.UPDATE_MODE?.trim().toLowerCase() === 'force' ? 'force' : 'prompt') as
+    | 'prompt'
+    | 'force',
+  check: process.env.UPDATE_CHECK?.trim().toLowerCase() === 'github' ? ('github' as const) : null,
+  checkRepo: process.env.UPDATE_CHECK_REPO?.trim() || 'PROVE1352/inkling',
+  buildOverride: process.env.INKLING_BUILD?.trim() || null,
+}

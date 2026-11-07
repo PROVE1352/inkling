@@ -9,6 +9,7 @@ import {
   EditIcon,
   FolderPlusIcon,
   LinkIcon,
+  LockIcon,
   MoveIcon,
   PlusIcon,
   TemplateIcon,
@@ -35,6 +36,7 @@ export function PageRowMenu({
   onExport,
   onNotion,
   onShare,
+  onLock,
   onDelete,
   onClose,
 }: {
@@ -53,6 +55,8 @@ export function PageRowMenu({
   onNotion: () => void
   /** Share to web (doc/collection/folder, shared section only). Item hidden when absent. */
   onShare?: () => void
+  /** Edit lock / agent instructions dialog (shared pages). Item hidden when absent. */
+  onLock?: () => void
   onDelete: () => void
   onClose: () => void
 }) {
@@ -131,6 +135,13 @@ export function PageRowMenu({
             <LinkIcon size={15} /> {t('rowMenu.shareToWeb')}
           </button>
         )}
+      {onLock && page.scope !== 'private' && (
+        <button type="button" onClick={run(onLock)} className={item}>
+          <LockIcon size={15} />
+          <span className="flex-1">{t('rowMenu.editLock')}</span>
+          {page.editLocked && <CheckIcon size={14} />}
+        </button>
+      )}
       <div className="my-1 border-t border-line" />
       <button
         type="button"

@@ -52,3 +52,13 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   ([ADR 0937](docs/adr/0937-prompt-cache-friendly-deterministic-tool-output.md)); errors say what to do next
   ([ADR 0929](docs/adr/0929-agent-facing-instructions-errors-and-repo-guides.md)).
 - Agent usage guide: [docs/MCP.md](docs/MCP.md).
+- **Edit lock** ([ADR 0970](docs/adr/0970-subtree-edit-lock.md), [0971](docs/adr/0971-lock-evaluation-order-people-and-agents.md)):
+  every new write path must call `assertCan`/`assertPageEditable` (`editLock.ts`) after the membership check, and
+  anything that creates under a parent goes through `assertPlacement` (its `userId` is required for that reason).
+  Comments check the COMMENT bit (`assertPageCommentable`). Lock changes are browser-only.
+- **Agent instructions** ([ADR 0975](docs/adr/0975-agent-instruction-pages.md)): designated pages must stay locked;
+  `get_instructions` and the `applies:` line are the only way rules reach agents.
+- **Untrusted content** ([ADR 0976](docs/adr/0976-data-instruction-boundary-in-mcp-output.md), [0977](docs/adr/0977-injection-signals-and-taint-record.md)):
+  member-written text in a new MCP tool's text output goes through `wrapUntrusted`/`cleanText`
+  (`mcpTools/trust.ts`); injection heuristics are computed at indexing time only (`context/injectionScan.ts`).
+  These are mitigations, not permission checks.

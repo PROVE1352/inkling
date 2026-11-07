@@ -61,6 +61,7 @@ export default {
   'rowMenu.exportZip': 'Export with subpages (.zip)',
   'rowMenu.sendToNotion': 'Send to Notion',
   'rowMenu.shareToWeb': 'Share to web',
+  'rowMenu.editLock': 'Edit lock…',
 
   'members.title': 'Members',
   'members.roleOwner': 'Owner',
@@ -166,6 +167,7 @@ export default {
   'tree.expand': 'Expand',
   'tree.changeIcon': 'Change icon',
   'tree.sharedToWeb': 'Shared to web',
+  'tree.editLocked': 'Locked for editing',
   'tree.addSubpage': 'Add subpage',
   'tree.menu': 'Menu',
   'tree.selected_one': '{count} selected',

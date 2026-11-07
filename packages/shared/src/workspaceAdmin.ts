@@ -78,6 +78,12 @@ export const AUDIT_ACTIONS = [
   'webhook.created',
   'webhook.updated',
   'webhook.deleted',
+  'page.locked',
+  'page.unlocked',
+  'page.lock_editors_changed',
+  'instructions.set',
+  'instructions.removed',
+  'content.suspicious',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

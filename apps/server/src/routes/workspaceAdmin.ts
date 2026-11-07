@@ -35,6 +35,7 @@ import { badRequest, forbidden, notFound } from '../errors'
 import { idParam, lockWorkspaceMembers, memberRoleTx, requireMembership } from '../helpers'
 import { canWriteFromScopes } from '../oauth'
 import { findVisiblePage } from '../pageDto'
+import { assertPageEditable } from '../editLock'
 import { computeReviewScores, ensureReviewScores, listReviewBucket, localISODate, pageReview } from '../review'
 import { countReads } from '../pageReads'
 import {
@@ -416,7 +417,9 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
 
   // Set or clear the document owner. The owner must be a member; a private page can only be owned by its author.
   app.put('/pages/:id/owner', { preHandler: requireSessionUser }, async (req) => {
-    const { page } = await guardReviewPage(req)
+    const { user, page } = await guardReviewPage(req)
+    // The owner of a locked page is one of its editors: only someone who may edit it can change it.
+    await assertPageEditable(page.id, user.id)
     const { ownerId } = setPageOwnerSchema.parse(req.body)
     if (ownerId) {
       const [m] = await db
@@ -447,7 +450,8 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
 
   // Living-document override: true = always living, false = never, null = automatic.
   app.put('/pages/:id/living', { preHandler: requireSessionUser }, async (req) => {
-    const { page } = await guardReviewPage(req)
+    const { user, page } = await guardReviewPage(req)
+    await assertPageEditable(page.id, user.id)
     const { living } = setLivingSchema.parse(req.body)
     await db.update(pages).set({ livingOverride: living }).where(eq(pages.id, page.id))
     await computeReviewScores(page.workspaceId, new Date(), [page.id])

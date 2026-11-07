@@ -688,7 +688,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
   const created = await withTreeLock(a.workspaceId, async (tx) => {
     let scope: PageScope = a.scope
     if (a.parentId) {
-      const chain = await assertPlacement(tx, { workspaceId: a.workspaceId, parentId: a.parentId, role: a.role, height })
+      const chain = await assertPlacement(tx, { workspaceId: a.workspaceId, parentId: a.parentId, role: a.role, userId: a.userId, height })
       scope = chain[0].scope
     }
     const parentCond = a.parentId ? eq(pages.parentId, a.parentId) : isNull(pages.parentId)

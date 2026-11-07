@@ -62,6 +62,7 @@ export default {
   'rowMenu.exportZip': '하위 포함 내보내기 (.zip)',
   'rowMenu.sendToNotion': '노션으로 보내기',
   'rowMenu.shareToWeb': '웹에 공유',
+  'rowMenu.editLock': '편집 잠금…',
 
   'members.title': '멤버 관리',
   'members.roleOwner': '소유자',
@@ -167,6 +168,7 @@ export default {
   'tree.expand': '펼치기',
   'tree.changeIcon': '아이콘 변경',
   'tree.sharedToWeb': '웹에 공유됨',
+  'tree.editLocked': '편집 잠김',
   'tree.addSubpage': '하위 페이지 추가',
   'tree.menu': '메뉴',
   'tree.selected_other': '{count}개 선택됨',

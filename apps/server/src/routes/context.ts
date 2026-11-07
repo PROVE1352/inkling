@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
@@ -247,6 +248,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       const id = idParam(req.params)
       const body = patchBodySchema.parse(req.body)
       const page = await guardPage(id, user.id)
+      await assertPageEditable(id, user.id)
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable sections')
 
       const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)

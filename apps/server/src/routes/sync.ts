@@ -1,4 +1,5 @@
 import { assertPlacement, withTreeLock } from '../pageTree'
+import { assertPageEditable } from '../editLock'
 import { readBlocks } from '../context/sectionPatch'
 import { and, eq, gt, inArray, isNull, isNotNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
@@ -389,6 +390,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       const page = await loadMetaRow(id, user.id)
       if (!page) throw notFound()
       await requireMembership(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id)
       if (page.kind !== 'doc') throw badRequest('Only document pages hold markdown')
 
       const expected = splitRevision(body.expectedRevision)
@@ -482,7 +484,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       const created = await withTreeLock(workspaceId, async (tx) => {
         let scope: PageScope = 'shared'
         if (parentId) {
-          const chain = await assertPlacement(tx, { workspaceId, parentId, role })
+          const chain = await assertPlacement(tx, { workspaceId, parentId, role, userId: user.id })
           scope = chain[0].scope
         }
         const parentCond = parentId ? eq(pages.parentId, parentId) : isNull(pages.parentId)
@@ -556,6 +558,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       const page = await loadMetaRow(id, user.id)
       if (!page) throw notFound()
       await requireMembership(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id)
 
       if (page.kind === 'doc') {
         if (!expectedRevision) throw badRequest('expectedRevision is required for documents')

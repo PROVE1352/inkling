@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createSnapshotSchema } from '@inkling/shared'
@@ -123,6 +124,7 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
+    await assertPageEditable(id, user.id)
 
     // Canvases (cnodes/cedges) are out of scope in v1 — only doc pages can be restored
     if (page.kind !== 'doc') {

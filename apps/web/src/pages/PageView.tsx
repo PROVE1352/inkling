@@ -12,11 +12,14 @@ import {
 import { createPortal } from 'react-dom'
 import { useParams } from 'react-router'
 import { useDroppable } from '@dnd-kit/core'
-import type { PageMetaDTO } from '@inkling/shared'
+import { useQueryClient } from '@tanstack/react-query'
+import type { PageLockDTO, PageMetaDTO } from '@inkling/shared'
 import {
+  qkAdmin,
   recordPageView,
   useBookmarks,
   useMe,
+  usePageLock,
   usePages,
   useShareStatus,
   useToggleBookmark,
@@ -42,6 +45,9 @@ import {
 import { FolderView } from '../components/FolderView'
 import { RightPanel } from '../components/RightPanel'
 import { ShareModal } from '../components/ShareModal'
+import { PageLockModal } from '../components/PageLockModal'
+import { SuspiciousNotice } from '../components/SuspiciousNotice'
+import { agentRuleLine, editableByLine, lockRootOf } from '../lib/editLock'
 import { CommentBadges } from '../components/comments/CommentBadges'
 import { OnlineUsers } from '../components/OnlineUsers'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -54,6 +60,7 @@ import { printElement } from '../lib/printPage'
 import {
   GlobeIcon,
   LinkIcon,
+  LockIcon,
   MenuIcon,
   MonitorIcon,
   MoonIcon,
@@ -206,10 +213,13 @@ function TitleInput({
   page,
   onCommit,
   onEnter,
+  readOnly = false,
 }: {
   page: PageMetaDTO
   onCommit: (title: string) => void
   onEnter: () => void
+  /** Edit lock: the title is shown but cannot be changed */
+  readOnly?: boolean
 }) {
   const [title, setTitle] = useState(page.title)
   const timerRef = useRef<number | undefined>(undefined)
@@ -254,6 +264,8 @@ function TitleInput({
       ref={areaRef}
       rows={1}
       value={title}
+      readOnly={readOnly}
+      aria-readonly={readOnly || undefined}
       // The title is a single-line value — pasted newlines become spaces.
       onChange={(e) => onChange(e.target.value.replace(/\r?\n/g, ' '))}
       onKeyDown={(e) => {
@@ -276,11 +288,17 @@ function PageHeading({
   page,
   onCommit,
   onEnter,
+  readOnly = false,
+  banner,
 }: {
   wsId: string
   page: PageMetaDTO
   onCommit: (title: string) => void
   onEnter: () => void
+  /** Edit lock: cover, icon and title are shown without editing affordances */
+  readOnly?: boolean
+  /** Lock banner, shown above the title */
+  banner?: ReactNode
 }) {
   const updatePage = useUpdatePage(wsId)
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -288,19 +306,21 @@ function PageHeading({
 
   return (
     <>
-      <PageCover wsId={wsId} page={page} />
+      <PageCover wsId={wsId} page={page} readOnly={readOnly} />
       <button
         ref={iconBtnRef}
         type="button"
         onClick={() => setEmojiOpen((v) => !v)}
+        disabled={readOnly}
         aria-label={tr('page.changeIcon')}
-        title={tr('page.changeIcon')}
-        className="mb-1 flex h-12 w-12 items-center justify-center rounded-lg text-4xl leading-none transition-colors duration-150 hover:bg-hover"
+        title={readOnly ? undefined : tr('page.changeIcon')}
+        className="mb-1 flex h-12 w-12 items-center justify-center rounded-lg text-4xl leading-none transition-colors duration-150 hover:bg-hover disabled:hover:bg-transparent"
       >
         {pageIcon(page)}
       </button>
-      <TitleInput page={page} onCommit={onCommit} onEnter={onEnter} />
-      {emojiOpen && (
+      {banner}
+      <TitleInput page={page} onCommit={onCommit} onEnter={onEnter} readOnly={readOnly} />
+      {emojiOpen && !readOnly && (
         <EmojiPicker
           anchorRef={iconBtnRef}
           hasIcon={!!page.icon}
@@ -310,6 +330,39 @@ function PageHeading({
         />
       )}
     </>
+  )
+}
+
+// Edit lock line under the page icon (docs/adr/0970-*): who can edit, the agent rule, and whether
+// the viewer can edit. Clicking it opens the lock dialog (details, or management for managers).
+function LockBanner({
+  lock,
+  readOnly,
+  onOpen,
+}: {
+  lock: PageLockDTO | undefined
+  readOnly: boolean
+  onOpen: () => void
+}) {
+  const agentRule = lock ? agentRuleLine(lock) : null
+  const inheritedFrom = lock && lock.locked && !lock.own && lock.lockRoot ? lock.lockRoot.title : null
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={tr('lock.badgeTitle')}
+      className="mb-2 flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-line bg-hover/40 px-2.5 py-1 text-left text-xs text-sub transition-colors duration-150 hover:bg-hover"
+    >
+      <span className="flex items-center gap-1 font-medium text-ink">
+        <LockIcon size={12} />
+        {tr('lock.badge')}
+      </span>
+      {lock && <span>{editableByLine(lock)}</span>}
+      {agentRule && <span>· {agentRule}</span>}
+      {inheritedFrom !== null && <span>· {tr('lock.inheritedFrom', { title: inheritedFrom || tr('common.untitled') })}</span>}
+      {readOnly && <span className="text-ink">· {tr('lock.readOnlyHint')}</span>}
+      {lock?.canManage && <span className="text-accent">{tr('lock.manage')}</span>}
+    </button>
   )
 }
 
@@ -369,6 +422,8 @@ export function PageView() {
   const shareStatus = useShareStatus(page?.id, !!page && canShare && page.scope !== 'private')
   const isShared = !!shareStatus.data?.shared
   const [shareOpen, setShareOpen] = useState(false)
+  const [lockOpen, setLockOpen] = useState(false)
+  useEffect(() => setLockOpen(false), [pageId])
 
   const [collab, setCollab] = useState<CollabState>({
     status: 'connecting',
@@ -440,6 +495,35 @@ export function PageView() {
   }, [pageId])
 
   const handleCollab = useCallback((s: CollabState) => setCollab(s), [])
+
+  // Edit lock (docs/adr/0970-*). The page list marks only pages with their own lock, so the
+  // effective lock comes from the nearest locked ancestor-or-self. The lock query (canEdit) is the
+  // authoritative UI answer; the collab scope the server granted is the fast path (it arrives
+  // before the body syncs). A read-only connection's edits are dropped by the server, so either
+  // one makes the editor read-only.
+  const queryClient = useQueryClient()
+  const treeLockRoot = lockRootOf(pages.data, page?.id)
+  const scopeReadOnly = isDoc && collab.scope !== undefined && collab.scope !== 'read-write'
+  const canLock = !!page && page.scope !== 'private'
+  const lockEnabled = canLock && (!!treeLockRoot || scopeReadOnly)
+  const lockQuery = usePageLock(page?.id, lockEnabled)
+  const lockData = lockEnabled ? lockQuery.data : undefined
+  const lockReadOnly =
+    scopeReadOnly || (lockData ? !lockData.canEdit : !!treeLockRoot && lockQuery.isLoading)
+  const isLocked = !!lockData?.locked || !!treeLockRoot || scopeReadOnly
+  // A lock appeared/disappeared in the tree or the server changed this connection's scope:
+  // refresh the lock (canEdit) right away instead of waiting for it to go stale.
+  const treeLockRootId = treeLockRoot?.id
+  useEffect(() => {
+    if (page?.id) queryClient.invalidateQueries({ queryKey: qkAdmin.pageLock(page.id) })
+  }, [queryClient, page?.id, treeLockRootId, collab.scope])
+  // Ink strokes are page writes too: no pen on a page the viewer cannot edit.
+  useEffect(() => {
+    if (lockReadOnly) setPenMode(false)
+  }, [lockReadOnly])
+  const lockBanner = isLocked ? (
+    <LockBanner lock={lockData} readOnly={lockReadOnly} onOpen={() => setLockOpen(true)} />
+  ) : null
   const handleEditorReady = useCallback((e: InklingEditor | null) => setEditor(e), [])
 
   // OS file drop — accepts the whole body (title, cover margin and empty space below the text included).
@@ -452,17 +536,18 @@ export function PageView() {
     },
     [editor, wsId, pageId],
   )
-  const dropActive = useFileDropZone(bodyRef, onDropFiles, isDoc && !!editor)
+  const dropActive = useFileDropZone(bodyRef, onDropFiles, isDoc && !!editor && !lockReadOnly)
 
   // Share the active editor via a module store, for AppDnd (app-level DndContext) to use on body drops.
   // AppDnd is a route parent and can't see pageId, so pageId is stored too (for the self-drop no-op).
   useEffect(() => {
-    if (isDoc && editor && pageId) {
+    // A locked (read-only) body takes no sidebar drops: the server would discard the edit.
+    if (isDoc && editor && pageId && !lockReadOnly) {
       setActiveEditor({ editor, pageId })
       return () => setActiveEditor(null)
     }
     return
-  }, [isDoc, editor, pageId])
+  }, [isDoc, editor, pageId, lockReadOnly])
 
   // Setting "Spell check" — sets the spellcheck attribute directly on the editor's contenteditable.
   // (Applied to the DOM to avoid touching CollabEditor options. ProseMirror only manages attributes it set itself.)
@@ -524,7 +609,7 @@ export function PageView() {
         )}
         {/* Secondary actions — on phones (<640px) they fold into the ⋯ menu (PageHeaderMenu) to leave room for the title. */}
         <div className="hidden sm:contents">
-          {isDoc && (
+          {isDoc && !lockReadOnly && (
             <button
               type="button"
               onClick={() => setPenMode((v) => !v)}
@@ -557,6 +642,19 @@ export function PageView() {
               </span>
             </button>
           )}
+          {canLock && (
+            <button
+              type="button"
+              onClick={() => setLockOpen(true)}
+              aria-label={tr('lock.title')}
+              title={isLocked ? tr('lock.badgeTitle') : tr('lock.title')}
+              className={`rounded-md p-1.5 leading-none transition duration-150 hover:bg-hover active:scale-[.98] ${
+                isLocked ? 'text-accent' : 'text-sub hover:text-ink'
+              }`}
+            >
+              <LockIcon size={18} />
+            </button>
+          )}
           {(isDoc || isCanvas) && <OnlineUsers users={collab.users} />}
           {(isDoc || isCanvas) && <StatusDot status={collab.status} />}
           {page && page.kind !== 'canvas' && page.kind !== 'folder' && (
@@ -582,7 +680,7 @@ export function PageView() {
         )}
         <PageHeaderMenu
           items={[
-            ...(isDoc
+            ...(isDoc && !lockReadOnly
               ? [
                   {
                     label: penMode ? tr('page.penModeOff') : tr('page.penMode'),
@@ -599,6 +697,16 @@ export function PageView() {
                     icon: isShared ? <GlobeIcon size={16} className="text-accent" /> : <GlobeIcon size={16} />,
                     active: isShared,
                     onSelect: () => setShareOpen(true),
+                  },
+                ]
+              : []),
+            ...(canLock
+              ? [
+                  {
+                    label: tr('lock.menu'),
+                    icon: <LockIcon size={16} className={isLocked ? 'text-accent' : undefined} />,
+                    active: isLocked,
+                    onSelect: () => setLockOpen(true),
                   },
                 ]
               : []),
@@ -657,7 +765,8 @@ export function PageView() {
             // Keyed wrapper — nd-enter replays on every page change.
             <div key={page.id} className="nd-enter">
               <div className="group/page mx-auto max-w-4xl px-4 pt-4 sm:px-6">
-                <PageCover wsId={wsId ?? ''} page={page} />
+                <PageCover wsId={wsId ?? ''} page={page} readOnly={lockReadOnly} />
+                {lockBanner}
               </div>
               <FolderView wsId={wsId ?? ''} page={page} />
             </div>
@@ -672,6 +781,8 @@ export function PageView() {
                   if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
                 }}
                 onEnter={() => {}}
+                readOnly={lockReadOnly}
+                banner={lockBanner}
               />
               <Suspense fallback={viewFallback}>
                 <CollectionView wsId={wsId ?? ''} pageId={page.id} />
@@ -687,6 +798,8 @@ export function PageView() {
                     if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
                   }}
                   onEnter={() => {}}
+                  readOnly={lockReadOnly}
+                  banner={lockBanner}
                 />
               </div>
               <div className="min-h-0 flex-1">
@@ -716,14 +829,17 @@ export function PageView() {
                   if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
                 }}
                 onEnter={focusEditor}
+                readOnly={lockReadOnly}
+                banner={lockBanner}
               />
+              <SuspiciousNotice pageId={page.id} />
               <CollabEditor
                 pageId={page.id}
                 wsId={wsId ?? ''}
                 me={me.data}
                 onCollabChange={handleCollab}
                 onEditorReady={handleEditorReady}
-                readOnly={penMode}
+                readOnly={penMode || lockReadOnly}
               />
             </EditorDropZone>
           )}
@@ -767,6 +883,9 @@ export function PageView() {
 
       {page && canShare && (
         <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} page={page} />
+      )}
+      {page && wsId && lockOpen && (
+        <PageLockModal open={lockOpen} onClose={() => setLockOpen(false)} wsId={wsId} page={page} />
       )}
     </div>
   )

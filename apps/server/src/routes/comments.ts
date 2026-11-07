@@ -13,6 +13,7 @@ import { badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
+import { assertPageCommentable } from '../editLock'
 import { emitWebhookEvent } from '../webhooks'
 import { isManagerRole } from '../workspaceAdmin'
 
@@ -107,7 +108,10 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
-      await requireMembership(page.workspaceId, user.id)
+      const role = await requireMembership(page.workspaceId, user.id)
+      // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
+      // from agents only (docs/adr/0970-*).
+      await assertPageCommentable(id, user.id, role)
 
       const commentId = randomUUID()
       let threadId: string
@@ -197,7 +201,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
     const page = await findVisiblePage(comment.pageId, user.id)
     if (!page) throw notFound()
-    await requireMembership(page.workspaceId, user.id)
+    const role = await requireMembership(page.workspaceId, user.id)
+    await assertPageCommentable(comment.pageId, user.id, role)
 
     const updates: Partial<typeof comments.$inferInsert> = {}
 

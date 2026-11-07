@@ -7,9 +7,11 @@ export default {
 
   'confirm.moveToTrash': 'Move to trash',
 
-  'pwa.updateReady': 'A new version is ready.',
-  'pwa.updated': 'Updated to a new version.',
+  'pwa.updateReady': 'A new version is available.',
   'pwa.reload': 'Reload',
+  'pwa.later': 'Later',
+  'pwa.releaseAvailable': 'Inkling {version} is available (this server runs {current}).',
+  'pwa.releaseNotes': 'Release notes',
 
   'colors.gray': 'Gray',
   'colors.red': 'Red',

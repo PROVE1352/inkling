@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { quickTaskSchema, updateTaskSchema } from '@inkling/shared'
@@ -96,6 +97,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
       await requireMembership(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id)
       if (page.kind !== 'doc') throw badRequest('Not a document page')
 
       try {
@@ -137,6 +139,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       const body = quickTaskSchema.parse(req.body)
 
       const pageId = await findOrCreateTodoDoc(wsId, user.id, await requestLocale(req, user.id))
+      // The workspace Tasks document may be locked like any page (docs/adr/0970-*).
+      await assertPageEditable(pageId, user.id)
       const md = `- [ ] ${escapeMd(body.title)} 📅 ${body.date}\n`
       const incoming = await markdownToBlocks(md, () => null)
       if (incoming.length !== 1 || incoming[0].type !== 'checkListItem') {

@@ -286,6 +286,11 @@ export const pages = pgTable('pages', {
    * true = always living (never in the review list), false = never living.
    */
   livingOverride: boolean('living_override'),
+  /**
+   * Edit lock (docs/adr/0970-*): this page and its subtree are editable only by the page owner, the
+   * workspace owners/admins and page_lock_editors. Off by default; the nearest locked ancestor governs.
+   */
+  editLocked: boolean('edit_locked').notNull().default(false),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.
@@ -518,6 +523,8 @@ export const pageChunks = pgTable(
     /** CJK character bigrams of long CJK words, so 2-character Korean terms match inside compounds. */
     grams: text('grams').notNull().default(''),
     tokenEstimate: integer('token_estimate').notNull().default(0),
+    /** Injection-like heuristics this chunk matched (docs/adr/0977-*); computed at index time. */
+    suspicious: text('suspicious').array().notNull().default(sql`'{}'::text[]`),
     /** sha1 of this row's derived values (diffing). */
     hash: text('hash').notNull(),
     /** Version of the whole section (all parts): patch_section's baseVersion. */
@@ -703,6 +710,11 @@ export const oauthGrants = pgTable(
     prevRefreshHash: text('prev_refresh_hash'),
     refreshExpiresAt: timestamp('refresh_expires_at', { withTimezone: true }).notNull(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    /**
+     * Last time this connection was handed content flagged injection-like (docs/adr/0977-*).
+     * Recorded only (throttled); nothing reads it for decisions yet — the hook for taint tracking.
+     */
+    taintedAt: timestamp('tainted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -716,3 +728,4 @@ export * from './schema-plugins'
 export * from './schema-collections'
 export * from './schema-sync'
 export * from './schema-webhooks'
+export * from './schema-editLock'

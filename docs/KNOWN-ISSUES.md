@@ -22,6 +22,12 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (C-L17) The link-preview rate-limit key is the session, so one user with several sessions (or several users) multiply the outbound fetch budget.
 - **Low** (TODO, docs/adr/0947-*) A per-client agent block can be sidestepped by registering the same agent again under a new OAuth `client_id`; blocking "all agents" of the member covers it. Dynamic client registration has no cap (C-L15).
 - **Low** (TODO, docs/adr/0946-*) The workspace audit log is append-only in application code only (no DB trigger); a database administrator can still change rows.
+- **Medium** (TODO, docs/adr/0976-*, 0977-*) The `<untrusted_content>` markers and the injection heuristics are mitigations, not a boundary: a model can still follow wrapped text, and the phrase rules are evaded by paraphrase, other languages or splitting across sections. Real boundaries: edit lock, scopes, agent blocks. Tainted connections (`oauth_grants.tainted_at`) are recorded but writes are not yet reduced to proposals.
+- **Low** (TODO, docs/adr/0976-*) JSON-output MCP tools (list_pages, search `json`, list_workspaces, the create/rename/move echoes) are not wrapped and get no `applies:` line, to keep their shape; page titles there remain a small injection channel. No MCP tool returns comments yet; one that does must wrap them.
+- **Low** (TODO, docs/adr/0970-*) Live collaboration sockets are re-authenticated when a lock changes, but not when a member's role changes (admin → member); the next reconnect is read-only. File uploads with a `pageId` are not refused on locked pages (inert until a document references them).
+- **Low** (TODO, docs/adr/0970-*) Canvas nodes, collection cells and the properties panel stay editable in the web UI on a locked page (no read-only mode there yet); the server refuses the writes with `PAGE_LOCKED`.
+- **Low** (TODO, docs/adr/0978-*) A member whose display name folds to the same string as an OAuth client's name (e.g. "Claude") blocks that client at consent for everyone in their workspaces until one of them renames.
+- **Info** (TODO, docs/adr/0977-*) `content.suspicious` audit dedupe is best effort: two concurrent re-indexes of one page can record the same rule twice.
 - **Info** (TODO, docs/adr/0950-*) The export policy gates only the whole-workspace zip; any member can still export single pages they can see (by design: agent reads and copy/paste allow it anyway).
 - **Low** (C-L11, last item) The vault-sync manifest hash (`sync.ts`) includes titles of linked pages the caller cannot see, which leaks that they changed.
 - **Low** (TODO, P-server leftover) An open collaboration socket on a page that is moved to the trash stays connected and writable.
@@ -94,6 +100,11 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (fix phase, docs/adr/0813-*) The admin confirm dialog does not yet call `GET /api/admin/users/:id/delete-preview`, so it cannot say how many personal workspaces will be deleted (web follow-up). Attachment links copied from a deleted personal workspace into other workspaces break.
 
 - **Low** (AGENT-O1, docs/adr/0926-*) After upgrading, existing pages are invisible to `find_context` until the boot backfill reaches them (50 pages per batch, at most 50,000 per boot; the rest continue next boot or on their next edit). `search` is unaffected.
+
+- **Low** (UPD-1, docs/adr/0993-*) Tabs still running a bundle from before the update-banner change keep the old toast logic (a stale waiting worker, a one-shot prompt, no notice outside `AppLayout`) until they are reloaded once by hand or the browser restarts; the deploy after that is handled by the new code.
+- **Low** (UPD-2, docs/adr/0992-*) Force mode protects collaborative document edits and in-flight API mutations only; text typed into a non-Yjs field (e.g. an unsent comment draft) is protected only by the 3-second idle rule and is lost if the tab reloads.
+- **Low** (UPD-3, docs/adr/0993-*) When no new service worker takes over within 8 s, the tab unregisters its service worker before reloading; the next load downloads the full precache again.
+- **Info** (UPD-4, docs/adr/0990-*) The build id is time-based unless `INKLING_BUILD` is set, so an image rebuilt from the same source announces a "new version" once.
 
 <!-- fix-web / tests-ci: append Operations items above this line -->
 

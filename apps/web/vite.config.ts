@@ -2,12 +2,35 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { createHash, randomBytes } from 'node:crypto'
 
 // Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import).
 const LAZY_ONLY = [/[\\/]@shikijs[\\/]langs/, /[\\/]@shikijs[\\/]themes/, /[\\/]exceljs[\\/]/]
 
+// Build id (docs/adr/0990-build-id-and-version-header.md): INKLING_BUILD (e.g. a commit hash passed as
+// a Docker build-arg) or a hash of the build time — works without git. It is compiled into the
+// bundle (__INKLING_BUILD__) and written to dist/build.json, which the server reads at boot and
+// echoes as the X-Inkling-Build header, so a tab can tell it runs an older build.
+const BUILD_ID =
+  process.env.INKLING_BUILD?.trim().replace(/[^\w.-]/g, '').slice(0, 40) ||
+  createHash('sha256').update(`${Date.now()}-${randomBytes(8).toString('hex')}`).digest('hex').slice(0, 12)
+
 export default defineConfig({
+  define: {
+    __INKLING_BUILD__: JSON.stringify(BUILD_ID),
+  },
   plugins: [
+    {
+      name: 'inkling-build-id',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'build.json',
+          source: JSON.stringify({ build: BUILD_ID, builtAt: new Date().toISOString() }),
+        })
+      },
+    },
     react(),
     tailwindcss(),
     VitePWA({

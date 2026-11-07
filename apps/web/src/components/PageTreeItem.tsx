@@ -22,6 +22,7 @@ import { NotionPublishModal } from './NotionPublishModal'
 import { PageRowMenu } from './PageRowMenu'
 import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { ShareModal } from './ShareModal'
+import { PageLockModal } from './PageLockModal'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -29,6 +30,7 @@ import {
   PlusIcon,
   TrashIcon,
   GlobeIcon,
+  LockIcon,
 } from './Icons'
 import { isMod } from '../lib/platform'
 
@@ -70,6 +72,7 @@ export const PageTreeItem = memo(function PageTreeItem({
   const [moveOpen, setMoveOpen] = useState(false)
   const [notionOpen, setNotionOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [lockOpen, setLockOpen] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [name, setName] = useState(page.title)
@@ -252,6 +255,7 @@ export const PageTreeItem = memo(function PageTreeItem({
       triggerDownload(`/api/pages/${page.id}/export?format=${format}`),
     onNotion: () => setNotionOpen(true),
     onShare: () => setShareOpen(true),
+    onLock: () => setLockOpen(true),
     onDelete: () => nav.deleteNode(node),
   }
 
@@ -370,6 +374,13 @@ export const PageTreeItem = memo(function PageTreeItem({
                 className="ml-1 inline-block align-[-1px] text-accent/80"
               />
             )}
+            {page.editLocked && (
+              <LockIcon
+                size={11}
+                aria-label={t('tree.editLocked')}
+                className="ml-1 inline-block align-[-1px] text-sub"
+              />
+            )}
           </button>
         )}
 
@@ -481,6 +492,10 @@ export const PageTreeItem = memo(function PageTreeItem({
 
       {shareOpen && (
         <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} page={page} />
+      )}
+
+      {lockOpen && (
+        <PageLockModal open={lockOpen} onClose={() => setLockOpen(false)} wsId={wsId} page={page} />
       )}
 
       {saveTemplateOpen && (

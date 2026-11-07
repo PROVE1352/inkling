@@ -44,6 +44,13 @@ const NEXT_STEP: Record<number, string> = {
   429: 'rate limited; wait a minute before retrying',
 }
 
+/** Next-step hints keyed by error code (take precedence over NEXT_STEP). */
+const NEXT_STEP_BY_CODE: Record<string, string> = {
+  PAGE_LOCKED:
+    'nothing was written; do not retry or work around the lock (moving or copying the page will not help). ' +
+    'Tell the user who can edit it, or leave your suggested change with add_comment if that is allowed (see the can: line of read_page)',
+}
+
 /** Call an existing REST route as the token user; 4xx/5xx become a ToolError carrying the server message */
 export async function call(
   ctx: ToolCtx,
@@ -71,13 +78,16 @@ export async function call(
   })
   if (res.statusCode >= 400 && !opts.passStatuses?.includes(res.statusCode)) {
     let message = `Request failed (HTTP ${res.statusCode})`
+    let code: string | undefined
     try {
       const body = res.json() as { error?: { message?: string; code?: string } }
+      code = body?.error?.code
       if (body?.error?.message) message = `${body.error.message} (${body.error.code ?? res.statusCode})`
     } catch {
       // Body is not JSON: keep the default message
     }
-    const hint = NEXT_STEP[res.statusCode]
+    // Error codes first (more specific than the status), then the status.
+    const hint = (code && NEXT_STEP_BY_CODE[code]) || NEXT_STEP[res.statusCode]
     if (hint) message = `${message}: ${hint}`
     throw new ToolError(message)
   }

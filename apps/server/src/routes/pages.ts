@@ -42,6 +42,19 @@ import { workspaceVersion } from '../versions'
 import { emitWebhookEvent } from '../webhooks'
 import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
+import { assertCan, actorFor } from '../editLock'
+import type { WorkspaceRole } from '@inkling/shared'
+
+/** Edit-lock guard inside a transaction (docs/adr/0970-*). */
+function assertEditable(
+  tx: Parameters<typeof assertCan>[0],
+  pageId: string,
+  userId: string,
+  role: WorkspaceRole,
+  opts: { subtree?: boolean } = {},
+): Promise<void> {
+  return assertCan(tx, pageId, actorFor(userId, role), opts)
+}
 import { logPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
 
@@ -279,6 +292,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           workspaceId: body.workspaceId,
           parentId,
           role,
+          userId: user.id,
         })
         scope = chain[0].scope
       }
@@ -351,6 +365,11 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
         .for('update')
       if (!page) throw notFound()
+      // Edit lock (docs/adr/0970-*): any change of the page needs edit rights; a move to the top
+      // level or a scope change carries the whole subtree along, so it needs them on every lock
+      // below as well (moves under a parent are checked by assertPlacement).
+      const carriesSubtree = (body.parentId === null && page.parentId !== null) || body.scope !== undefined
+      await assertEditable(tx, id, user.id, role, { subtree: carriesSubtree })
 
       const updates: Partial<typeof pages.$inferInsert> = { updatedAt: new Date() }
 
@@ -431,6 +450,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
             parentId: newParentId,
             movingId: id,
             role,
+            userId: user.id,
           })
           newParentScope = chain[0].scope
           updates.parentId = newParentId
@@ -513,17 +533,19 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
-    await requireMembership(page.workspaceId, user.id)
+    const role = await requireMembership(page.workspaceId, user.id)
 
-    const trashed = (await withTreeLock(page.workspaceId, (tx) =>
-      tx.execute(sql`
+    const trashed = (await withTreeLock(page.workspaceId, async (tx) => {
+      // Trashing carries the subtree: every lock in it must allow the actor (docs/adr/0970-*).
+      await assertEditable(tx, id, user.id, role, { subtree: true })
+      return tx.execute(sql`
         ${descendantsCte(id)}
         UPDATE pages
         SET deleted_at = now()
         WHERE id IN (SELECT id FROM descendants) AND deleted_at IS NULL
         RETURNING id
-      `),
-    )) as unknown as { id: string }[]
+      `)
+    })) as unknown as { id: string }[]
     await logPageEvents(trashed.map((r) => ({ pageId: r.id, kind: 'page_trashed' as const })), actorOf(user))
 
     return reply.code(204).send()
@@ -778,7 +800,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
     )[0]
     if (!target) throw notFound()
-    await requireMembership(target.workspaceId, user.id)
+    const role = await requireMembership(target.workspaceId, user.id)
 
     let restored: { id: string }[] = []
     const row = await withTreeLock(target.workspaceId, async (tx) => {
@@ -789,6 +811,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
       if (!cur) throw notFound()
       if (!cur.deletedAt) throw badRequest('This page is not deleted')
+      // Restoring writes the subtree back into place: the locks on its path and inside it apply.
+      await assertEditable(tx, id, user.id, role, { subtree: true })
 
       restored = (await tx.execute(sql`
         ${descendantsCte(id, { onlyDeleted: true })}
@@ -829,7 +853,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         .limit(1)
     )[0]
     if (!target) throw notFound()
-    await requireMembership(target.workspaceId, user.id)
+    const role = await requireMembership(target.workspaceId, user.id)
 
     const fileIds = await withTreeLock(target.workspaceId, async (tx) => {
       const [cur] = await tx
@@ -841,6 +865,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (!cur.deletedAt) {
         throw badRequest('Only pages in the trash can be deleted forever')
       }
+      await assertEditable(tx, id, user.id, role, { subtree: true })
       return (await purgeDeletedSubtrees(tx, [id])).fileIds
     })
 
@@ -936,6 +961,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           workspaceId: rootRow.workspaceId,
           parentId: rootRow.parentId,
           role,
+          userId: user.id,
           height: orderedHeight(ordered),
           publicRule: false,
         })
@@ -1056,6 +1082,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
             workspaceId: page.workspaceId,
             parentId: page.parentId,
             role,
+            userId: user.id,
             publicRule: false,
           })
         }

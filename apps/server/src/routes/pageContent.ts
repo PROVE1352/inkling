@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
@@ -44,6 +45,7 @@ export async function registerPageContentRoutes(app: FastifyInstance): Promise<v
       const page = await findVisiblePage(id, user.id)
       if (!page) throw notFound()
       await requireMembership(page.workspaceId, user.id)
+      await assertPageEditable(id, user.id)
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable content')
 
       const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)

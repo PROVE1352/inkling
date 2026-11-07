@@ -5,6 +5,7 @@ import {
   type HocuspocusProviderConfiguration,
 } from '@hocuspocus/provider'
 import type { CollabUser } from '../components/OnlineUsers'
+import { setCollabPendingCheck } from './update'
 
 // One collab WebSocket per tab (docs/adr/0702-shared-collab-websocket.md).
 //
@@ -35,6 +36,17 @@ export const collabUrl = () =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab`
 
 const REOPEN_GRACE_MS = 3_000
+
+/**
+ * Every live provider (shared or dedicated socket), so the force-update path can tell whether a
+ * reload would drop edits (lib/update.ts, docs/adr/0992-*). `unsyncedChanges` counts local
+ * updates the server has not acknowledged plus an unfinished initial sync.
+ */
+const live = new Set<HocuspocusProvider>()
+setCollabPendingCheck(() => {
+  for (const p of live) if (p.unsyncedChanges > 0) return true
+  return false
+})
 
 /**
  * Watchdog: a document on a connected shared socket that is still not synced after two checks
@@ -126,12 +138,14 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       onStateless: opts.onStateless,
     })
     let released = false
+    live.add(provider)
     return {
       provider,
       sharedSocket: false,
       release: () => {
         if (released) return
         released = true
+        live.delete(provider)
         provider.destroy()
         provider.configuration.websocketProvider?.destroy?.()
       },
@@ -156,6 +170,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     },
   })
   let released = false
+  live.add(provider)
   let strikes = 0
   const watchdog = window.setInterval(() => {
     if (released || provider.isSynced || s.denied.has(opts.name) || s.ws.status !== 'connected') {
@@ -175,6 +190,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       if (released) return
       released = true
       window.clearInterval(watchdog)
+      live.delete(provider)
       // destroy(): sends a Close for this document only, detaches it and removes listeners.
       provider.destroy()
       s.names.delete(opts.name)

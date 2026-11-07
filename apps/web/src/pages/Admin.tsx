@@ -28,6 +28,7 @@ import {
 import { Spinner } from '../components/Spinner'
 import { useLayout } from '../components/AppLayout'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { ReleaseNotice } from '../components/UpdateBanner'
 import { NavButtons } from '../components/NavButtons'
 import { CopyIcon, MenuIcon, SearchIcon } from '../components/Icons'
 import { Pager, paginate } from '../components/Pager'
@@ -709,6 +710,7 @@ export function Admin() {
           {mode.data?.delegated && ` ${t('admin.introDelegated', { name: delegatedName })}`}
         </p>
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        <ReleaseNotice />
       </header>
 
       {/* ---- password reset requests ---- */}

@@ -12,6 +12,7 @@ import { db } from './db/index'
 import { pageDocs, pages, workspaceMembers } from './db/schema'
 export { flushDocIndexes } from './docIndexer'
 import { visibleTo } from './pageDto'
+import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { maybeAutoSnapshotStored } from './snapshotStore'
@@ -165,7 +166,7 @@ export const hocuspocus = new Hocuspocus({
 
     const member = (
       await db
-        .select({ userId: workspaceMembers.userId })
+        .select({ userId: workspaceMembers.userId, role: workspaceMembers.role })
         .from(workspaceMembers)
         .where(
           and(
@@ -176,6 +177,13 @@ export const hocuspocus = new Hocuspocus({
         .limit(1)
     )[0]
     if (!member) throw new Error('Forbidden')
+
+    // Edit lock (docs/adr/0970-*): a member who may not edit the page gets a read-only connection.
+    // Hocuspocus then answers their sync updates with SyncStatus(false) and never applies them;
+    // the client learns the scope from the authenticated message. Lock changes close the live
+    // sockets of the subtree, so a reconnect always re-evaluates this.
+    const caps = await capsFor(db, [pageId], { userId: user.id, role: member.role, agent: false })
+    if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
 
     // sessionToken lets liveConnections close exactly the sockets of revoked sessions.
     return { userId: user.id, sessionToken: token }

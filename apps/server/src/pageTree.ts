@@ -3,6 +3,7 @@ import type { WorkspaceRole } from '@inkling/shared'
 import { db } from './db/index'
 import { badRequest, forbidden } from './errors'
 import { isManagerRole } from './workspaceAdmin'
+import { actorFor, assertCan } from './editLock'
 
 /**
  * Page tree integrity (docs/adr/0800-*).
@@ -108,6 +109,7 @@ function publicAncestors(chain: ChainRow[]): Set<string> {
  *  - 400 when the parent is missing, in another workspace or in the trash,
  *  - 400 when the parent chain contains `movingId` (cycle) or the result would exceed
  *    TREE_MAX_DEPTH (also the answer for a pre-existing cycle above the parent),
+ *  - 403 PAGE_LOCKED when the actor may not edit the parent (or, for a move, the moved subtree),
  *  - 403 when the parent is inside a publicly shared folder, the actor is not a workspace owner
  *    and the placement would newly expose content there (docs/adr/0802-*).
  * Returns the parent chain (depth 0 = parent).
@@ -119,6 +121,11 @@ export async function assertPlacement(
     parentId: string
     movingId?: string
     role: WorkspaceRole
+    /**
+     * The acting member: the parent must be editable for them (edit lock, docs/adr/0970-*), and a
+     * moved subtree must be editable as a whole. Inside an MCP request the agent rules apply.
+     */
+    userId: string
     /** Height of new content placed under the parent (copies); moves measure `movingId`. */
     height?: number
     /** false for copies placed next to their original (they expose nothing new). */
@@ -143,6 +150,12 @@ export async function assertPlacement(
   if (capped || chain.length + 1 + height > TREE_MAX_DEPTH) {
     throw badRequest(`Pages can be nested at most ${TREE_MAX_DEPTH} levels deep`)
   }
+
+  // Edit lock: nothing may be created under, or moved into, a page the actor cannot edit; a move
+  // also needs the whole moved subtree (docs/adr/0970-*).
+  const actor = actorFor(opts.userId, opts.role)
+  await assertCan(tx, opts.parentId, actor)
+  if (opts.movingId) await assertCan(tx, opts.movingId, actor, { subtree: true })
 
   // A new row in a collection is an edit of that collection's content (like typing into a public
   // page), not a new page published under a folder — members keep adding rows to public databases.

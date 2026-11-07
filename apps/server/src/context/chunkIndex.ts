@@ -1,4 +1,5 @@
 import { and, asc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { recordAudit } from '../workspaceAdmin'
 import { db } from '../db/index'
 import { pageChunkIndex, pageChunks, pageDocs, pages } from '../db/schema'
 import type { AnyBlock } from '../md/convert'
@@ -146,6 +147,7 @@ export async function reindexPageChunks(
               text: c.text,
               grams: c.grams,
               tokenEstimate: c.tokens,
+              suspicious: c.suspicious,
               hash: c.hash,
               sectionHash: c.sectionHash,
             })),
@@ -161,6 +163,7 @@ export async function reindexPageChunks(
               text: sql`excluded.text`,
               grams: sql`excluded.grams`,
               tokenEstimate: sql`excluded.token_estimate`,
+              suspicious: sql`excluded.suspicious`,
               hash: sql`excluded.hash`,
               sectionHash: sql`excluded.section_hash`,
               updatedAt: sql`now()`,
@@ -178,6 +181,9 @@ export async function reindexPageChunks(
           set: { version: CHUNKER_VERSION, indexedAt: sql`now()` },
         })
     })
+    // First detection per page and rule goes to the audit log (docs/adr/0977-*); best effort.
+    const flagged = [...new Set(chunks.flatMap((c) => c.suspicious))]
+    if (flagged.length) await auditSuspicious(pageId, page.workspaceId, flagged, chunks)
     chunkIndexStats.rowsWritten += changed.length
     chunkIndexStats.rowsDeleted += Math.max(0, existing.length - removedFrom)
     bumpIndexEpoch()
@@ -252,4 +258,30 @@ export async function backfillPageChunks(
     console.error('[inkling] page_chunks backfill failed', err)
   }
   return total
+}
+
+/** Records `content.suspicious` once per (page, rule); later detections of the same rule are not repeated. */
+async function auditSuspicious(pageId: string, workspaceId: string, rules: string[], chunks: { anchor: string; suspicious: string[] }[]) {
+  try {
+    const seen = (await db.execute(sql`
+      SELECT DISTINCT after->>'rule' AS rule FROM workspace_audit_events
+       WHERE workspace_id = ${workspaceId} AND action = 'content.suspicious' AND target_id = ${pageId}
+    `)) as unknown as { rule: string | null }[]
+    const known = new Set(seen.map((r) => r.rule))
+    const fresh = rules.filter((r) => !known.has(r)).sort()
+    if (!fresh.length) return
+    const [p] = await db.select({ title: pages.title }).from(pages).where(eq(pages.id, pageId)).limit(1)
+    for (const rule of fresh) {
+      const anchors = [...new Set(chunks.filter((c) => c.suspicious.includes(rule)).map((c) => c.anchor))].slice(0, 10)
+      await recordAudit(db, {
+        workspaceId,
+        actor: null,
+        action: 'content.suspicious',
+        target: { type: 'page', id: pageId, label: p?.title || 'Untitled' },
+        after: { rule, sections: anchors },
+      })
+    }
+  } catch (err) {
+    console.error('[inkling] suspicious-content audit failed', pageId, err)
+  }
 }

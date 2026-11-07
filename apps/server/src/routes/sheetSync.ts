@@ -1,4 +1,5 @@
 import { assertPlacement, lockTree } from '../pageTree'
+import { assertCan, assertPageEditable } from '../editLock'
 /**
  * Google Sheets read sync — EXPERIMENTAL (`EXPERIMENTAL_FEATURES=sheets-sync`).
  * docs/adr/0306-sheets-read-sync.md
@@ -33,7 +34,7 @@ import type { CollectionField, SelectOption, SheetSyncDTO } from '@inkling/share
 import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { collections, collectionSheetSyncs, pages, workspaceMembers } from '../db/schema'
-import { badRequest, conflict, notFound } from '../errors'
+import { AppError, badRequest, conflict, notFound } from '../errors'
 import { idParam } from '../helpers'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
@@ -250,6 +251,13 @@ export async function runSheetSync(pageId: string): Promise<SyncStats | null> {
       .where(and(eq(workspaceMembers.workspaceId, page.workspaceId), eq(workspaceMembers.userId, ownerId)))
       .limit(1)
     if (!member[0]) throw new SyncError('The sync owner is no longer a workspace member')
+    // A sync writes rows as the user who set it up: a lock that excludes them stops it (docs/adr/0970-*).
+    try {
+      await assertCan(db, pageId, { userId: ownerId, role: member[0].role, agent: false }, { subtree: true })
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'PAGE_LOCKED') throw new SyncError(err.message)
+      throw err
+    }
 
     const text = await fetchSheetCsv(sync.url)
     const parsed = parseCsv(text, { maxRows: IMPORT_MAX_ROWS + 1 })
@@ -278,7 +286,8 @@ export async function runSheetSync(pageId: string): Promise<SyncStats | null> {
         await assertPlacement(tx, {
           workspaceId: page.workspaceId,
           parentId: pageId,
-          role: 'member',
+          role: member[0].role,
+          userId: ownerId,
           publicRule: false,
         })
       }
@@ -406,6 +415,7 @@ export async function registerSheetSyncRoutes(app: FastifyInstance): Promise<voi
     const user = getUser(req)
     const id = idParam(req.params)
     const page = await requireCollectionPage(id, user.id)
+    await assertPageEditable(id, user.id)
     const body = sheetSyncSchema.parse(req.body)
     const values = {
       url: body.url,
@@ -427,6 +437,7 @@ export async function registerSheetSyncRoutes(app: FastifyInstance): Promise<voi
     const user = getUser(req)
     const id = idParam(req.params)
     await requireCollectionPage(id, user.id)
+    await assertPageEditable(id, user.id)
     await db.delete(collectionSheetSyncs).where(eq(collectionSheetSyncs.pageId, id))
     return reply.code(204).send()
   })
@@ -438,6 +449,7 @@ export async function registerSheetSyncRoutes(app: FastifyInstance): Promise<voi
       const user = getUser(req)
       const id = idParam(req.params)
       await requireCollectionPage(id, user.id)
+      await assertPageEditable(id, user.id, { subtree: true })
       if (!(await loadSync(id))) throw notFound()
       let stats: SyncStats | null
       try {

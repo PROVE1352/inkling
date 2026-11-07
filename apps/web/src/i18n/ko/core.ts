@@ -125,4 +125,5 @@ export default {
   'errors.BAN_NOT_FOUND': '이미 해제된 차단입니다.',
   'errors.REQUEST_NOT_FOUND': '요청을 찾을 수 없습니다.',
   'errors.TEMPLATE_NOT_FOUND': '템플릿을 찾을 수 없습니다.',
+  'errors.PAGE_LOCKED': '편집이 잠긴 페이지입니다. 편집 권한이 있는 사람에게 요청하세요.',
 } satisfies Partial<Record<keyof typeof en, string>>

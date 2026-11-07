@@ -115,7 +115,7 @@ export async function importMarkdown(args: ImportArgs): Promise<PageRow[]> {
 
   const page = await withTreeLock(workspaceId, async (tx) => {
     const scope = parentId
-      ? (await assertPlacement(tx, { workspaceId, parentId, role }))[0].scope
+      ? (await assertPlacement(tx, { workspaceId, parentId, role, userId }))[0].scope
       : args.scope
     const sortOrder = await nextSortOrderBase(tx, workspaceId, parentId)
     const [row] = await tx
@@ -373,7 +373,7 @@ export async function importEntries(
   const created: PageRow[] = await withTreeLock(workspaceId, async (tx) => {
     let scope = args.scope
     if (parentId) {
-      const chain = await assertPlacement(tx, { workspaceId, parentId, role, height: maxDepth })
+      const chain = await assertPlacement(tx, { workspaceId, parentId, role, userId, height: maxDepth })
       scope = chain[0].scope
     }
     const out: PageRow[] = []

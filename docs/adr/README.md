@@ -209,3 +209,24 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 |---|---|---|
 | [0960](0960-notion-export-import.md) | Notion export import: Markdown & CSV zip into pages, collections and attachments | Accepted |
 | [0961](0961-env-configurable-import-limits.md) | Import caps from the environment | Accepted |
+
+## 0970–0989 Edit lock, agent instructions and the trust boundary
+
+| ADR | Title | Status |
+|---|---|---|
+| [0970](0970-subtree-edit-lock.md) | Subtree edit lock, enforced at every write path | Accepted |
+| [0971](0971-lock-evaluation-order-people-and-agents.md) | Lock evaluation order: deny then allow, nearer wins, people and agents apart | Accepted |
+| [0975](0975-agent-instruction-pages.md) | Agent instruction pages: always, match, manual | Accepted |
+| [0976](0976-data-instruction-boundary-in-mcp-output.md) | Data / instruction boundary in MCP output | Accepted |
+| [0977](0977-injection-signals-and-taint-record.md) | Injection-like content signals and a taint record (signal, never a block) | Accepted |
+| [0978](0978-reserved-oauth-client-names.md) | Reserved OAuth client names | Accepted |
+
+## 099x Client updates
+
+| ADR | Title | Status |
+|---|---|---|
+| [0990](0990-build-id-and-version-header.md) | Build id in the bundle and an X-Inkling-Build header on every API response | Accepted |
+| [0991](0991-client-update-modes.md) | Client update modes: prompt (default) and force | Accepted |
+| [0992](0992-force-reload-safety.md) | Force mode reloads only when nothing local is unsaved | Accepted |
+| [0993](0993-single-update-notice-and-sw-handoff-fix.md) | One update notice at the app root; the SW hand-off looks up the waiting worker on accept | Accepted |
+| [0994](0994-optional-github-release-check.md) | Optional GitHub release check for admins (off by default) | Accepted |

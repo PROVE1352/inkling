@@ -24,6 +24,7 @@ import {
   UsersIcon,
 } from './Icons'
 import { Modal } from './Modal'
+import { GuestBadge } from './GuestBadge'
 import { NotionImportModal } from './NotionImportModal'
 import { Spinner } from './Spinner'
 import { toast } from '../lib/toast'
@@ -51,6 +52,7 @@ export function WorkspaceSwitcher({
   const importing = importWs.isPending || importFolder.isPending
 
   const current = workspaces.find((w) => w.id === wsId)
+  const guest = current?.role === 'guest'
 
   const onImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -131,6 +133,7 @@ export function WorkspaceSwitcher({
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
           {current?.name ?? t('workspace.fallbackName')}
         </span>
+        {guest && <GuestBadge />}
         <ChevronDownIcon size={16} className="shrink-0 text-sub" />
       </button>
 
@@ -149,10 +152,14 @@ export function WorkspaceSwitcher({
               >
                 <WorkspaceAvatar name={w.name} icon={w.icon} size={18} />
                 <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                {w.role === 'guest' && <GuestBadge />}
                 {w.id === wsId && <CheckIcon size={15} className="text-accent" />}
               </button>
             ))}
           </div>
+          {/* A guest has no workspace menu: members, settings, export and import all answer 403 (docs/adr/1252-*). */}
+          {!guest && (
+          <>
           <div className="my-1 border-t border-line" />
           {/* Members, sharing, agents, audit, webhooks and the danger zone live on one screen (docs/adr/0945-*) */}
           <button
@@ -175,6 +182,8 @@ export function WorkspaceSwitcher({
           >
             <SettingsIcon size={15} /> {t('wsSettings.menu')}
           </button>
+          </>
+          )}
 
           <div className="my-1 border-t border-line" />
           <button
@@ -198,6 +207,8 @@ export function WorkspaceSwitcher({
             <span className="w-[15px] text-center">＃</span> {t('workspace.joinWithCode')}
           </button>
 
+          {!guest && (
+          <>
           <div className="my-1 border-t border-line" />
           {(current?.can?.export ?? true) && (
             <button
@@ -241,6 +252,8 @@ export function WorkspaceSwitcher({
             <UploadIcon size={15} />
             {t('notionImport.menu')}
           </button>
+          </>
+          )}
           {importError && (
             <p className="px-3 py-1 text-xs text-red-600">{importError}</p>
           )}

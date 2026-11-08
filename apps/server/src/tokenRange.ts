@@ -6,6 +6,7 @@ import type { AccessRange, AccessRangeView } from '@inkling/shared'
 import { db } from './db/index'
 import { pages, workspaceMembers, workspaces } from './db/schema'
 import { AppError } from './errors'
+import { currentGuest, guestCacheKey, guestPageSql, guestSubtreeSql } from './pageGrants'
 
 /**
  * Connection range (docs/adr/1200-*, 1202-*).
@@ -96,13 +97,10 @@ function subtreeIdsSql(rootId: string): SQL {
     ) SELECT id FROM ink_range_sub)`
 }
 
-/**
- * SQL: the page in `idCol` / `wsCol` is in range (workspace, and subtree when the range is one).
- * For raw statements that alias pages (`p.id`, `p.workspace_id`). Plain `true` without a range.
- */
-export function pageInRangeSql(idCol: AnyPgColumn | SQL, wsCol: AnyPgColumn | SQL | null, userId?: string): SQL {
+/** The token-range part of pageInRangeSql (null without a range). */
+function tokenRangePageSql(idCol: AnyPgColumn | SQL, wsCol: AnyPgColumn | SQL | null, userId?: string): SQL | null {
   const scope = currentRange(userId)
-  if (!scope) return sql`true`
+  if (!scope) return null
   const ws = wsCol ? rangeWorkspaceSql(wsCol, scope) : sql`true`
   if (scope.kind !== 'subtree' || !scope.rootPageId) {
     return scope.kind === 'subtree' ? sql`false` : ws
@@ -110,10 +108,27 @@ export function pageInRangeSql(idCol: AnyPgColumn | SQL, wsCol: AnyPgColumn | SQ
   return sql`(${ws} AND ${idCol} IN ${subtreeIdsSql(scope.rootPageId)})`
 }
 
-/** The range term of `visibleTo(userId)` (pageDto.ts), or null when there is no range. */
+/**
+ * SQL: the page in `idCol` / `wsCol` is in range (workspace, and subtree when the range is one),
+ * and, for a guest (docs/adr/1252-*), under one of their pages in the workspaces where they are a
+ * guest. For raw statements that alias pages (`p.id`, `p.workspace_id`). Plain `true` without either.
+ */
+export function pageInRangeSql(idCol: AnyPgColumn | SQL, wsCol: AnyPgColumn | SQL | null, userId?: string): SQL {
+  const range = tokenRangePageSql(idCol, wsCol, userId)
+  const guest = guestPageSql(idCol, wsCol, userId)
+  if (range && guest) return sql`(${range} AND ${guest})`
+  return range ?? guest ?? sql`true`
+}
+
+/**
+ * The range term of `visibleTo(userId)` (pageDto.ts): the connection range and the guest scope;
+ * null when there is neither (no SQL added).
+ */
 export function visibleRangeSql(userId: string): SQL | null {
-  if (!currentRange(userId)) return null
-  return pageInRangeSql(pages.id, pages.workspaceId, userId)
+  const range = tokenRangePageSql(pages.id, pages.workspaceId, userId)
+  const guest = guestPageSql(pages.id, pages.workspaceId, userId)
+  if (range && guest) return sql`(${range} AND ${guest})`
+  return range ?? guest
 }
 
 /** 403 OUT_OF_RANGE when `workspaceId` is outside the current range (no-op without one). */
@@ -127,6 +142,8 @@ export function assertWorkspaceInRange(workspaceId: string, userId?: string): vo
  * range: refused with 403 OUT_OF_RANGE. No-op without a range or for a workspace range.
  */
 export function assertTopLevelInRange(workspaceId: string, userId?: string): void {
+  // A guest sees only pages shared with them: nothing at the top level of that workspace (docs/adr/1252-*).
+  if (currentGuest(userId)?.workspaces.has(workspaceId)) throw guestOutside()
   const scope = currentRange(userId)
   if (!scope) return
   assertWorkspaceInRange(workspaceId, userId)
@@ -143,6 +160,7 @@ export async function assertPlacementInRange(
   parentChainIds: string[],
   movingId?: string,
 ): Promise<void> {
+  await assertPlacementForGuest(exec, workspaceId, parentChainIds, movingId)
   const scope = currentRange()
   if (!scope) return
   assertWorkspaceInRange(workspaceId)
@@ -158,13 +176,43 @@ export async function assertPlacementInRange(
   }
 }
 
+/** 403 GUEST_OUTSIDE: a guest reached for something outside the pages shared with them. */
+export function guestOutside(): AppError {
+  return new AppError(403, 'GUEST_OUTSIDE', 'You are a guest here: only the pages shared with you are available')
+}
+
+/**
+ * Guest placement (docs/adr/1252-*): the parent must lie under one of the guest's pages in that
+ * workspace (its chain contains a root), and so must a page being moved. A token request never
+ * reaches a guest workspace.
+ */
+async function assertPlacementForGuest(
+  exec: Pick<typeof db, 'execute'>,
+  workspaceId: string,
+  parentChainIds: string[],
+  movingId?: string,
+): Promise<void> {
+  const g = currentGuest()
+  const roots = g?.workspaces.get(workspaceId)
+  if (!g || !roots) return
+  if (g.token) throw guestOutside()
+  const rootIds = roots.map((r) => r.pageId)
+  if (!parentChainIds.some((id) => rootIds.includes(id))) throw guestOutside()
+  if (movingId) {
+    const rows = (await exec.execute(sql`
+      SELECT ${movingId}::uuid IN ${guestSubtreeSql(rootIds)} AS inside
+    `)) as unknown as { inside: boolean }[]
+    if (!rows[0]?.inside) throw guestOutside()
+  }
+}
+
 /**
  * Which of `ids` are in the current range (all of them without one). For answers that name pages
  * found by a walk other than visibleTo, such as the lock root above a page.
  */
 export async function pageIdsInRange(ids: string[], userId?: string): Promise<Set<string>> {
   const scope = currentRange(userId)
-  if (!scope || !ids.length) return new Set(ids)
+  if ((!scope && !currentGuest(userId)) || !ids.length) return new Set(ids)
   const rows = (await db.execute(sql`
     SELECT p.id FROM pages p
      WHERE p.id = ANY(${uuidArrayLiteral(ids)}::uuid[]) AND ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, userId)}
@@ -290,8 +338,9 @@ export async function rangeView(userId: string, c: StoredRange): Promise<AccessR
 /** A short string that differs per range, for result caches keyed by user (query.ts). '' = no range. */
 export function rangeCacheKey(userId: string): string {
   const s = currentRange(userId)
-  if (!s) return ''
-  return s.kind === 'subtree' ? `t:${s.rootPageId}` : `w:${s.workspaceIds.join(',')}`
+  const g = guestCacheKey(userId)
+  if (!s) return g
+  return (s.kind === 'subtree' ? `t:${s.rootPageId}` : `w:${s.workspaceIds.join(',')}`) + (g ? `|${g}` : '')
 }
 
 /** One sentence for the MCP server instructions describing the range (null for 'all'). */

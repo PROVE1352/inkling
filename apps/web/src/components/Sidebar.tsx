@@ -111,6 +111,9 @@ export function Sidebar({
   }
   const newMenuRef = useRef<HTMLDivElement>(null)
   const current = workspaces.data?.find((w) => w.id === wsId)
+  // Guest (docs/adr/1252-*): only the pages shared with them. Workspace-wide menus, top-level pages,
+  // trash and the invite link are member features the server refuses, so they are not shown.
+  const guest = current?.role === 'guest'
 
   useEffect(() => {
     if (!newMenuOpen) return
@@ -360,7 +363,12 @@ export function Sidebar({
 
       {/* Top menus: order and visibility follow the person's saved choice (docs/adr/1020-*). Right-click
           or long-press a menu to hide it; Settings → Sidebar brings it back. */}
-      {visibleMenus.length > 0 && (
+      {guest && (
+        <p className="mx-3 mb-1 rounded-md border border-line px-2 py-1.5 text-xs text-sub" data-testid="guest-note">
+          {t('guest.workspaceNote')}
+        </p>
+      )}
+      {!guest && visibleMenus.length > 0 && (
         <div className="px-2" data-testid="sidebar-menus">
           {visibleMenus.map((id) => menuButtons[id])}
         </div>
@@ -375,6 +383,7 @@ export function Sidebar({
         />
       )}
 
+      {!guest && (
       <div ref={newMenuRef} className="relative flex gap-0.5 px-2 pb-1 pt-1">
         <button
           type="button"
@@ -443,6 +452,7 @@ export function Sidebar({
           </div>
         )}
       </div>
+      )}
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
         {/* ⭐ Favorites — above the Shared/Private sections. Hidden when empty. */}
@@ -498,19 +508,21 @@ export function Sidebar({
             <Spinner size={18} />
           </div>
         ) : (
-          <PageTree wsId={wsId} pages={pages.data ?? []} onNewPage={newPageInScope} />
+          <PageTree wsId={wsId} pages={pages.data ?? []} onNewPage={newPageInScope} guest={guest} />
         )}
       </nav>
 
       <div className="px-2 pb-1">
-        <button
-          type="button"
-          onClick={() => setTrashOpen(true)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-        >
-          <TrashIcon size={16} />
-          {t('sidebar.trash')}
-        </button>
+        {!guest && (
+          <button
+            type="button"
+            onClick={() => setTrashOpen(true)}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+          >
+            <TrashIcon size={16} />
+            {t('sidebar.trash')}
+          </button>
+        )}
         {me.data?.isAdmin && (
           <button
             type="button"
@@ -562,6 +574,9 @@ export function Sidebar({
           <div className="truncate text-xs text-sub">{me.data?.email}</div>
         </div>
         <div className="flex items-center gap-1">
+          {guest ? (
+            <span className="flex-1" />
+          ) : (
           <button
             type="button"
             onClick={copyLink}
@@ -573,6 +588,7 @@ export function Sidebar({
               {copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
             </span>
           </button>
+          )}
           <button
             type="button"
             onClick={doLogout}
@@ -585,7 +601,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <TrashModal open={trashOpen} onClose={() => setTrashOpen(false)} wsId={wsId} />
+      {!guest && <TrashModal open={trashOpen} onClose={() => setTrashOpen(false)} wsId={wsId} />}
     </aside>
   )
 }

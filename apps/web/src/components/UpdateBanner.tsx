@@ -20,7 +20,7 @@ export function UpdateBanner() {
       <div
         role="alert"
         data-testid="update-banner"
-        className="nd-enter pointer-events-auto flex max-w-full items-center gap-3 rounded-lg border border-line bg-app px-3 py-2 text-sm text-ink shadow-xl"
+        className="nd-toast pointer-events-auto flex max-w-full items-center gap-3 rounded-lg border border-line bg-app px-3 py-2 text-sm text-ink shadow-xl"
       >
         <span className="min-w-0 truncate">{tr('pwa.updateReady')}</span>
         <button

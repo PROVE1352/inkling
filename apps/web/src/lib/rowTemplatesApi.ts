@@ -11,7 +11,7 @@ import type {
   RowTemplateListDTO,
   UpdateRowTemplateInput,
 } from '@inkling/shared'
-import { api, qk } from '../api'
+import { api, qk, useMemberScope } from '../api'
 
 export const qkRowTemplates = (collectionId: string) => ['rowTemplates', collectionId] as const
 
@@ -24,9 +24,11 @@ function browserTimeZone(): string | undefined {
 }
 
 export function useRowTemplates(collectionId: string) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkRowTemplates(collectionId),
     queryFn: () => api<RowTemplateListDTO>(`/api/pages/${collectionId}/collection/row-templates`),
+    enabled: member,
     staleTime: 30_000,
   })
 }

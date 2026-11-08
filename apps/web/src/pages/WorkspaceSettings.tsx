@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import type {
   AuditEventDTO,
+  GuestInvitePolicy,
   ReviewDueItemDTO,
   RolePolicy,
   TwoFactorPolicyDTO,
@@ -51,6 +52,7 @@ import {
   FileTextIcon,
 } from '../components/Icons'
 import { MembersPanel, RoleBadge } from '../components/MembersPanel'
+import { GuestsPanel } from '../components/GuestsPanel'
 import { Modal } from '../components/Modal'
 import { NavButtons } from '../components/NavButtons'
 import { Group, Row, Select, Toggle } from '../components/SettingsRows'
@@ -161,7 +163,12 @@ export function WorkspaceSettings() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="nd-enter mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
           {tab === 'general' && <GeneralTab ws={ws} can={can} />}
-          {tab === 'members' && <MembersPanel wsId={wsId} workspace={ws} />}
+          {tab === 'members' && (
+            <>
+              <MembersPanel wsId={wsId} workspace={ws} />
+              {can.manage && <GuestsPanel wsId={wsId} />}
+            </>
+          )}
           {tab === 'sharing' && <SharingTab ws={ws} can={can} />}
           {tab === 'agents' && <AgentsTab ws={ws} />}
           {tab === 'audit' && <AuditTab ws={ws} />}
@@ -256,6 +263,13 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
     { value: 'admins', label: t('wsSettings.policyAdmins') },
     { value: 'members', label: t('wsSettings.policyMembers') },
   ]
+  // Who may add people from outside the workspace to a page (docs/adr/1252-*); owners change it.
+  const guestPolicyOptions: { value: GuestInvitePolicy; label: string }[] = [
+    { value: 'off', label: t('wsSettings.guestPolicyOff') },
+    { value: 'owners', label: t('wsSettings.policyOwners') },
+    { value: 'admins', label: t('wsSettings.policyAdmins') },
+    { value: 'members', label: t('wsSettings.guestPolicyMembers') },
+  ]
   const s: WorkspaceSettingsDTO | undefined = settings.data?.settings
   const reviewOptions = [
     { value: 'off', label: t('wsSettings.reviewOff') },
@@ -348,6 +362,15 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
                 disabled={!owner || update.isPending}
                 label={t('wsSettings.memberAdd')}
                 onChange={(v) => save({ memberAddPolicy: v })}
+              />
+            </Row>
+            <Row title={t('wsSettings.guestPolicy')} desc={t('wsSettings.guestPolicyDesc')} stack>
+              <Select
+                value={s.guestInvitePolicy ?? 'admins'}
+                options={guestPolicyOptions}
+                disabled={ws.role !== 'owner' || update.isPending}
+                label={t('wsSettings.guestPolicy')}
+                onChange={(v) => save({ guestInvitePolicy: v })}
               />
             </Row>
           </Group>
@@ -821,6 +844,7 @@ const AUDIT_GROUPS = [
   'agent',
   'settings',
   'webhook',
+  'guests',
 ] as const
 
 function summarize(v: Record<string, unknown> | null): string {

@@ -9,6 +9,7 @@ import { mathStats, rememberSize, trackResident } from '../../lib/mathScheduler'
 import { MOD, SHIFT, combo } from '../../lib/platform'
 import { useT } from '../../i18n'
 import type { InklingEditor } from '../CollabEditor'
+import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
 
 // Math (KaTeX) nodes — docs/adr/0995-* (schema), 0996-* (Markdown), 0997-* (rendering).
 // - `math` block: a display equation. Click it to edit the LaTeX in a textarea with a live preview;
@@ -28,9 +29,11 @@ type Editor = InklingEditor
 
 let pendingBlockId: string | null = null
 let pendingInlineAt = 0
+/** `pendingBlockId` while the slash item's insertion runs: the math block that mounts now is the new one */
+const NEXT_BLOCK = '\u0000next'
 
 function takePendingBlock(id: string): boolean {
-  if (pendingBlockId !== id) return false
+  if (pendingBlockId !== id && pendingBlockId !== NEXT_BLOCK) return false
   pendingBlockId = null
   return true
 }
@@ -173,10 +176,22 @@ function MathBlockView({ block, editor }: { block: { id: string; props: { latex:
   const closed = useRef(false)
   const openedAt = useRef(0)
 
-  useEffect(() => {
-    if (editable && takePendingBlock(block.id)) open()
+  // Just inserted from the slash menu: open and focus the field in the commit that mounts the view. A
+  // layout effect, because a state update from a passive effect (and the old requestAnimationFrame)
+  // ran after the next key event, so keys typed right after Enter went into the paragraph above.
+  const focusOnOpen = useRef(false)
+  useLayoutEffect(() => {
+    if (editable && takePendingBlock(block.id)) {
+      focusOnOpen.current = true
+      open()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  useLayoutEffect(() => {
+    if (!editing || !focusOnOpen.current) return
+    focusOnOpen.current = false
+    area.current?.focus()
+  }, [editing])
   useEffect(() => {
     if (!editing) setDraft(latex) // follow remote edits while closed
   }, [latex, editing])
@@ -189,6 +204,7 @@ function MathBlockView({ block, editor }: { block: { id: string; props: { latex:
     openedAt.current = Date.now()
     setDraft(latex)
     setEditing(true)
+    if (focusOnOpen.current) return
     requestAnimationFrame(() => {
       const a = area.current
       if (a) {
@@ -310,7 +326,9 @@ function InlineMathView({
   const openedAt = useRef(0)
   const input = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
+  // layout effect: the popover and its autofocused field must exist before the next key event
+  // (a state update from a passive effect is scheduled after it, and the keys went into the paragraph)
+  useLayoutEffect(() => {
     if (editable && !latex && takePendingInline()) {
       closed.current = false
       openedAt.current = Date.now()
@@ -538,17 +556,13 @@ export function mathSlashItems(editor: Editor, t: ReturnType<typeof useT>): Defa
       aliases: ['math', 'equation', 'formula', 'latex', 'katex', 'tex', '수식', '방정식', '공식', '블록수식'],
       group,
       icon: <span style={{ fontSize: 15, lineHeight: 1, fontFamily: 'serif' }}>∑</span>,
+      // The new block opens its source field (MathBlockView) when it mounts. That is normally in the
+      // microtask after this call; should it ever mount during the insertion, before the id is known
+      // here, the marker is "the next math block" for exactly the duration of this call.
       onItemClick: () => {
-        const cur = editor.getTextCursorPosition().block
-        const empty =
-          cur.type === 'paragraph' &&
-          (!Array.isArray(cur.content) || cur.content.length === 0) &&
-          (!Array.isArray(cur.children) || cur.children.length === 0)
-        const block = { type: MATH_BLOCK_TYPE, props: { latex: '' } }
-        const inserted = empty
-          ? editor.replaceBlocks([cur], [block as never]).insertedBlocks[0]
-          : editor.insertBlocks([block as never], cur, 'after')[0]
-        if (inserted) pendingBlockId = inserted.id
+        pendingBlockId = NEXT_BLOCK
+        const inserted = insertFromSlash(editor as unknown as SlashEditor, { type: MATH_BLOCK_TYPE, props: { latex: '' } }, 'own')
+        pendingBlockId = pendingBlockId === NEXT_BLOCK ? (inserted?.id ?? null) : null
       },
     },
     {

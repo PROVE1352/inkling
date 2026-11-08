@@ -53,6 +53,10 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   // docs/adr/1200-*: the connection is limited to some workspaces or one subtree
   // docs/adr/1240-*: imports, zip exports and copies share a small concurrency cap
   HEAVY_JOBS_PER_USER: 'the user already has imports, exports or copies running; wait for them to finish before starting another',
+  // docs/adr/1251-*: the person's own level on this page tree (view / comment) does not allow it
+  PAGE_ACCESS:
+    'nothing was written; the user only has view or comment access to this page. Do not retry or copy the page to get around it. ' +
+    'Ask a person with full access to change it, or leave the suggestion with add_comment if the can: line allows commenting',
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }

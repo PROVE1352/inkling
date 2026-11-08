@@ -77,6 +77,13 @@ export function closeUserConnections(
   })
 }
 
+/** Connections of `userId` to the documents `pageIds` (their page access changed, docs/adr/1251-*). */
+export function closeUserPageConnections(userId: string, pageIds: string[]): number {
+  if (!pageIds.length) return 0
+  const set = new Set(pageIds)
+  return closeWhere((name, ctx) => ctx.userId === userId && set.has(name))
+}
+
 /** Connections of `userId` to documents of one workspace (member removed / left). */
 export async function closeUserWorkspaceConnections(
   userId: string,

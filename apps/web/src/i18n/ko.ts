@@ -17,6 +17,7 @@ import shareLinks from './ko/share-links'
 import webhooks from './ko/webhooks'
 import apiTokens from './ko/api-tokens'
 import adminStatus from './ko/admin-status'
+import pageAccess from './ko/page-access'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -38,4 +39,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...webhooks,
   ...apiTokens,
   ...adminStatus,
+  ...pageAccess,
 }

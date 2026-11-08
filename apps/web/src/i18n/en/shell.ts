@@ -48,6 +48,7 @@ export default {
   'shortcuts.toggleCheckbox': 'Toggle checkbox',
   'shortcuts.inlineMath': 'Inline math (wraps the selection)',
   'shortcuts.deleteBlock': 'Delete current block',
+  'shortcuts.toggleFold': 'Fold / unfold the section at the cursor',
   'shortcuts.undo': 'Undo',
 
   'rowMenu.addFavorite': 'Add to favorites',
@@ -63,7 +64,7 @@ export default {
   'rowMenu.exportMd': 'Export (.md)',
   'rowMenu.exportZip': 'Export with subpages (.zip)',
   'rowMenu.sendToNotion': 'Send to Notion',
-  'rowMenu.shareToWeb': 'Share to web',
+  'rowMenu.shareToWeb': 'Share…',
   'rowMenu.editLock': 'Edit lock…',
 
   'members.title': 'Members',

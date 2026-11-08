@@ -17,7 +17,7 @@ export function ToastContainer() {
         <div
           key={t.id}
           role="status"
-          className="nd-enter pointer-events-auto flex items-center gap-3 rounded-lg border border-line bg-app px-3 py-2.5 text-sm text-ink shadow-xl"
+          className={`nd-toast pointer-events-auto flex items-center gap-3 rounded-lg border border-line bg-app px-3 py-2.5 text-sm text-ink shadow-xl ${t.leaving ? 'nd-out' : ''}`}
         >
           <span className="min-w-0 flex-1 truncate">{t.message}</span>
           {t.actionLabel && (

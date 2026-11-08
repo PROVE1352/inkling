@@ -38,6 +38,10 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   Use a throwaway database; tests do not clean up.
 - **Permissions**: page access = workspace membership + `visibleTo` (private pages are the author's
   only) + live page + live workspace (`pageDto.ts`, `workspaceLive.ts`, `helpers.ts requireMembership`).
+  Guests (accounts with `page_grants` rows in a workspace they are not a member of, [ADR 1250–1253](docs/adr/1252-guest-visibility-at-the-permission-boundary.md))
+  are refused by `requireMembership` unless a route opts in with `{ guests: true }`; their visibility is the guest
+  scope that `visibleTo`/`pageInRangeSql` add (`pageGrants.ts`). A route opened to guests needs a line in
+  `guests.db.test.ts`. Levels (`page_grants`) are intersected with lock bits in `editLock.ts`.
 - **Derived indexes** (`page_texts`, `page_links`, `page_tags`, `page_tasks`, `page_chunks`) are
   rebuilt from `page_docs`; a new writer of documents must reindex ([ADR 0750](docs/adr/0750-collab-store-path-db-side-snapshot-debounced-diffed-indexing.md), [ADR 0926](docs/adr/0926-section-index-and-stable-anchors.md)).
 - **ADRs** for decisions with real alternatives: `docs/adr/NNNN-title.md`, next free number in the
@@ -66,7 +70,7 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   Comments check the COMMENT bit (`assertPageCommentable`). Lock changes are browser-only.
   Lock chains, agent blocks and "has instructions" are cached per workspace access version
   ([ADR 1071](docs/adr/1071-workspace-access-version-and-write-gate.md)): any new code that changes `edit_locked`,
-  `page_access_overrides`, `agent_instructions`, `workspace_agent_blocks`, `pages.owner_id`, `pages.parent_id` or a
+  `page_access_overrides`, `page_grants`, `agent_instructions`, `workspace_agent_blocks`, `pages.owner_id`, `pages.parent_id` or a
   member's role must call `bumpAcl(tx, workspaceId)` in its transaction, before touching page rows.
 - **Agent instructions** ([ADR 0975](docs/adr/0975-agent-instruction-pages.md)): designated pages must stay locked;
   `get_instructions` and the `applies:` line are the only way rules reach agents.

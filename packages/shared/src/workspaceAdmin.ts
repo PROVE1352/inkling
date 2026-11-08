@@ -1,3 +1,5 @@
+import { GUEST_INVITE_POLICIES } from './pageAccess'
+import type { GuestInvitePolicy } from './pageAccess'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,8 @@ export interface WorkspaceSettingsDTO {
   shareDefaultExpiryDays: number | null
   /** New public links need a password and a password cannot be removed (docs/adr/1172-*). */
   sharePasswordRequired: boolean
+  /** Who may invite people from outside the workspace to a page (docs/adr/1250-*). Additive. */
+  guestInvitePolicy?: GuestInvitePolicy
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */
@@ -58,6 +62,7 @@ export const updateWorkspaceSettingsSchema = z
     reviewIntervalDays: z.number().int().min(REVIEW_INTERVAL_DAYS.min).max(REVIEW_INTERVAL_DAYS.max).nullable().optional(),
     shareDefaultExpiryDays: z.number().int().min(1).max(365).nullable().optional(),
     sharePasswordRequired: z.boolean().optional(),
+    guestInvitePolicy: z.enum(GUEST_INVITE_POLICIES).optional(),
   })
   .strict()
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>
@@ -136,6 +141,11 @@ export const AUDIT_ACTIONS = [
   'instructions.set',
   'instructions.removed',
   'content.suspicious',
+  'page.access_granted',
+  'page.access_changed',
+  'page.access_removed',
+  'page.guest_invited',
+  'guests.removed',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

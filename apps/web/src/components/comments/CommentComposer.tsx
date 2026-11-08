@@ -119,7 +119,7 @@ export function CommentComposer({
       />
 
       {suggestions.length > 0 && (
-        <div className="nd-pop absolute left-0 right-0 top-full z-30 mt-0.5 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+        <div className="nd-pop absolute left-0 right-0 top-full z-30 mt-0.5 origin-top overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
           {suggestions.map((m) => (
             <button
               key={m.id}

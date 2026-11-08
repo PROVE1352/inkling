@@ -10,7 +10,7 @@ import type {
   SetPageSubscriptionInput,
   SnapshotDiffDTO,
 } from '@inkling/shared'
-import { api, qk } from './api'
+import { api, qk, useMemberScope } from './api'
 
 // Notification settings, page subscriptions ("follow"), the workspace activity screen, diffs and
 // the AI provenance badge (docs/adr/1000-* .. 1006-*). Kept out of api.ts like templatesApi.ts.
@@ -60,10 +60,11 @@ export function useUpdateNotificationSettings() {
 // ---------------------------------------------------------------------------
 
 export function usePageSubscription(pageId: string | undefined, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkNotif.pageSub(pageId ?? ''),
     queryFn: () => api<PageSubscriptionDTO>(`/api/pages/${pageId}/subscription`),
-    enabled: enabled && !!pageId,
+    enabled: enabled && !!pageId && member,
   })
 }
 
@@ -180,10 +181,11 @@ export function useSnapshotDiff(pageId: string, sid: string | null, against: 'cu
 // ---------------------------------------------------------------------------
 
 export function usePageProvenance(pageId: string | undefined, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkNotif.provenance(pageId ?? ''),
     queryFn: () => api<PageProvenanceDTO>(`/api/pages/${pageId}/provenance`),
-    enabled: enabled && !!pageId,
+    enabled: enabled && !!pageId && member,
     staleTime: 60_000,
   })
 }

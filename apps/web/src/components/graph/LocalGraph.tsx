@@ -162,7 +162,7 @@ export function LocalGraph({ wsId, focusId }: { wsId: string; focusId: string })
               role="dialog"
               aria-modal="true"
               aria-label={t('localGraph.title')}
-              className="nd-pop flex h-full max-h-[900px] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-line bg-app shadow-xl"
+              className="nd-dialog flex h-full max-h-[900px] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl"
             >
               <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
                 <span className="flex items-center gap-1.5 text-sm font-medium text-ink">

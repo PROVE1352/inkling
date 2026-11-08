@@ -823,3 +823,15 @@ Changed rules:
 
 ### Heavy jobs (docs/adr/1240)
 - `GET /api/pages/:id/export?format=zip`, `GET /api/workspaces/:id/export`, `POST /api/workspaces/:id/import`, `POST /api/workspaces/:id/import-folder` and `POST /api/pages/:id/duplicate` may wait up to `HEAVY_JOBS_WAIT_MS` for a slot, then answer 503 `HEAVY_JOBS_BUSY` (queue full or no slot in time) or 429 `HEAVY_JOBS_PER_USER` (the caller already has `HEAVY_JOBS_PER_USER` jobs running or waiting), both with `Retry-After` in seconds.
+
+## v0.9.0 additions: guests and page levels (docs/adr/1250–1253)
+All routes below are browser session only.
+- `GET /api/pages/:id/access` (members; guests 403) → `{ access: { pageId, people: [{ userId, name, email, level, guest, inheritedFrom: { pageId, title } | null }], invites, myLevel, canManage, canInviteGuests, guestPolicy, private } }`.
+- `PUT /api/pages/:id/access { userId | email, level: 'view'|'comment'|'edit'|'full' }` → `{ access, invite?, mailed? }`. An exact email match finds an account; no account → an invitation (`invite.link` when no mail was sent). Owners and admins → 400; guests never `full` → 400; members only by people with full access; new guests per `guestInvitePolicy` (403); nobody above their own level. Bumps the access version and closes the person's sockets in the subtree. Audited.
+- `DELETE /api/pages/:id/access/:userId` → `{ access }` (own row = leave, or as for PUT). `DELETE /api/pages/:id/invites/:inviteId` → `{ access }`.
+- `GET /api/pages/:id/access/candidates?q=` → `{ candidates: [{ userId, name, email, guest }] }`: members by name or email (people with full access), outsiders only by exact email (guest policy).
+- `GET /api/workspaces/:id/guests` (owners, admins) → `{ guests: [{ userId, name, email, pages: [{ pageId, title, level }] }] }`. `POST /api/workspaces/:id/guests/remove { userIds (1–200) }` → `{ removed }`; closes their sockets; audited `guests.removed`.
+- `GET /api/page-invites/:token` → `{ invite: { workspaceName, pageTitle, level, invitedBy, emailMatches } }` (404 `INVALID_INVITE`). `POST /api/page-invites/:token/accept` → `{ workspaceId, pageId }` (403 `INVITE_EMAIL_MISMATCH`, 404 `INVALID_INVITE`; rate-limited).
+- `PATCH /workspaces/:id/settings` accepts `guestInvitePolicy: 'off'|'owners'|'admins'|'members'`.
+- Guests may call only: `GET /workspaces` (`role: 'guest'`, `can` all false, empty `inviteCode`), `GET /workspaces/:id/pages` (shared subtrees, tops with `parentId: null`), `GET /pages/:id/lock` (`level`, `guest`, no editor names), `GET /pages/:id/backlinks`, comments (list, add, edit and delete own), `POST /pages` under an editable shared page, `PATCH /pages/:id` (title, icon, coverUrl, fullWidth; else 403 `GUEST_OUTSIDE`), `POST /files` with an editable `pageId`, `GET /files/:id`, and the collaboration socket. Everything else answers 403.
+- New error codes: `PAGE_ACCESS` (`details.level`), `GUEST_OUTSIDE`, `INVITE_EMAIL_MISMATCH`, `INVALID_INVITE`.

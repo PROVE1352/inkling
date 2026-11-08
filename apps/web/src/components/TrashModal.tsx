@@ -43,7 +43,7 @@ export function TrashModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10dvh]"
+      className="nd-backdrop fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10dvh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -51,7 +51,7 @@ export function TrashModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-line bg-app shadow-xl"
+        className="nd-dialog flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="flex items-center gap-2 text-base font-semibold text-ink">

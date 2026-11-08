@@ -49,6 +49,7 @@ export default {
   'shortcuts.toggleCheckbox': '체크박스 토글',
   'shortcuts.inlineMath': '인라인 수식 (선택한 글자를 수식으로)',
   'shortcuts.deleteBlock': '현재 블록 삭제',
+  'shortcuts.toggleFold': '커서가 있는 제목 접기 / 펼치기',
   'shortcuts.undo': '실행취소',
 
   'rowMenu.addFavorite': '즐겨찾기에 추가',
@@ -64,7 +65,7 @@ export default {
   'rowMenu.exportMd': '내보내기 (.md)',
   'rowMenu.exportZip': '하위 포함 내보내기 (.zip)',
   'rowMenu.sendToNotion': '노션으로 보내기',
-  'rowMenu.shareToWeb': '웹에 공유',
+  'rowMenu.shareToWeb': '공유…',
   'rowMenu.editLock': '편집 잠금…',
 
   'members.title': '멤버 관리',

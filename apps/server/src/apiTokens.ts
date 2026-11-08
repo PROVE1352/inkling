@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { and, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
+import { hasGrantsSql } from './pageGrants'
 import { API_TOKEN_PREFIX } from '@inkling/shared'
 import type { AccessRange, AdminApiTokenDTO, ApiTokenDTO } from '@inkling/shared'
 import { db } from './db/index'
@@ -79,6 +80,7 @@ export async function getApiTokenUser(token: string, ip: string | null): Promise
       email: users.email,
       name_: users.name,
       isAdmin: users.isAdmin,
+      hasGrants: hasGrantsSql(users.id),
     })
     .from(apiTokens)
     .innerJoin(users, eq(users.id, apiTokens.userId))
@@ -106,6 +108,8 @@ export async function getApiTokenUser(token: string, ip: string | null): Promise
     scope: row.scope,
     tokenId: row.tokenId,
     range: scopeFromColumns(row.id, row, row.rootWorkspaceId),
+    // page rows (docs/adr/1253-*): guest workspaces are hidden from tokens
+    ...(row.hasGrants ? { hasGrants: true } : {}),
   }
 }
 

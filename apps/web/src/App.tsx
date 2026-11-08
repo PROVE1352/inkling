@@ -31,6 +31,7 @@ const DueView = lazyNamed(() => import('./pages/DueView'), 'DueView')
 const GlobalCalendar = lazyNamed(() => import('./pages/GlobalCalendar'), 'GlobalCalendar')
 const GraphView = lazyNamed(() => import('./pages/GraphView'), 'GraphView')
 const JoinWorkspace = lazyNamed(() => import('./pages/JoinWorkspace'), 'JoinWorkspace')
+const PageInvite = lazyNamed(() => import('./pages/PageInvite'), 'PageInvite')
 const OAuthAuthorize = lazyNamed(() => import('./pages/OAuthAuthorize'), 'OAuthAuthorize')
 const Connections = lazyNamed(() => import('./pages/Connections'), 'Connections')
 const Register = lazyNamed(() => import('./pages/Register'), 'Register')
@@ -86,6 +87,8 @@ export function App() {
       <Route path="/reset" element={<Page><ResetPassword /></Page>} />
       <Route path="/verify" element={<Page><VerifyEmail /></Page>} />
       <Route path="/join/:code" element={<Page><JoinWorkspace /></Page>} />
+      {/* Invitation to one page tree as a guest (docs/adr/1253-*); sends signed-out visitors to /login?next= */}
+      <Route path="/invite/page/:token" element={<Page><PageInvite /></Page>} />
       {/* Public read-only viewer — outside RequireAuth/AppLayout (no sign-in needed) */}
       <Route path="/s/:token" element={<Page><PublicView /></Page>} />
       <Route path="/s/:token/p/:ref" element={<Page><PublicView /></Page>} />

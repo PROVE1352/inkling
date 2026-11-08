@@ -192,7 +192,11 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
 
 export async function registerEditLockRoutes(app: FastifyInstance): Promise<void> {
   app.get('/pages/:id/lock', { preHandler: requireUser }, async (req) => {
-    const { user, page, role } = await guardPage(req)
+    // Guests read their own rights here (canEdit/canComment/level) for the page view (docs/adr/1252-*).
+    const user = getUser(req)
+    const page = await findVisiblePage(idParam(req.params), user.id)
+    if (!page) throw notFound()
+    const role = await requireMembership(page.workspaceId, user.id, { guests: true })
     return pageLockStatus(page.id, actorFor(user.id, role))
   })
 

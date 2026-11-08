@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useT } from '../i18n'
+import { usePresence } from '../lib/motion'
 
 // Inline popover for delete confirmation, used instead of window.confirm.
 // Wraps the trigger element (children) and shows a confirm/cancel popover below it while open.
@@ -20,6 +21,7 @@ export function ConfirmPopover({
 }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
+  const { mounted, leaving } = usePresence(open)
 
   useEffect(() => {
     if (!open) return
@@ -44,10 +46,11 @@ export function ConfirmPopover({
   return (
     <span ref={ref} className="relative inline-flex">
       {children}
-      {open && (
+      {mounted && (
         <div
           role="dialog"
-          className="nd-pop absolute right-0 top-full z-50 mt-1 w-56 origin-top-right rounded-md border border-line bg-app p-3 text-left shadow-xl"
+          aria-hidden={leaving || undefined}
+          className={`nd-pop absolute right-0 top-full z-50 mt-1 w-56 origin-top-right rounded-lg border border-line bg-app p-3 text-left shadow-xl ${leaving ? 'nd-out' : ''}`}
         >
           <p className="mb-3 text-xs leading-relaxed text-sub">{message}</p>
           <div className="flex justify-end gap-2">

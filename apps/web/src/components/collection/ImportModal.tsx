@@ -250,7 +250,7 @@ export function ImportModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="nd-pop flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-lg border border-line bg-app shadow-2xl"
+        className="nd-dialog flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-xl border border-line bg-app shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{S.importTitle}</h2>

@@ -414,6 +414,29 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1242](1242-two-step-deadline-from-the-database-clock.md) | The two-step verification deadline is set from the database clock | Accepted |
 | [1243](1243-intermittent-db-test-failures.md) | Intermittent `[db]` test failures: one clock bug, the rest shared-database assumptions | Accepted |
 
+## 1250–1259 Guests and page levels
+
+| ADR | Title | Status |
+|---|---|---|
+| [1250](1250-guests-are-people-with-page-rows.md) | Guests are people with page rows, not workspace members | Accepted |
+| [1251](1251-one-level-per-person-and-page-tree.md) | One level per person and page tree; members too; separate from the edit lock | Accepted |
+| [1252](1252-guest-visibility-at-the-permission-boundary.md) | Guest visibility at the permission boundary, opt-in routes, leak checklist | Accepted |
+| [1253](1253-guest-tokens-and-two-step-verification.md) | Guests and tokens, guests and the workspace 2FA requirement | Accepted |
+
+## 1270–1279 Editor input
+
+| ADR | Title | Status |
+|---|---|---|
+| [1270](1270-caret-after-slash-menu-insert.md) | The caret lands in a block inserted from the slash menu | Accepted |
+| [1271](1271-heading-folds-keyboard-touch-marker.md) | Heading folds: keyboard shortcut, touch screens, "…" marker | Accepted |
+
+## 1280–1289 Look and motion
+
+| ADR | Title | Status |
+|---|---|---|
+| [1280](1280-soft-corner-scale-and-shadows.md) | Soft corner scale, softer shadows, drawn checkboxes | Accepted |
+| [1281](1281-motion-tokens-enter-and-exit.md) | Motion: one easing set, enter and exit animations, tree reveal | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

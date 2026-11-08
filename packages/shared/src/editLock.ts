@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { PageAccessLevel } from './pageAccess'
 
 // ---------------------------------------------------------------------------
 // Edit lock (docs/adr/0970-*) and agent instruction pages (docs/adr/0975-*)
@@ -65,6 +66,14 @@ export interface PageLockDTO {
   canComment: boolean
   /** The caller may turn this page's own lock on/off and change its editors. */
   canManage: boolean
+  /**
+   * The caller's level from the page's people list (docs/adr/1251-*): `full` for owners/admins,
+   * the nearest row on the path, else `edit` for members. canEdit/canComment already include it.
+   * Additive: older servers omit it.
+   */
+  level?: PageAccessLevel
+  /** The caller is a guest here (not a member of the workspace). */
+  guest?: boolean
   /** Agent-instruction designation of this page, if any. */
   instructions: AgentInstructionDTO | null
 }

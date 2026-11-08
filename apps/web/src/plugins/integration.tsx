@@ -6,6 +6,7 @@ import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { PlugIcon } from '../components/Icons'
 import { usePlugins, usePluginsEnabled } from './api'
 import { PLUGIN_STRINGS as S } from './strings'
+import { insertFromSlash, type SlashEditor } from '../lib/slashInsert'
 
 /** Same shape as CommandPalette's internal Item. */
 export type PluginPaletteItem = {
@@ -52,17 +53,13 @@ export function usePluginSlashItems(
             aliases: [p.id, b.type, 'plugin'],
             group: S.slashGroup,
             icon: <PlugIcon size={16} />,
+            // a plugin block has no text of its own: the caret goes to an empty line below it
             onItemClick: () => {
-              const cur = editor.getTextCursorPosition().block
               const block = {
                 type: 'pluginBlock',
                 props: { pluginId: p.id, blockType: b.type, data: JSON.stringify(b.defaultData ?? {}) },
               }
-              const empty =
-                (!Array.isArray(cur.content) || cur.content.length === 0) &&
-                (!Array.isArray(cur.children) || cur.children.length === 0)
-              if (empty && cur.type === 'paragraph') editor.replaceBlocks([cur], [block])
-              else editor.insertBlocks([block], cur, 'after')
+              insertFromSlash(editor as unknown as SlashEditor, block, 'below')
             },
           }))
         : [],

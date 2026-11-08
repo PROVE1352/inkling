@@ -44,4 +44,31 @@ export default {
   'Pick an expiry within ten years': '만료는 10년 안으로 골라 주세요',
   'Only owners and admins can change public links': '웹 공개 링크는 소유자와 관리자만 바꿀 수 있습니다',
   'Send expiresAt or expiresInDays, not both': 'expiresAt과 expiresInDays 중 하나만 보내 주세요',
+  // routes/pageAccess.ts, pageGrants.ts, tokenRange.ts (docs/adr/1250-* .. 1253-*)
+  'Page access is changed in the web app only': '페이지 권한은 웹 앱에서만 바꿀 수 있습니다',
+  'Private pages are their author’s only': '개인 페이지는 작성자만 볼 수 있습니다',
+  'Owners and admins always have full access': '소유자와 관리자는 항상 전체 권한입니다',
+  'Guests can have view, comment or edit access': '게스트에게는 보기, 코멘트, 편집 권한만 줄 수 있습니다',
+  'A page can have at most 100 people of its own': '한 페이지에 따로 추가할 수 있는 사람은 최대 100명입니다',
+  'Ask someone with full access to change your own access': '내 권한은 전체 권한이 있는 다른 사람에게 바꿔 달라고 하세요',
+  'Only people with full access to this page can change members’ access':
+    '멤버의 권한은 이 페이지에 전체 권한이 있는 사람만 바꿀 수 있습니다',
+  'The workspace settings do not allow you to share this page with people outside the workspace':
+    '워크스페이스 설정상 이 페이지를 워크스페이스 밖의 사람과 공유할 수 없습니다',
+  'You cannot give more access than you have': '내 권한보다 높은 권한은 줄 수 없습니다',
+  'This invitation is not valid any more': '더 이상 유효하지 않은 초대입니다',
+  'This invitation is for another email address': '다른 이메일 주소로 보낸 초대입니다',
+  'Only owners and admins can see the guests': '게스트 목록은 소유자와 관리자만 볼 수 있습니다',
+  'Only owners and admins can remove guests': '게스트는 소유자와 관리자만 내보낼 수 있습니다',
+  'You are a guest here: only the pages shared with you are available': '게스트는 공유받은 페이지만 쓸 수 있습니다',
+  'You have view access to this page, so you cannot edit it. Ask someone with full access to change your access.':
+    '이 페이지는 볼 수만 있어서 편집할 수 없습니다. 권한을 바꾸려면 전체 권한이 있는 사람에게 요청하세요.',
+  'You have view access to this page, so you cannot comment on it. Ask someone with full access to change your access.':
+    '이 페이지는 볼 수만 있어서 코멘트를 달 수 없습니다. 권한을 바꾸려면 전체 권한이 있는 사람에게 요청하세요.',
+  'You have comment access to this page, so you cannot edit it. Ask someone with full access to change your access.':
+    '이 페이지는 코멘트만 달 수 있어서 편집할 수 없습니다. 권한을 바꾸려면 전체 권한이 있는 사람에게 요청하세요.',
+  'You have no access to this page, so you cannot edit it. Ask someone with full access to change your access.':
+    '이 페이지에 권한이 없어 편집할 수 없습니다. 권한을 받으려면 전체 권한이 있는 사람에게 요청하세요.',
+  'You have no access to this page, so you cannot comment on it. Ask someone with full access to change your access.':
+    '이 페이지에 권한이 없어 코멘트를 달 수 없습니다. 권한을 받으려면 전체 권한이 있는 사람에게 요청하세요.',
 } satisfies Record<string, string>

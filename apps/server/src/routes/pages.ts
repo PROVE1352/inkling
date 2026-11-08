@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
+import { guestCacheKey, isGuestIn } from '../pageGrants'
 import path from 'node:path'
 import { and, asc, desc, eq, ilike, inArray, isNull, max, ne, notExists, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -53,7 +54,7 @@ import { outboxCommitted } from '../outbox'
 import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
 import { assertCan, actorFor } from '../editLock'
-import type { WorkspaceRole } from '@inkling/shared'
+import type { WorkspaceAccessRole, WorkspaceRole } from '@inkling/shared'
 import { bumpAcl, gateWrite } from '../aclVersion'
 import type { AclState } from '../aclVersion'
 import { assertAgentAllowed } from '../agentAccess'
@@ -65,14 +66,14 @@ function assertEditable(
   tx: Parameters<typeof assertCan>[0],
   pageId: string,
   userId: string,
-  role: WorkspaceRole,
+  role: WorkspaceAccessRole,
   opts: { subtree?: boolean; acl?: AclState } = {},
 ): Promise<void> {
   return assertCan(tx, pageId, actorFor(userId, role), opts)
 }
 import { recordPageEvents } from '../context/changeLog'
 import type { PageEvent } from '../context/changeLog'
-import { assertTopLevelInRange, currentRange } from '../tokenRange'
+import { assertTopLevelInRange, currentRange, guestOutside } from '../tokenRange'
 import { clientGoneSignal, heavyJobs } from '../heavyJobs'
 
 const shortId = (): string => randomUUID().slice(0, 8)
@@ -266,9 +267,13 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
   app.get('/workspaces/:id/pages', { preHandler: requireUser }, async (req, reply) => {
     const user = getUser(req)
     const workspaceId = idParam(req.params)
-    await requireMembership(workspaceId, user.id)
-    // Tree depends only on this workspace's pages rows (ADR 0752): answer 304 before the query.
-    if (precheckEtag(req, reply, [user.id, await workspaceVersion(workspaceId)])) return reply
+    // Guests get the pages under their rows (visibleTo is narrowed by their scope, docs/adr/1252-*).
+    const role = await requireMembership(workspaceId, user.id, { guests: true })
+    // Tree depends only on this workspace's pages rows (ADR 0752): answer 304 before the query. A
+    // guest's tree also depends on their rows (the scope's roots), so they are part of the tag.
+    const etagParts = [user.id, await workspaceVersion(workspaceId)]
+    if (role === 'guest') etagParts.push(guestCacheKey(user.id))
+    if (precheckEtag(req, reply, etagParts)) return reply
 
     const rows = await db
       .select(pageColumns)
@@ -283,6 +288,11 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // id last: a total order, so the same tree always serialises the same way (docs/adr/0937-*)
       .orderBy(asc(pages.sortOrder), asc(pages.createdAt), asc(pages.id))
 
+    if (role === 'guest') {
+      // The pages shared with a guest are the tops of their tree: their real parents do not exist for them.
+      const ids = new Set(rows.map((r) => r.id))
+      return { pages: rows.map((r) => toPageDTO(r.parentId && !ids.has(r.parentId) ? { ...r, parentId: null } : r)) }
+    }
     return { pages: rows.map(toPageDTO) }
   })
 
@@ -290,7 +300,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
   app.post('/pages', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const body = createPageSchema.parse(req.body)
-    const role = await requireMembership(body.workspaceId, user.id)
+    // Guests create only under pages shared with them where they can edit (assertPlacement; the
+    // top level is refused by assertTopLevelInRange for their scope, docs/adr/1252-*).
+    const role = await requireMembership(body.workspaceId, user.id, { guests: true })
 
     const parentId = body.parentId ?? null
     // a subtree-limited connection creates only under its subtree (docs/adr/1202-*)
@@ -377,6 +389,15 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const visible = await findVisiblePage(id, user.id)
     if (!visible) throw notFound()
+    // A guest (docs/adr/1252-*) may rename and decorate pages shared with them, nothing that moves,
+    // re-scopes, reorders or re-labels them for the workspace.
+    const guest = isGuestIn(visible.workspaceId, user.id)
+    if (guest) {
+      const allowed = new Set(['title', 'icon', 'coverUrl', 'fullWidth'])
+      if (Object.keys(body).some((k) => !allowed.has(k) && (body as Record<string, unknown>)[k] !== undefined)) {
+        throw guestOutside()
+      }
+    }
     const treeChange = body.parentId !== undefined || body.scope !== undefined
     // Names of properties this request may add (fullWidth / date / done), in the editor's locale.
     // Resolved before the transaction so the row lock is not held across the lookup.
@@ -391,7 +412,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (body.parentId !== undefined) await bumpAcl(tx, visible.workspaceId)
       // Membership, agent block and the workspace's lock state, read under the write gate in this
       // transaction: a lock change waits for this write, or this write sees it (docs/adr/1071-*).
-      const gate = await gateWrite(tx, visible.workspaceId, user.id)
+      const gate = guest
+        ? await gateWrite(tx, visible.workspaceId, user.id, { guests: true })
+        : await gateWrite(tx, visible.workspaceId, user.id)
       if (!gate.role) throw forbidden()
       await assertAgentAllowed(visible.workspaceId, gate.acl.version, tx)
       const role = gate.role
@@ -871,7 +894,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     // The target page must be visible to me (404 otherwise),
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
-    await requireMembership(page.workspaceId, user.id)
+    // Guests: sources come through visibleTo, narrowed to the pages shared with them (docs/adr/1252-*).
+    await requireMembership(page.workspaceId, user.id, { guests: true })
 
     // and only source pages visible to me are listed (hidden even if someone's private page links here).
     const rows = await db
@@ -887,6 +911,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       )
       .orderBy(desc(pages.updatedAt))
 
+    // A guest is not told where a source sits in the tree (its parent may be outside their pages).
+    if (isGuestIn(page.workspaceId, user.id)) return { pages: rows.map((r) => toPageDTO({ ...r, parentId: null })) }
     return { pages: rows.map(toPageDTO) }
   })
 

@@ -115,7 +115,7 @@ export function HistoryModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="nd-pop flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-line bg-app shadow-xl"
+        className="nd-dialog flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="flex items-center gap-2 text-base font-semibold text-ink">

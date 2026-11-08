@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { LargePagesDTO, PageSizeDTO } from '@inkling/shared'
-import { api } from './api'
+import { api, useMemberScope } from './api'
 
 // "Large page" notice and the workspace list (docs/adr/1103-*). Kept out of api.ts like sidebarApi.ts.
 
@@ -11,10 +11,11 @@ export const qkLargePages = {
 
 /** Size facts of one page (cheap: two column reads on the server). Refreshed at most every 5 minutes. */
 export function usePageSize(pageId: string | undefined, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkLargePages.size(pageId ?? ''),
     queryFn: () => api<PageSizeDTO>(`/api/pages/${pageId}/size`),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 5 * 60_000,
     retry: false,
   })

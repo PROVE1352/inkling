@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
+import { currentGuest, dropWorkspaceRowsTx } from '../pageGrants'
 import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -172,10 +173,41 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     // The invite code is a manager credential (C-M3): members get '' (DTO field stays a string).
     // A workspace whose 2FA requirement blocks the caller stays listed, with `twoFactor.state`
     // 'blocked', so the web app can explain it instead of failing (docs/adr/1112-*).
-    const satisfied = rows.some((r) => r.twoFactorRequiredAt) ? await userSatisfiesTwoFactor(user.id) : true
+    // Workspaces where the caller is a guest (docs/adr/1252-*): browser sessions only, read from the
+    // request's guest scope (no statement for accounts without page rows). No invite code, no rights.
+    const guestOf = currentGuest(user.id)
+    const guestIds = guestOf && !guestOf.token ? [...guestOf.workspaces.keys()] : []
+    const guestRows = guestIds.length
+      ? await db
+          .select({
+            id: workspaces.id,
+            name: workspaces.name,
+            icon: workspaces.icon,
+            twoFactorRequiredAt: workspaces.twoFactorRequiredAt,
+            twoFactorGraceDays: workspaces.twoFactorGraceDays,
+          })
+          .from(workspaces)
+          .where(and(inArray(workspaces.id, guestIds), isNull(workspaces.deletedAt)))
+          .orderBy(asc(workspaces.name), asc(workspaces.id))
+      : []
+    const satisfied =
+      rows.some((r) => r.twoFactorRequiredAt) || guestRows.some((r) => r.twoFactorRequiredAt)
+        ? await userSatisfiesTwoFactor(user.id)
+        : true
     const result: WorkspaceDTO[] = rows.map((r) =>
       toWorkspaceDTO(r, r.role, r.policy, twoFactorStatus(r.twoFactorRequiredAt, r.twoFactorGraceDays, satisfied)),
     )
+    for (const g of guestRows) {
+      result.push({
+        id: g.id,
+        name: g.name,
+        icon: g.icon,
+        inviteCode: '',
+        role: 'guest',
+        can: { manage: false, editSettings: false, addMembers: false, inviteLink: false, export: false, publish: false },
+        twoFactor: twoFactorStatus(g.twoFactorRequiredAt, g.twoFactorGraceDays, satisfied),
+      })
+    }
     // Tokens (MCP, API) never see invite codes: joining is browser-only (docs/adr/1201-*).
     if (req.authVia === 'bearer') for (const w of result) w.inviteCode = ''
     return { workspaces: result }
@@ -249,6 +281,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         .onConflictDoNothing()
         .returning({ userId: workspaceMembers.userId })
       if (inserted.length > 0) {
+        // A guest who joins becomes a plain member: their page rows go (docs/adr/1250-*).
+        await dropWorkspaceRowsTx(tx, ws.id, user.id)
         await recordAudit(tx, {
           workspaceId: ws.id,
           actor: user,
@@ -393,6 +427,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         .onConflictDoNothing()
         .returning({ userId: workspaceMembers.userId })
       if (rows.length === 0) return false
+      // A guest who is added becomes a plain member: their page rows go (docs/adr/1250-*).
+      await dropWorkspaceRowsTx(tx, id, userId)
       await tx
         .insert(notifications)
         .values({ userId, type: 'workspace_added', workspaceId: id, actorId: user.id })
@@ -956,6 +992,8 @@ export async function removeMember(
     await tx
       .delete(workspaceMembers)
       .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)))
+    // Their page rows go too: a leftover row would make them a guest of that page (docs/adr/1250-*).
+    await dropWorkspaceRowsTx(tx, workspaceId, userId, { bumped: true })
     // soft-delete the leaving user's private pages in this workspace (shared pages belong to the team and stay)
     await tx
       .update(pages)

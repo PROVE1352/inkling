@@ -334,6 +334,7 @@ function TreeSection({
   collapsed,
   onToggleCollapsed,
   onNewPage,
+  emptyText,
   onCollapseAllNodes,
   wsId,
   toggle,
@@ -346,7 +347,10 @@ function TreeSection({
   roots: TreeNode[]
   collapsed: boolean
   onToggleCollapsed: () => void
-  onNewPage: (scope: PageScope) => void
+  /** Absent for guests (no top-level pages, docs/adr/1252-*): the section has no [+]. */
+  onNewPage?: (scope: PageScope) => void
+  /** Text for an empty section instead of the default. */
+  emptyText?: string
   onCollapseAllNodes: () => void
   wsId: string
   toggle: (id: string) => void
@@ -397,15 +401,17 @@ function TreeSection({
           >
             <CollapseAllIcon size={13} />
           </button>
-          <button
-            type="button"
-            onClick={() => onNewPage(scope)}
-            aria-label={t('tree.newPageIn', { section: label })}
-            title={t('tree.newPageIn', { section: label })}
-            className="flex h-5 w-5 items-center justify-center rounded text-sub hover:bg-hover hover:text-ink"
-          >
-            <PlusIcon size={14} />
-          </button>
+          {onNewPage && (
+            <button
+              type="button"
+              onClick={() => onNewPage(scope)}
+              aria-label={t('tree.newPageIn', { section: label })}
+              title={t('tree.newPageIn', { section: label })}
+              className="flex h-5 w-5 items-center justify-center rounded text-sub hover:bg-hover hover:text-ink"
+            >
+              <PlusIcon size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -422,7 +428,7 @@ function TreeSection({
                   : ''
               }`}
             >
-              {locked ? t('tree.emptyPrivate') : t('tree.emptyShared')}
+              {emptyText ?? (locked ? t('tree.emptyPrivate') : t('tree.emptyShared'))}
             </div>
           ) : (
             roots.map((node) => (
@@ -446,10 +452,16 @@ export function PageTree({
   wsId,
   pages,
   onNewPage,
+  guest = false,
 }: {
   wsId: string
   pages: PageMetaDTO[]
   onNewPage: (scope: PageScope) => void
+  /**
+   * Guest of the workspace (docs/adr/1252-*): the server sends only the shared subtrees (their tops
+   * with parentId null, so they are roots here); no private section, no top-level [+], no delete.
+   */
+  guest?: boolean
 }) {
   const { pageId } = useParams()
   const navigate = useNavigate()
@@ -745,6 +757,7 @@ export function PageTree({
         const isDelete =
           (mod && (e.key === 'Backspace' || e.key === 'Delete')) ||
           (!mod && e.key === 'Delete')
+        if (isDelete && guest) break
         if (isDelete && multiIds.size > 1) {
           e.preventDefault()
           deleteSelected()
@@ -803,13 +816,15 @@ export function PageTree({
         roots={sharedRoots}
         collapsed={collapsed.shared}
         onToggleCollapsed={() => toggleSection('shared')}
-        onNewPage={onNewPage}
+        onNewPage={guest ? undefined : onNewPage}
+        emptyText={guest ? t('guest.noPages') : undefined}
         onCollapseAllNodes={collapseAll}
         wsId={wsId}
         toggle={toggle}
         expand={expand}
         dragActive={dragActive}
       />
+      {!guest && (
       <TreeSection
         scope="private"
         label={t('tree.sectionPrivate')}
@@ -824,6 +839,7 @@ export function PageTree({
         expand={expand}
         dragActive={dragActive}
       />
+      )}
       </div>
     </TreeNavContext.Provider>
   )

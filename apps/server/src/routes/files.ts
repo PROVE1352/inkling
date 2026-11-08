@@ -1,5 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { guestOutside } from '../tokenRange'
+import { assertPageEditable } from '../editLock'
 import { createReadStream, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { rename, rm } from 'node:fs/promises'
@@ -63,7 +65,9 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
   app.post('/files', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const { workspaceId, pageId } = uploadQuerySchema.parse(req.query)
-    await requireMembership(workspaceId, user.id)
+    const role = await requireMembership(workspaceId, user.id, { guests: true })
+    // A guest uploads only into a page shared with them that they can edit (docs/adr/1252-*).
+    if (role === 'guest' && !pageId) throw guestOutside()
 
     // With a pageId, link the file only after checking the page is visible to the requester
     // (protects private attachments). If it is not visible or in another workspace, 404 to hide
@@ -72,6 +76,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     if (pageId) {
       const page = await findVisiblePage(pageId, user.id)
       if (!page || page.workspaceId !== workspaceId) throw notFound()
+      if (role === 'guest') await assertPageEditable(pageId, user.id, { role })
       filePageId = pageId
     }
 
@@ -144,7 +149,10 @@ export async function registerFileDownloadRoute(app: FastifyInstance): Promise<v
       await db.select().from(files).where(eq(files.id, id)).limit(1)
     )[0]
     if (!row) throw notFound()
-    await requireMembership(row.workspaceId, user.id)
+    const role = await requireMembership(row.workspaceId, user.id, { guests: true })
+    // A guest gets only files of pages shared with them (findVisiblePage below is narrowed); legacy
+    // files without a page belong to the whole workspace (docs/adr/1252-*).
+    if (role === 'guest' && !row.pageId) throw notFound()
 
     // If the file is linked to a page, download only when that page is visible to the requester
     // now (automatic protection when it moves shared→private). Legacy (null) needs membership only.

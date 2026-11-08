@@ -39,6 +39,7 @@ export function PageRowMenu({
   onLock,
   onDelete,
   onClose,
+  guest = false,
 }: {
   page: PageMetaDTO
   isFolder: boolean
@@ -59,12 +60,40 @@ export function PageRowMenu({
   onLock?: () => void
   onDelete: () => void
   onClose: () => void
+  /**
+   * Guest of the workspace (docs/adr/1252-*): only what the server lets a guest do on a page —
+   * rename, add a subpage or folder (on pages they can edit) and full width.
+   */
+  guest?: boolean
 }) {
   const t = useT()
   const item = 'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover'
   const run = (fn: () => void) => () => {
     onClose()
     fn()
+  }
+
+  if (guest) {
+    return (
+      <>
+        <button type="button" onClick={run(onRename)} className={item}>
+          <EditIcon size={15} /> {t('common.rename')}
+        </button>
+        <button type="button" onClick={run(() => onAddChild('doc'))} className={item}>
+          <PlusIcon size={15} /> {t('rowMenu.subpage')}
+        </button>
+        <button type="button" onClick={run(() => onAddChild('folder'))} className={item}>
+          <FolderPlusIcon size={15} /> {t('rowMenu.subfolder')}
+        </button>
+        {page.kind === 'doc' && (
+          <button type="button" onClick={run(onToggleFullWidth)} className={item}>
+            <WidthIcon size={15} />
+            <span className="flex-1">{t('rowMenu.fullWidth')}</span>
+            {page.fullWidth && <CheckIcon size={14} />}
+          </button>
+        )}
+      </>
+    )
   }
 
   return (

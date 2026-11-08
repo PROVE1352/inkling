@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import type { MemberDTO, WorkspaceDTO, WorkspaceRole } from '@inkling/shared'
+import type { MemberDTO, WorkspaceAccessRole, WorkspaceDTO, WorkspaceRole } from '@inkling/shared'
 import {
   ApiError,
   useAddMember,
@@ -28,14 +28,20 @@ import { Spinner } from './Spinner'
 // owners and admins remove people (admins: plain members only) and handle the invite link;
 // adding existing users follows the workspace's member-add policy (WorkspaceDTO.can).
 
-export const roleLabel = (role: WorkspaceRole) =>
-  role === 'owner' ? t('members.roleOwner') : role === 'admin' ? t('members.roleAdmin') : t('members.roleMember')
+export const roleLabel = (role: WorkspaceAccessRole) =>
+  role === 'owner'
+    ? t('members.roleOwner')
+    : role === 'admin'
+      ? t('members.roleAdmin')
+      : role === 'guest'
+        ? t('members.roleGuest')
+        : t('members.roleMember')
 
-export function RoleBadge({ role }: { role: WorkspaceRole }) {
+export function RoleBadge({ role }: { role: WorkspaceAccessRole }) {
   return (
     <span
       className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-        role === 'member' ? 'bg-hover text-sub' : 'bg-accent-soft text-accent'
+        role === 'member' || role === 'guest' ? 'bg-hover text-sub' : 'bg-accent-soft text-accent'
       }`}
     >
       {roleLabel(role)}

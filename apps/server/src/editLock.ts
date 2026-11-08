@@ -5,6 +5,7 @@ import type {
   LockPersonDTO,
   PageLockDTO,
   SetPageLockInput,
+  WorkspaceAccessRole,
   WorkspaceRole,
 } from '@inkling/shared'
 import { db } from './db/index'
@@ -19,6 +20,16 @@ import { BoundedLru } from './lru'
 import { aclForPages, bumpAcl, cacheable, pageAccess, recountLockedPages } from './aclVersion'
 import type { AclState } from './aclVersion'
 import { pageIdsInRange } from './tokenRange'
+import {
+  effectiveLevel,
+  grantCaps,
+  grantedDescendants,
+  grantLevelsFor,
+  knownWithoutRows,
+  nearestGrants,
+  pageAccessError,
+  workspaceHasGrants,
+} from './pageGrants'
 
 /**
  * Edit lock (docs/adr/0970-*, evaluation order in 0971-*).
@@ -68,13 +79,14 @@ export interface LockNode {
 
 export interface AccessActor {
   userId: string
-  role: WorkspaceRole | null
+  /** 'guest': not a member; their page rows are all they have (docs/adr/1251-*). */
+  role: WorkspaceAccessRole | null
   /** The request comes from an agent (MCP / OAuth bearer token). */
   agent: boolean
 }
 
 /** Actor of the current request: agent when it runs inside an MCP / bearer request (agentAccess). */
-export function actorFor(userId: string, role: WorkspaceRole | null): AccessActor {
+export function actorFor(userId: string, role: WorkspaceAccessRole | null): AccessActor {
   return { userId, role, agent: currentAgent() !== null }
 }
 
@@ -209,6 +221,16 @@ export async function pageLockedError(chain: LockNode[], actor: AccessActor, bit
   for (const id of presets.editorIds) {
     if (id !== node.ownerId && names.has(id)) editors.push({ id, name: names.get(id)! })
   }
+  // A guest is not told who the workspace's editors are (names of members, docs/adr/1252-*), nor the
+  // title of a lock node above the pages shared with them.
+  if (actor.role === 'guest') {
+    const inside = (await pageIdsInRange([node.id], actor.userId)).has(node.id)
+    const t = inside ? `"${node.title || 'Untitled'}"` : 'This page'
+    return new AppError(403, 'PAGE_LOCKED', `${t} is locked for editing. You can still read it${bit === CAP_COMMENT ? '' : ' and comment'}.`, undefined, {
+      lockedPageId: inside ? node.id : null,
+      editors: [],
+    })
+  }
   const title = `"${node.title || 'Untitled'}"`
   const agentRule = actor.agent && presets.agents !== 'same'
   let message: string
@@ -233,8 +255,20 @@ export async function capsFor(
   actor: AccessActor,
   acl?: Map<string, AclState>,
 ): Promise<Map<string, number>> {
-  const chains = await chainsFor(exec, pageIds, acl ?? (await aclForPages(exec, pageIds)))
-  return new Map(pageIds.map((id) => [id, effectiveCaps(chains.get(id) ?? [], actor)]))
+  const states = acl ?? (await aclForPages(exec, pageIds))
+  const chains = await chainsFor(exec, pageIds, states)
+  // People rows (docs/adr/1251-*): the level's bits AND the lock's bits. No statement in a
+  // workspace without rows (cached per access version).
+  const levels = await grantLevelsFor(exec, pageIds, actor.userId, states)
+  return new Map(
+    pageIds.map((id) => [id, effectiveCaps(chains.get(id) ?? [], actor) & grantCaps(actor.role, levels.get(id) ?? null)]),
+  )
+}
+
+/** Throws PAGE_ACCESS unless a fresh (uncached) walk of the people rows grants `bit` after all. */
+async function confirmGrantDenied(exec: Exec, leaf: string, actor: AccessActor, bit: number): Promise<void> {
+  const level = (await nearestGrants(exec, [leaf], actor.userId)).get(leaf)?.level ?? null
+  if (!(grantCaps(actor.role, level) & bit)) throw pageAccessError(effectiveLevel(actor.role, level), bit)
 }
 
 /** Throws PAGE_LOCKED for `leaf` unless a fresh (uncached) walk grants `bit` after all. */
@@ -265,10 +299,21 @@ export async function assertCan(
 ): Promise<void> {
   const bit = opts.bit ?? CAP_EDIT
   const acl = opts.acl ?? (await aclForPages(exec, [pageId])).get(pageId)
-  // No locked page anywhere in the workspace: nothing to walk (docs/adr/1071-*).
+  // People rows in the workspace (docs/adr/1251-*); answered from memory per access version.
+  const grants = knownWithoutRows(actor.userId) ? false : acl ? await workspaceHasGrants(exec, acl) : true
+  // No locked page and no people row anywhere in the workspace: nothing to walk (docs/adr/1071-*).
+  if (acl && !acl.hasLocks && !grants) return
+  const accessMap = (leaves: string[]) => new Map(acl ? leaves.map((l) => [l, acl]) : [])
+  if (grants) {
+    const leaves = opts.subtree ? [pageId, ...(await grantedDescendants(exec, pageId, actor.userId))] : [pageId]
+    const levels = await grantLevelsFor(exec, leaves, actor.userId, accessMap(leaves))
+    for (const leaf of leaves) {
+      if (!(grantCaps(actor.role, levels.get(leaf) ?? null) & bit)) await confirmGrantDenied(exec, leaf, actor, bit)
+    }
+  }
   if (acl && !acl.hasLocks) return
   const leaves = opts.subtree ? [pageId, ...(await lockedDescendants(exec, pageId))] : [pageId]
-  const chains = await chainsFor(exec, leaves, new Map(acl ? leaves.map((l) => [l, acl]) : []))
+  const chains = await chainsFor(exec, leaves, accessMap(leaves))
   for (const leaf of leaves) {
     if (!(effectiveCaps(chains.get(leaf) ?? [], actor) & bit)) await confirmDenied(exec, leaf, actor, bit)
   }
@@ -278,8 +323,11 @@ export async function assertCan(
 export async function assertAllEditable(exec: Exec, pageIds: string[], actor: AccessActor): Promise<void> {
   if (!pageIds.length) return
   const ids = [...new Set(pageIds)].sort()
-  const chains = await chainsFor(exec, ids, await aclForPages(exec, ids))
+  const states = await aclForPages(exec, ids)
+  const chains = await chainsFor(exec, ids, states)
+  const levels = await grantLevelsFor(exec, ids, actor.userId, states)
   for (const id of ids) {
+    if (!(grantCaps(actor.role, levels.get(id) ?? null) & CAP_EDIT)) await confirmGrantDenied(exec, id, actor, CAP_EDIT)
     if (!(effectiveCaps(chains.get(id) ?? [], actor) & CAP_EDIT)) await confirmDenied(exec, id, actor, CAP_EDIT)
   }
 }
@@ -303,7 +351,7 @@ export async function roleForPage(pageId: string, userId: string): Promise<Works
 export async function assertPageEditable(
   pageId: string,
   userId: string,
-  opts: { subtree?: boolean; role?: WorkspaceRole | null; exec?: Exec; acl?: AclState; bit?: number } = {},
+  opts: { subtree?: boolean; role?: WorkspaceAccessRole | null; exec?: Exec; acl?: AclState; bit?: number } = {},
 ): Promise<void> {
   const exec = opts.exec ?? db
   let role = opts.role
@@ -320,7 +368,7 @@ export async function assertPageEditable(
 export async function assertPageCommentable(
   pageId: string,
   userId: string,
-  role?: WorkspaceRole | null,
+  role?: WorkspaceAccessRole | null,
   acl?: AclState,
 ): Promise<void> {
   await assertPageEditable(pageId, userId, { role, acl, bit: CAP_COMMENT })
@@ -362,7 +410,7 @@ export async function loadLockTarget(exec: Pick<typeof db, 'select'>, pageId: st
  * May `userId` change the own lock of `target`? Workspace owners/admins; or the page owner while
  * they can edit it as a person (a nested lock must not become a way around an outer one).
  */
-function canManageLock(target: LockTarget, chain: LockNode[], userId: string, role: WorkspaceRole | null): boolean {
+function canManageLock(target: LockTarget, chain: LockNode[], userId: string, role: WorkspaceAccessRole | null): boolean {
   if (target.scope !== 'shared') return false
   if (isManagerRole(role)) return true
   return target.ownerId === userId && (effectiveCaps(chain, { userId, role, agent: false }) & CAP_EDIT) !== 0
@@ -375,7 +423,9 @@ export async function pageLockStatus(pageId: string, actor: AccessActor): Promis
   const presets = root ? nodePresets(root) : null
   const names = await peopleNames(root ? [...(root.ownerId ? [root.ownerId] : []), ...presets!.editorIds] : [])
   const person = (id: string): LockPersonDTO | null => (names.has(id) ? { id, name: names.get(id)! } : null)
-  const caps = effectiveCaps(chain, actor)
+  // People rows (docs/adr/1251-*): the caller's level here, intersected with the lock bits.
+  const level = (await nearestGrantLevel(pageId, actor.userId)) ?? null
+  const caps = effectiveCaps(chain, actor) & grantCaps(actor.role, level)
   const [instr] = await db.select().from(agentInstructions).where(eq(agentInstructions.pageId, pageId)).limit(1)
   return {
     pageId,
@@ -383,8 +433,8 @@ export async function pageLockStatus(pageId: string, actor: AccessActor): Promis
     own: target.editLocked,
     // the lock may come from above a range-limited connection's subtree: no title then (docs/adr/1202-*)
     lockRoot: root ? { id: root.id, title: (await pageIdsInRange([root.id], actor.userId)).has(root.id) ? root.title : '' } : null,
-    owner: root?.ownerId ? person(root.ownerId) : null,
-    editors: presets
+    owner: root?.ownerId && actor.role !== 'guest' ? person(root.ownerId) : null,
+    editors: presets && actor.role !== 'guest'
       ? presets.editorIds
           .map(person)
           .filter((p): p is LockPersonDTO => p !== null)
@@ -394,8 +444,11 @@ export async function pageLockStatus(pageId: string, actor: AccessActor): Promis
     agents: presets?.agents ?? null,
     canEdit: (caps & CAP_EDIT) !== 0,
     canComment: (caps & CAP_COMMENT) !== 0,
-    canManage: canManageLock(target, chain, actor.userId, actor.role),
-    instructions: instr
+    canManage: actor.role !== 'guest' && canManageLock(target, chain, actor.userId, actor.role),
+    level: effectiveLevel(actor.role, level) ?? 'view',
+    ...(actor.role === 'guest' ? { guest: true } : {}),
+    // apply_to can name pages or title paths outside a guest's pages (docs/adr/1252-*)
+    instructions: instr && actor.role !== 'guest'
       ? {
           pageId,
           title: target.title,
@@ -409,6 +462,11 @@ export async function pageLockStatus(pageId: string, actor: AccessActor): Promis
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+async function nearestGrantLevel(pageId: string, userId: string) {
+  if (knownWithoutRows(userId)) return null
+  return (await nearestGrants(db, [pageId], userId)).get(pageId)?.level
+}
 
 /** Ids of `rootId` and its subtree (capped walk). */
 export async function subtreeIds(exec: Exec, rootId: string): Promise<string[]> {

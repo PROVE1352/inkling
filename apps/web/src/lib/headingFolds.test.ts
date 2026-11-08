@@ -2,7 +2,7 @@
 // Heading folds: which blocks a fold hides, when the selection opens it, storage (docs/adr/1221-*).
 import assert from 'node:assert/strict'
 import { describe, it, beforeEach } from 'node:test'
-import { foldCss, foldLayout, foldsToOpen, loadFolds, MAX_FOLD_PAGES, saveFolds } from './headingFolds'
+import { foldCss, foldLayout, foldsToOpen, foldTarget, loadFolds, MAX_FOLD_PAGES, saveFolds } from './headingFolds'
 
 // Fake ProseMirror nodes in BlockNote's layout: doc → blockGroup → blockContainer(content, blockGroup?)
 const node = (name, attrs = {}, children = []) => ({
@@ -93,6 +93,35 @@ describe('foldCss', () => {
     assert.match(css, /^@media screen/)
     assert.match(css, /\.bn-block-outer\[data-id="b1"\]/)
     assert.match(css, /\.bn-block-outer\[data-id="b"\] > \.bn-block > \.bn-block-group/)
+  })
+  it('marks a folded heading that hides something with "…" after its text, not one that hides nothing', () => {
+    const css = foldCss(foldLayout(doc, new Set(['a', 'a-sub'])), (s) => s)
+    assert.match(css, /data-id="a"\] > \.bn-block > \.bn-block-content > \.bn-inline-content::after/)
+    // a-sub is inside a's hidden range: no marker of its own
+    assert.doesNotMatch(css, /data-id="a-sub"\][^,{]*::after/)
+    assert.match(css, /content: "\\2026"/)
+    // c folded at the very end of a document whose next heading follows at once hides nothing
+    const empty = docOf(h('x', 1), h('y', 1), p('y1'))
+    assert.equal(foldCss(foldLayout(empty, new Set(['x'])), (s) => s), '')
+  })
+})
+
+describe('foldTarget (⌘. / Ctrl+.)', () => {
+  const group = doc.child(0)
+  it('the caret in a heading: that heading, caret stays', () => {
+    assert.deepEqual(foldTarget(at(doc, 1), group), { id: 'a', inHeading: true })
+  })
+  it('the caret in a section body: the nearest heading above (any level), caret must move', () => {
+    assert.deepEqual(foldTarget(at(doc, 2), group), { id: 'a', inHeading: false })
+    assert.deepEqual(foldTarget(at(doc, 4), group), { id: 'a-sub', inHeading: false })
+    assert.deepEqual(foldTarget(at(doc, 6), group), { id: 'b', inHeading: false })
+  })
+  it('the caret in a heading’s own nested children: that heading, caret must move', () => {
+    assert.deepEqual(foldTarget(at(doc, 5, true), group), { id: 'b', inHeading: false })
+  })
+  it('before the first heading: nothing', () => {
+    assert.equal(foldTarget(at(doc, 0), group), null)
+    assert.equal(foldTarget({ depth: 1, node: () => doc, index: () => 0 }, group), null)
   })
 })
 

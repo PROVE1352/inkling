@@ -267,6 +267,7 @@ export interface ExportedCanvas {
 export async function exportPageCanvas(
   page: {
     id: string
+    workspaceId: string
     title: string
   },
   userId: string,
@@ -285,7 +286,9 @@ export async function exportPageCanvas(
     const rows = await db
       .select({ id: pages.id, title: pages.title })
       .from(pages)
-      .where(and(inArray(pages.id, refIds), isNull(pages.deletedAt), visibleTo(userId)))
+      // Same workspace only: a canvas node naming another workspace's page id must not read its title
+      // (visibleTo alone does not check membership; found in the guest audit, docs/adr/1252-*).
+      .where(and(inArray(pages.id, refIds), eq(pages.workspaceId, page.workspaceId), isNull(pages.deletedAt), visibleTo(userId)))
     for (const r of rows) titleMap.set(r.id, r.title)
   }
 

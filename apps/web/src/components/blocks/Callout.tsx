@@ -66,7 +66,7 @@ function TypeSwitcher({
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <span className="nd-pop absolute left-0 top-full z-50 mt-1 flex w-32 flex-col overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+          <span className="nd-pop absolute left-0 top-full z-50 mt-1 flex w-32 origin-top-left flex-col overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
             {CALLOUT_TYPES.map((t) => {
               const m = CALLOUT_META[t]
               return (

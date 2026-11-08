@@ -13,6 +13,7 @@ import { db } from './db/index'
 import { pages, workspaceMembers } from './db/schema'
 export { flushDocIndexes } from './docIndexer'
 import { visibleTo } from './pageDto'
+import { peopleScopeFor, runAsGuest } from './pageGrants'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { isTwoFactorBlocked } from './twoFactorPolicy'
@@ -266,13 +267,18 @@ export const hocuspocus = new Hocuspocus({
 
     // 3) The page must be alive and visible to me (collab connections to private pages are owner-only, rule 4).
     //    Even if someone else knows the URL, a private page is rejected here as not found.
-    const page = (
-      await db
-        .select({ workspaceId: pages.workspaceId })
-        .from(pages)
-        .where(and(eq(pages.id, pageId), isNull(pages.deletedAt), visibleTo(user.id), liveWorkspace(pages.workspaceId)))
-        .limit(1)
-    )[0]
+    //    An account with page rows runs the lookup in its guest scope (docs/adr/1252-*): in a workspace
+    //    where it is a guest, only the pages under its rows exist.
+    const scope = await peopleScopeFor(user.id, !!user.hasGrants, false)
+    const page = await runAsGuest(scope, async () =>
+      (
+        await db
+          .select({ workspaceId: pages.workspaceId })
+          .from(pages)
+          .where(and(eq(pages.id, pageId), isNull(pages.deletedAt), visibleTo(user.id), liveWorkspace(pages.workspaceId)))
+          .limit(1)
+      )[0],
+    )
     if (!page) throw new Error('Page not found')
 
     const member = (
@@ -287,15 +293,20 @@ export const hocuspocus = new Hocuspocus({
         )
         .limit(1)
     )[0]
-    if (!member) throw new Error('Forbidden')
+    const guest = !member && scope.workspaces.has(page.workspaceId)
+    if (!member && !guest) throw new Error('Forbidden')
     // "Require two-step verification" (docs/adr/1112-*): no live editing once the grace period is over.
+    // Guests follow the workspace's rule too (docs/adr/1253-*).
     if (await isTwoFactorBlocked(page.workspaceId, user.id)) throw new Error('TWO_FACTOR_REQUIRED')
 
-    // Edit lock (docs/adr/0970-*): a member who may not edit the page gets a read-only connection.
-    // Hocuspocus then answers their sync updates with SyncStatus(false) and never applies them;
-    // the client learns the scope from the authenticated message. Lock changes close the live
-    // sockets of the subtree, so a reconnect always re-evaluates this.
-    const caps = await capsFor(db, [pageId], { userId: user.id, role: member.role, agent: false })
+    // Edit lock (docs/adr/0970-*) and the page's people rows (docs/adr/1251-*): someone who may not
+    // edit the page gets a read-only connection. Hocuspocus then answers their sync updates with
+    // SyncStatus(false) and never applies them; the client learns the scope from the authenticated
+    // message. Lock and people changes close the live sockets of the subtree, so a reconnect always
+    // re-evaluates this.
+    const caps = await runAsGuest(scope, () =>
+      capsFor(db, [pageId], { userId: user.id, role: member ? member.role : 'guest', agent: false }),
+    )
     if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
 
     // sessionToken lets liveConnections close exactly the sockets of revoked sessions.

@@ -56,6 +56,7 @@ export const shortcutGroups = (): Group[] => [
       { label: t('shortcuts.toggleCheckbox'), keys: [modKey('L')] },
       { label: t('shortcuts.inlineMath'), keys: [combo(MOD, SHIFT, 'E'), '$…$'] },
       { label: t('shortcuts.deleteBlock'), keys: [modKey('D')] },
+      { label: t('shortcuts.toggleFold'), keys: [modKey('.')] },
       { label: t('shortcuts.undo'), keys: [modKey('Z')] },
     ],
   },
@@ -137,7 +138,7 @@ export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () =
         role="dialog"
         aria-modal="true"
         aria-label={t('shortcuts.title')}
-        className="nd-pop max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-app p-5 shadow-xl"
+        className="nd-dialog max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-app p-5 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-ink">{t('shortcuts.title')}</h2>

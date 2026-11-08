@@ -104,7 +104,7 @@ export function SearchModal({
         aria-modal="true"
         aria-label={titleMode ? t('search.quickSwitch') : t('common.search')}
         data-search-mode={mode}
-        className="nd-pop flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg sm:max-h-[70dvh] flex-col overflow-hidden rounded-lg border border-line bg-app shadow-xl"
+        className="nd-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg sm:max-h-[70dvh] flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl"
       >
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
           <SearchIcon size={18} className="shrink-0 text-sub" />

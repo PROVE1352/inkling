@@ -9,6 +9,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { Spinner } from '../components/Spinner'
 import { FileTextIcon, MenuIcon, PlusIcon } from '../components/Icons'
 import { useT } from '../i18n'
+import { useIsGuest } from '../lib/useGuest'
 
 // No page selected: empty state + New page button.
 export function WorkspaceHome() {
@@ -18,6 +19,8 @@ export function WorkspaceHome() {
   const { onToggleSidebar } = useLayout()
   const { create: newPage, isPending } = useNewPage(wsId ?? '')
   const pages = usePages(wsId ?? '')
+  // A guest has no top-level pages to make (docs/adr/1252-*): only the pages shared with them.
+  const guest = useIsGuest(wsId)
 
   // Setting "Page to open on launch: last" — jump to the last page only on first app entry (consumed once during render).
   // When Home is clicked again in the sidebar the entry is already consumed, so we stay on Home.
@@ -59,6 +62,9 @@ export function WorkspaceHome() {
             {t('home.emptyHint')}
           </p>
         </div>
+        {guest ? (
+          <p className="text-sm text-sub">{t('guest.homeHint')}</p>
+        ) : (
         <button
           type="button"
           onClick={newPage}
@@ -72,6 +78,7 @@ export function WorkspaceHome() {
           )}
           {t('home.newPage')}
         </button>
+        )}
       </div>
     </div>
   )

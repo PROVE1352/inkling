@@ -87,7 +87,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
-    await requireMembership(page.workspaceId, user.id)
+    // Guests read the comments of pages shared with them (findVisiblePage is narrowed, docs/adr/1252-*).
+    await requireMembership(page.workspaceId, user.id, { guests: true })
 
     const rows = (await db
       .select(commentJoinColumns)
@@ -119,7 +120,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       // Membership + access version, and what the events need (thread root, participants, page
       // creator/owner, mentioned members), read in parallel.
       const [{ role, acl }, ctx] = await Promise.all([
-        requireMembershipAcl(page.workspaceId, user.id),
+        requireMembershipAcl(page.workspaceId, user.id, { guests: true }),
         commentContext(id, page.workspaceId, body.threadId ?? null, body.mentionUserIds ?? []),
       ])
       // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
@@ -210,7 +211,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
     const page = await findVisiblePage(comment.pageId, user.id)
     if (!page) throw notFound()
-    const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
+    const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id, { guests: true })
     await assertPageCommentable(comment.pageId, user.id, role, acl)
 
     const updates: { resolved?: '0' | '1'; body?: string } = {}
@@ -281,7 +282,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
     const page = await findVisiblePage(comment.pageId, user.id)
     if (!page) throw notFound()
-    const role = await requireMembership(page.workspaceId, user.id)
+    const role = await requireMembership(page.workspaceId, user.id, { guests: true })
 
     // owners and admins moderate comments (docs/adr/0945-*)
     if (comment.authorId !== user.id && !isManagerRole(role)) {
@@ -398,7 +399,8 @@ async function gatedCommentWrite(
 ): Promise<void> {
   if (await write(db, checked)) return
   await db.transaction(async (tx) => {
-    const gate = await gateWrite(tx, workspaceId, userId)
+    const gate =
+      checked.role === 'guest' ? await gateWrite(tx, workspaceId, userId, { guests: true }) : await gateWrite(tx, workspaceId, userId)
     if (!gate.role) throw forbidden()
     await assertAgentAllowed(workspaceId, gate.acl.version, tx)
     await assertPageEditable(pageId, userId, { role: gate.role, acl: gate.acl, exec: tx, bit: CAP_COMMENT })

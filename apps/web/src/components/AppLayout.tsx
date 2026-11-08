@@ -34,6 +34,9 @@ export type LayoutContext = {
   openSearch: (q?: string, mode?: SearchMode) => void
 }
 
+/** Screens of a workspace a guest cannot use (every call there answers 403, docs/adr/1252-*). */
+const GUEST_BLOCKED_SCREENS = /^\/(activity|calendar|due|graph|workspace-settings|shared|tags)(\/|$)/
+
 export function useLayout(): LayoutContext {
   return useOutletContext<LayoutContext>()
 }
@@ -97,6 +100,9 @@ export function AppLayout() {
   const workspaces = useWorkspaces()
   useTwoFactorRequiredListener()
   const twoFactorWs = workspaces.data?.find((w) => w.id === wsId)
+  // Guest (docs/adr/1252-*): search, the palette, templates, trash, graph and top-level pages are
+  // member features the server refuses, so their shortcuts and dialogs are off.
+  const guest = twoFactorWs?.role === 'guest'
   const me = useMe()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
@@ -202,6 +208,10 @@ export function AppLayout() {
         e.preventDefault()
         if (e.key === 'ArrowLeft') histNav.back()
         else histNav.forward()
+        return
+      }
+      if (guest && mod && !e.altKey && ['KeyO', 'KeyF', 'KeyN', 'KeyG', 'KeyK', 'KeyP'].includes(code)) {
+        // Keep the browser's own shortcut where it has one; nothing of ours to open for a guest.
         return
       }
       if (mod && !e.altKey && !e.shiftKey && code === 'KeyO') {
@@ -312,11 +322,16 @@ export function AppLayout() {
     navigate,
     wsId,
     location.pathname,
+    guest,
   ])
 
   if (!wsId) return <Navigate to="/" replace />
   // "Require two-step verification" (docs/adr/1112-*): once it blocks me, only the setup screen.
   if (twoFactorWs?.twoFactor?.state === 'blocked') return <TwoFactorGate ws={twoFactorWs} />
+  // A guest opening a member-only screen by address (graph, tags, activity, …) goes to the workspace home.
+  if (guest && GUEST_BLOCKED_SCREENS.test(location.pathname.slice(`/w/${wsId}`.length))) {
+    return <Navigate to={`/w/${wsId}`} replace />
+  }
 
   return (
     <AppDnd wsId={wsId}>
@@ -374,6 +389,8 @@ export function AppLayout() {
       {/* M16: inbox channel subscription — applies notifications immediately (renders nothing). Recreated via key when me changes. */}
       {me.data && <InboxRealtime key={me.data.id} userId={me.data.id} />}
 
+      {!guest && (
+      <>
       <SearchModal
         open={search.open}
         onClose={() => setSearch((s) => ({ ...s, open: false }))}
@@ -399,6 +416,8 @@ export function AppLayout() {
       />
 
       <TrashModal open={trashOpen} onClose={() => setTrashOpen(false)} wsId={wsId} />
+      </>
+      )}
 
       <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ConfirmDialog />

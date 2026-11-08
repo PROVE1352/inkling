@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import {
@@ -20,11 +20,11 @@ import { EmojiPicker } from './EmojiPicker'
 import { MoveModal } from './MoveModal'
 import { NotionPublishModal } from './NotionPublishModal'
 import { PageRowMenu } from './PageRowMenu'
+import { useIsGuest } from '../lib/useGuest'
 import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { ShareModal } from './ShareModal'
 import { PageLockModal } from './PageLockModal'
 import {
-  ChevronDownIcon,
   ChevronRightIcon,
   MoreHorizontalIcon,
   PlusIcon,
@@ -33,6 +33,7 @@ import {
   LockIcon,
 } from './Icons'
 import { isMod } from '../lib/platform'
+import { usePresence } from '../lib/motion'
 
 // Memoized: a row re-renders only when its node (structurally shared — PageTree.buildTreeShared)
 // or its own flags (useTreeRow) change (docs/adr/0708-*).
@@ -55,10 +56,30 @@ export const PageTreeItem = memo(function PageTreeItem({
   const isFolder = page.kind === 'folder'
   const hasChildren = node.children.length > 0
   const { isOpen, isActive, isSelected, renaming, multi } = useTreeRow(nav.store, page.id)
+  const kids = usePresence(isOpen && hasChildren)
+  // While the list closes it shows the elements of its last open render: a collapse changes props every
+  // row receives (expand state), and re-rendering hundreds of rows only to fade them out cost ~25 ms.
+  const lastKids = useRef<ReactNode>(null)
+  const kidsList: ReactNode = kids.leaving
+    ? lastKids.current
+    : (lastKids.current = kids.mounted
+        ? node.children.map((child) => (
+            <PageTreeItem
+              key={child.page.id}
+              node={child}
+              depth={depth + 1}
+              wsId={wsId}
+              toggleExpanded={toggleExpanded}
+              expand={expand}
+            />
+          ))
+        : null)
   // Row included in a multi-selection (2+) — a highlight color distinct from the open page (bg-active).
   const inMulti = multi !== null
 
   const createPage = useCreatePage(wsId)
+  // Guest of this workspace (docs/adr/1252-*): the row menu keeps only what a guest may do.
+  const guest = useIsGuest(wsId)
   // Web-shared indicator — every row shares one list query (react-query cache).
   const isWebShared = useSharedList(wsId).data?.items.some((it) => it.id === page.id) ?? false
   const updatePage = useUpdatePage(wsId)
@@ -80,6 +101,11 @@ export const PageTreeItem = memo(function PageTreeItem({
   const [ctxPos, setCtxPos] = useState<{ left: number; top: number } | null>(null)
   // The ⋯ dropdown is also portaled to body with fixed positioning so the sidebar overflow does not clip it.
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+  // Exit fades (docs/adr/1281-*): menus and the child list stay mounted for a short exit after closing.
+  const menuPresence = usePresence(menuOpen)
+  const ctxPresence = usePresence(ctxMenu !== null)
+  const lastCtx = useRef(ctxMenu)
+  if (ctxMenu) lastCtx.current = ctxMenu
   const menuRef = useRef<HTMLDivElement>(null)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
   const menuPopRef = useRef<HTMLDivElement>(null)
@@ -95,7 +121,8 @@ export const PageTreeItem = memo(function PageTreeItem({
   const { setNodeRef: setDragRef, listeners } = useDraggable({
     id: page.id,
     data: { page, ids: multi ? [...multi] : [page.id] },
-    disabled: renaming,
+    // A guest cannot move pages (PATCH parentId/sortOrder is member-only, docs/adr/1252-*).
+    disabled: renaming || guest,
   })
   const { setNodeRef: setDropRef } = useDroppable({ id: page.id })
   const setRowRef = (el: HTMLDivElement | null) => {
@@ -141,10 +168,8 @@ export const PageTreeItem = memo(function PageTreeItem({
 
   // Place the dropdown on screen relative to the ⋯ button (right-aligned, corrected before paint).
   useLayoutEffect(() => {
-    if (!menuOpen) {
-      setMenuPos(null)
-      return
-    }
+    // Closed: keep the last position, the menu fades out where it was.
+    if (!menuOpen) return
     const btn = menuBtnRef.current
     const el = menuPopRef.current
     if (!btn || !el) return
@@ -159,10 +184,7 @@ export const PageTreeItem = memo(function PageTreeItem({
 
   // Context menu: keep it on screen (position corrected before paint in useLayoutEffect).
   useLayoutEffect(() => {
-    if (!ctxMenu) {
-      setCtxPos(null)
-      return
-    }
+    if (!ctxMenu) return
     const el = ctxRef.current
     const w = el?.offsetWidth ?? 192
     const h = el?.offsetHeight ?? 300
@@ -254,9 +276,10 @@ export const PageTreeItem = memo(function PageTreeItem({
     onExport: (format: 'md' | 'canvas' | 'zip') =>
       triggerDownload(`/api/pages/${page.id}/export?format=${format}`),
     onNotion: () => setNotionOpen(true),
-    onShare: () => setShareOpen(true),
-    onLock: () => setLockOpen(true),
+    onShare: guest ? undefined : () => setShareOpen(true),
+    onLock: guest ? undefined : () => setLockOpen(true),
     onDelete: () => nav.deleteNode(node),
+    guest,
   }
 
   const rowStateClass = overHere === 'child'
@@ -324,7 +347,9 @@ export const PageTreeItem = memo(function PageTreeItem({
           aria-label={isOpen ? t('tree.collapse') : t('tree.expand')}
           tabIndex={hasChildren ? 0 : -1}
         >
-          {isOpen ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+          <span className="nd-chevron flex" data-open={isOpen}>
+            <ChevronRightIcon size={14} />
+          </span>
         </button>
 
         <button
@@ -413,7 +438,7 @@ export const PageTreeItem = memo(function PageTreeItem({
                 <MoreHorizontalIcon size={15} />
               </button>
 
-              {menuOpen &&
+              {menuPresence.mounted &&
                 createPortal(
                   <div
                     ref={menuPopRef}
@@ -425,7 +450,7 @@ export const PageTreeItem = memo(function PageTreeItem({
                       top: menuPos?.top ?? 0,
                       visibility: menuPos ? 'visible' : 'hidden',
                     }}
-                    className="nd-pop fixed z-50 max-h-[min(80dvh,26rem)] w-48 origin-top-right overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl"
+                    className={`nd-pop fixed z-50 max-h-[min(80dvh,26rem)] w-48 origin-top-right overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${menuPresence.leaving ? 'nd-out' : ''}`}
                   >
                     <PageRowMenu {...menuActions} onClose={() => setMenuOpen(false)} />
                   </div>,
@@ -436,19 +461,20 @@ export const PageTreeItem = memo(function PageTreeItem({
         )}
       </div>
 
-      {ctxMenu &&
+      {ctxPresence.mounted &&
+        lastCtx.current &&
         createPortal(
           <div
             ref={ctxRef}
             onPointerDown={(e) => e.stopPropagation()}
             style={{
-              left: ctxPos?.left ?? ctxMenu.x,
-              top: ctxPos?.top ?? ctxMenu.y,
+              left: ctxPos?.left ?? lastCtx.current.x,
+              top: ctxPos?.top ?? lastCtx.current.y,
               visibility: ctxPos ? 'visible' : 'hidden',
             }}
-            className="nd-pop fixed z-50 w-48 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl"
+            className={`nd-pop fixed z-50 w-48 origin-top-left overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl ${ctxPresence.leaving ? 'nd-out' : ''}`}
           >
-            {inMulti ? (
+            {inMulti && !guest ? (
               <>
                 <div className="px-3 py-1 text-[11px] font-semibold text-sub">
                   {t('tree.selected', { count: multi?.size ?? 0 })}
@@ -517,18 +543,10 @@ export const PageTreeItem = memo(function PageTreeItem({
         />
       )}
 
-      {hasChildren && isOpen && (
-        <div className="nd-enter">
-          {node.children.map((child) => (
-            <PageTreeItem
-              key={child.page.id}
-              node={child}
-              depth={depth + 1}
-              wsId={wsId}
-              toggleExpanded={toggleExpanded}
-              expand={expand}
-            />
-          ))}
+      {hasChildren && kids.mounted && (
+        // Opens by growing its row track (0fr → 1fr) and closes the same way, faster (index.css .nd-tree-kids).
+        <div className={`nd-tree-kids ${kids.leaving ? 'nd-out' : ''}`} role="group">
+          <div>{kidsList}</div>
         </div>
       )}
     </div>

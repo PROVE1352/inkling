@@ -22,7 +22,7 @@ export default {
   'page.penModeOff': 'Turn off pen mode',
   'page.penModeOffHint': 'Turn off pen mode (Esc)',
   'page.penModeHint': 'Pen mode — write on the page with a pen',
-  'page.shareToWeb': 'Share to web',
+  'page.shareToWeb': 'Share',
   'page.sharedToWeb': 'Shared to web',
   'page.togglePanel': 'Toggle panel',
   'page.rightPanel': 'Right panel',

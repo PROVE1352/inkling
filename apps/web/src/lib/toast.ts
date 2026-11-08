@@ -1,5 +1,7 @@
 // Minimal toast store (M10). Subscribed via useSyncExternalStore; rendered by components/Toast.tsx.
 // ToastContainer is mounted once at the AppLayout root; call toast(...) from anywhere.
+// Dismissing marks the toast `leaving` for its exit fade (docs/adr/1281-*) and removes it EXIT_MS later.
+import { EXIT_MS, exitDelay, prefersReducedMotion } from './motion'
 
 export type ToastInput = {
   message: string
@@ -8,7 +10,7 @@ export type ToastInput = {
   duration?: number
 }
 
-export type ToastItem = ToastInput & { id: number }
+export type ToastItem = ToastInput & { id: number; leaving?: boolean }
 
 let items: ToastItem[] = []
 const listeners = new Set<() => void>()
@@ -41,7 +43,19 @@ export function toast(input: ToastInput): number {
   return id
 }
 
-export function dismissToast(id: number): void {
+export function dismissToast(id: number, exitMs: number = exitDelay(prefersReducedMotion(), EXIT_MS)): void {
+  const item = items.find((t) => t.id === id)
+  if (!item || item.leaving) return
+  if (exitMs <= 0) {
+    removeToast(id)
+    return
+  }
+  items = items.map((t) => (t.id === id ? { ...t, leaving: true } : t))
+  emit()
+  setTimeout(() => removeToast(id), exitMs)
+}
+
+function removeToast(id: number): void {
   const next = items.filter((t) => t.id !== id)
   if (next.length === items.length) return
   items = next

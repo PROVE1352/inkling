@@ -2,6 +2,7 @@
 import './zodConfig'
 import { z } from 'zod'
 import type { WorkspaceCapabilities, WorkspaceTwoFactorStatus } from './workspaceAdmin'
+import type { WorkspaceAccessRole } from './pageAccess'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -345,7 +346,8 @@ export interface WorkspaceDTO {
   icon: string | null
   /** Owners and admins only ('' for members, and when the invite link is turned off for everyone but owners/admins). */
   inviteCode: string
-  role: WorkspaceRole
+  /** `guest`: not a member, sees only the pages shared with them (docs/adr/1250-*). */
+  role: WorkspaceAccessRole
   /**
    * What the caller may do here, derived on the server from role + workspace settings
    * (docs/adr/0945-*). Additive: older servers omit it.
@@ -923,3 +925,5 @@ export * from './unionFind'
 
 // Connection range (OAuth grants, API tokens) and personal API tokens (docs/adr/1200-*, 1201-*)
 export * from './accessTokens'
+// People with access to a page tree and guests (docs/adr/1250-*)
+export * from './pageAccess'

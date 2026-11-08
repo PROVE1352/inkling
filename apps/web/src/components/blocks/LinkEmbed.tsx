@@ -6,6 +6,7 @@ import { EMBED_PROVIDER_LABELS, parseHttpUrl, toEmbed } from '@inkling/shared'
 import { useLinkPreview } from '../../api'
 import { GlobeIcon, LinkIcon } from '../Icons'
 import { t } from '../../i18n'
+import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
 
 // Link embed block — one block type, two presentations:
 //  - display 'embed': provider iframe (YouTube, Figma, …) built by toEmbed() at render time.
@@ -293,15 +294,9 @@ export function linkEmbedSlashItems(editor: AnyEditor): DefaultReactSuggestionIt
       // Own "Embeds" group (BlockNote has no matching built-in group).
       group: T.slashGroup,
       icon: <GlobeIcon size={16} />,
+      // the empty embed focuses its own URL field
       onItemClick: () => {
-        const cur = editor.getTextCursorPosition().block
-        const empty =
-          cur.type === 'paragraph' &&
-          (!Array.isArray(cur.content) || cur.content.length === 0) &&
-          (!Array.isArray(cur.children) || cur.children.length === 0)
-        const block = linkEmbedBlock('', 'embed')
-        if (empty) editor.replaceBlocks([cur], [block])
-        else editor.insertBlocks([block], cur, 'after')
+        insertFromSlash(editor as unknown as SlashEditor, linkEmbedBlock('', 'embed'), 'own')
       },
     },
   ]

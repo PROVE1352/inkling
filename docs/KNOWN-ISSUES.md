@@ -212,6 +212,11 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** Generic webhooks accept port 443 only (put n8n's 5678 behind a proxy). The row template editor has no live co-editing; relation defaults are not supported yet.
 
 ## Added in 0.8.0
-- **Medium** Inserting a callout from the `/` menu can leave the cursor in the previous or next block, so the first characters typed land outside the callout (`SlashMenu.insertCallout`). Click into the callout before typing.
-- **Low** Heading folds work on top-level headings with a mouse only (no keyboard, not on phones); ⌘F opens every fold on the page, not only the matching one. Fold safety was checked in headless Chromium and WebKit, not yet in Safari or Android.
+- ~~**Medium** Inserting a callout from the `/` menu can leave the cursor in the previous or next block, so the first characters typed land outside the callout (`SlashMenu.insertCallout`). Click into the callout before typing.~~ Resolved by docs/adr/1270-* (the callout is rendered before the caret moves in; math, inline math and divider/file items fixed too). Pasting or undoing a callout still renders it a moment late; undo does not move the caret into it (checked), paste was not checked.
+- ~~**Low** Heading folds work on top-level headings with a mouse only (no keyboard, not on phones)~~ ⌘. / Ctrl+. and a tap-to-show arrow on touch screens since docs/adr/1271-*. Still open: ⌘F opens every fold on the page, not only the matching one (by design, the page cannot see the find query); fold safety was checked in headless Chromium and WebKit, not yet in Safari or Android, and Safari's own ⌘. (Stop) was not tested.
 - **Low** Security-fix detection in the release check needs the release notes to carry the CHANGELOG Security section.
+
+## Added in 0.9.0
+- **Low** Guests cannot open database pages, do not receive notifications or mentions, and cannot leave a shared page themselves (an owner or admin removes them). A view-only guest still sees the tree's [+] (it answers `PAGE_ACCESS`).
+- **Low** When a page is moved out of a guest's tree or made private, REST access stops at once but an open collaboration socket stays until it reconnects (same window as role changes, docs/adr/0970-*).
+- **Low** A callout pasted or inserted by another editor still renders a moment late (the cause fixed for the `/` menu in docs/adr/1270-*); ⌘. folds have not been tried in real Safari, where ⌘. also means Stop.

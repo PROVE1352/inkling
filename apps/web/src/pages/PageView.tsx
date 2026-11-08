@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom'
 import { useParams, useSearchParams } from 'react-router'
 import { useDroppable } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
-import type { PageLockDTO, PageMetaDTO } from '@inkling/shared'
+import type { PageAccessLevel, PageLockDTO, PageMetaDTO } from '@inkling/shared'
 import {
   qkAdmin,
   recordPageView,
@@ -55,6 +55,9 @@ import { useIsPhone } from '../lib/useMediaQuery'
 import { PageProvenanceBadge } from '../components/PageProvenanceBadge'
 import { Modal } from '../components/Modal'
 import { agentRuleLine, editableByLine, lockRootOf } from '../lib/editLock'
+import { useIsGuest } from '../lib/useGuest'
+import { levelLabel } from '../lib/pageAccess'
+import { GuestBadge } from '../components/GuestBadge'
 import { CommentBadges } from '../components/comments/CommentBadges'
 import { OnlineUsers } from '../components/OnlineUsers'
 import { Spinner } from '../components/Spinner'
@@ -417,6 +420,19 @@ function LockBanner({
   )
 }
 
+/** A guest's level on this page (docs/adr/1251-*), in place of the lock banner. */
+function GuestAccessNote({ level }: { level: PageAccessLevel | undefined }) {
+  return (
+    <div
+      data-testid="guest-access-note"
+      className="mb-2 flex max-w-full flex-wrap items-center gap-2 rounded-md border border-line bg-hover/40 px-2.5 py-1 text-xs text-sub"
+    >
+      <GuestBadge />
+      {level && <span>{tr('access.yourLevel', { level: levelLabel(level) })}</span>}
+    </div>
+  )
+}
+
 // Doc body wrapper — dropping a sidebar page here makes AppDnd insert a wikilink.
 // useDroppable(editor-drop) is registered only while this component is mounted (= the current page is a doc),
 // so canvas/folder/collection pages have no editor-drop target.
@@ -465,17 +481,20 @@ export function PageView() {
   const { theme } = useTheme()
 
   const page = pages.data?.find((p) => p.id === pageId)
+  // Guest of this workspace (docs/adr/1252-*): only the page itself, its comments and backlinks.
+  // Sharing, locks, history, notifications, reviews, favorites and the pen are member features.
+  const guest = useIsGuest(wsId)
   // One view per page open → the page's read counter (totals only, docs/adr/0953-*)
   const pageLoaded = !!page
   useEffect(() => {
-    if (pageId && pageLoaded) recordPageView(pageId)
-  }, [pageId, pageLoaded])
+    if (pageId && pageLoaded && !guest) recordPageView(pageId)
+  }, [pageId, pageLoaded, guest])
   const isDoc = page?.kind === 'doc'
   const isCanvas = page?.kind === 'canvas'
   const isBookmarked = !!page && (bookmarks.data ?? []).some((b) => b.pageId === page.id)
 
   // M15 public sharing — doc/collection/folder can be published (lookup skipped for private pages). Drives the 🌐 indicator.
-  const canShare = page?.kind === 'doc' || page?.kind === 'collection' || page?.kind === 'folder'
+  const canShare = !guest && (page?.kind === 'doc' || page?.kind === 'collection' || page?.kind === 'folder')
   const shareStatus = useShareStatus(page?.id, !!page && canShare && page.scope !== 'private')
   const isShared = !!shareStatus.data?.shared
   const [shareOpen, setShareOpen] = useState(false)
@@ -578,12 +597,14 @@ export function PageView() {
   const queryClient = useQueryClient()
   const treeLockRoot = lockRootOf(pages.data, page?.id)
   const scopeReadOnly = isDoc && collab.scope !== undefined && collab.scope !== 'read-write'
-  const canLock = !!page && page.scope !== 'private'
-  const lockEnabled = canLock && (!!treeLockRoot || scopeReadOnly)
+  const canLock = !!page && page.scope !== 'private' && !guest
+  // A guest's level comes only from the lock answer (level / canEdit), so it is always asked.
+  const lockEnabled = guest ? !!page : canLock && (!!treeLockRoot || scopeReadOnly)
   const lockQuery = usePageLock(page?.id, lockEnabled)
   const lockData = lockEnabled ? lockQuery.data : undefined
   const lockReadOnly =
-    scopeReadOnly || (lockData ? !lockData.canEdit : !!treeLockRoot && lockQuery.isLoading)
+    scopeReadOnly ||
+    (lockData ? !lockData.canEdit : (guest || !!treeLockRoot) && lockQuery.isLoading)
   const isLocked = !!lockData?.locked || !!treeLockRoot || scopeReadOnly
   // A lock appeared/disappeared in the tree or the server changed this connection's scope:
   // refresh the lock (canEdit) right away instead of waiting for it to go stale.
@@ -595,7 +616,9 @@ export function PageView() {
   useEffect(() => {
     if (lockReadOnly) setPenMode(false)
   }, [lockReadOnly])
-  const lockBanner = isLocked ? (
+  const lockBanner = guest ? (
+    <GuestAccessNote level={lockData?.level} />
+  ) : isLocked ? (
     <LockBanner lock={lockData} readOnly={lockReadOnly} onOpen={() => setLockOpen(true)} />
   ) : null
   const handleEditorReady = useCallback((e: InklingEditor | null) => setEditor(e), [])
@@ -668,7 +691,7 @@ export function PageView() {
         ) : (
           <span className="min-w-0 flex-1" />
         )}
-        {page && (
+        {page && !guest && (
           <button
             type="button"
             onClick={() => toggleBookmark.mutate(page)}
@@ -723,7 +746,7 @@ export function PageView() {
           <PanelRightIcon size={18} />
         </button>
         <PageHeaderMenu
-          badge={isLocked || following}
+          badge={(isLocked && !guest) || following}
           items={[
             ...(isPhone && page && canShare
               ? [
@@ -745,7 +768,7 @@ export function PageView() {
                   },
                 ]
               : []),
-            ...(isDoc && !lockReadOnly
+            ...(isDoc && !lockReadOnly && !guest
               ? [
                   {
                     label: tr('page.penMode'),
@@ -755,7 +778,7 @@ export function PageView() {
                   },
                 ]
               : []),
-            ...(isDoc && page && !lockReadOnly
+            ...(isDoc && page && !lockReadOnly && !guest
               ? [
                   {
                     label: tr('split.menu'),
@@ -775,7 +798,7 @@ export function PageView() {
                   },
                 ]
               : []),
-            ...(page
+            ...(page && !guest
               ? [
                   {
                     label: tr('follow.button'),
@@ -855,7 +878,12 @@ export function PageView() {
                 banner={lockBanner}
               />
               <Suspense fallback={viewFallback}>
-                <CollectionView wsId={wsId ?? ''} pageId={page.id} readOnly={lockReadOnly} />
+                {guest ? (
+                  // The collection routes are member-only for now (docs/adr/1252-*).
+                  <p className="px-1 py-6 text-sm text-sub">{tr('guest.collectionUnavailable')}</p>
+                ) : (
+                  <CollectionView wsId={wsId ?? ''} pageId={page.id} readOnly={lockReadOnly} />
+                )}
               </Suspense>
             </div>
           ) : page.kind === 'canvas' ? (
@@ -929,7 +957,7 @@ export function PageView() {
         )}
         </div>
 
-        {wsId && prefs.linkPreview && <LinkPreview wsId={wsId} containerRef={bodyRef} />}
+        {wsId && prefs.linkPreview && !guest && <LinkPreview wsId={wsId} containerRef={bodyRef} />}
 
         {isDoc && page && penMode && (
           <InkLayer
@@ -963,6 +991,8 @@ export function PageView() {
             editor={isDoc ? editor : null}
             onOpenSearch={openSearch}
             readOnly={lockReadOnly}
+            guest={guest}
+            canComment={!guest || !!lockData?.canComment}
           />
         )}
       </div>
@@ -970,13 +1000,13 @@ export function PageView() {
       {page && canShare && (
         <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} page={page} />
       )}
-      {page && wsId && lockOpen && (
+      {page && wsId && lockOpen && !guest && (
         <PageLockModal open={lockOpen} onClose={() => setLockOpen(false)} wsId={wsId} page={page} />
       )}
-      {page && wsId && splitOpen && page.kind === 'doc' && (
+      {page && wsId && splitOpen && page.kind === 'doc' && !guest && (
         <SplitPageModal open={splitOpen} onClose={() => setSplitOpen(false)} wsId={wsId} page={page} />
       )}
-      {page && followOpen && (
+      {page && followOpen && !guest && (
         <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>
           <PageFollowPanel pageId={page.id} />
         </Modal>

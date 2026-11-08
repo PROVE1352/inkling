@@ -16,6 +16,48 @@
   --color-accent-soft: #eef0ff;
   --color-hover: rgba(55, 53, 47, 0.06);
   --color-active: rgba(55, 53, 47, 0.1);
+
+  /* Corner scale — soft, Linear/Arc-like (docs/adr/1280-*). rem, so the zoom setting scales corners with
+     the text. `--radius` is what the bare `rounded` utility reads (it is not one of the --radius-* steps). */
+  --radius: 0.4375rem; /* 7px: bare `rounded` — icon buttons, chips, small swatches */
+  --radius-sm: 0.4375rem; /* 7px */
+  --radius-md: 0.625rem; /* 10px: buttons, menu rows, inputs, menus, body blocks */
+  --radius-lg: 0.875rem; /* 14px: cards, popovers */
+  --radius-xl: 1.125rem; /* 18px: modals and sheets */
+
+  /* One easing set for the whole UI (docs/adr/1281-*). Every Tailwind `transition*` utility without an
+     explicit ease-* uses --ease-out through the default timing function. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Softer, wider shadows that suit the rounder corners. The colour comes from --nd-shadow-*, which the
+     dark theme redefines (a darker, denser shadow plus a hairline light ring on floating surfaces). */
+  --shadow-sm: 0 1px 2px var(--nd-shadow-1);
+  --shadow: 0 1px 3px var(--nd-shadow-1), 0 1px 2px var(--nd-shadow-1);
+  --shadow-md: 0 4px 12px -2px var(--nd-shadow-2), 0 1px 3px var(--nd-shadow-1);
+  --shadow-lg: 0 10px 24px -6px var(--nd-shadow-2), 0 2px 6px -1px var(--nd-shadow-1);
+  --shadow-xl: 0 16px 36px -8px var(--nd-shadow-3), 0 4px 10px -2px var(--nd-shadow-1), 0 0 0 0.5px var(--nd-ring);
+  --shadow-2xl: 0 24px 56px -12px var(--nd-shadow-3), 0 6px 16px -4px var(--nd-shadow-2), 0 0 0 0.5px var(--nd-ring);
+}
+
+/* Motion durations (docs/adr/1281-*): exits and presses are fast, entrances base, sheets/drawers/tree slow.
+   lib/motion.ts mirrors --dur-fast as EXIT_MS for components that unmount after their exit animation. */
+:root {
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 220ms;
+  --nd-shadow-1: rgb(15 15 15 / 0.05);
+  --nd-shadow-2: rgb(15 15 15 / 0.08);
+  --nd-shadow-3: rgb(15 15 15 / 0.13);
+  --nd-ring: transparent;
+}
+.dark {
+  --nd-shadow-1: rgb(0 0 0 / 0.25);
+  --nd-shadow-2: rgb(0 0 0 / 0.35);
+  --nd-shadow-3: rgb(0 0 0 / 0.5);
+  --nd-ring: rgb(255 255 255 / 0.06);
 }
 
 .dark {
@@ -112,15 +154,15 @@ select:disabled {
       margin-block: 4px;
       padding: 4px;
       border: 1px solid var(--color-line);
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       background: var(--color-app);
       color: var(--color-ink);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+      box-shadow: var(--shadow-xl);
       min-width: anchor-size(width);
     }
     select:not([multiple]):not([size]) option {
       padding: 5px 10px 5px 6px;
-      border-radius: 5px;
+      border-radius: calc(var(--radius-md) - 4px);
       font-size: inherit;
       color: var(--color-ink);
       background: transparent;
@@ -142,99 +184,238 @@ select:disabled {
   }
 }
 
-/* Subtle scrollbars */
+/* Checkboxes (docs/adr/1280-*): one drawn box everywhere instead of the OS control, so corners, colours and
+   the dark theme match the toggle switches. Base layer: size utilities (h-3.5 w-3.5 …) still win. */
+@layer base {
+  input[type='checkbox'] {
+    -webkit-appearance: none;
+    appearance: none;
+    flex-shrink: 0;
+    display: inline-block;
+    vertical-align: -0.15em;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 1.5px solid color-mix(in srgb, var(--color-sub) 60%, transparent);
+    border-radius: calc(var(--radius-sm) - 3px);
+    background: var(--color-app) center / 100% 100% no-repeat;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  input[type='checkbox']:hover:not(:disabled) {
+    border-color: var(--color-sub);
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.5l2.6 2.5L12 5.5'/%3E%3C/svg%3E");
+  }
+  input[type='checkbox']:indeterminate {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M4.5 8h7'/%3E%3C/svg%3E");
+  }
+  input[type='checkbox']:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  input[type='checkbox']:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+/* Check-list items in the editor: BlockNote sets the input 24px high (unlayered); keep the drawn box at
+   16px, centred on the first line, and without the colour transition (no animation inside blocks). */
+.bn-editor .bn-block-content[data-content-type='checkListItem'] > div > input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 4px;
+  transition: none;
+}
+.bn-editor .bn-block-content[data-content-type='checkListItem'] > div:has(> input) {
+  align-items: flex-start;
+}
+
+/* Subtle scrollbars. The thumb's corners are the platform's (rounded on macOS and Windows 11 overlay
+   bars): `::-webkit-scrollbar-thumb` would round them everywhere but only works without the standard
+   scrollbar-width/-color, and turns macOS overlay bars into classic ones that take layout width
+   (docs/adr/1280-*, not adopted). */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line) transparent;
 }
 
 /* ------------------------------------------------------------------ */
-/* Shared motion infrastructure — transform/opacity only, 120–220ms, ease-out.  */
-/* All off under prefers-reduced-motion.                                       */
-/* fill-mode is backwards — the end state equals the element's own style, so  */
-/* forwards is not needed. With both/forwards, WebKit (Safari) kept elements   */
-/* on a compositing layer after the animation ended, so .nd-enter wrapping the */
-/* whole body held GPU memory the size of the document (1 GB of tab graphics   */
-/* in Safari on a Mac, 2026-09-23).                                             */
+/* Shared motion infrastructure (docs/adr/1281-*) — transform/opacity only (plus  */
+/* the tree's row-height reveal, measured in PERFORMANCE.md), 120–220ms, one     */
+/* easing set (--ease-out in, --ease-in out). All off under prefers-reduced-motion. */
+/* Scale uses the individual `scale` / `translate` properties, so it composes    */
+/* with floating-ui's inline `transform` and Tailwind's translate/origin utilities. */
+/* These rules are unlayered: they never set transform-origin, so an             */
+/* `origin-top-right` utility on a menu still decides where it grows from.       */
+/* Entrance fill-mode is backwards — the end state equals the element's own      */
+/* style, so forwards is not needed. With both/forwards, WebKit (Safari) kept    */
+/* elements on a compositing layer after the animation ended, so .nd-enter       */
+/* wrapping the whole body held GPU memory the size of the document (1 GB of tab */
+/* graphics in Safari on a Mac, 2026-09-23). Exits (.nd-out) use forwards: the   */
+/* element is unmounted right after (lib/motion.ts usePresence).                 */
 /* ------------------------------------------------------------------ */
 @keyframes nd-fade-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    translate: 0 4px;
   }
 }
 @keyframes nd-pop-in {
   from {
     opacity: 0;
-    transform: scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    scale: 0.97;
   }
 }
 @keyframes nd-fade {
   from {
     opacity: 0;
   }
+}
+@keyframes nd-fade-out {
   to {
-    opacity: 1;
+    opacity: 0;
+  }
+}
+@keyframes nd-pop-out {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes nd-rise-in {
+  from {
+    opacity: 0;
+    translate: 0 24px;
+  }
+}
+@keyframes nd-toast-in {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+    scale: 0.98;
   }
 }
 @keyframes nd-slide-l {
   from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: none;
+    translate: -100% 0;
   }
 }
 @keyframes nd-slide-r {
   from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: none;
+    translate: 100% 0;
   }
 }
 @keyframes nd-slide-up {
   from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: none;
+    translate: 0 100%;
   }
 }
 
 .nd-enter {
-  animation: nd-fade-in 0.18s ease-out backwards;
+  animation: nd-fade-in var(--dur-base) var(--ease-out) backwards;
 }
+/* Menus, popovers, dropdowns, context menus: grow from the trigger side (origin-* utility on the element). */
 .nd-pop {
-  animation: nd-pop-in 0.14s ease-out backwards;
+  animation: nd-pop-in var(--dur-base) var(--ease-out) backwards;
 }
+/* Page open (docs/adr/1222-*): stays 0.15 s on purpose, longer reads as a slow page. */
 .nd-fade {
-  animation: nd-fade 0.15s ease-out backwards;
+  animation: nd-fade 0.15s var(--ease-out) backwards;
 }
 .nd-backdrop {
-  animation: nd-fade 0.15s ease-out backwards;
+  animation: nd-fade var(--dur-base) var(--ease-out) backwards;
 }
 /* Shown only if still there after 400 ms (the editor's "Connecting…" pill): a fast open never flashes it. */
 .nd-late {
-  animation: nd-fade 0.15s ease-out 0.4s backwards;
+  animation: nd-fade 0.15s var(--ease-out) 0.4s backwards;
 }
 .nd-drawer-l {
-  animation: nd-slide-l 0.2s ease-out backwards;
+  animation: nd-slide-l var(--dur-slow) var(--ease-out) backwards;
 }
 .nd-drawer-r {
-  animation: nd-slide-r 0.2s ease-out backwards;
+  animation: nd-slide-r var(--dur-slow) var(--ease-out) backwards;
 }
 /* Phone bottom sheet (global calendar day popover) */
 .nd-sheet {
-  animation: nd-slide-up 0.2s ease-out backwards;
+  animation: nd-slide-up var(--dur-slow) var(--ease-out) backwards;
+}
+/* Modal body (components/Modal.tsx): scale + fade from the centre; on phones it rises from below. */
+.nd-dialog {
+  animation: nd-pop-in var(--dur-base) var(--ease-out) backwards;
+}
+@media (max-width: 639.98px) {
+  .nd-dialog {
+    animation: nd-rise-in var(--dur-slow) var(--ease-out) backwards;
+  }
+}
+/* Toasts and floating banners slide up from the bottom edge. */
+.nd-toast {
+  animation: nd-toast-in var(--dur-base) var(--ease-out) backwards;
+}
+
+/* Exits: shorter than entrances, accelerate away, take no clicks while leaving. */
+.nd-out {
+  animation: nd-pop-out var(--dur-fast) var(--ease-in) forwards;
+  pointer-events: none;
+}
+.nd-backdrop.nd-out,
+.nd-toast.nd-out,
+.nd-fade.nd-out {
+  animation: nd-fade-out var(--dur-fast) var(--ease-in) forwards;
+}
+
+/* Sidebar tree children (PageTreeItem): the list opens by growing its row track from 0fr to 1fr (one
+   layout per frame of the sidebar only, measured on a 1,000-item tree) and closes the same way, faster.
+   The clip exists only while animating (overflow is animated as a discrete value), so focus rings and
+   drop indicators are never cut afterwards. */
+@keyframes nd-rows-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@keyframes nd-rows-close {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@keyframes nd-clip {
+  from,
+  to {
+    overflow: hidden;
+  }
+}
+.nd-tree-kids {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: nd-rows-open var(--dur-slow) var(--ease-out) backwards;
+}
+.nd-tree-kids > * {
+  min-height: 0;
+  animation: nd-clip var(--dur-slow) backwards;
+}
+.nd-tree-kids.nd-out {
+  animation: nd-rows-close var(--dur-fast) var(--ease-in) forwards;
+  /* pointer-events is inherited: switching it off here would restyle every row below in the click frame.
+     The rows are gone 120 ms later anyway. */
+  pointer-events: auto;
+}
+.nd-tree-kids.nd-out > * {
+  animation: nd-clip var(--dur-fast) forwards;
+}
+/* Disclosure arrow: one chevron turned 90° instead of swapping icons. */
+.nd-chevron {
+  transition: rotate var(--dur-base) var(--ease-out);
+}
+.nd-chevron[data-open='true'] {
+  rotate: 90deg;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -245,11 +426,41 @@ select:disabled {
   .nd-late,
   .nd-drawer-l,
   .nd-drawer-r,
-  .nd-sheet {
+  .nd-sheet,
+  .nd-dialog,
+  .nd-toast,
+  .nd-out,
+  .nd-tree-kids,
+  .nd-tree-kids > * {
     animation: none;
   }
   * {
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Press feedback: buttons shrink to 98 % while held. Base layer and zero specificity, so any utility
+   (active:scale-*, scale-*) wins. Not on full-width rows (menu items, list rows), not in the editor
+   (block content, side menu, BlockNote toolbars), not on the margin outline or fold arrows (scroll-driven,
+   docs/adr/1220-*), not on tree rows. No transition is added here: buttons that already transition
+   (`transition` utility) ease into it, the rest snap. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :where(
+        button:not(
+            :disabled,
+            .w-full,
+            [role='menuitem'],
+            [role='option'],
+            [role='tab'],
+            [data-fold-arrow],
+            [data-mini-toc] *,
+            .bn-container *,
+            [role='treeitem'] *
+          )
+      ):active {
+      scale: 0.98;
+    }
   }
 }
 
@@ -329,6 +540,67 @@ select:disabled {
 }
 
 /* ------------------------------------------------------------------ */
+/* Soft corners inside the editor (docs/adr/1280-*): body blocks share --radius-md (callout, code, table,  */
+/* images, embeds); BlockNote's own menus, toolbars and tooltips take the app scale and shadows.       */
+/* ------------------------------------------------------------------ */
+/* BlockNote derives small/medium/large from this (8 / 10 / 12 px): menus and toolbars match app menus. */
+/* Doubled class: BlockNote's own `.bn-root` defaults load later with the editor chunk. */
+.bn-root.bn-root {
+  --bn-border-radius: 10px;
+  --bn-shadow-medium: var(--shadow-xl);
+  --bn-shadow-light: var(--shadow-md);
+}
+.bn-mantine .mantine-Tooltip-tooltip {
+  border-radius: var(--radius-sm);
+}
+/* Table: rounded outer edge. `border-collapse: collapse` (prosemirror-tables) cannot round a table, so the
+   grid becomes separate with no spacing: every cell draws only its right and bottom edge, the first row
+   and first column add the top and left edge, and the four corner cells take the radius. */
+.bn-container .bn-editor [data-content-type='table'] table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.bn-container .bn-editor [data-content-type='table'] :is(th, td) {
+  border-width: 0 1px 1px 0;
+}
+.bn-container .bn-editor [data-content-type='table'] table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :is(th, td) {
+  border-top-width: 1px;
+}
+.bn-container .bn-editor [data-content-type='table'] tr > :is(th, td):first-child {
+  border-left-width: 1px;
+}
+.bn-container .bn-editor [data-content-type='table'] table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :first-child {
+  border-top-left-radius: var(--radius-md);
+}
+.bn-container .bn-editor [data-content-type='table'] table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :last-child {
+  border-top-right-radius: var(--radius-md);
+}
+.bn-container .bn-editor [data-content-type='table'] table > :is(thead, tbody, tfoot):last-child > tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-md);
+}
+.bn-container .bn-editor [data-content-type='table'] table > :is(thead, tbody, tfoot):last-child > tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-md);
+}
+/* Images and videos */
+.bn-container [data-file-block] .bn-visual-media {
+  border-radius: var(--radius-md);
+}
+/* Slash menu and BlockNote dropdowns (drag-handle menu, colours) open like the app's menus: scale + fade
+   from their top-left corner. CSS only — components/SlashMenu.tsx is untouched. Not the formatting
+   toolbar: it follows the selection and would replay on every selection change. */
+.bn-mantine .bn-suggestion-menu,
+.bn-mantine .bn-menu-dropdown {
+  transform-origin: top left;
+  animation: nd-pop-in var(--dur-base) var(--ease-out) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bn-mantine .bn-suggestion-menu,
+  .bn-mantine .bn-menu-dropdown {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Quote, divider, code, toggle, placeholder — next to Notion (docs/adr/1222-*).                   */
 /* Measured on a public Notion page on 2026-11-08: divider line rgba(28,19,1,.11) / dark             */
 /* rgba(255,255,235,.1) in a 13px block. Quote, code and toggle were not on that page; their values  */
@@ -357,7 +629,7 @@ select:disabled {
 .bn-editor .bn-block-content[data-content-type='codeBlock'] {
   background-color: var(--color-side);
   color: var(--color-ink);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin: 4px 0;
 }
 .bn-editor .bn-block-content[data-content-type='codeBlock'] > pre {
@@ -427,6 +699,18 @@ select:disabled {
    in place it would sit on the arrow. `translate` composes with the transform floating-ui sets. */
 [data-floating-ui-focusable]:has(> .bn-side-menu[data-block-type='heading']) {
   translate: -22px 0;
+}
+/* On touch screens the arrow sits at the right end of a top-level heading's first line (docs/adr/1271-*);
+   keep the text out from under it. Same condition as HeadingFolds' useHoverPointer, negated. */
+@media (hover: none), (pointer: coarse) {
+  .bn-editor
+    > .bn-block-group
+    > .bn-block-outer
+    > .bn-block
+    > .bn-block-content[data-content-type='heading']
+    > .bn-inline-content {
+    padding-inline-end: 30px;
+  }
 }
 .bn-container .bn-side-menu .mantine-UnstyledButton-root svg {
   color: color-mix(in srgb, var(--color-sub) 75%, transparent);
@@ -601,7 +885,7 @@ select:disabled {
   padding: 0.9em 1em;
   background: var(--color-side);
   border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
 }
 .nd-public-body pre code {
@@ -612,7 +896,7 @@ select:disabled {
 .nd-public-body img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin: 0.5em 0;
 }
 .nd-public-body hr {
@@ -636,6 +920,32 @@ select:disabled {
 .nd-public-body th {
   background: var(--color-side);
   font-weight: 600;
+}
+/* Rounded outer edge, as in the editor (docs/adr/1280-*): separate borders, each cell right + bottom. */
+.nd-public-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.nd-public-body :is(th, td) {
+  border-width: 0 1px 1px 0;
+}
+.nd-public-body table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :is(th, td) {
+  border-top-width: 1px;
+}
+.nd-public-body tr > :is(th, td):first-child {
+  border-left-width: 1px;
+}
+.nd-public-body table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :first-child {
+  border-top-left-radius: var(--radius-md);
+}
+.nd-public-body table > :is(thead, tbody):not(:is(thead, tbody) ~ *) > tr:first-child > :last-child {
+  border-top-right-radius: var(--radius-md);
+}
+.nd-public-body table > :is(thead, tbody, tfoot):last-child > tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-md);
+}
+.nd-public-body table > :is(thead, tbody, tfoot):last-child > tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-md);
 }
 .nd-public-body input[type='checkbox'] {
   margin-right: 0.4em;
@@ -664,7 +974,7 @@ select:disabled {
   width: 100%;
   margin: 0.25rem 0;
   padding: 12px 14px 12px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--nd-callout-accent) 8%, var(--color-app));
 }
 .dark .nd-callout {
@@ -681,7 +991,7 @@ select:disabled {
   justify-content: center;
   width: 1.5rem;
   height: 1.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 1.125rem;
 }
 .nd-callout > :first-child > button:hover {
@@ -719,7 +1029,7 @@ select:disabled {
   box-sizing: border-box;
   margin: 0.25rem 0;
   padding: 0.25rem 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   min-height: 1.75rem;
   /* wide formulas scroll sideways inside the block on phones instead of widening the page */
   max-width: 100%;
@@ -752,7 +1062,7 @@ select:disabled {
   width: 100%;
   resize: vertical;
   border: 1px solid var(--color-line);
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   background: var(--color-app);
   color: var(--color-ink);
   padding: 0.375rem 0.5rem;
@@ -822,10 +1132,10 @@ span.nd-math-error {
   width: min(28rem, calc(100vw - 1rem));
   padding: 0.5rem;
   border: 1px solid var(--color-line);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   background: var(--color-app);
   color: var(--color-ink);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-xl);
 }
 .nd-math-popover .nd-math-preview {
   min-height: 1.5rem;

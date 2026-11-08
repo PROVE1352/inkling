@@ -258,6 +258,14 @@ export const workspaces = pgTable('workspaces', {
   shareDefaultExpiryDays: integer('share_default_expiry_days'),
   /** New public links need a password, and a link's password cannot be removed (docs/adr/1172-*). */
   sharePasswordRequired: boolean('share_password_required').notNull().default(false),
+  /**
+   * Lowest role that may invite people from outside the workspace (guests) to a page
+   * (docs/adr/1250-*): 'off' = nobody, 'owners', 'admins' (default; owners and admins), 'members'
+   * (any member who can edit the page). Existing guests are kept when it is tightened.
+   */
+  guestInvitePolicy: text('guest_invite_policy', { enum: ['off', 'owners', 'admins', 'members'] })
+    .notNull()
+    .default('admins'),
 })
 
 export const workspaceMembers = pgTable(
@@ -879,3 +887,5 @@ export * from './schema-split'
 export * from './schema-identities'
 // Personal API tokens (docs/adr/1201-*)
 export * from './schema-apiTokens'
+// People with access to a page tree, guests and page invitations (docs/adr/1250-*)
+export * from './schema-guests'

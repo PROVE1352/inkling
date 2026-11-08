@@ -28,7 +28,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 /** db or a transaction. */
 export type Exec = Pick<Tx, 'select' | 'insert' | 'update' | 'delete' | 'execute'>
 
-export function isManagerRole(role: WorkspaceRole | null | undefined): boolean {
+export function isManagerRole(role: WorkspaceRole | 'guest' | null | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
 
@@ -50,6 +50,7 @@ export const policyColumns = {
   reviewIntervalDays: workspaces.reviewIntervalDays,
   shareDefaultExpiryDays: workspaces.shareDefaultExpiryDays,
   sharePasswordRequired: workspaces.sharePasswordRequired,
+  guestInvitePolicy: workspaces.guestInvitePolicy,
 } as const
 
 export type WorkspacePolicy = WorkspaceSettingsDTO

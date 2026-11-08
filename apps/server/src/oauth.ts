@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, gt, lt } from 'drizzle-orm'
+import { hasGrantsSql } from './pageGrants'
 import type { FastifyRequest } from 'fastify'
 import { configuredPublicOrigin } from './origin'
 import { db } from './db/index'
@@ -228,6 +229,7 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
       email: users.email,
       name: users.name,
       isAdmin: users.isAdmin,
+      hasGrants: hasGrantsSql(users.id),
     })
     .from(oauthGrants)
     .innerJoin(users, eq(users.id, oauthGrants.userId))
@@ -256,6 +258,8 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
     clientId: row.clientId,
     // what this connection may see (docs/adr/1200-*); null = everything the user can see
     range: scopeFromColumns(row.id, row, row.rootWorkspaceId),
+    // page rows (docs/adr/1253-*): guest workspaces are hidden from tokens
+    ...(row.hasGrants ? { hasGrants: true } : {}),
   }
 }
 

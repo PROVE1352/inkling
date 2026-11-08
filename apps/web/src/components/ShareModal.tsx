@@ -6,6 +6,7 @@ import { Modal } from './Modal'
 import { Spinner } from './Spinner'
 import { CopyIcon, LinkIcon, LockIcon } from './Icons'
 import { LinkSettings, usePublishOptions } from './ShareLinkOptions'
+import { SharePeople } from './SharePeople'
 import { useT } from '../i18n'
 
 // Public link = /s/<token> on the current origin. Uses location.origin as is so it also works
@@ -14,9 +15,11 @@ function publicUrl(token: string): string {
   return `${location.origin}/s/${token}`
 }
 
-// Modal managing the public link that lets anyone view a page without signing in.
+// Share dialog: people with access to the page tree (SharePeople, docs/adr/1250-*) and the public
+// link that lets anyone view a page without signing in.
 // - Private pages: shows that sharing is unavailable (disabled).
 // - Only the workspace owner can publish/stop. Non-owners only see the status.
+// - Guests never get here (the share button is hidden for them; the server answers 403 anyway).
 export function ShareModal({
   open,
   onClose,
@@ -35,7 +38,8 @@ export function ShareModal({
   const isPrivate = page.scope === 'private'
   const isFolder = page.kind === 'folder'
 
-  const status = useShareStatus(page.id, open && !isPrivate)
+  const guest = ws?.role === 'guest'
+  const status = useShareStatus(page.id, open && !isPrivate && !!ws && !guest)
   const share = useShare(page.id)
   const unshare = useUnshare(page.id)
 
@@ -95,7 +99,16 @@ export function ShareModal({
   const busy = share.isPending || unshare.isPending
 
   return (
-    <Modal open={open} onClose={onClose} title={t('share.title')}>
+    <Modal open={open} onClose={onClose} title={t('share.dialogTitle')} size="md">
+      {!isPrivate && ws && !guest && (
+        <section className="mb-5 flex flex-col gap-2">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-sub">{t('access.title')}</h3>
+          <SharePeople pageId={page.id} ws={ws} open={open} />
+        </section>
+      )}
+      {!isPrivate && (
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('share.title')}</h3>
+      )}
       {isPrivate ? (
         // Private pages cannot be shared — the server also rejects it with 400, but the UI says so first.
         <div className="flex flex-col gap-3">

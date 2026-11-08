@@ -6,6 +6,7 @@ import {
   foldCss,
   foldLayout,
   foldsToOpen,
+  foldTarget,
   loadFolds,
   saveFolds,
   setFoldRevealer,
@@ -14,9 +15,11 @@ import {
   type FoldPos,
 } from '../lib/headingFolds'
 import { t as tr } from '../i18n'
+import { isMod } from '../lib/platform'
 
-// Heading folds (docs/adr/1221-*): a ▸ to the left of a top-level heading on hover folds the section
-// under it. State per device and page (lib/headingFolds.ts); the document is never edited. Hidden blocks
+// Heading folds (docs/adr/1221-*, 1271-*): a ▸ to the left of a top-level heading on hover folds the
+// section under it; ⌘. / Ctrl+. folds or unfolds the section at the caret; on touch screens the arrow
+// shows next to the heading the caret is in (tap the heading, then the arrow). State per device and page (lib/headingFolds.ts); the document is never edited. Hidden blocks
 // are hidden by a generated stylesheet, not by touching the editor's DOM. A folded heading keeps its
 // arrow visible. Arrows are overlays in the scroll container's content coordinates (like CommentBadges),
 // so scrolling moves them without any work.
@@ -156,6 +159,32 @@ export function HeadingFolds({
     return () => window.removeEventListener('keydown', onKey)
   }, [update])
 
+  // ⌘. / Ctrl+. (docs/adr/1271-*): fold or unfold the section the caret is in. From the section's body the
+  // caret first moves to the end of its heading, so the fold does not reopen at once (`foldsToOpen`).
+  useEffect(() => {
+    if (disabled) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!isMod(e) || e.shiftKey || e.altKey || e.isComposing) return
+      if (e.code !== 'Period' && e.key !== '.') return
+      const dom = editor.domElement
+      if (!dom || !dom.contains(document.activeElement)) return
+      const state = editor.prosemirrorState as unknown as PMState
+      const size = state.doc.nodeSize - 2
+      const target = foldTarget(state.doc.resolve(Math.min(state.selection.from, size)), rootGroupOf(state.doc))
+      if (!target?.id) return
+      e.preventDefault()
+      const cur = foldedRef.current
+      if (cur.includes(target.id)) {
+        update(cur.filter((x) => x !== target.id))
+        return
+      }
+      if (!target.inHeading) editor.setTextCursorPosition(target.id, 'end')
+      update([...cur, target.id])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editor, update, disabled])
+
   const toggle = useCallback(
     (id: string) => {
       const cur = foldedRef.current
@@ -166,9 +195,12 @@ export function HeadingFolds({
 
   // --- arrows ---------------------------------------------------------------------------------
   const [hover, setHover] = useState<Arrow | null>(null)
-  const [pinned, setPinned] = useState<Arrow[]>([])
   const canHover = useHoverPointer()
+  const [pinned, setPinned] = useState<Arrow[]>([])
 
+  // Mouse: the 20px arrow sits in the 22px left of the heading text. Touch: phones have no left gutter (the
+  // arrow was cut off at the screen edge), so a 28px target sits at the right end of the heading's first
+  // line, where the hidden block handles would be on a desktop (docs/adr/1271-*).
   const measure = useCallback((outer: Element): Arrow | null => {
     const container = containerRef.current
     const content = outer.querySelector(':scope > .bn-block > .bn-block-content[data-content-type="heading"]')
@@ -180,14 +212,11 @@ export function HeadingFolds({
     const r = line.getBoundingClientRect()
     if (r.width === 0 && r.height === 0) return null
     const lh = parseFloat(getComputedStyle(line).lineHeight) || r.height
-    const size = 20
-    return {
-      id,
-      size,
-      top: r.top - c.top + container.scrollTop + Math.min(lh, r.height) / 2 - size / 2,
-      left: r.left - c.left + container.scrollLeft - size - 2,
-    }
-  }, [containerRef])
+    const size = canHover ? 20 : 28
+    const top = r.top - c.top + container.scrollTop + Math.min(lh, r.height) / 2 - size / 2
+    const left = canHover ? r.left - size - 2 : r.right - size
+    return { id, size, top, left: left - c.left + container.scrollLeft }
+  }, [containerRef, canHover])
 
   // folded headings keep their arrow
   useLayoutEffect(() => {
@@ -222,6 +251,28 @@ export function HeadingFolds({
       window.removeEventListener('resize', later)
     }
   }, [editor])
+
+  // Touch screens have no hover: the arrow shows next to the top-level heading the caret is in, so tapping
+  // a heading and then its arrow folds it (docs/adr/1271-*). Folded headings keep theirs (`pinned`).
+  const [caretArrow, setCaretArrow] = useState<Arrow | null>(null)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || canHover || disabled) {
+      setCaretArrow(null)
+      return
+    }
+    const place = () => {
+      const state = editor.prosemirrorState as unknown as PMState
+      const $p = state.doc.resolve(Math.min(state.selection.from, state.doc.nodeSize - 2))
+      const id = $p.depth >= 3 && $p.node(3).type.name === 'heading' ? String($p.node(2).attrs.id ?? '') : ''
+      const outer = id ? container.querySelector(`${TOP}[data-id="${CSS.escape(id)}"]`) : null
+      const a = outer ? measure(outer) : null
+      setCaretArrow((prev) => (prev && a && prev.id === a.id && prev.top === a.top && prev.left === a.left ? prev : a))
+    }
+    place()
+    const off = editor.onSelectionChange(place)
+    return () => off?.()
+  }, [editor, containerRef, canHover, disabled, measure, tick])
 
   // hover: one probe per frame at the text column's left edge while the pointer moves
   useEffect(() => {
@@ -274,6 +325,7 @@ export function HeadingFolds({
   const shown = new Map<string, Arrow>()
   for (const a of pinned) shown.set(a.id, a)
   if (hover && !shown.has(hover.id)) shown.set(hover.id, hover)
+  if (caretArrow && !shown.has(caretArrow.id)) shown.set(caretArrow.id, caretArrow)
   if (!shown.size) return null
 
   return createPortal(

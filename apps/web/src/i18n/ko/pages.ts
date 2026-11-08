@@ -24,7 +24,7 @@ export default {
   'page.penModeOff': '필기 모드 끄기',
   'page.penModeOffHint': '필기 모드 끄기 (Esc)',
   'page.penModeHint': '필기 모드 — 본문 위에 펜으로 쓰기',
-  'page.shareToWeb': '웹에 공유',
+  'page.shareToWeb': '공유',
   'page.sharedToWeb': '웹에 공유됨',
   'page.togglePanel': '패널 토글',
   'page.rightPanel': '오른쪽 패널',

@@ -119,7 +119,7 @@ export default {
   'audit.group.agent': '에이전트',
   'audit.group.settings': '설정',
   'audit.group.webhook': '웹훅',
-  'audit.group.page': '편집 잠금',
+  'audit.group.page': '페이지(잠금·권한)',
   'audit.group.instructions': '에이전트 지침',
   'audit.group.content': '본문 점검',
   'audit.action.member.added': '멤버 추가',

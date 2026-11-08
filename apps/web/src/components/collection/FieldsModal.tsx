@@ -202,8 +202,8 @@ export function FieldsModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-lg border border-line bg-app shadow-2xl">
+    <div className="nd-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="nd-dialog flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-line bg-app shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{t('fields.title')}</h2>
           <button

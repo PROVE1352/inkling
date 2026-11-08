@@ -10,6 +10,7 @@ import { runQuery, usePages } from '../../api'
 import { DatabaseIcon } from '../Icons'
 import { t } from '../../i18n'
 import { ResultView } from './QueryResultView'
+import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
 
 /**
  * Query block (Dataview subset) — docs/QUERY.md, docs/adr/0204-query-block-as-dataview-fence.md.
@@ -129,20 +130,12 @@ export function querySlashItem(editor: BlockNoteEditor<any, any, any>): DefaultR
     group: editor.dictionary.slash_menu.table.group,
     icon: <DatabaseIcon size={16} />,
     onItemClick: () => {
-      const cur = editor.getTextCursorPosition().block
       const block = {
         type: 'codeBlock' as const,
         props: { language: QUERY_LANGUAGE },
         content: DEFAULT_QUERY,
       }
-      const empty =
-        (!Array.isArray(cur.content) || cur.content.length === 0) &&
-        (!Array.isArray(cur.children) || cur.children.length === 0)
-      const inserted =
-        empty && cur.type === 'paragraph'
-          ? editor.replaceBlocks([cur], [block]).insertedBlocks[0]
-          : editor.insertBlocks([block], cur, 'after')[0]
-      if (inserted) editor.setTextCursorPosition(inserted, 'end')
+      insertFromSlash(editor as unknown as SlashEditor, block, 'inside')
     },
   }
 }

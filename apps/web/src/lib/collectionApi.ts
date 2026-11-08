@@ -12,7 +12,7 @@ import type {
   SheetSyncInput,
 } from '@inkling/shared'
 import { BATCH_MAX_ROWS } from '@inkling/shared'
-import { api, qk, useAuthMode } from '../api'
+import { api, qk, useAuthMode, useMemberScope } from '../api'
 
 export const qkx = {
   rowOptions: (pageId: string, q: string) => ['collectionRowOptions', pageId, q] as const,
@@ -23,13 +23,14 @@ export const qkx = {
 
 /** Rows of a (relation target) collection for the picker — server applies visibility. */
 export function useRowOptions(pageId: string | undefined, q: string, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkx.rowOptions(pageId ?? '', q),
     queryFn: () =>
       api<RowOptionsDTO>(
         `/api/pages/${pageId}/collection/row-options?limit=50${q ? `&q=${encodeURIComponent(q)}` : ''}`,
       ),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 15_000,
     retry: false,
   })
@@ -37,13 +38,14 @@ export function useRowOptions(pageId: string | undefined, q: string, enabled = t
 
 /** Gallery "first image" covers: { rowId: '/files/<id>' }. */
 export function useCovers(pageId: string, enabled: boolean) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkx.covers(pageId),
     queryFn: () =>
       api<{ covers: Record<string, string> }>(`/api/pages/${pageId}/collection/covers`).then(
         (r) => r.covers,
       ),
-    enabled,
+    enabled: enabled && member,
     staleTime: 60_000,
   })
 }
@@ -196,13 +198,14 @@ export function useRevokeIcal() {
 
 /** Collection definition only (fields + views, no rows) — relation/rollup pickers. */
 export function useCollectionDef(pageId: string | undefined) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: ['collectionDef', pageId ?? ''] as const,
     queryFn: () =>
       api<{ collection: import('@inkling/shared').CollectionDTO }>(
         `/api/pages/${pageId}/collection?rows=0`,
       ).then((r) => r.collection),
-    enabled: !!pageId,
+    enabled: !!pageId && member,
     staleTime: 30_000,
     retry: false,
   })

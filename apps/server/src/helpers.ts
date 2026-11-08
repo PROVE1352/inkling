@@ -10,7 +10,8 @@ import { newInviteCode } from './util'
 import { hashInviteCode, protectSecret, tryRevealSecret } from './secretsAtRest'
 import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
 import { assertWorkspaceInRange } from './tokenRange'
-import type { WorkspaceRole } from '@inkling/shared'
+import type { WorkspaceAccessRole, WorkspaceRole } from '@inkling/shared'
+import { isGuestIn } from './pageGrants'
 
 // Both db and a transaction (tx) structurally satisfy the select method.
 type SelectCapable = Pick<typeof db, 'select'>
@@ -49,13 +50,20 @@ export function revealInviteCode(ws: { id: string; inviteCodeEnc: string | null 
  * otherwise return the role. Every `/workspaces/:id/*` and page/file route goes
  * through here, so this one check hides a deleted workspace from all of them.
  */
+export async function requireMembership(workspaceId: string, userId: string): Promise<WorkspaceRole>
 export async function requireMembership(
   workspaceId: string,
   userId: string,
-): Promise<WorkspaceRole> {
+  opts: { guests: true },
+): Promise<WorkspaceAccessRole>
+export async function requireMembership(
+  workspaceId: string,
+  userId: string,
+  opts?: { guests: true },
+): Promise<WorkspaceAccessRole> {
   // Agent requests need the access version for the cached block check; browser requests do not
   // (assertAgentAllowed is a no-op for them), so they keep the plain membership statement.
-  return (await membership(workspaceId, userId, currentAgent() ? 'version' : 'none')).role
+  return (await membership(workspaceId, userId, currentAgent() ? 'version' : 'none', !!opts?.guests)).role
 }
 
 /**
@@ -66,16 +74,50 @@ export async function requireMembership(
 export async function requireMembershipAcl(
   workspaceId: string,
   userId: string,
-): Promise<{ role: WorkspaceRole; acl: AclState }> {
-  const r = await membership(workspaceId, userId, 'full')
+): Promise<{ role: WorkspaceRole; acl: AclState }>
+export async function requireMembershipAcl(
+  workspaceId: string,
+  userId: string,
+  opts: { guests: true },
+): Promise<{ role: WorkspaceAccessRole; acl: AclState }>
+export async function requireMembershipAcl(
+  workspaceId: string,
+  userId: string,
+  opts?: { guests: true },
+): Promise<{ role: WorkspaceAccessRole; acl: AclState }> {
+  const r = await membership(workspaceId, userId, 'full', !!opts?.guests)
   return { role: r.role, acl: r.acl! }
+}
+
+/**
+ * The guest path of the membership check (docs/adr/1252-*): only for routes that opted in with
+ * `{ guests: true }`, only inside a browser request's guest scope for this workspace (tokens never
+ * have one, docs/adr/1253-*). Same live-workspace and 2FA rules as members (1112 applies to guests).
+ * Which pages the guest reaches is decided by visibleTo / findVisiblePage, narrowed by the scope.
+ */
+async function guestMembership(
+  workspaceId: string,
+  userId: string,
+  acl: 'none' | 'version' | 'full',
+): Promise<{ role: WorkspaceAccessRole; acl: AclState | null }> {
+  const c = aclColumns(sql`w.id`)
+  const [row] = (await db.execute(sql`
+    SELECT w.deleted_at AS "deletedAt", ${twoFactorBlockedSql(sql`w.id`, userId)} AS "twoFactorBlocked",
+           ${c.version} AS version, ${c.hasLocks} AS "hasLocks"
+      FROM workspaces w LEFT JOIN workspace_acl_versions a ON a.workspace_id = w.id
+     WHERE w.id = ${workspaceId}
+  `)) as unknown as { deletedAt: Date | null; twoFactorBlocked: boolean; version: string; hasLocks: boolean }[]
+  if (!row || row.deletedAt) throw notFound()
+  if (row.twoFactorBlocked) throw twoFactorRequired(workspaceId)
+  return { role: 'guest', acl: acl === 'full' ? toAcl(workspaceId, row.version, row.hasLocks) : null }
 }
 
 async function membership(
   workspaceId: string,
   userId: string,
   acl: 'none' | 'version' | 'full',
-): Promise<{ role: WorkspaceRole; acl: AclState | null }> {
+  guests = false,
+): Promise<{ role: WorkspaceAccessRole; acl: AclState | null }> {
   // A connection limited to other workspaces or to a subtree elsewhere (docs/adr/1200-*).
   assertWorkspaceInRange(workspaceId, userId)
   const c = aclColumns(sql`${workspaceMembers.workspaceId}`)
@@ -107,7 +149,11 @@ async function membership(
           .limit(1)
 
   const row = rows[0]
-  if (!row) throw forbidden()
+  if (!row) {
+    // Not a member: a guest of this workspace on a route that lets guests in, else 403 as always.
+    if (guests && isGuestIn(workspaceId, userId)) return guestMembership(workspaceId, userId, acl)
+    throw forbidden()
+  }
   if (row.deletedAt) throw notFound()
   // People and agents alike: an agent request runs as its token's owner (docs/adr/1112-*).
   if (row.twoFactorBlocked) throw twoFactorRequired(workspaceId)

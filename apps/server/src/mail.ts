@@ -210,6 +210,41 @@ export function inviteMail(o: {
   })
 }
 
+/** Invitation to one page for an address without an account (docs/adr/1250-*). */
+export function pageInviteMail(o: {
+  inviter: string
+  pageTitle: string
+  workspaceName: string
+  url: string
+  expiresAt: Date
+  locale?: Locale | null
+}): MailContent {
+  const L = resolveLocale(o.locale)
+  const expires = fmtMailDateTime(o.expiresAt, L)
+  const title = o.pageTitle || (L === 'ko' ? '제목 없음' : 'Untitled')
+  const m = {
+    en: {
+      subject: `[Inkling] ${o.inviter} shared "${title}" with you`,
+      lines: [
+        `${o.inviter} invited you to the page "${title}" in ${o.workspaceName}.`,
+        'Sign in with this email address (or create an account with it) and open the link to accept.',
+        `Expires: ${expires}`,
+      ],
+      linkLabel: 'Open the invitation',
+    },
+    ko: {
+      subject: `[Inkling] ${o.inviter} 님이 "${title}" 페이지를 공유했습니다`,
+      lines: [
+        `${o.inviter} 님이 ${o.workspaceName}의 "${title}" 페이지에 초대했습니다.`,
+        '이 이메일 주소로 로그인하거나 가입한 다음 링크를 열면 초대가 받아집니다.',
+        `만료: ${expires}`,
+      ],
+      linkLabel: '초대 열기',
+    },
+  }[L]
+  return compose({ subject: m.subject, lines: m.lines, link: { label: m.linkLabel, url: o.url } })
+}
+
 export function verifyMail(o: {
   name: string
   token: string

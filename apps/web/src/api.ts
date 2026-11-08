@@ -13,6 +13,7 @@ import {
   revertRowProps,
   type FieldUndo,
 } from './lib/optimistic'
+import { useParams } from 'react-router'
 import { adoptUserLocale, getLocale, setServerDefaultLocale, t, type Locale } from './i18n'
 import { localizeApiError } from './i18n/errors'
 import { noteServerBuild } from './lib/update'
@@ -351,12 +352,29 @@ export function useAuthMode() {
   })
 }
 
+const fetchWorkspaces = () =>
+  api<{ workspaces: WorkspaceDTO[] }>('/api/workspaces').then((r) => r.workspaces)
+
 export function useWorkspaces() {
   return useQuery({
     queryKey: qk.workspaces,
-    queryFn: () =>
-      api<{ workspaces: WorkspaceDTO[] }>('/api/workspaces').then((r) => r.workspaces),
+    queryFn: fetchWorkspaces,
   })
+}
+
+/**
+ * False while the caller is a guest of the workspace (docs/adr/1252-*): a guest only has the pages
+ * shared with them, and the server answers 403 to the workspace-wide and member-only routes, so
+ * those queries stay off. Without `wsId` it reads the route's :wsId; outside a workspace route
+ * (public pages) it is always true and fetches nothing. Waits for the workspace list.
+ */
+export function useMemberScope(wsId?: string): boolean {
+  const params = useParams()
+  const id = wsId || params.wsId || ''
+  const { data } = useQuery({ queryKey: qk.workspaces, queryFn: fetchWorkspaces, enabled: !!id })
+  if (!id) return true
+  if (!data) return false
+  return data.find((w) => w.id === id)?.role !== 'guest'
 }
 
 export function usePages(wsId: string) {
@@ -375,13 +393,14 @@ export function usePages(wsId: string) {
 }
 
 export function useMembers(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.members(wsId),
     queryFn: () =>
       api<{ members: MemberDTO[] }>(`/api/workspaces/${wsId}/members`).then(
         (r) => r.members,
       ),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
   })
 }
 
@@ -401,11 +420,12 @@ export function useMemberCandidates(wsId: string, q: string) {
 // Unlinked mentions (M12) — visible pages whose title/alias is mentioned in the body but not linked to this page.
 // Fetched only when the section is open (enabled), to avoid needless requests.
 export function useUnlinked(pageId: string | undefined, enabled: boolean) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qk.unlinked(pageId ?? ''),
     queryFn: () =>
       api<{ pages: PageMetaDTO[] }>(`/api/pages/${pageId}/unlinked`).then((r) => r.pages),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 30_000,
   })
 }
@@ -425,6 +445,7 @@ export function useBacklinks(pageId: string | undefined) {
 
 // Title + full-text body search (body matches come with a snippet)
 export function useSearch(wsId: string, q: string) {
+  const member = useMemberScope(wsId)
   const query = q.trim()
   return useQuery({
     queryKey: qk.search(wsId, query),
@@ -432,38 +453,41 @@ export function useSearch(wsId: string, q: string) {
       api<{ pages: SearchResult[] }>(
         `/api/workspaces/${wsId}/search?q=${encodeURIComponent(query)}`,
       ).then((r) => r.pages),
-    enabled: !!wsId && query.length > 0,
+    enabled: !!wsId && query.length > 0 && member,
     staleTime: 10_000,
   })
 }
 
 // Workspace knowledge graph (nodes = pages, edges = wiki links)
 export function useGraph(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.graph(wsId),
     queryFn: () => api<GraphDTO>(`/api/workspaces/${wsId}/graph`),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 15_000,
   })
 }
 
 /** Unlinked pages and link islands (graph settings panel); the server answers 304 while the graph is unchanged. */
 export function useGraphIslands(wsId: string, enabled = true) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: [...qk.graph(wsId), 'islands'] as const,
     queryFn: () => api<GraphIslandsDTO>(`/api/workspaces/${wsId}/graph/islands`),
-    enabled: !!wsId && enabled,
+    enabled: !!wsId && enabled && member,
     staleTime: 15_000,
   })
 }
 
 // Trash (fetched only while the modal is open)
 export function useTrash(wsId: string, enabled: boolean) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.trash(wsId),
     queryFn: () =>
       api<{ pages: PageMetaDTO[] }>(`/api/workspaces/${wsId}/trash`).then((r) => r.pages),
-    enabled: !!wsId && enabled,
+    enabled: !!wsId && enabled && member,
   })
 }
 
@@ -488,37 +512,40 @@ export function useInvitePreview(code: string) {
 
 // My bookmarks limited to live + visible pages of this workspace (sortOrder asc).
 export function useBookmarks(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.bookmarks(wsId),
     queryFn: () =>
       api<{ bookmarks: BookmarkDTO[] }>(`/api/workspaces/${wsId}/bookmarks`).then(
         (r) => r.bookmarks,
       ),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 10_000,
   })
 }
 
 // Count per tag in the workspace (count desc → name asc).
 export function useTags(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.tags(wsId),
     queryFn: () =>
       api<{ tags: TagCountDTO[] }>(`/api/workspaces/${wsId}/tags`).then((r) => r.tags),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 15_000,
   })
 }
 
 // Visible pages carrying a given tag.
 export function useTagPages(wsId: string, tag: string | undefined) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.tagPages(wsId, tag ?? ''),
     queryFn: () =>
       api<{ pages: PageMetaDTO[] }>(
         `/api/workspaces/${wsId}/tags/${encodeURIComponent(tag!)}/pages`,
       ).then((r) => r.pages),
-    enabled: !!wsId && !!tag,
+    enabled: !!wsId && !!tag && member,
     staleTime: 15_000,
   })
 }
@@ -526,10 +553,11 @@ export function useTagPages(wsId: string, tag: string | undefined) {
 // Due view — rows (due-like date fields), page date properties and tasks in documents, grouped into sections
 // (overdue/today/tomorrow/this week/next 30 days/done). Server GET /workspaces/:id/due. The sidebar badge (overdue + today) uses this query too.
 export function useDue(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.due(wsId),
     queryFn: () => api<DueResponseDTO>(`/api/workspaces/${wsId}/due`),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 30_000,
   })
 }
@@ -537,13 +565,14 @@ export function useDue(wsId: string) {
 // Global calendar — date items in [from, to] (YYYY-MM-DD, at most 62 days): every date field of rows, page date
 // properties, daily notes, tasks in documents. Server GET /workspaces/:id/calendar?from=&to=. visibleTo applies.
 export function useCalendar(wsId: string, from: string, to: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.calendar(wsId, from, to),
     queryFn: () =>
       api<{ events: CalendarEventDTO[] }>(
         `/api/workspaces/${wsId}/calendar?from=${from}&to=${to}`,
       ).then((r) => r.events),
-    enabled: !!wsId && !!from && !!to,
+    enabled: !!wsId && !!from && !!to && member,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   })
@@ -1091,13 +1120,14 @@ export function useDuplicatePage(wsId: string) {
 
 // Built-in (code constants) + this workspace's custom templates.
 export function useTemplates(wsId: string) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qk.templates(wsId),
     queryFn: () =>
       api<{ templates: TemplateDTO[] }>(`/api/workspaces/${wsId}/templates`).then(
         (r) => r.templates,
       ),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 30_000,
   })
 }
@@ -1302,6 +1332,7 @@ export function useImportWorkspace(wsId: string) {
 
 // Collection fields + views + rows. 15 s polling + refresh on focus picks up concurrent team edits.
 export function useCollection(pageId: string | undefined) {
+  const member = useMemberScope()
   const queryClient = useQueryClient()
   return useQuery({
     ...pollingQuery<CollectionBundle>(
@@ -1309,7 +1340,7 @@ export function useCollection(pageId: string | undefined) {
       qk.collection(pageId ?? ''),
       `/api/pages/${pageId}/collection`,
     ),
-    enabled: !!pageId,
+    enabled: !!pageId && member,
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
   })
@@ -1456,13 +1487,14 @@ export function usePublishNotion(pageId: string) {
 
 // A page's snapshots (newest 50). Fetched only while the history section/modal is open.
 export function useSnapshots(pageId: string, enabled: boolean) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qk.snapshots(pageId),
     queryFn: () =>
       api<{ snapshots: SnapshotDTO[] }>(`/api/pages/${pageId}/snapshots`).then(
         (r) => r.snapshots,
       ),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 10_000,
   })
 }
@@ -1596,10 +1628,11 @@ export function useMarkRead() {
 
 // A page's share state (members only). Fetched only while the modal is open (enabled). No retry on 4xx.
 export function useShareStatus(pageId: string | undefined, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qk.share(pageId ?? ''),
     queryFn: () => api<ShareStatusDTO>(`/api/pages/${pageId}/share`),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 10_000,
     retry: false,
   })
@@ -2005,11 +2038,12 @@ export interface SharedItemDTO {
 }
 
 export function useSharedList(wsId: string | undefined) {
+  const member = useMemberScope(wsId ?? '')
   return useQuery({
     queryKey: ['sharedList', wsId ?? ''],
     queryFn: () =>
       api<{ canManage: boolean; items: SharedItemDTO[] }>(`/api/workspaces/${wsId}/shared`),
-    enabled: !!wsId,
+    enabled: !!wsId && member,
     staleTime: 30_000,
   })
 }
@@ -2283,20 +2317,22 @@ export function useBulkUnpublish(wsId: string) {
 }
 
 export function useReviewDue(wsId: string, mine: boolean, enabled = true) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qkAdmin.reviewDue(wsId, mine),
     queryFn: () => api<import('@inkling/shared').ReviewDueDTO>(`/api/workspaces/${wsId}/review-due${mine ? '?mine=1' : ''}`),
-    enabled: !!wsId && enabled,
+    enabled: !!wsId && enabled && member,
   })
 }
 
 type PageReview = import('@inkling/shared').PageReviewDTO
 
 export function usePageReview(pageId: string, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkAdmin.pageReview(pageId),
     queryFn: () => api<{ review: PageReview | null }>(`/api/pages/${pageId}/review`).then((r) => r.review),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     retry: false,
   })
 }
@@ -2448,11 +2484,12 @@ export function useRemoveAgentInstructions(pageId: string, wsId: string) {
 
 /** Every agent instruction page of a workspace. */
 export function useWorkspaceAgentInstructions(wsId: string, enabled = true) {
+  const member = useMemberScope(wsId)
   return useQuery({
     queryKey: qkAdmin.agentInstructions(wsId),
     queryFn: () =>
       api<{ instructions: AgentInstruction[] }>(`/api/workspaces/${wsId}/agent-instructions`).then((r) => r.instructions),
-    enabled: !!wsId && enabled,
+    enabled: !!wsId && enabled && member,
     retry: false,
   })
 }
@@ -2467,10 +2504,11 @@ export function isPageLockedError(e: unknown): e is ApiError {
  * agents receive that text marked as data). Not real-time: refreshed when the page is reopened.
  */
 export function usePageSuspicious(pageId: string | undefined, enabled = true) {
+  const member = useMemberScope()
   return useQuery({
     queryKey: qkAdmin.suspicious(pageId ?? ''),
     queryFn: () => api<import('@inkling/shared').SuspiciousSectionsDTO>(`/api/pages/${pageId}/suspicious`),
-    enabled: !!pageId && enabled,
+    enabled: !!pageId && enabled && member,
     staleTime: 5 * 60_000,
     retry: false,
   })

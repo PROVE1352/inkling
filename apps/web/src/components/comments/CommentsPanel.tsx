@@ -171,6 +171,7 @@ function ThreadCard({
   myId,
   isOwner,
   editor,
+  canComment = true,
 }: {
   thread: Thread
   pageId: string
@@ -178,6 +179,7 @@ function ThreadCard({
   myId: string | undefined
   isOwner: boolean
   editor: InklingEditor | null
+  canComment?: boolean
 }) {
   const tr = useT()
   const update = useUpdateComment(pageId)
@@ -253,7 +255,7 @@ function ThreadCard({
           }}
           onCancel={() => setReplying(false)}
         />
-      ) : (
+      ) : !canComment ? null : (
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -288,11 +290,14 @@ export function CommentsPanel({
   pageId,
   editor,
   members,
+  canComment = true,
 }: {
   wsId: string
   pageId: string
   editor: InklingEditor | null
   members: MemberDTO[]
+  /** False when the caller's level on the page is `view` (docs/adr/1251-*): read the threads only. */
+  canComment?: boolean
 }) {
   const tr = useT()
   const me = useMe()
@@ -322,6 +327,7 @@ export function CommentsPanel({
 
   return (
     <div className="flex flex-col gap-2">
+      {canComment && (
       <button
         type="button"
         onClick={startCompose}
@@ -330,6 +336,7 @@ export function CommentsPanel({
       >
         <MessageIcon size={13} /> {tr('comments.commentOnBlock')}
       </button>
+      )}
 
       {composeBlockId && (
         <div className="flex flex-col gap-1 rounded-md border border-accent/40 bg-accent-soft/40 p-2">
@@ -370,6 +377,7 @@ export function CommentsPanel({
               myId={myId}
               isOwner={isOwner}
               editor={editor}
+              canComment={canComment}
             />
           ))}
         </div>
@@ -394,6 +402,7 @@ export function CommentsPanel({
                 myId={myId}
                 isOwner={isOwner}
                 editor={editor}
+                canComment={canComment}
               />
             ))}
         </div>

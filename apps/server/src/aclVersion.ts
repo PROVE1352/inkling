@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
-import type { WorkspaceRole } from '@inkling/shared'
+import type { WorkspaceAccessRole, WorkspaceRole } from '@inkling/shared'
 import { db } from './db/index'
 import { forbidden } from './errors'
+import { isGuestIn } from './pageGrants'
 
 /**
  * Workspace access version and write gate (docs/adr/1071-*).
@@ -134,7 +135,19 @@ export async function gateWrite(
   tx: Exec,
   workspaceId: string,
   userId: string,
-): Promise<{ role: WorkspaceRole | null; acl: AclState }> {
+): Promise<{ role: WorkspaceRole | null; acl: AclState }>
+export async function gateWrite(
+  tx: Exec,
+  workspaceId: string,
+  userId: string,
+  opts: { guests: true },
+): Promise<{ role: WorkspaceAccessRole | null; acl: AclState }>
+export async function gateWrite(
+  tx: Exec,
+  workspaceId: string,
+  userId: string,
+  opts?: { guests: true },
+): Promise<{ role: WorkspaceAccessRole | null; acl: AclState }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const [r] = (await tx.execute(gateSelectSql(workspaceId, userId))) as unknown as {
       version: string
@@ -149,14 +162,17 @@ export async function gateWrite(
     // Waited for a bumper: the role was read before its commit. The share lock is held now, so the
     // next statement sees the committed state without waiting.
     if (r.snapVersion !== r.version) continue
-    return { role: r.role ?? null, acl: toAcl(workspaceId, r.version, r.hasLocks) }
+    // Not a member: a guest of this workspace on a route that lets guests in (docs/adr/1252-*). Their
+    // rows are re-checked by the caller's assertCan, whose level cache is keyed by this version.
+    const role = r.role ?? (opts?.guests && isGuestIn(workspaceId, userId) ? 'guest' : null)
+    return { role, acl: toAcl(workspaceId, r.version, r.hasLocks) }
   }
   throw new Error(`workspace_acl_versions row for ${workspaceId} could not be read`)
 }
 
 /** What a writer checked before its write: the role and the access version it decided on. */
 export interface CheckedAccess {
-  role: WorkspaceRole | null
+  role: WorkspaceAccessRole | null
   acl: AclState
 }
 
@@ -171,7 +187,7 @@ export interface CheckedAccess {
 export function gatedWriteSql(workspaceId: string, userId: string, checked: CheckedAccess): { ctes: SQL; columns: SQL } {
   return {
     ctes: sql`gate AS (${gateSelectSql(workspaceId, userId)}),
-      gate_ok AS (SELECT 1 FROM gate WHERE gate.version = ${checked.acl.version}::bigint AND gate.role IS NOT DISTINCT FROM ${checked.role}::text)`,
+      gate_ok AS (SELECT 1 FROM gate WHERE gate.version = ${checked.acl.version}::bigint AND gate.role IS NOT DISTINCT FROM ${checked.role === 'guest' ? null : checked.role}::text)`,
     columns: sql`EXISTS (SELECT 1 FROM gate_ok) AS ok`,
   }
 }
@@ -187,11 +203,12 @@ export async function underWriteGate<T>(
   workspaceId: string,
   userId: string,
   checked: CheckedAccess,
-  recheck: (fresh: { role: WorkspaceRole; acl: AclState }, tx: Exec) => Promise<void>,
+  recheck: (fresh: { role: WorkspaceAccessRole; acl: AclState }, tx: Exec) => Promise<void>,
   apply: () => T,
 ): Promise<T> {
   const box = await db.transaction(async (tx) => {
-    const gate = await gateWrite(tx, workspaceId, userId)
+    // A guest's write (docs/adr/1252-*) stays a guest's: the gate maps "no member row" to guest only then.
+    const gate = checked.role === 'guest' ? await gateWrite(tx, workspaceId, userId, { guests: true }) : await gateWrite(tx, workspaceId, userId)
     if (gate.acl.version !== checked.acl.version || gate.role !== checked.role) {
       if (!gate.role) throw forbidden()
       await recheck({ role: gate.role, acl: gate.acl }, tx)

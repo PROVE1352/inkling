@@ -230,6 +230,8 @@ export function RightPanel({
   editor,
   onOpenSearch,
   readOnly = false,
+  guest = false,
+  canComment = true,
 }: {
   open: boolean
   onClose: () => void
@@ -239,6 +241,13 @@ export function RightPanel({
   onOpenSearch: (q: string) => void
   /** Page edit lock denies editing (docs/adr/0970-*): properties, aliases and scope are display only. */
   readOnly?: boolean
+  /**
+   * Guest of the workspace (docs/adr/1252-*): outline, comments, backlinks and outgoing links only.
+   * Review, unlinked mentions, tags (search), local graph, aliases, history and properties are member features.
+   */
+  guest?: boolean
+  /** The caller may comment here (PageLockDTO.canComment; a guest with view access may not). */
+  canComment?: boolean
 }) {
   const tr = useT()
   const navigate = useNavigate()
@@ -346,12 +355,12 @@ export function RightPanel({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const [historyInitialSid, setHistoryInitialSid] = useState<string | null>(null)
-  const snapshots = useSnapshots(page.id, showDocSections && sections.history)
+  const snapshots = useSnapshots(page.id, showDocSections && sections.history && !guest)
   const recentSnapshots = (snapshots.data ?? []).slice(0, 5)
 
   // Unlinked mentions and local graph are doc-only (no editor needed). Unlinked mentions are fetched only when the section is open.
   const isDoc = page.kind === 'doc'
-  const unlinked = useUnlinked(page.id, isDoc && sections.unlinked)
+  const unlinked = useUnlinked(page.id, isDoc && sections.unlinked && !guest)
   const openHistory = (sid: string | null) => {
     setHistoryInitialSid(sid)
     setHistoryOpen(true)
@@ -438,6 +447,7 @@ export function RightPanel({
             pageId={page.id}
             editor={editor}
             members={members.data ?? []}
+            canComment={canComment}
           />
         </Section>
       )}
@@ -469,7 +479,7 @@ export function RightPanel({
       </Section>
 
       {/* Document owner and last review (docs/adr/0951-*) */}
-      {page.kind !== 'folder' && (
+      {page.kind !== 'folder' && !guest && (
         <Section
           title={tr('review.section')}
           open={sections.review}
@@ -479,7 +489,7 @@ export function RightPanel({
         </Section>
       )}
 
-      {isDoc && (
+      {isDoc && !guest && (
         <Section
           title={tr('backlinks.unlinked')}
           count={unlinked.data?.length ?? 0}
@@ -548,7 +558,7 @@ export function RightPanel({
         </Section>
       )}
 
-      {showDocSections && (
+      {showDocSections && !guest && (
         <Section
           title={tr('rightPanel.tags')}
           count={tags.length}
@@ -575,7 +585,7 @@ export function RightPanel({
         </Section>
       )}
 
-      {isDoc && (
+      {isDoc && !guest && (
         <Section
           title={tr('localGraph.title')}
           open={sections.localGraph}
@@ -590,6 +600,7 @@ export function RightPanel({
         </Section>
       )}
 
+      {!guest && (
       <Section
         title={tr('rightPanel.aliases')}
         count={(page.aliases ?? []).length}
@@ -598,8 +609,9 @@ export function RightPanel({
       >
         <AliasEditor wsId={wsId} page={page} readOnly={readOnly} />
       </Section>
+      )}
 
-      {showDocSections && (
+      {showDocSections && !guest && (
         <Section
           title={tr('rightPanel.history')}
           count={snapshots.data?.length ?? 0}
@@ -644,6 +656,7 @@ export function RightPanel({
         </Section>
       )}
 
+      {!guest && (
       <Section
         title={tr('rightPanel.properties')}
         anchor="props"
@@ -749,6 +762,7 @@ export function RightPanel({
           </div>
         )}
       </Section>
+      )}
     </>
   )
 

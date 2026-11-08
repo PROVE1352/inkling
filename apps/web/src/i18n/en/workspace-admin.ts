@@ -126,7 +126,7 @@ export default {
   'audit.group.agent': 'Agents',
   'audit.group.settings': 'Settings',
   'audit.group.webhook': 'Webhooks',
-  'audit.group.page': 'Edit locks',
+  'audit.group.page': 'Pages (locks, access)',
   'audit.group.instructions': 'Agent instructions',
   'audit.group.content': 'Content checks',
   'audit.action.member.added': 'Member added',

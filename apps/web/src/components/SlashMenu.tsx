@@ -1,5 +1,5 @@
 import type { BlockNoteEditor } from '@blocknote/core'
-import { filterSuggestionItems } from '@blocknote/core/extensions'
+import { FilePanelExtension, filterSuggestionItems } from '@blocknote/core/extensions'
 import {
   getDefaultReactSlashMenuItems,
   SuggestionMenuController,
@@ -11,29 +11,26 @@ import { linkEmbedSlashItems } from './blocks/LinkEmbed'
 import { querySlashItem } from './blocks/QueryBlock'
 import { mathSlashItems } from './blocks/Math'
 import { useT } from '../i18n'
+import { insertFromSlash, withCaretBelow, type SlashEditor } from '../lib/slashInsert'
+
+/** Default items for blocks without inline content: the caret goes to an empty line below them. */
+const CARET_BELOW = new Set(['divider', 'image', 'video', 'audio', 'file'])
+const FILE_BLOCKS = new Set(['image', 'video', 'audio', 'file'])
 
 // Slash ("/") menu controller (M14).
 // BlockNoteView's default slash menu is turned off with slashMenu={false}; here we render the
 // default items (getDefaultReactSlashMenuItems — includes built-ins such as toggle list and quote)
-// plus the callout item. → Satisfies B1 (show toggle/quote) and B2 (insert callout) in one menu,
-// with the default items unchanged.
+// plus the callout item. → Satisfies B1 (show toggle/quote) and B2 (insert callout) in one menu.
+// Default items are unchanged except that blocks without text (divider, file blocks) leave the caret on
+// an empty line below them (docs/adr/1270-*).
 export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }) {
   const t = useT()
   // Plugin blocks (experimental `plugins`; [] when off)
   const pluginItems = usePluginSlashItems(editor)
   // Insert a callout — replaces the current block if it is an empty paragraph, otherwise inserts
-  // below it, then puts the cursor inside.
+  // below it, then puts the cursor inside (lib/slashInsert.ts: rendered before the caret moves in).
   const insertCallout = (type: CalloutType) => {
-    const cur = editor.getTextCursorPosition().block
-    const callout = { type: 'callout' as const, props: { type } }
-    const empty =
-      (!Array.isArray(cur.content) || cur.content.length === 0) &&
-      (!Array.isArray(cur.children) || cur.children.length === 0)
-    const inserted =
-      empty && cur.type === 'paragraph'
-        ? editor.replaceBlocks([cur], [callout]).insertedBlocks[0]
-        : editor.insertBlocks([callout], cur, 'after')[0]
-    if (inserted) editor.setTextCursorPosition(inserted, 'end')
+    insertFromSlash(editor as unknown as SlashEditor, { type: 'callout', props: { type } }, 'inside')
   }
 
   const getItems = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
@@ -50,7 +47,23 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
     }
     return filterSuggestionItems(
       groupContiguous([
-        ...getDefaultReactSlashMenuItems(editor),
+        ...getDefaultReactSlashMenuItems(editor).map((item) => {
+          // the React item type drops `key`, the objects still carry BlockNote's item key
+          const key = (item as { key?: string }).key ?? ''
+          return CARET_BELOW.has(key)
+            ? {
+                ...item,
+                onItemClick: withCaretBelow(
+                  editor as unknown as SlashEditor,
+                  item.onItemClick,
+                  // BlockNote opens its file panel on insert and closes it on any selection change
+                  FILE_BLOCKS.has(key)
+                    ? (id) => editor.getExtension(FilePanelExtension)?.showMenu(id)
+                    : undefined,
+                ),
+              }
+            : item
+        }),
         calloutItem,
         ...pluginItems,
         ...linkEmbedSlashItems(editor),

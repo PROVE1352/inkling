@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { WorkspaceRole } from '@inkling/shared'
+import type { WorkspaceAccessRole, WorkspaceRole } from '@inkling/shared'
 import { db } from './db/index'
 import { badRequest, forbidden } from './errors'
 import { isManagerRole } from './workspaceAdmin'
@@ -123,7 +123,8 @@ export async function assertPlacement(
     workspaceId: string
     parentId: string
     movingId?: string
-    role: WorkspaceRole
+    /** 'guest': only under the pages shared with them, with edit access (docs/adr/1252-*). */
+    role: WorkspaceAccessRole
     /**
      * The acting member: the parent must be editable for them (edit lock, docs/adr/0970-*), and a
      * moved subtree must be editable as a whole. Inside an MCP request the agent rules apply.

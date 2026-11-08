@@ -7,6 +7,49 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-08
+
+Database migration 0038 adds `page_grants`, `page_invites` and `workspaces.guest_invite_policy`. It only adds; existing
+members and pages behave as before until someone shares a page with a person.
+
+### Added
+- Guests: share a page tree with someone outside the workspace from the page's Share dialog by email, as Can view, Can
+  comment or Can edit. Existing accounts get access at once; other addresses get an invitation (mailed, or a link to
+  copy) that only an account with that address can accept. Guests see only the pages shared with them; workspace-wide
+  screens, search, members and settings stay member-only (docs/adr/1250-*, 1252-*).
+- Page levels for members: a member's own level on a page tree (view, comment, edit, or full, which manages people
+  there) replaces the default edit; owners and admins always have full access. Enforced with the edit lock on every
+  write path, the collaboration socket and MCP (`can:`, new error `PAGE_ACCESS`) (docs/adr/1251-*).
+- Workspace settings: "Who can invite guests" (nobody / owners / owners and admins, the default / members who can edit
+  the page) and a guest list with bulk removal. Audit actions `page.access_granted`, `page.access_changed`,
+  `page.access_removed`, `page.guest_invited`, `guests.removed`.
+- API tokens and MCP connections never reach workspaces where their owner is a guest; a workspace's two-step
+  requirement applies to guests (docs/adr/1253-*).
+- Heading folds from the keyboard (⌘. / Ctrl+.); on touch screens a tap on a heading shows its fold arrow; folded
+  headings show "…" (docs/adr/1271-*).
+
+### Changed
+- Softer look: one corner scale (7, 10, 14, 18 px) for buttons, menus, cards and modals; rounded tables, images and code
+  blocks; lighter shadows with an edge on the dark theme; drawn checkboxes (docs/adr/1280-*).
+- Motion: menus, popovers and the slash menu scale in from their trigger; modals fade and scale (rise on phones); toasts
+  slide up; menus, dialogs, toasts and tree folders animate out; tree folders open with a height reveal and a turning
+  arrow. Everything is instant with reduced motion (docs/adr/1281-*).
+- After inserting a divider, image, video, audio, file or plugin block from the `/` menu, the cursor goes to an empty
+  line below it instead of the end of the next block (docs/adr/1270-*).
+- "Share to web" is now "Share"; the dialog holds people and the web link. `WorkspaceDTO.role` can be `guest`;
+  `PageLockDTO` adds `level` and `guest`.
+
+### Fixed
+- Text typed right after inserting a callout from the `/` menu landed in the block before or after it, and the math
+  block and inline math lost their first keystrokes the same way (docs/adr/1270-*).
+- Exporting a single canvas no longer resolves page nodes to titles of pages in other workspaces.
+
+### Performance
+- Members without page rows: no change (one EXISTS in the user lookup, visibility SQL unchanged). Accounts with rows:
+  +0.3–0.5 ms per request. A guest opening a page: about 10 ms.
+- Motion: scroll and typing on a 2,000-block page within noise; collapsing an open 1,024-row tree 59–81 → 27–39 ms.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## [0.8.0] - 2026-11-08
 
 No database migration.

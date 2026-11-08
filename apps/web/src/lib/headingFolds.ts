@@ -125,6 +125,28 @@ export function foldsToOpen(
   return open
 }
 
+/**
+ * The heading the fold shortcut (⌘. / Ctrl+.) acts on for a caret at `$pos`: the top-level heading the
+ * caret is in, otherwise the nearest top-level heading above the caret's top-level block (the section it
+ * is reading). `inHeading` is false when the caret is in the section's body or in the heading's own
+ * nested children; folding then has to move the caret onto the heading first, or the selection would
+ * reopen the fold at once (`foldsToOpen`). Null before the first heading or outside the root group.
+ */
+export function foldTarget(
+  $pos: FoldPos,
+  group: FoldNode | null,
+): { id: string; inHeading: boolean } | null {
+  if (!group || $pos.depth < 2) return null
+  const top = $pos.node(2)
+  const inHeading = $pos.depth >= 3 && $pos.node(3).type.name === 'heading'
+  if (inHeading) return { id: String(top.attrs.id ?? ''), inHeading: true }
+  for (let i = Math.min($pos.index(1), group.childCount - 1); i >= 0; i--) {
+    const c = group.child(i)
+    if (headingLevel(c)) return { id: String(c.attrs.id ?? ''), inHeading: false }
+  }
+  return null
+}
+
 /** Stylesheet hiding what the layout hides; screen only, so printing shows the whole document. */
 export function foldCss(layout: FoldLayout, escape: (s: string) => string = cssEscape): string {
   const sel: string[] = []
@@ -132,8 +154,25 @@ export function foldCss(layout: FoldLayout, escape: (s: string) => string = cssE
   for (const id of layout.withChildren)
     sel.push(`.bn-block-outer[data-id="${escape(id)}"] > .bn-block > .bn-block-group`)
   if (!sel.length) return ''
-  return `@media screen {\n${sel.join(',\n')} { display: none !important; }\n}`
+  // "…" after the text of a folded heading that hides something (docs/adr/1271-*). A pseudo-element: not
+  // a DOM node, so ProseMirror never sees it and the caret cannot enter it. The empty alternative text
+  // keeps screen readers from reading it (the arrow says "Unfold section").
+  const owners = new Set<string>([...layout.hiddenBy.values(), ...layout.withChildren])
+  const more = [...owners].map(
+    (id) => `.bn-block-outer[data-id="${escape(id)}"] > .bn-block > .bn-block-content > .bn-inline-content::after`,
+  )
+  return (
+    `@media screen {\n${sel.join(',\n')} { display: none !important; }\n` +
+    `${more.join(',\n')} { content: "\\2026"; content: "\\2026" / ""; ${FOLD_MORE_STYLE} }\n}`
+  )
 }
+
+/** The "…" marker's look; colours are the theme's tokens, so light and dark both work. */
+const FOLD_MORE_STYLE =
+  'margin-inline-start: 0.4em; padding: 0.1em 0.45em; border-radius: 4px; font-size: 0.6em; line-height: 1; ' +
+  'vertical-align: 0.2em; font-weight: 400; ' +
+  'color: var(--color-sub); background: var(--color-hover); pointer-events: none; user-select: none;'
+
 
 function cssEscape(s: string): string {
   return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&')

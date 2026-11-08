@@ -49,6 +49,7 @@ import { registerApiTokenRoutes } from './routes/apiTokens'
 import { rateLimitKey } from './rateLimitKey'
 import { registerPageContentRoutes } from './routes/pageContent'
 import { registerEditLockRoutes } from './routes/editLock'
+import { registerPageAccessRoutes } from './routes/pageAccess'
 import { registerContextRoutes } from './routes/context'
 import { registerChangeRoutes } from './routes/changes'
 import { registerTaskRoutes } from './routes/tasks'
@@ -461,6 +462,8 @@ async function main(): Promise<void> {
       await registerPageContentRoutes(api)
       // Edit lock and agent instruction pages (docs/adr/0970-*, 0975-*)
       await registerEditLockRoutes(api)
+      // People with access to a page tree and guests (docs/adr/1250-*)
+      await registerPageAccessRoutes(api)
       // Agent retrieval: find_context, outline/section, batch read, section patch (docs/adr/0926-0930)
       await registerContextRoutes(api)
       // Change feed for agents: changes_since (docs/adr/0932-*)

@@ -112,10 +112,14 @@ The panel button at the top right of a page opens the right panel: **Properties*
   edge when the window is wide enough. Point at the lines to see the headings and click one to go there; the
   heading you are reading is the darker line. Turn it off in Settings → Editor → **Outline in the margin**.
 - **Folding**: point at a top-level heading and click the arrow left of it to fold everything up to the next
-  heading of the same or a higher level. Click again to unfold. Folds are remembered per page on this device only
-  and never change the document, so others see it unfolded. A folded section opens by itself when the cursor moves
-  into it (for example Enter at the end of the heading), when you jump to something inside it from the outline,
-  a comment or a task, and when you press ⌘F (Ctrl+F) to search the page with the browser. Pen mode and printing
+  heading of the same or a higher level. Click again to unfold. From the keyboard, ⌘. (Ctrl+.) folds or unfolds
+  the section the cursor is in; from inside the section the cursor moves to its heading first. On a phone or
+  tablet, tap a heading and an arrow appears at the end of its line; tap the arrow. A folded heading shows "…"
+  after its text and keeps its arrow. Folds are remembered per page on this device only and never change the
+  document, so others see it unfolded. A folded section opens by itself when the cursor moves into it (for
+  example Enter at the end of the heading), when you jump to something inside it from the outline, a comment or
+  a task, and when you press ⌘F (Ctrl+F): the browser's find can't see folded text and doesn't tell the page
+  what you search for, so every fold on the page opens, not only the ones with a match. Pen mode and printing
   show the whole page. Headings nested inside other blocks don't fold.
 
 ### Pen mode
@@ -220,11 +224,45 @@ app, member, page or kind of change, and open **Show changes** to see a diff.
 Workspace menu → **Members** to see members, add people you already share another workspace with, and copy or
 regenerate the invite link. **Copy invite link** is also at the bottom of the sidebar.
 
+### People with access and guests
+
+The page **Share** dialog has a **People** part above the web link. Here you give one person a level on
+a page and everything under it:
+
+| Level | Read | Comment | Edit | Manage who has access |
+|---|---|---|---|---|
+| Can view | yes | | | |
+| Can comment | yes | yes | | |
+| Can edit (members' default) | yes | yes | yes | |
+| Full access (members only) | yes | yes | yes | yes |
+
+- **Members**: everyone already has **Can edit** on shared pages. A level here replaces that for this page
+  tree, lower ("Kim can only view the contracts") or higher (**Full access** lets them manage people there).
+  Workspace owners and admins always have full access. Only people with full access to the page, owners and
+  admins can change members' levels.
+- **Guests** are people outside the workspace. Type their email address: an account on this server gets
+  access at once; for an address without an account, Inkling sends an invitation (or shows a link to copy
+  when the server has no mail set up). They must sign in or sign up with that same address to accept.
+  Guests see only the pages shared with them and the pages under them: nothing else of the workspace,
+  no search, graph, members list or settings. They can view, comment or edit (never manage people), and
+  they get a **Guest** badge. Database pages don't open for guests yet.
+- Who may invite guests is a workspace setting (Workspace settings › General › **Who can invite guests**):
+  nobody, owners, owners and admins (the default), or members who can edit the page. Members never give more than they have.
+- A level set on a parent page shows as inherited on the pages under it; change it on the parent.
+- The edit lock still applies on top: a guest with **Can edit** cannot edit a locked page unless the lock
+  allows it.
+
+Workspace settings › Members › **Guests** lists every guest with their pages and levels; owners and admins can remove
+several at once. A guest who joins the workspace becomes an ordinary member, and someone removed from the
+workspace loses their page levels too. Guests use the web app only: their API tokens and AI connections
+don't reach the workspaces where they are guests. If the workspace requires two-step verification, so does
+every guest.
+
 ## Sharing on the web
 
 Only workspace owners and admins can publish or stop sharing.
 
-1. Click the globe button in the page header, or **Share to web** in the tree's **⋯** menu.
+1. Click **Share** in the page header, or **Share…** in the tree's **⋯** menu.
 2. **Publish to web**, then copy the link. Anyone with it can read the page without signing in. Nobody can edit
    through it.
 3. Sharing a folder publishes every page in it, except private pages.
@@ -476,6 +514,7 @@ Custom shortcuts aren't supported yet.
 | Toggle checkbox | ⌘L | Ctrl+L |
 | Inline math (wraps the selection) | ⌘⇧E or `$…$` | Ctrl+Shift+E or `$…$` |
 | Delete current block | ⌘D | Ctrl+D |
+| Fold / unfold the section at the cursor | ⌘. | Ctrl+. |
 | Undo | ⌘Z | Ctrl+Z |
 
 ⌘L and ⌘D work only while the cursor is in a document. In a normal browser tab ⌘N may open a new window, so use ⌘⌥N.
@@ -495,8 +534,12 @@ screen share and the right panel move into **⋯** too.
 Shared pages: every member of the workspace. Private (🔒) pages: only you, and your own connected AI apps.
 
 **Can I give someone read-only access?**
-There is no read-only member role. Use an [edit lock](#edit-lock) so only chosen people can edit, or
-[share a read-only web link](#sharing-on-the-web).
+Yes: in the page's **Share** dialog give them **Can view** on that page (and its subpages), as a member or as
+a guest ([People with access and guests](#people-with-access-and-guests)). An [edit lock](#edit-lock) and a
+[read-only web link](#sharing-on-the-web) still work as before.
+
+**Can someone outside the workspace edit one page?**
+Invite them as a guest with **Can edit** on that page. They see only that page tree.
 
 **I deleted a page by mistake.**
 Open **Trash** at the bottom of the sidebar and **Restore** it. To get back an older version of the text, use

@@ -17,6 +17,7 @@ import { hashSessionToken, mayBeLegacyToken } from './sessionTokens'
 import { getApiTokenUser, isApiTokenShaped } from './apiTokens'
 import { assertNotBanned, recordFailure } from './guard'
 import { runInRange } from './tokenRange'
+import { hasGrantsSql, peopleScopeFor, runAsGuest } from './pageGrants'
 import { assertBearerRouteAllowed } from './tokenPolicy'
 import type { RangeScope } from './tokenRange'
 import { newSessionToken } from './util'
@@ -50,6 +51,11 @@ export interface AuthUser {
    * user can see. requireUser runs the request inside it (tokenRange.ts).
    */
   range?: RangeScope | null
+  /**
+   * The account has rows in page_grants (docs/adr/1250-*), read in the user lookup statement.
+   * requireUser then loads the guest scope (pageGrants.ts); false/absent = no extra statement.
+   */
+  hasGrants?: boolean
 }
 
 // Add the authenticated user to FastifyRequest (declaration merging)
@@ -140,6 +146,7 @@ export async function getSessionUser(token: string): Promise<AuthUser | null> {
       isAdmin: users.isAdmin,
       expiresAt: sessions.expiresAt,
       stored: sessions.token,
+      hasGrants: hasGrantsSql(users.id),
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
@@ -159,7 +166,7 @@ export async function getSessionUser(token: string): Promise<AuthUser | null> {
     await db.update(sessions).set({ token: tokenHash }).where(eq(sessions.token, row.stored))
   }
 
-  return { id: row.id, email: row.email, name: row.name, isAdmin: row.isAdmin }
+  return { id: row.id, email: row.email, name: row.name, isAdmin: row.isAdmin, ...(row.hasGrants ? { hasGrants: true } : {}) }
 }
 
 export async function destroySession(token: string): Promise<void> {
@@ -221,10 +228,16 @@ export function requireUser(
   // The scope has to be entered here, around `done`: the handler runs from inside that call.
   // A limited connection (docs/adr/1200-*) also runs inside its range, for OAuth grants and API
   // tokens alike; the access checks (requireMembership, visibleTo, agentAllowedSql) read it.
-  auth.then(
-    () => {
+  auth
+    // Page rows of the account (docs/adr/1252-*), read in the user lookup: with rows, continue inside
+    // its guest scope, so visibleTo / pageInRangeSql narrow the workspaces where it is not a member
+    // (for tokens: hide them, docs/adr/1253-*). Without rows the scope only says so (no statement).
+    .then(() => (req.user ? peopleScopeFor(req.user.id, !!req.user.hasGrants, req.authVia !== 'cookie') : null))
+    .then(
+    (guest) => {
       const u = req.user
-      const next = u?.range ? () => runInRange(u.range!, () => done()) : () => done()
+      const inner = u?.range ? () => runInRange(u.range!, () => done()) : () => done()
+      const next = guest ? () => runAsGuest(guest, inner) : inner
       if (req.authVia === 'bearer' && u?.grantId && u.clientId) {
         runAsAgent({ userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }, next)
       } else {

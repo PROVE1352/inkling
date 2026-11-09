@@ -16,6 +16,32 @@ export type AdminStatusDTO = {
   groups: StatusGroup[]
   issues: StatusItem[]
   cache: { hit: boolean; ageSec: number; ttlSec: number }
+  /** Agent connections and API tokens since the server started (docs/adr/1552-*). */
+  agents?: AgentUsage
+}
+
+export type ConnectionUsage = {
+  kind: 'agent' | 'token'
+  id: string
+  name: string | null
+  user: { id: string; name: string } | null
+  calls: number
+  errors: number
+  tokens: number
+  cacheHits: number
+  avgMs: number
+  p95Ms: number
+  waitSec: number
+  lastUsedAt: string
+}
+
+export type AgentUsage = {
+  since: string
+  totals: { connections: number; calls: number; errors: number; tokens: number; cacheHits: number }
+  cache: { hits: number; misses: number; entries: number; bytes: number }
+  waiting: number
+  connections: ConnectionUsage[]
+  more: number
 }
 
 export const statusKeys = { admin: ['admin', 'status'] as const }

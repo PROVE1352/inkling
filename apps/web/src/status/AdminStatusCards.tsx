@@ -1,9 +1,9 @@
 import { ApiError } from '../api'
 import { RefreshIcon } from '../components/Icons'
 import { Spinner } from '../components/Spinner'
-import { fmtRelative, useT } from '../i18n'
-import { useAdminStatus, useRecheckStatus, type StatusGroup, type StatusItem, type StatusLevel } from './api'
-import { groupTitle, itemLabel, itemValue, problemText } from './text'
+import { fmtDateTime, fmtNumber, fmtRelative, useT } from '../i18n'
+import { useAdminStatus, useRecheckStatus, type AgentUsage, type StatusGroup, type StatusItem, type StatusLevel } from './api'
+import { fmtBytes, groupTitle, itemLabel, itemValue, problemText } from './text'
 
 // Admin page, top: one card per area (backups, storage, app, security settings, updates) with its
 // worst level, a one-line summary and the rows behind it (docs/adr/1230-*). Quiet when all is well:
@@ -75,6 +75,82 @@ function Card({ g }: { g: StatusGroup }) {
   )
 }
 
+const compact = (n: number) => fmtNumber(n, { notation: 'compact', maximumFractionDigits: 1 })
+
+/**
+ * Agent connections and API tokens since the server started (docs/adr/1550-* .. 1552-*): totals,
+ * the find_context cache, waiting changes_since calls and one row per connection. Numbers only.
+ */
+function AgentUsageSection({ a }: { a: AgentUsage }) {
+  const tr = useT()
+  const total = a.cache.hits + a.cache.misses
+  const th = 'px-2 py-1 text-left font-medium text-sub'
+  const td = 'px-2 py-1 tabular-nums'
+  return (
+    <div className="mt-4 rounded-lg border border-line p-3" data-testid="status-agents">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h3 className="text-sm font-semibold text-ink">{tr('adminStatus.agents.title')}</h3>
+        <span className="text-xs text-sub">{tr('adminStatus.agents.since', { when: fmtDateTime(a.since) })}</span>
+      </div>
+      <p className="mt-1 text-xs text-sub">
+        {[
+          tr('adminStatus.agents.calls', { count: a.totals.calls }),
+          tr('adminStatus.agents.tokens', { tokens: compact(a.totals.tokens) }),
+          tr('adminStatus.agents.errors', { count: a.totals.errors }),
+        ].join(' · ')}
+        {' · '}
+        {tr('adminStatus.agents.cache', { hits: fmtNumber(a.cache.hits), total: fmtNumber(total), entries: fmtNumber(a.cache.entries), size: fmtBytes(a.cache.bytes) })}
+        {a.waiting > 0 && ` · ${tr('adminStatus.agents.waiting', { count: a.waiting })}`}
+      </p>
+      {a.connections.length === 0 ? (
+        <p className="mt-2 text-xs text-sub">{tr('adminStatus.agents.empty')}</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full border-t border-line text-xs sm:min-w-[560px]">
+            <thead>
+              <tr>
+                <th className={th}>{tr('adminStatus.agents.col.name')}</th>
+                <th className={`${th} text-right`}>{tr('adminStatus.agents.col.calls')}</th>
+                <th className={`${th} text-right`}>{tr('adminStatus.agents.col.tokens')}</th>
+                <th className={`${th} hidden text-right sm:table-cell`}>{tr('adminStatus.agents.col.errors')}</th>
+                <th className={`${th} hidden text-right sm:table-cell`}>{tr('adminStatus.agents.col.cache')}</th>
+                <th className={`${th} hidden text-right sm:table-cell`}>{tr('adminStatus.agents.col.latency')}</th>
+                <th className={th}>{tr('adminStatus.agents.col.last')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.connections.map((c) => (
+                <tr key={`${c.kind}:${c.id}`} className="border-t border-line">
+                  <td className="max-w-[220px] px-2 py-1">
+                    <div className="truncate text-ink">{c.name ?? tr('adminStatus.agents.revoked')}</div>
+                    <div className="truncate text-sub">
+                      {tr(`adminStatus.agents.kind.${c.kind}`)}
+                      {c.user ? ` · ${c.user.name}` : ''}
+                      {/* phones: the hidden columns' one number that needs attention */}
+                      {c.errors > 0 && <span className="text-amber-700 sm:hidden dark:text-amber-400"> · {tr('adminStatus.agents.errors', { count: c.errors })}</span>}
+                    </div>
+                  </td>
+                  <td className={`${td} text-right text-ink`}>{fmtNumber(c.calls)}</td>
+                  <td className={`${td} text-right text-ink`}>{compact(c.tokens)}</td>
+                  <td className={`${td} hidden text-right sm:table-cell ${c.errors ? 'text-amber-700 dark:text-amber-400' : 'text-sub'}`}>{fmtNumber(c.errors)}</td>
+                  <td className={`${td} hidden text-right text-sub sm:table-cell`}>{fmtNumber(c.cacheHits)}</td>
+                  <td className={`${td} hidden text-right text-sub sm:table-cell`}>
+                    {c.avgMs} / {c.p95Ms} ms
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1 text-sub" title={fmtDateTime(c.lastUsedAt)}>
+                    {fmtRelative(c.lastUsedAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {a.more > 0 && <p className="mt-1 text-[11px] text-sub">{tr('adminStatus.agents.more', { count: a.more })}</p>}
+    </div>
+  )
+}
+
 export function AdminStatusCards() {
   const tr = useT()
   const q = useAdminStatus(true)
@@ -115,6 +191,7 @@ export function AdminStatusCards() {
             ))}
           </div>
           <p className="mt-2 text-[11px] text-sub">{tr('adminStatus.offHint')}</p>
+          {d.agents && <AgentUsageSection a={d.agents} />}
         </>
       )}
     </section>

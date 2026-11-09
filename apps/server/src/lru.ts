@@ -39,6 +39,17 @@ export class BoundedLru<V> {
     }
   }
 
+  /** The value without touching recency or expiry (listings, diagnostics); undefined when expired. */
+  peek(key: string): V | undefined {
+    const e = this.map.get(key)
+    return e && e.expires > Date.now() ? e.value : undefined
+  }
+
+  /** Keys from least to most recently used (expired entries included until they are touched). */
+  keys(): IterableIterator<string> {
+    return this.map.keys()
+  }
+
   /** Removes every entry whose key starts with `prefix` (explicit invalidation). */
   deletePrefix(prefix: string): void {
     for (const k of [...this.map.keys()]) if (k.startsWith(prefix)) this.drop(k)

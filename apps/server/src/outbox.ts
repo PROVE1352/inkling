@@ -136,7 +136,19 @@ export function outboxCommitted(topics: Iterable<OutboxTopic>, opts: { foreign?:
   for (const t of topics) {
     kickOutbox(t)
     if (t === 'change' || opts.foreign) announce(t)
+    for (const fn of commitListeners) fn(t)
   }
+}
+
+const commitListeners: ((topic: OutboxTopic) => void)[] = []
+
+/**
+ * Called after this process committed rows of a topic (next to the local kick), e.g. to wake
+ * changes_since calls: another process's consumer may apply those rows, and this one would then
+ * never see its own pass commit them (docs/adr/1551-*). Listeners must not throw.
+ */
+export function onOutboxCommitted(fn: (topic: OutboxTopic) => void): void {
+  commitListeners.push(fn)
 }
 
 /** Announcements in flight per topic; 'again' = a commit came in meanwhile, send one more after it. */
@@ -360,6 +372,15 @@ export async function purgeOutbox(now = new Date()): Promise<number> {
 // ---------------------------------------------------------------------------
 
 let listenClient: postgres.Sql | null = null
+const announcementListeners: ((topic: OutboxTopic) => void)[] = []
+
+/**
+ * Called for every announcement of another process (after its local kick), e.g. to wake
+ * changes_since calls waiting for 'change' rows (docs/adr/1551-*). Listeners must not throw.
+ */
+export function onOutboxAnnouncement(fn: (topic: OutboxTopic) => void): void {
+  announcementListeners.push(fn)
+}
 let pollTimer: NodeJS.Timeout | null = null
 let lastPurge = 0
 
@@ -392,7 +413,10 @@ export async function startOutboxWorker(logger?: (msg: string) => void): Promise
           // "<topic>:<origin>". Our own commits were kicked locally already.
           const [topic, origin] = msg.split(':')
           if (origin === OUTBOX_ORIGIN) return
-          if ((OUTBOX_TOPICS as string[]).includes(topic)) kickOutbox(topic as OutboxTopic)
+          if ((OUTBOX_TOPICS as string[]).includes(topic)) {
+            kickOutbox(topic as OutboxTopic)
+            for (const fn of announcementListeners) fn(topic as OutboxTopic)
+          }
         },
         // (Re)connected: anything committed while we were not listening is picked up now.
         () => {

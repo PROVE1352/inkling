@@ -22,6 +22,21 @@ export function indexEpoch(): string {
 }
 
 /**
+ * Section index (page_chunks) rewrites per workspace, for the find_context cache
+ * (docs/adr/1550-*): finer than indexEpoch, which every link/tag/task write anywhere moves.
+ * Process-local like indexEpoch; one small number per workspace that was reindexed since boot.
+ */
+const chunkEpochs = new Map<string, number>()
+
+export function bumpChunkEpoch(workspaceId: string): void {
+  chunkEpochs.set(workspaceId, (chunkEpochs.get(workspaceId) ?? 0) + 1)
+}
+
+export function chunkEpoch(workspaceId: string): string {
+  return `${BOOT_ID}:${chunkEpochs.get(workspaceId) ?? 0}`
+}
+
+/**
  * Cheap change marker for a workspace: any page edit (doc store bumps pages.updated_at), trash /
  * restore, creation, or collection field change alters it. One indexed aggregate over the
  * workspace's pages (pages_workspace_deleted_idx).

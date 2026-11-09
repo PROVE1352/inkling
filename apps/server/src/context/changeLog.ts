@@ -7,6 +7,7 @@ import { currentEditActor, liveEditors } from './attribution'
 import { notifyPageEdited } from '../notify/producers'
 import type { EditActor } from './attribution'
 import { computeSectionChanges } from './sectionChanges'
+import { changePassStarting, notifyChangesCommitted } from './changeWait'
 import type { SectionChange, SectionChangeKind } from './sectionChanges'
 
 /**
@@ -378,10 +379,18 @@ export async function runChangeBatch(): Promise<number> {
   }
 }
 
+/** Workspace of a log op (for waking changes_since waits, docs/adr/1551-*); relabel adds no rows. */
+function workspaceOf(op: ChangeOp): string | null {
+  return op.op === 'relabel' ? null : op.workspaceId
+}
+
 async function changePass(isolate: boolean): Promise<number> {
   let notified = false
   let notifiedForeign = false
+  const logged = new Set<string>()
+  const passEpoch = changePassStarting()
   const n = await db.transaction(async (tx) => {
+    logged.clear()
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${CHANGE_LOG_LOCK})`)
     const rows = (await tx.execute(sql`
       SELECT id::text AS id, payload, attempts, origin, available_at <= clock_timestamp() AS due
@@ -406,6 +415,8 @@ async function changePass(isolate: boolean): Promise<number> {
           if (r.origin !== OUTBOX_ORIGIN) notifiedForeign = true
         }
         done.push(r.id)
+        const w = workspaceOf(r.payload)
+        if (w) logged.add(w)
         continue
       }
       try {
@@ -415,6 +426,8 @@ async function changePass(isolate: boolean): Promise<number> {
           if (r.origin !== OUTBOX_ORIGIN) notifiedForeign = true
         }
         done.push(r.id)
+        const w = workspaceOf(r.payload)
+        if (w) logged.add(w)
       } catch (err) {
         for (const id of ids) blocked.add(id)
         const s = await failRow(tx, 'change', Number(r.id), r.attempts + 1, err, CHANGE_RETRY)
@@ -427,6 +440,8 @@ async function changePass(isolate: boolean): Promise<number> {
   })
   // Follower events carry the origin of their change row: another process is told (docs/adr/1150-*).
   if (notified) outboxCommitted(['notify'], { foreign: notifiedForeign })
+  // Committed: changes_since calls waiting on these workspaces read again (docs/adr/1551-*).
+  if (n > 0 && logged.size) notifyChangesCommitted(logged, passEpoch)
   return n
 }
 

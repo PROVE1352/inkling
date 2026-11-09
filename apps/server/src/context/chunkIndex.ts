@@ -5,7 +5,7 @@ import { pageChunkIndex, pageChunks, pageDocs, pages } from '../db/schema'
 import type { AnyBlock } from '../md/convert'
 import { stateToBlocks } from '../md/convert'
 import { blocksToPlainText, reindexPageText, TEXT_CUT_MARK } from '../md/textIndex'
-import { bumpIndexEpoch } from '../versions'
+import { bumpChunkEpoch, bumpIndexEpoch } from '../versions'
 import { outboxCommitted } from '../outbox'
 import { recordSectionChanges } from './changeLog'
 import type { PageSectionDelta, SectionState } from './changeLog'
@@ -226,6 +226,8 @@ export async function reindexPageChunks(
     chunkIndexStats.rowsWritten += changed.length
     chunkIndexStats.rowsDeleted += Math.max(0, existing.length - removedFrom)
     bumpIndexEpoch()
+    // find_context cache of this workspace (docs/adr/1550-*)
+    bumpChunkEpoch(page.workspaceId)
 
     return true
   } catch (err) {

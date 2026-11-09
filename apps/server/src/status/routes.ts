@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify'
 import { requireAdmin } from '../auth'
 import { evaluateStatus, type StatusGroup, type StatusItem } from './evaluate'
 import { gatherFacts, HEAVY_TTL_MS } from './probes'
+import { agentUsageSummary, type AgentUsageDTO } from './agentUsage'
 
 export interface AdminStatusDTO {
   level: 'ok' | 'warn' | 'error'
@@ -16,6 +17,8 @@ export interface AdminStatusDTO {
   groups: StatusGroup[]
   issues: StatusItem[]
   cache: { hit: boolean; ageSec: number; ttlSec: number }
+  /** Agent connections and API tokens since this process started, live (docs/adr/1552-*). */
+  agents: AgentUsageDTO
 }
 
 export async function registerAdminStatusRoutes(app: FastifyInstance): Promise<void> {
@@ -32,6 +35,7 @@ export async function registerAdminStatusRoutes(app: FastifyInstance): Promise<v
         groups: s.groups,
         issues: s.issues,
         cache: { hit: cache.hit, ageSec: Math.max(0, Math.round((facts.now - cache.at) / 1000)), ttlSec: HEAVY_TTL_MS / 1000 },
+        agents: await agentUsageSummary(),
       }
     },
   )

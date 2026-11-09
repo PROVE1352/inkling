@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ko" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling: AI 에이전트와 같이 쓰는 셀프호스트 팀 노트</title>
+  <meta name="description" content="노션식 데이터베이스와 옵시디언식 링크, 그래프, JSON Canvas를 함께 쓸 수 있는 셀프호스트 노트 앱입니다. 실시간 동시 편집과 AI 에이전트용 MCP 서버가 들어 있고, MIT 라이선스입니다.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="Inkling">
+  <meta property="og:description" content="AI 에이전트가 MCP로 읽고 쓰는 셀프호스트 팀 노트. MIT, 모든 기능 무료.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/doc-light.png">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="alternate" hreflang="en" href="../">
+  <link rel="alternate" hreflang="ko" href="./">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="주 메뉴">
+      <a class="hide-sm" href="#features">기능</a>
+      <a class="hide-sm" href="#agents">에이전트</a>
+      <a class="hide-sm" href="#install">설치</a>
+      <a href="../docs/">문서</a>
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a class="lang" href="../" hreflang="en" lang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow"><b>v0.9.0</b> MIT · 셀프호스트</p>
+      <h1>팀이 쓰고, AI 에이전트도 읽고 쓰는 노트</h1>
+      <p class="lede">
+        노션식 데이터베이스와 옵시디언식 링크, 그래프, JSON Canvas를 한 서버에서 같이 쓸 수 있는 노트 앱입니다.
+        실시간 동시 편집과 AI 에이전트용 MCP 서버가 들어 있고, 모든 기능을 MIT 라이선스로 무료 공개하고 있습니다.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/PROVE1352/inkling">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub에서 보기
+        </a>
+        <a class="btn" href="../docs/GUIDE.ko.html">사용 설명서</a>
+        <a class="btn" href="../docs/MCP.html">에이전트 연결하기</a>
+      </div>
+
+      <div class="quick">
+        <p class="quick-label">5분 만에 설치하기 (Docker와 Compose 플러그인 필요)</p>
+        <div class="term" data-copy>
+<pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git
+<span class="k">cd</span> inkling
+<span class="k">cp</span> .env.example .env
+<span class="c"># .env에 POSTGRES_PASSWORD를 적은 뒤</span>
+<span class="k">docker</span> compose up -d
+<span class="k">./deploy/signup-key.sh</span> new "first admin"
+<span class="c"># http://localhost:3000/register 에서 키를 붙여 넣고 가입</span></code></pre>
+        </div>
+      </div>
+
+      <div class="shot hero-shot">
+        <picture>
+          <source srcset="../assets/ko/doc-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="../assets/ko/doc-light.png" width="1440" height="900" alt="위키링크와 날짜 붙은 할 일, 태그가 있는 주간 회의록. 오른쪽 패널에 백링크, 나가는 링크, 태그, 로컬 그래프가 보입니다">
+        </picture>
+      </div>
+    </div>
+  </section>
+
+  <section class="block promo" id="tour">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">둘러보기</p>
+        <h2>40초 만에 보는 Inkling</h2>
+      </div>
+      <div class="shot promo-shot">
+        <video src="../assets/promo-ko.mp4" poster="../assets/promo-ko-poster.png" width="1280" height="720" controls muted playsinline preload="none" aria-label="Inkling 소개 영상: 팀 노트와, 같은 노트를 MCP로 읽고 고치는 AI 에이전트"></video>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">기능</p>
+        <h2>데이터베이스와 링크로 엮은 문서를 한 서버에서</h2>
+        <p>노션처럼 표와 보드로 일을 정리하고, 옵시디언처럼 문서를 링크로 엮는 일을 같은 워크스페이스에서 할 수 있습니다.</p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-text">
+          <h3>뷰 다섯 가지를 갖춘 데이터베이스</h3>
+          <p>같은 행을 표, 보드, 캘린더, 갤러리, 타임라인으로 볼 수 있고, 뷰마다 정렬과 필터, 그룹을 따로 정합니다.</p>
+          <ul>
+            <li>텍스트, 숫자, 선택, 다중 선택, 날짜, 체크박스, 사람, URL, 관계형, 롤업 속성</li>
+            <li>행 템플릿, CSV·XLSX 가져오기와 내보내기</li>
+            <li>에이전트도 속성 이름으로 행을 조회하고 고칩니다</li>
+          </ul>
+        </div>
+        <div class="pair">
+          <div class="shot"><picture><source srcset="../assets/ko/board-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/board-light.png" width="1440" height="900" loading="lazy" alt="상태별로 묶은 로드맵 데이터베이스 보드 뷰"></picture></div>
+          <div class="shot"><picture><source srcset="../assets/ko/table-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/table-light.png" width="1440" height="900" loading="lazy" alt="같은 로드맵 데이터베이스의 표 뷰"></picture></div>
+        </div>
+      </div>
+
+      <div class="feature flip">
+        <div class="feature-text">
+          <h3>링크, 그래프, 캔버스</h3>
+          <p><code>[[위키링크]]</code>는 자동완성이 되고, 오른쪽 패널에서 백링크와 미연결 멘션을 볼 수 있습니다. 워크스페이스 전체 그래프와 지금 페이지 주변만 보는 로컬 그래프가 있습니다.</p>
+          <ul>
+            <li>옵시디언의 JSON Canvas(<code>.canvas</code>) 형식을 그대로 따르는 캔버스</li>
+            <li>Dataview 문법 일부(<code>TABLE</code>, <code>LIST</code>, <code>TASK</code>)를 쓰는 쿼리 블록</li>
+            <li><code>#태그</code>, <code>@멘션</code>, 데일리 노트</li>
+          </ul>
+        </div>
+        <div class="pair">
+          <div class="shot"><picture><source srcset="../assets/ko/graph-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/graph-light.png" width="1440" height="900" loading="lazy" alt="워크스페이스 링크 그래프"></picture></div>
+          <div class="shot"><picture><source srcset="../assets/ko/canvas-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/canvas-light.png" width="1440" height="900" loading="lazy" alt="카드와 페이지 노드를 선으로 이은 JSON Canvas 화이트보드"></picture></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-text">
+          <h3>할 일과 마감일</h3>
+          <p>문서 안의 체크리스트에 날짜를 붙이면 할 일로 잡혀서 마감 화면과 캘린더에 같이 나옵니다. 데이터베이스에는 따로 캘린더 뷰가 있고, 마감일은 iCal로 구독할 수 있습니다.</p>
+        </div>
+        <div class="shot"><picture><source srcset="../assets/ko/calendar-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/calendar-light.png" width="1440" height="900" loading="lazy" alt="로드맵 행과 문서 속 할 일이 함께 보이는 2026년 11월 워크스페이스 캘린더"></picture></div>
+      </div>
+
+      <div class="grid" style="margin-top:32px">
+        <div class="card">
+          <h3>블록 에디터</h3>
+          <p>슬래시 메뉴, 표, 코드 블록, 체크리스트, 콜아웃, KaTeX 수식, 이미지와 파일 끌어다 놓기. 이름을 붙여 저장하는 버전 기록도 있습니다.</p>
+        </div>
+        <div class="card">
+          <h3>실시간 동시 편집</h3>
+          <p>Yjs로 구현했습니다. 다른 사람의 커서와 접속 상태가 보이고, 오프라인에서 고친 내용은 다시 연결될 때 합쳐집니다.</p>
+        </div>
+        <div class="card">
+          <h3>워크스페이스와 게스트</h3>
+          <p>소유자, 관리자, 멤버 역할과 개인 페이지, 페이지별 권한이 있고, 공유받은 페이지만 보는 게스트를 초대할 수 있습니다.</p>
+        </div>
+        <div class="card">
+          <h3>편집 잠금</h3>
+          <p>페이지와 하위 페이지를 담당자와 지정한 편집자만 고치게 할 수 있습니다. AI 에이전트는 사람과 따로 '코멘트만'이나 '읽기만'으로 묶어 둘 수 있습니다.</p>
+        </div>
+        <div class="card">
+          <h3>가져오기와 내보내기</h3>
+          <p>노션 내보내기 zip, front matter와 <code>[[링크]]</code>를 살린 마크다운·zip, PDF 내보내기, Slack·Discord 웹훅을 지원합니다.</p>
+        </div>
+        <div class="card">
+          <h3>한국어와 영어</h3>
+          <p>화면은 한국어와 영어를 지원하고, PWA로 설치할 수 있으며, 라이트·다크 테마가 있습니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="agents">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">에이전트</p>
+        <h2>앱에 들어 있는 MCP 서버</h2>
+        <p>Claude Code, claude.ai 같은 MCP 클라이언트를 OAuth 2.1로 연결합니다. 사람마다 자기 계정으로 따로 연결하기 때문에 에이전트는 연결한 사람이 볼 수 있는 페이지만 다룹니다. 연결할 때 읽기 전용과 읽기·쓰기 중에서 고를 수 있고, 영구 삭제 도구는 일부러 만들지 않았습니다.</p>
+      </div>
+
+      <div class="agent" data-tabs>
+        <div class="tool-list" role="tablist" aria-label="MCP 도구" aria-orientation="vertical">
+          <button class="tool" role="tab" id="t-find" aria-controls="p-find" aria-selected="true">
+            <b>find_context</b>
+            <span>질문에 맞는 섹션만 골라 정해진 토큰 예산 안에 담아 돌려줍니다. 검색하고 읽는 과정을 한 번에 끝냅니다.</span>
+          </button>
+          <button class="tool" role="tab" id="t-patch" aria-controls="p-patch" aria-selected="false">
+            <b>patch_section</b>
+            <span>읽을 때 받은 버전을 같이 보내서 섹션 하나만 고칩니다. 그사이 바뀌었으면 덮어쓰지 않고 지금 내용을 돌려줍니다.</span>
+          </button>
+          <button class="tool" role="tab" id="t-changes" aria-controls="p-changes" aria-selected="false">
+            <b>changes_since</b>
+            <span>커서 기반 변경 피드입니다. 섹션 단위 diff를 받아서 바뀐 부분만 갱신할 수 있습니다.</span>
+          </button>
+          <button class="tool" role="tab" id="t-rules" aria-controls="p-rules" aria-selected="false">
+            <b>get_instructions<span class="with">와 편집 잠금</span></b>
+            <span>워크스페이스 규칙은 잠긴 지침 페이지에 적습니다. 잠금은 모든 쓰기 경로에서 확인하고, 에이전트는 잠금을 바꿀 수 없습니다.</span>
+          </button>
+        </div>
+
+        <div>
+          <div class="panel" role="tabpanel" id="p-find" aria-labelledby="t-find">
+            <div class="term">
+<pre><code><span class="k">› find_context</span>(query: "출시 체크리스트 상태 페이지")
+2 result(s) for "출시 체크리스트 상태 페이지", ~380/3500 tokens
+<span class="c">&lt;untrusted_content source="find_context"&gt;</span>
+[1] 출시 계획 › 체크리스트
+(page 7c1e…; §체크리스트 v=4f2a9c01b3de; can: read,comment,edit)
+- [x] 요금 페이지 문구
+- [ ] 상태 페이지, 담당 박서준, 마감 2026-11-20
+- [ ] 변경 사항 공지
+
+[2] 주간 회의 2026-11-03 › 결정
+(page 91ab…; §결정 v=0d3e5b7a9c12; can: read,comment,edit)
+상태 페이지는 출시 전에 연다.
+
+Also relevant (not shown):
+- 온보딩 (page 3f0c…): §계정 ~150 tok
+<span class="c">&lt;/untrusted_content&gt;</span>
+
+Next: read_page(pageId, section=anchor) for a full section; …</code></pre>
+            </div>
+            <p class="note">5,000페이지 벤치마크에서 질문당 평균 토큰 2,254 → 624, 도구 호출 3.68 → 1.00회. 출력은 줄이고 id는 짧게 줄였습니다.</p>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p-patch" aria-labelledby="t-patch">
+            <div class="term">
+<pre><code><span class="k">› patch_section</span>(pageId: "7c1e…", section: "체크리스트", mode: "append",
+                markdown: "- [ ] 변경 사항 공지", baseVersion: "4f2a9c01b3de")
+Conflict: Section "체크리스트" changed since baseVersion 4f2a9c01b3de;
+nothing was written. Merge your edit into the current content and retry
+with baseVersion 8b61d0e2a7f4.
+
+Current §체크리스트 (v=8b61d0e2a7f4):
+- [x] 요금 페이지 문구
+- [x] 상태 페이지, 담당 박서준
+
+<span class="k">› patch_section</span>(…, baseVersion: "8b61d0e2a7f4")
+<span class="o">Done (append): §체크리스트 is now v=c27a90f13e56.</span></code></pre>
+            </div>
+            <p class="note">문장 하나를 고칠 때 읽고 통째로 바꾸면 약 2,415토큰이 들지만 patch_section은 약 222토큰입니다. 같은 섹션을 사람이 치고 있어도 그 사람의 글은 남습니다.</p>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p-changes" aria-labelledby="t-changes">
+            <div class="term">
+<pre><code><span class="k">› changes_since</span>(cursor: "…")
+2 changes in 2 pages.
+<span class="c">&lt;untrusted_content source="changes"&gt;</span>
+page "출시 계획" 7c1e… (by 김하늘)
+  modified 체크리스트 (체크리스트)
+    - - [ ] 상태 페이지, 담당 박서준
+    + - [x] 상태 페이지, 담당 박서준
+page added: "주간 회의 2026-11-10" 2b9d… (by 이지원 via Claude Code)
+<span class="c">&lt;/untrusted_content&gt;</span>
+next cursor: …</code></pre>
+            </div>
+            <p class="note">커서를 에이전트 쪽 노트에 저장해 두고 다음 세션에 다시 부르면 됩니다. AI가 한 일은 여기와 버전 기록, 활동 화면에 '사용자 (앱 경유)'로 남습니다.</p>
+          </div>
+
+          <div class="panel" role="tabpanel" id="p-rules" aria-labelledby="t-rules">
+            <div class="term">
+<pre><code><span class="k">› get_instructions</span>(workspaceId: "…")
+&lt;instructions page="…" title="에이전트 규칙" mode="always"&gt;
+회의록은 회의/ 아래에 쓴다. 재무/ 아래 페이지는 고치지 않는다.
+&lt;/instructions&gt;
+
+<span class="k">› patch_section</span>(pageId: "a40d…", section: "4분기", …)
+"4분기 예산" is locked for agents (comment only). A person must make this
+edit in the web app; you can add a comment with the suggested change.</code></pre>
+            </div>
+            <p class="note">사용자가 쓴 내용은 신뢰하지 않는 데이터로 감싸서 넘기고 수상한 문구는 표시합니다. 이건 완화책일 뿐이고, 실제 경계는 편집 잠금과 연결 권한, 워크스페이스별 에이전트 차단입니다.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid four" style="margin-top:40px">
+        <div class="card"><p class="num">−72<small>%</small></p><p>5,000페이지 벤치마크에서 <code>find_context</code>로 줄어든 질문당 토큰</p></div>
+        <div class="card"><p class="num">~222 <small>토큰</small></p><p><code>patch_section</code>으로 문장 하나 고치는 비용 (읽고 바꾸기는 ~2,415)</p></div>
+        <div class="card"><p class="num">6/6</p><p>에이전트가 고치는 섹션에서 사람이 치던 글이 남은 시나리오</p></div>
+        <div class="card"><p class="num">0</p><p>영구 삭제 도구 수. <code>trash_page</code>는 30일 안에 되살릴 수 있습니다</p></div>
+      </div>
+
+      <div class="pair" style="margin-top:40px">
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/lock-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/lock-light.png" width="1440" height="900" loading="lazy" alt="편집 잠금 대화상자: 사람은 제한 없음, AI 에이전트는 코멘트만, 아래에 에이전트 지침 설정"></picture></div><figcaption>페이지 트리에 편집 잠금을 걸어 사람은 그대로 고치고 에이전트는 코멘트만 달게 한 화면입니다. 같은 창에서 지침 페이지로 지정합니다.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/activity-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/activity-light.png" width="1440" height="900" loading="lazy" alt="여러 멤버의 최근 수정과 새 페이지가 나오는 활동 화면"></picture></div><figcaption>활동 화면에서는 사람과 AI가 바꾼 내용을 최신순으로 보고, 바뀐 줄을 비교할 수 있습니다.</figcaption></figure>
+      </div>
+
+      <div class="quick" style="margin:40px 0 0;max-width:none">
+        <p class="quick-label">Claude Code에 연결한 뒤 <code>/mcp</code> → inkling → Authenticate</p>
+        <div class="term" data-copy>
+<pre><code><span class="k">claude</span> mcp add --transport http inkling https://notes.example.com/mcp</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="install">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">설치</p>
+        <h2>docker compose 한 번으로</h2>
+        <p>Postgres, 앱, 백업 사이드카가 한 묶음이고, 자동 HTTPS가 필요하면 Caddy 설정을 겹쳐 씁니다. 미리 빌드한 이미지 <code>ghcr.io/prove1352/inkling</code>(amd64, arm64)를 받아 오기 때문에 1 GB 서버에서도 따로 빌드할 필요가 없습니다.</p>
+      </div>
+
+      <div class="steps">
+        <div class="step"><div>
+          <h3>compose 파일을 받고 .env 채우기</h3>
+          <p>Docker와 Compose 플러그인이 필요합니다. HTTPS를 쓰려면 서버를 가리키는 도메인도 있어야 합니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git <span class="k">&amp;&amp;</span> <span class="k">cd</span> inkling
+<span class="k">cp</span> .env.example .env
+<span class="c"># PUBLIC_URL=https://notes.example.com  DOMAIN=notes.example.com</span>
+<span class="c"># POSTGRES_PASSWORD=&lt;긴 임의 문자열&gt;  BACKUP_PASSPHRASE=&lt;서버 밖에도 보관&gt;</span></code></pre></div>
+        </div></div>
+        <div class="step"><div>
+          <h3>Caddy와 함께 띄우기</h3>
+          <p>인증서는 Caddy가 받아 오고 갱신합니다. 마이그레이션은 앱이 뜰 때 자동으로 돌아갑니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">docker</span> compose -f compose.yaml -f deploy/compose.caddy.yaml up -d</code></pre></div>
+        </div></div>
+        <div class="step"><div>
+          <h3>첫 계정 만들기</h3>
+          <p>기본 설정에서는 가입 키가 있어야 가입할 수 있습니다. 처음 가입한 계정이 관리자가 되고, 다음 키부터는 관리 화면에서 만들 수 있습니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">./deploy/signup-key.sh</span> new "first admin"
+<span class="c">#   Signup link: https://notes.example.com/register</span></code></pre></div>
+        </div></div>
+      </div>
+
+      <div class="callout" style="margin-top:28px">
+        백업은 정해진 시간에 돌고, 검증과 암호화(선택), GFS 보관, 매주 복원 테스트, rclone 외부 복사까지 지원합니다.
+        업그레이드는 백업, <code>docker compose pull app</code>, 재시작 순서입니다. 자세한 내용은 <a href="../docs/OPERATIONS.html">운영 문서</a>와 <a href="../docs/BACKUP.html">백업 문서</a>(영어)를 보시면 됩니다.
+      </div>
+
+      <div class="callout honest">
+        <strong>쓰시기 전에</strong>
+        <ul>
+          <li>PostgreSQL이 필요하고(SQLite 모드 없음), 인스턴스 하나로만 돌아갑니다.</li>
+          <li>데스크톱·모바일 네이티브 앱은 없습니다. 웹 앱을 PWA로 설치해서 쓰시면 됩니다.</li>
+          <li>사용자가 아직 많지 않은 새 프로젝트입니다. AI 코딩 에이전트를 많이 써서 만들었고, 동시성, 자원 사용, 보안 위주로 여러 번 검토했습니다. 남아 있는 문제는 <a href="../docs/KNOWN-ISSUES.html">알려진 문제</a>에 정리해 두었습니다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="docs">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">문서</p>
+        <h2>문서</h2>
+        <p>사용 설명서는 한국어판이 있고, 나머지 문서는 영어로 되어 있습니다.</p>
+      </div>
+      <div class="grid">
+        <a class="card" href="../docs/GUIDE.ko.html"><h3>사용 설명서</h3><p>다른 분이 운영하는 서버에 초대받아 쓰시는 분을 위한 문서입니다.</p></a>
+        <a class="card" href="../docs/MCP.html"><h3>MCP 연결</h3><p>Claude와 다른 클라이언트 연결 방법, 도구 목록, 에이전트용 안내.</p></a>
+        <a class="card" href="../docs/OPERATIONS.html"><h3>운영</h3><p>배포 점검표, 업그레이드, 상태 요약, 데이터베이스 튜닝.</p></a>
+        <a class="card" href="../docs/BACKUP.html"><h3>백업과 복원</h3><p>일정, 암호화, 보관 정책, 복원 테스트, 외부 복사.</p></a>
+        <a class="card" href="../docs/API.html"><h3>REST API</h3><p>인증, 페이지, 컬렉션, 변경 피드 등 REST 계약.</p></a>
+        <a class="card" href="../docs/"><h3>전체 문서</h3><p>템플릿, 쿼리 블록, 웹훅, 플러그인, 볼트 동기화, 구조, 로드맵.</p></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>Inkling · MIT 라이선스 · 유료 버전 없이 모든 기능 무료</span>
+    <nav aria-label="바닥글">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">보안</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/README.ko.md">README</a>
+      <a href="../" lang="en" hreflang="en">English</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

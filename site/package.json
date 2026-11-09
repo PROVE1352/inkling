@@ -1,0 +1,12 @@
+{
+  "name": "inkling-site",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Pages site for Inkling. Not part of the pnpm workspace.",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "marked": "15.0.12"
+  }
+}

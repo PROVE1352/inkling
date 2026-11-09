@@ -340,7 +340,7 @@ Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?,
 Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
 `create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
 `rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
-`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions" below and [MCP.md](MCP.md).
+`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions" and "v0.13.0 additions" below and [MCP.md](MCP.md).
 
 - `/.well-known/oauth-*`: `scopes_supported` is `["read","write"]` (`notes` still accepted as full access).
 - `GET /api/oauth/authorize/info?…&scope=`: adds `requestedAccess: "read" | "write"`.
@@ -964,3 +964,105 @@ Changed:
 
 ### MCP tools
 New: `catch_up(workspaceId?, since?, budget?, peek?)`, `read_ink(pageId, top?, height?, scale?)`, `list_versions`, `diff_versions`, `read_file`, `list_trash`, `list_suggestions(pageId?)` (read); `patch_sections(pageId, edits, suggest?)`, `create_collection(workspaceId, title, fields[], parentId?, private?)`, `update_fields(collectionId, add?, change?, remove?, order?)`, `restore_version`, `restore_page`, `withdraw_suggestion(id)`, `claim_section(pageId, section, minutes?)`, `release_section(pageId, section)` (write, refused for read-only connections). New arguments: `read_page(…, known?, knownSections?)`, `read_pages(…, known?)`, `list_pages` / `search` `format: "compact"`, `patch_section(…, suggest?)`, `changes_since(…, wait?)` (0–25 s, only with a cursor; over the per-process (256) or per-connection (4) limit of waiting calls, or during shutdown, the answer comes at once and starts with `wait skipped: …`). Details: [MCP.md](MCP.md).
+
+## v0.13.0 additions
+
+No migration. `collection_views.type` may be `chart` and `section_suggestions.status` may be `accepted_partial` (text
+columns without a CHECK). Stored suggestion bases live in `plugin_storage` under the plugin id `inkling:suggestion_base`.
+
+### Charts (docs/adr/1600–1606)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| POST | `/api/workspaces/:id/charts/aggregate` | `ChartAggregateInput` (below) | `ChartDataDTO` (below). Groups and measures the rows of a collection, or of a query block query, as the caller, with the collection query's access rules. Read-only tokens may call it. 240/min (docs/adr/1602-*) |
+
+`ChartAggregateInput`:
+
+| Field | Type | |
+|---|---|---|
+| `source` | `{ "type": "collection", "collectionId": uuid, "viewId"?: uuid }` or `{ "type": "query", "query": string }` | `viewId`: a view of that collection; its saved filters choose the rows |
+| `groupBy` | `{ "field": string, "bucket"?: "day" \| "week" \| "month" }` | field id or `"title"` (collection); column name (query) |
+| `series` | same as `groupBy`, optional | second grouping |
+| `measure` | `{ "fn": "count" \| "sum" \| "avg" \| "min" \| "max", "field"?: string }`, optional | default count; `field` (a number or rollup field / a column) for the others |
+| `sort` | `"auto" \| "label" \| "valueDesc" \| "valueAsc"`, optional | auto: option / date order, else largest first; "no value" last |
+| `limit` | 1–100, optional | groups returned (the rest are counted in `omittedGroups`) |
+| `today`, `tzOffsetMinutes` | optional | query sources, as `POST /query` |
+
+`ChartDataDTO`: `source` (`{type:'collection', id, title, viewName?}` or `{type:'query'}`), `group` / `series`
+(`{field, name, type, bucket?}`), `measure` (`{fn, field?, name?}`), `groups` (`[{key, label, special?}]`, `key` null
+for "no value", `special` `empty` / `checked` / `unchecked`), `seriesKeys?`, `values` (`(number|null)[]`, or
+`[group][series]`), `rowCount`, `omittedGroups`, `omittedSeries`, `truncated?` (the query returned part of its rows),
+`elapsedMs`, `cached?`.
+
+Groupable field types: select, multi-select, person, date, checkbox, relation, text, URL, number and the title;
+measurable: number and rollup. People are member names (a non-member's id is "no value"); relations are the titles of
+visible linked rows. Errors: 404 `NOT_FOUND` (workspace, collection or view missing, hidden, of another workspace, or
+not a collection), 403 for non-members / guests / out-of-range tokens, 400 `INVALID_CHART` (unknown field, a field that
+cannot group or measure), 400 `QUERY_SYNTAX` / `QUERY_TIMEOUT`.
+
+Changed:
+- `POST /api/pages/:id/collection/views` takes `config` (optional, `ViewConfig`, same shape as `PATCH`). View `type`
+  may be `chart`; `ViewConfig.chart` = `{ kind, groupBy, series?, measure?, sort?, limit?, title?, options? }`
+  (docs/adr/1603-*).
+- Page blocks: a `chart` block has one prop, `config` (canonical JSON of `{ source, kind, groupBy, … }`, `''` while
+  being set up). Agent notation: `<!-- inkling:chart {config} -->`; `read_page` adds `<!-- inkling:chart-data … -->`
+  under it, which writes ignore (docs/adr/1604-*).
+- Markdown export (`GET /api/pages/:id/export?format=md`) writes a chart as a table of its numbers; public folder links
+  show a table only for charts whose database is inside the link (docs/adr/1605-*).
+
+### Suggestions in parts (docs/adr/1621, 1622, 1626)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/pages/:id/suggestions` | `preview=1`, `status?`, `all=1` | As in 0.12. `status` = `open` (default) \| `decided` (accepted, accepted_partial, rejected) \| `all` \| one status; `all=1` is still the web history (everything but superseded). With `preview=1`, an open `replace` suggestion's `preview` adds `merge: { baseKnown, key, hunks: [{ id, conflict, same, before, after, ours, context }] }` (absent when the section is gone or too large to split) |
+| GET | `/api/suggestions` | `status?` | `{ suggestions }`: the caller's own, the same filter, default `open`, newest 50 |
+| POST | `/api/suggestions/:id/accept` | `{ confirmChanged?, hunks?: number[], mergeKey?: string }` | `{ suggestion }`. `hunks` (ids from `preview.merge`, with its `key` as `mergeKey`) applies only those hunks: the server recomputes the merge and writes the merged section; a stale `mergeKey` → 409 `SUGGESTION_CHANGED` with `error.preview`. `status` is `accepted` or `accepted_partial` (`partial: { applied, total }`). Without `hunks` it behaves as in 0.12 |
+| POST | `/api/suggestions/:id/withdraw` | | `{ suggestion }`. A suggestion that is no longer open answers 409 per state (below) |
+
+`SuggestionDTO` adds `supersededBy?` (the newer suggestion of the same connection for the same section) and `partial?`
+(`{ applied, total }`). `status` adds `accepted_partial`. 409 codes of accept and withdraw: `SUGGESTION_SUPERSEDED`,
+`SUGGESTION_WITHDRAWN`, `SUGGESTION_DECIDED`, `SUGGESTION_UNSPLITTABLE` (too large to split into hunks), `SECTION_GONE`;
+each message says the state, by whom, and for a replaced one the id of the newer suggestion.
+
+### Reverting changes (docs/adr/1620, 1623, 1624)
+
+People only (browser session or personal API token; agent connections → 403 `PEOPLE_DECIDE`). Every revert route takes
+`dryRun` for the preview.
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/pages/:id/changes` | `before?` (seq), `limit?` (1–100, default 20) | `{ items: ActivityItemDTO[], next }`: the page's own change log, newest first; each item has `revert` (below) |
+| POST | `/api/changes/:seq/revert` | `{ dryRun? }` | `RevertResultDTO`. One change; edit access to its page. 404 when the change or its page is not visible. 30/min |
+| POST | `/api/pages/:id/revert` | `{ seqs? (1–200) \| via, actorId?, since?, until?, dryRun? }` | `RevertResultDTO`. Given changes, or one agent's (`via` = client name, `actorId` narrows to one member's connection) on the page in a period; `seqs` or `via` is required (400 otherwise). 30/min |
+| POST | `/api/workspaces/:id/revert` | `{ via, actorId?, since, until?, dryRun? }` | `RevertResultDTO`. One agent's changes in the workspace; owners and admins. Each page is written all or nothing; locked pages are reported. 10/min |
+
+`RevertResultDTO { dryRun, pages: [{ pageId, title, written, error?: { code, message }, changes: [{ seq, kind, anchor,
+headingPath, via, actor, changedAt, outcome, applied, conflicts: [{ wanted, now, reason: 'overlap' | 'no_source' }],
+plainText, reason? }] }], totals: { pages, changes, applied, partial, conflicts, unsupported, noop }, truncated }`.
+`outcome`: `applied` | `partial` | `conflict` | `noop` | `unsupported`; `reason` (unsupported): `large` | `page_event` |
+`moved` | `heading_only` | `section_gone` | `section_exists` | `no_source` | `too_complex`. At most 300 changes per call
+(`truncated` when more matched; call again). Each written page gets a "Before revert" version first; the revert is an
+ordinary change of the person, audited as `page.changes_reverted` (`before.seqs`, `before.via`, `after.seqs`,
+`after.conflicts`).
+
+`GET /api/workspaces/:id/activity` and `GET /api/pages/:id/changes` items gain `revert: { revertable, revertedBy: { name,
+at } | null, isRevert }`.
+
+### Change feed (docs/adr/1625, 1650–1653)
+- `page_changes.kind` and activity `kind` gain `page_props` (row properties changed; `after` = the changed field names).
+  The activity filter `kind=page` includes it, `kind=edit` does not (docs/adr/1650-*).
+- `GET /api/changes` text has new line forms: `collection added:`, `row added:`, `rows added: N to collection …` (ten or
+  more rows of one collection in one answer), `  properties: …` and `  trashed, then restored` (docs/adr/1650–1652).
+- `PATCH /api/pages/:id/collection/rows/batch` runs in one transaction also without person cells and logs title changes
+  (`page_renamed`) and `page_props`.
+- Editor typing rows carry the typist as actor when one person typed since the last index pass; a REST/MCP write logs
+  pending typing before its own change (docs/adr/1625-*).
+- `GET /api/catch-up`: "Pages changed by others" means changes by another identified person; edits without an actor are
+  counted as `unattributed edits N` (docs/adr/1653-*).
+
+### MCP tools
+New: `create_chart(pageId, section?, placement?, collectionId? | query?, view?, kind, groupBy, bucket?, series?, seriesBucket?, measure?,
+measureField?, sort?, limit?, title?, options?, suggest?)` and `create_view(collectionId, type, name, config?, chart?)` (write,
+refused for read-only connections). New arguments: `list_suggestions(…, status?)`. Changed output: `read_page` shows
+chart tokens with a data line and section claims on every read form; `changes_since` and `catch_up` list collections,
+rows and row properties; `query_rows describe=true` is wrapped in `<untrusted_content>`. Details: [MCP.md](MCP.md).

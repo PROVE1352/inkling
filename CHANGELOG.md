@@ -7,6 +7,114 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-10
+
+No database migration. The `chart` view type and the `accepted_partial` suggestion status are new values of existing
+text columns (no CHECK constraint). The section text an agent read before a `replace` suggestion is kept in
+`plugin_storage` (plugin id `inkling:suggestion_base`, up to 512 KB per suggestion) and dropped once the suggestion is
+decided, withdrawn or replaced (housekeeping removes leftovers). New web dependency `ztd-charts` 0.5.0 (MIT, no runtime
+dependencies), loaded only when a chart is on screen. Upgrade matrix adds v0.12.0: CI also tests the upgrade from it
+with data (`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- **Charts.** Type `/chart` in a page to draw a bar, horizontal bar, stacked bar, line, area, donut or pie chart (and
+  ten more kinds under "More") from a database, optionally through one of its views' filters, or from a query block
+  query. Group by select, multi-select, person, date (day / week / month), checkbox, relation, text, URL, number or
+  title; count rows or sum / average / min / max a number. Charts follow light and dark mode, the app language and
+  reduced motion, work with the keyboard and screen readers, and redraw when the data changes. Nothing is stored but
+  the settings: everyone sees the numbers of the rows they can see, and a chart whose database you cannot see says so
+  (docs/adr/1600-*, 1601-*).
+- **Chart view** for databases, next to table, board, calendar, gallery and timeline; the view's filters choose the
+  rows (docs/adr/1603-*).
+- `POST /api/workspaces/:id/charts/aggregate`: group and measure a collection (or a query) for the caller, with the
+  collection query's access rules; read-only tokens may call it (docs/adr/1602-*).
+- `create_chart` and `create_view` MCP tools. Agents add charts and views by property name; charts go through the
+  same write path as `patch_section`, so suggestions, edit policies and auto-accept rules apply (`suggest=true` needs
+  a `section`). `read_page` shows a chart as `<!-- inkling:chart {…} -->` with a data line under it
+  (docs/adr/1604-*, 1606-*).
+- Markdown export turns charts into tables of their numbers; public folder links show a table for databases inside
+  the link and leave other charts out (docs/adr/1605-*).
+- **Suggested edits can be accepted in part.** The review shows a `replace` suggestion as changes (one per block)
+  with a checkbox each; a change that overlaps what someone wrote after the agent read the section is marked, shows
+  the text there now, and starts unchecked. "Apply selected" merges the chosen changes into the section as it is now,
+  keeping everyone's edits (3-way merge). The suggestion's status is `accepted_partial`, shown as "n of m changes" to
+  the agent and in the history (docs/adr/1621-*, 1622-*).
+- **Revert agent edits.** Activity and the page's right panel (History › Recent changes) offer "Revert" on changes
+  made through an agent: only that change, everything that agent changed on the page, or (owners and admins) in the
+  workspace, today / 24 h / 7 days / 30 days. A preview lists what will be reverted, what stays because someone edited
+  it afterwards, and what cannot be reverted here; each page is changed all at once after a "Before revert" version.
+  Later edits are kept; removed text comes back with its formatting from the page versions. A revert is your own
+  change in the history and can be undone. People only, there is no MCP tool for it. REST: `GET /pages/:id/changes`,
+  `POST /changes/:seq/revert`, `POST /pages/:id/revert`, `POST /workspaces/:id/revert` (all with `dryRun`)
+  (docs/adr/1620-*, 1623-*, 1624-*).
+- **Tables can be typed.** On an empty line, type a row like `| Name | Role | Due |` and press Enter: it becomes a
+  table with those cells as the header row and one empty row, the caret in the empty row. `\|` puts a pipe in a cell;
+  a single cell (`|a|`), code blocks, inline code and an Enter that ends Korean/Japanese input are left alone; one ⌘Z
+  gives the typed row back. In the `/` menu, `/table 3x4` (also `/표 3x4`, `3*4`) inserts an empty table of 3 columns
+  × 4 rows. A Markdown table pasted as text already became a table and still does; it is now covered by the editor
+  typing check. "Insert table" is in the command palette (no default key) (docs/adr/1642-*).
+
+### Changed
+- The page tree always keeps 40 % of the sidebar height (200–280 px). Menus that do not fit above it fold under
+  "More (k)", which shows a dot when a folded menu has a badge and remembers per device whether it is open; below
+  720 px of height the footer (trash, shortcuts, settings, account) is one row of icons. On a Galaxy Tab S10 in
+  landscape with every menu on, the tree went from 71 px (Chrome, ~700 px) and 8 px (in-app browser, ~480 px) to
+  283 px and 223 px. The "New page ▾" menu opens upward or scrolls when there is no room below; the workspace menu and
+  the tree's context menu stay within the window (docs/adr/1640-*).
+- New sidebar default: Search, Later, Due and Calendar. Threads, Graph, Tags, Web shares, Activity and Today are off
+  for anyone who never changed the sidebar or reset it, and can be switched on in Settings › Sidebar. A sidebar
+  someone arranged keeps every menu it showed (docs/adr/1641-*).
+- Typing in the editor is attributed in the change log to the person who typed when only one person typed since the
+  last index pass (was: nobody). An agent's (or any API) write first logs typing that was not indexed yet, so the
+  write's change holds only the write (CF-2, docs/adr/1625-*).
+- `list_suggestions`, `GET /api/suggestions` and `GET /api/pages/:id/suggestions` take `status`: `open` (default),
+  `decided`, `all`, or one status. Without a page, the list no longer includes decided suggestions unless asked
+  (docs/adr/1626-*).
+- `POST /api/pages/:id/collection/views` accepts an optional `config` (same shape as PATCH). View types include
+  `chart`; the view config has an optional `chart` object (docs/adr/1603-*).
+- Row property changes are logged as a new change kind, `page_props` (the changed field names); the activity filter
+  `kind=page` includes it, `kind=edit` does not. `PATCH /api/pages/:id/collection/rows/batch` runs in one transaction
+  also without person cells and logs title changes and `page_props` (docs/adr/1650-*).
+- New routes and fields are in [docs/API.md](docs/API.md), "v0.13.0 additions".
+
+### Fixed
+- `changes_since` and `catch_up` now report collections and rows. A collection made with `create_collection` or in the
+  web app, and rows made with `create_row`, the web app's "New row" / board / calendar "+", a paste or an import were
+  never logged (only a page's first indexed body was), so an agent keeping a local copy with the feed missed them.
+  They show as `collection added:` / `row added:`; ten or more rows of one collection in one answer are one line
+  `rows added: N to collection "…" <id>` pointing at `query_rows`. Row property changes (`update_row`, cell edits,
+  paste) show as `properties: Status, Due`; a body typed into an empty row later shows as added sections
+  (docs/adr/1650-*, 1651-*).
+- `changes_since`: a page trashed and restored between two cursors printed nothing; it now says `trashed, then
+  restored` (`catch_up` uses the same words) (docs/adr/1652-*).
+- `catch_up`: one edit nobody could be credited with (live typing with several typists) no longer moves a page you and
+  your agents changed into "Pages changed by others". "By others" means another identified person; such edits are
+  shown as `unattributed edits N` (docs/adr/1653-*).
+- `read_page` shows section claims on the full read (last header line `- claims: §a claimed by … until …Z`) and next
+  to an `unchanged` answer for `known=`, not only on section reads as 0.12 said (docs/adr/1654-*).
+- Error hints name what was not found: a missing section says so and lists the current anchors instead of
+  "page/workspace not found"; `read_file`, comment threads, rows, collections and versions get their own hint and next
+  tool. `claim_section` follows a renamed heading like `read_page(section=…)` (docs/adr/1655-*).
+- `withdraw_suggestion` on a suggestion that was replaced, decided or already withdrawn answered "the content changed
+  since you read it; re-read it and retry". It now says which state, by whom, and for a replaced one the id of the
+  newer suggestion (docs/adr/1626-*).
+- `list_suggestions(pageId)` showed withdrawn suggestions while `list_suggestions()` did not, and superseded
+  suggestions appeared in neither (docs/adr/1626-*).
+- Accepting a suggestion whose section changed meanwhile no longer overwrites people's edits when the changes are
+  chosen in the review (accepting whole through the API without `hunks` keeps the old behaviour) (docs/adr/1621-*).
+
+### Performance
+- Initial JS +9.1 KB raw for chart schemas and strings (+0.9 %); the chart library is a lazy 48.1 KB gzip chunk
+  loaded when a chart is first on screen. Drawing through the library's spec renderer instead was measured and
+  rejected (98.5 KB gzip, +52 %).
+- Chart aggregate of 10,000 rows: cold median 26.3–26.5 ms, cached 6.9–8.8 ms; 2,000 rows 8.6–10.5 ms cold.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Security
+- `query_rows describe=true` prints the collection title, field names, option labels and row templates inside
+  `<untrusted_content>`, like the rows; before, member-written names there reached the model unmarked
+  (docs/adr/1656-*).
+
 ## [0.12.0] - 2026-11-10
 
 Two database migrations. `0040_v012_agent_ink_setting` adds `workspaces.agent_ink_read` (off by default; one

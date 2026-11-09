@@ -554,6 +554,50 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1551](1551-changes-since-long-poll.md) | changes_since long-poll: wake-ups from the change log consumer, no new NOTIFY | Accepted |
 | [1552](1552-usage-per-connection-in-memory.md) | Usage per connection: counted in memory since start, numbers only | Accepted |
 
+## 1600–1609 Charts
+
+| ADR | Title | Status |
+|---|---|---|
+| [1600](1600-chart-blocks-store-a-config-not-data.md) | Chart blocks store what to draw, never the data | Accepted |
+| [1601](1601-ztd-charts-behind-one-adapter.md) | ztd-charts for drawing, behind one adapter, loaded on first sight | Accepted |
+| [1602](1602-chart-aggregate-endpoint.md) | One aggregate endpoint on the collection query's access path | Accepted |
+| [1603](1603-chart-view-type-in-the-view-config.md) | A "chart" collection view, configured in the view config | Accepted |
+| [1604](1604-chart-token-carries-its-config.md) | The chart token carries its config; the data line is a comment | Accepted |
+| [1605](1605-charts-in-exports-and-public-pages.md) | Charts in exports and on public pages are tables, inside what is shared | Accepted |
+| [1606](1606-create-chart-and-create-view-tools.md) | create_chart and create_view write through the existing routes | Accepted |
+
+## 1620–1629 Partial accept and reverting agent edits
+
+| ADR | Title | Status |
+|---|---|---|
+| [1620](1620-revert-on-the-change-log-with-block-sources.md) | Reverting a logged change: 3-way on the change log's text, blocks from the page and its versions | Accepted |
+| [1621](1621-suggestion-hunks-with-a-stored-base.md) | Suggestions are reviewed in hunks, merged 3-way against a stored base | Accepted |
+| [1622](1622-accepted-partial-status.md) | `accepted_partial`: a suggestion of which some hunks were applied | Accepted |
+| [1623](1623-a-revert-is-a-change-of-the-person.md) | A revert is an ordinary change of the person, linked by an audit event | Accepted |
+| [1624](1624-reverting-an-agents-run.md) | Reverting one change or an agent's run: scopes, preview, permissions | Accepted |
+| [1625](1625-typing-attributed-per-index-window.md) | Live typing is attributed per index window; server edits log pending typing first (CF-2) | Accepted |
+| [1626](1626-one-status-filter-for-suggestion-lists.md) | One status filter for both suggestion lists; withdraw says why | Accepted |
+
+## 1640–1649 Sidebar on short screens and typed tables
+
+| ADR | Title | Status |
+|---|---|---|
+| [1640](1640-the-page-tree-keeps-its-height-menus-fold.md) | The page tree keeps its height; menus that do not fit fold under "More" | Accepted |
+| [1641](1641-four-sidebar-menus-by-default.md) | Four sidebar menus by default; saved choices keep their meaning | Accepted |
+| [1642](1642-typing-a-table-pipe-row-size-and-paste.md) | Typing a table: a pipe row and Enter, "/table 3x4", pasted Markdown | Accepted |
+
+## 1650–1659 Change feed and MCP fixes
+
+| ADR | Title | Status |
+|---|---|---|
+| [1650](1650-collections-and-rows-in-the-change-feed.md) | Collections, rows and row properties in the change feed | Accepted |
+| [1651](1651-many-added-rows-are-one-line.md) | Many rows added to one collection are one line | Accepted |
+| [1652](1652-trash-then-restore-leaves-a-line.md) | Trash then restore between two cursors leaves a line | Accepted |
+| [1653](1653-catch-up-others-means-identified-people.md) | catch_up "by others" means changes by identified other people | Accepted |
+| [1654](1654-claims-on-every-read-page-form.md) | Section claims on every read_page form | Accepted |
+| [1655](1655-not-found-hints-name-the-target.md) | Not-found hints name what was not found | Accepted |
+| [1656](1656-query-rows-describe-is-data.md) | query_rows describe=true is data | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

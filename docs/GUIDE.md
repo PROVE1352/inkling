@@ -83,6 +83,11 @@ images and files, and also:
 - **Math block** and **Inline math**.
 - **Embed / link card**: paste a link (YouTube, Figma, Google Docs, …). Switch between embed, preview card and plain link.
 - **Query**: a live list or table of pages (see below).
+- **Chart**: a chart of a database or a query (see [Charts](#charts)).
+
+**Tables**: type a row such as `| Name | Role | Due |` on an empty line and press Enter: it becomes a table with
+that header row and an empty row to fill in (⌘Z right after turns it back into text). `/table 3x4` inserts an
+empty table of 3 columns × 4 rows (`/표 3x4` and `3*4` work too). A Markdown table pasted as text becomes a table.
 
 You can also drop images and files onto the page. The title is the large text at the top; F2 jumps to it.
 
@@ -138,7 +143,7 @@ default, and turning it off again takes effect at once.
 
 Create one with **New database**. Each row is a page; **Open row as a page** opens it in full.
 
-- **Views:** Table, Board, Calendar, Gallery, Timeline. Add one with **New view** in the view tabs.
+- **Views:** Table, Board, Calendar, Gallery, Timeline, Chart. Add one with **New view** in the view tabs.
 - **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup.
   Add one with **Add a property**.
 - **Sort & filter** sets sorting, filters and visible properties per view. Boards group by a select property.
@@ -172,6 +177,24 @@ template variables such as `{{date}}` or `{{input:Topic|Weekly}}` ([TEMPLATES.md
   column's value or the day's date on top.
 - Everyone who can see the database can use its templates; changing them needs edit access (an edit lock
   applies). Templates are not pages: they don't show up in search, links, the graph or the sidebar.
+
+### Charts
+
+Type `/chart` and pick the data: a database (all rows, or the rows one of its views shows) or a
+query. Then choose the kind of chart, what to group by and what to count. Dates can be grouped by
+day, week or month. "Split by" adds a second grouping, drawn as grouped or stacked bars or several
+lines. "Value" counts rows, or sums, averages or finds the smallest or largest value of a number
+property.
+
+A chart keeps only its settings. Everyone who opens the page sees the numbers of the rows they are
+allowed to see, and a chart whose database you cannot open says so instead of showing numbers. When
+someone edits the database, the chart redraws within about 20 seconds (at once for your own edits).
+
+A database can also be shown as a chart: add a view and choose **Chart**. The view's filters decide
+which rows are counted.
+
+In Markdown exports a chart becomes a table of its numbers. On a public link, a chart shows a table
+only when its database is inside the shared folder.
 
 ## Graph, canvas and query blocks
 
@@ -267,7 +290,8 @@ Connected AI agents can read your Later list (the `later` tool) but cannot add t
 ### Activity
 
 **Activity** in the sidebar lists recent changes by people and AI, newest first. Filter by who (people / AI),
-app, member, page or kind of change, and open **Show changes** to see a diff.
+app, member, page or kind of change, and open **Show changes** to see a diff. Changes made through an agent have
+**Revert** (see [Reverting agent edits](#reverting-agent-edits)).
 
 ### Members
 
@@ -466,6 +490,11 @@ heading. **Review** shows every suggestion as a diff against the text as it is n
 after the agent read it, the dialog says so and asks you to confirm with **Accept anyway**. Only people who can edit
 the page can accept or reject; the page owner gets a notification for each new suggestion.
 
+A suggestion that replaces a section is shown as numbered changes, one per block, and you can take only some of them.
+Checked changes are applied when you click **Apply selected**; a change marked **Overlaps an edit** touches a block
+someone changed after the agent read the section. It is unchecked and shows what is there now; checking it replaces
+that text with the agent's version. Everything else people wrote stays.
+
 When an agent is working on a section, the heading shows "Claude is working on this section". You can keep editing;
 other agents wait until it is done.
 
@@ -484,6 +513,13 @@ Workspace owners and admins choose in Workspace settings → **Connected agents*
 Edits accepted by a rule show "Accepted by rule" in the suggestions history and "… · auto-accepted" in page history
 and activity. A locked page or folder can choose its own way in the [lock dialog](#edit-lock). This setting covers
 page text; renaming, moving and deleting pages follow the lock as before.
+
+### Reverting agent edits
+
+In **Activity** or in the page's side panel (**History › Recent changes**), changes made through an agent have
+**Revert**. Choose only that change, everything that agent changed on this page, or (owners and admins) in the whole
+workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
+Reverting is saved as your own change (a "Before revert" version is kept) and can be undone with **Undo revert**.
 
 ### API tokens for scripts
 
@@ -567,9 +603,15 @@ Saved on this device only (marked **This device** next to the setting):
 
 Settings → **Sidebar** chooses which of Search, Later, Threads, Graph, Tags, Web shares, Due, Calendar, Activity and Today appear
 at the top of the sidebar, and in what order (drag, or the ↑/↓ buttons, which appear when you hover
-over a row or reach it with the keyboard). **Reset to default** restores them. You
+over a row or reach it with the keyboard). Until you change it, the sidebar shows Search, Later, Due and Calendar;
+**Reset to default** goes back to those four. You
 can also right-click (or long-press) a menu → **Hide from sidebar**. Hidden menus still open from the ⌘P palette
 and their shortcuts.
+
+The page list always keeps a good part of the sidebar's height. When the menus don't fit above it (a laptop
+with every menu on, a tablet with the browser's bars), the last ones fold under **More**; tap it to see them
+all, and again (**Show less**) to fold them. On a short screen the trash, shortcuts, settings and account rows
+become one row of icons at the bottom.
 
 ⌘\ hides or shows the whole sidebar. To make it wider or narrower, drag its right edge (200–480 px);
 double-click the edge to go back to 260 px. With the edge focused, ←/→ change the width (Shift for bigger steps).

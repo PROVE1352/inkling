@@ -72,6 +72,10 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/oauth')).registerOAuthApiRoutes(api)
       await (await import('../routes/sidebarPrefs')).registerSidebarPrefsRoutes(api)
       await (await import('../routes/files')).registerFileRoutes(api)
+      // charts (docs/adr/1602-*): the aggregate route, the query route it shares, tokens for range tests
+      await (await import('../routes/query')).registerQueryRoutes(api)
+      await (await import('../routes/charts')).registerChartRoutes(api)
+      await (await import('../routes/apiTokens')).registerApiTokenRoutes(api)
     },
     { prefix: '/api' },
   )

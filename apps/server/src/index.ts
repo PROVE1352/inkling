@@ -72,6 +72,7 @@ import { registerWorkspaceAdminRoutes } from './routes/workspaceAdmin'
 import { isExperimentalEnabled } from './features'
 import { registerPluginRoutes } from './plugins/routes'
 import { registerQueryRoutes } from './routes/query'
+import { registerChartRoutes } from './routes/charts'
 import { registerSyncRoutes } from './routes/sync'
 import { registerEmbedCsp } from './embedCsp'
 import { registerLinkPreviewRoutes } from './routes/linkPreview'
@@ -519,6 +520,8 @@ async function main(): Promise<void> {
       if (isExperimentalEnabled('plugins')) await registerPluginRoutes(api)
       // Dataview-style Query block (stable) — docs/QUERY.md
       await registerQueryRoutes(api)
+      // Chart blocks and chart views: aggregate a collection or a query (docs/adr/1602-*)
+      await registerChartRoutes(api)
       // Obsidian vault two-way sync (experimental: vault-sync) — docs/adr/0200-*
       if (isExperimentalEnabled('vault-sync')) await registerSyncRoutes(api)
       // Link preview cards + workspace Slack/Discord webhooks (stable) — docs/adr/0502-*, 0504-*

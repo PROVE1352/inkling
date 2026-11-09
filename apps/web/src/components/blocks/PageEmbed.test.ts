@@ -15,6 +15,7 @@ import {
   CUSTOM_BLOCK_TYPES,
   CUSTOM_INLINE_CONTENT_TYPES,
   calloutConfig,
+  chartBlockConfig,
   inlineMathConfig,
   linkEmbedConfig,
   mathBlockConfig,
@@ -42,7 +43,7 @@ delete g.window
 delete g.document
 
 // Every custom node config of @inkling/shared (the configs the server schema registers too).
-const CUSTOM_BLOCKS = [calloutConfig, pageEmbedConfig, linkEmbedConfig, pluginBlockConfig, mathBlockConfig]
+const CUSTOM_BLOCKS = [calloutConfig, pageEmbedConfig, linkEmbedConfig, pluginBlockConfig, mathBlockConfig, chartBlockConfig]
 const CUSTOM_INLINES = [mentionConfig, inlineMathConfig]
 
 // The main editor schema, built the way CollabEditor builds it (CollabEditor itself imports CSS

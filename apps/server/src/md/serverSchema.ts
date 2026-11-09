@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   calloutConfig,
+  chartBlockConfig,
   inlineMathConfig,
   linkEmbedConfig,
   mathBlockConfig,
@@ -121,6 +122,7 @@ const placeholder = (className: string) => () => ({ dom: element('div', classNam
 const pageEmbedSpec = core.createBlockSpec(pageEmbedConfig, { render: placeholder('nd-page-embed') })
 const linkEmbedSpec = core.createBlockSpec(linkEmbedConfig, { render: placeholder('nd-link-embed') })
 const pluginBlockSpec = core.createBlockSpec(pluginBlockConfig, { render: placeholder('nd-plugin-block') })
+const chartBlockSpec = core.createBlockSpec(chartBlockConfig, { render: placeholder('nd-chart') })
 
 const mentionSpec = core.createInlineContentSpec(mentionConfig, {
   render: (inline: { props: { label: string } }) => {
@@ -139,6 +141,7 @@ export const serverSchema = core.BlockNoteSchema.create({
     [pageEmbedConfig.type]: pageEmbedSpec(),
     [linkEmbedConfig.type]: linkEmbedSpec(),
     [pluginBlockConfig.type]: pluginBlockSpec(),
+    [chartBlockConfig.type]: chartBlockSpec(),
   },
   inlineContentSpecs: {
     ...core.defaultInlineContentSpecs,

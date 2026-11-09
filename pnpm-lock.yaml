@@ -172,6 +172,9 @@ importers:
       yjs:
         specifier: ^13.6.0
         version: 13.6.31
+      ztd-charts:
+        specifier: 0.5.0
+        version: 0.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zustand:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -5113,6 +5116,12 @@ packages:
 
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
+
+  ztd-charts@0.5.0:
+    resolution: {integrity: sha512-ttIsC3pMDc+Lo0aX7U5hWwqXwu4uwP0xe69h2OlA38R8CdPYgksisx1VEGGdyge8NGxd/eXB0i/JL+Qvf+U/1Q==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
 
   zustand@4.5.7:
     resolution: {integrity: sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==}
@@ -10108,6 +10117,11 @@ snapshots:
       zod: 4.6.7
 
   zod@4.6.7: {}
+
+  ztd-charts@0.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+    dependencies:
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
 
   zustand@4.5.7(@types/react@19.2.17)(react@19.2.7):
     dependencies:

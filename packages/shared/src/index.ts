@@ -3,6 +3,7 @@ import './zodConfig'
 import { z } from 'zod'
 import type { WorkspaceCapabilities, WorkspaceTwoFactorStatus } from './workspaceAdmin'
 import type { WorkspaceAccessRole } from './pageAccess'
+import { chartSettingsSchema } from './charts'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -614,15 +615,19 @@ export const viewConfigSchema = z.object({
   startFieldId: z.string().optional(),
   endFieldId: z.string().optional(),
   zoom: z.enum(['day', 'week', 'month']).optional(),
+  /** chart view: what to draw (docs/adr/1603-*); the view's own filters choose the rows */
+  chart: chartSettingsSchema.optional(),
 })
 export type ViewConfig = z.infer<typeof viewConfigSchema>
 
-export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline'])
+export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline', 'chart'])
 export type ViewType = z.infer<typeof viewTypeSchema>
 
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(60),
   type: viewTypeSchema,
+  /** initial config (additive, 0.13: create_view sets it in the same request) */
+  config: viewConfigSchema.optional(),
 })
 
 export const updateViewSchema = z.object({
@@ -951,3 +956,5 @@ export * from './accessTokens'
 export * from './pageAccess'
 // Suggested section edits and section claims (docs/adr/1530-*, 1535-*)
 export * from './suggestions'
+// Chart blocks and chart views: stored format, aggregate shapes, view filters (docs/adr/1600-*)
+export * from './charts'

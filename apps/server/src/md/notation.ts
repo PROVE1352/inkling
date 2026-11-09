@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
-import { CALLOUT_TYPES, parseHttpUrl } from '@inkling/shared'
+import { CALLOUT_TYPES, canonicalChartConfig, canonicalChartJson, chartBlockConfigSchema, parseChartBlockConfig, parseHttpUrl } from '@inkling/shared'
 import type { AnyBlock, Inline, LinkInline, StyledText } from './convert'
 import { getServerEditor } from './editor'
 
@@ -10,8 +10,10 @@ import { getServerEditor } from './editor'
  *   callout          `> [!warning] text`                               (Obsidian / GitHub alerts)
  *   mention          `@[Label](user:<id>)` / `@[Title](page:<id>)`      agent reads; exports write `@Label`
  *   block tokens     `<!-- inkling:pageEmbed {"pageId":"…"} -->`        agent reads only, one line each:
- *                    pageEmbed, linkEmbed, pluginBlock, and file / audio blocks (whose plain Markdown
- *                    — a link paragraph, an HTML figure — does not read back as the same block)
+ *                    pageEmbed, linkEmbed, pluginBlock, chart, and file / audio blocks (whose plain
+ *                    Markdown — a link paragraph, an HTML figure — does not read back as the same block).
+ *                    A chart token carries its config object itself (`<!-- inkling:chart {"groupBy":…} -->`,
+ *                    docs/adr/1604-*), not the JSON string the block stores.
  *
  * Two modes. `agent` (read_page, read_pages, section reads, patch_section's echo, conflict bodies)
  * writes every form above so that what an agent sends back can be turned into the same nodes.
@@ -28,11 +30,11 @@ import { getServerEditor } from './editor'
 export type NotationMode = 'plain' | 'agent'
 
 /** Block types written as `<!-- inkling:<type> {props} -->` in agent mode. */
-const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'file', 'audio'])
+const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'file', 'audio'])
 /** Block types a token may create (images and videos read back from Markdown already). */
 const PARSE_TOKEN_BLOCKS = new Set([...TOKEN_BLOCKS, 'image', 'video'])
 /** Left out of plain Markdown (nothing to show without the app), as before this notation. */
-const PLAIN_DROPPED = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock'])
+const PLAIN_DROPPED = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart'])
 
 const CALLOUT_SET = new Set<string>(CALLOUT_TYPES)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -106,6 +108,11 @@ function propSchemaOf(type: string): PropSchema | null {
 
 /** Props that differ from their defaults, keys sorted (deterministic output, docs/adr/0937-*). */
 function tokenProps(type: string, props: Record<string, unknown>): Record<string, unknown> {
+  // chart: the config object itself (canonical), {} while the block is being set up
+  if (type === 'chart') {
+    const c = parseChartBlockConfig(props.config)
+    return c ? (canonicalChartConfig(c) as Record<string, unknown>) : {}
+  }
   const schema = propSchemaOf(type) ?? {}
   const out: Record<string, unknown> = {}
   for (const k of Object.keys(props).sort()) {
@@ -226,6 +233,7 @@ const CODE_SPAN_RE = /(`+)[\s\S]*?\1/g
 /** A token's props, checked against the block's prop schema; null when the token is not usable. */
 function tokenBlock(type: string, json: string): AnyBlock | null {
   if (!PARSE_TOKEN_BLOCKS.has(type)) return null
+  if (type === 'chart') return chartTokenBlock(json)
   const schema = propSchemaOf(type)
   if (!schema) return null
   let raw: unknown
@@ -254,6 +262,21 @@ function tokenBlock(type: string, json: string): AnyBlock | null {
   if ((type === 'file' || type === 'audio' || type === 'image' || type === 'video') && !(FILE_URL_RE.test(url) || parseHttpUrl(url))) return null
   if (type === 'pluginBlock' && (typeof props.pluginId !== 'string' || !props.pluginId || String(props.data ?? '').length > PLUGIN_DATA_MAX)) return null
   return { type, props, children: [] }
+}
+
+/** A chart token: `{}` (being set up) or a config the shared schema accepts; else not a block. */
+function chartTokenBlock(json: string): AnyBlock | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(json)
+  } catch {
+    return null
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  if (Object.keys(raw).length === 0) return { type: 'chart', props: { config: '' }, children: [] }
+  const r = chartBlockConfigSchema.safeParse(raw)
+  if (!r.success) return null
+  return { type: 'chart', props: { config: canonicalChartJson(r.data) }, children: [] }
 }
 
 /** Cuts block tokens and mention tokens out of `md` (outside fenced code and code spans). */

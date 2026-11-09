@@ -27,6 +27,7 @@ import { getLocale, useT } from '../../i18n'
 import { inlineMathSpec, mathBlockSpec } from './Math'
 import { calloutSpec } from './Callout'
 import { linkEmbedSpec } from './LinkEmbed'
+import { chartBlockSpec } from './ChartBlock'
 import { mentionSpec } from './Mention'
 import { pluginBlockSpec } from '../../plugins/PluginBlock'
 
@@ -254,6 +255,8 @@ export function editorSchemaSpecs(renders: {
     linkEmbed: linkEmbedSpec,
     // Display equation (KaTeX); Markdown `$$…$$` (docs/adr/0995-*, 0996-*).
     math: mathBlockSpec,
+    // Chart from a collection or a query (docs/adr/1600-*); data fetched per viewer, never stored.
+    chart: chartBlockSpec,
   } satisfies Record<CustomBlockType, unknown>
   const customInlineContentSpecs = {
     // @mention chip (M13).

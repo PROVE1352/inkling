@@ -26,6 +26,8 @@ import type { ShareGate } from '../shareAccess'
 import { BoundedLru } from '../lru'
 import { liveWorkspace } from '../workspaceLive'
 import { collectionTableMdShared } from '../md/exporter'
+import { chartsToTables, publicFor } from '../charts/render'
+import type { ChartDataFn } from '../charts/render'
 import {
   blocksToFullHTML,
   collectAssetFileIds,
@@ -284,7 +286,7 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
  *  - collection: child rows (shared) as a GFM table → markdownToBlocks (internal links unresolved)
  * Other kinds (folder/canvas) get a 404 before the call, so they never reach here.
  */
-async function loadPublicBlocks(page: SharedPage): Promise<AnyBlock[]> {
+async function loadPublicBlocks(page: SharedPage, charts?: ChartDataFn): Promise<AnyBlock[]> {
   if (page.kind === 'collection') {
     try {
       const md = await collectionTableMdShared(page.id)
@@ -301,11 +303,14 @@ async function loadPublicBlocks(page: SharedPage): Promise<AnyBlock[]> {
       .limit(1)
   )[0]
   if (!row) return []
+  let blocks: AnyBlock[]
   try {
-    return stateToBlocks(row.state)
+    blocks = stateToBlocks(row.state)
   } catch {
     return []
   }
+  // chart blocks: a table of data inside the link, else left out by blocksToFullHTML (docs/adr/1605-*)
+  return charts ? chartsToTables(blocks, charts) : blocks
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +499,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       ? createHash('sha1').update([...share.refById.keys()].sort().join(',')).digest('base64')
       : ''
     const html = await cachedHtml(rk && `c|${rk}|${token}|${ref}|${members}`, async () => {
-      const blocks = await loadPublicBlocks(page)
+      // charts may show collections inside this folder share (the root excluded: a folder has no rows)
+      const inShare = new Map(share.pages.map((p) => [p.id, p]))
+      const blocks = await loadPublicBlocks(page, publicFor(share.root.workspaceId, (id) => inShare.get(id)))
       // Keep only wikilinks pointing inside the subtree as public paths; turn the rest into text (no id leaks).
       rewriteInternalLinksForPublic(blocks, (pageId) => {
         if (pageId === share.root.id) return `/s/${token}`

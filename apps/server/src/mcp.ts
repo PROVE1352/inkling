@@ -32,6 +32,7 @@ import { registerCollabTools, suggestionMadeText } from './mcpTools/collabTools'
 import { claimLine } from './leases'
 import type { SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { registerStructureTools } from './mcpTools/structureTools'
+import { annotateCharts, registerChartTools } from './mcpTools/chartTools'
 import { appliesLine, flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
 import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, wrapUntrusted } from './mcpTools/trust'
@@ -391,7 +392,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const moved = r.movedFrom ? `moved_to: §${r.section.anchor} (the heading was renamed; "${cleanText(r.movedFrom)}" no longer exists)\n` : ''
         const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}${r.claim ? `${claimLine({ ...r.claim, by: cleanText(r.claim.by) })}\n` : ''}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
-        return text(withApplies(ac, head + wrapUntrusted(r.markdown + tail, { source: 'page', id: r.page.id, createdBy: f.createdBy, lastEdit: f.lastEdit })))
+        // a data line under each chart token, for this reader (docs/adr/1606-*)
+        const sectionMd = r.markdown.includes('inkling:chart')
+          ? await annotateCharts(ctx, (await findVisiblePage(r.page.id, ctx.user.id))?.workspaceId ?? '', r.markdown)
+          : r.markdown
+        return text(withApplies(ac, head + wrapUntrusted(sectionMd + tail, { source: 'page', id: r.page.id, createdBy: f.createdBy, lastEdit: f.lastEdit })))
       }
       // The export route does the permission check (visibility + membership); metadata is attached only after it passes.
       const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md', notation: 'agent' } })
@@ -410,6 +415,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       const version = pageVersion({ kind: meta.kind, title: meta.title, properties, body })
       if (known && known === version) return unchangedText(await loadAgentContext(ctx, [meta.id], { read: true }), meta.id, version)
       countReads([meta.id]) // read counters (docs/adr/0953-*)
+      // a data line under each chart token, for this reader; not part of the version (docs/adr/1606-*)
+      if (meta.kind === 'doc') body = await annotateCharts(ctx, meta.workspaceId, body)
       if (maxChars && body.length > maxChars) {
         body = `${body.slice(0, maxChars)}\n\n[truncated: ${maxChars} of ${body.length} chars; use outline=true and section=… for the rest]`
       }
@@ -751,6 +758,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerInstructionTools(server, ctx)
   registerChangeTools(server, ctx)
   registerCollectionTools(server, ctx)
+  registerChartTools(server, ctx) // create_chart, create_view (docs/adr/1606-*)
   registerSplitTools(server, ctx)
   // Handwriting, version history, trash and attachments (docs/adr/1510-* .. 1514-*)
   registerInkTools(server, ctx)

@@ -35,7 +35,8 @@ export const OVERRIDE_PHRASES: readonly RegExp[] = [
 
 const TOOL_NAMES =
   'patch_section|update_page|trash_page|move_page|rename_page|create_page|import_folder|update_row|create_row|' +
-  'add_comment|create_from_template|get_instructions|read_page|read_pages|find_context|changes_since|query_rows'
+  'add_comment|create_from_template|get_instructions|read_page|read_pages|find_context|changes_since|query_rows|' +
+  'create_chart|create_view'
 const TOOL = new RegExp(`\\b(${TOOL_NAMES})\\b`)
 /** Sentence addresses an AI agent. */
 const AGENT_CUE =

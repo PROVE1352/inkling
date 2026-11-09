@@ -173,6 +173,20 @@ const ELEMENTS: Element[] = [
     token: /^<!-- inkling:pluginBlock .* -->$/m,
   },
   {
+    name: 'chart block',
+    place: 'block',
+    add: webBlock('chart', {
+      config: JSON.stringify({
+        groupBy: { field: 'f1' },
+        kind: 'bar',
+        source: { collectionId: PAGE_ID, type: 'collection' },
+        title: 'By status -- open',
+      }),
+    }),
+    sig: /<chart config="[^\n]*groupBy[^\n]*By status -- open[^\n]*">/i,
+    token: /^<!-- inkling:chart \{.*\} -->$/m,
+  },
+  {
     name: 'math block',
     place: 'block',
     add: knownBlock({ type: 'math', props: { latex: 'E = mc^2' } }),

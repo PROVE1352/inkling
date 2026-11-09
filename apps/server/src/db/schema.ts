@@ -435,7 +435,8 @@ export const collectionViews = pgTable('collection_views', {
     .notNull()
     .references(() => pages.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
-  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline'] }).notNull(),
+  // TS-only enum (no CHECK in the database): 'chart' (0.13, docs/adr/1603-*) needed no migration
+  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart'] }).notNull(),
   /** ViewConfig — sorts/filters/groupByFieldId/columnOrder/hiddenFields */
   config: jsonb('config').notNull().default(sql`'{}'::jsonb`),
   sortOrder: doublePrecision('sort_order').notNull().default(0),

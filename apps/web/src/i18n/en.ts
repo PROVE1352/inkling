@@ -20,6 +20,7 @@ import pageAccess from './en/page-access'
 import shortcuts from './en/shortcuts'
 import later from './en/later'
 import suggestions from './en/suggestions'
+import charts from './en/charts'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -46,6 +47,7 @@ export const en = {
   ...shortcuts,
   ...later,
   ...suggestions,
+  ...charts,
 }
 
 export type MessageKey = keyof typeof en

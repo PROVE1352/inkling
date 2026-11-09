@@ -16,6 +16,7 @@ import { visibleTo } from '../pageDto'
 import { collectAssetRefs, collectPageRefs, stateToCanvasJson } from './canvas'
 import type { StateToCanvasOptions } from './canvas'
 import { blocksToMarkdown, stateToBlocks } from './convert'
+import { chartsToTables, exportFor, hasChartBlocks } from '../charts/render'
 import type { NotationMode } from './notation'
 import type { AnyBlock } from './convert'
 import { extForMime, sanitizeName } from './mime'
@@ -232,6 +233,18 @@ export interface ExportedMd {
   body: string
 }
 
+/**
+ * Blocks of a page for an export. Plain Markdown shows each chart as a table of its data for the
+ * exporting member (docs/adr/1605-*); agent notation keeps the chart token.
+ */
+async function exportBlocks(pageId: string, userId: string, notation: NotationMode): Promise<AnyBlock[]> {
+  const blocks = await loadBlocks(pageId)
+  // no chart, no extra statement (zip exports call this for every page)
+  if (notation === 'agent' || !hasChartBlocks(blocks)) return blocks
+  const [p] = await db.select({ workspaceId: pages.workspaceId }).from(pages).where(eq(pages.id, pageId)).limit(1)
+  return p ? chartsToTables(blocks, exportFor(userId, p.workspaceId)) : blocks
+}
+
 export async function exportPageMd(
   page: {
     id: string
@@ -246,7 +259,7 @@ export async function exportPageMd(
     page.kind === 'collection'
       ? await collectionTableMd(page.id, userId)
       : (
-          await blocksToMarkdown(await loadBlocks(page.id), { assetMode: 'absolute', notation })
+          await blocksToMarkdown(await exportBlocks(page.id, userId, notation), { assetMode: 'absolute', notation })
         ).markdown
   const body = frontmatter(page.id, page.updatedAt) + markdown
   return { filename: `${sanitizeName(page.title)}.md`, body }
@@ -612,7 +625,7 @@ async function walk(
   const children = childrenMap.get(page.id) ?? []
 
   if (page.kind === 'doc') {
-    const blocks = await loadBlocks(page.id)
+    const blocks = await exportBlocks(page.id, ctx.userId, 'plain')
     const { markdown, assetIds } = await blocksToMarkdown(blocks, {
       assetMode: 'relative',
       resolveAssetPath: (fileId) =>

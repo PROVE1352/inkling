@@ -391,7 +391,8 @@ export async function blocksToFullHTML(blocks: AnyBlock[]): Promise<string> {
 function publicBlocks(blocks: AnyBlock[]): AnyBlock[] {
   const out: AnyBlock[] = []
   for (const b of blocks) {
-    if (b.type === 'pageEmbed' || b.type === 'linkEmbed' || b.type === 'pluginBlock') {
+    // chart: public pages get a table from routes/public.ts (only for data inside the link) — never the config
+    if (b.type === 'pageEmbed' || b.type === 'linkEmbed' || b.type === 'pluginBlock' || b.type === 'chart') {
       out.push(...publicBlocks(b.children ?? []))
       continue
     }

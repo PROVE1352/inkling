@@ -83,89 +83,101 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
       const workspaceId = idParam(req.params)
       const body = bodySchema.parse(req.body)
       await requireMembership(workspaceId, user.id)
-
-      let ast
-      try {
-        ast = parseQuery(body.source)
-      } catch (err) {
-        if (err instanceof QuerySyntaxError) throw syntaxError(body.source, err.message, err.pos)
-        throw err
-      }
-
-      const today = body.today ?? utcToday()
-      const tz = body.tzOffsetMinutes ?? 0
-      let compiled
-      try {
-        compiled = compileQuery(ast, { workspaceId, userId: user.id, today, tzOffsetMinutes: tz })
-      } catch (err) {
-        if (err instanceof QueryCompileError) throw syntaxError(body.source, err.message, err.pos)
-        throw err
-      }
-
-      // Index epoch: derived indexes trail pages.updated_at by the docIndexer debounce.
-      const version = `${await workspaceVersion(workspaceId)}|${indexEpoch()}`
-      // The connection range is part of the key (docs/adr/1200-*): a browser result must never
-      // answer a range-limited token of the same user, nor the other way round.
-      const key = `${user.id}|${rangeCacheKey(user.id)}|${workspaceId}|${today}|${tz}|${body.source}`
-      const hit = cacheGet(key, version)
-      if (hit) return { ...hit, cached: true }
-
-      const t0 = performance.now()
-      let raw: Record<string, unknown>[]
-      try {
-        raw = await db.transaction(async (tx) => {
-          await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`))
-          // The jsonb function scans inflate cost estimates past jit_above_cost; JIT compilation
-          // then costs more (~15-20 ms) than these short queries take to run. See ADR 0203.
-          await tx.execute(sql.raw('SET LOCAL jit = off'))
-          return (await tx.execute(compiled.statement)) as unknown as Record<string, unknown>[]
-        })
-      } catch (err) {
-        const code = (err as { code?: string }).code
-        if (code === '57014') {
-          throw new AppError(400, 'QUERY_TIMEOUT', 'The query took too long — narrow it with FROM or WHERE')
-        }
-        throw err
-      }
-      const page = takeLimit(raw, compiled.limit)
-      const truncated = page.truncated
-      const rows: QueryRowDTO[] = page.rows.map((r) => {
-        const row: QueryRowDTO = {
-          pageId: String(r.id),
-          title: String(r.title ?? ''),
-          cells: Array.isArray(r.cells) ? (r.cells as unknown[]) : [],
-        }
-        if (ast.type === 'TASK') {
-          row.task = {
-            blockId: String(r.block_id ?? ''),
-            text: String(r.text ?? ''),
-            due: String(r.due ?? ''),
-            checked: r.checked === true,
-          }
-        }
-        return row
-      })
-      // person → member name, relation → visible linked rows (docs/adr/1320-*); set-wise, after LIMIT
-      await resolveCellRefs(
-        rows.map((row, i) => ({ parentId: (page.rows[i].parent_id as string | null) ?? null, cells: row.cells })),
-        compiled.columnProps,
-        { workspaceId, userId: user.id },
-      )
-      // statement + display pass: what the viewer waited for on a cache miss
-      const elapsedMs = Math.round((performance.now() - t0) * 10) / 10
-
-      const result: QueryResultDTO = {
-        type: ast.type,
-        withoutId: ast.withoutId,
-        columns: compiled.columns,
-        rows,
-        truncated,
-        elapsedMs,
-      }
-      cachePut(key, version, result)
-      return result
+      return runWorkspaceQuery(user.id, workspaceId, body.source, body.today ?? utcToday(), body.tzOffsetMinutes ?? 0)
     },
   )
+}
+
+/**
+ * Parse, compile and run a query as `userId` in a workspace the caller has checked membership of
+ * (POST /query and the chart aggregate of a query source, docs/adr/1602-*). Cached per viewer,
+ * range and workspace version; QUERY_SYNTAX / QUERY_TIMEOUT errors as AppError.
+ */
+export async function runWorkspaceQuery(
+  userId: string,
+  workspaceId: string,
+  source: string,
+  today: string,
+  tz: number,
+): Promise<QueryResultDTO & { cached?: boolean }> {
+  let ast
+  try {
+    ast = parseQuery(source)
+  } catch (err) {
+    if (err instanceof QuerySyntaxError) throw syntaxError(source, err.message, err.pos)
+    throw err
+  }
+
+  let compiled
+  try {
+    compiled = compileQuery(ast, { workspaceId, userId, today, tzOffsetMinutes: tz })
+  } catch (err) {
+    if (err instanceof QueryCompileError) throw syntaxError(source, err.message, err.pos)
+    throw err
+  }
+
+  // Index epoch: derived indexes trail pages.updated_at by the docIndexer debounce.
+  const version = `${await workspaceVersion(workspaceId)}|${indexEpoch()}`
+  // The connection range is part of the key (docs/adr/1200-*): a browser result must never
+  // answer a range-limited token of the same user, nor the other way round.
+  const key = `${userId}|${rangeCacheKey(userId)}|${workspaceId}|${today}|${tz}|${source}`
+  const hit = cacheGet(key, version)
+  if (hit) return { ...hit, cached: true }
+
+  const t0 = performance.now()
+  let raw: Record<string, unknown>[]
+  try {
+    raw = await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`))
+      // The jsonb function scans inflate cost estimates past jit_above_cost; JIT compilation
+      // then costs more (~15-20 ms) than these short queries take to run. See ADR 0203.
+      await tx.execute(sql.raw('SET LOCAL jit = off'))
+      return (await tx.execute(compiled.statement)) as unknown as Record<string, unknown>[]
+    })
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code === '57014') {
+      throw new AppError(400, 'QUERY_TIMEOUT', 'The query took too long — narrow it with FROM or WHERE')
+    }
+    throw err
+  }
+  const page = takeLimit(raw, compiled.limit)
+  const truncated = page.truncated
+  const rows: QueryRowDTO[] = page.rows.map((r) => {
+    const row: QueryRowDTO = {
+      pageId: String(r.id),
+      title: String(r.title ?? ''),
+      cells: Array.isArray(r.cells) ? (r.cells as unknown[]) : [],
+    }
+    if (ast.type === 'TASK') {
+      row.task = {
+        blockId: String(r.block_id ?? ''),
+        text: String(r.text ?? ''),
+        due: String(r.due ?? ''),
+        checked: r.checked === true,
+      }
+    }
+    return row
+  })
+  // person → member name, relation → visible linked rows (docs/adr/1320-*); set-wise, after LIMIT
+  await resolveCellRefs(
+    rows.map((row, i) => ({ parentId: (page.rows[i].parent_id as string | null) ?? null, cells: row.cells })),
+    compiled.columnProps,
+    { workspaceId, userId },
+  )
+  // statement + display pass: what the viewer waited for on a cache miss
+  const elapsedMs = Math.round((performance.now() - t0) * 10) / 10
+
+  const result: QueryResultDTO = {
+    type: ast.type,
+    withoutId: ast.withoutId,
+    columns: compiled.columns,
+    rows,
+    truncated,
+    elapsedMs,
+  }
+  cachePut(key, version, result)
+  return result
 }
 
 function syntaxError(source: string, message: string, pos: number): AppError {

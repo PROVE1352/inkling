@@ -8,6 +8,7 @@ import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import type { CalloutType } from './blocks/Callout'
 import { usePluginSlashItems } from '../plugins/integration'
 import { linkEmbedSlashItems } from './blocks/LinkEmbed'
+import { chartSlashItems } from './blocks/ChartBlock'
 import { querySlashItem } from './blocks/QueryBlock'
 import { mathSlashItems } from './blocks/Math'
 import { useT } from '../i18n'
@@ -68,6 +69,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
         ...pluginItems,
         ...linkEmbedSlashItems(editor),
         querySlashItem(editor),
+        ...chartSlashItems(editor),
         ...mathSlashItems(editor, t),
       ]),
       query,

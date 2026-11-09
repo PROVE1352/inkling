@@ -140,4 +140,5 @@ export const VIEW_TYPE_LABEL = {
   get calendar() { return t('view.typeCalendar') },
   get gallery() { return t('view.typeGallery') },
   get timeline() { return t('view.typeTimeline') },
+  get chart() { return t('chart.viewType') },
 } satisfies Record<ViewType, string>

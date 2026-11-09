@@ -257,7 +257,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
 
     const [row] = await db
       .insert(collectionViews)
-      .values({ pageId: id, name: body.name, type: body.type, config: {}, sortOrder })
+      .values({ pageId: id, name: body.name, type: body.type, config: body.config ?? {}, sortOrder })
       .returning(viewColumns)
 
     return { view: toViewDTO(row) }

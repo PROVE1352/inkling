@@ -1,4 +1,5 @@
-import type { CollectionField, FilterOp, RowDTO, ViewConfig } from '@inkling/shared'
+import { matchesFilter } from '@inkling/shared'
+import type { CollectionField, RowDTO, ViewConfig } from '@inkling/shared'
 
 // Builds the displayed field order by applying the view's columnOrder/hiddenFields.
 export function orderedFields(
@@ -121,57 +122,9 @@ function compareRows(
   return dir === 'asc' ? cmp : -cmp
 }
 
-export function matchesFilter(
-  field: CollectionField,
-  value: unknown,
-  op: FilterOp,
-  target: string | number | boolean | undefined,
-): boolean {
-  const isEmpty =
-    value === undefined ||
-    value === null ||
-    value === '' ||
-    (Array.isArray(value) && value.length === 0)
-  switch (op) {
-    case 'empty':
-      return isEmpty
-    case 'notEmpty':
-      return !isEmpty
-    case 'eq':
-      if (field.type === 'multiSelect')
-        return Array.isArray(value) && value.includes(target as string)
-      return String(value ?? '') === String(target ?? '')
-    case 'ne':
-      if (field.type === 'multiSelect')
-        return !(Array.isArray(value) && value.includes(target as string))
-      return String(value ?? '') !== String(target ?? '')
-    case 'contains':
-      if (field.type === 'rollup' && Array.isArray(value))
-        return value.some((v) =>
-          String(v).toLowerCase().includes(String(target ?? '').toLowerCase()),
-        )
-      if (Array.isArray(value)) return value.includes(target as string)
-      return String(value ?? '')
-        .toLowerCase()
-        .includes(String(target ?? '').toLowerCase())
-    case 'gt':
-    case 'lt': {
-      if (field.type === 'number' || (field.type === 'rollup' && typeof value === 'number')) {
-        const a = Number(value)
-        const b = Number(target)
-        if (Number.isNaN(a) || Number.isNaN(b)) return false
-        return op === 'gt' ? a > b : a < b
-      }
-      // date/text etc. compare lexicographically as strings
-      if (isEmpty) return false
-      const a = String(value)
-      const b = String(target ?? '')
-      return op === 'gt' ? a > b : a < b
-    }
-    default:
-      return true
-  }
-}
+// One view filter against a stored value: shared with the server's chart aggregate, so a chart view
+// counts the rows the other views show (packages/shared/src/charts.ts, docs/adr/1602-*).
+export { matchesFilter }
 
 // Returns the rows with the view config applied: filter, then sort.
 export function applyView(

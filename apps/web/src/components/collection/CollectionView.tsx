@@ -46,6 +46,7 @@ import { SheetSyncModal } from './SheetSyncModal'
 import { S } from './strings'
 import { TableView } from './TableView'
 import { TimelineView } from './TimelineView'
+import { ChartView } from './ChartView'
 import { ViewSettings } from './ViewSettings'
 import { ViewTabs } from './ViewTabs'
 
@@ -367,7 +368,9 @@ export function CollectionView({
         )}
       </div>
 
-      {view?.type === 'gallery' ? (
+      {view?.type === 'chart' ? (
+        <ChartView view={view} wsId={wsId} collectionId={pageId} onUpdateConfig={onUpdateConfig} />
+      ) : view?.type === 'gallery' ? (
         <GalleryView
           view={view}
           fields={fields}

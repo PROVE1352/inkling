@@ -95,6 +95,14 @@ describe('registry', () => {
     assert.equal(shortcutById('thread.toggleFollow').palette, false)
   })
 
+  it('"Insert table" is a palette command of the editor without a default key (docs/adr/1642-*)', () => {
+    const def = shortcutById('editor.insertTable')
+    assert.ok(def)
+    assert.equal(def.via, 'editor')
+    assert.equal(def.keys, undefined)
+    assert.notEqual(def.palette, false)
+  })
+
   it('labels follow the platform', () => {
     assert.deepEqual(keyLabels('app.fullTextSearch', 'mac'), ['⌘⇧F'])
     assert.deepEqual(keyLabels('app.fullTextSearch', 'other'), ['Ctrl+Shift+F'])

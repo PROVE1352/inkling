@@ -27,6 +27,12 @@
 //   check-toggle    ⌘L makes a to-do, ⌘Enter checks and unchecks it, ⌘Enter on text does nothing
 //   duplicate       ⌘⇧D copies the block below with a new id, the caret goes into the copy
 //   delete-block    ⌘D deletes the block, the caret goes to the next one
+//   table-pipe      "| 이름 | 역할 | 마감 |" + Enter on an empty line → header row + one empty row, caret in the
+//                   empty row's first cell; typing lands there; ⌘Z, ⌘Z gives the typed row back (docs/adr/1642-*)
+//   table-pipe-no   "|a|" + Enter, a pipe row in a code block + Enter, and Enter in the middle of a pipe row
+//                   stay ordinary Enters (no table)
+//   table-slash-size /table 3x4 and /표 3*4 → an empty 3 columns × 4 rows table, typing lands in its first cell
+//   table-paste     a Markdown table pasted as text → a table with the header row
 // At the end the page is reloaded once and the stored document must equal the live one.
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
@@ -115,6 +121,44 @@ const docDetail = (page) =>
     })
     return { blocks: out, uniqueIds: new Set(ids).size === ids.length }
   })
+// the first table: its cells, how many header cells, and the [row, col] of the caret when it is in a cell
+const tableDetail = (page) =>
+  page.evaluate(() => {
+    const ed = document.querySelector('.ProseMirror').editor
+    let table = null
+    let tablePos = -1
+    ed.state.doc.descendants((n, pos) => {
+      if (table) return false
+      if (n.type.name === 'table') {
+        table = n
+        tablePos = pos
+        return false
+      }
+    })
+    if (!table) return null
+    const cells = []
+    let headers = 0
+    let caret = null
+    const head = ed.state.selection.head
+    table.forEach((row, rowOff, r) => {
+      const out = []
+      row.forEach((cell, cellOff, c) => {
+        if (cell.type.name === 'tableHeader') headers++
+        const start = tablePos + 1 + rowOff + 1 + cellOff
+        if (head > start && head < start + cell.nodeSize) caret = [r, c]
+        out.push(cell.textContent)
+      })
+      cells.push(out)
+    })
+    return { cells, headers, caret }
+  })
+async function pasteText(page, text) {
+  await page.evaluate((text) => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', text)
+    document.querySelector('.ProseMirror').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
+  }, text)
+}
 const fieldValue = (page) => page.evaluate(() => (document.activeElement && 'value' in document.activeElement ? document.activeElement.value : null))
 async function slash(page, query, title, { click = false } = {}) {
   await page.keyboard.type('/' + query, { delay: 15 })
@@ -272,7 +316,93 @@ const SCENARIOS = {
     const got = await docBlocks(page)
     return eq(got, ['paragraph:Alpha', 'paragraph:WBravo']) ? null : got.join(' | ')
   },
+  'table-pipe': async (page, mod) => {
+    const ROW = '| 이름 | 역할 \\| 담당 | 마감 |'
+    await setDoc(page, WITH_EMPTY)
+    await caretAt(page, '')
+    await page.keyboard.type(ROW, { delay: 0 })
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(80)
+    const made = await tableDetail(page)
+    const blocks = await docBlocks(page)
+    await page.keyboard.type('Kim', { delay: 0 })
+    await page.waitForTimeout(80)
+    const typed = await tableDetail(page)
+    await page.waitForTimeout(600) // a separate undo step for the typing
+    await page.keyboard.press(`${mod}+KeyZ`)
+    await page.waitForTimeout(80)
+    const undo1 = await tableDetail(page)
+    await page.keyboard.press(`${mod}+KeyZ`)
+    await page.waitForTimeout(150)
+    const undone = await docBlocks(page)
+    const want = [['이름', '역할 | 담당', '마감'], ['', '', '']]
+    const ok =
+      made && eq(made.cells, want) && made.headers === 3 && eq(made.caret, [1, 0]) &&
+      blocks.length === 4 && blocks[2].startsWith('table:') && blocks[3] === 'paragraph:Bravo' &&
+      typed && typed.cells[1][0] === 'Kim' &&
+      undo1 && eq(undo1.cells, want) &&
+      eq(undone, ['paragraph:Alpha', 'paragraph:X', `paragraph:${ROW}`, 'paragraph:Bravo'])
+    return ok ? null : `made=${JSON.stringify(made)} blocks=${blocks.join(' | ')} typed=${JSON.stringify(typed?.cells)} undo1=${JSON.stringify(undo1?.cells)} undone=${undone.join(' | ')}`
+  },
+  'table-pipe-no': async (page) => {
+    await setDoc(page, WITH_EMPTY)
+    await caretAt(page, '')
+    await page.keyboard.type('|a|', { delay: 0 })
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(80)
+    const one = await docBlocks(page)
+    await setDoc(page, [P('Alpha'), ['codeBlock', '| a | b |'], P('Bravo')])
+    await caretAt(page, '| a | b |')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(80)
+    const code = await docBlocks(page)
+    await setDoc(page, [P('Alpha'), P('| a | b |'), P('Bravo')])
+    await caretAt(page, '| a | b |', 'start')
+    await page.evaluate(() => {
+      const ed = document.querySelector('.ProseMirror').editor
+      ed.commands.setTextSelection(ed.state.selection.head + 1)
+    })
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(80)
+    const mid = await docBlocks(page)
+    const ok =
+      eq(one, ['paragraph:Alpha', 'paragraph:X', 'paragraph:|a|', 'paragraph:', 'paragraph:Bravo']) &&
+      eq(code, ['paragraph:Alpha', 'codeBlock:| a | b |\n', 'paragraph:Bravo']) &&
+      eq(mid, ['paragraph:Alpha', 'paragraph:|', 'paragraph: a | b |', 'paragraph:Bravo'])
+    return ok ? null : `${one.join(' | ')} // ${code.join(' | ')} // ${mid.join(' | ')}`
+  },
+  'table-slash-size': async (page) => {
+    // alternate the two spellings across runs
+    tableSlashRun++
+    const [query, title] = tableSlashRun % 2 ? ['table 3x4', 'Table 3×4'] : ['표 3*4', 'Table 3×4']
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    await slash(page, query, title)
+    await page.keyboard.type('hello', { delay: 0 })
+    await page.waitForTimeout(150)
+    const d = await tableDetail(page)
+    const blocks = await docBlocks(page)
+    const ok =
+      d && d.cells.length === 4 && d.cells.every((r) => r.length === 3) && d.headers === 0 && d.cells[0][0] === 'hello' &&
+      eq(d.caret, [0, 0]) && eq(blocks.map((b) => b.split(':')[0]), ['paragraph', 'paragraph', 'table', 'paragraph']) &&
+      blocks[1] === 'paragraph:X'
+    return ok ? null : `/${query}: ${JSON.stringify(d)} ${blocks.join(' | ')}`
+  },
+  'table-paste': async (page) => {
+    await setDoc(page, WITH_EMPTY)
+    await caretAt(page, '')
+    await pasteText(page, '| a | b |\n|:---|---:|\n| 1 | 2 |\n| 3 | 4 |')
+    await page.waitForTimeout(150)
+    const d = await tableDetail(page)
+    const blocks = await docBlocks(page)
+    const ok =
+      d && eq(d.cells, [['a', 'b'], ['1', '2'], ['3', '4']]) && d.headers === 2 &&
+      blocks[0] === 'paragraph:Alpha' && blocks[1] === 'paragraph:X' && blocks.some((b) => b.startsWith('table:')) &&
+      blocks[blocks.length - 1] === 'paragraph:Bravo'
+    return ok ? null : `${JSON.stringify(d)} ${blocks.join(' | ')}`
+  },
 }
+let tableSlashRun = 0
 
 let failed = 0
 for (const engine of ENGINES) {

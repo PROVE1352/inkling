@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { createExtension } from '@blocknote/core'
 import type { InklingEditor } from '../../components/CollabEditor'
 import { insertInlineMath } from '../../components/blocks/Math'
+import { insertSizedTable } from '../tableQuickInput'
 import { bindCommand, PLATFORM, runCommand } from './index'
 import { matchKey, targetKind, toKeyEvent } from './keys'
 import { SHORTCUTS, boundKeys } from './registry'
@@ -74,6 +75,7 @@ export const EDITOR_COMMANDS: Record<string, Impl> = {
     return true
   },
   'editor.inlineMath': (ed) => insertInlineMath(ed),
+  'editor.insertTable': (ed) => insertSizedTable(ed, 3, 3),
   'editor.paragraph': turnInto('paragraph'),
   'editor.heading1': turnInto('heading', { level: 1 }),
   'editor.heading2': turnInto('heading', { level: 2 }),

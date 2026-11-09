@@ -12,6 +12,11 @@ export default {
   // Slash menu
   'slash.calloutTitle': 'Callout',
   'slash.calloutSubtext': 'Highlighted box — switch type (note, tip, warning, danger, info) in the block',
+  // "/table 3x4" (docs/adr/1642-*)
+  'slash.tableSizeTitle': 'Table {cols}×{rows}',
+  'slash.tableSizeSubtext': '{cols} columns × {rows} rows',
+  'slash.tableSizePending': 'Table {cols}×…',
+  'slash.tableSizePendingSubtext': 'Type the rows too, e.g. /table 3x4 = 3 columns × 4 rows',
 
   // Callout block
   'callout.note': 'Note',

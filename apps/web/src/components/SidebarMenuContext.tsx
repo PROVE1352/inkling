@@ -147,7 +147,7 @@ export function SidebarMenuPopup({
       onKeyDown={onMenuKey}
       onContextMenu={(e) => e.preventDefault()}
       style={{ left: pos?.left ?? ctx.x, top: pos?.top ?? ctx.y, visibility: pos ? 'visible' : 'hidden' }}
-      className="nd-pop fixed z-50 w-56 origin-top-left overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl"
+      className="nd-pop fixed z-50 max-h-[calc(100dvh-1rem)] w-56 origin-top-left overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl"
     >
       <div className="truncate px-3 pb-1 pt-0.5 text-[11px] font-semibold text-sub">{label}</div>
       <button

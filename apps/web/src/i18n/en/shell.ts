@@ -170,6 +170,11 @@ export default {
   'sidebar.dueBadgeToday': 'Today {today}',
   'sidebar.calendar': 'Calendar',
   'sidebar.calendarTitle': 'Workspace calendar',
+  // Menus that do not fit fold under one row (docs/adr/1640-*)
+  'sidebar.moreMenus': 'More ({count})',
+  'sidebar.lessMenus': 'Show less',
+  'sidebar.moreMenusTitle': 'Show the other sidebar menus',
+  'sidebar.account': 'Account',
   'sidebar.todayTitle': 'Open today\'s daily note',
   'sidebar.newPage': 'New page',
   'sidebar.newItemKind': 'New item type',

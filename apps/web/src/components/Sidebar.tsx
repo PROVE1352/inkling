@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { SIDEBAR_MENU_IDS, type PageScope, type SidebarMenuId } from '@inkling/shared'
+import { SIDEBAR_MENU_DEFAULT_HIDDEN, SIDEBAR_MENU_IDS, type PageScope, type SidebarMenuId } from '@inkling/shared'
 import {
   useBookmarks,
   useCreatePage,
@@ -19,7 +19,15 @@ import { useShortcutKeys, withShortcut } from '../lib/shortcuts'
 import { MenuShortcut } from './MenuShortcut'
 import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
-import { resolveSidebarMenu, setEntryHidden, toSidebarPrefs, visibleSidebarMenu } from '../lib/sidebarMenu'
+import {
+  compactSidebarFooter,
+  menusThatFit,
+  resolveSidebarMenu,
+  setEntryHidden,
+  sidebarTreeMinHeight,
+  toSidebarPrefs,
+  visibleSidebarMenu,
+} from '../lib/sidebarMenu'
 import { toast } from '../lib/toast'
 import { SIDEBAR_MENU_META, isSidebarMenuId } from './sidebarMenus'
 import { SidebarMenuPopup, useMenuContextTrigger, type MenuCtx } from './SidebarMenuContext'
@@ -49,10 +57,12 @@ import {
   FileTextIcon,
   FolderPlusIcon,
   LogOutIcon,
+  MoreHorizontalIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
   TrashIcon,
+  UserIcon,
 } from './Icons'
 
 export function Sidebar({
@@ -187,16 +197,17 @@ export function Sidebar({
   // Top menus (docs/adr/1020-*): saved order/visibility from the server, merged with this build's menus.
   const sidebarPrefs = useSidebarPrefs()
   const saveSidebar = useSaveSidebarPrefs()
-  const visibleMenus = visibleSidebarMenu(sidebarPrefs, SIDEBAR_MENU_IDS) as SidebarMenuId[]
+  const visibleMenus = visibleSidebarMenu(sidebarPrefs, SIDEBAR_MENU_IDS, SIDEBAR_MENU_DEFAULT_HIDDEN) as SidebarMenuId[]
   const [menuCtx, setMenuCtx] = useState<MenuCtx | null>(null)
   const closeMenuCtx = useCallback(() => setMenuCtx(null), [])
   const menuTrigger = useMenuContextTrigger(setMenuCtx)
   const hideMenu = (id: SidebarMenuId) => {
     const prev = sidebarPrefs
     const next = toSidebarPrefs(
-      setEntryHidden(resolveSidebarMenu(prev, SIDEBAR_MENU_IDS), id, true),
+      setEntryHidden(resolveSidebarMenu(prev, SIDEBAR_MENU_IDS, SIDEBAR_MENU_DEFAULT_HIDDEN), id, true),
       SIDEBAR_MENU_IDS,
       prev,
+      SIDEBAR_MENU_DEFAULT_HIDDEN,
     )
     saveSidebar.mutate(next, {
       onSuccess: () =>
@@ -207,6 +218,106 @@ export function Sidebar({
         }),
     })
   }
+
+  // Menus that do not fit above the page tree fold under "More (k)" (docs/adr/1640-*): the tree keeps
+  // sidebarTreeMinHeight() of the sidebar whatever menus are on, and below COMPACT_FOOTER_BELOW the footer
+  // (trash, shortcuts, settings, account) becomes one row of icons. Heights are measured on the sidebar
+  // itself, so the phone drawer and the desktop column follow the same rule.
+  const asideRef = useRef<HTMLElement>(null)
+  const menusRef = useRef<HTMLDivElement>(null)
+  const navRef = useRef<HTMLElement>(null)
+  const [asideH, setAsideH] = useState(0)
+  // bumped on every size change: a width change alone (the footer wrapping at 200 px) must re-measure too
+  const [, setResizeTick] = useState(0)
+  const [fit, setFit] = useState<{ available: number; rowHeight: number } | null>(null)
+  const [menusExpanded, setMenusExpanded] = useState(() => {
+    try {
+      return localStorage.getItem('inkling:sidebarMenusExpanded') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleMenusExpanded = () => {
+    setMenusExpanded((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('inkling:sidebarMenusExpanded', next ? '1' : '0')
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  }
+  // Layout effect: the first paint already has the folded menus, not a frame of the unfolded ones.
+  useLayoutEffect(() => {
+    const el = asideRef.current
+    if (!el) return
+    const measure = () => {
+      setAsideH(el.clientHeight)
+      setResizeTick((n) => n + 1)
+    }
+    setAsideH(el.clientHeight)
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const compactFooter = compactSidebarFooter(asideH)
+  const treeMin = asideH ? sidebarTreeMinHeight(asideH) : 0
+  // Every render: what is left for the menus once the other rows and the tree minimum are placed. The
+  // menus and the tree are not counted, so the result does not depend on how many menus show.
+  useLayoutEffect(() => {
+    const aside = asideRef.current
+    if (!aside || !asideH) return
+    let fixed = 0
+    for (const el of Array.from(aside.children) as HTMLElement[]) {
+      if (el === menusRef.current || el === navRef.current) continue
+      const pos = getComputedStyle(el).position
+      if (pos === 'fixed' || pos === 'absolute') continue
+      fixed += el.getBoundingClientRect().height
+    }
+    const rowHeight = menusRef.current?.querySelector<HTMLElement>('[data-sidebar-menu]')?.offsetHeight || 32
+    const available = Math.floor(asideH - fixed - treeMin)
+    setFit((prev) => (prev && prev.available === available && prev.rowHeight === rowHeight ? prev : { available, rowHeight }))
+  })
+  const menuActive: Partial<Record<SidebarMenuId, boolean>> = {
+    later: laterActive,
+    threads: threadsActive,
+    graph: graphActive,
+    tags: tagsActive,
+    shared: sharedActive,
+    due: dueActive,
+    calendar: calendarActive,
+    activity: activityActive,
+  }
+  const menuBadge: Partial<Record<SidebarMenuId, boolean>> = { later: laterDue > 0, threads: threadsUnread > 0, due: dueBadge > 0 }
+  const shownMenus = fit
+    ? menusThatFit({ count: visibleMenus.length, available: fit.available, rowHeight: fit.rowHeight })
+    : visibleMenus.length
+  const folding = shownMenus < visibleMenus.length
+  const foldedMenus = folding ? visibleMenus.slice(shownMenus) : []
+
+  // "New page ▾" menu: below the button when it fits, else above it, else as tall as fits with a scroll.
+  const newMenuPopRef = useRef<HTMLDivElement>(null)
+  const [newMenuPlace, setNewMenuPlace] = useState<{ up: boolean; maxHeight?: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!newMenuOpen) {
+      setNewMenuPlace(null)
+      return
+    }
+    const anchor = newMenuRef.current
+    const pop = newMenuPopRef.current
+    if (!anchor || !pop) return
+    const r = anchor.getBoundingClientRect()
+    const h = pop.scrollHeight
+    const below = window.innerHeight - r.bottom - 8
+    const above = r.top - 8
+    if (h <= below) setNewMenuPlace({ up: false })
+    else if (above > below) setNewMenuPlace({ up: true, maxHeight: h > above ? above : undefined })
+    else setNewMenuPlace({ up: false, maxHeight: below })
+  }, [newMenuOpen])
+
+  const footerIcon =
+    'flex items-center justify-center rounded-md p-1.5 text-sub transition-colors duration-150 hover:bg-hover hover:text-ink pointer-coarse:p-2'
 
   const menuButtons: Record<SidebarMenuId, ReactNode> = {
     search: (
@@ -412,7 +523,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-full flex-col bg-side transition-colors duration-200">
+    <aside ref={asideRef} className="flex h-full flex-col bg-side transition-colors duration-200">
       <div className="p-2">
         {workspaces.data && <WorkspaceSwitcher wsId={wsId} workspaces={workspaces.data} />}
       </div>
@@ -425,8 +536,38 @@ export function Sidebar({
         </p>
       )}
       {!guest && visibleMenus.length > 0 && (
-        <div className="px-2" data-testid="sidebar-menus">
-          {visibleMenus.map((id) => menuButtons[id])}
+        <div ref={menusRef} className="px-2" data-testid="sidebar-menus">
+          {folding && menusExpanded ? (
+            <div
+              className="overflow-y-auto border-b border-line/60"
+              data-testid="sidebar-menus-scroll"
+              style={{ maxHeight: Math.max(fit?.rowHeight ?? 32, (fit?.available ?? 0) - (fit?.rowHeight ?? 32)) }}
+            >
+              {visibleMenus.map((id) => menuButtons[id])}
+            </div>
+          ) : (
+            visibleMenus.slice(0, shownMenus).map((id) => menuButtons[id])
+          )}
+          {folding && (
+            <button
+              type="button"
+              data-testid="sidebar-menus-more"
+              aria-expanded={menusExpanded}
+              onClick={toggleMenusExpanded}
+              title={t('sidebar.moreMenusTitle')}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-hover hover:text-ink ${
+                !menusExpanded && foldedMenus.some((id) => menuActive[id]) ? 'font-medium text-ink' : 'text-sub'
+              }`}
+            >
+              <MoreHorizontalIcon size={16} />
+              <span className="flex-1 text-left">
+                {menusExpanded ? t('sidebar.lessMenus') : t('sidebar.moreMenus', { count: foldedMenus.length })}
+              </span>
+              {!menusExpanded && foldedMenus.some((id) => menuBadge[id]) && (
+                <span data-testid="sidebar-menus-more-badge" className="h-2 w-2 rounded-full bg-red-500" />
+              )}
+            </button>
+          )}
         </div>
       )}
       {menuCtx && isSidebarMenuId(menuCtx.id) && (
@@ -462,7 +603,14 @@ export function Sidebar({
           <ChevronDownIcon size={16} />
         </button>
         {newMenuOpen && (
-          <div className="nd-pop absolute right-2 top-full z-40 mt-1 w-44 origin-top-right overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+          <div
+            ref={newMenuPopRef}
+            data-testid="sidebar-new-menu"
+            style={{ maxHeight: newMenuPlace?.maxHeight, visibility: newMenuPlace ? 'visible' : 'hidden' }}
+            className={`nd-pop absolute right-2 z-40 w-44 overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${
+              newMenuPlace?.up ? 'bottom-full mb-1 origin-bottom-right' : 'top-full mt-1 origin-top-right'
+            }`}
+          >
             <button
               type="button"
               onClick={() => {
@@ -511,7 +659,7 @@ export function Sidebar({
       </div>
       )}
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+      <nav ref={navRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-1" style={{ minHeight: treeMin || undefined }} data-testid="sidebar-tree">
         {/* ⭐ Favorites — above the Shared/Private sections. Hidden when empty. */}
         {(bookmarks.data?.length ?? 0) > 0 && (
           <div className="mb-1 flex flex-col">
@@ -569,94 +717,163 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="px-2 pb-1">
-        {!guest && (
-          <button
-            type="button"
-            onClick={() => setTrashOpen(true)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-          >
-            <TrashIcon size={16} />
-            {t('sidebar.trash')}
-          </button>
-        )}
-        {me.data?.isAdmin && (
-          <button
-            type="button"
-            onClick={() => navigate(`/w/${wsId}/admin`)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-          >
-            <KeyIcon size={16} />
-            {t('sidebar.admin')}
-            {!!me.data?.pendingResetRequests && (
-              <span
-                className="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white"
-                title={t('sidebar.pendingResets')}
-              >
-                {me.data.pendingResetRequests}
-              </span>
-            )}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onOpenHelp}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-        >
-          <KeyboardIcon size={16} />
-          {t('sidebar.shortcuts')}
-          <MenuShortcut id="app.help" className="text-sub/70" />
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/w/${wsId}/settings`)}
-          aria-current={settingsActive ? 'page' : undefined}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
-            settingsActive
-              ? 'bg-active font-medium text-ink'
-              : 'text-sub hover:bg-hover hover:text-ink'
-          }`}
-        >
-          <SettingsIcon size={16} />
-          {t('common.settings')}
-          <MenuShortcut id="app.settings" className="text-sub/70" />
-        </button>
-      </div>
-
-      <div className="border-t border-line p-2">
-        <div className="mb-2 px-1">
-          <div className="truncate text-sm font-medium text-ink">
-            {me.data?.name ?? t('sidebar.userFallback')}
-          </div>
-          <div className="truncate text-xs text-sub">{me.data?.email}</div>
-        </div>
-        <div className="flex items-center gap-1">
-          {guest ? (
-            <span className="flex-1" />
-          ) : (
-          <button
-            type="button"
-            onClick={copyLink}
-            className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-            title={t('members.copyInvite')}
-          >
-            <CopyIcon size={15} />
-            <span key={copied ?? 'idle'} className="nd-fade">
-              {copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
-            </span>
-          </button>
+      {compactFooter ? (
+        // Short sidebar (a tablet in landscape with the browser's bars, an in-app browser): the footer is
+        // one row of icons so the page tree keeps its room (docs/adr/1640-*).
+        <div className="flex flex-wrap items-center justify-between gap-0.5 border-t border-line px-2 py-1" data-testid="sidebar-footer-compact">
+          {!guest && (
+            <button
+              type="button"
+              onClick={() => setTrashOpen(true)}
+              title={t('sidebar.trash')}
+              aria-label={t('sidebar.trash')}
+              className={footerIcon}
+            >
+              <TrashIcon size={16} />
+            </button>
           )}
+          {me.data?.isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate(`/w/${wsId}/admin`)}
+              title={t('sidebar.admin')}
+              aria-label={t('sidebar.admin')}
+              className={`relative ${footerIcon}`}
+            >
+              <KeyIcon size={16} />
+              {!!me.data?.pendingResetRequests && (
+                <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-red-500" title={t('sidebar.pendingResets')} />
+              )}
+            </button>
+          )}
+          <button type="button" onClick={onOpenHelp} title={withShortcut(t('sidebar.shortcuts'), 'app.help')} aria-label={t('sidebar.shortcuts')} className={footerIcon}>
+            <KeyboardIcon size={16} />
+          </button>
           <button
             type="button"
-            onClick={doLogout}
-            className="flex items-center justify-center rounded-md p-1.5 text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-            title={t('sidebar.logout')}
-            aria-label={t('sidebar.logout')}
+            onClick={() => navigate(`/w/${wsId}/settings`)}
+            aria-current={settingsActive ? 'page' : undefined}
+            title={withShortcut(t('common.settings'), 'app.settings')}
+            aria-label={t('common.settings')}
+            className={`${footerIcon} ${settingsActive ? 'bg-active text-ink' : ''}`}
           >
+            <SettingsIcon size={16} />
+          </button>
+          {!guest && (
+            <button
+              type="button"
+              onClick={copyLink}
+              title={copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
+              aria-label={t('members.copyInvite')}
+              className={footerIcon}
+            >
+              <CopyIcon size={15} />
+            </button>
+          )}
+          <span
+            role="img"
+            title={[me.data?.name, me.data?.email].filter(Boolean).join('\n') || t('sidebar.account')}
+            aria-label={`${t('sidebar.account')}: ${me.data?.name ?? t('sidebar.userFallback')}`}
+            className="flex items-center justify-center p-1.5 text-sub pointer-coarse:p-2"
+          >
+            <UserIcon size={16} />
+          </span>
+          <button type="button" onClick={doLogout} title={t('sidebar.logout')} aria-label={t('sidebar.logout')} className={footerIcon}>
             <LogOutIcon size={16} />
           </button>
         </div>
-      </div>
+      ) : (
+        <>
+        <div className="px-2 pb-1">
+          {!guest && (
+            <button
+              type="button"
+              onClick={() => setTrashOpen(true)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+            >
+              <TrashIcon size={16} />
+              {t('sidebar.trash')}
+            </button>
+          )}
+          {me.data?.isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate(`/w/${wsId}/admin`)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+            >
+              <KeyIcon size={16} />
+              {t('sidebar.admin')}
+              {!!me.data?.pendingResetRequests && (
+                <span
+                  className="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white"
+                  title={t('sidebar.pendingResets')}
+                >
+                  {me.data.pendingResetRequests}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenHelp}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+          >
+            <KeyboardIcon size={16} />
+            {t('sidebar.shortcuts')}
+            <MenuShortcut id="app.help" className="text-sub/70" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/w/${wsId}/settings`)}
+            aria-current={settingsActive ? 'page' : undefined}
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+              settingsActive
+                ? 'bg-active font-medium text-ink'
+                : 'text-sub hover:bg-hover hover:text-ink'
+            }`}
+          >
+            <SettingsIcon size={16} />
+            {t('common.settings')}
+            <MenuShortcut id="app.settings" className="text-sub/70" />
+          </button>
+        </div>
+
+        <div className="border-t border-line p-2">
+          <div className="mb-2 px-1">
+            <div className="truncate text-sm font-medium text-ink">
+              {me.data?.name ?? t('sidebar.userFallback')}
+            </div>
+            <div className="truncate text-xs text-sub">{me.data?.email}</div>
+          </div>
+          <div className="flex items-center gap-1">
+            {guest ? (
+              <span className="flex-1" />
+            ) : (
+            <button
+              type="button"
+              onClick={copyLink}
+              className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+              title={t('members.copyInvite')}
+            >
+              <CopyIcon size={15} />
+              <span key={copied ?? 'idle'} className="nd-fade">
+                {copied === 'ok' ? t('members.copied') : copied === 'fail' ? t('members.copyFailed') : t('members.copyInvite')}
+              </span>
+            </button>
+            )}
+            <button
+              type="button"
+              onClick={doLogout}
+              className="flex items-center justify-center rounded-md p-1.5 text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+              title={t('sidebar.logout')}
+              aria-label={t('sidebar.logout')}
+            >
+              <LogOutIcon size={16} />
+            </button>
+          </div>
+        </div>
+        </>
+      )}
 
       {!guest && <TrashModal open={trashOpen} onClose={() => setTrashOpen(false)} wsId={wsId} />}
     </aside>

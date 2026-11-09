@@ -16,6 +16,7 @@ import { capUndoHistory } from '../lib/undoCap'
 import { pinAnchor } from '../lib/pinAnchor'
 import { revealBlock } from '../lib/headingFolds'
 import { inklingShortcuts, useEditorPaletteCommands } from '../lib/shortcuts/editorKeys'
+import { tableQuickInput } from '../lib/tableQuickInput'
 import { useTheme } from '../lib/theme'
 import { editorSchemaSpecs, pageEmbedSpec } from './blocks/PageEmbed'
 import { QueryBlockPortals, queryCodeBlockSpec } from './blocks/QueryBlock'
@@ -223,8 +224,9 @@ function CollabEditorBody({
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
-      // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*)
-      extensions: [inklingShortcuts()],
+      // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*) and the typed
+      // pipe row that becomes a table on Enter (docs/adr/1642-*)
+      extensions: [inklingShortcuts(), tableQuickInput()],
     },
     [provider],
   )
@@ -421,7 +423,7 @@ export function LocalDocEditor({
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
-      extensions: [inklingShortcuts()],
+      extensions: [inklingShortcuts(), tableQuickInput()],
     },
     [doc],
   )

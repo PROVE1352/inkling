@@ -162,6 +162,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { id: 'editor.indent', scope: 'editor', via: 'blocknote', label: 'cmd.indent', keys: both('Tab') },
   { id: 'editor.outdent', scope: 'editor', via: 'blocknote', label: 'cmd.outdent', keys: both('Shift-Tab') },
   { id: 'editor.duplicateBlock', scope: 'editor', via: 'editor', label: 'cmd.duplicateBlock', keys: both('Mod-Shift-d') },
+  // palette only, no default key: a 3 × 3 table where the caret is (typed forms: "| a | b |" Enter, /표 3x4 — docs/adr/1642-*)
+  { id: 'editor.insertTable', scope: 'editor', via: 'editor', label: 'cmd.insertTable' },
   { id: 'editor.deleteBlock', scope: 'editor', via: 'editor', label: 'shortcuts.deleteBlock', keys: both('Mod-d') },
   { id: 'editor.toggleFold', scope: 'editor', via: 'editor', label: 'shortcuts.toggleFold', keys: both('Mod-.') },
   { id: 'editor.undo', scope: 'editor', via: 'blocknote', label: 'shortcuts.undo', keys: both('Mod-z') },

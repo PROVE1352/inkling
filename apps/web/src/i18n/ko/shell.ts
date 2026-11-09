@@ -170,6 +170,11 @@ export default {
   'sidebar.dueBadgeToday': '오늘 {today}',
   'sidebar.calendar': '캘린더',
   'sidebar.calendarTitle': '워크스페이스 전체 캘린더',
+  // 다 들어가지 않는 메뉴는 한 줄로 접는다 (docs/adr/1640-*)
+  'sidebar.moreMenus': '더보기 ({count})',
+  'sidebar.lessMenus': '접기',
+  'sidebar.moreMenusTitle': '나머지 사이드바 메뉴 보기',
+  'sidebar.account': '계정',
   'sidebar.todayTitle': '오늘 날짜의 데일리 노트 열기',
   'sidebar.newPage': '새 페이지',
   'sidebar.newItemKind': '새 항목 종류',

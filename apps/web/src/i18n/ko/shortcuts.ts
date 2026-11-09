@@ -23,6 +23,7 @@ export default {
   'cmd.indent': '블록 들여쓰기',
   'cmd.outdent': '블록 내어쓰기',
   'cmd.duplicateBlock': '블록 복제',
+  'cmd.insertTable': '표 넣기',
   'cmd.redo': '다시 실행',
   'cmd.treeUp': '위 줄 고르기',
   'cmd.treeDown': '아래 줄 고르기',

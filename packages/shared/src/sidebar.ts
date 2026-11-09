@@ -8,9 +8,16 @@ import { z } from 'zod'
 // they show at their default position; ids a client does not know are ignored when merging. The
 // server therefore validates the shape (id syntax, lengths), never the vocabulary.
 
-/** Built-in top-of-sidebar menus in their default order (all visible by default). */
+/** Built-in top-of-sidebar menus in their default order. */
 export const SIDEBAR_MENU_IDS = ['search', 'later', 'threads', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today'] as const
 export type SidebarMenuId = (typeof SIDEBAR_MENU_IDS)[number]
+
+/**
+ * Menus a person who never arranged the sidebar does not see (docs/adr/1641-*). Applies only while
+ * nothing is stored (`{ order: [], hidden: [] }`); a stored value keeps its 0.12 meaning, every menu not
+ * in `hidden` shows. Default visible: search, later, due, calendar.
+ */
+export const SIDEBAR_MENU_DEFAULT_HIDDEN: readonly SidebarMenuId[] = ['threads', 'graph', 'tags', 'shared', 'activity', 'today']
 
 /** Upper bound per list. Well above the menu count, small enough to keep the row tiny. */
 export const SIDEBAR_PREFS_MAX_IDS = 32

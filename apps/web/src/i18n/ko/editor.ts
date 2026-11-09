@@ -14,6 +14,11 @@ export default {
   // Slash menu
   'slash.calloutTitle': '콜아웃',
   'slash.calloutSubtext': '강조 박스 — 블록 안에서 종류(노트·팁·주의·위험·정보) 전환',
+  // "/표 3x4" (docs/adr/1642-*)
+  'slash.tableSizeTitle': '표 {cols}×{rows}',
+  'slash.tableSizeSubtext': '{cols}열 × {rows}행',
+  'slash.tableSizePending': '표 {cols}×…',
+  'slash.tableSizePendingSubtext': '행 수까지 입력하세요. 예: /표 3x4 = 3열 × 4행',
 
   // Callout block
   'callout.note': '노트',

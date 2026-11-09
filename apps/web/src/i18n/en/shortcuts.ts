@@ -22,6 +22,7 @@ export default {
   'cmd.indent': 'Indent block',
   'cmd.outdent': 'Outdent block',
   'cmd.duplicateBlock': 'Duplicate block',
+  'cmd.insertTable': 'Insert table',
   'cmd.redo': 'Redo',
   'cmd.treeUp': 'Select the row above',
   'cmd.treeDown': 'Select the row below',

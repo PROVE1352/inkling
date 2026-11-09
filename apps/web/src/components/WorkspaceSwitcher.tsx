@@ -138,7 +138,7 @@ export function WorkspaceSwitcher({
       </button>
 
       {open && (
-        <div className="nd-pop absolute left-0 right-0 top-full z-40 mt-1 origin-top overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+        <div className="nd-pop absolute left-0 right-0 top-full z-40 mt-1 max-h-[calc(100dvh-4.5rem)] origin-top overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl">
           <div className="max-h-64 overflow-y-auto">
             {workspaces.map((w) => (
               <button

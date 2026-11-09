@@ -44,6 +44,14 @@ function findUndoManager(editor: EditorLike): Y.UndoManager | null {
   return null
 }
 
+/**
+ * Ends the current undo capture, so the next change is undone on its own: a block turned into a table
+ * right after typing is one ⌘Z, not one together with the last keystrokes (docs/adr/1642-*).
+ */
+export function stopUndoCapture(editor: EditorLike): void {
+  findUndoManager(editor)?.stopCapturing()
+}
+
 // Same as yjs' internal keepItem(item, false): un-keep the item and its kept ancestors.
 function unkeep(item: Y.Item) {
   let it: Y.Item | null = item

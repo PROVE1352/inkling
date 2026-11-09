@@ -472,7 +472,7 @@ export const PageTreeItem = memo(function PageTreeItem({
               top: ctxPos?.top ?? lastCtx.current.y,
               visibility: ctxPos ? 'visible' : 'hidden',
             }}
-            className={`nd-pop fixed z-50 w-48 origin-top-left overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl ${ctxPresence.leaving ? 'nd-out' : ''}`}
+            className={`nd-pop fixed z-50 max-h-[calc(100dvh-1rem)] w-48 origin-top-left overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${ctxPresence.leaving ? 'nd-out' : ''}`}
           >
             {inMulti && !guest ? (
               <>

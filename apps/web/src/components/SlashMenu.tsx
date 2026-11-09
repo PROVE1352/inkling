@@ -11,6 +11,7 @@ import { linkEmbedSlashItems } from './blocks/LinkEmbed'
 import { chartSlashItems } from './blocks/ChartBlock'
 import { querySlashItem } from './blocks/QueryBlock'
 import { mathSlashItems } from './blocks/Math'
+import { tableSizeSlashItems } from './tableSlash'
 import { useT } from '../i18n'
 import { insertFromSlash, withCaretBelow, type SlashEditor } from '../lib/slashInsert'
 
@@ -71,6 +72,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
         querySlashItem(editor),
         ...chartSlashItems(editor),
         ...mathSlashItems(editor, t),
+        ...tableSizeSlashItems(editor, query, t),
       ]),
       query,
     )

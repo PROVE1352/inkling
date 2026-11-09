@@ -3,8 +3,17 @@
 // Sidebar menu customization: stored { order, hidden } + this build's menus → what the sidebar shows (docs/adr/1020-*).
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { SIDEBAR_MENU_IDS } from '@inkling/shared'
-import { moveEntry, resolveSidebarMenu, setEntryHidden, toSidebarPrefs, visibleSidebarMenu } from './sidebarMenu'
+import { SIDEBAR_MENU_DEFAULT_HIDDEN, SIDEBAR_MENU_IDS } from '@inkling/shared'
+import {
+  compactSidebarFooter,
+  menusThatFit,
+  moveEntry,
+  resolveSidebarMenu,
+  setEntryHidden,
+  sidebarTreeMinHeight,
+  toSidebarPrefs,
+  visibleSidebarMenu,
+} from './sidebarMenu'
 
 const KNOWN = ['search', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today']
 // 0.11 adds Later and Threads right after search (docs/adr/1410-*, 1412-*).
@@ -96,5 +105,75 @@ describe('resolveSidebarMenu / toSidebarPrefs', () => {
     const list = resolveSidebarMenu(null, KNOWN)
     assert.deepEqual(moveEntry(list, 0, -1), list)
     assert.deepEqual(moveEntry(list, 7, 8), list)
+  })
+})
+
+// 0.13 (docs/adr/1641-*): a person who never arranged the sidebar starts with four menus; whatever
+// someone saved keeps meaning what it meant (every menu not in `hidden` shows).
+describe('default-hidden menus (0.13)', () => {
+  const DH = SIDEBAR_MENU_DEFAULT_HIDDEN
+
+  it('new default: search, later, due, calendar', () => {
+    assert.deepEqual(visibleSidebarMenu(null, CURRENT, DH), ['search', 'later', 'due', 'calendar'])
+    assert.deepEqual(visibleSidebarMenu({ order: [], hidden: [] }, CURRENT, DH), ['search', 'later', 'due', 'calendar'])
+  })
+
+  it('a saved value is read as before: only its own hidden ids are hidden', () => {
+    assert.deepEqual(visibleSidebarMenu({ order: [], hidden: ['graph'] }, CURRENT, DH), CURRENT.filter((id) => id !== 'graph'))
+    const order = ['today', 'search', 'later', 'threads', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity']
+    assert.deepEqual(visibleSidebarMenu({ order, hidden: [] }, CURRENT, DH), order)
+  })
+
+  it('the new default saves as the empty value', () => {
+    assert.deepEqual(toSidebarPrefs(resolveSidebarMenu(null, CURRENT, DH), CURRENT, null, DH), { order: [], hidden: [] })
+  })
+
+  it('showing every menu in the default order is stored explicitly, so it does not read back as the new default', () => {
+    let list = resolveSidebarMenu(null, CURRENT, DH)
+    for (const id of DH) list = setEntryHidden(list, id, false)
+    const saved = toSidebarPrefs(list, CURRENT, null, DH)
+    assert.deepEqual(saved, { order: CURRENT, hidden: [] })
+    assert.deepEqual(visibleSidebarMenu(saved, CURRENT, DH), CURRENT)
+  })
+
+  it('hiding one more menu from the new default keeps the others hidden', () => {
+    const list = setEntryHidden(resolveSidebarMenu(null, CURRENT, DH), 'later', true)
+    const saved = toSidebarPrefs(list, CURRENT, null, DH)
+    assert.deepEqual(visibleSidebarMenu(saved, CURRENT, DH), ['search', 'due', 'calendar'])
+  })
+})
+
+describe('fitting the menus above the page tree (docs/adr/1640-*)', () => {
+  it('tree minimum: 40 % of the sidebar height, between 200 and 280 px', () => {
+    assert.equal(sidebarTreeMinHeight(480), 200)
+    assert.equal(sidebarTreeMinHeight(600), 240)
+    assert.equal(sidebarTreeMinHeight(900), 280)
+    assert.equal(sidebarTreeMinHeight(1280), 280)
+  })
+
+  it('every menu when they fit', () => {
+    assert.equal(menusThatFit({ count: 4, available: 200, rowHeight: 32 }), 4)
+    assert.equal(menusThatFit({ count: 10, available: 320, rowHeight: 32 }), 10)
+  })
+
+  it('otherwise as many as fit with one row left for "more"', () => {
+    assert.equal(menusThatFit({ count: 10, available: 319, rowHeight: 32 }), 8)
+    assert.equal(menusThatFit({ count: 10, available: 152, rowHeight: 32 }), 3)
+  })
+
+  it('never negative; no room → only the "more" row', () => {
+    assert.equal(menusThatFit({ count: 10, available: 20, rowHeight: 32 }), 0)
+    assert.equal(menusThatFit({ count: 10, available: -50, rowHeight: 32 }), 0)
+  })
+
+  it('a bad row height shows everything (measurement not ready)', () => {
+    assert.equal(menusThatFit({ count: 10, available: 100, rowHeight: 0 }), 10)
+  })
+
+  it('the footer turns into one row of icons below 720 px', () => {
+    assert.equal(compactSidebarFooter(480), true)
+    assert.equal(compactSidebarFooter(719), true)
+    assert.equal(compactSidebarFooter(720), false)
+    assert.equal(compactSidebarFooter(0), false) // not measured yet
   })
 })

@@ -150,6 +150,7 @@ export default {
   'sidebar.hideFromSidebar': 'Hide from sidebar',
   'sidebar.customize': 'Customize sidebar…',
   'sidebar.menuOptions': 'Sidebar menu options',
+  'sidebar.resize': 'Resize sidebar (drag, or ←/→; double-click resets)',
   'sidebar.hidden': 'Hidden "{name}". Show it again in Settings → Sidebar.',
 
   'sidebarSettings.title': 'Sidebar',

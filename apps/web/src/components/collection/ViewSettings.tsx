@@ -191,7 +191,10 @@ export function ViewSettings({
         {t('viewSettings.button')}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-1 max-h-[75vh] w-80 overflow-y-auto rounded-md border border-line bg-app p-3 shadow-xl">
+        // Phones: the 320 px panel hung from the button's right edge ran off the left of a 375 px screen
+        // once the toolbar wrapped (docs/adr/1354-*); there it spans the screen with a 16 px gutter,
+        // just under the button (top: auto keeps its place in the flow).
+        <div className="absolute right-0 top-full z-40 mt-1 max-h-[75vh] w-80 overflow-y-auto rounded-md border border-line bg-app p-3 shadow-xl max-sm:fixed max-sm:inset-x-4 max-sm:top-auto max-sm:w-auto">
           {/* sort */}
           <section className="mb-3">
             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-sub">

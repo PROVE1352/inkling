@@ -724,7 +724,8 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
       const list = await as(G, 'GET', '/api/workspaces')
       assert.ok(!list.body.includes(ws1.id))
       assert.equal((await as(G, 'GET', `/api/workspaces/${ws1.id}/pages`)).statusCode, 403)
-      assert.equal((await as(G, 'GET', `/api/pages/${id.root}/comments`)).statusCode, 403)
+      // an outsider now: the page answers like one that does not exist (docs/adr/1301-*)
+      assert.equal((await as(G, 'GET', `/api/pages/${id.root}/comments`)).statusCode, 404)
       assert.equal(await pushUpdate(G, id.root, 'gone'), 'denied')
       // their own workspace is untouched
       assert.equal((await as(G, 'GET', `/api/workspaces/${gHome.id}/pages`)).statusCode, 200)

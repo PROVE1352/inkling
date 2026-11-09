@@ -121,7 +121,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 | Method | Path | Input | Response |
 |---|---|---|---|
 | POST | `/api/files?workspaceId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>` |
-| GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401, non-member 403. |
+| GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401; not a member or guest of the file's workspace, or a page file you cannot see: 404, the same as an unknown id (docs/adr/1301-*). |
 
 - Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above).
 - Allowed MIME types: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`; anything else 415.
@@ -438,7 +438,7 @@ produced.
 | PUT | `/api/pages/:id/subscription` | `{ level: 'all'\|'mentions'\|'nothing'\|'mute'\|null, subtree?, agentDigest? }` | same; `level: null` removes my row (inherit). "Follow" = `all` |
 | GET / PUT | `/api/workspaces/:id/notification-level` | PUT `{ level, agentDigest? }` | `{ level, agentDigest, isDefault }` — my default for the workspace (session only) |
 | GET | `/api/workspaces/:id/activity` | `before, limit (≤100), actor=any\|human\|ai, via, userId, rootId, kind=any\|edit\|page, aiPagesOnly=1` | `ActivityPageDTO { items: ActivityItemDTO[], next, clients }` newest first; rows of other people's private pages are never listed, titles only for pages visible now |
-| GET | `/api/changes/:seq/diff` | – | `ChangeDiffDTO { before, after, ops: [{t:'='\|'-'\|'+', s}] \| null, large, … }`; 404 unless the page is visible now and the row was visible when logged |
+| GET | `/api/changes/:seq/diff` | – | `ChangeDiffDTO { before, after, ops: [{t:'='\|'-'\|'+', s}] \| null, large, … }`; 404 unless the page is visible now and the row was visible when logged; also 404 when you are not a member of the workspace (docs/adr/1301-*) |
 | GET | `/api/pages/:id/snapshots/:sid/diff` | `against=current\|<snapshot id>` | `SnapshotDiffDTO { from, to, ops, large }` (Markdown of both versions, line diff) |
 | GET | `/api/pages/:id/provenance` | – | `PageProvenanceDTO { createdVia, createdByName, lastAgentEdit: {at, via, actorName} \| null }` |
 | GET | `/api/inbox` | `workspaceId?, cursor?, kinds=mention,reply,comment,assigned,…` | `{ items: InboxItem[], more, unacked }` — unacknowledged direct items of the caller in `seq` order (MCP `inbox`) |
@@ -699,7 +699,7 @@ session and workspace membership (a deleted workspace answers `404`). `:tid` is 
 | GET | `/api/workspaces/:id/templates/:tid/preview` | `{ preview: { blocks: { type, text, depth, checked? }[] (first 14 blocks of the root document, plain text), truncated, outline: { kind, title, icon, depth, fields?, views?, rows? }[] } }` |
 | GET | `/api/workspaces/:id/templates/:tid/export` | `.md` (document template, frontmatter meta) or `.zip` (structure: `inkling-template.json` + `pages/*`). 20/min |
 | POST | `/api/workspaces/:id/templates/import[?private=1]` | multipart `file` (.md / .zip, ≤ 25 MB) → `{ template }`. Bodies go through the Markdown / JSON Canvas importers; invalid archive → `400 TEMPLATE_INVALID`. 20/min |
-| DELETE | `/api/templates/:id` | 204. Built-in key → 403; creator or owner only |
+| DELETE | `/api/templates/:id` | 204. Built-in key → 403; creator, owner or admin only; a template of a workspace you are not a member of → 404 `TEMPLATE_NOT_FOUND` (docs/adr/1301-*) |
 | POST | `/api/pages/from-template` | `{ workspaceId, builtinKey \| templateId, parentId?, scope?, title? ≤300, date?: 'YYYY-MM-DD', inputs?: { [question]: answer }, tz?: IANA zone }` → `{ page, pages: PageMetaDTO[] (root first, depth-first), cursor?: { pageId, blockId, offset } }`. Creates the whole tree in one transaction under the workspace tree lock (placement and depth checks as for page creation; under a parent the parent's section wins). Variables are substituted at this moment; `withDate` templates also set a `date` property on the root. 30/min |
 
 `POST /api/pages/:id/instantiate` and the page `isTemplate` flag were removed (ADR 0920); save the
@@ -835,3 +835,22 @@ All routes below are browser session only.
 - `PATCH /workspaces/:id/settings` accepts `guestInvitePolicy: 'off'|'owners'|'admins'|'members'`.
 - Guests may call only: `GET /workspaces` (`role: 'guest'`, `can` all false, empty `inviteCode`), `GET /workspaces/:id/pages` (shared subtrees, tops with `parentId: null`), `GET /pages/:id/lock` (`level`, `guest`, no editor names), `GET /pages/:id/backlinks`, comments (list, add, edit and delete own), `POST /pages` under an editable shared page, `PATCH /pages/:id` (title, icon, coverUrl, fullWidth; else 403 `GUEST_OUTSIDE`), `POST /files` with an editable `pageId`, `GET /files/:id`, and the collaboration socket. Everything else answers 403.
 - New error codes: `PAGE_ACCESS` (`details.level`), `GUEST_OUTSIDE`, `INVITE_EMAIL_MISMATCH`, `INVALID_INVITE`.
+
+## v0.10.0 additions
+
+### Workspace boundaries (docs/adr/1300–1302)
+- Someone who is not a member or guest of a workspace gets 404 for its pages, comments, change rows (`GET /api/changes/:seq/diff`), templates (`DELETE /api/templates/:id` → 404 `TEMPLATE_NOT_FOUND`), row properties (`PATCH /api/pages/:id/props` → 404 `NOT_FOUND`), files (`GET /files/:id`), webhooks (`/api/webhooks/:id` and its test, secret, deliveries and resend routes), trash restore and purge, and vault sync write and delete, the same as for an id that does not exist. It was 403 for an existing id, and 403 `TWO_FACTOR_REQUIRED { workspaceId }` for a page of a workspace that requires two-step verification. Moving a page under a page of another workspace answers the same 400 "Parent page is invalid" as a missing parent (docs/adr/1301-*).
+- Cross-workspace reads leave a workspace whose two-step requirement blocks the caller out instead of refusing: `GET /api/changes` and `GET /api/inbox` without `workspaceId`, `GET /api/context` without `workspaceId`, `GET /api/pages/read` (such pages are listed under `missing`), `GET /api/pages/agent-context`, member candidates and the subscription list in notification settings. Notification mail (instant and digest) drops its items; they stay in the app. `DELETE /api/workspaces/:id` and `POST /api/workspaces/:id/restore` by an owner blocked by the requirement → 403 `TWO_FACTOR_REQUIRED` (docs/adr/1300-*).
+- `DELETE /api/comments/:id` needs the comment right on the page, like posting and editing: 403 `PAGE_LOCKED` or 403 `PAGE_ACCESS` otherwise (docs/adr/0971-*, 1251-*).
+- Public file routes (`/api/public/:token/f/:fileId`, `/api/public/:token/p/:ref/f/:fileId`): the file's own page must be the shared page, or the folder or a page of its subtree; otherwise 404 (docs/adr/1302-*).
+
+### Query blocks (docs/adr/1320, 1352)
+- `POST /api/workspaces/:id/query`, `rows[].cells`: a column that names a collection person field holds the member's display name (`null` when the stored id is not a member of the workspace); a column that names a relation field holds `QueryPageRef[]` (`[{ ref: 'page', pageId, title }]`) for the linked rows the caller can see, in stored order (hidden, trashed and other-collection links are left out, and their ids are not sent). Other columns are unchanged. Only bare field columns are converted (`TABLE Owner`, `LIST Owner`). `elapsedMs` now includes this display pass (docs/adr/1320-*).
+- In `WHERE`, `SORT`, `contains()` and comparisons, a person field of a collection row compares as the member's name (no value for a non-member) and a relation field as the list of titles of the linked rows the caller can see (in stored order; `SORT` uses them joined with ", "). `=`, `!=` and `contains()` with a string also match the stored id of a member or of a visible linked row. Other values compare as stored. Matching is exact and case-sensitive (docs/adr/1352-*).
+
+### Collections (docs/adr/1351, 1353)
+- `ViewConfig` (table) adds `columnWidths: { [fieldId]: number }`, the width of a field's column in px (integer 150–1600, at most 200 entries; a field without an entry is sized by the pane), and `titleWidth`, the width of the title column in px (integer 240–1600). Out-of-range values are a 400 `VALIDATION` like any other invalid config. `PATCH /api/collection-views/:id` still replaces the whole config: a client that sends a config without these keys removes the widths. Template export and import carry them (docs/adr/1351-*).
+- `PUT /api/pages/:id/collection/fields`: 400 `VALIDATION` "Relation target collection not found" when a relation that is new, re-targeted or switched to two-way points at a collection that does not exist or that the caller cannot see (the two cases answer the same), or when a new or changed rollup uses such a relation. Relation fields and rollups sent back unchanged pass even when the caller cannot see their target (docs/adr/1353-*).
+
+### Ink (docs/adr/1340)
+- `GET /api/pages/:id/ink` → `{ ink: InkDTO { pageId, strokes, updatedAt | null } }`. `PUT /api/pages/:id/ink { strokes, expectedUpdatedAt?: ISO | null }` → `{ ink }` (edit lock applies). With `expectedUpdatedAt` a version mismatch answers 412 `INK_CONFLICT` with the current ink in `error.ink` (docs/adr/0815-*). New: a PUT without `expectedUpdatedAt` that would replace non-empty ink with `[]` also answers 412 `INK_CONFLICT` and writes nothing. Versioned clears and unversioned saves of non-empty lists behave as before (last write wins).

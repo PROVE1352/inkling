@@ -5,6 +5,8 @@ import { INK_CANVAS_WIDTH } from '@inkling/shared'
 import type { InkDTO, InkStroke } from '@inkling/shared'
 import { ApiError, usePageInk, useSaveInk } from '../../api'
 import { strokeHit, strokePath } from '../../lib/inkStroke'
+import { canSaveInk, mergeConflict, mergeLoaded } from '../../lib/inkSync'
+import type { InkBase } from '../../lib/inkSync'
 import { toast } from '../../lib/toast'
 import { InkToolbar } from './InkToolbar'
 import type { InkSettings } from './InkToolbar'
@@ -75,13 +77,24 @@ export function InkLayer({
   const inertiaRef = useRef<number | undefined>(undefined)
 
   // Copy the strokes loaded from the server into local state once (local is the truth afterwards).
+  // Strokes drawn before the GET answered are kept on top of the server's list, and a save that was
+  // waiting for the base version goes out now (docs/adr/1340-*).
   const loadedRef = useRef(false)
   useEffect(() => {
     if (loadedRef.current || !ink.data) return
     loadedRef.current = true
-    setStrokes(ink.data.strokes)
+    const merged = mergeLoaded(ink.data.strokes, strokesRef.current)
+    strokesRef.current = merged
+    setStrokes(merged)
     baseRef.current = { updatedAt: ink.data.updatedAt, ids: new Set(ink.data.strokes.map((s) => s.id)) }
+    if (dirtyRef.current) flushRef.current()
   }, [ink.data])
+  // The ink could not be loaded: say so. Nothing is saved until a load succeeds (a save without the
+  // base version would overwrite the page's strokes); the next stroke retries the load.
+  const loadFailed = ink.isError && !loadedRef.current
+  useEffect(() => {
+    if (loadFailed) toast({ message: t('ink.loadFailed') })
+  }, [loadFailed])
 
   // Portal target (scroll container) — the ref is empty on the first render, so it is lifted into state.
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null)
@@ -139,18 +152,19 @@ export function InkLayer({
   // on. On 412 INK_CONFLICT the server's strokes are merged with the local changes since that base
   // (strokes added here are kept, strokes erased here are dropped) and the save is sent again.
   const inFlightRef = useRef(false)
-  // undefined until the first load: the PUT then omits the version (last write wins).
-  const baseRef = useRef<{ updatedAt: string | null; ids: Set<string> } | undefined>(undefined)
+  // undefined until the first load: nothing is sent before that (docs/adr/1340-*); the load effect
+  // flushes what was drawn meanwhile.
+  const baseRef = useRef<InkBase | undefined>(undefined)
   const conflictsRef = useRef(0)
   const flush = useCallback(() => {
     window.clearTimeout(saveTimerRef.current)
-    if (!dirtyRef.current || inFlightRef.current) return
+    if (!dirtyRef.current || inFlightRef.current || !canSaveInk(baseRef.current)) return
     dirtyRef.current = false
     inFlightRef.current = true
     let failed = false
     const sent = strokesRef.current
     saveInk
-      .mutateAsync({ strokes: sent, expectedUpdatedAt: baseRef.current?.updatedAt })
+      .mutateAsync({ strokes: sent, expectedUpdatedAt: baseRef.current.updatedAt })
       .then((saved) => {
         conflictsRef.current = 0
         baseRef.current = { updatedAt: saved.updatedAt, ids: new Set(sent.map((s) => s.id)) }
@@ -158,15 +172,8 @@ export function InkLayer({
       .catch((err) => {
         const server = err instanceof ApiError && err.status === 412 ? (err.details.ink as InkDTO | undefined) : undefined
         if (server && baseRef.current && conflictsRef.current++ < 3) {
-          const base = baseRef.current.ids
-          const local = strokesRef.current
-          const localIds = new Set(local.map((s) => s.id))
-          const serverIds = new Set(server.strokes.map((s) => s.id))
-          const merged = [
-            ...server.strokes.filter((s) => localIds.has(s.id) || !base.has(s.id)),
-            ...local.filter((s) => !base.has(s.id) && !serverIds.has(s.id)),
-          ]
-          baseRef.current = { updatedAt: server.updatedAt, ids: serverIds }
+          const merged = mergeConflict(server.strokes, strokesRef.current, baseRef.current.ids)
+          baseRef.current = { updatedAt: server.updatedAt, ids: new Set(server.strokes.map((s) => s.id)) }
           strokesRef.current = merged
           setStrokes(merged)
           dirtyRef.current = true // the finally block sends the merged list right away
@@ -182,11 +189,14 @@ export function InkLayer({
       })
   }, [saveInk])
 
+  const refetchInk = ink.refetch
   const markDirty = useCallback(() => {
     dirtyRef.current = true
     window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(flush, SAVE_DEBOUNCE_MS)
-  }, [flush])
+    // Load failed earlier: try again, the load effect then sends what is pending.
+    if (!loadedRef.current && ink.isError) void refetchInk()
+  }, [flush, ink.isError, refetchInk])
 
   // On unmount (ink mode off, page change) flush pending changes immediately.
   const flushRef = useRef(flush)
@@ -214,6 +224,8 @@ export function InkLayer({
   )
 
   // ---- Eraser -------------------------------------------------------------
+  // Set when a gesture erased something — only then does lifting the eraser save.
+  const erasedRef = useRef(false)
   const eraseAt = useCallback((x: number, y: number) => {
     const removed: { index: number; stroke: InkStroke }[] = []
     const next = strokesRef.current.filter((s, index) => {
@@ -223,6 +235,9 @@ export function InkLayer({
     })
     if (removed.length === 0) return
     historyRef.current.push({ type: 'erase', strokes: removed })
+    // Pointer moves can arrive twice before React renders; the next one must see this result.
+    strokesRef.current = next
+    erasedRef.current = true
     setStrokes(next)
   }, [])
 
@@ -303,6 +318,7 @@ export function InkLayer({
     const eraserTip = e.button === 5 || (e.buttons & 32) !== 0
     if (settings.tool === 'eraser' || eraserTip) {
       erasingRef.current = true
+      erasedRef.current = false
       eraseAt(x, y)
       return
     }
@@ -360,7 +376,8 @@ export function InkLayer({
     }
     if (erasingRef.current) {
       erasingRef.current = false
-      markDirty()
+      if (erasedRef.current) markDirty()
+      erasedRef.current = false
       return
     }
     if (!drawingRef.current) return
@@ -397,6 +414,9 @@ export function InkLayer({
     }
     drawingRef.current = false
     erasingRef.current = false
+    // Strokes erased before the cancel are already gone from the list — save that.
+    if (erasedRef.current) markDirty()
+    erasedRef.current = false
     if (rafRef.current !== undefined) {
       window.cancelAnimationFrame(rafRef.current)
       rafRef.current = undefined
@@ -434,9 +454,12 @@ export function InkLayer({
     markDirty()
   }, [markDirty])
 
-  // Ctrl/Cmd+Z undo — body editing is locked, so it does not conflict with the editor.
+  // Ctrl/Cmd+Z undo — body editing is locked, so it does not conflict with the editor. Keys typed
+  // into a field (title, comment box, search) belong to that field, not to the ink.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const el = e.target instanceof HTMLElement ? e.target : null
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
       if (isMod(e) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         undo()

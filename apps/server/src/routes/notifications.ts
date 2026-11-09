@@ -44,6 +44,13 @@ function visibleNotifCond(userId: string): SQL {
     // A workspace whose 2FA requirement blocks the user (docs/adr/1112-*): its page notifications
     // (titles) are held back until 2FA is on; they come back then.
     or(isNull(notifications.pageId), sql`not ${twoFactorBlockedSql(pages.workspaceId, userId)}`),
+    // ...and its workspace-level notifications (AI summaries carry page titles), except the
+    // `workspace_deleted` notice (docs/adr/1300-*).
+    or(
+      isNull(notifications.workspaceId),
+      eq(notifications.type, 'workspace_deleted'),
+      sql`not ${twoFactorBlockedSql(notifications.workspaceId, userId)}`,
+    ),
     // Soft-deleted workspace (ADR 0910): its page and workspace notifications disappear with it,
     // except the `workspace_deleted` notice itself, which is the point.
     or(isNull(notifications.pageId), liveWorkspace(pages.workspaceId)),

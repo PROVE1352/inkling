@@ -488,6 +488,41 @@ select:disabled {
   padding-inline: 54px;
 }
 
+/* Wide collection views on a collection page (docs/adr/1321-*): the board's and the table's scroll area
+   reaches the edges of the page pane, and its content still starts on the column's left edge, as in
+   Notion. PageView makes the page wrapper an inline-size container (cqw = pane width) and centres the
+   column inside it, so 50cqw - 50% is the distance from the column to the pane edge on each side.
+   Without that container (cqw would fall back to the viewport) nothing changes. */
+@container (min-width: 0px) {
+  .nd-coll-page .nd-wide-scroll {
+    --nd-bleed: max(0px, 50cqw - 50%);
+    margin-inline: calc(var(--nd-bleed) * -1);
+    padding-inline: var(--nd-bleed);
+  }
+}
+@media print {
+  .nd-coll-page .nd-wide-scroll {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+}
+
+/* While the sidebar or a table column is being resized (docs/adr/1350-*, docs/adr/1351-*): no text
+   selection, the resize cursor everywhere, embedded frames (YouTube, PDF) do not take the pointer, and
+   the sidebar's collapse transition is off so its edge follows the pointer without a 200 ms lag. */
+html[data-resizing],
+html[data-resizing] * {
+  cursor: col-resize !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+html[data-resizing] iframe {
+  pointer-events: none;
+}
+html[data-resizing] .nd-sidebar-shell {
+  transition: none;
+}
+
 /* Heading scale (all widths): BlockNote's H1 is 3em (48px) — larger than the page title (36px).
    One step down per level, close to Obsidian's default theme: H1 1.75em, H2 1.4em, H3 1.2em.
    --prev-level mirrors --level, or a heading turned back into a paragraph animates from the wrong size. */

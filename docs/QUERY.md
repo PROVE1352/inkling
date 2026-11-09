@@ -55,7 +55,7 @@ Without `FROM`, every document page you can see in the workspace is considered.
 | `file.tags` | list of `#tags` (text tags and the `tags` property) |
 | `file.folder` | path of the parent (`Work/Clients`), `""` at the root |
 | `file.path` | path of the page itself |
-| any other name | the page **property** with that name (case-insensitive), else — for collection rows — the **collection field** with that name. Select options show their label. |
+| any other name | the page **property** with that name (case-insensitive), else — for collection rows — the **collection field** with that name. Select options show their label. A person field shows the member's name and a relation field links to the rows you can see (rows you cannot see are left out) (docs/adr/1320-*). `WHERE` and `SORT` use the same: a person field compares as the member's name, a relation field as the titles of the linked rows you can see (`SORT` uses them joined with ", "), so `WHERE Owner = "Priya Nair"` matches. `=`, `!=` and `contains()` also match the stored id of a member or of a visible linked row. Names and titles match exactly, case included (docs/adr/1352-*). |
 | `` `Name with spaces` `` | back-ticks quote a property name |
 | `text`, `due`, `completed` / `checked` | **TASK only**: the item text, its date, its check state |
 

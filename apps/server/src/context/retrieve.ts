@@ -8,6 +8,7 @@ import { fullLabel, idf, pack, queryGroups, scoreCandidate, TOP_K, TopK, tsquery
 import { headingTail, shortAnchors } from './chunker'
 import { isCjkCode } from './tokens'
 import { pageInRangeSql } from '../tokenRange'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 
 /**
  * find_context retrieval (docs/adr/0927-*, 1210-*–1212-*): candidate chunks from three index probes
@@ -54,14 +55,17 @@ function uuidArray(ids: string[]): string {
 }
 
 /**
- * Workspace ids the user is a member of, excluding soft-deleted workspaces and, for an agent
- * request, workspaces that blocked that agent connection (docs/adr/0947-*).
+ * Workspace ids the user is a member of, excluding soft-deleted workspaces, workspaces whose
+ * two-step verification requirement blocks the user (docs/adr/1112-*, 1300-*) and, for an agent
+ * request, workspaces that blocked that agent connection (docs/adr/0947-*). find_context without a
+ * workspace and read_pages read through this list.
  */
 export async function memberWorkspaceIds(userId: string): Promise<string[]> {
   const rows = (await db.execute(sql`
     SELECT wm.workspace_id AS id FROM workspace_members wm
       JOIN workspaces w ON w.id = wm.workspace_id
      WHERE wm.user_id = ${userId} AND w.deleted_at IS NULL AND ${agentAllowedSql(sql`wm.workspace_id`)}
+       AND NOT ${twoFactorBlockedSql(sql`wm.workspace_id`, userId)}
   `)) as unknown as { id: string }[]
   return rows.map((r) => r.id)
 }

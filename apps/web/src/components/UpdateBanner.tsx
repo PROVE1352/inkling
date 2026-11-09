@@ -1,7 +1,5 @@
 import { useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../api'
 import { useT } from '../i18n'
 import { applyUpdate, dismissUpdate, getUpdateSnapshot, subscribeUpdate } from '../lib/update'
 import { Spinner } from './Spinner'
@@ -46,41 +44,5 @@ export function UpdateBanner() {
       </div>
     </div>,
     document.body,
-  )
-}
-
-type LatestReleaseDTO = {
-  enabled: boolean
-  current: string
-  latest: { version: string; url: string } | null
-  updateAvailable: boolean
-}
-
-/**
- * Admin screen: "Inkling x.y.z is available" when the server's optional release check
- * (UPDATE_CHECK=github, docs/adr/0994-*) found a newer GitHub release. Renders nothing otherwise.
- */
-export function ReleaseNotice() {
-  const tr = useT()
-  const q = useQuery({
-    queryKey: ['version', 'latest'],
-    queryFn: () => api<LatestReleaseDTO>('/api/version/latest'),
-    staleTime: 60 * 60 * 1000,
-    retry: false,
-  })
-  const d = q.data
-  if (!d?.enabled || !d.updateAvailable || !d.latest) return null
-  return (
-    <p className="mt-3 rounded-md border border-line bg-accent-soft px-3 py-2 text-xs text-ink" data-testid="release-notice">
-      {tr('pwa.releaseAvailable', { version: d.latest.version, current: d.current })}
-      {d.latest.url && (
-        <>
-          {' '}
-          <a href={d.latest.url} target="_blank" rel="noopener noreferrer" className="font-medium text-accent underline">
-            {tr('pwa.releaseNotes')}
-          </a>
-        </>
-      )}
-    </p>
   )
 }

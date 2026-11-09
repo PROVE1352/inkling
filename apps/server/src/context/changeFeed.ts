@@ -11,6 +11,7 @@ import { diffText } from './diff'
 import type { WorkBudget } from './diff'
 import { estimateTokens, truncateToTokens } from './tokens'
 import { pageInRangeSql } from '../tokenRange'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 
 /**
  * Change feed reader: `changes_since(cursor)` (docs/adr/0932-*, diff: 0933-*).
@@ -493,7 +494,9 @@ async function loadRows(userId: string, from: number, to: number, workspaceId: s
        AND c.workspace_id IN (
              SELECT m.workspace_id FROM workspace_members m
               WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)}
-                AND ${agentAllowedSql(sql`m.workspace_id`)})
+                AND ${agentAllowedSql(sql`m.workspace_id`)}
+                -- a workspace whose 2FA requirement blocks the user is left out (docs/adr/1112-*, 1300-*)
+                AND NOT ${twoFactorBlockedSql(sql`m.workspace_id`, userId)})
        AND (c.scope = 'shared' OR c.owner_id = ${userId})
        -- a range-limited connection sees only changes of pages in its range (docs/adr/1200-*)
        AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, userId)}

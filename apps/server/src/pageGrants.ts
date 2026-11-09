@@ -123,6 +123,26 @@ function uuidArray(ids: string[]): string {
   return `{${ids.join(',')}}`
 }
 
+/**
+ * SQL boolean: `userId` belongs to the workspace in `wsCol`: a member, or (with `guests`) a guest
+ * there (docs/adr/1252-*). Inside the request's guest scope the scope decides (a token request
+ * never reaches guest workspaces, 1253); without one (routes that call requireUser directly, jobs
+ * acting for someone) a live page row of the user in that workspace does. Lookups by id that run
+ * before the membership check add this, so someone outside the workspace gets the same "not found"
+ * as for an id that does not exist (docs/adr/1301-*).
+ */
+export function memberOrGuestSql(wsCol: AnyPgColumn | SQL, userId: string, guests = true): SQL {
+  const member = sql`exists (select 1 from workspace_members mog where mog.workspace_id = ${wsCol} and mog.user_id = ${userId})`
+  if (!guests) return member
+  const s = currentGuest(userId)
+  if (!s) {
+    return sql`(${member} or exists (select 1 from page_grants gog join pages gop on gop.id = gog.page_id
+      where gog.user_id = ${userId} and gop.workspace_id = ${wsCol} and gop.deleted_at is null))`
+  }
+  if (s.token || s.workspaces.size === 0) return member
+  return sql`(${member} or ${wsCol} = any(${uuidArray([...s.workspaces.keys()].sort())}::uuid[]))`
+}
+
 /** Depth cap of the walks here; equals TREE_MAX_DEPTH in pageTree.ts (import cycle). */
 const MAX_DEPTH = 64
 

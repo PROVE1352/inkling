@@ -17,6 +17,7 @@ import { db } from '../db/index'
 import { mailEnabled } from '../env'
 import { forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { findVisiblePage } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 
@@ -47,6 +48,8 @@ async function listSubscriptions(userId: string): Promise<SubscriptionDTO[]> {
       JOIN workspace_members m ON m.workspace_id = np.workspace_id AND m.user_id = np.user_id
       LEFT JOIN pages p ON p.id = np.root_page_id
      WHERE np.user_id = ${userId} AND ${liveWorkspace(sql`np.workspace_id`)}
+       -- a workspace whose 2FA requirement blocks the user is left out (docs/adr/1112-*, 1300-*)
+       AND NOT ${twoFactorBlockedSql(sql`np.workspace_id`, userId)}
        AND (np.root_page_id IS NULL OR (p.deleted_at IS NULL AND (p.scope = 'shared' OR p.created_by = ${userId})))
      ORDER BY w.name, np.root_page_id NULLS FIRST, p.title
      LIMIT ${MAX_SUBSCRIPTIONS}

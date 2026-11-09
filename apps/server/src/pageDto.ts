@@ -7,6 +7,7 @@ import { liveWorkspace } from './workspaceLive'
 import { agentAllowedSql } from './agentAccess'
 import { twoFactorBlockedSql, twoFactorRequired } from './twoFactorPolicy'
 import { visibleRangeSql } from './tokenRange'
+import { memberOrGuestSql } from './pageGrants'
 
 /**
  * Shared projection that selects only the pages columns the API responses need.
@@ -117,7 +118,10 @@ export function visibleTo(userId: string): SQL {
 /**
  * Fetch one page that is alive and visible to `userId` (null if missing or not visible).
  * Use instead of findLivePage in single-page access guards that have a permission context (signed-in user).
- * Returns null for invisible private pages to hide that they exist at all (the caller answers 404).
+ * Returns null for invisible private pages to hide that they exist at all (the caller answers 404),
+ * and for pages of a workspace the user is neither a member nor a guest of: an outsider gets the
+ * same 404 as for an id that does not exist, never 403 or TWO_FACTOR_REQUIRED (docs/adr/1301-*).
+ * Callers still run requireMembership for the role, range and agent checks.
  */
 export async function findVisiblePage(
   id: string,
@@ -127,6 +131,8 @@ export async function findVisiblePage(
     .select({
       ...pageColumns,
       // "Require two-step verification" (docs/adr/1112-*): 403, not 404, so the client can say why.
+      // Only members and guests get here (memberOrGuestSql below), so it never tells an outsider
+      // that the page exists.
       twoFactorBlocked: sql<boolean>`${twoFactorBlockedSql(pages.workspaceId, userId)}`,
     })
     .from(pages)
@@ -135,6 +141,7 @@ export async function findVisiblePage(
         eq(pages.id, id),
         isNull(pages.deletedAt),
         visibleTo(userId),
+        memberOrGuestSql(pages.workspaceId, userId),
         liveWorkspace(pages.workspaceId),
         // a page in a workspace that blocked the current agent connection is "not found" (docs/adr/0947-*)
         agentAllowedSql(pages.workspaceId),

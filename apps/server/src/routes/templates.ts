@@ -13,6 +13,7 @@ import { db } from '../db/index'
 import { templates, workspaces } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { memberOrGuestSql } from '../pageGrants'
 import { requestLocale } from '../i18n'
 import type { Locale } from '../i18n'
 import { findVisiblePage, toPageDTO } from '../pageDto'
@@ -359,7 +360,8 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
       await db
         .select({ id: templates.id, workspaceId: templates.workspaceId, createdBy: templates.createdBy, builtin: templates.builtin })
         .from(templates)
-        .where(and(eq(templates.id, id), templateVisibleTo(user.id)))
+        // a template of a workspace the caller is not in is "not found", like a missing id (docs/adr/1301-*)
+        .where(and(eq(templates.id, id), templateVisibleTo(user.id), memberOrGuestSql(templates.workspaceId, user.id, false)))
         .limit(1)
     )[0]
     if (!row) throw notFound('TEMPLATE_NOT_FOUND', 'Template not found')

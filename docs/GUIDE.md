@@ -125,7 +125,9 @@ The panel button at the top right of a page opens the right panel: **Properties*
 ### Pen mode
 
 **Pen mode** in the page header's **⋯** menu lets you write and highlight on a document with a pen or finger.
-Esc leaves it.
+Esc or **Done** leaves it. **Clear** erases all ink on the page, so it asks first: press it once and it turns into
+**Clear all?** for three seconds; press again to erase. Ink is saved only after the page's ink has loaded; if it
+can't load, a message says so, and nothing you draw is saved until it does.
 
 ## Databases
 
@@ -135,6 +137,11 @@ Create one with **New database**. Each row is a page; **Open row as a page** ope
 - **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup.
   Add one with **Add a property**.
 - **Sort & filter** sets sorting, filters and visible properties per view. Boards group by a select property.
+- **Column width** in a table: drag the right edge of a column header. The width is saved on the view for everyone;
+  double-click the edge to go back to the automatic width (←/→ also work on a focused edge). If you can't edit the
+  database, the width changes on your screen only. Long text is cut with "…"; hover to see all of it.
+- Wide boards and tables use the whole width of the page. **Full width** (the database's **⋯** menu in the sidebar)
+  and the line width setting apply to databases too.
 - **Relation** links rows to another database. Tick **Show on the related collection too (two-way)** to see the
   link from both sides. **Rollup** calculates over related rows (count, sum, average, min, max, earliest/latest
   date, percent checked, unique values).
@@ -477,7 +484,9 @@ over a row or reach it with the keyboard). **Reset to default** restores them. Y
 can also right-click (or long-press) a menu → **Hide from sidebar**. Hidden menus still open from the ⌘P palette
 and their shortcuts.
 
-⌘\ hides or shows the whole sidebar.
+⌘\ hides or shows the whole sidebar. To make it wider or narrower, drag its right edge (200–480 px);
+double-click the edge to go back to 260 px. With the edge focused, ←/→ change the width (Shift for bigger steps).
+The width is kept on this device only.
 
 ## Keyboard shortcuts
 

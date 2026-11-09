@@ -36,6 +36,7 @@ import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
 import { gateWrite } from '../aclVersion'
 import { assertAgentAllowed } from '../agentAccess'
 import { findVisiblePage, pageColumns, toRowDTO, visibleTo } from '../pageDto'
+import { memberOrGuestSql } from '../pageGrants'
 import { enqueueAssignments, newAssignees, taskAssignments } from '../notify/producers'
 import { outboxCommitted } from '../outbox'
 import type { PageRow } from '../pageDto'
@@ -316,7 +317,16 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
       await db
         .select({ ...pageColumns })
         .from(pages)
-        .where(and(eq(pages.id, id), isNull(pages.deletedAt), visibleTo(user.id)))
+        // memberOrGuestSql: someone outside the workspace gets the same 404 as for an id that does not
+        // exist, not a 403 that says the page is there (docs/adr/1301-*)
+        .where(
+          and(
+            eq(pages.id, id),
+            isNull(pages.deletedAt),
+            visibleTo(user.id),
+            memberOrGuestSql(pages.workspaceId, user.id, false),
+          ),
+        )
         .limit(1)
     )[0]
     if (!target) throw notFound()

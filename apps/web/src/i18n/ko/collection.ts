@@ -146,6 +146,7 @@ export default {
   'table.pasteFailed': '붙여 넣기 실패',
   'table.pasteRows_other': '{count}개 행에 붙여 넣었습니다',
   'table.rowMenu': '행 메뉴',
+  'table.resizeColumn': '{name} 열 너비 조절 (끌거나 ←/→, 더블클릭하면 원래대로)',
   'table.title': '제목',
   'timeline.end': '종료 날짜',
   'timeline.noDateField': '타임라인을 쓰려면 날짜 속성을 추가하세요.',

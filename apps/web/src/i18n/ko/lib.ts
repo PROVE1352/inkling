@@ -11,8 +11,6 @@ export default {
   'pwa.updateReady': '새 버전이 있습니다.',
   'pwa.reload': '새로고침',
   'pwa.later': '나중에',
-  'pwa.releaseAvailable': 'Inkling {version} 버전이 나왔습니다 (이 서버는 {current}).',
-  'pwa.releaseNotes': '릴리스 노트',
 
   'colors.gray': '회색',
   'colors.red': '빨강',

@@ -467,7 +467,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     // Only files this page actually references (blocks reading arbitrary fileIds).
     const allowed = await publicAllowedFileIds(page)
     if (!allowed.has(fileId)) throw notFound()
-    if (!(await fileOwnerPageIsPublic(file.pageId))) throw notFound()
+    // A single-page link serves files of that page only; a folder link's own icon/cover, files of
+    // the folder itself (docs/adr/1302-*).
+    if (!(await fileOwnerPageIsPublic(file.pageId, [page.id]))) throw notFound()
 
     // Only safe rasters inline, everything else as an attachment. Active types (svg etc.) are
     // already blocked at upload. The public cache stays short (content lingers little after unsharing).
@@ -534,7 +536,8 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
 
       const allowed = await publicAllowedFileIds(page)
       if (!allowed.has(fileId)) throw notFound()
-      if (!(await fileOwnerPageIsPublic(file.pageId))) throw notFound()
+      // Files of pages inside the shared folder only (the folder and its current subtree).
+      if (!(await fileOwnerPageIsPublic(file.pageId, [share.root.id, ...share.pages.map((p) => p.id)]))) throw notFound()
 
       return sendPublicFile(reply, file, share.root.gate)
     },
@@ -596,11 +599,14 @@ async function openFolderShare(req: FastifyRequest, reply: FastifyReply, token: 
 
 /**
  * A file attached to a page is served publicly only while that page itself could be shared:
- * live and in the shared section (C-L11). Referencing someone's private attachment URL from a
- * public page must not publish it. Files without a page (legacy uploads) keep the reference gate.
+ * live and in the shared section (C-L11), and inside what the link shares (`sharedIds`: the page
+ * of a single-page link, the folder and its subtree for a folder link, docs/adr/1302-*).
+ * Referencing another page's attachment URL from a public page must not publish it. Files without
+ * a page (legacy uploads) keep the reference gate.
  */
-async function fileOwnerPageIsPublic(pageId: string | null): Promise<boolean> {
+async function fileOwnerPageIsPublic(pageId: string | null, sharedIds: string[]): Promise<boolean> {
   if (!pageId) return true
+  if (!sharedIds.includes(pageId)) return false
   const [p] = await db
     .select({ scope: pages.scope, deletedAt: pages.deletedAt })
     .from(pages)

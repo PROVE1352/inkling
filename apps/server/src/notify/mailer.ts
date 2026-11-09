@@ -5,6 +5,7 @@ import { resolveLocale, type Locale } from '../i18n'
 import { appOrigin, compose, sendMail } from '../mail'
 import type { MailContent } from '../mail'
 import { liveWorkspace } from '../workspaceLive'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 
 /**
  * Notification mail (docs/adr/1004-*).
@@ -80,7 +81,11 @@ export interface MailItem {
   ok: boolean
 }
 
-/** Pending rows of one user in one mail state, with the send-time visibility check. */
+/**
+ * Pending rows of one user in one mail state, with the send-time visibility check. An item of a
+ * workspace whose two-step verification requirement blocks the user is not ok: it is dropped from
+ * mail like an item that is no longer visible and stays in the app (docs/adr/1300-*).
+ */
 async function pending(userId: string, state: 'instant' | 'digest', limit: number): Promise<MailItem[]> {
   const rows = (await db.execute(sql`
     SELECT n.id, n.seq::text AS seq, n.type, n.page_id AS "pageId", coalesce(n.workspace_id, p.workspace_id) AS "workspaceId",
@@ -89,10 +94,12 @@ async function pending(userId: string, state: 'instant' | 'digest', limit: numbe
              (n.page_id IS NULL OR (p.id IS NOT NULL AND p.deleted_at IS NULL
                AND (p.scope = 'shared' OR p.created_by = ${userId})
                AND EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = p.workspace_id AND m.user_id = ${userId})
-               AND ${liveWorkspace(sql`p.workspace_id`)}))
+               AND ${liveWorkspace(sql`p.workspace_id`)}
+               AND NOT ${twoFactorBlockedSql(sql`p.workspace_id`, userId)}))
              AND (n.workspace_id IS NULL OR (
                EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = n.workspace_id AND m.user_id = ${userId})
-               AND ${liveWorkspace(sql`n.workspace_id`)}))) AS ok
+               AND ${liveWorkspace(sql`n.workspace_id`)}
+               AND NOT ${twoFactorBlockedSql(sql`n.workspace_id`, userId)}))) AS ok
       FROM notifications n
       LEFT JOIN pages p ON p.id = n.page_id
       LEFT JOIN users a ON a.id = n.actor_id

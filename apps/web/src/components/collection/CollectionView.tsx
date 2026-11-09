@@ -307,7 +307,9 @@ export function CollectionView({
         setImportOpen(true)
       }}
     >
-      <div className="flex items-center justify-between" data-print-hide>
+      {/* Narrow panes (375 px): the actions wrap under the view tabs instead of running off the
+          right edge; on a wide pane both still share one line (docs/adr/1354-*). */}
+      <div className="flex flex-wrap items-center justify-between gap-y-1" data-print-hide>
         <ViewTabs
           views={views}
           activeViewId={view?.id ?? ''}
@@ -318,7 +320,7 @@ export function CollectionView({
           creating={createView.isPending}
         />
         {view && (
-          <div className="flex items-center gap-1 pl-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap pl-2">
             {/* Read-only: filters/sorts/fields are saved on the server (writes the lock denies) */}
             {!readOnly && (
               <>

@@ -10,6 +10,7 @@ import { db } from '../db/index'
 import { workspaces, workspaceWebhooks } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { memberOrGuestSql } from '../pageGrants'
 import {
   assertPublicWebhookHost,
   invalidateWebhookCache,
@@ -65,7 +66,14 @@ async function requireWebhookAdmin(workspaceId: string, user: AuthUser): Promise
 }
 
 async function loadHook(id: string, user: AuthUser) {
-  const hook = (await db.select().from(workspaceWebhooks).where(eq(workspaceWebhooks.id, id)).limit(1))[0]
+  // A hook of a workspace the caller is not in is "not found", like a missing id (docs/adr/1301-*).
+  const hook = (
+    await db
+      .select()
+      .from(workspaceWebhooks)
+      .where(and(eq(workspaceWebhooks.id, id), memberOrGuestSql(workspaceWebhooks.workspaceId, user.id, false)))
+      .limit(1)
+  )[0]
   if (!hook) throw notFound()
   await requireWebhookAdmin(hook.workspaceId, user)
   return hook

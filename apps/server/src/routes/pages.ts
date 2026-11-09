@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
-import { guestCacheKey, isGuestIn } from '../pageGrants'
+import { guestCacheKey, isGuestIn, memberOrGuestSql } from '../pageGrants'
 import path from 'node:path'
 import { and, asc, desc, eq, ilike, inArray, isNull, max, ne, notExists, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -504,7 +504,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           const [vp] = await tx
             .select({ id: pages.id })
             .from(pages)
-            .where(and(eq(pages.id, newParentId), isNull(pages.deletedAt), visibleTo(user.id)))
+            // same workspace: a parent elsewhere gets the same answer as a missing one (docs/adr/1301-*)
+            .where(and(eq(pages.id, newParentId), eq(pages.workspaceId, page.workspaceId), isNull(pages.deletedAt), visibleTo(user.id)))
             .limit(1)
           if (!vp) throw badRequest('Parent page is invalid')
           const chain = await assertPlacement(tx, {
@@ -993,7 +994,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       await db
         .select({ workspaceId: pages.workspaceId })
         .from(pages)
-        .where(and(eq(pages.id, id), visibleTo(user.id)))
+        // outside the workspace: "not found", like a missing id (docs/adr/1301-*)
+        .where(and(eq(pages.id, id), visibleTo(user.id), memberOrGuestSql(pages.workspaceId, user.id, false)))
         .limit(1)
     )[0]
     if (!target) throw notFound()
@@ -1052,7 +1054,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       await db
         .select({ workspaceId: pages.workspaceId })
         .from(pages)
-        .where(and(eq(pages.id, id), visibleTo(user.id)))
+        // outside the workspace: "not found", like a missing id (docs/adr/1301-*)
+        .where(and(eq(pages.id, id), visibleTo(user.id), memberOrGuestSql(pages.workspaceId, user.id, false)))
         .limit(1)
     )[0]
     if (!target) throw notFound()

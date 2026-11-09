@@ -9,6 +9,7 @@ import { indexEpoch, workspaceVersion } from '../versions'
 import { AppError } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { compileQuery, QueryCompileError, takeLimit } from '../query/compile'
+import { resolveCellRefs } from '../query/cellRefs'
 import { rangeCacheKey } from '../tokenRange'
 
 /**
@@ -126,8 +127,6 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         }
         throw err
       }
-      const elapsedMs = Math.round((performance.now() - t0) * 10) / 10
-
       const page = takeLimit(raw, compiled.limit)
       const truncated = page.truncated
       const rows: QueryRowDTO[] = page.rows.map((r) => {
@@ -146,6 +145,14 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         }
         return row
       })
+      // person → member name, relation → visible linked rows (docs/adr/1320-*); set-wise, after LIMIT
+      await resolveCellRefs(
+        rows.map((row, i) => ({ parentId: (page.rows[i].parent_id as string | null) ?? null, cells: row.cells })),
+        compiled.columnProps,
+        { workspaceId, userId: user.id },
+      )
+      // statement + display pass: what the viewer waited for on a cache miss
+      const elapsedMs = Math.round((performance.now() - t0) * 10) / 10
 
       const result: QueryResultDTO = {
         type: ast.type,

@@ -364,7 +364,10 @@ export class FieldConfigError extends Error {}
  * Validate relation/rollup definitions and maintain two-way pairs. Runs inside the fields PUT
  * transaction. Returns the fields to store for this collection (pairFieldId filled in).
  *
- *  - relation target must be a live collection page in the same workspace visible to the user
+ *  - relation target must be a live collection page in the same workspace visible to the user, for
+ *    a relation that is new, re-targeted or switched to two-way; one left as it was passes even when
+ *    its target is another member's private collection, so that member's field does not lock the
+ *    schema for everyone else (docs/adr/1353-*). Hidden and missing targets get the same answer.
  *  - rollup must reference a relation field of this collection; its target field must not be a
  *    rollup or relation (depth-1 rule → rollup cycles are impossible by construction)
  *  - a new two-way relation creates the paired relation field on the target collection
@@ -389,6 +392,17 @@ export async function applyFieldsUpdate(
   // ---- relation targets ----
   const rels = fields.filter((f) => f.type === 'relation')
   for (const f of rels) if (!f.relation?.targetPageId) throw new FieldConfigError(`Relation "${f.name}" needs a target collection`)
+  const oldById = new Map(oldFields.map((f) => [f.id, f]))
+  // stored as it was: same id, still a relation to the same target, and not newly two-way or
+  // re-paired (pairing writes to the target). The name may change.
+  const unchangedRel = (f: CollectionField): boolean => {
+    const old = oldById.get(f.id)
+    return (
+      old?.type === 'relation' &&
+      old.relation?.targetPageId === f.relation?.targetPageId &&
+      (!f.relation?.twoWay || (!!old.relation?.twoWay && old.relation.pairFieldId === f.relation.pairFieldId))
+    )
+  }
   const targetIds = [...new Set(rels.map((f) => f.relation!.targetPageId))]
   const targetDefs = new Map<string, { title: string; fields: CollectionField[] }>()
   if (targetIds.length) {
@@ -406,8 +420,10 @@ export async function applyFieldsUpdate(
         ),
       )
     for (const r of rows) targetDefs.set(r.id, { title: r.title, fields: (r.fields ?? []) as CollectionField[] })
-    for (const id of targetIds) {
-      if (id !== page.id && !targetDefs.has(id)) throw new FieldConfigError('Relation target collection not found')
+    for (const f of rels) {
+      const id = f.relation!.targetPageId
+      if (id === page.id || targetDefs.has(id) || unchangedRel(f)) continue
+      throw new FieldConfigError('Relation target collection not found')
     }
   }
   // the collection itself: use the incoming definition
@@ -419,6 +435,19 @@ export async function applyFieldsUpdate(
     if (!cfg) throw new FieldConfigError(`Rollup "${f.name}" needs a configuration`)
     const rel = fields.find((x) => x.id === cfg.relationFieldId && x.type === 'relation')
     if (!rel) throw new FieldConfigError(`Rollup "${f.name}" must use a relation of this collection`)
+    // over a relation whose target this editor cannot see: only a rollup stored as it was passes
+    // (its target property cannot be checked here; the member who added it could)
+    const target = rel.relation!.targetPageId
+    if (target !== page.id && !targetDefs.has(target)) {
+      const old = oldById.get(f.id)
+      const same =
+        old?.type === 'rollup' &&
+        old.rollup?.relationFieldId === cfg.relationFieldId &&
+        old.rollup?.targetFieldId === cfg.targetFieldId &&
+        old.rollup?.fn === cfg.fn
+      if (same) continue
+      throw new FieldConfigError('Relation target collection not found')
+    }
     if (cfg.targetFieldId !== 'title') {
       const tf = defsOf(rel.relation!.targetPageId).find((x) => x.id === cfg.targetFieldId)
       if (!tf) throw new FieldConfigError(`Rollup "${f.name}": target property not found`)
@@ -428,7 +457,6 @@ export async function applyFieldsUpdate(
   }
 
   // ---- two-way pairing ----
-  const oldById = new Map(oldFields.map((f) => [f.id, f]))
   const newById = new Map(fields.map((f) => [f.id, f]))
   // pending edits to OTHER collections' field lists: targetPageId -> mutator list
   const external = new Map<string, ((list: CollectionField[]) => CollectionField[])[]>()

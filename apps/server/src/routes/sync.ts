@@ -11,6 +11,7 @@ import { db } from '../db/index'
 import { pageDocs, pageLinks, pages, pageSyncHashes } from '../db/schema'
 import { AppError, badRequest, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { memberOrGuestSql } from '../pageGrants'
 import { blocksToStateBuffer, blocksToXmlFragment, markdownToBlocks, stateToBlocks } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
 import { getServerEditor } from '../md/editor'
@@ -183,7 +184,8 @@ async function loadMetaRow(pageId: string, userId: string): Promise<MetaRow | nu
         aliases: pages.aliases,
       })
       .from(pages)
-      .where(and(eq(pages.id, pageId), isNull(pages.deletedAt), visibleTo(userId)))
+      // outside the workspace: "not found", like a missing id (docs/adr/1301-*)
+      .where(and(eq(pages.id, pageId), isNull(pages.deletedAt), visibleTo(userId), memberOrGuestSql(pages.workspaceId, userId, false)))
       .limit(1)
   )[0]
   return row ?? null

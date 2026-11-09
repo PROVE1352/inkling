@@ -16,7 +16,8 @@ import { findVisiblePage } from '../pageDto'
 // is owner-only). Saving replaces everything. Optimistic concurrency (docs/adr/0815-*): the client sends the
 // `updatedAt` its strokes are based on as `expectedUpdatedAt` (null = "no ink yet"). On a
 // mismatch the PUT answers 412 INK_CONFLICT with the current ink, and the client merges its
-// unsaved strokes into it and retries. Without the field (old clients) the last write wins.
+// unsaved strokes into it and retries. Without the field (old clients) the last write wins,
+// except that an unversioned empty list never replaces existing strokes (412, docs/adr/1340-*).
 
 // Stroke JSON is around 200KB even for a fully written page, but allow well over the default 1MB
 // for pages that fill the margins too. saveInkSchema caps the stroke count separately.
@@ -77,10 +78,18 @@ export async function registerInkRoutes(app: FastifyInstance): Promise<void> {
           .from(pageInk)
           .where(eq(pageInk.pageId, id))
           .limit(1)
-        if (expectedUpdatedAt !== undefined) {
-          const want = expectedUpdatedAt === null ? null : new Date(expectedUpdatedAt).getTime()
+        // A save that does not say which version it is based on may not wipe existing ink
+        // (docs/adr/1340-*): such a request came from a layer that never saw the server's strokes
+        // (still loading, load failed, or a leftover layer of another page), not from "Clear".
+        const blindWipe =
+          expectedUpdatedAt === undefined &&
+          body.strokes.length === 0 &&
+          Array.isArray(cur?.strokes) &&
+          (cur.strokes as unknown[]).length > 0
+        if (expectedUpdatedAt !== undefined || blindWipe) {
+          const want = expectedUpdatedAt == null ? null : new Date(expectedUpdatedAt).getTime()
           const have = cur ? cur.updatedAt.getTime() : null
-          if (want !== have) {
+          if (blindWipe || want !== have) {
             throw new AppError(
               412,
               'INK_CONFLICT',

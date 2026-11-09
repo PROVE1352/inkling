@@ -10,6 +10,7 @@ import { db } from '../db/index'
 import { pageDocs, pageSnapshots } from '../db/schema'
 import { badRequest, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { memberOrGuestSql } from '../pageGrants'
 import { blocksToMarkdown, stateToBlocks } from '../md/convert'
 import { findVisiblePage } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
@@ -150,6 +151,8 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
        WHERE c.seq = ${seq}::bigint
          AND (c.scope = 'shared' OR c.owner_id = ${user.id})
          AND ${liveWorkspace(sql`c.workspace_id`)}
+         -- someone outside the workspace gets the same 404 as for a seq that does not exist (docs/adr/1301-*)
+         AND ${memberOrGuestSql(sql`c.workspace_id`, user.id, false)}
     `)) as unknown as {
       seq: string
       workspaceId: string

@@ -338,7 +338,7 @@ export function BoardView({
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
       >
-        <div className="flex gap-3 overflow-x-auto px-1 py-2">
+        <div className="nd-wide-scroll flex gap-3 overflow-x-auto px-1 py-2">
           {columns.map((col) => (
             <ColumnView
               key={col.key}

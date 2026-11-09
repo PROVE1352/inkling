@@ -10,6 +10,7 @@ import { pages } from '../db/schema'
 import { forbidden, notFound } from '../errors'
 import { isLargePage, stateBytesV1Sql } from '../context/largePage'
 import { idParam, requireMembership } from '../helpers'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 import { agentAllowedSql, currentAgent } from '../agentAccess'
@@ -145,6 +146,8 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
       LEFT JOIN users au ON au.id = lc.actor_id
      WHERE pages.id = ANY(${`{${ids.join(',')}}`}::uuid[])
        AND ${and(isNull(pages.deletedAt), visibleTo(userId), liveWorkspace(pages.workspaceId), agentAllowedSql(pages.workspaceId))}
+       -- a workspace whose 2FA requirement blocks the caller is left out (docs/adr/1112-*, 1300-*)
+       AND NOT ${twoFactorBlockedSql(pages.workspaceId, userId)}
   `)) as unknown as {
     id: string
     workspaceId: string

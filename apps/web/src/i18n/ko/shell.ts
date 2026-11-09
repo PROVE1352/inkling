@@ -150,6 +150,7 @@ export default {
   'sidebar.hideFromSidebar': '사이드바에서 숨기기',
   'sidebar.customize': '사이드바 설정…',
   'sidebar.menuOptions': '사이드바 메뉴 옵션',
+  'sidebar.resize': '사이드바 너비 조절 (끌거나 ←/→, 더블클릭하면 원래대로)',
   'sidebar.hidden': '\'{name}\' 메뉴를 숨겼습니다. 설정 → 사이드바에서 다시 켤 수 있습니다.',
 
   'sidebarSettings.title': '사이드바',

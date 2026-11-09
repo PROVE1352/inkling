@@ -101,6 +101,23 @@ describe('query compiler', () => {
     assert.equal((cte.match(/"pages"\."scope"/g) ?? []).length >= 2, true)
   })
 
+  it('computes comparison keys only for properties WHERE / SORT use (docs/adr/1352-*)', () => {
+    // a bare column is the stored value (the display pass resolves it): no key lateral
+    const plain = compile('TABLE Owner, Status FROM "A"').sql
+    assert.doesNotMatch(plain, /"fk"|"fd"/)
+    // WHERE on Owner and SORT on Due: two keys; Status (a column only) stays on the inline lookup
+    const keyed = compile('TABLE Owner, Status WHERE Owner = "Ann" SORT Due').sql
+    assert.match(keyed, /AS "d0"/)
+    assert.match(keyed, /AS "r0"/)
+    assert.match(keyed, /AS "r2"/)
+    assert.doesNotMatch(keyed, /AS "r1"/)
+    // linked rows in a key are filtered with the viewer's visibility, like every other page read
+    const rel = compile('LIST WHERE contains(`Blocked by`, "x")')
+    const fk = rel.sql.slice(rel.sql.indexOf("= 'relation'"), rel.sql.indexOf('AS "r0"'))
+    assert.match(fk, /"pages"\."scope"/)
+    assert.ok(rel.params.includes(ctx.userId))
+  })
+
   it('clamps LIMIT and fetches one extra row', () => {
     assert.equal(compileQuery(parseQuery('LIST'), ctx).fetch, 201)
     assert.equal(compileQuery(parseQuery('LIST LIMIT 7'), ctx).fetch, 8)

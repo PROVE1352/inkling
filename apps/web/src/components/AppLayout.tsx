@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Navigate,
   Outlet,
@@ -11,7 +11,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { qk, useMe, useWorkspaces } from '../api'
 import { isMac, isMod, isTypingElement } from '../lib/platform'
 import { getActiveEditor } from '../lib/activeEditor'
-import { consumeAppEntry } from '../lib/prefs'
+import { consumeAppEntry, setPref, usePrefs } from '../lib/prefs'
+import {
+  SIDEBAR_DEFAULT,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
+  dragSidebarWidth,
+  sidebarWidthForKey,
+} from '../lib/sidebarWidth'
+import { useT } from '../i18n'
+import { ResizeHandle } from './ResizeHandle'
 import { useNewPage } from '../lib/newPage'
 import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
@@ -104,6 +113,12 @@ export function AppLayout() {
   // member features the server refuses, so their shortcuts and dialogs are off.
   const guest = twoFactorWs?.role === 'guest'
   const me = useMe()
+  const t = useT()
+  // Desktop sidebar width (per device, docs/adr/1350-*). A drag writes --sidebar-w on the shell once per
+  // frame and saves the preference once on release, so nothing re-renders while the edge moves.
+  const sidebarWidth = usePrefs().sidebarWidth
+  const sidebarShellRef = useRef<HTMLDivElement>(null)
+  const previewSidebar = (w: number) => sidebarShellRef.current?.style.setProperty('--sidebar-w', `${w}px`)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -337,14 +352,23 @@ export function AppLayout() {
     <AppDnd wsId={wsId}>
     <div className="flex h-full">
       {/* Fixed desktop sidebar — collapses with a width transition.
-          Outer: w-[260px]↔w-0 (overflow-hidden), inner: fixed 260px (keeps the content from squashing).
-          When collapsed, inert blocks focus and clicks. */}
+          Outer: var(--sidebar-w)↔0 (overflow-hidden), inner: fixed var(--sidebar-w) (keeps the content
+          from squashing). When collapsed, inert blocks focus and clicks. The width is the device's
+          preference (200–480 px, dragged on the edge below, docs/adr/1350-*). */}
       <div
-        className={`hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out md:block ${
-          collapsed ? 'w-0' : 'w-[260px] border-r border-line'
+        ref={sidebarShellRef}
+        data-sidebar-shell
+        className={`nd-sidebar-shell hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out md:block ${
+          collapsed ? '' : 'border-r border-line'
         }`}
+        style={
+          {
+            '--sidebar-w': `${sidebarWidth}px`,
+            width: collapsed ? 0 : 'var(--sidebar-w)',
+          } as React.CSSProperties
+        }
       >
-        <div className="h-full w-[260px]" inert={collapsed}>
+        <div className="h-full w-[var(--sidebar-w)]" inert={collapsed}>
           <Sidebar
             wsId={wsId}
             onOpenSearch={() => openSearch()}
@@ -353,6 +377,28 @@ export function AppLayout() {
           />
         </div>
       </div>
+
+      {/* Resize handle on the sidebar's right edge: a zero-width flex item, so the 6 px hit area straddles
+          the border without being clipped by the sidebar's overflow. Not there when collapsed or on
+          phones (the drawer keeps its own width). */}
+      {!collapsed && (
+        <div className="relative z-30 hidden w-0 shrink-0 md:block">
+          <ResizeHandle
+            label={t('sidebar.resize')}
+            value={sidebarWidth}
+            min={SIDEBAR_MIN}
+            max={SIDEBAR_MAX}
+            className="absolute inset-y-0 -left-[3px] w-[6px] cursor-col-resize touch-none outline-none transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 active:bg-accent/60"
+            startWidth={() => sidebarShellRef.current?.getBoundingClientRect().width ?? sidebarWidth}
+            clamp={(w) => dragSidebarWidth(w, 0)}
+            onPreview={previewSidebar}
+            onEnd={() => previewSidebar(sidebarWidth)}
+            onCommit={(w) => setPref('sidebarWidth', w)}
+            onReset={() => setPref('sidebarWidth', SIDEBAR_DEFAULT)}
+            onKey={(key, shift) => sidebarWidthForKey(key, sidebarWidth, shift)}
+          />
+        </div>
+      )}
 
       {/* Mobile overlay drawer (open motion: backdrop fade + panel slide) */}
       {drawerOpen && (

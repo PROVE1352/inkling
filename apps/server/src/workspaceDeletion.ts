@@ -10,6 +10,7 @@ import { lockTree, type Tx } from './pageTree'
 import { WORKSPACE_RESTORE_MS } from './workspaceLive'
 import { recordAudit } from './workspaceAdmin'
 import type { AuditActor } from './workspaceAdmin'
+import { isTwoFactorBlocked, twoFactorRequired } from './twoFactorPolicy'
 
 /**
  * Workspace deletion and ownership transfer (docs/adr/0910-*, 0911-*).
@@ -76,6 +77,9 @@ export async function softDeleteWorkspace(
     const role = ws ? await memberRoleTx(tx, workspaceId, actorId) : null
     if (!ws || !role || ws.deletedAt) throw notFound()
     if (role !== 'owner') throw forbidden('Only owners can delete the workspace')
+    // These routes check the role here, not through requireMembership: apply the workspace's
+    // 2FA requirement the same way (docs/adr/1112-*).
+    if (await isTwoFactorBlocked(workspaceId, actorId)) throw twoFactorRequired(workspaceId)
     if (confirmName.trim() !== ws.name) throw badRequest('The workspace name does not match')
 
     const updated = await tx
@@ -117,6 +121,7 @@ export async function restoreWorkspace(actor: AuditActor, workspaceId: string): 
     const role = await memberRoleTx(tx, workspaceId, actorId)
     if (!role) throw notFound()
     if (role !== 'owner') throw forbidden('Only owners can restore the workspace')
+    if (await isTwoFactorBlocked(workspaceId, actorId)) throw twoFactorRequired(workspaceId)
     const cutoff = new Date(Date.now() - WORKSPACE_RESTORE_MS)
     const restored = await tx
       .update(workspaces)

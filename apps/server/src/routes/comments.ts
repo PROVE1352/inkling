@@ -282,7 +282,11 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
 
     const page = await findVisiblePage(comment.pageId, user.id)
     if (!page) throw notFound()
-    const role = await requireMembership(page.workspaceId, user.id, { guests: true })
+    const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id, { guests: true })
+    // Deleting needs the COMMENT bit like posting and editing (edit lock and page levels,
+    // docs/adr/0970-*, 0971-*, 1251-*): an agent under "agents: read" or a person with a view
+    // level cannot remove threads either.
+    await assertPageCommentable(comment.pageId, user.id, role, acl)
 
     // owners and admins moderate comments (docs/adr/0945-*)
     if (comment.authorId !== user.id && !isManagerRole(role)) {

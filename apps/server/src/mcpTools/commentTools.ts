@@ -164,15 +164,20 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
     },
     wrapWrite(ctx, async ({ threadId, text: message }) => {
       // Only the page id is looked up here; the REST route checks visibility, membership and the lock.
+      // A thread on a page the caller cannot see gets the same answer as a missing one (that route
+      // answers 404), so the tool does not tell which thread ids exist elsewhere (docs/adr/1301-*).
+      const notFound = () => new ToolError('Thread not found: use list_comments(pageId) for thread ids')
       const [root] = await db
         .select({ pageId: comments.pageId, blockId: comments.blockId })
         .from(comments)
         .where(and(eq(comments.id, threadId), eq(comments.threadId, threadId)))
         .limit(1)
-      if (!root) throw new ToolError('Thread not found: use list_comments(pageId) for thread ids')
+      if (!root) throw notFound()
       const r = await call(ctx, 'POST', `/api/pages/${root.pageId}/comments`, {
         json: { blockId: root.blockId, threadId, body: message },
+        passStatuses: [404],
       })
+      if (r.statusCode === 404) throw notFound()
       const c = (r.json() as { comment: { id: string } }).comment
       return json({ id: c.id, threadId, pageId: root.pageId })
     }),

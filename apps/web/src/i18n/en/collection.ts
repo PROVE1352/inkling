@@ -147,6 +147,7 @@ export default {
   'table.pasteRows_one': 'Pasted into {count} row',
   'table.pasteRows_other': 'Pasted into {count} rows',
   'table.rowMenu': 'Row menu',
+  'table.resizeColumn': 'Resize column {name} (drag, or ←/→; double-click resets)',
   'table.title': 'Title',
   'timeline.end': 'End date',
   'timeline.noDateField': 'Add a date property to use the timeline.',

@@ -11,6 +11,7 @@ import { KINDS, typesForInbox } from '../notify/kinds'
 import type { NotifyKind } from '../notify/kinds'
 import { liveWorkspace } from '../workspaceLive'
 import { currentRange, pageInRangeSql } from '../tokenRange'
+import { twoFactorBlockedSql } from '../twoFactorPolicy'
 
 /**
  * Agent inbox (docs/adr/1003-*): the notifications addressed to the connecting person that an
@@ -58,7 +59,8 @@ export async function readInbox(
     AND (n.page_id IS NULL OR ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, userId)})
     AND EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = coalesce(n.workspace_id, p.workspace_id) AND m.user_id = ${userId})
     AND ${liveWorkspace(sql`coalesce(n.workspace_id, p.workspace_id)`)}
-    AND ${agentAllowedSql(sql`coalesce(n.workspace_id, p.workspace_id)`)}`
+    AND ${agentAllowedSql(sql`coalesce(n.workspace_id, p.workspace_id)`)}
+    AND NOT ${twoFactorBlockedSql(sql`coalesce(n.workspace_id, p.workspace_id)`, userId)}`
   const rows = (await db.execute(sql`
     SELECT n.seq::text AS seq, n.type, coalesce(n.workspace_id, p.workspace_id) AS "workspaceId", n.page_id AS "pageId",
            p.title AS "pageTitle", n.anchor, a.name AS "actorName", n.via_client AS via, n.excerpt, n.count,

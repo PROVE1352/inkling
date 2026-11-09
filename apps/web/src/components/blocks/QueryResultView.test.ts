@@ -52,3 +52,34 @@ describe('query block footer', () => {
     assert.equal(resultFooterText({ rows: rows(12), truncated: true, elapsedMs: 2.7 }), 'Showing the first 12 results · 2.7 ms')
   })
 })
+
+describe('query block person and relation cells (docs/adr/1320-*)', () => {
+  const ref = (pageId: string, title: string) => ({ ref: 'page', pageId, title })
+  const data = (type: 'TABLE' | 'LIST', cells: unknown[]) => ({
+    type,
+    withoutId: false,
+    columns: type === 'TABLE' ? ['Owner', 'Blocked by'] : ['value'],
+    rows: [{ pageId: 'r1', title: 'Row', cells }],
+    truncated: false,
+    elapsedMs: 1,
+  })
+  it('shows relation refs as links to the linked pages, the person as text', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResultView, { data: data('TABLE', ['Priya Nair', [ref('a1', 'Search'), ref('b2', '')]]), wsId: 'w' }),
+    )
+    assert.match(html, />Priya Nair</)
+    assert.match(html, /<a href="\/w\/w\/p\/a1"[^>]*>Search<\/a>/)
+    // an untitled linked row reads "Untitled", never an id
+    assert.match(html, /<a href="\/w\/w\/p\/b2"[^>]*>Untitled<\/a>/)
+    assert.match(html, /<\/a><\/span><span>, <a/)
+    assert.doesNotMatch(html, /pageId|&quot;/)
+  })
+  it('LIST uses the same cell rendering', () => {
+    const html = renderToStaticMarkup(createElement(ResultView, { data: data('LIST', [[ref('a1', 'Search')]]), wsId: 'w' }))
+    assert.match(html, /<a href="\/w\/w\/p\/a1"[^>]*>Search<\/a>/)
+  })
+  it('an empty relation and a null person render empty', () => {
+    const html = renderToStaticMarkup(createElement(ResultView, { data: data('TABLE', [null, []]), wsId: 'w' }))
+    assert.equal(html.match(/role="cell"[^>]*><\/div>/g)?.length, 2)
+  })
+})

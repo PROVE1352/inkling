@@ -437,6 +437,38 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1280](1280-soft-corner-scale-and-shadows.md) | Soft corner scale, softer shadows, drawn checkboxes | Accepted |
 | [1281](1281-motion-tokens-enter-and-exit.md) | Motion: one easing set, enter and exit animations, tree reveal | Accepted |
 
+## 1300–1309 Workspace boundaries
+
+| ADR | Title | Status |
+|---|---|---|
+| [1300](1300-two-step-requirement-on-cross-workspace-reads-and-mail.md) | The two-step requirement also covers cross-workspace reads and notification mail | Accepted |
+| [1301](1301-outsiders-get-not-found.md) | Someone outside a workspace gets "not found" for its ids | Accepted |
+| [1302](1302-public-files-stay-inside-what-a-link-shares.md) | Public links serve only files of pages inside what they share | Accepted |
+
+## 1320–1329 Collection views and query blocks
+
+| ADR | Title | Status |
+|---|---|---|
+| [1320](1320-query-block-person-and-relation-display.md) | Query blocks show people by name and relations as page links | Accepted (WHERE / SORT on stored values superseded by 1352) |
+| [1321](1321-wide-collection-views-reach-the-pane-edges.md) | Wide collection views reach the edges of the page pane | Accepted |
+| [1322](1322-collection-table-sticky-header-and-column-minimums.md) | Collection table: header sticks to the page, columns sized from their minimums | Accepted |
+
+## 1340–1349 Pen mode
+
+| ADR | Title | Status |
+|---|---|---|
+| [1340](1340-ink-layer-one-per-page-no-blind-save.md) | Ink layer: one layer per page, no save before the ink is loaded, no blind wipe | Accepted |
+
+## 1350–1359 Widths, query comparisons and relation fields
+
+| ADR | Title | Status |
+|---|---|---|
+| [1350](1350-resizable-sidebar-width-per-device.md) | The sidebar is resized on its edge, and the width is kept per device | Accepted |
+| [1351](1351-collection-table-column-widths-in-the-view.md) | Collection table: column widths dragged in the header, saved on the view | Accepted |
+| [1352](1352-query-block-compares-people-by-name-and-relations-by-title.md) | Query blocks compare people by name and relations by title | Accepted |
+| [1353](1353-unchanged-relation-fields-with-a-hidden-target.md) | Unchanged relation fields pass when their target is hidden from the editor | Accepted |
+| [1354](1354-collection-toolbar-wraps-on-phones.md) | Collection toolbar wraps under the view tabs on narrow screens | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

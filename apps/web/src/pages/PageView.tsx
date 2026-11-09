@@ -579,9 +579,12 @@ export function PageView() {
   const bodyRef = useRef<HTMLDivElement>(null)
   // Pen mode — when on, the body is locked and a pen layer sits on top (same idea as PDF annotation).
   const inkColumnRef = useRef<HTMLDivElement>(null)
-  const [penMode, setPenMode] = useState(false)
+  // Pen mode belongs to the page it was turned on for (docs/adr/1340-*): on a page change it is off
+  // in the very first render of the new page, so no ink layer mounts for it in passing.
+  const [penPageId, setPenPageId] = useState<string | null>(null)
+  const penMode = !!pageId && penPageId === pageId
   // Turn pen mode off when switching pages — prevents accidental strokes on another page.
-  useEffect(() => setPenMode(false), [pageId])
+  useEffect(() => setPenPageId(null), [pageId])
   // Narrow screens: navigating to another page from the panel (backlinks etc.) closes the overlay panel to show the new body.
   useEffect(() => {
     if (window.matchMedia('(max-width: 767.98px)').matches) setRightOpen(false)
@@ -614,7 +617,7 @@ export function PageView() {
   }, [queryClient, page?.id, treeLockRootId, collab.scope])
   // Ink strokes are page writes too: no pen on a page the viewer cannot edit.
   useEffect(() => {
-    if (lockReadOnly) setPenMode(false)
+    if (lockReadOnly) setPenPageId(null)
   }, [lockReadOnly])
   const lockBanner = guest ? (
     <GuestAccessNote level={lockData?.level} />
@@ -774,7 +777,7 @@ export function PageView() {
                     label: tr('page.penMode'),
                     icon: <PenIcon size={16} />,
                     checked: penMode,
-                    onSelect: () => setPenMode((v) => !v),
+                    onSelect: () => setPenPageId((v) => (v === pageId ? null : (pageId ?? null))),
                   },
                 ]
               : []),
@@ -866,25 +869,35 @@ export function PageView() {
           ) : page.kind === 'collection' ? (
             // Key only on the wrapper — giving siblings the same key confuses React's keyed diff and
             // leaves old elements in the DOM in production builds (the cause of the stacked-title bug).
-            <div key={page.id} className="group/page nd-enter mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
-              <PageHeading
-                wsId={wsId ?? ''}
-                page={page}
-                onCommit={(t) => {
-                  if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
-                }}
-                onEnter={() => {}}
-                readOnly={lockReadOnly}
-                banner={lockBanner}
-              />
-              <Suspense fallback={viewFallback}>
-                {guest ? (
-                  // The collection routes are member-only for now (docs/adr/1252-*).
-                  <p className="px-1 py-6 text-sm text-sub">{tr('guest.collectionUnavailable')}</p>
-                ) : (
-                  <CollectionView wsId={wsId ?? ''} pageId={page.id} readOnly={lockReadOnly} />
-                )}
-              </Suspense>
+            // The wrapper spans the pane and is a size container: wide views (board, table) scroll
+            // from the pane's left edge to its right edge while their content starts on the column
+            // (nd-coll-page / nd-wide-scroll in index.css, docs/adr/1321-*). Full width (the page's
+            // own setting, or the device's "Line width: Full") drops the column's max width, as on docs.
+            <div key={page.id} className="nd-enter @container">
+              <div
+                className={`group/page nd-coll-page mx-auto py-6 sm:py-10 ${
+                  page.fullWidth || prefs.lineWidth === LINE_WIDTH_FULL ? 'max-w-none px-4 sm:px-10' : 'max-w-5xl px-4 sm:px-6'
+                }`}
+              >
+                <PageHeading
+                  wsId={wsId ?? ''}
+                  page={page}
+                  onCommit={(t) => {
+                    if (pageId) updatePage.mutate({ id: pageId, input: { title: t } })
+                  }}
+                  onEnter={() => {}}
+                  readOnly={lockReadOnly}
+                  banner={lockBanner}
+                />
+                <Suspense fallback={viewFallback}>
+                  {guest ? (
+                    // The collection routes are member-only for now (docs/adr/1252-*).
+                    <p className="px-1 py-6 text-sm text-sub">{tr('guest.collectionUnavailable')}</p>
+                  ) : (
+                    <CollectionView wsId={wsId ?? ''} pageId={page.id} readOnly={lockReadOnly} />
+                  )}
+                </Suspense>
+              </div>
             </div>
           ) : page.kind === 'canvas' ? (
             <div key={page.id} className="nd-enter flex h-full flex-col">
@@ -951,26 +964,29 @@ export function PageView() {
           )}
         </div>
 
-        {isDoc && editor && prefs.wordCount && <WordCount key={page?.id} editor={editor} />}
+        {isDoc && editor && prefs.wordCount && <WordCount key={`wc:${page?.id}`} editor={editor} />}
         {isDoc && editor && page && prefs.miniToc && !isPhone && (
-          <MiniToc key={page.id} editor={editor} containerRef={bodyRef} columnRef={inkColumnRef} />
+          <MiniToc key={`toc:${page.id}`} editor={editor} containerRef={bodyRef} columnRef={inkColumnRef} />
         )}
         </div>
 
         {wsId && prefs.linkPreview && !guest && <LinkPreview wsId={wsId} containerRef={bodyRef} />}
 
         {isDoc && page && penMode && (
+          // Own key namespace: HeadingFolds below is a sibling keyed by page.id, and two siblings with
+          // one key made React lose the old layer on a page change (its SVG and toolbar stayed on
+          // screen over the next page, docs/adr/1340-*).
           <InkLayer
-            key={page.id}
+            key={`ink:${page.id}`}
             pageId={page.id}
             columnRef={inkColumnRef}
             containerRef={bodyRef}
-            onClose={() => setPenMode(false)}
+            onClose={() => setPenPageId(null)}
           />
         )}
 
         {isDoc && page && editor && (
-          <HeadingFolds key={page.id} editor={editor} pageId={page.id} containerRef={bodyRef} disabled={penMode} />
+          <HeadingFolds key={`folds:${page.id}`} editor={editor} pageId={page.id} containerRef={bodyRef} disabled={penMode} />
         )}
 
         {isDoc && page && (

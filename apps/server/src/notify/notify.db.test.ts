@@ -441,6 +441,30 @@ describe('[db] notifications, inbox, comment tools and activity', { skip: !HAS_D
       assert.equal((await notifs(B)).filter((x) => x.mailState === 'digest').length, 0)
     })
 
+    it('no mail about a workspace whose 2FA requirement blocks the recipient (docs/adr/1300-*)', async () => {
+      const owner = await h.makeUser('mail-2fa-owner')
+      const member = await h.makeUser('mail-2fa-member')
+      const ws2 = await h.makeWorkspace(owner, [member])
+      const page = await h.makeDocPage(ws2.id, owner.id, 'Blocked mail title', [para('x')])
+      await db.execute(sql`UPDATE workspaces SET two_factor_required_at = now() - interval '1 day', two_factor_grace_days = 0 WHERE id = ${ws2.id}`)
+      const base = { userId: member.id, pageId: page.id, workspaceId: ws2.id, actorId: owner.id }
+      await db.insert(schema.notifications).values([
+        { ...base, type: 'comment_mention', mailState: 'instant' },
+        { ...base, type: 'comment', mailState: 'digest' },
+        // a workspace-level item of the same workspace (no page)
+        { userId: member.id, workspaceId: ws2.id, type: 'workspace_added', actorId: owner.id, mailState: 'digest' },
+      ] as never)
+      const before = smtp.mails.length
+      assert.equal(await mailer.sendInstantMails(member.id), 0)
+      await mailer.runMailDigests(new Date(), { force: true })
+      const toMember = smtp.mails.slice(before).map(qp).filter((m) => m.includes(`To: ${member.email}`))
+      assert.deepEqual(toMember, [])
+      // dropped from mail, still in the app once 2FA is on
+      const rows = await notifs(member)
+      assert.equal(rows.length, 3)
+      assert.deepEqual(rows.map((r) => r.mailState), [null, null, null])
+    })
+
     it('AI summaries: a daily in-app item for subscribed folders', async () => {
       await req(C, 'PUT', `/pages/${(await db.select({ id: schema.pages.id }).from(schema.pages).where(and(eq(schema.pages.workspaceId, ws.id), eq(schema.pages.title, 'Folder'))))[0].id}/subscription`, { level: 'all', agentDigest: true })
       const made = await digest.runAgentSummaries(new Date(), { force: true })

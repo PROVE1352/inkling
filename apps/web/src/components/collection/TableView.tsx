@@ -7,8 +7,17 @@ import type {
   RowDTO,
   ViewConfig,
 } from '@inkling/shared'
+import { COLUMN_WIDTH } from '@inkling/shared'
 import { useT } from '../../i18n'
 import { applyView, formatValue, orderedFields } from '../../lib/collection'
+import {
+  FIELD_MIN,
+  TITLE_MIN,
+  clampColumnWidth,
+  columnTracks,
+  columnWidthForKey,
+  withColumnWidth,
+} from '../../lib/columnWidths'
 import { parseClipboardGrid, toHtmlTable, toTsv, viewGrid } from '../../lib/spreadsheet'
 import { useWindowedRows } from '../../lib/useWindowedRows'
 import { ConfirmPopover } from '../ConfirmPopover'
@@ -17,6 +26,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from '../Icons'
+import { ResizeHandle } from '../ResizeHandle'
 import { FieldCell } from './cells/FieldCell'
 import { useCollectionReadOnly } from './readOnlyContext'
 
@@ -297,10 +307,66 @@ export function TableView({
     onUpdateConfig({ ...view.config, sorts: next })
   }
 
-  const gridStyle: React.CSSProperties = {
-    gridTemplateColumns: `minmax(200px, 1.6fr) ${cols
-      .map(() => 'minmax(150px, 1fr)')
-      .join(' ')} 44px`,
+  // Column tracks: a minimum width each, and the space left in a wide pane shared out (fr). The grid's
+  // min-width is the sum of those minimums, not its max-content width: with `min-width: max-content`
+  // the fr tracks were all sized to the widest cell's one-line text, so one long text value made
+  // every column that wide (1,331 px each for a 210-character value). Cells clip (truncate) instead.
+  // A column dragged to a width keeps that width (a fixed track), saved on the view (docs/adr/1351-*).
+  // Someone who cannot edit the view (read-only) resizes for this screen only: the widths stay local.
+  const serverWidths = useMemo(
+    () => ({ columnWidths: view.config.columnWidths, titleWidth: view.config.titleWidth }),
+    [view.config.columnWidths, view.config.titleWidth],
+  )
+  const serverWidthsKey = JSON.stringify(serverWidths)
+  const [localWidths, setLocalWidths] = useState<typeof serverWidths | null>(null)
+  // the view's stored widths changed (saved, another tab, another person) or another view: drop the local copy
+  useEffect(() => setLocalWidths(null), [view.id, serverWidthsKey])
+  const widths = localWidths ?? serverWidths
+  const tracks = useMemo(() => columnTracks(cols, widths), [cols, widths])
+  const gridStyle: React.CSSProperties = { gridTemplateColumns: tracks.template }
+  const gridMinWidth = `var(--tc-min, ${tracks.minWidth}px)`
+
+  const commitWidth = (fieldId: string | null, width: number | null) => {
+    const next = withColumnWidth({ ...view.config, ...widths }, fieldId, width)
+    setLocalWidths({ columnWidths: next.columnWidths, titleWidth: next.titleWidth })
+    if (!readOnly) onUpdateConfig(next)
+  }
+  // drag preview: one CSS variable for the track and one for the grid's minimum width, on the root
+  // that holds both the header strip and the rows (no re-render per pointer move)
+  const previewWidth = (i: number, w: number) => {
+    const root = rootRef.current
+    if (!root) return
+    const base = i === 0 ? (widths.titleWidth ?? TITLE_MIN) : (widths.columnWidths?.[cols[i - 1].id] ?? FIELD_MIN)
+    root.style.setProperty(`--tc-${i}`, `${w}px`)
+    root.style.setProperty('--tc-min', `${tracks.minWidth - clampColumnWidth(base, i === 0) + w}px`)
+  }
+  const endPreview = (i: number) => {
+    rootRef.current?.style.removeProperty(`--tc-${i}`)
+    rootRef.current?.style.removeProperty('--tc-min')
+  }
+  const headerWidth = (i: number) =>
+    rootRef.current?.querySelector<HTMLElement>(`[data-col="${i}"]`)?.getBoundingClientRect().width ??
+    (i === 0 ? TITLE_MIN : FIELD_MIN)
+  const resizeHandle = (i: number, name: string) => {
+    const title = i === 0
+    const fieldId = title ? null : cols[i - 1].id
+    const stored = title ? widths.titleWidth : widths.columnWidths?.[fieldId!]
+    return (
+      <ResizeHandle
+        label={t('table.resizeColumn', { name })}
+        value={stored ?? (title ? TITLE_MIN : FIELD_MIN)}
+        min={title ? TITLE_MIN : FIELD_MIN}
+        max={COLUMN_WIDTH.max}
+        className="absolute inset-y-0 -right-[3px] z-10 w-[6px] cursor-col-resize touch-none outline-none transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 active:bg-accent/60"
+        startWidth={() => headerWidth(i)}
+        clamp={(w) => clampColumnWidth(w, title)}
+        onPreview={(w) => previewWidth(i, w)}
+        onEnd={() => endPreview(i)}
+        onCommit={(w) => commitWidth(fieldId, w)}
+        onReset={() => commitWidth(fieldId, null)}
+        onKey={(key, shift) => columnWidthForKey(key, headerWidth(i), shift, title)}
+      />
+    )
   }
 
   // ---- windowing (large tables) ----
@@ -318,6 +384,8 @@ export function TableView({
   const selRef = useRef<Sel | null>(null)
   selRef.current = sel
   const rootRef = useRef<HTMLDivElement>(null)
+  const headScrollRef = useRef<HTMLDivElement>(null)
+  const bodyScrollRef = useRef<HTMLDivElement>(null)
 
   const onCellDown = useCallback((e: React.MouseEvent, r: number, c: number) => {
     if (e.button !== 0) return
@@ -385,40 +453,51 @@ export function TableView({
   const visible = display.slice(win.start, win.end)
 
   return (
-    <div ref={rootRef} className="overflow-x-auto">
-      <div className="min-w-max">
-        {/* header */}
+    <div ref={rootRef}>
+      {/* Header in its own strip: sticky to the page while the rows scroll under it. It cannot sit in
+          the rows' horizontal scroller (overflow-x makes that the sticky container, which never scrolls
+          vertically), so it clips and follows the rows' scrollLeft instead (docs/adr/1322-*). */}
+      <div
+        ref={headScrollRef}
+        className="nd-wide-scroll sticky top-0 z-10 overflow-x-hidden bg-app"
+        onWheel={(e) => {
+          // a sideways trackpad swipe over the header scrolls the rows
+          if (bodyScrollRef.current && e.deltaX) bodyScrollRef.current.scrollLeft += e.deltaX
+        }}
+      >
         <div
           className="grid border-y border-line bg-side/40 text-xs font-medium text-sub"
-          style={gridStyle}
+          style={{ ...gridStyle, minWidth: gridMinWidth }}
         >
-          <div className="flex items-center border-r border-line px-2.5 py-1.5">
-            {t('table.title')}
+          <div data-col={0} className="relative flex min-w-0 items-center border-r border-line px-2.5 py-1.5">
+            <span className="truncate">{t('table.title')}</span>
+            {resizeHandle(0, t('table.title'))}
           </div>
-          {cols.map((f) => {
+          {cols.map((f, ci) => {
             const s = sortFor(f.id)
             // Read-only: sorts are saved on the view (a write the lock denies), so the header is static.
-            if (readOnly)
-              return (
-                <div
-                  key={f.id}
-                  className="flex items-center gap-1 border-r border-line px-2.5 py-1.5"
-                >
-                  <span className="truncate">{f.name}</span>
-                  {s && <span className="text-accent">{s.dir === 'asc' ? '↑' : '↓'}</span>}
-                </div>
-              )
+            // The resize handle sits next to the sort button (a handle inside a button would be a
+            // control inside a control); read-only widths stay on this screen.
             return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => toggleSort(f.id)}
-                className="flex items-center gap-1 border-r border-line px-2.5 py-1.5 text-left hover:bg-hover"
-                title={t('table.clickToSort')}
-              >
-                <span className="truncate">{f.name}</span>
-                {s && <span className="text-accent">{s.dir === 'asc' ? '↑' : '↓'}</span>}
-              </button>
+              <div key={f.id} data-col={ci + 1} className="relative flex min-w-0 border-r border-line">
+                {readOnly ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-1 px-2.5 py-1.5">
+                    <span className="truncate">{f.name}</span>
+                    {s && <span className="text-accent">{s.dir === 'asc' ? '↑' : '↓'}</span>}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(f.id)}
+                    className="flex min-w-0 flex-1 items-center gap-1 px-2.5 py-1.5 text-left hover:bg-hover"
+                    title={t('table.clickToSort')}
+                  >
+                    <span className="truncate">{f.name}</span>
+                    {s && <span className="text-accent">{s.dir === 'asc' ? '↑' : '↓'}</span>}
+                  </button>
+                )}
+                {resizeHandle(ci + 1, f.name)}
+              </div>
             )
           })}
           {readOnly ? (
@@ -436,42 +515,52 @@ export function TableView({
             </button>
           )}
         </div>
+      </div>
 
-        {/* rows */}
-        <div ref={listRef} style={{ paddingTop: win.padTop, paddingBottom: win.padBottom }}>
-          {visible.map((row, i) => (
-            <TableRow
-              key={row.id}
-              row={row}
-              rowIndex={win.start + i}
-              cols={cols}
-              gridStyle={gridStyle}
-              handlers={handlers}
-              fixed={fixed}
-              sel={sel}
-              onCellDown={onCellDown}
-            />
-          ))}
-        </div>
-
-        {display.length === 0 && (
-          <div className="border-b border-line px-3 py-4 text-sm text-sub">
-            {rows.length === 0 ? t('table.noRows') : t('table.noMatches')}
+      <div
+        ref={bodyScrollRef}
+        className="nd-wide-scroll overflow-x-auto"
+        onScroll={(e) => {
+          if (headScrollRef.current) headScrollRef.current.scrollLeft = e.currentTarget.scrollLeft
+        }}
+      >
+        <div style={{ minWidth: gridMinWidth }}>
+          {/* rows */}
+          <div ref={listRef} style={{ paddingTop: win.padTop, paddingBottom: win.padBottom }}>
+            {visible.map((row, i) => (
+              <TableRow
+                key={row.id}
+                row={row}
+                rowIndex={win.start + i}
+                cols={cols}
+                gridStyle={gridStyle}
+                handlers={handlers}
+                fixed={fixed}
+                sel={sel}
+                onCellDown={onCellDown}
+              />
+            ))}
           </div>
-        )}
 
-        {/* new row */}
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={onCreateRow}
-            disabled={creatingRow}
-            data-print-hide
-            className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
-          >
-            <PlusIcon size={15} /> {t('table.newRow')}
-          </button>
-        )}
+          {display.length === 0 && (
+            <div className="border-b border-line px-3 py-4 text-sm text-sub">
+              {rows.length === 0 ? t('table.noRows') : t('table.noMatches')}
+            </div>
+          )}
+
+          {/* new row */}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={onCreateRow}
+              disabled={creatingRow}
+              data-print-hide
+              className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
+            >
+              <PlusIcon size={15} /> {t('table.newRow')}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

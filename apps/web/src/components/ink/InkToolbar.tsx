@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useT, type TKey } from '../../i18n'
 
@@ -7,7 +8,7 @@ import { useT, type TKey } from '../../i18n'
 
 // Build marker shown so you can see on a tablet whether the PWA service worker is still serving
 // an old bundle. Bump it with every ink-related deploy.
-const INK_BUILD = 'v0904b'
+const INK_BUILD = 'v1109a'
 
 export type InkToolChoice = 'pen' | 'highlighter' | 'eraser'
 
@@ -50,6 +51,13 @@ export function InkToolbar({
   strokeCount: number
 }) {
   const tr = useT()
+  // "Clear" takes two presses (docs/adr/1340-*): the first arms it for a few seconds, the second clears.
+  const [clearArmed, setClearArmed] = useState(false)
+  useEffect(() => {
+    if (!clearArmed) return
+    const id = window.setTimeout(() => setClearArmed(false), 3000)
+    return () => window.clearTimeout(id)
+  }, [clearArmed])
   const chip = (active: boolean) =>
     `rounded-md px-2.5 py-1.5 text-sm transition duration-150 active:scale-[.98] ${
       active ? 'bg-accent text-white' : 'text-sub hover:bg-hover hover:text-ink'
@@ -118,12 +126,20 @@ export function InkToolbar({
       </button>
       <button
         type="button"
-        onClick={onClear}
+        onClick={() => {
+          if (!clearArmed) {
+            setClearArmed(true)
+            return
+          }
+          setClearArmed(false)
+          onClear()
+        }}
         title={tr('ink.clearTitle')}
         disabled={strokeCount === 0}
-        className={`${chip(false)} disabled:opacity-40`}
+        aria-pressed={clearArmed}
+        className={`${clearArmed ? 'rounded-md bg-red-500 px-2.5 py-1.5 text-sm text-white transition duration-150 active:scale-[.98]' : chip(false)} disabled:opacity-40`}
       >
-        {tr('ink.clear')}
+        {clearArmed ? tr('ink.clearConfirm') : tr('ink.clear')}
       </button>
 
       <span className="mx-1 h-5 w-px bg-line" />

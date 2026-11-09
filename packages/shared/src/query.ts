@@ -749,10 +749,30 @@ export interface QueryRequest {
   tzOffsetMinutes?: number
 }
 
+/**
+ * A linked page in a query cell (docs/adr/1320-*): a column that names a collection relation field
+ * holds a list of these, only for the linked rows the viewer may see.
+ */
+export interface QueryPageRef {
+  ref: 'page'
+  pageId: string
+  title: string
+}
+
+export function isQueryPageRef(v: unknown): v is QueryPageRef {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return o.ref === 'page' && typeof o.pageId === 'string' && typeof o.title === 'string'
+}
+
 export interface QueryRowDTO {
   pageId: string
   title: string
-  /** TABLE: one value per column. LIST: [value] when LIST <expr> is used, else []. */
+  /**
+   * TABLE: one value per column. LIST: [value] when LIST <expr> is used, else [].
+   * A column that is a collection person field holds the member's name (null when the id is not a
+   * member); a relation field holds QueryPageRef[] (docs/adr/1320-*). Other values are as stored.
+   */
   cells: unknown[]
   /** TASK rows only */
   task?: { blockId: string; text: string; due: string; checked: boolean }

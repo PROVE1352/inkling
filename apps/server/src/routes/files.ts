@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { guestOutside } from '../tokenRange'
 import { assertPageEditable } from '../editLock'
@@ -14,6 +14,7 @@ import { files } from '../db/schema'
 import { AppError, badRequest, notFound } from '../errors'
 import { env } from '../env'
 import { idParam, requireMembership } from '../helpers'
+import { memberOrGuestSql } from '../pageGrants'
 import { findVisiblePage } from '../pageDto'
 import { streamToFile } from './exportImport'
 
@@ -145,8 +146,10 @@ export async function registerFileDownloadRoute(app: FastifyInstance): Promise<v
     const user = getUser(req)
     const id = idParam(req.params)
 
+    // A file of a workspace the caller is neither a member nor a guest of is "not found", like a
+    // missing id (docs/adr/1301-*).
     const row = (
-      await db.select().from(files).where(eq(files.id, id)).limit(1)
+      await db.select().from(files).where(and(eq(files.id, id), memberOrGuestSql(files.workspaceId, user.id))).limit(1)
     )[0]
     if (!row) throw notFound()
     const role = await requireMembership(row.workspaceId, user.id, { guests: true })

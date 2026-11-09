@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { SIDEBAR_DEFAULT, normalizeSidebarWidth } from './sidebarWidth'
 
 // Per-device preferences (settings screen /w/:wsId/settings), modelled on Obsidian's settings.
 // Not stored on the server — zoom and line-length tastes differ per Mac/tablet (per-device localStorage).
@@ -33,6 +34,8 @@ export type Prefs = {
   localGraph: LocalGraphPrefs
   /** Global calendar view/filters */
   calendar: CalendarPrefs
+  /** Desktop sidebar width in px (SIDEBAR_MIN–SIDEBAR_MAX, docs/adr/1350-*) */
+  sidebarWidth: number
 }
 
 export type CalendarPrefs = {
@@ -130,6 +133,7 @@ export const DEFAULT_PREFS: Prefs = {
   graph: DEFAULT_GRAPH_PREFS,
   localGraph: DEFAULT_LOCAL_GRAPH_PREFS,
   calendar: DEFAULT_CALENDAR_PREFS,
+  sidebarWidth: SIDEBAR_DEFAULT,
 }
 
 export const ZOOM_MIN = 80
@@ -158,6 +162,7 @@ function load(): Prefs {
         ...DEFAULT_PREFS,
         ...p,
         lineWidth: normalizeLineWidth(p.lineWidth, readableLineLength),
+        sidebarWidth: normalizeSidebarWidth(p.sidebarWidth),
         graph: { ...DEFAULT_GRAPH_PREFS, ...(p.graph ?? {}) },
         localGraph: { ...DEFAULT_LOCAL_GRAPH_PREFS, ...(p.localGraph ?? {}) },
         calendar: { ...DEFAULT_CALENDAR_PREFS, ...(p.calendar ?? {}) },

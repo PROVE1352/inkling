@@ -7,6 +7,97 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-09
+
+No database migration. Upgrade matrix adds v0.8.0 and v0.9.0: CI also tests the upgrades from them with data
+(`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- The sidebar can be resized: drag its right edge (200–480 px), double-click the edge for the default 260 px, or focus
+  the edge and use ←/→ (Shift for bigger steps). The width is kept per device, like the line width; the phone drawer is
+  unchanged (docs/adr/1350-*).
+- Collection table: drag the right edge of a column header to set its width; the width is saved on the view for
+  everyone who opens it. Double-click the edge to go back to the automatic width; ←/→ on a focused edge also works.
+  People who cannot edit the collection can resize on their own screen only. `ViewConfig` adds `columnWidths` and
+  `titleWidth` (docs/adr/1351-*).
+
+### Changed
+- Query blocks show a collection's person fields as the member's name and relation fields as links to the linked rows,
+  instead of ids; linked rows you cannot see are left out and their ids are no longer sent (docs/adr/1320-*). `WHERE`
+  and `SORT` compare the same: a person field by the member's name, a relation field by the titles of the linked rows
+  you can see. `SORT Owner` follows the names in the column and `WHERE Owner = "Priya Nair"` or
+  ``WHERE `Blocked by` = "Search ranking v2"`` match. Queries written with ids (`Owner = "<user id>"`,
+  ``contains(`Blocked by`, "<row id>")``) keep working for members and visible rows. Matching is exact and
+  case-sensitive, like select labels (docs/adr/1352-*). For API clients, person cells of `POST
+  /api/workspaces/:id/query` are names (or `null`) and relation cells are `{ ref: 'page', pageId, title }` lists.
+- Page routes, `PATCH /api/pages/:id/props` and `GET /files/:id` answer 404 instead of 403 to accounts outside the
+  workspace (docs/adr/1301-*).
+- A public page that shows an image uploaded to a page outside its link (for example a duplicated page shared on its
+  own) no longer shows that image; upload it again on the shared page (docs/adr/1302-*).
+- The unused `ReleaseNotice` component and its `pwa.releaseAvailable` / `pwa.releaseNotes` strings are removed (nothing
+  rendered it; the admin status summary reports new releases).
+
+### Fixed
+- Data loss in pen mode: turning pen mode off (Done, Esc) or changing pages could leave the ink layer and its toolbar on
+  screen. The leftover layer covered the page, so clicks on the text saved its old stroke list again, and when it had
+  been closed before the ink loaded, those saves were empty and erased the page's ink with ordinary 200 answers. Each
+  page now has exactly one layer and pen mode always closes; the word count, margin outline and heading folds no longer
+  share a key with it either (docs/adr/1340-*). Ink erased this way cannot be brought back (there is no ink history).
+- Pen mode: a stroke drawn right after turning pen mode on could vanish when the page's ink arrived, or replace all of
+  it when the ink was slow or failed to load. Nothing is saved now until the ink is loaded; strokes drawn meanwhile are
+  kept and saved after the load, and a failed load says so (docs/adr/1340-*).
+- Pen mode: "Clear" asks once more ("Clear all?") before it erases the page's ink. Ctrl/Cmd+Z and Esc typed in a text
+  field no longer undo strokes or close pen mode.
+- Ink API: a `PUT /api/pages/:id/ink` without `expectedUpdatedAt` can no longer replace existing strokes with an empty
+  list; it answers `412 INK_CONFLICT` with the current ink. This also stops the wipe from older bundles the service
+  worker still serves until they update.
+- Collection pages: the board and the table scroll from edge to edge of the page, so the fourth and later board columns
+  (and table fields) are no longer cut at the page column. The page's "Full width" setting and the "Line width: Full"
+  preference now apply to collection pages, and the page's menu in the sidebar offers "Full width" for collections
+  (docs/adr/1321-*).
+- Collection table: one long text value no longer makes every column as wide as that value; columns start at fixed
+  minimums (title 240 px, fields 150 px) and share the remaining width, long text is cut with an ellipsis and shown in
+  full on hover. The header row stays at the top while the page scrolls (docs/adr/1322-*).
+- A member could not change a shared collection's properties (400 "Relation target collection not found") once another
+  member had added a relation from it to their own private collection. Fields that are sent back unchanged now pass;
+  only a new, re-targeted or newly two-way relation needs a target you can see, and a target you cannot see answers the
+  same as one that does not exist (docs/adr/1353-*).
+- Collection toolbar on phones: Sort & filter, Properties, New row and the ⋯ menu ran off the right edge of a 375 px
+  screen. The actions now wrap onto their own line under the view tabs, and the Sort & filter panel opens across the
+  screen (docs/adr/1354-*).
+
+### Performance
+- Query block display pass (names and links after LIMIT, at most 3 statements): +1.0 ms for 50 rows, +3.0 ms for 500
+  rows over a 2,000-row collection. A lookup per row was measured at 320 ms for 500 rows and rejected.
+- Query block `WHERE` / `SORT` on a person field: +0.4–1.5 ms per 2,000 candidate rows. Queries that compare no property
+  run the same SQL as before.
+- Regressions: `WHERE` / `SORT` on a relation field costs about 19–24 µs per candidate row (2,000 rows: `SORT` 11.3 →
+  48.7 ms, `WHERE` 10.8 → 59.2 ms); on other collection fields +1.8 ms per 2,000 candidate rows (docs/adr/1352-*).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Security
+- A workspace that requires two-step verification is now also left out of the cross-workspace reads of a member it
+  blocks: `changes_since` and the agent inbox without `workspaceId`, `find_context` without `workspaceId`, `read_pages`
+  (such pages are listed under `missing`), and notification mail (instant and digest; blocked items are dropped from
+  mail and stay in the app). The same applies to MCP page facts (`GET /api/pages/agent-context`), workspace-level
+  notifications such as AI summaries, member candidates found through the blocked workspace and the subscription list
+  in notification settings. A blocked owner can no longer delete or restore the workspace (403 `TWO_FACTOR_REQUIRED`).
+  A "you were added" notice of such a workspace shows up once two-step verification is on (docs/adr/1300-*).
+- Someone outside a workspace now gets the same 404 for its pages, comments, change rows (`/api/changes/:seq/diff`),
+  templates (`DELETE /api/templates/:id`), row properties (`PATCH /api/pages/:id/props`) and files (`GET /files/:id`) as
+  for an id that does not exist. Before, an existing id answered 403, and a page in a workspace that requires two-step
+  verification answered 403 `TWO_FACTOR_REQUIRED` with its workspace id. The same holds for webhooks
+  (`/api/webhooks/:id`), trash restore and purge, vault sync write and delete, and moving a page under a page of another
+  workspace (now the same 400 "Parent page is invalid" as a missing parent). MCP `reply_comment` answers "Thread not
+  found" for a thread the caller cannot see (docs/adr/1301-*).
+- Deleting a comment now needs the comment right on the page, like posting and editing one: an agent under a lock with
+  "agents: read only" and a person with a view-only level can no longer delete threads (docs/adr/0970-*, 0971-*,
+  1251-*).
+- Public links serve only attachments of pages inside what they share. Before, a shared page could publish an
+  attachment of any other shared page in the workspace by embedding its `/files/<id>` URL (docs/adr/1302-*).
+- Query blocks: a filter or sort on a relation no longer tells whether a row links to a row that is private to someone
+  else (hidden links compare as no links; their ids no longer match) (docs/adr/1352-*).
+
 ## [0.9.0] - 2026-11-08
 
 Database migration 0038 adds `page_grants`, `page_invites` and `workspaces.guest_invite_policy`. It only adds; existing

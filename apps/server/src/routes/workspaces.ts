@@ -51,7 +51,7 @@ import {
   requireMembership,
 } from '../helpers'
 import { hashInviteCode } from '../secretsAtRest'
-import { twoFactorStatus, userSatisfiesTwoFactor } from '../twoFactorPolicy'
+import { twoFactorBlockedSql, twoFactorStatus, userSatisfiesTwoFactor } from '../twoFactorPolicy'
 import { bumpAcl } from '../aclVersion'
 import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
@@ -83,9 +83,13 @@ const candidateQuerySchema = z.object({ q: z.string().trim().min(1).max(100) })
 const dueQuerySchema = z.object({ range: z.enum(['today', 'week']).optional() })
 
 
-/** Whether the users row shares a workspace with `me` (limits member-add candidates). */
+/**
+ * Whether the users row shares a workspace with `me` (limits member-add candidates). A workspace
+ * whose 2FA requirement blocks `me` does not count: its members are not to be found through
+ * another workspace (docs/adr/1112-*, 1300-*).
+ */
 function sharesWorkspaceWith(me: string) {
-  return sql`exists (select 1 from ${workspaceMembers} mine join ${workspaceMembers} theirs on theirs.workspace_id = mine.workspace_id join workspaces sw on sw.id = mine.workspace_id and sw.deleted_at is null where mine.user_id = ${me} and theirs.user_id = ${users.id})`
+  return sql`exists (select 1 from ${workspaceMembers} mine join ${workspaceMembers} theirs on theirs.workspace_id = mine.workspace_id join workspaces sw on sw.id = mine.workspace_id and sw.deleted_at is null where mine.user_id = ${me} and theirs.user_id = ${users.id} and not ${twoFactorBlockedSql(sql`mine.workspace_id`, me)})`
 }
 
 /** The date `days` days from today, server-local, as 'YYYY-MM-DD' (local fields, no UTC conversion). */

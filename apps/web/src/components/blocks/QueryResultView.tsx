@@ -1,4 +1,5 @@
 import type { QueryResultDTO, QueryRowDTO } from '@inkling/shared'
+import { isQueryPageRef } from '@inkling/shared'
 import { fmtDateTime, t } from '../../i18n'
 
 // Result rendering of the query block (QueryBlock.tsx). Kept free of BlockNote imports so it can
@@ -8,12 +9,35 @@ function formatValue(v: unknown): string {
   if (v === null || v === undefined) return ''
   if (Array.isArray(v)) return v.map(formatValue).join(', ')
   if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (isQueryPageRef(v)) return v.title || t('common.untitled')
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
     const d = new Date(v)
     if (!Number.isNaN(d.getTime())) return fmtDateTime(d)
   }
   if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
+}
+
+/**
+ * One cell. A relation column arrives as a list of page refs (docs/adr/1320-*): those are links,
+ * comma-separated like other lists; everything else is text.
+ */
+function CellValue({ v, wsId }: { v: unknown; wsId: string }) {
+  if (Array.isArray(v) && v.length > 0 && v.every(isQueryPageRef)) {
+    return (
+      <>
+        {v.map((r, i) => (
+          <span key={r.pageId}>
+            {i > 0 && ', '}
+            <a href={`/w/${wsId}/p/${r.pageId}`} className="text-accent hover:underline">
+              {r.title || t('common.untitled')}
+            </a>
+          </span>
+        ))}
+      </>
+    )
+  }
+  return <>{formatValue(v)}</>
 }
 
 function PageLink({ wsId, row }: { wsId: string; row: QueryRowDTO }) {
@@ -77,7 +101,7 @@ export function ResultView({ data, wsId }: { data: QueryResultDTO & { cached?: b
               )}
               {r.cells.map((v, i) => (
                 <div key={i} role="cell" className={cell}>
-                  {formatValue(v)}
+                  <CellValue v={v} wsId={wsId} />
                 </div>
               ))}
             </div>
@@ -112,7 +136,11 @@ export function ResultView({ data, wsId }: { data: QueryResultDTO & { cached?: b
         {data.rows.map((r) => (
           <li key={r.pageId}>
             <PageLink wsId={wsId} row={r} />
-            {r.cells.length > 0 && <span className="text-sub">: {formatValue(r.cells[0])}</span>}
+            {r.cells.length > 0 && (
+              <span className="text-sub">
+                : <CellValue v={r.cells[0]} wsId={wsId} />
+              </span>
+            )}
           </li>
         ))}
       </ul>

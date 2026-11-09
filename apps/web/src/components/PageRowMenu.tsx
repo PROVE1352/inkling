@@ -85,7 +85,7 @@ export function PageRowMenu({
         <button type="button" onClick={run(() => onAddChild('folder'))} className={item}>
           <FolderPlusIcon size={15} /> {t('rowMenu.subfolder')}
         </button>
-        {page.kind === 'doc' && (
+        {(page.kind === 'doc' || page.kind === 'collection') && (
           <button type="button" onClick={run(onToggleFullWidth)} className={item}>
             <WidthIcon size={15} />
             <span className="flex-1">{t('rowMenu.fullWidth')}</span>
@@ -132,7 +132,7 @@ export function PageRowMenu({
           <CanvasIcon size={15} /> {t('rowMenu.expandToCanvas')}
         </button>
       )}
-      {page.kind === 'doc' && (
+      {(page.kind === 'doc' || page.kind === 'collection') && (
         <button type="button" onClick={run(onToggleFullWidth)} className={item}>
           <WidthIcon size={15} />
           <span className="flex-1">{t('rowMenu.fullWidth')}</span>

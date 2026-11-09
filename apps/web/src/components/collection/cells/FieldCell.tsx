@@ -106,7 +106,8 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
       {value == null || value === '' ? (
         <span className="select-none text-transparent">·</span>
       ) : (
-        <span className={`truncate ${field.type === 'url' ? 'text-accent' : 'text-ink'}`}>
+        // one line with an ellipsis; the whole value on hover
+        <span className={`truncate ${field.type === 'url' ? 'text-accent' : 'text-ink'}`} title={String(value)}>
           {String(value)}
         </span>
       )}

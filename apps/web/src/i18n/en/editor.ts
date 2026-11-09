@@ -239,10 +239,12 @@ export default {
   'ink.undo': 'Undo',
   'ink.clearTitle': 'Clear all ink on this page',
   'ink.clear': 'Clear',
+  'ink.clearConfirm': 'Clear all?',
   'ink.strokes_one': '{count} stroke',
   'ink.strokes_other': '{count} strokes',
   'ink.build': 'Deployed build',
   'ink.exitTitle': 'Exit ink mode (Esc)',
   'ink.saveFailed': 'Couldn\'t save ink. Check your connection.',
+  'ink.loadFailed': 'Couldn\'t load the ink for this page. It will not be saved until it loads.',
   'ink.layer': 'Ink layer',
 } satisfies Record<string, string>

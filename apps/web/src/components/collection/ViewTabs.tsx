@@ -79,7 +79,7 @@ function Tab({
           type="button"
           onClick={onSelect}
           onDoubleClick={() => active && !readOnly && setRenaming(true)}
-          className={`px-1.5 py-1.5 text-sm ${
+          className={`whitespace-nowrap px-1.5 py-1.5 text-sm ${
             active ? 'font-medium text-ink' : 'text-sub hover:text-ink'
           }`}
         >
@@ -175,7 +175,7 @@ export function ViewTabs({
   }
 
   return (
-    <div className="flex items-center gap-1 border-b border-line px-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-1 border-b border-line px-1">
       {views.map((v) => (
         <Tab
           key={v.id}

@@ -571,6 +571,12 @@ export const filterOpSchema = z.enum([
 ])
 export type FilterOp = z.infer<typeof filterOpSchema>
 
+/**
+ * Table column widths a view may store (px, docs/adr/1351-*). The minimums are the table's track
+ * minimums (docs/adr/1322-*): narrower than that a column would clip its own header.
+ */
+export const COLUMN_WIDTH = { titleMin: 240, fieldMin: 150, max: 1600 } as const
+
 export const viewConfigSchema = z.object({
   sorts: z
     .array(z.object({ fieldId: z.string(), dir: z.enum(['asc', 'desc']) }))
@@ -589,6 +595,13 @@ export const viewConfigSchema = z.object({
   groupByFieldId: z.string().optional(),
   columnOrder: z.array(z.string()).max(200).optional(),
   hiddenFields: z.array(z.string()).max(200).optional(),
+  /** table: width of a field's column in px, by field id; a missing field is sized by the pane */
+  columnWidths: z
+    .record(z.string().min(1).max(40), z.number().int().min(COLUMN_WIDTH.fieldMin).max(COLUMN_WIDTH.max))
+    .refine((o) => Object.keys(o).length <= 200, { message: 'Too many column widths' })
+    .optional(),
+  /** table: width of the title column in px (not a field, so not in columnWidths) */
+  titleWidth: z.number().int().min(COLUMN_WIDTH.titleMin).max(COLUMN_WIDTH.max).optional(),
   /** calendar view: which date field places items */
   dateFieldId: z.string().optional(),
   /** gallery: card cover source ('none' | 'cover' = row page cover | 'firstImage' = first uploaded image) */

@@ -232,9 +232,11 @@ export default {
   'ink.undo': '되돌리기',
   'ink.clearTitle': '이 페이지 필기 전체 지우기',
   'ink.clear': '전체',
+  'ink.clearConfirm': '전체 지울까요?',
   'ink.strokes_other': '{count}획',
   'ink.build': '배포 빌드',
   'ink.exitTitle': '필기 모드 끄기 (Esc)',
   'ink.saveFailed': '필기 저장에 실패했습니다. 연결을 확인해 주세요.',
+  'ink.loadFailed': '이 페이지의 필기를 불러오지 못했습니다. 불러오기 전까지는 저장하지 않습니다.',
   'ink.layer': '필기 레이어',
 } satisfies Partial<Record<keyof typeof en, string>>

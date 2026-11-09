@@ -567,6 +567,24 @@ describe('[db] change feed', { skip: !HAS_DB }, async () => {
     assert.equal(r.isError, true)
   })
 
+  it('a workspace that requires two-step verification leaves the feed of a member without it (docs/adr/1112-*)', async () => {
+    const ws2 = await H.makeWorkspace(alice, [bob])
+    const cursor = await start()
+    const pg = await newPage(alice, 'In a 2FA workspace', doc({ T: 't' }), {}, ws2.id)
+    await setDoc(pg.id, doc({ T: 't2' }))
+    assert.ok((await since(B, cursor)).includes(pg.id))
+    await db.execute(sql`UPDATE workspaces SET two_factor_required_at = now() - interval '1 day', two_factor_grace_days = 0 WHERE id = ${ws2.id}`)
+    try {
+      assert.ok(!(await since(B, cursor)).includes(pg.id), 'blocked: left out without workspaceId')
+      const r = await B.tool('changes_since', { cursor, workspaceId: ws2.id })
+      assert.equal(r.isError, true)
+      assert.match(r.text, /two-step verification/i)
+    } finally {
+      await db.execute(sql`UPDATE workspaces SET two_factor_required_at = NULL WHERE id = ${ws2.id}`)
+    }
+    assert.ok((await since(B, cursor)).includes(pg.id), 'requirement off: back')
+  })
+
   it('page rename, move, duplicate and provenance (no emails)', async () => {
     const parent = await newPage(alice, 'Parent folder', doc({ P: 'p' }))
     const pg = await newPage(alice, 'Old title', doc({ Body: 'b0' }))

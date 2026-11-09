@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "agent_ink_read" boolean DEFAULT false NOT NULL;

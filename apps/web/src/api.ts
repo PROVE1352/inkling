@@ -2238,6 +2238,19 @@ export function useSetTwoFactorPolicy(wsId: string) {
   })
 }
 
+/** "Agents can read handwriting" (owners and admins, docs/adr/1510-*). */
+export function useSetAgentInk(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: import('@inkling/shared').SetAgentInkInput) =>
+      api<WorkspaceSettingsResponse>(`/api/workspaces/${wsId}/settings/agent-ink`, { method: 'PUT', body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      qc.setQueryData<WorkspaceSettingsResponse>(qkAdmin.settings(wsId), (prev) => (prev ? { ...prev, settings: data.settings } : prev))
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
 /** Rename / change the icon (owner). */
 export function useUpdateWorkspace(wsId: string) {
   const qc = useQueryClient()

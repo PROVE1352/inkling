@@ -281,6 +281,13 @@
       "when": 1794208352626,
       "tag": "0039_v011_later_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794228688573,
+      "tag": "0040_v012_agent_ink_setting",
+      "breakpoints": true
     }
   ]
 }

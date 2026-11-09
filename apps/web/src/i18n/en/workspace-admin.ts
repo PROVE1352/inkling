@@ -113,6 +113,10 @@ export default {
   'agents.unblock': 'Unblock',
   'agents.revokeNote':
     'To cut a connection everywhere, its member disconnects it under Settings → Connections (or a server admin removes the account).',
+  'agentInk.group': 'Handwriting',
+  'agentInk.title': 'Agents can read handwriting',
+  'agentInk.desc':
+    "Off by default. When on, AI agents connected to this workspace can ask for a picture of a page's pen and highlighter strokes (read_ink). Page text is not affected.",
 
   'audit.filterAction': 'Event type',
   'audit.filterActor': 'Person',

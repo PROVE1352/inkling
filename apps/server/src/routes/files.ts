@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { guestOutside } from '../tokenRange'
+import { currentRange, guestOutside, outOfRange } from '../tokenRange'
 import { assertPageEditable } from '../editLock'
 import { createReadStream, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -137,6 +137,39 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
       size,
     }
     return { file: dto }
+  })
+
+  // File metadata (for MCP read_file, docs/adr/1514-*): the download route's checks, without the
+  // bytes, so an agent tool can decide by type and size before fetching. A connection limited to
+  // a subtree gets no legacy file without a page (they belong to the whole workspace).
+  app.get('/files/:id/meta', { preHandler: requireUser }, async (req) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const row = (
+      await db.select().from(files).where(and(eq(files.id, id), memberOrGuestSql(files.workspaceId, user.id))).limit(1)
+    )[0]
+    if (!row) throw notFound()
+    const role = await requireMembership(row.workspaceId, user.id, { guests: true })
+    if (role === 'guest' && !row.pageId) throw notFound()
+    if (row.pageId) {
+      const page = await findVisiblePage(row.pageId, user.id)
+      if (!page) throw notFound()
+    } else if (currentRange(user.id)?.kind === 'subtree') {
+      throw outOfRange()
+    }
+    if (!existsSync(uploadPath(id))) throw notFound()
+    return {
+      file: {
+        id: row.id,
+        url: `/files/${row.id}`,
+        name: row.name,
+        mime: row.mime,
+        size: row.size,
+        workspaceId: row.workspaceId,
+        pageId: row.pageId,
+        createdAt: row.createdAt.toISOString(),
+      },
+    }
   })
 }
 

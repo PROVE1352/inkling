@@ -9,7 +9,7 @@ import { hocuspocus } from '../collab'
 import { db } from '../db/index'
 import { pageDocs, pageSnapshots, users } from '../db/schema'
 import { badRequest, notFound } from '../errors'
-import { idParam, requireMembership } from '../helpers'
+import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import {
   blocksToMarkdown,
@@ -19,6 +19,9 @@ import {
 import { findVisiblePage } from '../pageDto'
 import { createSnapshot, snapshotBlocks } from '../snapshotStore'
 import { liveDoc } from '../liveConnections'
+import { pageEditGate } from '../docWriteGate'
+import { gatedTransact } from '../md/docWrite'
+import { actorOf, withEditActor } from '../context/attribution'
 
 const snapshotParamsSchema = z.object({ id: z.uuid(), sid: z.uuid() })
 
@@ -116,8 +119,9 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
 
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
-    await requireMembership(page.workspaceId, user.id)
-    await assertPageEditable(id, user.id)
+    // Role and the workspace's lock state come with the membership (docs/adr/1071-*).
+    const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
+    await assertPageEditable(id, user.id, { role, acl })
 
     // Canvases (cnodes/cedges) are out of scope in v1 — only doc pages can be restored
     if (page.kind !== 'doc') {
@@ -142,8 +146,10 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
             .limit(1)
         )[0]
     const before = live ?? cur
+    // The restore is a new edit on top of the history, never a rewind: this snapshot undoes it
+    // (restore it again). An agent restore records its client like other agent edits (docs/adr/0936-*).
     if (before) {
-      await createSnapshot(id, before, LABELS[await requestLocale(req, user.id)].beforeRestore, user.id)
+      await createSnapshot(id, before, LABELS[await requestLocale(req, user.id)].beforeRestore, user.id, user.via ?? null)
     }
 
     // Inject the snapshot blocks into the live document fragment → propagated live to viewing clients
@@ -151,19 +157,29 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     // live document is broadcast and persisted empty. Verify the conversion first (throwaway doc) to
     // guarantee "fully convert, then replace". If this throws, the live document is untouched.
     blocksToStateBuffer(blocks)
-    const conn = await hocuspocus.openDirectConnection(id)
-    try {
-      await conn.transact((doc) => {
-        // One Yjs transaction → one update broadcast (no transient empty document on clients).
-        doc.transact(() => {
-          const frag = doc.getXmlFragment('document')
-          frag.delete(0, frag.length)
-          blocksToXmlFragment(blocks, frag)
-        })
-      })
-    } finally {
-      await conn.disconnect()
-    }
+    // Under the write gate (docs/adr/1151-*, 1513-*): a lock change, agent block or member removal
+    // that commits after the check above is seen before the edit, or waits until it is applied.
+    // The change feed records who restored it (and the agent's client).
+    const gate = pageEditGate(id, page.workspaceId, user.id, { role, acl })
+    await withEditActor([id], actorOf(user), async () => {
+      const conn = await hocuspocus.openDirectConnection(id)
+      try {
+        await gatedTransact(
+          conn,
+          (doc) => {
+            // One Yjs transaction → one update broadcast (no transient empty document on clients).
+            doc.transact(() => {
+              const frag = doc.getXmlFragment('document')
+              frag.delete(0, frag.length)
+              blocksToXmlFragment(blocks, frag)
+            })
+          },
+          gate,
+        )
+      } finally {
+        await conn.disconnect()
+      }
+    })
 
     return { ok: true }
   })

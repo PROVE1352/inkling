@@ -6,6 +6,7 @@ import {
   blockAgentSchema,
   bulkUnpublishSchema,
   setLivingSchema,
+  setAgentInkSchema,
   setPageOwnerSchema,
   setTwoFactorPolicySchema,
   updateWorkspaceSettingsSchema,
@@ -195,6 +196,40 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     }
     const role = await requireMembership(id, user.id)
     return { twoFactor: await twoFactorPolicyDTO(id, user.id, role) }
+  })
+
+  // "Agents can read handwriting" (docs/adr/1510-*): owners and admins, like the 2FA requirement.
+  // A read permission for MCP connections, not a lock: nothing to bump in the access version.
+  app.put('/workspaces/:id/settings/agent-ink', { preHandler: requireSessionUser }, async (req) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const body = setAgentInkSchema.parse(req.body)
+    await requireMembership(id, user.id)
+    const result = await db.transaction(async (tx) => {
+      const role = await memberRoleTx(tx, id, user.id)
+      if (!role) throw forbidden()
+      requireManager(role)
+      const [cur] = await tx
+        .select({ agentInkRead: workspaces.agentInkRead })
+        .from(workspaces)
+        .where(eq(workspaces.id, id))
+        .for('update')
+        .limit(1)
+      if (!cur) throw notFound()
+      if (cur.agentInkRead !== body.enabled) {
+        await tx.update(workspaces).set({ agentInkRead: body.enabled }).where(eq(workspaces.id, id))
+        await recordAudit(tx, {
+          workspaceId: id,
+          actor: user,
+          action: 'settings.updated',
+          target: { type: 'workspace', id },
+          before: { agentInkRead: cur.agentInkRead },
+          after: { agentInkRead: body.enabled },
+        })
+      }
+      return { role, settings: await loadPolicy(tx, id) }
+    })
+    return { settings: result.settings, role: result.role, can: capabilitiesFor(result.role, result.settings) }
   })
 
   app.patch('/workspaces/:id/settings', { preHandler: requireSessionUser }, async (req) => {

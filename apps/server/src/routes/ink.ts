@@ -10,6 +10,8 @@ import { pageInk } from '../db/schema'
 import { AppError, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage } from '../pageDto'
+import { currentAgent } from '../agentAccess'
+import { agentInkAllowed, agentInkOff } from '../agentInk'
 
 // Ink layer (pen annotations): one stroke array per page, read and written as a whole,
 // separately from the body. Visibility is decided exactly like the page's (ink on a private page
@@ -43,6 +45,8 @@ export async function registerInkRoutes(app: FastifyInstance): Promise<void> {
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
+    // MCP connections read ink only where the workspace allows it (docs/adr/1510-*).
+    if (currentAgent() && !(await agentInkAllowed(page.workspaceId))) throw agentInkOff()
 
     const row = (
       await db

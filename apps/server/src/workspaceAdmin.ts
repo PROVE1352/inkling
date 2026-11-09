@@ -51,6 +51,7 @@ export const policyColumns = {
   shareDefaultExpiryDays: workspaces.shareDefaultExpiryDays,
   sharePasswordRequired: workspaces.sharePasswordRequired,
   guestInvitePolicy: workspaces.guestInvitePolicy,
+  agentInkRead: workspaces.agentInkRead,
 } as const
 
 export type WorkspacePolicy = WorkspaceSettingsDTO

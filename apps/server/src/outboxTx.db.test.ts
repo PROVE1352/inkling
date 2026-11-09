@@ -300,5 +300,22 @@ describe('[db] outbox in the write transaction, write gate on comments and docum
       assert.equal(code(rp), 'PAGE_LOCKED')
       assert.equal(await docText(P), before, 'the document is untouched')
     })
+
+    it('a version restore that starts during a lock change waits for it and is refused (docs/adr/1513-*)', async () => {
+      const P = (await h.makeDocPage(wsId, M.id, 'Gate restore', [para('old text')] as never)).id
+      assert.equal((await req(M, 'POST', `/pages/${P}/snapshots`, { label: 'v1' })).statusCode, 200)
+      assert.equal((await req(M, 'POST', `/pages/${P}/content`, { markdown: 'new text', mode: 'replace' })).statusCode, 200)
+      const [snap] = (await db.execute(sql`SELECT id FROM page_snapshots WHERE page_id = ${P} AND label = 'v1'`)) as unknown as { id: string }[]
+      const before = await docText(P)
+      const lock = lockInProgress(wsId, P)
+      await lock.started
+      const restore = req(M, 'POST', `/pages/${P}/snapshots/${snap.id}/restore`)
+      assert.equal(await settles(restore), 'waiting', 'the restore waits for the lock change')
+      await lock.release()
+      const r = await restore
+      assert.equal(r.statusCode, 403, r.body)
+      assert.equal(code(r), 'PAGE_LOCKED')
+      assert.equal(await docText(P), before, 'the document is untouched')
+    })
   })
 })

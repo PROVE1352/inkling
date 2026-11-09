@@ -23,6 +23,7 @@ import {
   useBulkUnpublish,
   useMembers,
   useReviewDue,
+  useSetAgentInk,
   useSetTwoFactorPolicy,
   useSharedList,
   useUnblockAgent,
@@ -711,6 +712,7 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
   return (
     <>
       <p className="mb-4 text-xs leading-relaxed text-sub">{t('agents.intro')}</p>
+      <AgentInkGroup ws={ws} />
       <section className="mb-8">
         <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('agents.connections')}</h2>
         <div className="divide-y divide-line rounded-lg border border-line">
@@ -794,6 +796,31 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
       </section>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </>
+  )
+}
+
+/** "Agents can read handwriting" (docs/adr/1510-*): off by default; owners and admins switch it. */
+function AgentInkGroup({ ws }: { ws: WorkspaceDTO }) {
+  const t = useT()
+  const settings = useWorkspaceSettings(ws.id)
+  const set = useSetAgentInk(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const on = settings.data?.settings.agentInkRead ?? false
+  return (
+    <Group title={t('agentInk.group')}>
+      <Row id="agentInkRead" title={t('agentInk.title')} desc={t('agentInk.desc')}>
+        <Toggle
+          checked={on}
+          disabled={!capsOf(ws).manage || !settings.data || set.isPending}
+          label={t('agentInk.title')}
+          onChange={(v) => {
+            setError(null)
+            set.mutate({ enabled: v }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+          }}
+        />
+      </Row>
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
   )
 }
 

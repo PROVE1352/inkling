@@ -106,6 +106,10 @@ export default {
   'agents.blockedBy': '{name}, {date}',
   'agents.unblock': '차단 해제',
   'agents.revokeNote': '연결 자체를 끊으려면 그 멤버가 설정 → 연결에서 해제하거나 서버 관리자가 계정을 정리해야 합니다.',
+  'agentInk.group': '필기',
+  'agentInk.title': '에이전트가 필기를 읽을 수 있음',
+  'agentInk.desc':
+    '기본은 꺼져 있습니다. 켜면 이 워크스페이스에 연결된 AI 에이전트가 페이지의 펜·형광펜 필기를 그림으로 받아 볼 수 있습니다(read_ink). 본문 텍스트에는 영향이 없습니다.',
 
   'audit.filterAction': '이벤트 종류',
   'audit.filterActor': '사람',

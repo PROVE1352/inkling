@@ -46,6 +46,8 @@ export interface WorkspaceSettingsDTO {
   sharePasswordRequired: boolean
   /** Who may invite people from outside the workspace to a page (docs/adr/1250-*). Additive. */
   guestInvitePolicy?: GuestInvitePolicy
+  /** MCP connections may read page handwriting (read_ink, docs/adr/1510-*). Additive; off by default. */
+  agentInkRead?: boolean
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */
@@ -108,6 +110,10 @@ export const setTwoFactorPolicySchema = z
   })
   .strict()
 export type SetTwoFactorPolicyInput = z.infer<typeof setTwoFactorPolicySchema>
+
+/** PUT /workspaces/:id/settings/agent-ink (owners and admins, docs/adr/1510-*). */
+export const setAgentInkSchema = z.object({ enabled: z.boolean() }).strict()
+export type SetAgentInkInput = z.infer<typeof setAgentInkSchema>
 
 // --- Audit log --------------------------------------------------------------
 

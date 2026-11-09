@@ -266,6 +266,11 @@ export const workspaces = pgTable('workspaces', {
   guestInvitePolicy: text('guest_invite_policy', { enum: ['off', 'owners', 'admins', 'members'] })
     .notNull()
     .default('admins'),
+  /**
+   * "Agents can read handwriting" (docs/adr/1510-*): off (default) = MCP connections get no ink at
+   * all (read_ink refuses, page headers do not mention it). Owners and admins turn it on.
+   */
+  agentInkRead: boolean('agent_ink_read').notNull().default(false),
 })
 
 export const workspaceMembers = pgTable(

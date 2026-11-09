@@ -488,6 +488,10 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
         .returning({ id: schema.files.id })
       assert.equal((await as(G, 'GET', `/files/${outsideFile.id}`)).statusCode, 404)
       assert.equal((await as(G, 'GET', `/files/${legacy.id}`)).statusCode, 404)
+      // file metadata (read_file, docs/adr/1514-*): the download's rules
+      assert.equal((await as(G, 'GET', `/api/files/${fileId}/meta`)).statusCode, 200)
+      assert.equal((await as(G, 'GET', `/api/files/${outsideFile.id}/meta`)).statusCode, 404)
+      assert.equal((await as(G, 'GET', `/api/files/${legacy.id}/meta`)).statusCode, 404)
     })
 
     it('collaboration socket: read-write on edit, read-only on view, refused outside', async () => {

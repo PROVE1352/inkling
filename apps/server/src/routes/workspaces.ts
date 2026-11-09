@@ -172,7 +172,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // soft-deleted workspaces are hidden from every member (ADR 0910); owners see them in /workspaces/deleted.
       // An agent connection does not see workspaces that blocked it (docs/adr/0947-*).
       .where(and(eq(workspaceMembers.userId, user.id), isNull(workspaces.deletedAt), agentAllowedSql(workspaces.id)))
-      .orderBy(asc(workspaces.createdAt))
+      // total order: list_workspaces and search's workspace loop print in this order (docs/adr/0937-*, 1543-*)
+      .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
 
     // The invite code is a manager credential (C-M3): members get '' (DTO field stays a string).
     // A workspace whose 2FA requirement blocks the caller stays listed, with `twoFactor.state`

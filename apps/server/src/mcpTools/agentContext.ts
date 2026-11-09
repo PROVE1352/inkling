@@ -98,3 +98,15 @@ export function pageSuspiciousLine(c: AgentContextDTO, id: string): string | nul
   if (!flagged.length) return null
   return `${suspiciousNote(flaggedRules(c, id))} in ${flagged.map((f) => `§${f.anchor}`).join(', ')}`
 }
+
+/**
+ * Runs a direct database read as this connection: inside its agent scope and connection range,
+ * exactly as requireUser enters them for an injected request, so `visibleTo`, `agentAllowedSql`
+ * and `memberWorkspaceIds` narrow the same way (docs/adr/1541-*: short id resolution).
+ */
+export async function runAsConnection<T>(ctx: ToolCtx, fn: () => Promise<T>): Promise<T> {
+  const scope = await agentScopeOf(ctx)
+  if (!scope) throw new ToolError('Request failed (HTTP 401): the access token is no longer valid; reconnect the Inkling connector')
+  const { range } = scope
+  return runAsAgent(scope.agent, range ? () => runInRange(range, fn) : fn)
+}

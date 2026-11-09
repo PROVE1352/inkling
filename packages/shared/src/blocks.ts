@@ -6,6 +6,8 @@
 // their specs from these objects; the web adds React renders, the server plain DOM renders.
 // A different name, prop or default makes the schemas disagree and a server read would drop the node.
 
+import { inlineMathConfig, mathBlockConfig } from './math'
+
 /** Callout types (the `type` prop); also the `> [!type]` words of the Markdown notation. */
 export type CalloutType = 'note' | 'tip' | 'warning' | 'danger' | 'info'
 export const CALLOUT_TYPES: CalloutType[] = ['note', 'tip', 'warning', 'danger', 'info']
@@ -58,3 +60,22 @@ export const mentionConfig = {
   },
   content: 'none',
 } as const
+
+/**
+ * Every custom block and inline node type the web editor writes. Each schema that reads a page's
+ * Yjs doc must know all of them, or y-prosemirror deletes the unknown nodes from the doc it reads:
+ * the web editor, the read-only page-embed viewer (bound to the embedded page's live doc,
+ * docs/adr/1539-*) and the server schema. The web builds both of its schemas from one spec map
+ * that `satisfies` these lists, so a type added here and not registered there fails typecheck.
+ */
+export const CUSTOM_BLOCK_TYPES = [
+  calloutConfig.type,
+  pageEmbedConfig.type,
+  linkEmbedConfig.type,
+  pluginBlockConfig.type,
+  mathBlockConfig.type,
+] as const
+export type CustomBlockType = (typeof CUSTOM_BLOCK_TYPES)[number]
+
+export const CUSTOM_INLINE_CONTENT_TYPES = [mentionConfig.type, inlineMathConfig.type] as const
+export type CustomInlineContentType = (typeof CUSTOM_INLINE_CONTENT_TYPES)[number]

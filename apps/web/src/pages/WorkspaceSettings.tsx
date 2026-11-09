@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { AGENT_EDIT_LEVELS, DEFAULT_AUTO_ACCEPT_RULES, type AgentEditLevel, type AutoAcceptRules } from '@inkling/shared'
+import { useSetWorkspaceAgentPolicy, useWorkspaceAgentPolicy } from '../agentPolicyApi'
+import { AgentRulesEditor } from '../components/AgentRulesEditor'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import type {
   AuditEventDTO,
@@ -62,7 +65,7 @@ import { WebhooksPanel } from '../components/WebhooksPanel'
 import { LargePagesPanel } from '../components/LargePagesPanel'
 import { WorkspaceAvatar } from '../components/WorkspaceAvatar'
 import { DeletedWorkspacesList, WorkspaceDangerDialogs, type DangerAction } from '../components/WorkspaceDanger'
-import { fmtDate, fmtDateTime, fmtRelative, useT, type TKey } from '../i18n'
+import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, useT, type TKey } from '../i18n'
 
 // Workspace settings (/w/:wsId/workspace-settings?tab=…) — docs/adr/0945-* .. 0952-*.
 // One screen for what used to be spread over the switcher menu and four modals. Tabs follow the
@@ -712,6 +715,7 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
   return (
     <>
       <p className="mb-4 text-xs leading-relaxed text-sub">{t('agents.intro')}</p>
+      <AgentPolicyGroup ws={ws} connections={connections.map((c) => ({ key: `grant:${c.grantId}`, label: `${c.client.name} · ${c.user.name}` }))} />
       <AgentInkGroup ws={ws} />
       <section className="mb-8">
         <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('agents.connections')}</h2>
@@ -733,6 +737,17 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
                     {t('agents.lastUsed', { when: fmtRelative(c.lastUsedAt) })} ·{' '}
                     {c.access === 'write' ? t('agents.accessWrite') : t('agents.accessRead')}
                   </div>
+                  {/* numbers since the server started, calls that reached this workspace (docs/adr/1552-*) */}
+                  <div className="text-xs text-sub" data-testid="agent-usage">
+                    {c.usage
+                      ? [
+                          t('agents.usage.calls', { count: c.usage.calls }),
+                          t('agents.usage.tokens', { tokens: fmtNumber(c.usage.tokens, { notation: 'compact', maximumFractionDigits: 1 }) }),
+                          t('agents.usage.errors', { count: c.usage.errors }),
+                          t('agents.usage.cache', { count: c.usage.cacheHits }),
+                        ].join(' · ')
+                      : t('agents.usageNone')}
+                  </div>
                 </div>
                 {c.blocked ? (
                   <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-600">{t('agents.blocked')}</span>
@@ -752,6 +767,9 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
             ))
           )}
         </div>
+        {agents.data?.usageSince && connections.length > 0 && (
+          <p className="mt-2 px-1 text-xs text-sub">{t('agents.usageSince', { when: fmtDateTime(agents.data.usageSince) })}</p>
+        )}
       </section>
 
       <section className="mb-8">
@@ -796,6 +814,62 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
       </section>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </>
+  )
+}
+
+/**
+ * How agents' edits land (docs/adr/1544-*, 1545-*): directly, accepted by rules, or reviewed by a
+ * person. The workspace default; locked pages and folders can override it in the lock dialog.
+ */
+function AgentPolicyGroup({ ws, connections }: { ws: WorkspaceDTO; connections: { key: string; label: string }[] }) {
+  const t = useT()
+  const policy = useWorkspaceAgentPolicy(ws.id)
+  const set = useSetWorkspaceAgentPolicy(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const p = policy.data
+  const manage = !!p?.canManage
+  const save = (level: AgentEditLevel, rules: AutoAcceptRules) => {
+    setError(null)
+    set.mutate({ level, rules }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+  }
+  return (
+    <Group title={t('agentPolicy.group')} desc={t('agentPolicy.desc')}>
+      <div className="flex flex-col gap-2 px-4 py-3" data-testid="agent-policy-levels">
+        {AGENT_EDIT_LEVELS.map((level) => (
+          <label key={level} className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="agent-edit-level"
+              className="mt-1"
+              checked={(p?.level ?? 'direct') === level}
+              disabled={!manage || set.isPending}
+              onChange={() => save(level, p?.rules ?? DEFAULT_AUTO_ACCEPT_RULES)}
+            />
+            <span className="flex flex-col">
+              <span className="text-ink">{t(`agentPolicy.level.${level}` as TKey)}</span>
+              <span className="text-xs text-sub">{t(`agentPolicy.level.${level}Desc` as TKey)}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {p?.level === 'auto' && (
+        <div className="px-4 py-3">
+          <AgentRulesEditor
+            rules={p.rules}
+            connections={connections}
+            disabled={!manage}
+            saving={set.isPending}
+            onSave={(rules) => save('auto', rules)}
+          />
+        </div>
+      )}
+      {p?.updatedBy && (
+        <p className="px-4 py-2 text-[11px] text-sub">
+          {t('agentPolicy.setBy', { name: p.updatedBy.name, time: p.updatedAt ? new Date(p.updatedAt).toLocaleString() : '' })}
+        </p>
+      )}
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
   )
 }
 

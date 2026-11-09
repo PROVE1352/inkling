@@ -7,6 +7,199 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-10
+
+Two database migrations. `0040_v012_agent_ink_setting` adds `workspaces.agent_ink_read` (off by default; one
+`ADD COLUMN` with a constant default, no table rewrite). `0041_v012_suggestions_leases` adds `section_suggestions`,
+`section_leases`, `agent_edit_policies` and `catch_up_markers`, and moves `catch_up` markers out of `plugin_storage`
+(plugin id `inkling:catch_up`) into `catch_up_markers`. Only development builds of 0.12 wrote such rows, so an upgrade
+from a release moves nothing; `scripts/upgrade-test/run.sh` allows `plugin_storage` to shrink by exactly those rows.
+The section index moves to version 4: on first boot, pages with callouts, mentions or embeds are re-indexed by the
+background backfill, the others keep their index. Upgrade matrix adds v0.11.0: CI also tests the upgrade from it with
+data (`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- **Suggested edits from agents.** `patch_section` and `patch_sections` take `suggest: true`: nothing is written,
+  the change is kept as a suggestion for its section (a batch makes all its suggestions together or none). The page
+  shows "N suggested edits from agents" and a "✎ N suggested" marker next to each section heading; **Review** shows
+  each suggestion as a diff against the section as it is now. People who can edit the page accept or reject it; if the
+  section changed after the agent read it, the dialog says so and asks once more ("Accept anyway"). A new suggestion
+  from the same connection for the same section replaces the open one. Agents list theirs with `list_suggestions` and
+  take one back with `withdraw_suggestion`; accepting and rejecting are for people only, there is no tool for them
+  (docs/adr/1530-*, 1531-*, 1533-*, 1538-*).
+- **How agents edit**, a workspace default in Workspace settings › Connected agents (owners and admins): **Edit
+  directly** (as before), **Accept by rules** or **Review everything**. Under the last two, agent body edits
+  (`patch_section`, `patch_sections`, `update_page`) become suggestions. The lock dialog's agents setting now offers
+  Workspace default, Edit directly, Accept by rules, Suggestions only, Comment only and Read only, so a locked page or
+  folder can choose differently; under "Suggestions only" other agent writes are refused. People are not affected,
+  and an agent can only suggest where its person may edit. `can:` lines read `suggest` (review, suggestions only) or
+  `suggest,auto` (accept by rules) (docs/adr/1532-*, 1544-*).
+- **Auto-accept rules** for "Accept by rules": a suggestion is accepted without a person when its section is still
+  exactly as the agent read it (always), the kind of edit is allowed (add to the end of a section, new section after
+  one, add under a heading by default; replace and remove optional), the connection is allowed (all by default) and
+  the change is within the size limit. An optional wait in minutes lets people reject first; a section that changes
+  during the wait goes to a person. Whole-page edits always wait for a person. Auto-accepted edits show "Accepted by
+  rule" in the suggestions history and "<client> · auto-accepted" in page history and activity; rule changes are in
+  the audit log (`agent_policy.changed`). The agent's answer says "auto-accepted under the workspace rule …", "will be
+  auto-accepted at … unless a person rejects it" or "kept as suggestion … needs review: <reason>"
+  (docs/adr/1545-*).
+- **Approval notifications.** A new suggestion sends `approval_request` to the page's owner (else its creator);
+  accepting or rejecting sends `approval_result` to the person whose agent suggested it, which their agents read with
+  `inbox` (docs/adr/1534-*).
+- **Section claims.** `claim_section(pageId, section, minutes)` (default 5, max 30) and `release_section`: while a
+  connection holds a claim, other agents' `patch_section` / `patch_sections` on that section (and `update_page`
+  replace of the page) are refused with `SECTION_CLAIMED`; suggestions still work and people are never blocked.
+  `read_page` prints `claimed by <client> until <time>Z`; the web app shows "<client> is working on this section"
+  (docs/adr/1535-*, 1536-*).
+- `patch_sections(pageId, edits)`: up to 20 section edits on one page in one call, applied together or not at all. A
+  stale `baseVersion`, an unknown section, a section claimed by another agent or a section named twice writes nothing,
+  and the answer lists every problem with the current text (docs/adr/1542-*).
+- Re-reads cost one line when nothing changed: `read_page` shows the page `version`, and `read_page(pageId,
+  known=<version>)` answers an unchanged page with `unchanged (page … v=…; can: …)`; with `section=…`, `known` is the
+  section version. `read_page(pageId, knownSections={anchor: version})` returns only the sections that changed or are
+  new and names the removed ones. `read_pages(ids, known={id: version})` lists unchanged pages in one line each,
+  without spending budget on them. A page that was trashed, made private or moved out of the connection's range is
+  reported as before, never as unchanged, and `can:` always shows the current rights (docs/adr/1540-*).
+- `list_pages` and `search` take `format: "compact"`: 8-character page ids, and runs of numbered or dated pages in one
+  line (`Weekly sync 2026-11-{03,10,17} ids: …`). `read_page`, `read_pages`, `patch_sections` and
+  `list_pages(parentId)` accept the short ids; an ambiguous one returns the candidates (docs/adr/1541-*).
+- `catch_up` MCP tool: "what happened while I was away" in one call, most important first: mentions, replies and
+  assignments for the agent's person, tasks due within 7 days and overdue, due Later reminders, new comment threads
+  and replies, then pages changed by others (who, via which client, how many edits, section diffs; new, trashed and
+  moved pages included), then the person's own changes. Without `since` it continues from the connection's last
+  catch_up (else the person's last one, else the last 24 hours); `since` also takes a `changes_since` cursor or a
+  time. Output fits a token budget (default 4,000, max 12,000) and ends with `next since:`. It acknowledges nothing;
+  `inbox`/`ack` and `changes_since` keep their roles. REST: `GET /api/catch-up` (docs/adr/1520-*, 1521-*, 1537-*).
+- `changes_since` takes `wait` (seconds, up to 25, with a cursor): when nothing changed yet, the call waits and returns
+  as soon as something changes in the agent's workspaces, or empty at the end. Agents that follow a workspace no
+  longer need to poll (docs/adr/1551-*).
+- Usage per connection: Admin › Server status lists agent connections and API tokens with calls, estimated tokens
+  returned, errors, find_context cache hits, average and p95 latency and last use since the server started; Workspace
+  settings › Connected agents shows the same numbers for the calls that reached that workspace. Numbers only, kept in
+  memory, reset on restart (docs/adr/1552-*).
+- `create_collection` and `update_fields` MCP tools: agents make a collection with its properties in one call and
+  add, rename, retype, reorder or remove properties and select options, by name. They write through the same route as
+  the web app, so relation targets, the hidden-target rule, two-way pairing and the edit lock apply; a refused spec
+  writes nothing (docs/adr/1523-*).
+- `read_ink` MCP tool: a page's handwriting (pen and highlighter strokes) as PNG images, drawn with the same stroke
+  shapes as the web ink layer. Tall pages come in up to three images per call with a `top=` to continue; `top`,
+  `height` and `scale` pick a range and size. Off by default: the workspace setting "Agents can read handwriting"
+  (Workspace settings › Connected agents, owners and admins) turns it on. While it is off the tool says so and names
+  the setting, and pages do not mention handwriting to agents; when it is on, `read_page` and `find_context` add one
+  line, `ink: N strokes (read_ink to view)`, to pages that have handwriting, never the handwriting itself
+  (docs/adr/1510-*, 1511-*, 1512-*).
+- Version history for agents: `list_versions` (saved versions with time, label, who and via which client),
+  `diff_versions` (Markdown line diff between two versions or a version and the current page) and `restore_version`
+  (undoable: the page as it was is saved first as a "Before restore" version, and the answer gives its id). Trash for
+  agents: `list_trash` (what is in a workspace's trash, when each page is deleted for good, its former parent) and
+  `restore_page` (back to its old place with its trashed subpages, or to the top level when the parent is gone), with
+  the same rules as the trash in the app. There is still no permanent-delete tool (docs/adr/1513-*).
+- `read_file` MCP tool: an attachment by id or by the `/files/<id>` link `read_page` shows. PNG, JPEG, WebP and GIF up
+  to 3 MB come back as images, text files as text (marked as member-written data), PDFs and other types as metadata
+  only. REST: `GET /api/files/:id/meta` (docs/adr/1514-*).
+- Agents see and keep everything in a page: `read_page`, `read_pages`, section reads and conflict bodies show callouts
+  as `> [!type] text`, mentions as `@[Name](user:<id>)`, and page/link embeds, plugin blocks, file and audio blocks as
+  one-line `<!-- inkling:… -->` tokens. `patch_section`, `patch_sections` and `update_page` turn them back into the
+  same nodes: left as they are, unchanged; deleted, removed; edited, changed accordingly (a new callout or embed can
+  be written the same way). Agents can keep, move or delete mention chips but not create new ones (an unknown
+  `@[Name](user:…)` stays `@Name` text) (docs/adr/1500-*).
+- An old section anchor still works after its heading (or a parent heading) is renamed: `read_page(section=…)`,
+  `patch_section` and `patch_sections` serve the section under its new anchor and say `moved_to: §new`. An old name
+  that now leads to several sections returns `SECTION_AMBIGUOUS` with the candidates (docs/adr/1501-*).
+
+### Changed
+- `update_page mode=replace` edits the document minimally instead of rebuilding it: blocks sent back unchanged keep
+  their ids (comment anchors), colors, toggles, image widths, table cell colors and concurrent typing. In
+  `patch_section`, a block the agent retypes (paragraph → list item, …) keeps its id, colors, underline and color
+  marks and mention chips (docs/adr/1500-*).
+- The server's editor schema now includes callout, page embed, link embed, plugin block and mention (configs shared
+  from `@inkling/shared`), so server reads (export, search index, history, MCP) keep them. Markdown exports (page and
+  zip export, vault sync, templates, history preview) now contain callouts as `> [!type] text` and mention chips as
+  `@Name`; Obsidian/GitHub `> [!note]` callouts import as callouts. Embeds and plugin blocks are still left out of
+  exports. Public share pages show callouts and mention names (no ids). Search finds callout text (docs/adr/1500-*).
+- `read_page` has one more header line (`- version: …`) and each `read_pages` page line a `v=…` field. `read_pages`
+  shows folder pages in the agent notation, as it already did for documents, so both tools print the same page
+  version (docs/adr/1540-*).
+- `catch_up`: the header no longer carries today's date; the due window is the line `due window: up to <date>` right
+  before `next since:`, so the start of the output stays the same from day to day while nothing happens (prompt
+  caches, docs/adr/1543-*).
+- `find_context` answers a repeated question from a server-side cache per person. Any edit (after its reindex),
+  permission change, agent block, two-step rule, trash or privacy change in the searched workspaces makes the next
+  call search again; results are never shared between people (docs/adr/1550-*).
+- `create_row` writes relation links in the same transaction as the row. `POST /api/pages/:id/collection/rows` now
+  stores relation values in `props` (visible rows of the target only; two-way targets must be editable, otherwise
+  nothing is created) instead of dropping them (docs/adr/1524-*).
+- Restoring a version (in the app or through `restore_version`) is recorded in the change feed and activity with
+  who restored it, and an agent's restore is labelled with its client (docs/adr/1513-*).
+- The workspace list (`GET /api/workspaces`, MCP `list_workspaces`, the workspace order of `search`) breaks ties in
+  creation time by id, so the order no longer flips between calls (docs/adr/1543-*).
+- The `inbox` tool lists `approval_result` (it was reserved).
+- Edit lock: the agents value `same` now means "follow the workspace default" (labelled "Workspace default"); with
+  the default "Edit directly" it behaves as before.
+- `import_folder` says "about 12 MB per call" (the old "50 MB" was the multipart route's limit, not the MCP
+  request's).
+- The web ink layer's stroke geometry moved to `@inkling/shared` so the server draws the same shapes; strokes look
+  exactly as before.
+- For MCP and API clients: JSON-output tools (`list_workspaces`, `list_pages`, `search`, `list_templates`,
+  `create_page`, `import_folder`, `rename_page`, `move_page`, `create_from_template`) clean member-written strings and
+  mark them as data (see Security). `list_workspaces` and `list_templates` answer with two text blocks, the first being
+  the same JSON array as before, so clients that join all text blocks before `JSON.parse` must read the first one;
+  objects gain trailing `untrusted` (and sometimes `applies`) keys; `list_pages` with `format: "lines"` is wrapped in
+  `<untrusted_content>`. Requests to `/mcp` without a valid token get 401 even when the body is not valid JSON (it was
+  400). New routes and fields are in [docs/API.md](docs/API.md), "v0.12.0 additions".
+
+### Fixed
+- Server-side writes that read the open document (`update_page`, vault sync) could drop callouts, page and link
+  embeds, plugin blocks and mention chips from the whole page, and `update_page replace` lost them even when the agent
+  sent them back: the server's editor schema did not know these nodes (docs/adr/1500-*).
+- A `patch_section` over a section containing a file block turned the file block into a link paragraph and a caption
+  paragraph, even when the agent sent the section back unchanged.
+- The read-only page embed viewer could delete callouts, mentions, link embeds and plugin blocks from the embedded
+  page's live document (its editor schema did not know them). The embed schema is now built from the same list as the
+  main editor (docs/adr/1539-*).
+- `create_row` could leave a row without its relation links when setting the links failed.
+- `pnpm test` (`scripts/run-tests.mjs`) exited 0 when a test file failed to import under the tsx loader, so such
+  files dropped out of CI unnoticed; a top-level `✖` line or a non-zero fail count now fails the run.
+
+### Performance
+- Re-reads with `known`, 2,000-page workspace, three agents × 8 questions, each reading the pages find_context names:
+  pages that did not change 39,231 → 759 tokens (−98.1%); after a person edited one page per question 39,495 → 27,273
+  (−30.9%); the whole question flow 134,301 → 83,607 (−37.7%). `read_page` time is unchanged (the page is still read
+  to compare versions).
+- `list_pages` with `compact`: the whole 2,000-page tree 25,256 → 10,821 tokens (−57.2%); a folder of 100 weekly
+  meeting notes 1,564 → 543; 365 daily notes 4,577 → 970. `search` compact 324 → 247 tokens.
+- Three section edits with `patch_sections` instead of three `patch_section` calls: 3 round trips → 1, p50 76–155 →
+  34–66 ms.
+- `patch_section` replace: p50 small section 7.3–7.6 → 4.1–4.2 ms, 100-block section 54–62 → 23–26 ms (an old block
+  equal to a new one skips the Markdown round trip).
+- `find_context`, three agents asking the same ten questions: p50 113.3 → 20.4 ms, 93.3% answered from the cache.
+- `changes_since`, three agents watching with `wait=25` instead of polling every 2 s: 75% fewer calls, 56% fewer
+  database transactions, a change seen after p50 57 ms instead of 695 ms.
+- `catch_up` on 2,500 pages with 6,000 changes in the window: median 100 ms at the default budget.
+- `POST /mcp`: a 12.4 MB body of many small values stalled the event loop for 70.1 ms while it was parsed (also
+  without a token); it is now refused after 2.3 ms. String-heavy bodies (folder imports) are unchanged (about 3 ms per
+  MB). A parser in a worker thread and a 4 MB body limit were measured and rejected (docs/adr/1526-*).
+- Printing 8-character page ids in `find_context` was measured and rejected: −5.6% tokens, but every tool that takes
+  its ids would need short ids.
+- Regressions: `update_page replace` is 1.5–2.0× slower (p50 small page 4.6–5.1 → 7.8–8.5 ms, 100-block section
+  30.3–31.2 → 46.9–49.2 ms, 1.4 MB page 353.0–581.8 → 702.3–1,146.8 ms), accepted for keeping block ids, formatting,
+  callouts, embeds, chips and concurrent typing (docs/adr/1500-*). The ink marker costs +0.3–0.4 ms per `read_page` /
+  `find_context`, +2.5 ms on a page with about 2 MB of ink while the setting is on (docs/adr/1512-*). `read_ink`
+  renders on the event loop: about 30 ms for a typical page, 0.2 s near the 8 MiB ink limit (docs/adr/1511-*).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Security
+- JSON-output MCP tools clean member-written strings like the text tools (our markers escaped, bidi and tag characters
+  removed, zero-width characters shown as `\uXXXX`) and say that they are data: objects end with an `untrusted` key
+  (and `applies` when agent instructions apply to the page), arrays are followed by a second text block. Before,
+  titles there reached the model unmarked (docs/adr/1525-*).
+- `POST /mcp` looks up the bearer token before reading the body (no token: 401 without parsing) and refuses bodies with
+  more than 20,000 JSON values with 413 `TOO_MANY_VALUES`, so an anonymous or value-heavy request can no longer hold
+  the event loop while it is parsed (docs/adr/1526-*).
+- Version restore (`POST /api/pages/:id/snapshots/:sid/restore`) and `PUT /api/pages/:id/collection/fields` run under
+  the workspace write gate: an edit lock, agent block, role change or member removal committed while they run is
+  re-checked in the transaction and the page is left untouched (docs/adr/1071-*, 1513-*, 1523-*).
+
 ## [0.11.0] - 2026-11-09
 
 Database migration `0039_v011_later_threads` adds `later_items`, `thread_follows` and two columns on

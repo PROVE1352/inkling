@@ -13,6 +13,10 @@ import { LARGE_PAGE_HINT } from '../context/largePage'
 import { suspiciousNote } from '../context/injectionScan'
 import { wrapUntrusted } from './trust'
 import { inkMarker, inkStrokeCounts } from '../agentInk'
+import type { SuggestionDTO } from '@inkling/shared'
+import { suggestionMadeText } from './collabTools'
+import { pageRef } from './shortIds'
+import { readPagesArgs } from './tokenSaving'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -97,7 +101,9 @@ export function renderFindContext(
 }
 
 interface ReadPagesResponse {
-  pages: { id: string; title: string; kind: string; updatedAt: string; markdown: string; truncated: boolean }[]
+  pages: { id: string; title: string; kind: string; updatedAt: string; markdown: string; truncated: boolean; version?: string }[]
+  /** Pages the caller passed in `known` with the same version (docs/adr/1540-*). */
+  unchanged?: { id: string; version: string }[]
   omitted: { id: string; title: string; reason: string }[]
   missing: string[]
   budget: number
@@ -106,10 +112,14 @@ interface ReadPagesResponse {
 
 export function renderReadPages(r: ReadPagesResponse, ac?: AgentContextDTO): string {
   const out: string[] = []
+  // Unchanged pages first: one line each, no body (docs/adr/1540-*). The can: line always shows, so a
+  // permission change is never hidden behind "unchanged".
+  for (const u of r.unchanged ?? []) out.push(`(page ${u.id} unchanged v=${u.version}${ac ? `; can: ${pageFacts(ac, u.id).can}` : ''})`)
+  if (r.unchanged?.length) out.push('')
   for (const p of r.pages) {
     const facts = ac ? pageFacts(ac, p.id) : null
     out.push(
-      `(page ${p.id}, ${p.kind}, updated ${p.updatedAt.slice(0, 10)}${p.truncated ? ', truncated' : ''}${facts ? `; can: ${facts.can}` : ''})`,
+      `(page ${p.id}, ${p.kind}, updated ${p.updatedAt.slice(0, 10)}${p.version ? `, v=${p.version}` : ''}${p.truncated ? ', truncated' : ''}${facts ? `; can: ${facts.can}` : ''})`,
       ...(ac && pageSuspiciousLine(ac, p.id) ? [pageSuspiciousLine(ac, p.id)!] : []),
       wrapUntrusted(`# ${p.title || 'Untitled'}\n\n${p.markdown}`, {
         source: 'page',
@@ -164,20 +174,28 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       title: 'Read pages',
       description:
         'Read several pages as Markdown in one call (up to 20 ids, in order) within a token budget (default 8000, max 30000). ' +
-        'Pages that do not fit are listed so you can read them by section.',
+        'Pages that do not fit are listed so you can read them by section. Each page header has its version v=…; pass ' +
+        'known={pageId: v} on a later call and pages that did not change come back as one "unchanged" line (no budget used).',
       inputSchema: {
-        pageIds: z.array(uuid()).min(1).max(20).describe('Page ids'),
+        pageIds: z.array(pageRef()).min(1).max(20).describe('Page ids (full, or 8-character prefixes)'),
         budget: z.number().int().min(200).max(30_000).optional().describe('Max tokens (default 8000)'),
+        known: z
+          .record(z.string().max(36), z.string().trim().max(64))
+          .optional()
+          .describe('Versions you already have: pageId → v from an earlier read_page/read_pages'),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ pageIds, budget }) => {
+    wrap(async ({ pageIds, budget, known }) => {
+      // Short ids and known versions (docs/adr/1540-*, 1541-*): handled in tokenSaving.ts
+      const { ids, knownQuery } = await readPagesArgs(ctx, pageIds, known)
       const res = await call(ctx, 'GET', '/api/pages/read', {
-        query: { ids: pageIds.join(','), ...(budget ? { budget: String(budget) } : {}) },
+        query: { ids: ids.join(','), ...(budget ? { budget: String(budget) } : {}), ...(knownQuery ? { known: knownQuery } : {}) },
       })
       const read = res.json() as ReadPagesResponse
       countReads(read.pages.map((p) => p.id)) // read counters (docs/adr/0953-*)
-      return text(renderReadPages(read, await loadAgentContext(ctx, read.pages.map((p) => p.id), { read: true })))
+      const shown = [...(read.unchanged ?? []).map((u) => u.id), ...read.pages.map((p) => p.id)]
+      return text(renderReadPages(read, await loadAgentContext(ctx, shown, { read: true })))
     }),
   )
 
@@ -190,17 +208,19 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         "find_context/read_page(outline). mode: replace (body; a leading heading in markdown also renames it), append (end of the " +
         "section), prepend (after its heading), insert_after (new content after the section, e.g. a new '## Heading'), delete. " +
         'baseVersion (the v=… you read) is required for replace/delete; if the section changed you get a conflict with its current ' +
-        'text and version — merge and retry. Preferred over update_page.',
+        'text and version — merge and retry. Preferred over update_page. suggest=true leaves the change as a suggestion that a ' +
+        'person accepts or rejects (also what happens on pages locked to "agents: suggestions only").',
       inputSchema: {
         pageId: uuid().describe('Page id (kind=doc)'),
         section: z.string().trim().min(1).max(500).describe('Section anchor (e.g. "setup/backups"), heading text or heading block id'),
         markdown: z.string().max(1_000_000).optional().describe('Markdown to write (not needed for delete)'),
         mode: z.enum(['replace', 'append', 'prepend', 'insert_after', 'delete']).describe('How to apply the markdown'),
         baseVersion: z.string().trim().max(64).optional().describe('Section version you based the edit on (v=…)'),
+        suggest: z.boolean().optional().describe('true: do not write; leave it as a suggestion for a person (docs/adr/1531-*)'),
       },
       annotations: { destructiveHint: true },
     },
-    wrapWrite(ctx, async ({ pageId, section, markdown, mode, baseVersion }) => {
+    wrapWrite(ctx, async ({ pageId, section, markdown, mode, baseVersion, suggest }) => {
       if ((mode === 'replace' || mode === 'delete') && !baseVersion) {
         throw new ToolError(
           `baseVersion is required for mode=${mode}; get it from read_page(pageId, outline=true) or find_context (v=…)`,
@@ -208,9 +228,11 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       }
       if (mode !== 'delete' && !markdown?.trim()) throw new ToolError('markdown is empty; use mode=delete to remove a section')
       const res = await call(ctx, 'POST', `/api/pages/${pageId}/section`, {
-        json: { ref: section, markdown: markdown ?? '', mode, ...(baseVersion ? { baseVersion } : {}) },
+        json: { ref: section, markdown: markdown ?? '', mode, ...(baseVersion ? { baseVersion } : {}), ...(suggest ? { suggest } : {}) },
         passStatuses: [409],
       })
+      // Kept as a suggestion instead of written (docs/adr/1530-*, 1532-*)
+      if (res.statusCode === 202) return text(suggestionMadeText((res.json() as { suggestion: SuggestionDTO }).suggestion))
       if (res.statusCode === 409) {
         const body = res.json() as {
           error: { message: string; current?: { anchor: string; version: string; markdown: string } }

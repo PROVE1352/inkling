@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import type { PageMetaDTO, PageProperty, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
+import type { PageMetaDTO, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
 import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
@@ -28,12 +28,21 @@ import { registerSplitTools } from './mcpTools/splitTools'
 import { registerFileTools, registerInkTools, registerTrashTools, registerVersionTools } from './mcpTools/historyInkFileTools'
 import { inkMarker, inkStrokeCounts } from './agentInk'
 import { registerCatchUpTools } from './mcpTools/catchUpTools'
+import { registerCollabTools, suggestionMadeText } from './mcpTools/collabTools'
+import { claimLine } from './leases'
+import type { SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { registerStructureTools } from './mcpTools/structureTools'
 import { appliesLine, flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
 import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, wrapUntrusted } from './mcpTools/trust'
 import { call, jsonUntrusted, text, ToolError, uuid, wrap, wrapWrite } from './mcpTools/core'
 import type { ToolCtx } from './mcpTools/core'
+import { meterTools } from './mcpTools/meter'
+import { COMPACT_LEGEND, renderCompactSearch, renderCompactTree } from './mcpTools/compactList'
+import { pageRef, resolvePageRef } from './mcpTools/shortIds'
+import { readChangedSections, unchangedText } from './mcpTools/tokenSaving'
+import { registerPatchSectionsTool } from './mcpTools/patchSections'
+import { agentProperties, pageVersion } from './context/pageVersion'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -87,8 +96,10 @@ function multipartMd(filenameTitle: string, markdown: string): { payload: Buffer
 /** list_pages rendering (exported for tests): legacy JSON or compact indented lines, with a depth limit. */
 export function renderPageList(
   all: PageMetaDTO[],
-  opts: { parentId?: string; depth?: number; format: 'json' | 'lines' },
+  opts: { parentId?: string; depth?: number; format: 'json' | 'lines' | 'compact' },
 ): string {
+  // short ids + folded numbered siblings (docs/adr/1541-*)
+  if (opts.format === 'compact') return renderCompactTree(all, opts)
   const byId = new Map(all.map((p) => [p.id, p]))
   const children = new Map<string | null, PageMetaDTO[]>()
   for (const p of all) {
@@ -194,6 +205,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       ].filter(Boolean).join(' '),
     },
   )
+  // Usage per connection: every tool registered below is metered (docs/adr/1552-*).
+  meterTools(server, ctx)
 
   server.registerTool(
     'list_workspaces',
@@ -216,23 +229,26 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         "The workspace's page tree (excluding trash). Prefer find_context to locate content; use this for structure. " +
         "parentId: only that page's subtree ('root' = top level). depth: levels to include (1 = direct children only). " +
-        "format 'lines' (recommended, compact: one indented line per page) or 'json' (default, legacy fields: id, title, kind, " +
-        'parentId, section, path, children).',
+        "format 'lines' (one indented line per page), 'compact' (fewest tokens: 8-character ids, numbered/dated siblings folded " +
+        "into one line) or 'json' (default, legacy fields: id, title, kind, parentId, section, path, children).",
       inputSchema: {
         workspaceId: uuid().describe('Workspace id (from list_workspaces)'),
         parentId: z
           .string()
           .optional()
-          .describe("Only this page's descendants; 'root' for top-level pages"),
+          .describe("Only this page's descendants (full id or 8-character prefix); 'root' for top-level pages"),
         depth: z.number().int().min(1).max(64).optional().describe('Levels below parentId/root to include (json: default 1 with parentId, all without)'),
-        format: z.enum(['json', 'lines']).optional().describe("'lines' is compact; 'json' (default) keeps the legacy shape"),
+        format: z.enum(['json', 'lines', 'compact']).optional().describe("'compact' uses the fewest tokens; 'lines' prints full ids; 'json' (default) keeps the legacy shape"),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ workspaceId, parentId, depth, format }) => {
+    wrap(async ({ workspaceId, parentId: parentRef, depth, format }) => {
+      // a short parent id is resolved like the page tools do (docs/adr/1541-*)
+      const parentId = parentRef && parentRef !== 'root' && /^[0-9a-fA-F-]{8,35}$/.test(parentRef) ? await resolvePageRef(ctx, parentRef) : parentRef
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/pages`)
       const { pages: all } = res.json() as { pages: PageMetaDTO[] }
       const out = renderPageList(cleanStrings(all), { parentId, depth, format: format ?? 'json' })
+      if (format === 'compact' && out !== 'No pages here.') return text(`${wrapUntrusted(out, { source: 'pages' })}\n${COMPACT_LEGEND}`)
       return text(format === 'lines' && out !== 'No pages here.' ? wrapUntrusted(out, { source: 'pages' }) : out)
     }),
   )
@@ -244,11 +260,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         'Substring search over page titles and bodies (title matches first, then most recently updated; up to 20 per workspace). ' +
         'For answering questions prefer find_context (ranked sections, one call). Omit workspaceId to search all workspaces. ' +
-        "format 'lines' is compact; 'json' (default) keeps the legacy shape.",
+        "format 'compact' (8-character ids) or 'lines' (full ids) print one line per result; 'json' (default) keeps the legacy shape.",
       inputSchema: {
         query: z.string().min(1).max(200).describe('Search query'),
         workspaceId: uuid().optional().describe('Limit to one workspace'),
-        format: z.enum(['json', 'lines']).optional().describe("'lines' (compact) or 'json' (default)"),
+        format: z.enum(['json', 'lines', 'compact']).optional().describe("'compact', 'lines' or 'json' (default)"),
       },
       annotations: { readOnlyHint: true },
     },
@@ -274,6 +290,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           })
         }
       }
+      if (format === 'compact') {
+        // docs/adr/1541-*
+        if (results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
+        return text(`${wrapUntrusted(renderCompactSearch(results), { source: 'search' })}\n${COMPACT_LEGEND}`)
+      }
       if (format === 'lines') {
         if (results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
         return text(
@@ -298,21 +319,35 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         '~tokens and version v=…), then section=<anchor> to read just that part; maxChars caps the body. Internal links are ' +
         '[[Title]], attachments /files/<id>; callouts are `> [!type] text`, mentions `@[Name](user:<id>)`, embeds and files ' +
         '`<!-- inkling:… -->` lines — keep them as they are when editing, delete one to remove it. Collections come back as a ' +
-        'table, canvases as JSON Canvas.',
+        'table, canvases as JSON Canvas. Re-reading: pass known=<the version v=… you have> (of the page, or of the section with ' +
+        'section=…) and an unchanged one comes back as a single "unchanged" line; knownSections={anchor: v} returns only the ' +
+        'sections that changed.',
       inputSchema: {
-        pageId: uuid().describe('Page id'),
+        pageId: pageRef().describe('Page id (full, or the 8-character prefix list_pages/search compact print)'),
         outline: z.boolean().optional().describe('Only the section list (anchor, heading path, ~tokens, version)'),
         section: z.string().trim().min(1).max(500).optional().describe('Read only this section: §anchor, heading text or heading path'),
         maxChars: z.number().int().min(100).max(400_000).optional().describe('Truncate the body to this many characters'),
+        known: z.string().trim().max(64).optional().describe('Version you already have (page version, or the section version with section=…)'),
+        knownSections: z
+          .record(z.string().max(500), z.string().trim().max(64))
+          .optional()
+          .describe('Section versions you already have (anchor → v): only changed, new and removed sections come back'),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ pageId, outline, section, maxChars }) => {
+    wrap(async ({ pageId: ref, outline, section, maxChars, known, knownSections }) => {
+      const pageId = await resolvePageRef(ctx, ref) // short ids (docs/adr/1541-*)
+      // Only the sections that changed since the caller's versions (docs/adr/1540-*).
+      if (knownSections && !outline && !section) {
+        const changed = await readChangedSections(ctx, pageId, knownSections, maxChars)
+        if (changed) return changed
+      }
       if (outline) {
         const r = (await call(ctx, 'GET', `/api/pages/${pageId}/outline`)).json() as {
           page: { id: string; title: string; kind: string; updatedAt?: string }
           sections: { anchor: string; headingPath: string; tokens: number; version: string }[]
           tokens: number
+          claims?: SectionClaimDTO[]
         }
         const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
         const lines = [
@@ -325,7 +360,9 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         else if (r.sections.length === 0) lines.push('Empty page.')
         for (const s of r.sections) {
           const flag = suspiciousNote(flaggedRules(ac, r.page.id, [s.anchor]))
-          lines.push(`- §${s.anchor}  ${cleanText(s.headingPath || '(intro)')}  ~${s.tokens} tok  v=${s.version}${flag ? `  ${flag}` : ''}`)
+          // a live section claim (docs/adr/1535-*)
+          const claim = r.claims?.find((c) => c.anchor === s.anchor)
+          lines.push(`- §${s.anchor}  ${cleanText(s.headingPath || '(intro)')}  ~${s.tokens} tok  v=${s.version}${flag ? `  ${flag}` : ''}${claim ? `  ${claimLine({ ...claim, by: cleanText(claim.by) })}` : ''}`)
         }
         return text(withApplies(ac, lines.join('\n')))
       }
@@ -338,18 +375,21 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           page: { id: string; title: string }
           section: { anchor: string; headingPath: string; version: string }
           movedFrom?: string
+          claim?: SectionClaimDTO
           markdown: string
           truncated: boolean
           totalChars: number
         }
-        countReads([r.page.id]) // read counters (docs/adr/0953-*)
         const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
+        // The section the caller already has (docs/adr/1540-*); a renamed heading is never "unchanged".
+        if (known && known === r.section.version && !r.movedFrom) return unchangedText(ac, r.page.id, known, r.section.anchor)
+        countReads([r.page.id]) // read counters (docs/adr/0953-*)
         const f = pageFacts(ac, r.page.id)
         const flag = suspiciousNote(flaggedRules(ac, r.page.id, [r.section.anchor]))
         const large = largeLine(ac, r.page.id)
         // A heading rename moved the section (docs/adr/1501-*): say so, so the agent uses the new anchor.
         const moved = r.movedFrom ? `moved_to: §${r.section.anchor} (the heading was renamed; "${cleanText(r.movedFrom)}" no longer exists)\n` : ''
-        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
+        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}${r.claim ? `${claimLine({ ...r.claim, by: cleanText(r.claim.by) })}\n` : ''}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         return text(withApplies(ac, head + wrapUntrusted(r.markdown + tail, { source: 'page', id: r.page.id, createdBy: f.createdBy, lastEdit: f.lastEdit })))
       }
@@ -357,7 +397,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md', notation: 'agent' } })
       const meta = await findVisiblePage(pageId, ctx.user.id)
       if (!meta) throw new ToolError('page not found or not visible to you; use find_context to get a valid id')
-      countReads([meta.id]) // read counters (docs/adr/0953-*)
       const propsRow = (
         await db
           .select({ properties: pages.properties })
@@ -365,10 +404,12 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           .where(eq(pages.id, pageId))
           .limit(1)
       )[0]
-      const properties = (Array.isArray(propsRow?.properties) ? (propsRow.properties as PageProperty[]) : [])
-        .filter((p) => p && p.id !== 'fullWidth')
-        .map((p) => ({ name: p.name, type: p.type, value: p.value ?? null }))
+      const properties = agentProperties(propsRow?.properties)
       let body = meta.kind === 'canvas' ? res.body : stripFrontmatter(res.body)
+      // Page version over what this read shows, before any cut (docs/adr/1540-*)
+      const version = pageVersion({ kind: meta.kind, title: meta.title, properties, body })
+      if (known && known === version) return unchangedText(await loadAgentContext(ctx, [meta.id], { read: true }), meta.id, version)
+      countReads([meta.id]) // read counters (docs/adr/0953-*)
       if (maxChars && body.length > maxChars) {
         body = `${body.slice(0, maxChars)}\n\n[truncated: ${maxChars} of ${body.length} chars; use outline=true and section=… for the rest]`
       }
@@ -385,6 +426,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         `- kind: ${meta.kind}`,
         `- section: ${meta.scope === 'private' ? 'private' : 'shared'}`,
         `- updatedAt: ${meta.updatedAt.toISOString()}`,
+        `- version: ${version}`,
         `- url: ${pageUrl(ctx, meta)}`,
         `- can: ${facts.can}`,
         ...(flagLine ? [`- ${flagLine}`] : []),
@@ -524,12 +566,20 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrapWrite(ctx, async ({ pageId, markdown, mode }) => {
       // A page that splits itself (docs/adr/1141-*) takes appends in its current subpage; the route
       // also sends the owner the one-time "large page" notice.
+      // Where the rotation cannot be decided (a "suggestions only" lock refuses creating the subpage),
+      // the append goes to the page itself and the content route decides (docs/adr/1532-*).
       const target =
         mode === 'append'
-          ? ((await call(ctx, 'POST', `/api/pages/${pageId}/rotation/target`)).json() as RotationTargetDTO)
+          ? await call(ctx, 'POST', `/api/pages/${pageId}/rotation/target`)
+              .then((r) => r.json() as RotationTargetDTO)
+              .catch((err: unknown) => {
+                if (err instanceof ToolError && err.message.includes('PAGE_LOCKED')) return null
+                throw err
+              })
           : null
       const writeId = target?.pageId ?? pageId
-      await call(ctx, 'POST', `/api/pages/${writeId}/content`, { json: { markdown, mode } })
+      const written = await call(ctx, 'POST', `/api/pages/${writeId}/content`, { json: { markdown, mode } })
+      if (written.statusCode === 202) return text(suggestionMadeText((written.json() as { suggestion: SuggestionDTO }).suggestion))
       const ac = await loadAgentContext(ctx, [writeId])
       const large = largeLine(ac, writeId)
       const where =
@@ -697,6 +747,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   // The person's Later list, read-only (docs/adr/1413-*)
   registerLaterTools(server, ctx)
   registerContextTools(server, ctx)
+  registerPatchSectionsTool(server, ctx) // several section edits, all or nothing (docs/adr/1542-*)
   registerInstructionTools(server, ctx)
   registerChangeTools(server, ctx)
   registerCollectionTools(server, ctx)
@@ -708,6 +759,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerFileTools(server, ctx)
   // catch_up and collection structure tools (docs/adr/1520-*, 1523-*)
   registerCatchUpTools(server, ctx)
+  registerCollabTools(server, ctx) // suggestions and section claims (docs/adr/1530-*, 1535-*)
   registerStructureTools(server, ctx)
   return server
 }

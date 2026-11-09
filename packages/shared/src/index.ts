@@ -949,3 +949,5 @@ export * from './unionFind'
 export * from './accessTokens'
 // People with access to a page tree and guests (docs/adr/1250-*)
 export * from './pageAccess'
+// Suggested section edits and section claims (docs/adr/1530-*, 1535-*)
+export * from './suggestions'

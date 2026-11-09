@@ -1,6 +1,6 @@
 # 1501. Old section anchors follow heading renames (from the change log)
 
-- Status: Proposed (0.12)
+- Status: Accepted
 - Date: 2026-11-09
 - Amends: 0926 (anchors), 0930 (patch_section errors)
 

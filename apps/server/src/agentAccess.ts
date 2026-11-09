@@ -5,6 +5,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from './db/index'
 import { AppError } from './errors'
 import { BoundedLru } from './lru'
+import { noteWorkspaces } from './connectionUsage'
 import { clientNameClashesInWorkspace } from './clientName'
 import { currentRange, rangeWorkspaceSql } from './tokenRange'
 
@@ -135,6 +136,8 @@ export async function assertAgentAllowed(
       `This connection is named "${scope.clientName}", the same as a member of this workspace, so it is refused here to keep authorship clear. Other workspaces are not affected; connect an app with a different name to work here`,
     )
   }
+  // the call reached this workspace: per-workspace usage numbers (docs/adr/1552-*)
+  noteWorkspaces([workspaceId])
   const key = `${workspaceId}:${scope.grantId}`
   if (touched.get(key)) return
   touched.set(key, true)
@@ -150,4 +153,12 @@ export function _resetAgentTouches(): void {
   touched.clear()
   nameClashes.clear()
   blockLists.clear()
+}
+
+/**
+ * Run `fn` outside the agent scope (docs/adr/1545-*): an auto-accept applies a suggestion as the
+ * author's person, so the edit checks under the write gate must not apply the agent lock rules.
+ */
+export function outsideAgent<T>(fn: () => T): T {
+  return store.exit(fn)
 }

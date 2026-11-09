@@ -87,9 +87,25 @@ function runNodeTest(list, extra) {
     const child = spawn(
       process.execPath,
       [tsxCli, '--test', '--test-reporter=spec', '--test-reporter-destination=stdout', ...extra, ...passThrough, ...list],
-      { cwd: pkgDir, stdio: 'inherit', env: process.env },
+      { cwd: pkgDir, stdio: ['inherit', 'pipe', 'inherit'], env: process.env },
     )
-    child.on('exit', (code, signal) => resolve(signal ? 1 : (code ?? 1)))
+    // The spec reporter goes to stdout; it is echoed as is and also watched, because a test file that
+    // fails to load (an import error) is reported as a top-level "✖ <file>" while node --test can still
+    // exit 0 under the tsx loader. Any top-level failure line or a non-zero "fail" count fails the run.
+    let failed = false
+    let tail = ''
+    child.stdout.on('data', (chunk) => {
+      process.stdout.write(chunk)
+      const text = tail + chunk.toString('utf8')
+      const lines = text.split('\n')
+      tail = lines.pop() ?? ''
+      for (const line of lines) if (/^✖ /.test(line) || /^ℹ fail [1-9]/.test(line)) failed = true
+    })
+    child.on('exit', (code, signal) => {
+      if (/^✖ /.test(tail) || /^ℹ fail [1-9]/.test(tail)) failed = true
+      const status = signal ? 1 : (code ?? 1)
+      resolve(status === 0 && failed ? 1 : status)
+    })
   })
 }
 

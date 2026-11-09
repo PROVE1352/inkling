@@ -491,6 +491,69 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1412](1412-followed-threads-and-the-inbox.md) | Followed comment threads, the Threads view and the reply notification | Accepted |
 | [1413](1413-later-list-for-agents-read-only.md) | Agents read the Later list; they do not write it, and threads get no tool | Accepted |
 
+## 1500–1509 Agent Markdown notation and renamed sections
+
+| ADR | Title | Status |
+|---|---|---|
+| [1500](1500-agent-markdown-notation-for-custom-nodes.md) | Agent Markdown notation for callouts, embeds, files and mentions; update_page as a minimal edit | Accepted |
+| [1501](1501-old-section-anchors-follow-heading-renames.md) | Old section anchors follow heading renames (from the change log) | Accepted |
+
+## 1510–1519 Handwriting, versions, trash and files for agents
+
+| ADR | Title | Status |
+|---|---|---|
+| [1510](1510-agents-read-handwriting-off-by-default.md) | Agents read handwriting only where the workspace allows it (off by default) | Accepted |
+| [1511](1511-server-side-ink-rendering-without-dependencies.md) | read_ink renders strokes to PNG on the server, with the web layer's geometry and no dependency | Accepted |
+| [1512](1512-ink-marker-in-page-headers.md) | Page headers mark handwriting with one line, never its content, and only where agents may read it | Accepted |
+| [1513](1513-version-and-trash-tools-for-agents.md) | Version history and trash tools for agents; version restore under the write gate | Accepted |
+| [1514](1514-read-file-attachments-for-agents.md) | read_file: images as images, text as untrusted text, everything else as metadata | Accepted |
+
+## 1520–1529 catch_up, collection structure and MCP output
+
+| ADR | Title | Status |
+|---|---|---|
+| [1520](1520-catch-up-for-agents.md) | catch_up: one call for "what happened while I was away" | Accepted |
+| [1521](1521-catch-up-importance-packing.md) | catch_up packs by importance with find_context's knapsack and a per-group rule | Accepted |
+| [1522](1522-catch-up-marker-without-a-schema-change.md) | The "last catch_up" marker lives in plugin_storage under a reserved id | Superseded by 1537 |
+| [1523](1523-collection-structure-tools.md) | Agents create collections and change their properties by name | Accepted |
+| [1524](1524-create-row-links-in-one-transaction.md) | create_row writes relation links in the row's transaction | Accepted |
+| [1525](1525-json-tool-output-marks-member-text.md) | JSON tool output keeps its shape and marks member-written strings | Accepted |
+| [1526](1526-mcp-request-body-before-and-during-parse.md) | POST /mcp: token before body, a value cap before JSON.parse | Accepted |
+
+## 1530–1539 Suggested edits and section claims
+
+| ADR | Title | Status |
+|---|---|---|
+| [1530](1530-suggestions-are-section-rows-until-a-person-decides.md) | Suggestions are section rows until a person decides | Accepted |
+| [1531](1531-suggest-is-a-flag-next-to-mode.md) | `suggest` is a flag next to `mode`, not another mode | Accepted |
+| [1532](1532-agents-suggestions-only-lock-level.md) | "Agents: suggestions only" lock level | Accepted |
+| [1533](1533-accept-applies-on-the-current-section-after-a-warning.md) | Accepting applies the suggestion to the section as it is now, after a warning | Accepted |
+| [1534](1534-approval-request-and-result-notifications.md) | approval_request and approval_result come from suggestions | Accepted |
+| [1535](1535-section-claims-in-a-table.md) | Section claims live in a table | Accepted |
+| [1536](1536-writes-on-claimed-sections-are-refused.md) | Other agents' writes on a claimed section are refused, people's are not | Accepted |
+| [1537](1537-catch-up-markers-table.md) | catch_up markers move to their own table | Accepted (supersedes 1522) |
+| [1538](1538-patch-sections-makes-suggestions-together.md) | patch_sections makes suggestions too, all together | Accepted |
+| [1539](1539-embed-viewer-schema-from-the-shared-block-list.md) | Embed viewer schema built from the editor's one spec list | Accepted |
+
+## 1540–1549 Saving tokens and the agent edit policy
+
+| ADR | Title | Status |
+|---|---|---|
+| [1540](1540-known-versions-and-unchanged-reads.md) | `known` versions: unchanged pages come back as one line | Accepted |
+| [1541](1541-compact-lists-and-short-page-ids.md) | Compact lists: folded numbered siblings and 8-character page ids | Accepted |
+| [1542](1542-patch-sections-all-or-nothing.md) | patch_sections: several section edits, all or nothing | Accepted |
+| [1543](1543-prompt-cache-audit-of-tool-lists-and-outputs.md) | Prompt-cache audit: tool list, instructions and outputs stay byte-stable | Accepted |
+| [1544](1544-agent-edit-policy-levels.md) | Agent edit policy: direct, accept by rules, review everything | Accepted |
+| [1545](1545-auto-accept-rules.md) | Auto-accept rules | Accepted |
+
+## 1550–1559 Several agents at once
+
+| ADR | Title | Status |
+|---|---|---|
+| [1550](1550-find-context-result-cache.md) | find_context result cache: per person, keyed by every permission input and index marker | Accepted |
+| [1551](1551-changes-since-long-poll.md) | changes_since long-poll: wake-ups from the change log consumer, no new NOTIFY | Accepted |
+| [1552](1552-usage-per-connection-in-memory.md) | Usage per connection: counted in memory since start, numbers only | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

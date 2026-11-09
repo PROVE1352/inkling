@@ -55,6 +55,8 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/context')).registerContextRoutes(api)
       await (await import('../routes/changes')).registerChangeRoutes(api)
       await (await import('../routes/catchUp')).registerCatchUpRoutes(api)
+      await (await import('../routes/suggestions')).registerSuggestionRoutes(api)
+      await (await import('../routes/agentPolicy')).registerAgentPolicyRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
       await (await import('../routes/largePages')).registerLargePageRoutes(api)
       await (await import('../routes/splitPage')).registerSplitPageRoutes(api)

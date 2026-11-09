@@ -56,6 +56,9 @@ import { registerPageAccessRoutes } from './routes/pageAccess'
 import { registerContextRoutes } from './routes/context'
 import { registerChangeRoutes } from './routes/changes'
 import { registerCatchUpRoutes } from './routes/catchUp'
+import { registerSuggestionRoutes } from './routes/suggestions'
+import { registerAgentPolicyRoutes } from './routes/agentPolicy'
+import { startAutoAcceptTimer } from './autoAccept'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
@@ -77,6 +80,8 @@ import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
 import { flushNotifications, initNotifications } from './notify/engine'
 import { startOutboxWorker, stopOutboxWorker } from './outbox'
+import { releaseChangeWaiters } from './context/changeWait'
+import { registerUsageHooks } from './connectionUsage'
 import { clearMailTimers, initNotificationMail } from './notify/mailer'
 import { registerBackupRoutes } from './backup/routes'
 import { registerVersionRoutes } from './version'
@@ -152,6 +157,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   stopLaterReminders?.()
   // ERR_SERVER_NOT_RUNNING from the later app.close() is tolerated by Fastify.
   if (appRef?.server.listening) appRef.server.close()
+  // changes_since calls waiting for changes answer now, so the HTTP close below is not held (docs/adr/1551-*)
+  releaseChangeWaiters()
   await step('collab flush', () => destroyCollab(), COLLAB_FLUSH_TIMEOUT_MS)
   // queued notification events of the last edits (mail timers are dropped; housekeeping resends)
   clearMailTimers()
@@ -362,6 +369,8 @@ async function main(): Promise<void> {
   // Brute-force protection: IPs banned for repeated failures get a 429 on auth/token paths before any expensive work.
   await initGuard((msg) => app.log.info(msg))
   app.addHook('onRequest', guardHook)
+  // Usage of personal API tokens since boot, for the admin status (docs/adr/1552-*)
+  registerUsageHooks(app)
   // CSP frame-src for HTML responses without their own CSP (embed providers) — docs/adr/0501-*
   registerEmbedCsp(app)
   initWebhooks((msg) => app.log.warn(msg))
@@ -476,6 +485,8 @@ async function main(): Promise<void> {
       await registerChangeRoutes(api)
       // catch_up: ranked "while you were away" material for agents (docs/adr/1520-*)
       await registerCatchUpRoutes(api)
+      await registerSuggestionRoutes(api)
+      await registerAgentPolicyRoutes(api)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)
@@ -556,6 +567,8 @@ async function main(): Promise<void> {
   stopReadFlusher = startReadFlusher((msg) => app.log.info(msg))
   // Outbox consumers: change log, notifications, webhooks (LISTEN + 1 s poll, docs/adr/1080-*, 1081-*)
   void startOutboxWorker((msg) => app.log.warn(msg))
+  // grace periods of auto-accept rules (docs/adr/1545-*)
+  startAutoAcceptTimer((msg) => app.log.warn(msg))
 
   // 10) Boot summary (B-M6, C-M10)
   const flags = enabledExperimentalFeatures()

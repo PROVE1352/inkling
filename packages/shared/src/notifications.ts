@@ -183,7 +183,7 @@ export interface PageProvenanceDTO {
 // Agent inbox (MCP inbox / ack)
 // ---------------------------------------------------------------------------
 
-/** Kinds an agent inbox can list. source_changed and approval_result are reserved (no producer yet). */
+/** Kinds an agent inbox can list. source_changed is reserved (no producer yet); approval_result: docs/adr/1534-*. */
 export const INBOX_KINDS = ['mention', 'reply', 'comment', 'assigned', 'source_changed', 'approval_result'] as const
 export type InboxKind = (typeof INBOX_KINDS)[number]
 

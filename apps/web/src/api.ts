@@ -2289,6 +2289,8 @@ export function useWorkspaceAgents(wsId: string, enabled = true) {
       api<{
         connections: import('@inkling/shared').AgentConnectionDTO[]
         blocks: import('@inkling/shared').AgentBlockDTO[]
+        /** Usage numbers count from here (server start, docs/adr/1552-*). */
+        usageSince?: string
       }>(`/api/workspaces/${wsId}/agents`),
     enabled: !!wsId && enabled,
   })

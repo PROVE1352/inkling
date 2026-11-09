@@ -1,6 +1,6 @@
 # 1500. Agent Markdown notation for callouts, embeds, files and mentions; update_page as a minimal edit
 
-- Status: Proposed (0.12)
+- Status: Accepted
 - Date: 2026-11-09
 - Amends: 0930, 0940 (patch_section), 0995 (server schema), 0926 (CHUNKER_VERSION 4)
 

@@ -340,7 +340,7 @@ Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?,
 Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
 `create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
 `rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
-`list_pages` and `search` keep their legacy JSON unless `format: "lines"` (docs/adr/0928-*).
+`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions" below and [MCP.md](MCP.md).
 
 - `/.well-known/oauth-*`: `scopes_supported` is `["read","write"]` (`notes` still accepted as full access).
 - `GET /api/oauth/authorize/info?…&scope=`: adds `requestedAccess: "read" | "write"`.
@@ -880,3 +880,87 @@ Changed:
 - `POST /api/pages/:id/comments`: the author follows the thread (unless `threadAutoFollow` is off; an earlier unfollow stays) and has it read up to now. `comment_reply` goes to the thread's followers with `threadReplies` on, instead of everyone who wrote in the thread; the agent inbox `reply` kind follows the same rule. The migration makes every earlier author of a thread follow it, so the recipients are the same right after the upgrade.
 - Sidebar menu ids (`SIDEBAR_MENU_IDS`) add `later` and `threads`, after `search`. A saved order without them shows them at their default place.
 - MCP: `later(workspaceId?, state?, budget?)`, read ([MCP.md](MCP.md), docs/adr/1413-*).
+
+## v0.12.0 additions
+
+Migrations `0040_v012_agent_ink_setting` (`workspaces.agent_ink_read`) and `0041_v012_suggestions_leases`
+(`section_suggestions`, `section_leases`, `agent_edit_policies`, `catch_up_markers`; catch_up markers move out of
+`plugin_storage`).
+
+### Agent notation and renamed sections (docs/adr/1500–1501)
+- `GET /api/pages/:id/export?format=md&notation=agent`: new optional `notation` (`plain` default | `agent`), the round-trip notation MCP `read_page` uses (callouts `> [!type]`, mentions `@[Name](user:<id>)`, embeds, plugin, file and audio blocks as `<!-- inkling:… -->` lines). Plain Markdown exports now carry callouts as `> [!type] text` and mention chips as `@Name`; embeds and plugin blocks are still left out (docs/adr/1500-*).
+- `GET /api/pages/:id/section`: the answer may carry `movedFrom: "<ref as given>"` when the reference was an anchor from before a heading rename; `section.anchor` is the new one. An old name that now leads to several sections → 409 `SECTION_AMBIGUOUS` ("Section "x" was renamed and now matches several sections: a, b. Use one of these anchors.") (docs/adr/1501-*).
+- `POST /api/pages/:id/section`: success and 409 `SECTION_CONFLICT` bodies may carry `movedFrom`; the same 409 `SECTION_AMBIGUOUS`.
+- `POST /api/pages/:id/content` (`mode=replace`): a minimal edit of the document (block ids kept); the response is unchanged.
+
+### Handwriting, versions, trash and files for agents (docs/adr/1510–1514)
+- `GET /api/workspaces/:id/settings`: `settings.agentInkRead: boolean` ("Agents can read handwriting", default false).
+- `PUT /api/workspaces/:id/settings/agent-ink { enabled: boolean }` (strict): owners and admins, browser sessions only (tokens 403). Audited as `settings.updated` with `{ agentInkRead }` before and after. Answers `{ settings, role, can }` like `PATCH /settings`; 403 for members, 404 for a workspace that does not exist (docs/adr/1510-*).
+- `GET /api/pages/:id/ink`: for agent (OAuth/MCP) requests in a workspace where the setting is off, 403 `AGENT_INK_OFF`. Browser sessions and personal API tokens are unchanged.
+- `GET /api/files/:id/meta` (new) → `{ file: { id, url, name, mime, size, workspaceId, pageId, createdAt } }`. Same checks as `GET /files/:id` (member or guest; the file's page visible now; guests only files of pages shared with them; 404 otherwise, also when the stored file is missing). A connection limited to a subtree gets 403 `OUT_OF_RANGE` for legacy files without a page. Read-only tokens may call it (docs/adr/1514-*).
+- `POST /api/pages/:id/snapshots/:sid/restore`: checked with the workspace access state and applied under the write gate (docs/adr/1151-*, 1513-*): an edit lock or member removal committed while the restore runs answers 403 `PAGE_LOCKED` / 403 and leaves the page untouched. The "Before restore" snapshot carries `viaClient` for agent requests, and the change feed records the restoring person (and client).
+
+### catch_up, collection structure and MCP requests (docs/adr/1520–1526, 1537)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/catch-up` | `since?`, `workspaceId?`, `budget?` (≤ 12,000, default 4,000), `advance?` (`0` leaves the marker) | `{ text, cursor, since: { at, source: 'given'\|'connection'\|'person'\|'default' }, counts: { pages, comments, forYou, due, later, listed, hidden }, tokens }`. Ranked "while you were away" text for the caller: inbox items created after `since`, due items (today − 14 days … + 7 days, undone), Later reminders due or within 7 days, comments created after `since`, change-log rows after `since` grouped per page (edits, people and clients, section diffs). `since`: a catch_up cursor, a `changes_since` cursor or an ISO time; omitted → the caller's last catch_up marker (per OAuth grant or API token, and per `workspaceId`, in `catch_up_markers`), else the person's, else 24 hours. 400 `INVALID_SINCE`; `workspaceId` requires membership. Read-only tokens may call it (it writes only the caller's marker). Same visibility as `/changes`, `/inbox`, `/later` and the due view. 30/min |
+
+- `POST /api/pages/:id/collection/rows`: relation values in `props` are stored in the row's transaction with the rules of `PATCH /props`: ids that are not live rows of the target collection visible to the caller are dropped; for a two-way relation the target rows must be editable (else 403 `PAGE_LOCKED` / `PAGE_ACCESS` and no row is created) and the paired field is mirrored (docs/adr/1524-*).
+- `PUT /api/pages/:id/collection/fields` runs under the write gate (docs/adr/1071-*): a lock, agent block or role change committed after the edit-lock check is re-checked in the transaction (docs/adr/1523-*).
+- `POST /mcp`: the bearer token is checked before the body is read (no valid token: 401 without parsing, also for a body that is not JSON); bodies with more than 20,000 JSON values → 413 `TOO_MANY_VALUES`. Body limit 12 MB (docs/adr/1526-*).
+- JSON-output MCP tools clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays); `create_page`, `rename_page` and `move_page` add `applies` when agent instructions apply (docs/adr/1525-*).
+
+### Suggestions and section claims (docs/adr/1530–1539)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/pages/:id/suggestions` | `preview=1`, `all=1` | `{ suggestions: SuggestionDTO[], claims: SectionClaimDTO[], canDecide }`. Open suggestions of the page (`all=1`: also accepted, rejected, withdrawn), live section claims, and whether the caller may accept or reject. `preview=1` adds to each open suggestion `preview { found, currentAnchor, currentVersion, changed, before, after, ops: DiffOpDTO[] \| null, large }`. Members only (guests: 404); visible page, agent blocks and the connection's range apply |
+| GET | `/api/suggestions` | | `{ suggestions }`: the caller's own, open and decided in the last 7 days |
+| GET | `/api/suggestions/:id` | `preview=1` | `{ suggestion }` |
+| POST | `/api/suggestions/:id/accept` | `{ confirmChanged?: boolean }` | `{ suggestion }`. People only (browser session or personal API token; OAuth/MCP → 403 `PEOPLE_DECIDE`), edit access. 409 `SUGGESTION_CHANGED { preview }` when the section changed since the agent read it and `confirmChanged` is not set; 409 `SECTION_GONE { preview }`; 409 `SUGGESTION_DECIDED`. 30/min |
+| POST | `/api/suggestions/:id/reject` | | `{ suggestion }`. People only, edit access |
+| POST | `/api/suggestions/:id/withdraw` | | `{ suggestion }`. The author (agents too) |
+| POST | `/api/pages/:id/claims` | `{ section, ttlSeconds? }` (30–1800, default 300) | `{ claim: SectionClaimDTO }`. Bearer connections only (400 for browser sessions); doc pages; the caller must be able to edit or suggest there. 409 `SECTION_CLAIMED` when another connection holds it; 429 `TOO_MANY_CLAIMS` above 20 live claims per connection. 60/min |
+| DELETE | `/api/pages/:id/claims` | `section` | `{ released: boolean }` |
+
+`SuggestionDTO { id, pageId, workspaceId, anchor, headingPath, blockId, mode: replace|append|prepend|insert_after|delete|page_replace|page_append, origin: 'asked'|'lock'|'policy', status: open|accepted|rejected|superseded|withdrawn, markdown, baseVersion, author { id, name }, via, createdAt, decidedBy, decidedAt, rule, reviewReason, autoAt, applied?, preview? }`. `SectionClaimDTO { pageId, anchor, blockId, by, userId, mine, expiresAt }`. At most 100 open suggestions per page.
+
+Changed:
+- `POST /api/pages/:id/section` takes `suggest?: boolean`. Answers `202 { suggestion }` when the change was kept as a suggestion (asked, or the agent edit policy or lock of the page). For bearer connections, 409 `SECTION_CLAIMED { claim }` when another connection claims the section (suggestions are not stopped by claims).
+- `POST /api/pages/:id/content` answers `202 { suggestion }` where agent edits become suggestions (`page_replace` / `page_append`); `mode: replace` gets 409 `SECTION_CLAIMED` while another connection claims a section of the page.
+- `GET /api/pages/:id/outline` adds `claims` and `GET /api/pages/:id/section` adds `claim` when there are live claims.
+- `NotificationType` `approval_request` (to the page's owner, else its creator, for a new suggestion) and `approval_result` (to the author of a decided suggestion; an agent inbox kind) now have producers (docs/adr/1534-*).
+
+### Saving tokens (docs/adr/1540–1543)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| POST | `/api/pages/:id/sections` | `{ edits: [{ ref, markdown, mode: replace\|append\|prepend\|insert_after\|delete, baseVersion? }], suggest? }` (1–20 edits, ≤ 2,000,000 characters of Markdown in total) | `{ ok, results: [{index, section: {anchor, headingPath, version} \| null, movedFrom?}], sections }`. Doc pages only; edits apply in order, all or nothing. Any failure → 409 `SECTIONS_CONFLICT` with `error.conflicts: [{index, ref, anchor?, reason: version\|not_found\|ambiguous\|duplicate\|empty\|claimed\|invalid, message, baseVersion?, version?, markdown?}]` and `error.anchors` (first 50), nothing written. With `suggest`, or where agent edits become suggestions: `202 { suggestions: SuggestionDTO[] }`, all or none (a bad section answers the single error of `POST /section`, e.g. 404 `SECTION_NOT_FOUND`) (docs/adr/1538-*). One "Before AI edit" snapshot when any edit is replace/delete (≤ 1 per page per 2 min). 30/min (docs/adr/1542-*) |
+
+- `GET /api/pages/read` takes `known?` (`id:version,…`, the page versions the caller has). Each page adds `version` (hash of kind, title, properties and body); with `known`, `unchanged: [{id, title, kind, updatedAt, version}]` lists known pages whose version is the same, without body or budget (docs/adr/1540-*).
+- `GET /api/workspaces` is ordered by creation time, then id (docs/adr/1543-*).
+
+### Agent edit policy and auto-accept rules (docs/adr/1544–1545)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/workspaces/:id/agent-policy` | | `{ policy: AgentPolicyDTO }`. Members |
+| PUT | `/api/workspaces/:id/agent-policy` | `{ level: 'direct'\|'auto'\|'review', rules }` | `{ policy }`. Owners and admins, browser session only; audited as `agent_policy.changed` |
+| GET | `/api/pages/:id/agent-rules` | | `{ policy }`: the rules of an "Accept by rules" lock node (defaults when unset) |
+| PUT | `/api/pages/:id/agent-rules` | `{ rules }` | `{ policy }`. Who may manage the page's lock, browser session only; audited |
+
+`rules = { modes: ('append'|'insert_after'|'prepend'|'replace'|'delete')[], connections: ('grant:<id>'|'token:<id>')[], maxLines: number|null, maxChars: number|null, graceMinutes: 0–10080 }` (defaults: append, insert_after, prepend; every connection; no limits; no wait). `AgentPolicyDTO { level, rules, canManage, updatedBy, updatedAt }`.
+
+Changed:
+- `PUT /api/pages/:id/lock`: `agents` takes `'same' | 'direct' | 'auto' | 'suggest' | 'comment' | 'read'`; `'same'` now means "follow the workspace default". `GET` returns it.
+- `POST /api/pages/:id/section`, `/sections` and `/content` may answer 202 with a suggestion that was accepted at once by a rule (`status: 'accepted'`, `rule`, `applied`), or one that waits (`autoAt` for a grace period, `reviewReason` when no rule matched).
+
+### Several agents at once (docs/adr/1550–1552)
+- `GET /api/context`: unchanged contract; answers may come from a per-person cache keyed by the permission state and index markers of the searched workspaces (docs/adr/1550-*).
+- `GET /api/workspaces/:id/agents` → `{ connections: AgentConnectionDTO[], blocks: AgentBlockDTO[], usageSince }`; each connection adds `usage: { calls, errors, tokens, cacheHits, lastUsedAt } | null` for the calls that reached this workspace since `usageSince` (server start, per process). Numbers only (docs/adr/1552-*).
+- `GET /api/admin/status` adds `agents: { since, totals: { connections, calls, errors, tokens, cacheHits }, cache: { hits, misses, entries, bytes }, waiting, connections: [{ kind: 'agent'|'token', id, name, user: { id, name } | null, calls, errors, tokens, cacheHits, avgMs, p95Ms, waitSec, lastUsedAt }], more }`: live (not part of the 5-minute probe cache), the 50 most recently used connections since the server started.
+- `GET /api/changes` is unchanged; the long-poll `wait` exists only on the MCP tool (docs/adr/1551-*).
+
+### MCP tools
+New: `catch_up(workspaceId?, since?, budget?, peek?)`, `read_ink(pageId, top?, height?, scale?)`, `list_versions`, `diff_versions`, `read_file`, `list_trash`, `list_suggestions(pageId?)` (read); `patch_sections(pageId, edits, suggest?)`, `create_collection(workspaceId, title, fields[], parentId?, private?)`, `update_fields(collectionId, add?, change?, remove?, order?)`, `restore_version`, `restore_page`, `withdraw_suggestion(id)`, `claim_section(pageId, section, minutes?)`, `release_section(pageId, section)` (write, refused for read-only connections). New arguments: `read_page(…, known?, knownSections?)`, `read_pages(…, known?)`, `list_pages` / `search` `format: "compact"`, `patch_section(…, suggest?)`, `changes_since(…, wait?)` (0–25 s, only with a cursor; over the per-process (256) or per-connection (4) limit of waiting calls, or during shutdown, the answer comes at once and starts with `wait skipped: …`). Details: [MCP.md](MCP.md).

@@ -241,8 +241,11 @@ Push diffs the live database against `schema.ts` and drops anything not declared
 | `guard.ts` | login failure counters / IP bans | 20,000 per map / bans until expiry | swept every 5 min; reset on restart |
 | `collab.ts` | per-IP socket counts and upgrade timestamps | swept above 1,024 IPs | 10 s window |
 | `hocuspocus.documents` | open Yjs documents | open documents | unloaded when the last client leaves |
+| `context/contextCache.ts` | find_context results per person (ADR 1550) | 1,000 LRU + 32 MB | 5 min; key includes access version, page marker and section index epoch of every searched workspace |
+| `connectionUsage.ts` | usage numbers per connection and per (workspace, connection) (ADR 1552) | 5,000 + 20,000 LRU | lost on restart (by design) |
+| `context/changeWait.ts` | changes_since calls waiting (ADR 1551) | 256 per process, 4 per connection | 25 s each; released at shutdown |
 
-No cache holds sessions, memberships or page visibility; those are read from the database on every request. The only long-lived authorisation — an open collaboration socket — is revoked on member removal, a page becoming private, force delete and password change/session revocation (`liveConnections.ts`, ADR 0754).
+No cache holds sessions, memberships or page visibility; those are read from the database on every request. The find_context cache holds answers, not rights: its key carries the workspace access version and the person's permission inputs, so a membership, lock, block or visibility change makes the next call search again. The only long-lived authorisation — an open collaboration socket — is revoked on member removal, a page becoming private, force delete and password change/session revocation (`liveConnections.ts`, ADR 0754).
 
 ## 4. HTTP caching
 

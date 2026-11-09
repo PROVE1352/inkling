@@ -1,37 +1,34 @@
-import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
-import { assertPageEditable } from '../editLock'
+import { and, inArray, isNull } from 'drizzle-orm'
+import { suggestOrCheck } from '../suggestions'
+import { claimOf, pageClaims } from '../leases'
+import type { SectionClaimDTO } from '@inkling/shared'
+import type { AuthUser } from '../auth'
 import { pageAccess } from '../aclVersion'
-import { pageEditGate } from '../docWriteGate'
-import { gatedTransact } from '../md/docWrite'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
-import { hocuspocus } from '../collab'
-import { actorOf, withEditActor } from '../context/attribution'
 import { joinPath } from '../context/chunker'
-import { applySectionPatch, buildEchoIndex } from '../context/sectionPatch'
-import type { EchoIndex, PatchOutcome } from '../context/sectionPatch'
 import type { Section } from '../context/chunker'
-import { pageMentionKeys, readOutline, readSection, readSectionBlocks } from '../context/sectionSource'
-import { resolveMovedSection } from '../context/sectionMoves'
+import { readOutline, readSection } from '../context/sectionSource'
+import { movedOrThrow, patchSectionAs, sectionNotFound } from '../context/sectionWrite'
 import type { OutlineSection } from '../context/sectionSource'
-import { DEFAULT_BUDGET, findContext, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
+import { DEFAULT_BUDGET, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
+import { cachedFindContext } from '../context/contextCache'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
 import { db } from '../db/index'
-import { pageDocs, pageSnapshots } from '../db/schema'
-import { AppError, badRequest, notFound } from '../errors'
+import { pageDocs } from '../db/schema'
+import { badRequest, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { requestLocale } from '../i18n'
 import { liveDocState } from '../liveConnections'
-import { blocksToMarkdown, blocksToStateBuffer, markdownToBlocks, stateToBlocks, stripFrontmatter } from '../md/convert'
-import type { AnyBlock } from '../md/convert'
+import { blocksToMarkdown, stateToBlocks, stripFrontmatter } from '../md/convert'
 import { exportPageCanvas, exportPageMd } from '../md/exporter'
-import { buildTitleResolver } from '../md/importer'
 import { findVisiblePage, pageColumns, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
 import { pages } from '../db/schema'
-import { createSnapshot, currentSnapshotSource, hasRecentAgentSnapshot } from '../snapshotStore'
 import { liveWorkspace } from '../workspaceLive'
+import { agentProperties, pageVersion } from '../context/pageVersion'
+import { registerSectionBatchRoutes } from './sectionBatch'
 
 /**
  * Agent retrieval and section editing routes (docs/adr/0926-0930). Used by the MCP tools
@@ -43,6 +40,7 @@ import { liveWorkspace } from '../workspaceLive'
  *   GET  /pages/:id/section?ref&maxChars       one section as Markdown (+ version)
  *   GET  /pages/read?ids=a,b&budget            several pages as Markdown within a budget
  *   POST /pages/:id/section                    patch one section (replace/append/prepend/insert_after/delete)
+ *   POST /pages/:id/sections                   several section patches, all or nothing (routes/sectionBatch.ts)
  */
 
 const contextQuerySchema = z.object({
@@ -66,6 +64,12 @@ const readQuerySchema = z.object({
     .transform((s) => [...new Set(s.split(',').map((x) => x.trim()).filter(Boolean))])
     .pipe(z.array(z.uuid()).min(1).max(READ_PAGES_MAX)),
   budget: z.coerce.number().int().min(200).max(READ_PAGES_MAX_BUDGET).optional(),
+  // "id:version,…" the caller already has (docs/adr/1540-*): such pages come back as `unchanged`
+  known: z
+    .string()
+    .max(READ_PAGES_MAX * 60)
+    .optional()
+    .transform((s) => new Map((s ?? '').split(',').map((x) => x.trim().split(':')).filter((kv) => kv.length === 2 && kv[0] && kv[1]) as [string, string][])),
 })
 
 const patchBodySchema = z.object({
@@ -73,6 +77,8 @@ const patchBodySchema = z.object({
   markdown: z.string().max(1_000_000).default(''),
   mode: z.enum(['replace', 'append', 'prepend', 'insert_after', 'delete']),
   baseVersion: z.string().trim().max(64).optional(),
+  /** Leave the change as a suggestion for a person to accept (docs/adr/1531-*). */
+  suggest: z.boolean().optional(),
 })
 
 /** The visible + member page, or 404 (same guard as export). */
@@ -93,54 +99,29 @@ function outlineOf(sections: OutlineSection[]) {
   }))
 }
 
-async function sectionMarkdown(blocks: AnyBlock[], s: Section): Promise<string> {
-  const { markdown } = await blocksToMarkdown(blocks.slice(s.start, s.end), { assetMode: 'absolute', notation: 'agent' })
-  return markdown.trim()
+/** `{ claims }` for an outline answer when the page has live claims, else nothing. */
+async function claimsField(pageId: string, user: AuthUser): Promise<{ claims?: SectionClaimDTO[] }> {
+  const claims = await pageClaims(pageId, user)
+  return claims.length ? { claims } : {}
 }
 
-/** The renamed section's new anchor, or the error for a miss (docs/adr/1501-*). */
-async function movedOrThrow(pageId: string, ref: string, sections: { anchor: string }[]): Promise<string> {
-  const moved = await resolveMovedSection(pageId, ref, sections.map((s) => s.anchor))
-  if (moved.status === 'moved') return moved.anchor
-  if (moved.status === 'ambiguous') {
-    return Promise.reject(
-      new AppError(
-        409,
-        'SECTION_AMBIGUOUS',
-        `Section "${ref}" was renamed and now matches several sections: ${moved.anchors.join(', ')}. Use one of these anchors.`,
-      ),
-    )
-  }
-  return Promise.reject(sectionNotFound(ref, sections))
-}
-
-function sectionNotFound(ref: string, sections: { anchor: string }[]): AppError {
-  const list = sections.slice(0, 30).map((s) => s.anchor).join(', ')
-  return new AppError(
-    404,
-    'SECTION_NOT_FOUND',
-    `Section "${ref}" not found. Available anchors: ${list || '(none: the page has no headings)'}`,
-  )
+/** `{ claim }` for a section answer when that section is claimed, else nothing. */
+async function claimField(pageId: string, user: AuthUser, s: { anchor: string; blockId: string | null }): Promise<{ claim?: SectionClaimDTO }> {
+  const claims = await pageClaims(pageId, user)
+  const c = claims.length ? claimOf(claims, s) : null
+  return c ? { claim: c } : {}
 }
 
 // Section patch (Yjs): context/sectionPatch.ts (docs/adr/0930-*, 0940-*).
 export type { PatchMode, PatchOutcome } from '../context/sectionPatch'
 
-/** "Before AI edit" snapshots for destructive section patches: at most one per page per 2 minutes. */
-const PATCH_SNAPSHOT_WINDOW_MS = 2 * 60_000
-
 export async function registerContextRoutes(app: FastifyInstance): Promise<void> {
   app.get('/context', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const { q, workspaceId, budget } = contextQuerySchema.parse(req.query)
-    let workspaceIds: string[]
-    if (workspaceId) {
-      await requireMembership(workspaceId, user.id)
-      workspaceIds = [workspaceId]
-    } else {
-      workspaceIds = await memberWorkspaceIds(user.id)
-    }
-    return findContext({ userId: user.id, query: q, workspaceIds, budget: budget ?? DEFAULT_BUDGET })
+    if (workspaceId) await requireMembership(workspaceId, user.id)
+    // Same workspaces and permission filter as before, through the result cache (docs/adr/1550-*).
+    return cachedFindContext(user.id, q, workspaceId ?? null, budget ?? DEFAULT_BUDGET)
   })
 
   app.get('/pages/:id/outline', { preHandler: requireUser }, async (req) => {
@@ -155,6 +136,8 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       page: { id: page.id, title: page.title, kind: page.kind, workspaceId: page.workspaceId, updatedAt: page.updatedAt.toISOString() },
       sections: outlineOf(sections),
       tokens: sections.reduce((n, s) => n + s.tokens, 0),
+      // Live section claims (docs/adr/1535-*), only when there are any
+      ...(await claimsField(page.id, user)),
     }
   })
 
@@ -181,6 +164,8 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       page: { id: page.id, title: page.title, workspaceId: page.workspaceId },
       section: { anchor: s.anchor, headingPath: joinPath(s.headingPath), level: s.level, version: s.version },
       ...(movedFrom ? { movedFrom } : {}),
+      // A live claim on this section (docs/adr/1535-*)
+      ...(await claimField(page.id, user, s)),
       markdown,
       truncated,
       totalChars,
@@ -189,11 +174,11 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
 
   app.get('/pages/read', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
-    const { ids, budget: b } = readQuerySchema.parse(req.query)
+    const { ids, budget: b, known } = readQuerySchema.parse(req.query)
     const budget = b ?? READ_PAGES_DEFAULT_BUDGET
     // One query: visible, live, in a live workspace the user belongs to.
     const rows = await db
-      .select(pageColumns)
+      .select({ ...pageColumns, properties: pages.properties })
       .from(pages)
       .where(
         and(
@@ -221,29 +206,45 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       markdown: string
       tokens: number
       truncated: boolean
+      version: string
     }[] = []
     const omitted: { id: string; title: string; reason: string }[] = []
     const missing: string[] = []
+    // Pages whose version equals the caller's `known` one: no body, no budget (docs/adr/1540-*).
+    const unchanged: { id: string; title: string; kind: string; updatedAt: string; version: string }[] = []
+    const readBody = async (page: (typeof rows)[number]): Promise<string> => {
+      if (page.kind === 'doc') {
+        const live = liveDocState(page.id)
+        const st = live ?? stateById.get(page.id)
+        return st ? (await blocksToMarkdown(stateToBlocks(st), { assetMode: 'absolute', notation: 'agent' })).markdown : ''
+      }
+      if (page.kind === 'canvas') return (await exportPageCanvas(page, user.id)).body
+      // agent notation as read_page's export (docs/adr/1500-*), so both print the same page version (1540)
+      return stripFrontmatter((await exportPageMd(page, user.id, 'agent')).body)
+    }
     for (const id of ids) {
       const page = byId.get(id)
       if (!page) {
         missing.push(id)
         continue
       }
+      // A known page is read first: when it is unchanged it costs nothing, wherever it is in the list.
+      let body: string | null = null
+      let version: string | null = null
+      if (known.has(id)) {
+        body = await readBody(page)
+        version = pageVersion({ kind: page.kind, title: page.title, properties: agentProperties(page.properties), body })
+        if (version === known.get(id)) {
+          unchanged.push({ id, title: page.title, kind: page.kind, updatedAt: page.updatedAt.toISOString(), version })
+          continue
+        }
+      }
       if (left < 120) {
         omitted.push({ id, title: page.title, reason: 'budget' })
         continue
       }
-      let body: string
-      if (page.kind === 'doc') {
-        const live = liveDocState(id)
-        const st = live ?? stateById.get(id)
-        body = st ? (await blocksToMarkdown(stateToBlocks(st), { assetMode: 'absolute', notation: 'agent' })).markdown : ''
-      } else if (page.kind === 'canvas') {
-        body = (await exportPageCanvas(page, user.id)).body
-      } else {
-        body = stripFrontmatter((await exportPageMd(page, user.id)).body)
-      }
+      body ??= await readBody(page)
+      version ??= pageVersion({ kind: page.kind, title: page.title, properties: agentProperties(page.properties), body })
       const header = 30
       const { text, truncated } = truncateToTokens(body.trim(), left - header)
       const tokens = estimateTokens(text) + header
@@ -257,9 +258,10 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
         markdown: text,
         tokens,
         truncated,
+        version,
       })
     }
-    return { pages: out, omitted, missing, budget, usedTokens: budget - left }
+    return { pages: out, ...(known.size ? { unchanged } : {}), omitted, missing, budget, usedTokens: budget - left }
   })
 
   app.post(
@@ -273,108 +275,20 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       // Role + access version, kept for the write gate below (docs/adr/1071-*, 1150-*).
       const access = await pageAccess(db, id, user.id)
       if (!access) throw notFound()
-      await assertPageEditable(id, user.id, { role: access.role, acl: access.acl })
+      // The edit check, or a suggestion instead (suggest=true, or a "suggestions only" lock for
+      // agents), and other connections' section claims (docs/adr/1531-*, 1532-*, 1536-*).
+      const suggestion = await suggestOrCheck(user, page, access, { ref: body.ref, markdown: body.markdown, mode: body.mode, baseVersion: body.baseVersion, suggest: body.suggest })
+      if (suggestion) return reply.code(202).send({ suggestion })
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable sections')
 
-      const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
-      // Mention chips already in the page may be kept or moved, not created (docs/adr/1500-*).
-      const notation = { mentions: await pageMentionKeys(id, body.markdown) }
-      const incoming = body.mode === 'delete' ? [] : await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle, undefined, notation)
-      // Full convertibility check on a throwaway doc before touching the live one.
-      if (incoming.length) blocksToStateBuffer(incoming)
-
-      if (body.mode === 'replace' || body.mode === 'delete') {
-        const recent = await db
-          .select({ id: pageSnapshots.id })
-          .from(pageSnapshots)
-          .where(
-            and(
-              eq(pageSnapshots.pageId, id),
-              inArray(pageSnapshots.label, ['Before AI edit', 'AI 편집 전']),
-              gt(pageSnapshots.createdAt, new Date(Date.now() - PATCH_SNAPSHOT_WINDOW_MS)),
-            ),
-          )
-          .orderBy(desc(pageSnapshots.createdAt))
-          .limit(1)
-        if (recent.length === 0) {
-          const before = await currentSnapshotSource(id)
-          if (before) {
-            const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집 전' : 'Before AI edit'
-            await createSnapshot(id, before, label, user.id, user.via ?? null)
-          }
-        }
-      }
-
-      const attempt = async (ref: string): Promise<PatchOutcome> => {
-        // What the agent saw of each block (Markdown round trip), so untouched blocks stay untouched.
-        // Computed before the synchronous patch; blocks that changed in between are simply diffed.
-        let echo: EchoIndex | null = null
-        if (body.mode === 'replace') {
-          const r = await readSectionBlocks(id, ref)
-          if (r.found) echo = await buildEchoIndex(r.blocks, resolveTitle, notation, incoming)
-        }
-        let outcome: PatchOutcome | null = null
-        await withEditActor([id], actorOf(user), async () => {
-          const conn = await hocuspocus.openDirectConnection(id)
-          try {
-            // The patch is applied under the write gate (docs/adr/1150-*); the store runs after it.
-            const gate = pageEditGate(id, page.workspaceId, user.id, access)
-            await gatedTransact(conn, (doc) => {
-              outcome = applySectionPatch(doc, ref, incoming, body.mode, body.baseVersion, echo)
-            }, gate)
-          } finally {
-            await conn.disconnect()
-          }
-        })
-        const out = outcome as PatchOutcome | null
-        if (!out) throw new AppError(500, 'INTERNAL', 'Patch did not run')
-        return out
-      }
-      let res = await attempt(body.ref)
-      // An anchor from before a heading rename patches the section under its new anchor (docs/adr/1501-*).
-      // Nothing was written by the missed attempt; the version check still applies to the section found.
-      let movedFrom: string | undefined
-      if (res.status === 'not_found') {
-        const anchor = await movedOrThrow(id, body.ref, res.sections)
-        res = await attempt(anchor)
-        if (res.status === 'not_found') throw sectionNotFound(body.ref, res.sections)
-        movedFrom = body.ref
-      }
-      // Non-destructive agent patches leave no "Before" snapshot: mark them in history like an
-      // update_page append (throttled "AI edit" snapshot, docs/adr/0936-*).
-      if (res.status === 'ok' && user.via && body.mode !== 'replace' && body.mode !== 'delete' && !(await hasRecentAgentSnapshot(id))) {
-        const state = await currentSnapshotSource(id)
-        if (state) {
-          const label = (await requestLocale(req, user.id)) === 'ko' ? 'AI 편집' : 'AI edit'
-          await createSnapshot(id, state, label, user.id, user.via)
-        }
-      }
-      if (res.status === 'conflict') {
-        const markdown = await sectionMarkdown(res.blocks, res.section)
-        return reply.code(409).send({
-          error: {
-            code: 'SECTION_CONFLICT',
-            message: movedFrom
-              ? `Section "${movedFrom}" was renamed to "${res.section.anchor}" (its version includes the heading, so it changed since baseVersion ${body.baseVersion}); nothing was written. Check the current content and retry with section "${res.section.anchor}" and baseVersion ${res.section.version}.`
-              : `Section "${res.section.anchor}" changed since baseVersion ${body.baseVersion}; nothing was written. Merge your edit into the current content and retry with baseVersion ${res.section.version}.`,
-            ...(movedFrom ? { movedFrom } : {}),
-            current: {
-              anchor: res.section.anchor,
-              headingPath: joinPath(res.section.headingPath),
-              version: res.section.version,
-              markdown,
-            },
-          },
-        })
-      }
-      return {
-        ok: true,
-        section: res.section
-          ? { anchor: res.section.anchor, headingPath: joinPath(res.section.headingPath), version: res.section.version }
-          : null,
-        ...(movedFrom ? { movedFrom } : {}),
-        sections: res.sections.length,
-      }
+      // The patch itself (snapshot, echo, gate, rename follow-up, conflict) is shared with
+      // accepting a suggestion (context/sectionWrite.ts, docs/adr/1533-*).
+      const r = await patchSectionAs(user, page, access, body, () => requestLocale(req, user.id))
+      if (r.status === 409) return reply.code(409).send(r.body)
+      return r.body
     },
   )
+
+  // POST /pages/:id/sections — several section patches, all or nothing (docs/adr/1542-*)
+  await registerSectionBatchRoutes(app)
 }

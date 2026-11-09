@@ -152,6 +152,7 @@ export const AUDIT_ACTIONS = [
   'page.access_removed',
   'page.guest_invited',
   'guests.removed',
+  'agent_policy.changed',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
@@ -195,6 +196,21 @@ export interface AgentConnectionDTO {
   lastUsedAt: string
   /** A block rule in this workspace matches this connection. */
   blocked: boolean
+  /**
+   * Calls of this connection that reached this workspace since the server started (docs/adr/1552-*):
+   * numbers only; null when it made none since then.
+   */
+  usage?: AgentConnectionUsageDTO | null
+}
+
+export interface AgentConnectionUsageDTO {
+  calls: number
+  errors: number
+  /** Estimated tokens returned by those calls. */
+  tokens: number
+  /** Answered from the find_context cache (docs/adr/1550-*). */
+  cacheHits: number
+  lastUsedAt: string
 }
 
 export interface AgentBlockDTO {

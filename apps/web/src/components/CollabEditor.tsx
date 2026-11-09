@@ -3,12 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Y from 'yjs'
 import type { HocuspocusProvider } from '@hocuspocus/provider'
-import {
-  BlockNoteSchema,
-  type BlockNoteEditor,
-  defaultBlockSpecs,
-  defaultInlineContentSpecs,
-} from '@blocknote/core'
+import { BlockNoteSchema, type BlockNoteEditor } from '@blocknote/core'
 import { en as bnEn, ko as bnKo } from '@blocknote/core/locales'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -22,13 +17,9 @@ import { pinAnchor } from '../lib/pinAnchor'
 import { revealBlock } from '../lib/headingFolds'
 import { inklingShortcuts, useEditorPaletteCommands } from '../lib/shortcuts/editorKeys'
 import { useTheme } from '../lib/theme'
-import { pageEmbedSpec } from './blocks/PageEmbed'
-import { mentionSpec } from './blocks/Mention'
-import { calloutSpec } from './blocks/Callout'
+import { editorSchemaSpecs, pageEmbedSpec } from './blocks/PageEmbed'
 import { QueryBlockPortals, queryCodeBlockSpec } from './blocks/QueryBlock'
-import { handleUrlPaste, linkEmbedSpec } from './blocks/LinkEmbed'
-import { pluginBlockSpec } from '../plugins/PluginBlock'
-import { inlineMathSpec, mathBlockSpec } from './blocks/Math'
+import { handleUrlPaste } from './blocks/LinkEmbed'
 import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
 import { MentionMenu } from './MentionMenu'
@@ -59,34 +50,13 @@ export type CollabState = {
   scope?: string
 }
 
-// Code block highlighting is injected via the schema, not an editor option (Appendix A).
-const schema = BlockNoteSchema.create({
-  blockSpecs: {
-    ...defaultBlockSpecs,
-    // Code block + Query block (language `dataview` renders live results — docs/QUERY.md)
-    codeBlock: queryCodeBlockSpec,
-    // Page embed `![[...]]` (M12). Callout, plugin block, link embed and mention below share their
-    // configs with the server schema (@inkling/shared, docs/adr/1500-*), so server reads keep them.
-    pageEmbed: pageEmbedSpec,
-    // Callout (M14). Markdown: `> [!type] text` (docs/adr/1500-*).
-    callout: calloutSpec,
-    // Plugin API v0 placeholder block — always registered so plugin block data survives even
-    // when plugins are off (renders an inert card). See apps/web/src/plugins/PluginBlock.tsx.
-    pluginBlock: pluginBlockSpec,
-    // Link embed / preview card (YouTube, Figma, … or OG card). docs/adr/0501-*, 0502-*
-    linkEmbed: linkEmbedSpec,
-    // Display equation (KaTeX). Also in the server schema (same config from @inkling/shared), so
-    // server reads keep it and Markdown writes it as $$…$$ (docs/adr/0995-*, 0996-*).
-    math: mathBlockSpec,
-  },
-  // @mention inline (M13), in the server schema too (docs/adr/1500-*).
-  inlineContentSpecs: {
-    ...defaultInlineContentSpecs,
-    mention: mentionSpec,
-    // Inline equation `$…$`, known to the server schema like the math block.
-    inlineMath: inlineMathSpec,
-  },
-})
+// One spec list for this schema and the page-embed viewer's (editorSchemaSpecs, docs/adr/1539-*):
+// the custom nodes share their configs with the server schema (@inkling/shared, docs/adr/1500-*),
+// so server reads keep them. Here pageEmbed renders the target body and code blocks in language
+// `dataview` render live query results (docs/QUERY.md).
+const schema = BlockNoteSchema.create(
+  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: queryCodeBlockSpec }),
+)
 
 export function CollabEditor({
   pageId,

@@ -56,6 +56,9 @@ export function countJsonValues(buf: Buffer, limit = Infinity): number {
  */
 export function registerMcpJsonParser(scope: FastifyInstance): void {
   const parse = scope.getDefaultJsonParser('error', 'error')
+  // The root app has its own JSON parser (index.ts, empty bodies): replace it in this scope only,
+  // or Fastify refuses the second one and the server does not boot (FST_ERR_CTP_ALREADY_PRESENT).
+  if (scope.hasContentTypeParser('application/json')) scope.removeContentTypeParser('application/json')
   scope.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req: FastifyRequest, body: Buffer, done) => {
     if (countJsonValues(body, MCP_MAX_JSON_VALUES) > MCP_MAX_JSON_VALUES) {
       done(

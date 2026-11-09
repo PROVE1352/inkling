@@ -25,18 +25,19 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 
 | Tool | Kind | Description |
 |---|---|---|
-| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant" |
-| `read_page` | read | A page as Markdown. `outline=true` lists sections (`§anchor`, ~tokens, `v=`), `section=<anchor or heading>` reads one, `maxChars` caps the body |
-| `read_pages` | read | Up to 20 pages in one call within a budget (default 8,000) |
+| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant". The same question from the same person within a few minutes is answered from a server-side cache that any edit, permission change or reindex in the searched workspaces invalidates; never shared between people ([ADR 1550](adr/1550-find-context-result-cache.md)) |
+| `read_page` | read | A page as Markdown. `outline=true` lists sections (`§anchor`, ~tokens, `v=`), `section=<anchor or heading>` reads one, `maxChars` caps the body. The header has the page `version`; `known=<version>` answers an unchanged page (or section, with `section=`) with one `unchanged` line, `knownSections={anchor: v}` returns only changed, new and removed sections ([ADR 1540](adr/1540-known-versions-and-unchanged-reads.md)). `pageId` may be an 8-character short id |
+| `read_pages` | read | Up to 20 pages in one call within a budget (default 8,000); each page line has `v=`; `known={pageId: v}` turns unchanged pages into one line each that uses no budget |
 | `list_workspaces` | read | Your workspaces |
-| `list_pages` | read | Page tree; `depth` limits levels, `format: "lines"` is compact (default `json`, the legacy shape) |
-| `search` | read | Substring search of titles and bodies; `format: "lines"` is compact (default `json`) |
-| `changes_since` | read | What changed since a cursor: per-section `-`/`+` diffs, added/removed/renamed/moved sections, page renames/moves/trash/visibility, "by <user> via <client>". `detail`: `none`/`diff` (default)/`full`; `budget` default 3,000, max 12,000. No cursor = start tracking. The cursor is always the last line |
+| `list_pages` | read | Page tree; `depth` limits levels, `format: "lines"` is one line per page, `format: "compact"` the fewest tokens (8-character ids, numbered/dated siblings folded into one line, [ADR 1541](adr/1541-compact-lists-and-short-page-ids.md)); default `json`, the legacy shape. `parentId` may be a short id |
+| `search` | read | Substring search of titles and bodies; `format: "lines"` or `"compact"` (8-character ids) print one line per result (default `json`) |
+| `changes_since` | read | What changed since a cursor: per-section `-`/`+` diffs, added/removed/renamed/moved sections, page renames/moves/trash/visibility, "by <user> via <client>". `detail`: `none`/`diff` (default)/`full`; `budget` default 3,000, max 12,000. No cursor = start tracking. The cursor is always the last line. `wait` (seconds, max 25, with a cursor): when nothing changed yet, the call waits and returns as soon as something changes in your workspaces, or empty at the end ([ADR 1551](adr/1551-changes-since-long-poll.md)) |
 | `query_rows` | read | Filter/sort/page a collection's rows by property name (`Status = Done AND Due < today`); one line per row `rowId \| version \| Title \| …`; `describe=true` for the schema |
 | `list_templates` | read | Templates you can use in a workspace, with their input questions |
 | `get_instructions` | read | The workspace's rules for agents from locked instruction pages: `always` ones in full, the ones matching `forPageId` (nearest first), a list of `manual` ones. Call once per workspace |
-| `patch_section` | write | Change one section (`replace`/`append`/`prepend`/`insert_after`/`delete`) with `baseVersion`; a stale version returns a conflict with the current text |
-| `update_page` | write | Append to / replace the whole body (replace keeps a "Before AI edit" snapshot). Prefer `patch_section`. On a page that splits itself, `append` goes to its current subpage and the output says which |
+| `patch_section` | write | Change one section (`replace`/`append`/`prepend`/`insert_after`/`delete`) with `baseVersion`; a stale version returns a conflict with the current text. An anchor from before a heading rename still works: the output adds `moved_to: §new-anchor`; with an old `baseVersion` you get a conflict naming the new anchor and version (the version includes the heading, [ADR 1501](adr/1501-old-section-anchors-follow-heading-renames.md)). `suggest=true` writes nothing and leaves the change as a suggestion for a person ([ADR 1531](adr/1531-suggest-is-a-flag-next-to-mode.md)); the workspace's agent edit policy or the page's lock can make that the rule, and the answer says what happened (see "Suggestions, edit policy and claims" below). A section another connection claimed answers `SECTION_CLAIMED` |
+| `patch_sections` | write | Up to 20 `patch_section` edits on one page in one call, all or nothing: any stale `baseVersion`, unknown or claimed section, or a section named twice writes nothing and lists every problem with the current text ([ADR 1542](adr/1542-patch-sections-all-or-nothing.md)). With `suggest=true`, or where the policy or lock turns agent edits into suggestions, every edit becomes a suggestion for its section, all made together or none, with one approval request ([ADR 1538](adr/1538-patch-sections-makes-suggestions-together.md)) |
+| `update_page` | write | Append to / replace the whole body (replace keeps a "Before AI edit" snapshot and edits the page minimally: blocks you send back unchanged keep their ids, comments and formatting, [ADR 1500](adr/1500-agent-markdown-notation-for-custom-nodes.md)). Prefer `patch_section`. On a page that splits itself, `append` goes to its current subpage and the output says which. Where agent edits become suggestions, the whole-page change is one suggestion that always waits for a person; `replace` is refused with `SECTION_CLAIMED` while another connection claims a section of the page |
 | `split_page` | write | Split a long page into subpages at its headings (`level`, default 2); `dry_run=true` lists the sections first. Block ids, comments and links into the page keep working |
 | `create_page` | write | New page from Markdown (`[[Title]]` becomes a wiki link) |
 | `import_folder` | write | Many Markdown files at once, keeping folders |
@@ -48,10 +49,14 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 | `add_comment` | write | Start a comment thread; `section` anchors it to that section's heading (`text`, or the older `body`) |
 | `list_comments` | read | Threads of a page, one line each (`t:<id> \| §section \| open/resolved \| author (via client) \| replies`) plus the text as untrusted data; `section`, `status` = open (default) / resolved / all |
 | `reply_comment` / `resolve_comment` | write | Reply in a thread; resolve (or reopen) a thread — agents may resolve only threads their person started |
-| `inbox` | read | Mentions, replies, comments on your person's pages and assignments, not yet acknowledged, after `cursor`; one line each with `can: edit/comment/read`; cursor on the last line. `kinds`, `budget` (default 2,000) |
+| `inbox` | read | Mentions, replies, comments on your person's pages, assignments and `approval_result` (a person accepted or rejected one of your suggestions, [ADR 1534](adr/1534-approval-request-and-result-notifications.md)), not yet acknowledged, after `cursor`; one line each with `can: edit/comment/read`; cursor on the last line. `kinds`, `budget` (default 2,000) |
 | `ack` | write | Acknowledge inbox items by `ids` or up to a `cursor` (does not mark them read for the person) |
-| `catch_up` | read | **What happened while you were away**, in one call, most important first: mentions/replies/assignments for your person, tasks due within 7 days and overdue, due Later reminders, new comment threads and replies, then pages changed by others (who, via which client, how many edits, section diffs; new, trashed, moved pages), then your person's own changes. Without `since` it continues from this connection's last catch_up (else your person's last one, else 24 hours); `since` also takes a `changes_since` cursor or a time. `budget` default 4,000, max 12,000; `peek=true` keeps the marker. Acknowledges nothing; the last line is `next since:` ([ADR 1520](adr/1520-catch-up-for-agents.md)–[1522](adr/1522-catch-up-marker-without-a-schema-change.md)) |
+| `catch_up` | read | **What happened while you were away**, in one call, most important first: mentions/replies/assignments for your person, tasks due within 7 days and overdue, due Later reminders, new comment threads and replies, then pages changed by others (who, via which client, how many edits, section diffs; new, trashed, moved pages), then your person's own changes. Without `since` it continues from this connection's last catch_up (else your person's last one, else 24 hours); `since` also takes a `changes_since` cursor or a time. `budget` default 4,000, max 12,000; `peek=true` keeps the marker. Acknowledges nothing; the line before the last names the due window (`due window: up to <date>`), the last line is `next since:` ([ADR 1520](adr/1520-catch-up-for-agents.md), [1521](adr/1521-catch-up-importance-packing.md), [1537](adr/1537-catch-up-markers-table.md)) |
 | `later` | read | Your person's Later list (pages, comment threads, notifications they saved) with reminders, newest first; `state` open (default) or done; items they can no longer open are listed without a title. `budget` (default 1,500). Read-only: saving and reminders stay in the app ([ADR 1413](adr/1413-later-list-for-agents-read-only.md)) |
+| `list_suggestions` | read | Suggested edits waiting for a person. With `pageId`: the page's suggestions (open ones with their Markdown as untrusted data) and its live section claims. Without: your person's own suggestions, open and decided in the last 7 days. One line each: `id \| status \| page §section \| mode \| by (via client) \| time \| decided by … at …` ([ADR 1530](adr/1530-suggestions-are-section-rows-until-a-person-decides.md)) |
+| `withdraw_suggestion` | write | Take back one of your open suggestions. Accepting and rejecting are for people only (web app or a personal API token); there is no tool for them ([ADR 1533](adr/1533-accept-applies-on-the-current-section-after-a-warning.md)) |
+| `claim_section` | write | "Working on this section" for this connection, `minutes` default 5, max 30; claiming again extends it. Other agents' `patch_section` / `patch_sections` on that section (and `update_page` replace of the page) is refused with `SECTION_CLAIMED` until it ends; `suggest=true` still works and people are never blocked. `read_page` shows `claimed by <client> until <time>Z` ([ADR 1535](adr/1535-section-claims-in-a-table.md), [1536](adr/1536-writes-on-claimed-sections-are-refused.md)) |
+| `release_section` | write | End your claim on a section (claims also end by themselves) |
 | `create_from_template` | write | A page or page tree from a template |
 | `read_ink` | read | A page's handwriting (pen and highlighter strokes) as PNG images, drawn like the web ink layer (896 px wide sheet, y from the top of the body; strokes only, no text). Tall pages come in up to 3 images per call with `top=` to continue; `top`/`height` pick a range, `scale` 0.25–2. **Off unless the workspace turns on "Agents can read handwriting"** (owners/admins, Workspace settings › Connected agents); while off the tool says so and pages do not mention ink. When on, `read_page`/`find_context` add `ink: N strokes (read_ink to view)` to pages that have handwriting ([ADR 1510](adr/1510-agents-read-handwriting-off-by-default.md)–[1512](adr/1512-ink-marker-in-page-headers.md)) |
 | `list_versions` | read | A page's saved versions, newest first (up to 50): `id \| when \| "label" \| by <person> via <client>` |
@@ -84,7 +89,12 @@ Spend calls and tokens in this order (the server instructions say the same):
    once with **`read_pages(ids)`**. Full `read_page` and `list_pages` are for when you really need everything.
 3. **Edit** with `patch_section(pageId, section, markdown, mode, baseVersion)` using the `v=` you read. On
    `Conflict:` the result contains the section's current text and version: merge your change and retry.
-   Other sections and people typing elsewhere in the page are not affected.
+   Other sections and people typing elsewhere in the page are not affected. If the heading was renamed since you
+   read it, the old anchor still works: `read_page(section=old)` and `patch_section` answer for the section under
+   its new anchor and print `moved_to: §new`; use the new anchor from then on. `Section "x" was renamed and now
+   matches several sections: a, b` means pick one of those anchors. Several sections of one page: `patch_sections`.
+   If the answer starts with `Not written`, your edit is a suggestion waiting for a person (see "Suggestions, edit
+   policy and claims"); do not send it again as a direct edit.
 4. **Coming back after a while?** `catch_up()` gives one ranked overview (what is for your person, what is due,
    new comments, what others changed, with diffs) within a budget, and remembers where this connection left off.
    It is a briefing, not a sync: it acknowledges nothing (use `inbox`/`ack`) and may leave items out (it counts
@@ -95,6 +105,9 @@ Spend calls and tokens in this order (the server instructions say the same):
    can no longer see appear only as `removed (no longer visible)`. On `resync_required` (cursor older than the
    retention, 30 days by default): store the fresh cursor it gives first, then re-read with `list_pages` +
    `find_context`/`read_pages`.
+   To follow changes live, call `changes_since(cursor, wait=25)` in a loop instead of polling: it answers at once
+   when there is something, otherwise when a change arrives or after 25 seconds (then empty, with the next cursor).
+   If the server has too many waiting calls it answers at once with a `wait skipped:` line; call again a bit later.
 6. Collections: `query_rows(collectionId, describe=true)` for the schema, then filtered pages of rows; change
    them with `update_row(rowId, properties, baseVersion)`. Make one with `create_collection` and change its
    properties with `update_fields`.
@@ -124,8 +137,48 @@ Spend calls and tokens in this order (the server instructions say the same):
 - `$` inside code spans and fenced code is never math, and ```` ```latex ```` code blocks stay code;
 - in a table cell write `\vert` / `\Vert` instead of `|` / `\|`.
 
+**Callouts, mentions, embeds and files** ([ADR 1500](adr/1500-agent-markdown-notation-for-custom-nodes.md)): `read_page`,
+`read_pages` and conflict bodies show what plain Markdown cannot, in a form `patch_section`, `patch_sections`,
+`update_page` and `create_page` read back:
+
+- a callout is `> [!note] text` (types `note`, `tip`, `warning`, `danger`, `info`; `> [!NOTE]` from Obsidian/GitHub
+  works too);
+- a mention chip is `@[Name](user:<id>)` or `@[Title](page:<id>)`. You can keep, move or delete chips that are already
+  in the page; a new one stays plain `@Name` text (it does not notify anyone, see step 7);
+- page embeds, link embeds, plugin blocks, file and audio blocks are one line each, e.g.
+  `<!-- inkling:pageEmbed {"pageId":"…"} -->`, `<!-- inkling:file {"caption":"Q3","name":"q3.pdf","url":"/files/…"} -->`.
+
+Leave these lines as they are and the nodes stay exactly as they were; delete a line to remove the node; edit the text
+or the JSON to change it (e.g. `[!warning]` → `[!tip]`, another `pageId`); write a new line to add one (links must be
+`http(s)` or `/files/<id>`, page ids are UUIDs; an invalid token is ignored). Colors, underline and toggles are not
+shown but are kept on blocks you leave alone or edit.
+
 Errors tell you the next step (for example "page not found or not visible to you; use find_context to get a valid id").
 Token numbers in tool output are estimates (ASCII characters / 4, one per Korean/CJK character).
+
+### Suggestions, edit policy and claims
+
+- **Suggestions** ([ADR 1530](adr/1530-suggestions-are-section-rows-until-a-person-decides.md)–[1534](adr/1534-approval-request-and-result-notifications.md),
+  [1538](adr/1538-patch-sections-makes-suggestions-together.md)). `patch_section(…, suggest=true)` and
+  `patch_sections(…, suggest=true)` write nothing; the change waits as a suggestion for its section until a person
+  with edit access accepts or rejects it in the web app. The page owner gets an approval request; the decision reaches
+  your person's `inbox` as `approval_result`. `list_suggestions(pageId)` shows a page's suggestions and claims,
+  `list_suggestions()` your own; `withdraw_suggestion(id)` takes one back. A new suggestion from this connection for
+  the same section replaces the open one. There is no tool to accept or reject.
+- **Edit policy** ([ADR 1544](adr/1544-agent-edit-policy-levels.md), [1545](adr/1545-auto-accept-rules.md)). A
+  workspace can set how agents edit page bodies: edit directly (default), accept by rules, or review everything; a
+  locked page can choose its own, including "suggestions only". Then `patch_section`, `patch_sections` and
+  `update_page` make suggestions without being asked, and `can:` reads `suggest` (a person decides) or `suggest,auto`
+  (rules may accept). The answer says which happened: `Done (append): auto-accepted under the workspace rule …`
+  (written), `Not written yet: … will be auto-accepted at … unless a person rejects it`, or `Not written: kept as
+  suggestion …` with `needs review: <reason>` when the rules did not match. Rules only accept an edit while its
+  section is exactly as you read it, so send `baseVersion`. Whole-page `update_page` changes always wait for a person.
+  Renames, moves and trash follow the lock as before.
+- **Claims** ([ADR 1535](adr/1535-section-claims-in-a-table.md), [1536](adr/1536-writes-on-claimed-sections-are-refused.md)).
+  When several agents work on one page, `claim_section(pageId, section, minutes)` before a longer rewrite: other
+  connections' direct edits of that section answer `SECTION_CLAIMED` until you `release_section` or the claim ends.
+  Suggestions still go through and people are never blocked. `read_page` and the outline print `claimed by <client>
+  until <time>Z`; on `SECTION_CLAIMED`, work on another section or try later.
 
 ### Workspace instructions, locks and untrusted content
 
@@ -139,9 +192,10 @@ Token numbers in tool output are estimates (ASCII characters / 4, one per Korean
   rename or move a page add an `applies` key instead.
   find_context does not inline instruction bodies (ADR 0975).
 - **Edit lock.** A locked page and its subtree can be edited only by its owner, workspace owners/admins and listed
-  editors; a lock can also restrict agents (`comment only` / `read only`) — that applies to every member's agent,
-  owners included. Read tools print `can: read,comment[,edit]` (`- can:` in read_page, `can:` in outline/section,
-  `; can:` per find_context fragment and read_pages page). A refused write returns `PAGE_LOCKED` with who can edit;
+  editors; a lock can also set how agents work there (workspace default, edit directly, accept by rules,
+  `suggestions only`, `comment only`, `read only`) — that applies to every member's agent, owners included. Read
+  tools print `can: read,comment[,edit]`, or `read,comment,suggest[,auto]` where edits become suggestions (`- can:`
+  in read_page, `can:` in outline/section, `; can:` per find_context fragment and read_pages page). A refused write returns `PAGE_LOCKED` with who can edit;
   do not retry, move or copy the page to get around it — tell the user or leave an `add_comment` if allowed.
   Agents can never change locks: there is no tool for it and the REST route refuses bearer tokens.
 - **Page levels and guests** (ADR 1250–1253). A member may have their own level on a page tree (view, comment,
@@ -168,12 +222,37 @@ Token numbers in tool output are estimates (ASCII characters / 4, one per Korean
 - **This is a mitigation, not a permission boundary.** Detection and markers can be evaded and a model can still be
   misled. The boundaries are the edit lock, read/write scopes and per-workspace agent blocks.
 
+### Saving tokens on repeated reads
+
+Re-reading costs the most when nothing changed. Keep the versions you read and pass them back
+([ADR 1540](adr/1540-known-versions-and-unchanged-reads.md)–[1543](adr/1543-prompt-cache-audit-of-tool-lists-and-outputs.md)):
+
+- `read_page` prints `- version: 1a2b3c4d5e6f`; next time call `read_page(pageId, known="1a2b3c4d5e6f")`. Unchanged:
+  `unchanged (page <id> v=1a2b3c4d5e6f; can: read,comment,edit)`. Changed: the full page with its new version. A page
+  you may no longer see is an error as before, never "unchanged"; the `can:` part always shows the current rights.
+- With `section=…`, `known` is the section's `v=` (from find_context or the outline).
+- `read_page(pageId, knownSections={"setup": "…", "backups": "…"})` returns only the sections whose version differs,
+  new sections, and `removed: §…` for anchors that are gone.
+- `read_pages(ids, known={id: v, …})` lists unchanged pages first, one line each; they do not use the budget.
+- `list_pages(format="compact")` / `search(format="compact")` print 8-character ids and fold runs such as
+  `Weekly sync 2026-11-{03,10,17} ids: a1b2c3d4,e5f6a7b8,c9d0e1f2` (ids in the same order as the values;
+  `{1..8}` is a range). `read_page`, `read_pages`, `patch_sections` and `list_pages(parentId)` accept the short ids;
+  other tools need the full id, which `read_page` prints. An ambiguous prefix returns the candidates.
+- Several edits to one page: `patch_sections(pageId, edits=[{section, mode, markdown, baseVersion}, …])` — one call,
+  applied together or not at all.
+
+Measured on a 2,000-page workspace (docs/PERFORMANCE.md): re-reading three agents' pages that did not change,
+39,231 → 759 tokens; the full tree with `compact`, 25,256 → 10,821 tokens; a folder of 100 dated meeting notes,
+1,564 → 543 tokens.
+
 ### Prompt-cache friendly output
 
 Read tools answer with the same bytes for the same request while the documents do not change (stable ordering,
 no timestamps or request ids), and put stable parts first (page header, outline) and variable parts last.
 To reuse your model's prompt cache, read the outline or overview first and keep it at the start of your context;
-append `changes_since` diffs after it instead of re-reading pages.
+append `changes_since` diffs after it instead of re-reading pages. The tool list and server instructions are the
+same bytes for every connection of the same kind (read-only and range-limited connections add one constant
+sentence), so agents sharing a provider account share that cached prefix ([ADR 1543](adr/1543-prompt-cache-audit-of-tool-lists-and-outputs.md)).
 
 ### Access levels
 
@@ -212,7 +291,8 @@ Edits, comments and created pages made through MCP are labelled "<you> (via <app
 comments, the change feed and the activity screen; pages you create show "Written by AI (via <app name>)". A
 connection named exactly like another member of a workspace is refused in that workspace (`CLIENT_NAME_CLASH`)
 unless it is a common app name. An append by an agent adds an "AI edit" snapshot (at most one per page every 10 minutes); a
-replace keeps the "Before AI edit" snapshot.
+replace keeps the "Before AI edit" snapshot. A suggestion a person accepts is applied as that person; one accepted by
+a rule shows "<app name> · auto-accepted" in page history and activity.
 
 ## Disconnecting and API tokens
 
@@ -234,6 +314,17 @@ do not work at `/mcp`.
   `0028_agent_context` adds the section index (`page_chunks`, `page_chunk_index`), the change feed (`page_changes`)
   and `via_client` columns; existing pages are indexed by a background backfill after boot (50 pages per batch).
 - **Service worker**: `/mcp`, `/.well-known` and `/oauth/(token|register)` are excluded from the SPA fallback. `/oauth/authorize` is the SPA consent screen.
+- **Long calls**: `changes_since` with `wait` keeps a request open for up to 25 seconds without sending bytes.
+  That fits the app's 30-second socket idle timeout, Caddy's `reverse_proxy` (no response timeout by default) and
+  the 60-second default request timeout of MCP clients; a proxy in front with a shorter read timeout cuts it
+  ([ADR 1551](adr/1551-changes-since-long-poll.md)).
+- **Usage per connection**: Server status (admin page) and Workspace settings › Connected agents show calls,
+  estimated tokens returned, errors and cache hits per connection since the server started; numbers only, kept in
+  memory ([ADR 1552](adr/1552-usage-per-connection-in-memory.md)).
 - Cleanup: housekeeping (hourly) deletes expired authorization codes and connections whose refresh tokens have also expired. Expired API tokens are deleted by the same job.
 - **Migration** for ranges and API tokens: adds `range_kind`, `range_workspace_ids`, `range_page_id` to `oauth_codes` and
   `oauth_grants` (null = everything, so existing connections are unchanged) and the `api_tokens` table.
+- **Migrations in 0.12**: `0040_v012_agent_ink_setting` adds `workspaces.agent_ink_read` (off, so `read_ink` stays off
+  until an owner or admin turns it on). `0041_v012_suggestions_leases` adds `section_suggestions`, `section_leases`,
+  `agent_edit_policies` (no row = "Edit directly", as before) and `catch_up_markers`, and moves catch_up markers of
+  0.12 development builds out of `plugin_storage`.

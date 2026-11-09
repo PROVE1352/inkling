@@ -49,6 +49,8 @@ import { ShareModal } from '../components/ShareModal'
 import { PageLockModal } from '../components/PageLockModal'
 import { SuspiciousNotice } from '../components/SuspiciousNotice'
 import { LargePageNotice } from '../components/LargePageNotice'
+import { SuggestionsNotice } from '../components/SuggestionsPanel'
+import { SectionMarkers } from '../components/SectionMarkers'
 import { SplitPageModal } from '../components/SplitPageModal'
 import { PageFollowPanel } from '../components/PageFollow'
 import { usePageSubscription } from '../notificationsApi'
@@ -999,6 +1001,7 @@ export function PageView() {
                 <PageProvenanceBadge pageId={page.id} />
                 <SuspiciousNotice pageId={page.id} />
                 <LargePageNotice pageId={page.id} />
+                {!guest && <SuggestionsNotice pageId={page.id} />}
               </div>
               <CollabEditor
                 pageId={page.id}
@@ -1035,6 +1038,11 @@ export function PageView() {
 
         {isDoc && page && editor && (
           <HeadingFolds key={`folds:${page.id}`} editor={editor} pageId={page.id} containerRef={bodyRef} disabled={penMode} />
+        )}
+
+        {isDoc && page && !guest && (
+          // suggested edits and agent claims next to section headings (docs/adr/1530-*, 1535-*)
+          <SectionMarkers key={`marks:${page.id}`} pageId={page.id} editor={editor} containerRef={bodyRef} />
         )}
 
         {isDoc && page && (

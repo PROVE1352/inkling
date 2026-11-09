@@ -129,6 +129,11 @@ Esc or **Done** leaves it. **Clear** erases all ink on the page, so it asks firs
 **Clear all?** for three seconds; press again to erase. Ink is saved only after the page's ink has loaded; if it
 can't load, a message says so, and nothing you draw is saved until it does.
 
+AI agents you connect do not see your handwriting unless the workspace allows it. An owner or admin can turn on
+**Agents can read handwriting** in Workspace settings → **Connected agents**. Then an agent can ask for a picture of a
+page's pen and highlighter strokes when it needs them; it still reads the page text the usual way. It is off by
+default, and turning it off again takes effect at once.
+
 ## Databases
 
 Create one with **New database**. Each row is a page; **Open row as a page** opens it in full.
@@ -346,8 +351,11 @@ An edit lock protects a page and everything under it. Others can still read and 
 2. Turn on **Lock this page and its subpages**.
 3. Under **People**, choose **Only the owner and chosen editors** (add people with **Add editor…**) or
    **Everyone (restrict agents only)**.
-4. Under **Agents (AI via MCP)**, choose **Same as their person**, **Comment only** or **Read only**. This applies
-   to every member's agent, owners and admins included.
+4. Under **Agents (AI via MCP)**, choose **Workspace default**, **Edit directly**, **Accept by rules**,
+   **Suggestions only**, **Comment only** or **Read only**. This applies to every member's agent, owners and admins
+   included. **Workspace default** follows the workspace's [agent edit setting](#how-agents-edit);
+   **Suggestions only** turns every agent edit into a suggestion a person reviews. With **Accept by rules** the
+   dialog also shows the auto-accept rules for this page and the pages under it.
 
 Workspace owners and admins can always edit locked pages. Only they or the page owner can change a lock.
 Private pages can't be locked. Locked pages show **Locked** and are read-only for everyone else, including
@@ -408,14 +416,21 @@ A link from a page in range to a page outside shows only the link text written i
 It can:
 
 - see the workspaces you are a member of, their shared pages and your own private pages,
-- search, read pages or single sections, and follow what changed since last time,
-- create pages, edit sections, add database rows, comment, reply, and resolve threads you started,
-- move pages to the trash.
+- search, read pages or single sections, follow what changed since last time, and get a summary of what happened
+  while it was away,
+- create pages, edit sections (or only suggest an edit for you to review), add database rows and create databases,
+  comment, reply, and resolve threads you started,
+- look through a page's version history, compare two versions and bring an older one back (the version it replaces is
+  kept, so you can undo it),
+- move pages to the trash, look in the trash and restore a page from it,
+- open attachments: images and text files, and the name and size of other files such as PDFs,
+- see your handwriting, only where the workspace allows it.
 
 It can't:
 
 - see other people's private pages or workspaces you aren't in,
-- delete anything permanently (the trash keeps it),
+- delete anything permanently (the trash keeps it) or empty the trash,
+- accept or reject suggestions (people do that),
 - change edit locks, members, public links or admin settings,
 - edit a locked page unless the lock allows it.
 
@@ -430,11 +445,45 @@ pages it edited show the last AI edit. Before an AI replaces a whole page, a **B
 - **Manage connections** in Settings (or "Manage MCP connections" in the ⌘P palette) lists your apps.
   **Disconnect** stops access right away.
 - Workspace owners and admins see every member's agents in Workspace settings → **Connected agents** and can block
-  one for that workspace.
+  one for that workspace. For each agent they also see how many calls it made in this workspace, about how many
+  tokens of text it got back, how many failed and how many were answered from the cache. The numbers count from the
+  last server start; Inkling keeps only the numbers, never what was asked or returned. Server admins see the same for
+  every agent connection and API token in Admin → **Server status**.
+- If an agent follows your notes as they change, tell it to call `changes_since` with `wait`: it then waits for the
+  next change instead of asking again every few seconds.
 - AI agents receive page text marked as data, not as instructions. Pages with suspicious text show
   **Possible prompt-injection text**. This is a warning only and may be a false positive.
 
 More: [MCP.md](MCP.md).
+
+### Reviewing what agents suggest
+
+Agents can leave a change for you to review instead of writing it: when you ask them to, when the workspace is set to
+review agent edits (see below), or when the page is locked with **Suggestions only**. A line above the page says how
+many suggestions are waiting, and each section with a suggestion has a small "✎ N suggested" marker next to its
+heading. **Review** shows every suggestion as a diff against the text as it is now. **Accept** applies it as you,
+**Reject** drops it; either way the agent that made it finds the answer in its inbox. If someone changed the section
+after the agent read it, the dialog says so and asks you to confirm with **Accept anyway**. Only people who can edit
+the page can accept or reject; the page owner gets a notification for each new suggestion.
+
+When an agent is working on a section, the heading shows "Claude is working on this section". You can keep editing;
+other agents wait until it is done.
+
+### How agents edit
+
+Workspace owners and admins choose in Workspace settings → **Connected agents** → **How agents edit**:
+
+- **Edit directly** (default): agents write like their person. Every change is in the page history.
+- **Accept by rules**: agent edits become suggestions, and the ones that match your rules are accepted at once. By
+  default that is additions to the end of a section, new sections and lines under a heading, from any connection.
+  You can also allow replacing or removing sections, limit the rules to some connections, cap the size, and add a
+  wait so people can reject first. Whatever the rules say, an edit is only accepted while its section is exactly as
+  the agent read it; if someone changed it, a person decides. Changes to a whole page always wait for a person.
+- **Review everything**: every agent edit waits for a person.
+
+Edits accepted by a rule show "Accepted by rule" in the suggestions history and "… · auto-accepted" in page history
+and activity. A locked page or folder can choose its own way in the [lock dialog](#edit-lock). This setting covers
+page text; renaming, moving and deleting pages follow the lock as before.
 
 ### API tokens for scripts
 

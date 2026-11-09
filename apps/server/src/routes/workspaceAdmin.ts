@@ -59,6 +59,8 @@ import {
   requireOwner,
 } from '../workspaceAdmin'
 import { CLEARED_SHARE_LINK } from '../shareSettings'
+import { usageSince, workspaceUsageFor } from '../connectionUsage'
+import type { AgentConnectionUsageDTO } from '@inkling/shared'
 
 /**
  * Workspace settings screen API (docs/adr/0945-* .. 0952-*): settings, audit log, connected
@@ -118,6 +120,13 @@ function toAuditDTO(r: typeof workspaceAuditEvents.$inferSelect): AuditEventDTO 
     after: (r.after as Record<string, unknown> | null) ?? null,
     createdAt: r.createdAt.toISOString(),
   }
+}
+
+/** Usage of an agent connection in one workspace since start (docs/adr/1552-*), numbers only. */
+function usageHere(workspaceId: string, grantId: string): AgentConnectionUsageDTO | null {
+  const u = workspaceUsageFor(workspaceId, grantId)
+  if (!u) return null
+  return { calls: u.calls, errors: u.errors, tokens: u.tokens, cacheHits: u.cacheHits, lastUsedAt: new Date(u.lastUsedAt).toISOString() }
 }
 
 export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -389,8 +398,10 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
       firstUsedAt: r.firstUsedAt.toISOString(),
       lastUsedAt: r.lastUsedAt.toISOString(),
       blocked: isBlocked(r.userId, r.clientId),
+      usage: usageHere(id, r.grantId),
     }))
-    return { connections, blocks }
+    // Numbers since the server started, per process (docs/adr/1552-*).
+    return { connections, blocks, usageSince: usageSince().toISOString() }
   })
 
   // Block a member's agent connections here. Admins cannot block an owner's agents.

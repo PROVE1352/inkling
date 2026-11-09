@@ -15,7 +15,8 @@ import {
   type FoldPos,
 } from '../lib/headingFolds'
 import { t as tr } from '../i18n'
-import { isMod } from '../lib/platform'
+import { PLATFORM, useCommand } from '../lib/shortcuts'
+import { matchKey, toKeyEvent } from '../lib/shortcuts/keys'
 
 // Heading folds (docs/adr/1221-*, 1271-*): a ▸ to the left of a top-level heading on hover folds the
 // section under it; ⌘. / Ctrl+. folds or unfolds the section at the caret; on touch screens the arrow
@@ -149,41 +150,39 @@ export function HeadingFolds({
     return () => setFoldRevealer(null)
   }, [containerRef, update, sync])
 
-  // Browser find (⌘F / Ctrl+F) cannot see hidden text: open every fold of the page first.
+  // Browser find (⌘F / Ctrl+F) cannot see hidden text: open every fold of the page first. The key stays
+  // the browser's (not a registry command, nothing is prevented); only the matching is shared.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f' && foldedRef.current.length)
-        update([])
+      if (foldedRef.current.length && matchKey('Mod-f', toKeyEvent(e), PLATFORM)) update([])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [update])
 
-  // ⌘. / Ctrl+. (docs/adr/1271-*): fold or unfold the section the caret is in. From the section's body the
-  // caret first moves to the end of its heading, so the fold does not reopen at once (`foldsToOpen`).
-  useEffect(() => {
-    if (disabled) return
-    const onKey = (e: KeyboardEvent) => {
-      if (!isMod(e) || e.shiftKey || e.altKey || e.isComposing) return
-      if (e.code !== 'Period' && e.key !== '.') return
+  // ⌘. / Ctrl+. (docs/adr/1271-*, registry `editor.toggleFold`, keyed in the editor's keymap by
+  // lib/shortcuts/editorKeys.ts): fold or unfold the section the caret is in. From the section's body
+  // the caret first moves to the end of its heading, so the fold does not reopen at once (`foldsToOpen`).
+  useCommand(
+    'editor.toggleFold',
+    () => {
       const dom = editor.domElement
-      if (!dom || !dom.contains(document.activeElement)) return
+      if (!dom || !dom.contains(document.activeElement)) return false
       const state = editor.prosemirrorState as unknown as PMState
       const size = state.doc.nodeSize - 2
       const target = foldTarget(state.doc.resolve(Math.min(state.selection.from, size)), rootGroupOf(state.doc))
-      if (!target?.id) return
-      e.preventDefault()
+      if (!target?.id) return false
       const cur = foldedRef.current
       if (cur.includes(target.id)) {
         update(cur.filter((x) => x !== target.id))
-        return
+        return true
       }
       if (!target.inHeading) editor.setTextCursorPosition(target.id, 'end')
       update([...cur, target.id])
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [editor, update, disabled])
+      return true
+    },
+    () => !disabled,
+  )
 
   const toggle = useCallback(
     (id: string) => {

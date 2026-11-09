@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { useLayout } from '../components/AppLayout'
-import { ShortcutList } from '../components/ShortcutsModal'
+import { ShortcutSettings } from '../components/ShortcutSettings'
 import { NavButtons } from '../components/NavButtons'
 import { ThemeToggle } from '../components/ThemeToggle'
 import {
@@ -18,10 +18,11 @@ import {
   PanelLeftIcon,
   PlugIcon,
   RestoreIcon,
-  SearchIcon,
   UserIcon,
 } from '../components/Icons'
-import { ALT, MOD, NEW_PAGE_KEY, combo, isMac, isStandalone, modKey } from '../lib/platform'
+import { isMac, isStandalone } from '../lib/platform'
+import { PLATFORM, shortcutLabel } from '../lib/shortcuts'
+import { formatKey } from '../lib/shortcuts/keys'
 import {
   DEFAULT_PREFS,
   LINE_WIDTH_DEFAULT,
@@ -419,7 +420,7 @@ function FilesSection() {
       <Row
         id="newPageLocation"
         title={t('settings.newPageLocation')}
-        desc={t('settings.newPageLocationDesc', { key: NEW_PAGE_KEY })}
+        desc={t('settings.newPageLocationDesc', { key: shortcutLabel('app.newPage') ?? '' })}
         deviceOnly
         stack
       >
@@ -531,26 +532,13 @@ function ConnectionsSection() {
 
 function ShortcutsSection() {
   const t = useT()
-  const [query, setQuery] = useState('')
   return (
     <div>
-      <label className="relative mb-5 block">
-        <span className="sr-only">{t('shortcuts.search')}</span>
-        <SearchIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sub" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t('shortcuts.search')}
-          className="w-full rounded-md border border-line bg-app py-1.5 pl-8 pr-2 text-sm text-ink placeholder:text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:max-w-xs"
-        />
-      </label>
-      <ShortcutList query={query} />
+      <ShortcutSettings />
       <p className="mt-6 border-t border-line pt-3 text-xs leading-relaxed text-sub">
-        {t('settings.shortcutsNoCustom')}{' '}
         {isMac
-          ? t('settings.shortcutsMacHint', { key: modKey('N'), alt: combo(MOD, ALT, 'N') })
-          : t('settings.shortcutsWinHint', { key: NEW_PAGE_KEY })}
+          ? t('settings.shortcutsMacHint', { key: formatKey('Mod-n', PLATFORM), alt: formatKey('Mod-Alt-n', PLATFORM) })
+          : t('settings.shortcutsWinHint', { key: shortcutLabel('app.newPage') ?? '' })}
       </p>
     </div>
   )

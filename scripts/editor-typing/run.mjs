@@ -22,6 +22,11 @@
 //   math, inline-math, embed blocks with a field of their own: the text lands in that field
 //   fold-enter      ⌘./Ctrl+. folds a section, Enter at the heading end, "abcdef" Enter "ghijkl" (0850)
 //   fold-type       ⌘./Ctrl+. from the section body, then "XYZ" → appended to the heading
+//   block-move      ⌘⇧↑ / ⌘⇧↓ move the caret's block, typing lands in it (docs/adr/1401-*)
+//   heading-level   ⌘⌥1 / ⌘⌥3 / ⌘⌥0 turn the block into heading 1, heading 3, text
+//   check-toggle    ⌘L makes a to-do, ⌘Enter checks and unchecks it, ⌘Enter on text does nothing
+//   duplicate       ⌘⇧D copies the block below with a new id, the caret goes into the copy
+//   delete-block    ⌘D deletes the block, the caret goes to the next one
 // At the end the page is reloaded once and the stored document must equal the live one.
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
@@ -95,6 +100,20 @@ const docBlocks = (page) =>
       if (n.type.name === 'blockContainer') out.push(`${n.firstChild.type.name}:${n.firstChild.textContent}`)
     })
     return out
+  })
+// type:text plus the attributes the shortcut scenarios change (heading level, to-do state), and the block ids
+const docDetail = (page) =>
+  page.evaluate(() => {
+    const out = []
+    const ids = []
+    document.querySelector('.ProseMirror').editor.state.doc.descendants((n) => {
+      if (n.type.name !== 'blockContainer') return
+      ids.push(n.attrs.id)
+      const c = n.firstChild
+      const extra = c.type.name === 'heading' ? `#${c.attrs.level}` : c.type.name === 'checkListItem' ? (c.attrs.checked ? '[x]' : '[ ]') : ''
+      out.push(`${c.type.name}${extra}:${c.textContent}`)
+    })
+    return { blocks: out, uniqueIds: new Set(ids).size === ids.length }
   })
 const fieldValue = (page) => page.evaluate(() => (document.activeElement && 'value' in document.activeElement ? document.activeElement.value : null))
 async function slash(page, query, title, { click = false } = {}) {
@@ -186,6 +205,72 @@ const SCENARIOS = {
     )
     const got = await docBlocks(page)
     return got[3] === 'heading:Alpha subXYZ' && got[4] === 'paragraph:sub body' && hidden === 1 ? null : `hidden=${hidden} ${got.join(' | ')}`
+  },
+  'block-move': async (page, mod) => {
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    await page.keyboard.press(`${mod}+Shift+ArrowUp`)
+    const up = await docBlocks(page)
+    await page.keyboard.press(`${mod}+Shift+ArrowDown`)
+    await page.keyboard.press(`${mod}+Shift+ArrowDown`)
+    await page.keyboard.type('Z', { delay: 0 })
+    await page.waitForTimeout(150)
+    const got = await docBlocks(page)
+    return eq(up, ['paragraph:X', 'paragraph:Alpha', 'paragraph:Bravo']) && eq(got, ['paragraph:Alpha', 'paragraph:Bravo', 'paragraph:XZ'])
+      ? null
+      : `${up.join(' | ')} → ${got.join(' | ')}`
+  },
+  'heading-level': async (page, mod) => {
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    const steps = []
+    for (const digit of ['1', '3', '0']) {
+      await page.keyboard.press(`${mod}+Alt+Digit${digit}`)
+      await page.waitForTimeout(60)
+      steps.push((await docDetail(page)).blocks[1])
+    }
+    await page.keyboard.type('Y', { delay: 0 })
+    await page.waitForTimeout(150)
+    const got = (await docDetail(page)).blocks
+    return eq(steps, ['heading#1:X', 'heading#3:X', 'paragraph:X']) && got[1] === 'paragraph:XY' ? null : `${steps.join(' → ')} / ${got.join(' | ')}`
+  },
+  'check-toggle': async (page, mod) => {
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    const steps = []
+    for (const key of ['KeyL', 'Enter', 'Enter', 'Enter']) {
+      await page.keyboard.press(`${mod}+${key}`)
+      await page.waitForTimeout(60)
+      steps.push((await docDetail(page)).blocks[1])
+    }
+    await caretAt(page, 'Alpha')
+    await page.keyboard.press(`${mod}+Enter`)
+    await page.waitForTimeout(60)
+    const got = (await docDetail(page)).blocks
+    return eq(steps, ['checkListItem[ ]:X', 'checkListItem[x]:X', 'checkListItem[ ]:X', 'checkListItem[x]:X']) &&
+      eq(got, ['paragraph:Alpha', 'checkListItem[x]:X', 'paragraph:Bravo'])
+      ? null
+      : `${steps.join(' → ')} / ${got.join(' | ')}`
+  },
+  duplicate: async (page, mod) => {
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    await page.keyboard.press(`${mod}+Shift+KeyD`)
+    await page.keyboard.type('Q', { delay: 0 })
+    await page.waitForTimeout(150)
+    const d = await docDetail(page)
+    return eq(d.blocks, ['paragraph:Alpha', 'paragraph:X', 'paragraph:XQ', 'paragraph:Bravo']) && d.uniqueIds
+      ? null
+      : `ids unique=${d.uniqueIds} ${d.blocks.join(' | ')}`
+  },
+  'delete-block': async (page, mod) => {
+    await setDoc(page, BASEDOC)
+    await caretAt(page, 'X')
+    await page.keyboard.press(`${mod}+KeyD`)
+    await page.keyboard.type('W', { delay: 0 })
+    await page.waitForTimeout(150)
+    const got = await docBlocks(page)
+    return eq(got, ['paragraph:Alpha', 'paragraph:WBravo']) ? null : got.join(' | ')
   },
 }
 

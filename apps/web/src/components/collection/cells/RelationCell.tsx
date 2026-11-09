@@ -3,6 +3,7 @@ import type { CollectionField, RowRefDTO } from '@inkling/shared'
 import { useRowOptions } from '../../../lib/collectionApi'
 import { formatNumber } from '../../../lib/collection'
 import { CheckIcon, FileTextIcon, SearchIcon } from '../../Icons'
+import { useCellTabIndex } from '../gridContext'
 import { useCollectionRefs } from '../refsContext'
 import { S } from '../strings'
 
@@ -69,6 +70,7 @@ export function RelationCell({
   value: unknown
   onCommit: (value: unknown) => void
 }) {
+  const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -110,13 +112,16 @@ export function RelationCell({
     <div ref={ref} className="relative">
       <button
         type="button"
+        data-cell-edit
+        tabIndex={tabIndex}
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="flex min-h-[30px] w-full items-center gap-1 px-2 py-1 text-left text-sm hover:bg-hover"
       >
         <RelationChips field={field} value={value} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-64 overflow-hidden rounded-md border border-line bg-app shadow-xl">
+        <div data-cell-popup className="absolute left-0 top-full z-40 mt-1 w-64 overflow-hidden rounded-md border border-line bg-app shadow-xl">
           <div className="flex items-center gap-1.5 border-b border-line px-2 py-1.5">
             <SearchIcon size={14} className="text-sub" />
             <input

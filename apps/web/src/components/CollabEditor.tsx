@@ -20,6 +20,7 @@ import { openCollab, readStatus, readUsers, sameUsers } from '../lib/collabSocke
 import { capUndoHistory } from '../lib/undoCap'
 import { pinAnchor } from '../lib/pinAnchor'
 import { revealBlock } from '../lib/headingFolds'
+import { inklingShortcuts, useEditorPaletteCommands } from '../lib/shortcuts/editorKeys'
 import { useTheme } from '../lib/theme'
 import { pageEmbedSpec } from './blocks/PageEmbed'
 import { mentionSpec } from './blocks/Mention'
@@ -254,9 +255,13 @@ function CollabEditorBody({
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+      // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*)
+      extensions: [inklingShortcuts()],
     },
     [provider],
   )
+  // The command palette runs editor commands (headings, move, duplicate, …) on this body.
+  useEditorPaletteCommands(editor, readOnly)
 
   // Cap the Yjs undo history (docs/adr/0701-*): y-prosemirror's UndoManager keeps every
   // capture forever (and keeps deleted structs from GC) — long typing sessions grow without bound.
@@ -448,6 +453,7 @@ export function LocalDocEditor({
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+      extensions: [inklingShortcuts()],
     },
     [doc],
   )

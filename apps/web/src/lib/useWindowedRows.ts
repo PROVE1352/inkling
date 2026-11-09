@@ -23,7 +23,7 @@ export interface WindowedRange {
   printing: boolean
 }
 
-function scrollParent(el: HTMLElement | null): HTMLElement | Window {
+export function scrollParent(el: HTMLElement | null): HTMLElement | Window {
   let cur = el?.parentElement ?? null
   while (cur) {
     const oy = getComputedStyle(cur).overflowY

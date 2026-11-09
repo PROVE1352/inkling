@@ -1,5 +1,6 @@
 import type { PageMetaDTO } from '@inkling/shared'
 import { useT } from '../i18n'
+import { MenuShortcut, ariaKeys } from './MenuShortcut'
 import {
   CheckIcon,
   CanvasIcon,
@@ -104,8 +105,9 @@ export function PageRowMenu({
         </span>{' '}
         {isBookmarked ? t('rowMenu.removeFavorite') : t('rowMenu.addFavorite')}
       </button>
-      <button type="button" onClick={run(onRename)} className={item}>
+      <button type="button" onClick={run(onRename)} className={item} aria-keyshortcuts={ariaKeys('tree.rename')}>
         <EditIcon size={15} /> {t('common.rename')}
+        <MenuShortcut id="tree.rename" />
       </button>
       <button type="button" onClick={run(() => onAddChild('doc'))} className={item}>
         <PlusIcon size={15} /> {t('rowMenu.subpage')}
@@ -176,8 +178,10 @@ export function PageRowMenu({
         type="button"
         onClick={run(onDelete)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-hover"
+        aria-keyshortcuts={ariaKeys('tree.delete')}
       >
         <TrashIcon size={15} /> {t('common.delete')}
+        <MenuShortcut id="tree.delete" />
       </button>
     </>
   )

@@ -10,7 +10,8 @@ import type { InkBase } from '../../lib/inkSync'
 import { toast } from '../../lib/toast'
 import { InkToolbar } from './InkToolbar'
 import type { InkSettings } from './InkToolbar'
-import { isMod } from '../../lib/platform'
+import { useCommand } from '../../lib/shortcuts'
+import { targetKind } from '../../lib/shortcuts/keys'
 import { t } from '../../i18n'
 
 // Ink layer overlaid on the page body. Like PDF annotations it is not anchored to blocks: the body
@@ -454,21 +455,20 @@ export function InkLayer({
     markDirty()
   }, [markDirty])
 
-  // Ctrl/Cmd+Z undo — body editing is locked, so it does not conflict with the editor. Keys typed
-  // into a field (title, comment box, search) belong to that field, not to the ink.
+  // ⌘Z / Ctrl+Z (registry `ink.undo`, run by the app dispatcher) — body editing is locked, so it does
+  // not conflict with the editor. Keys typed into a field (title, comment box, search) belong to that
+  // field: the command is `inInputs: 'deny'`.
+  useCommand('ink.undo', () => {
+    undo()
+  })
+  // Esc leaves pen mode — a local dismiss key like a dialog's, not a registry command.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target instanceof HTMLElement ? e.target : null
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
-      if (isMod(e) && e.key.toLowerCase() === 'z') {
-        e.preventDefault()
-        undo()
-      }
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && targetKind(e.target) === 'none') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, onClose])
+  }, [onClose])
 
   const draftStroke =
     draft && draft.length >= 3

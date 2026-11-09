@@ -16,7 +16,8 @@ import type { PageMetaDTO, PageScope } from '@inkling/shared'
 import { useDeletePage, useDeletePages, useRestorePage, useRestorePages } from '../api'
 import { confirmTrash } from '../lib/confirm'
 import { setTreeExpandHandler } from '../lib/treeExpand'
-import { isMod, isTypingElement } from '../lib/platform'
+import { isTypingElement } from '../lib/platform'
+import { matchCommand } from '../lib/shortcuts'
 import { toast } from '../lib/toast'
 import { t } from '../i18n'
 import {
@@ -703,72 +704,54 @@ export function PageTree({
     const onContainer = e.target === e.currentTarget
     const focusTree = () => treeRef.current?.focus()
 
-    switch (e.key) {
-      case 'ArrowDown': {
+    // Keys come from the registry (tree.* in lib/shortcuts/registry.ts, docs/adr/1400-*).
+    if (matchCommand('tree.down', e)) {
+      e.preventDefault()
+      selectOne(rows[idx < 0 ? 0 : Math.min(idx + 1, rows.length - 1)].id)
+      focusTree()
+    } else if (matchCommand('tree.up', e)) {
+      e.preventDefault()
+      selectOne(rows[idx < 0 ? rows.length - 1 : Math.max(idx - 1, 0)].id)
+      focusTree()
+    } else if (matchCommand('tree.expand', e)) {
+      e.preventDefault()
+      if (!cur) {
+        selectOne(rows[0].id)
+      } else if (cur.hasChildren && !cur.expanded) {
+        expand(cur.id)
+      } else if (cur.hasChildren && cur.expanded) {
+        const child = rows[idx + 1]
+        if (child && child.parentId === cur.id) selectOne(child.id)
+      }
+      focusTree()
+    } else if (matchCommand('tree.collapse', e)) {
+      e.preventDefault()
+      if (!cur) return
+      if (cur.hasChildren && cur.expanded) toggle(cur.id)
+      else if (cur.parentId) selectOne(cur.parentId)
+      focusTree()
+    } else if (matchCommand('tree.open', e)) {
+      // If focus is on a real button (section collapse/hover action), leave it to that button's default click.
+      if (!onContainer || !cur) return
+      e.preventDefault()
+      if (cur.node.page.kind === 'folder') toggle(cur.id)
+      else navigate(`/w/${wsId}/p/${cur.id}`)
+    } else if (matchCommand('tree.rename', e)) {
+      if (!cur) return
+      e.preventDefault()
+      setRenamingId(cur.id)
+    } else if (matchCommand('tree.delete', e)) {
+      if (guest) return
+      if (multiIds.size > 1) {
         e.preventDefault()
-        selectOne(rows[idx < 0 ? 0 : Math.min(idx + 1, rows.length - 1)].id)
+        deleteSelected()
         focusTree()
-        break
-      }
-      case 'ArrowUp': {
+      } else if (cur) {
         e.preventDefault()
-        selectOne(rows[idx < 0 ? rows.length - 1 : Math.max(idx - 1, 0)].id)
+        const nextSel = nextAfterDelete(rows, idx, cur)
+        deleteNode(cur.node)
+        setSelectedId(nextSel)
         focusTree()
-        break
-      }
-      case 'ArrowRight': {
-        e.preventDefault()
-        if (!cur) {
-          selectOne(rows[0].id)
-        } else if (cur.hasChildren && !cur.expanded) {
-          expand(cur.id)
-        } else if (cur.hasChildren && cur.expanded) {
-          const child = rows[idx + 1]
-          if (child && child.parentId === cur.id) selectOne(child.id)
-        }
-        focusTree()
-        break
-      }
-      case 'ArrowLeft': {
-        e.preventDefault()
-        if (!cur) break
-        if (cur.hasChildren && cur.expanded) toggle(cur.id)
-        else if (cur.parentId) selectOne(cur.parentId)
-        focusTree()
-        break
-      }
-      case 'Enter':
-      case ' ': {
-        // If focus is on a real button (section collapse/hover action), leave it to that button's default click.
-        if (!onContainer || !cur) break
-        e.preventDefault()
-        if (cur.node.page.kind === 'folder') toggle(cur.id)
-        else navigate(`/w/${wsId}/p/${cur.id}`)
-        break
-      }
-      case 'F2': {
-        if (!cur) break
-        e.preventDefault()
-        setRenamingId(cur.id)
-        break
-      }
-      default: {
-        const mod = isMod(e)
-        const isDelete =
-          (mod && (e.key === 'Backspace' || e.key === 'Delete')) ||
-          (!mod && e.key === 'Delete')
-        if (isDelete && guest) break
-        if (isDelete && multiIds.size > 1) {
-          e.preventDefault()
-          deleteSelected()
-          focusTree()
-        } else if (isDelete && cur) {
-          e.preventDefault()
-          const nextSel = nextAfterDelete(rows, idx, cur)
-          deleteNode(cur.node)
-          setSelectedId(nextSel)
-          focusTree()
-        }
       }
     }
   }

@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { WorkspaceAvatar } from './WorkspaceAvatar'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
-import { useCreatePage, usePages, useWorkspaces } from '../api'
+import { usePages, useWorkspaces } from '../api'
 import { PageIconGlyph } from './PageIconGlyph'
-import { getTheme, setTheme, type Theme } from '../lib/theme'
-import { toISODate } from '../lib/time'
-import { useDailyNote } from '../lib/dailyNote'
-import { useNewPage } from '../lib/newPage'
-import { ALT, BACK_KEY, FORWARD_KEY, MOD, NEW_PAGE_KEY, SHIFT, combo, modKey } from '../lib/platform'
+import { getActiveEditor } from '../lib/activeEditor'
+import { SHORTCUTS, isAvailable, onCommandsChanged, runCommand, shortcutLabel, useShortcutKeys } from '../lib/shortcuts'
+import { PLATFORM } from '../lib/shortcuts'
+import { keyLabels } from '../lib/shortcuts/registry'
+import { loadRecent, rememberCommand, scoreText, searchCommands } from '../lib/shortcuts/search'
 import {
   AlarmIcon,
   ArrowLeftIcon,
@@ -16,16 +16,22 @@ import {
   CalendarDayIcon,
   CalendarIcon,
   CanvasIcon,
+  CheckIcon,
+  ClockIcon,
   ContrastIcon,
+  CopyIcon,
   DatabaseIcon,
   DiceIcon,
+  EditIcon,
   FileJumpIcon,
   FileTextIcon,
   FolderIcon,
   GraphIcon,
   HistoryIcon,
+  MessageIcon,
   PanelLeftIcon,
   PanelRightIcon,
+  PenIcon,
   PlugIcon,
   PropertiesIcon,
   RefreshIcon,
@@ -37,246 +43,211 @@ import {
   TextSearchIcon,
   TrashIcon,
 } from './Icons'
-import { useHistoryNav } from './NavButtons'
 import { usePluginCommandItems } from '../plugins/integration'
-import { requestPropsFocus } from '../lib/propsFocus'
-import type { SearchMode } from './SearchModal'
-import { useT } from '../i18n'
+import { en } from '../i18n/en'
+import { ko } from '../i18n/ko'
+import { useT, type TKey } from '../i18n'
 
 type Item = {
   key: string
+  /** Registry id for commands (recent list, availability); absent for pages, workspaces, plugins */
+  command?: string
   /** Actions use a line icon (SVG); pages/workspaces use their own emoji icon */
   icon: ReactNode
   label: string
   hint?: string
+  /** Everything the item can be found by: its name in both languages, its key */
+  texts: string[]
   run: () => void
 }
 
-const THEME_ORDER: Theme[] = ['light', 'dark', 'system']
+const icon16 = (C: (p: { size?: number }) => ReactNode) => <C size={16} />
+const COMMAND_ICONS: Record<string, ReactNode> = {
+  'app.search': icon16(SearchIcon),
+  'app.quickSwitcher': icon16(FileJumpIcon),
+  'app.fullTextSearch': icon16(TextSearchIcon),
+  'app.newPage': icon16(FileTextIcon),
+  'nav.back': icon16(ArrowLeftIcon),
+  'nav.forward': icon16(ArrowRightIcon),
+  'app.graph': icon16(GraphIcon),
+  'app.settings': icon16(SettingsIcon),
+  'app.toggleSidebar': icon16(PanelLeftIcon),
+  'app.help': <span className="text-[13px] font-semibold">?</span>,
+  'app.newFolder': icon16(FolderIcon),
+  'app.newDatabase': icon16(DatabaseIcon),
+  'app.newCanvas': icon16(CanvasIcon),
+  'app.fromTemplate': icon16(TemplateIcon),
+  'app.dailyToday': icon16(CalendarDayIcon),
+  'app.dailyYesterday': icon16(CalendarDayIcon),
+  'app.dailyTomorrow': icon16(CalendarDayIcon),
+  'app.randomPage': icon16(DiceIcon),
+  'app.due': icon16(AlarmIcon),
+  'app.tags': icon16(TagIcon),
+  'app.webShares': icon16(GlobeIcon),
+  'app.calendar': icon16(CalendarIcon),
+  'app.activity': icon16(HistoryIcon),
+  'app.later': icon16(ClockIcon),
+  'app.threads': icon16(MessageIcon),
+  'app.trash': icon16(TrashIcon),
+  'app.reload': icon16(RefreshIcon),
+  'app.cycleTheme': icon16(ContrastIcon),
+  'app.customizeSidebar': icon16(PanelLeftIcon),
+  'app.mcp': icon16(PlugIcon),
+  'page.renameTitle': icon16(EditIcon),
+  'page.properties': icon16(PropertiesIcon),
+  'page.toggleRightPanel': icon16(PanelRightIcon),
+  'page.toggleFavorite': <span className="text-[15px] leading-none">☆</span>,
+  'page.togglePen': icon16(PenIcon),
+  'page.saveForLater': icon16(ClockIcon),
+  'editor.duplicateBlock': icon16(CopyIcon),
+  'editor.deleteBlock': icon16(TrashIcon),
+  'editor.checkTodo': icon16(CheckIcon),
+  'editor.toggleCheckbox': icon16(CheckIcon),
+}
+// Editor commands without their own picture get a pilcrow, the sign for "a block of text".
+const EDITOR_GLYPH = <span className="text-[14px] leading-none">¶</span>
 
-// Global command palette (⌘P / Ctrl+P), reusing the SearchModal structure (portal + keyboard navigation).
-// A list of actions plus page shortcuts (title filter). Each action calls an existing hook or navigate.
-export function CommandPalette({
-  open,
-  onClose,
-  wsId,
-  onOpenSearch,
-  onToggleSidebar,
-  onOpenTrash,
-  onOpenTemplates,
-}: {
-  open: boolean
-  onClose: () => void
-  wsId: string
-  onOpenSearch: (q?: string, mode?: SearchMode) => void
-  onToggleSidebar: () => void
-  onOpenTrash: () => void
-  onOpenTemplates: () => void
-}) {
+const PAGE_LIMIT = 8
+
+// Command palette (⌘P / Ctrl+P, docs/adr/1402-*). Lists every registry command that can run right
+// now (lib/shortcuts/registry.ts) with its key, plus workspace switches and plugin commands, and
+// pages by title once something is typed. Search covers the English and the Korean name of each
+// command and Korean initial consonants; the commands run last come first. Keyboard only works:
+// ↑/↓ (Home/End) to move, Enter to run, Esc to close — a combobox over a listbox for screen readers.
+export function CommandPalette({ open, onClose, wsId }: { open: boolean; onClose: () => void; wsId: string }) {
   const t = useT()
   const navigate = useNavigate()
   const pages = usePages(wsId)
   const workspaces = useWorkspaces()
-  const createPage = useCreatePage(wsId)
-  const { create: newPage } = useNewPage(wsId)
-  // The action list is memoized, so read the "current page" fresh through a ref (used to place the new page)
-  const newPageRef = useRef(newPage)
-  newPageRef.current = newPage
-  const { openDaily } = useDailyNote(wsId)
-  const histNav = useHistoryNav()
+  const listId = useId()
+  // the user's keys (Settings › Shortcuts) changed: the hints and the key search follow
+  const keysVersion = useShortcutKeys()
 
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
+  const [recent, setRecent] = useState<string[]>([])
+  // availability changes when a page or an editor mounts; re-read it then
+  const [bindVersion, setBindVersion] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => onCommandsChanged(() => setBindVersion((v) => v + 1)), [])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     setSelected(0)
+    setRecent(loadRecent())
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
-  // --- Action helpers (always close the palette before running) ---
-  const runAndClose = (fn: () => void) => {
+  const runAndClose = (item: Item) => {
     onClose()
-    fn()
+    if (item.command) {
+      rememberCommand(item.command)
+      // the palette had the focus: an editor command acts on the body's caret, so give it back first
+      if (item.command.startsWith('editor.')) getActiveEditor()?.editor.focus()
+    }
+    item.run()
   }
 
-  const newInKind = (kind: 'doc' | 'folder' | 'collection' | 'canvas') => {
-    createPage.mutate(
-      { workspaceId: wsId, kind },
-      {
-        onSuccess: (page) => {
-          if (kind !== 'folder') navigate(`/w/${wsId}/p/${page.id}`)
-        },
-      },
-    )
-  }
-
-  // Daily notes: lib/dailyNote (hook shared with the sidebar and calendar). offset = ±days from today.
-  const openDailyAt = (offset: number) => {
-    const d = new Date()
-    d.setDate(d.getDate() + offset)
-    openDaily(toISODate(d))
-  }
-
-  // Random page — excludes folders and trashed pages
-  const openRandom = () => {
-    const list = (pages.data ?? []).filter((p) => !p.deletedAt && p.kind !== 'folder')
-    if (list.length === 0) return
-    const p = list[Math.floor(Math.random() * list.length)]
-    navigate(`/w/${wsId}/p/${p.id}`)
-  }
-
-  const cycleTheme = () => {
-    const next = THEME_ORDER[(THEME_ORDER.indexOf(getTheme()) + 1) % THEME_ORDER.length]
-    setTheme(next)
-  }
-
-  const actions = useMemo<Item[]>(() => {
-    const base: Item[] = [
-      { key: 'new-doc', icon: <FileTextIcon size={16} />, label: t('palette.newDoc'), hint: NEW_PAGE_KEY, run: () => newPageRef.current() },
-      { key: 'new-folder', icon: <FolderIcon size={16} />, label: t('palette.newFolder'), run: () => newInKind('folder') },
-      {
-        key: 'new-db',
-        icon: <DatabaseIcon size={16} />,
-        label: t('palette.newDatabase'),
-        run: () => newInKind('collection'),
-      },
-      { key: 'new-canvas', icon: <CanvasIcon size={16} />, label: t('palette.newCanvas'), run: () => newInKind('canvas') },
-      {
-        key: 'from-template',
-        icon: <TemplateIcon size={16} />,
-        label: t('palette.fromTemplate'),
-        run: onOpenTemplates,
-      },
-      { key: 'daily', icon: <CalendarDayIcon size={16} />, label: t('palette.dailyToday'), run: () => openDailyAt(0) },
-      { key: 'daily-prev', icon: <CalendarDayIcon size={16} />, label: t('palette.dailyYesterday'), run: () => openDailyAt(-1) },
-      { key: 'daily-next', icon: <CalendarDayIcon size={16} />, label: t('palette.dailyTomorrow'), run: () => openDailyAt(1) },
-      { key: 'random', icon: <DiceIcon size={16} />, label: t('palette.randomPage'), run: openRandom },
-      { key: 'due', icon: <AlarmIcon size={16} />, label: t('palette.due'), run: () => navigate(`/w/${wsId}/due`) },
-      { key: 'search', icon: <SearchIcon size={16} />, label: t('palette.openSearch'), hint: modKey('K'), run: () => onOpenSearch() },
-      {
-        key: 'quick-switch',
-        icon: <FileJumpIcon size={16} />,
-        label: t('palette.quickSwitcher'),
-        hint: modKey('O'),
-        run: () => onOpenSearch('', 'title'),
-      },
-      {
-        key: 'search-all',
-        icon: <TextSearchIcon size={16} />,
-        label: t('palette.fullTextSearch'),
-        hint: combo(MOD, SHIFT, 'F'),
-        run: () => onOpenSearch('', 'all'),
-      },
-      {
-        key: 'graph',
-        icon: <GraphIcon size={16} />,
-        label: t('palette.graph'),
-        hint: modKey('G'),
-        run: () => navigate(`/w/${wsId}/graph`),
-      },
-      { key: 'tags', icon: <TagIcon size={16} />, label: t('palette.tags'), run: () => navigate(`/w/${wsId}/tags`) },
-      { key: 'shared', icon: <GlobeIcon size={16} />, label: t('palette.webShares'), run: () => navigate(`/w/${wsId}/shared`) },
-      // Every sidebar menu has a command here too, so a menu hidden from the sidebar stays reachable (docs/adr/1020-*).
-      { key: 'calendar', icon: <CalendarIcon size={16} />, label: t('palette.calendar'), run: () => navigate(`/w/${wsId}/calendar`) },
-      { key: 'activity', icon: <HistoryIcon size={16} />, label: t('palette.activity'), run: () => navigate(`/w/${wsId}/activity`) },
-      { key: 'trash', icon: <TrashIcon size={16} />, label: t('palette.openTrash'), run: onOpenTrash },
-      {
-        key: 'right-panel',
-        icon: <PanelRightIcon size={16} />,
-        label: t('palette.toggleRightPanel'),
-        run: () => window.dispatchEvent(new Event('inkling:toggle-right')),
-      },
-      { key: 'props', icon: <PropertiesIcon size={16} />, label: t('palette.editProperties'), hint: modKey(';'), run: requestPropsFocus },
-      {
-        key: 'back',
-        icon: <ArrowLeftIcon size={16} />,
-        label: t('common.back'),
-        hint: BACK_KEY,
-        run: histNav.back,
-      },
-      {
-        key: 'forward',
-        icon: <ArrowRightIcon size={16} />,
-        label: t('nav.forward'),
-        hint: FORWARD_KEY,
-        run: histNav.forward,
-      },
-      { key: 'reload', icon: <RefreshIcon size={16} />, label: t('palette.reload'), run: () => window.location.reload() },
-      { key: 'theme', icon: <ContrastIcon size={16} />, label: t('palette.cycleTheme'), run: cycleTheme },
-      { key: 'sidebar', icon: <PanelLeftIcon size={16} />, label: t('palette.toggleSidebar'), hint: modKey('\\'), run: onToggleSidebar },
-      {
-        key: 'settings',
-        icon: <SettingsIcon size={16} />,
-        label: t('common.settings'),
-        hint: modKey(','),
-        run: () => navigate(`/w/${wsId}/settings`),
-      },
-      {
-        key: 'customize-sidebar',
-        icon: <PanelLeftIcon size={16} />,
-        label: t('palette.customizeSidebar'),
-        run: () => navigate(`/w/${wsId}/settings#sidebar`),
-      },
-      { key: 'mcp', icon: <PlugIcon size={16} />, label: t('palette.mcpConnections'), run: () => navigate('/settings/connections') },
-    ]
-    const wsItems: Item[] = (workspaces.data ?? [])
-      .filter((w) => w.id !== wsId)
-      .map((w) => ({
-        key: `ws-${w.id}`,
-        icon: <WorkspaceAvatar name={w.name} icon={w.icon} size={16} />,
-        label: t('palette.switchWorkspace', { name: w.name }),
-        run: () => navigate(`/w/${w.id}`),
-      }))
-    return [...base, ...wsItems]
+  const commandItems = useMemo<Item[]>(() => {
+    if (!open) return []
+    const out: Item[] = []
+    for (const def of SHORTCUTS) {
+      if (def.palette === false || !isAvailable(def.id)) continue
+      const names: TKey[] = def.paletteLabel ? [def.paletteLabel, def.label] : [def.label]
+      out.push({
+        key: def.id,
+        command: def.id,
+        icon: COMMAND_ICONS[def.id] ?? (def.scope === 'editor' ? EDITOR_GLYPH : icon16(FileTextIcon)),
+        label: t(names[0]),
+        hint: shortcutLabel(def.id),
+        texts: [
+          ...names.flatMap((k) => [(en as Record<string, string>)[k] ?? '', (ko as Record<string, string | undefined>)[k] ?? '']),
+          ...keyLabels(def.id, PLATFORM),
+        ],
+        run: () => void runCommand(def.id),
+      })
+    }
+    return out
+    // bindVersion: re-evaluate availability when handlers are bound or released
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId, workspaces.data, pages.data])
+  }, [open, bindVersion, keysVersion, t])
 
-  const q = query.trim().toLowerCase()
+  const wsItems = useMemo<Item[]>(
+    () =>
+      (workspaces.data ?? [])
+        .filter((w) => w.id !== wsId)
+        .map((w) => {
+          const label = t('palette.switchWorkspace', { name: w.name })
+          return {
+            key: `ws-${w.id}`,
+            icon: <WorkspaceAvatar name={w.name} icon={w.icon} size={16} />,
+            label,
+            texts: [label, w.name],
+            run: () => navigate(`/w/${w.id}`),
+          }
+        }),
+    [workspaces.data, wsId, navigate, t],
+  )
 
   // Plugin commands (experimental `plugins`; [] when off) are appended to the built-in actions.
-  const pluginActions = usePluginCommandItems()
-  const allActions = useMemo(() => [...actions, ...pluginActions], [actions, pluginActions])
-  const filteredActions = useMemo(
-    () => (q ? allActions.filter((a) => a.label.toLowerCase().includes(q)) : allActions),
-    [allActions, q],
+  const pluginItems = usePluginCommandItems()
+  const actions = useMemo<Item[]>(
+    () => [...commandItems, ...wsItems, ...pluginItems.map((p) => ({ ...p, texts: [p.label, p.hint ?? ''] }))],
+    [commandItems, wsItems, pluginItems],
   )
+
+  const q = query.trim()
+  const ordered = useMemo(
+    () => searchCommands(actions.map((a) => ({ ...a, id: a.command ?? a.key })), q, recent),
+    [actions, q, recent],
+  )
+  const recentCount = q ? 0 : ordered.filter((a) => a.command && recent.includes(a.command)).length
 
   const pageItems = useMemo<Item[]>(() => {
     if (!q) return []
     return (pages.data ?? [])
-      .filter((p) => !p.deletedAt && (p.title || t('common.untitled')).toLowerCase().includes(q))
-      .slice(0, 8)
-      .map((p) => ({
+      .filter((p) => !p.deletedAt)
+      .map((p) => ({ p, title: p.title || t('common.untitled') }))
+      .map((x) => ({ ...x, score: scoreText(x.title, q) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, PAGE_LIMIT)
+      .map(({ p, title }) => ({
         key: `page-${p.id}`,
         icon: <PageIconGlyph page={p} size={16} />,
-        label: p.title || t('common.untitled'),
+        label: title,
         hint: t('common.page'),
+        texts: [title],
         run: () => navigate(`/w/${wsId}/p/${p.id}`),
       }))
   }, [pages.data, q, wsId, navigate, t])
 
-  // Flat list shared by render and keyboard nav (actions first, then pages)
-  const items = useMemo(
-    () => [...filteredActions, ...pageItems],
-    [filteredActions, pageItems],
-  )
+  // Flat list shared by render and keyboard nav: recent, commands, then pages
+  const items = useMemo(() => [...ordered, ...pageItems], [ordered, pageItems])
 
   useEffect(() => {
     setSelected(0)
-  }, [items])
+  }, [q])
 
-  const go = (index: number) => {
-    const item = items[index]
-    if (!item) return
-    runAndClose(item.run)
-  }
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-index="${selected}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
 
   if (!open) return null
 
-  const actionCount = filteredActions.length
+  const optionId = (i: number) => `${listId}-opt-${i}`
+  const sections: { title: string; from: number; to: number }[] = []
+  if (recentCount > 0) sections.push({ title: t('cmd.recent'), from: 0, to: recentCount })
+  if (ordered.length > recentCount) sections.push({ title: t('cmd.commands'), from: recentCount, to: ordered.length })
+  if (pageItems.length > 0) sections.push({ title: t('common.pages'), from: ordered.length, to: items.length })
+
+  const move = (to: number) => {
+    if (items.length === 0) return
+    setSelected(Math.max(0, Math.min(items.length - 1, to)))
+  }
 
   return createPortal(
     <div
@@ -289,6 +260,7 @@ export function CommandPalette({
         role="dialog"
         aria-modal="true"
         aria-label={t('shortcuts.commandPalette')}
+        data-testid="command-palette"
         className="nd-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg sm:max-h-[70dvh] flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl"
       >
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
@@ -297,19 +269,37 @@ export function CommandPalette({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={items.length ? optionId(selected) : undefined}
+            aria-label={t('palette.placeholder')}
             onKeyDown={(e) => {
+              // Enter that ends a Korean syllable belongs to the IME
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if (e.key === 'Escape') {
                 e.preventDefault()
                 onClose()
               } else if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setSelected((s) => Math.min(s + 1, items.length - 1))
+                move(selected + 1)
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
-                setSelected((s) => Math.max(s - 1, 0))
+                move(selected - 1)
+              } else if (e.key === 'PageDown') {
+                e.preventDefault()
+                move(selected + 8)
+              } else if (e.key === 'PageUp') {
+                e.preventDefault()
+                move(selected - 8)
+              } else if ((e.key === 'Home' || e.key === 'End') && (e.ctrlKey || e.metaKey || !query)) {
+                e.preventDefault()
+                move(e.key === 'Home' ? 0 : items.length - 1)
               } else if (e.key === 'Enter') {
                 e.preventDefault()
-                go(selected)
+                const item = items[selected]
+                if (item) runAndClose(item)
               }
             }}
             placeholder={t('palette.placeholder')}
@@ -317,38 +307,49 @@ export function CommandPalette({
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div ref={listRef} id={listId} role="listbox" aria-label={t('shortcuts.commandPalette')} className="min-h-0 flex-1 overflow-y-auto py-1">
           {items.length === 0 ? (
-            <p className="px-3 py-6 text-center text-xs text-sub">{t('common.noResults')}</p>
+            <p role="presentation" className="px-3 py-6 text-center text-xs text-sub">
+              {t('common.noResults')}
+            </p>
           ) : (
-            items.map((item, i) => (
-              <div key={item.key}>
-                {actionCount > 0 && i === 0 && (
-                  <div className="px-3 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-sub">
-                    {t('palette.sectionActions')}
-                  </div>
-                )}
-                {i === actionCount && pageItems.length > 0 && (
-                  <div className="mt-1 border-t border-line px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-sub">
-                    {t('common.pages')}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onMouseEnter={() => setSelected(i)}
-                  onClick={() => go(i)}
-                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors duration-100 ${
-                    i === selected ? 'bg-active text-ink' : 'text-ink hover:bg-hover'
+            sections.map((sec, si) => (
+              <div key={sec.title} role="group" aria-labelledby={`${listId}-sec-${si}`}>
+                <div
+                  id={`${listId}-sec-${si}`}
+                  role="presentation"
+                  className={`px-3 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-sub ${
+                    si > 0 ? 'mt-1 border-t border-line pt-2' : ''
                   }`}
                 >
-                  <span className="flex w-4 shrink-0 items-center justify-center text-[15px] leading-none text-sub">
-                    {item.icon}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.hint && (
-                    <span className="shrink-0 text-xs text-sub">{item.hint}</span>
-                  )}
-                </button>
+                  {sec.title}
+                </div>
+                {items.slice(sec.from, sec.to).map((item, k) => {
+                  const i = sec.from + k
+                  return (
+                    <div
+                      key={item.key}
+                      id={optionId(i)}
+                      role="option"
+                      aria-selected={i === selected}
+                      data-index={i}
+                      data-command={item.command}
+                      onMouseMove={() => i !== selected && setSelected(i)}
+                      // keep the focus (and the caret) in the input
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => runAndClose(item)}
+                      className={`flex cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors duration-100 ${
+                        i === selected ? 'bg-active text-ink' : 'text-ink hover:bg-hover'
+                      }`}
+                    >
+                      <span className="flex w-4 shrink-0 items-center justify-center text-[15px] leading-none text-sub">
+                        {item.icon}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.hint && <span className="shrink-0 text-xs text-sub">{item.hint}</span>}
+                    </div>
+                  )
+                })}
               </div>
             ))
           )}

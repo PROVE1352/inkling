@@ -277,7 +277,6 @@ export default {
   'settings.copyUrl': '주소 복사',
   'settings.manageConnections': '연결 관리',
   'settings.shortcuts': '단축키',
-  'settings.shortcutsNoCustom': '단축키 변경은 아직 지원하지 않습니다.',
   'settings.shortcutsMacHint': '일반 브라우저 탭에서는 {key} 이 새 창으로 가로채질 수 있어 {alt} 도 함께 받습니다.',
   'settings.shortcutsWinHint': '윈도우 브라우저는 Ctrl+N 을 새 창으로 가져가므로 새 페이지는 {key} 입니다.',
   'settings.sections': '설정 분류',

@@ -277,7 +277,6 @@ export default {
   'settings.copyUrl': 'Copy URL',
   'settings.manageConnections': 'Manage connections',
   'settings.shortcuts': 'Keyboard shortcuts',
-  'settings.shortcutsNoCustom': 'Custom shortcuts are not supported yet.',
   'settings.shortcutsMacHint':
     'In a regular browser tab, {key} may be taken for a new window, so {alt} works too.',
   'settings.shortcutsWinHint': 'Windows browsers take Ctrl+N for a new window, so a new page is {key}.',

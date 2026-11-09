@@ -1,5 +1,6 @@
 import { useLocation, useNavigate, useNavigationType } from 'react-router'
-import { BACK_KEY, FORWARD_KEY, isStandalone } from '../lib/platform'
+import { isStandalone } from '../lib/platform'
+import { useShortcutKeys, withShortcut } from '../lib/shortcuts'
 import { useT } from '../i18n'
 import { ArrowLeftIcon, ArrowRightIcon } from './Icons'
 
@@ -38,6 +39,7 @@ export function useHistoryNav() {
 export function NavButtons() {
   const { canBack, canForward, back, forward } = useHistoryNav()
   const t = useT()
+  useShortcutKeys()
   if (!isStandalone()) return null
   const btn =
     'rounded-md p-1.5 text-sub transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] disabled:pointer-events-none disabled:opacity-35'
@@ -48,7 +50,7 @@ export function NavButtons() {
         onClick={back}
         disabled={!canBack}
         aria-label={t('common.back')}
-        title={`${t('common.back')} (${BACK_KEY})`}
+        title={withShortcut(t('common.back'), 'nav.back')}
         className={btn}
       >
         <ArrowLeftIcon size={17} />
@@ -58,7 +60,7 @@ export function NavButtons() {
         onClick={forward}
         disabled={!canForward}
         aria-label={t('nav.forward')}
-        title={`${t('nav.forward')} (${FORWARD_KEY})`}
+        title={withShortcut(t('nav.forward'), 'nav.forward')}
         // The phone top bar is narrow — forward is rarely used, so hide it and keep only back (Android also has system back).
         className={`${btn} max-sm:hidden`}
       >

@@ -2,7 +2,9 @@
 // Key *handling* accepts only the platform modifier via isMod(e) — ⌘ on Mac, Ctrl elsewhere (Windows etc.).
 // (It used to accept metaKey||ctrlKey, so Mac Ctrl+D/O/N/L text-editing keys and Windows Win-key combos
 // misfired as shortcuts.)
-// This module only picks the symbols to *display* for the platform.
+// This module only picks the symbols to *display* for the platform. App shortcuts themselves (keys,
+// labels, matching) live in lib/shortcuts/ (docs/adr/1400-*); these helpers remain for local hints
+// such as "⌘Enter to send" in a comment box.
 
 function detect(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -33,18 +35,6 @@ export function combo(...parts: string[]): string {
 /** Is the platform modifier pressed — ⌘ on Mac, Ctrl elsewhere. */
 export function isMod(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
   return isMac ? e.metaKey : e.ctrlKey
-}
-
-// Shortcut labels where platform conventions differ.
-//  - Back/forward: Mac ⌘⌥←/→ (Obsidian), Windows Alt+←/→ (browser/Explorer standard; Ctrl+Alt+← also works)
-//  - New page: Chrome on Windows never passes Ctrl+N to the page, so Ctrl+Alt+N is the label shown.
-export const BACK_KEY = isMac ? combo(MOD, ALT, '←') : combo(ALT, '←')
-export const FORWARD_KEY = isMac ? combo(MOD, ALT, '→') : combo(ALT, '→')
-export const NEW_PAGE_KEY = isMac ? shortcut(MOD, 'N') : combo(MOD, ALT, 'N')
-
-// Convenience: mod+key (the most common form)
-export function modKey(key: string): string {
-  return shortcut(MOD, key)
 }
 
 // Is focus in a text input/editable element — global/tree key handlers ignore keys then.

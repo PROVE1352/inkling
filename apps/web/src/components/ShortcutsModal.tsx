@@ -1,66 +1,64 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ALT, BACK_KEY, DEL, FORWARD_KEY, MOD, SHIFT, combo, isMac, modKey, shortcut } from '../lib/platform'
 import { t, useT } from '../i18n'
-import { XIcon } from './Icons'
+import { en } from '../i18n/en'
+import { ko } from '../i18n/ko'
+import { PLATFORM, SHORTCUTS, useShortcutKeys } from '../lib/shortcuts'
+import {
+  SCOPE_LABEL,
+  SCOPE_ORDER,
+  currentKeys,
+  isOverridden,
+  isRemappable,
+  keyLabels,
+  type Scope,
+  type ShortcutDef,
+} from '../lib/shortcuts/registry'
+import { scoreText } from '../lib/shortcuts/search'
+import { SearchIcon, XIcon } from './Icons'
 
-type Row = { label: string; keys: string[]; hint?: string }
-type Group = { title: string; rows: Row[] }
+export type Row = {
+  id: string
+  label: string
+  hint?: string
+  keys: string[]
+  texts: string[]
+  /** the key cannot be changed in Settings (the editor's or the browser's own) */
+  fixed: boolean
+  /** the user changed the key in Settings */
+  changed: boolean
+}
+export type Group = { scope: Scope; title: string; rows: Row[] }
 
-// All key labels come from the platform helpers — ⌘/⌫ on a Mac, Ctrl/Del elsewhere.
-// The settings screen (Settings › Shortcuts) renders the same <ShortcutList>, so editing it here updates both.
-export const shortcutGroups = (): Group[] => [
-  {
-    title: t('shortcuts.groupGlobal'),
-    rows: [
-      { label: t('common.search'), keys: [modKey('K')] },
-      { label: t('shortcuts.quickSwitcher'), keys: [modKey('O')] },
-      { label: t('shortcuts.fullTextSearch'), keys: [combo(MOD, SHIFT, 'F')] },
-      { label: t('shortcuts.commandPalette'), keys: [modKey('P')] },
-      { label: t('shortcuts.newPage'), keys: isMac ? [modKey('N'), combo(MOD, ALT, 'N')] : [combo(MOD, ALT, 'N')] },
-      { label: t('shortcuts.backForward'), keys: [BACK_KEY, FORWARD_KEY] },
-      { label: t('shortcuts.graph'), keys: [modKey('G')] },
-      { label: t('common.settings'), keys: [modKey(',')] },
-      { label: t('shortcuts.toggleSidebar'), keys: [modKey('\\')] },
-      {
-        label: t('shortcuts.deleteToTrash'),
-        keys: isMac ? [shortcut(MOD, DEL)] : [shortcut(MOD, DEL), 'Del'],
-        hint: t('shortcuts.hintTreeSelection'),
-      },
-      { label: t('shortcuts.help'), keys: ['?'] },
-    ],
-  },
-  {
-    title: t('shortcuts.groupTree'),
-    rows: [
-      { label: t('shortcuts.moveUpDown'), keys: ['↑', '↓'] },
-      { label: t('shortcuts.collapseExpand'), keys: ['←', '→'] },
-      { label: t('shortcuts.openToggle'), keys: ['Enter'] },
-      { label: t('common.rename'), keys: ['F2'] },
-      { label: t('shortcuts.contextMenu'), keys: [t('shortcuts.rightClick')] },
-    ],
-  },
-  {
-    title: t('common.page'),
-    rows: [
-      { label: t('shortcuts.renameTitle'), keys: ['F2'], hint: t('shortcuts.hintOutsideTree') },
-      { label: t('shortcuts.openProperties'), keys: [modKey(';')] },
-    ],
-  },
-  {
-    title: t('shortcuts.groupEditor'),
-    rows: [
-      { label: t('shortcuts.blockMenu'), keys: ['/'] },
-      { label: t('shortcuts.bold'), keys: [modKey('B')] },
-      { label: t('shortcuts.italic'), keys: [modKey('I')] },
-      { label: t('shortcuts.toggleCheckbox'), keys: [modKey('L')] },
-      { label: t('shortcuts.inlineMath'), keys: [combo(MOD, SHIFT, 'E'), '$…$'] },
-      { label: t('shortcuts.deleteBlock'), keys: [modKey('D')] },
-      { label: t('shortcuts.toggleFold'), keys: [modKey('.')] },
-      { label: t('shortcuts.undo'), keys: [modKey('Z')] },
-    ],
-  },
-]
+const both = (key: string) => [(en as Record<string, string>)[key] ?? '', (ko as Record<string, string | undefined>)[key] ?? '']
+
+// Built from the shortcut registry (lib/shortcuts/registry.ts, docs/adr/1403-*): every command with a
+// key now (the user's own keys included, docs/adr/1404-*), grouped by where it works. Nothing here is
+// written by hand, so the help window, Settings › Shortcuts, the menus and the palette always show the
+// same keys. `all`: also the commands without a key that Settings can give one.
+export function shortcutGroups(defs: readonly ShortcutDef[] = SHORTCUTS, { all = false }: { all?: boolean } = {}): Group[] {
+  const listed = (d: ShortcutDef) =>
+    currentKeys(d.id, PLATFORM).length > 0 || (all && (!!d.keys || (isRemappable(d) && d.palette !== false)))
+  return SCOPE_ORDER.map((scope) => ({
+    scope,
+    title: t(SCOPE_LABEL[scope]),
+    rows: defs
+      .filter((d) => d.scope === scope && listed(d))
+      .map((d) => {
+        const keys = [...keyLabels(d.id, PLATFORM), ...(d.alsoTyped ?? [])]
+        return {
+          id: d.id,
+          label: t(d.label),
+          hint: d.hint ? t(d.hint) : undefined,
+          keys,
+          // found by its name in either language, the key, and the group it is in
+          texts: [...both(d.label), ...(d.paletteLabel ? both(d.paletteLabel) : []), ...(d.hint ? both(d.hint) : []), ...keys, ...both(SCOPE_LABEL[scope])],
+          fixed: !isRemappable(d),
+          changed: isOverridden(d.id, PLATFORM),
+        }
+      }),
+  })).filter((g) => g.rows.length > 0)
+}
 
 export function Kbd({ children }: { children: string }) {
   return (
@@ -71,31 +69,34 @@ export function Kbd({ children }: { children: string }) {
 }
 
 /**
- * The shortcut table, shared by this modal (`?`) and Settings › Shortcuts. `query` keeps only the rows whose
- * label, hint or keys contain it (case-insensitive); groups left empty are dropped.
+ * The shortcut table, shared by this modal (`?`) and Settings › Shortcuts. `query` keeps the rows whose
+ * name (English or Korean, initial consonants too), key or group matches every word; groups left
+ * empty are dropped.
  */
-export function ShortcutList({ query = '' }: { query?: string }) {
-  useT()
-  const q = query.trim().toLowerCase()
-  const groups = shortcutGroups()
+/** The groups with only the rows whose texts match every word of `query`; empty groups dropped. */
+export function filterGroups(groups: Group[], query: string): Group[] {
+  const words = query.trim().split(/\s+/).filter(Boolean)
+  return groups
     .map((g) => ({
       ...g,
-      rows: q
-        ? g.rows.filter((r) =>
-            [r.label, r.hint ?? '', ...r.keys, g.title].some((s) => s.toLowerCase().includes(q)),
-          )
-        : g.rows,
+      rows: words.length ? g.rows.filter((r) => words.every((w) => r.texts.some((s) => scoreText(s, w) > 0))) : g.rows,
     }))
     .filter((g) => g.rows.length > 0)
+}
+
+export function ShortcutList({ query = '' }: { query?: string }) {
+  useT()
+  useShortcutKeys()
+  const groups = filterGroups(shortcutGroups(), query)
   if (groups.length === 0) return <p className="py-2 text-sm text-sub">{t('shortcuts.noMatch')}</p>
   return (
-    <div className="grid gap-5 sm:grid-cols-2">
+    <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
       {groups.map((g) => (
-        <div key={g.title}>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">{g.title}</div>
+        <section key={g.scope} aria-label={g.title} data-scope={g.scope}>
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">{g.title}</h3>
           <div className="flex flex-col gap-1.5">
             {g.rows.map((r) => (
-              <div key={r.label} className="flex items-center justify-between gap-2 text-sm">
+              <div key={r.id} data-shortcut={r.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0 truncate text-ink">
                   {r.label}
                   {r.hint && <span className="ml-1 text-xs text-sub">({r.hint})</span>}
@@ -108,7 +109,7 @@ export function ShortcutList({ query = '' }: { query?: string }) {
               </div>
             ))}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   )
@@ -116,8 +117,14 @@ export function ShortcutList({ query = '' }: { query?: string }) {
 
 export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   useT()
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const titleId = useId()
+
   useEffect(() => {
     if (!open) return
+    setQuery('')
+    requestAnimationFrame(() => inputRef.current?.focus())
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
@@ -129,7 +136,7 @@ export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () =
 
   return createPortal(
     <div
-      className="nd-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="nd-backdrop fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 pt-3 sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -137,11 +144,14 @@ export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () =
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={t('shortcuts.title')}
-        className="nd-dialog max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-app p-5 shadow-xl"
+        aria-labelledby={titleId}
+        data-testid="shortcuts-help"
+        className="nd-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-app shadow-xl sm:max-h-[85dvh]"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{t('shortcuts.title')}</h2>
+        <div className="flex items-center justify-between gap-2 px-5 pb-2 pt-4">
+          <h2 id={titleId} className="text-base font-semibold text-ink">
+            {t('shortcuts.title')}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -151,8 +161,27 @@ export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () =
             <XIcon size={18} />
           </button>
         </div>
-
-        <ShortcutList />
+        <div className="px-5 pb-3">
+          <label className="relative block">
+            <span className="sr-only">{t('shortcuts.search')}</span>
+            <SearchIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sub" />
+            <input
+              ref={inputRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('shortcuts.search')}
+              aria-describedby={`${titleId}-hint`}
+              className="w-full rounded-md border border-line bg-app py-1.5 pl-8 pr-2 text-sm text-ink placeholder:text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          </label>
+          <p id={`${titleId}-hint`} className="mt-1.5 text-xs text-sub">
+            {t('cmd.helpSearchHint')}
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-line px-5 pb-5 pt-4">
+          <ShortcutList query={query} />
+        </div>
       </div>
     </div>,
     document.body,

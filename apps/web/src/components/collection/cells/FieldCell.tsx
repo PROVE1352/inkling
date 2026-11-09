@@ -4,6 +4,7 @@ import { useT } from '../../../i18n'
 import { CheckIcon } from '../../Icons'
 import { FieldValue, OptionBadge } from './FieldValue'
 import { useCollectionReadOnly } from '../readOnlyContext'
+import { useCellTabIndex } from '../gridContext'
 import { RelationCell, RollupValue } from './RelationCell'
 
 const CELL_BTN =
@@ -53,6 +54,7 @@ function useOutsideClose(
 // ---------------------------------------------------------------------------
 
 function TextCell({ field, value, onCommit }: FieldCellProps) {
+  const tabIndex = useCellTabIndex()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
 
@@ -84,10 +86,13 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
       <input
         autoFocus
         type={field.type === 'number' ? 'number' : 'text'}
+        data-cell-input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
+          // Enter that ends a Korean/Japanese syllable is not "save"
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return
           if (e.key === 'Enter') {
             e.preventDefault()
             commit()
@@ -102,7 +107,7 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
   }
 
   return (
-    <button type="button" onClick={start} className={CELL_BTN}>
+    <button type="button" data-cell-edit tabIndex={tabIndex} onClick={start} className={CELL_BTN}>
       {value == null || value === '' ? (
         <span className="select-none text-transparent">·</span>
       ) : (
@@ -120,14 +125,22 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
 // ---------------------------------------------------------------------------
 
 function DateCell({ value, onCommit }: FieldCellProps) {
+  const tabIndex = useCellTabIndex()
   const [editing, setEditing] = useState(false)
   if (editing) {
     return (
       <input
         autoFocus
         type="date"
+        data-cell-input
         defaultValue={value ? String(value) : ''}
         onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            setEditing(false)
+          }
+        }}
         onChange={(e) => {
           const v = e.target.value
           onCommit(v === '' ? null : v)
@@ -137,7 +150,7 @@ function DateCell({ value, onCommit }: FieldCellProps) {
     )
   }
   return (
-    <button type="button" onClick={() => setEditing(true)} className={CELL_BTN}>
+    <button type="button" data-cell-edit tabIndex={tabIndex} onClick={() => setEditing(true)} className={CELL_BTN}>
       {value ? (
         <span className="text-ink">{String(value)}</span>
       ) : (
@@ -152,10 +165,13 @@ function DateCell({ value, onCommit }: FieldCellProps) {
 // ---------------------------------------------------------------------------
 
 function CheckboxCell({ value, onCommit }: FieldCellProps) {
+  const tabIndex = useCellTabIndex()
   return (
     <div className="flex min-h-[30px] w-full items-center px-2">
       <button
         type="button"
+        data-cell-edit
+        tabIndex={tabIndex}
         aria-pressed={!!value}
         onClick={() => onCommit(!value)}
         className={`inline-flex h-4 w-4 items-center justify-center rounded border ${
@@ -174,6 +190,7 @@ function CheckboxCell({ value, onCommit }: FieldCellProps) {
 
 function SelectCell({ field, value, onCommit, onAddOption }: FieldCellProps) {
   const t = useT()
+  const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -195,7 +212,7 @@ function SelectCell({ field, value, onCommit, onAddOption }: FieldCellProps) {
 
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
+      <button type="button" data-cell-edit tabIndex={tabIndex} aria-expanded={open} onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
         {value ? (
           <OptionBadge field={field} optionId={String(value)} />
         ) : (
@@ -203,7 +220,7 @@ function SelectCell({ field, value, onCommit, onAddOption }: FieldCellProps) {
         )}
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
+        <div data-cell-popup className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
           {!!value && (
             <button
               type="button"
@@ -264,6 +281,7 @@ function SelectCell({ field, value, onCommit, onAddOption }: FieldCellProps) {
 
 function MultiSelectCell({ field, value, onCommit, onAddOption }: FieldCellProps) {
   const t = useT()
+  const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -287,7 +305,7 @@ function MultiSelectCell({ field, value, onCommit, onAddOption }: FieldCellProps
 
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
+      <button type="button" data-cell-edit tabIndex={tabIndex} aria-expanded={open} onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
         {selected.length ? (
           <span className="flex flex-wrap gap-1">
             {selected.map((id) => (
@@ -299,7 +317,7 @@ function MultiSelectCell({ field, value, onCommit, onAddOption }: FieldCellProps
         )}
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
+        <div data-cell-popup className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
           <div className="max-h-52 overflow-y-auto">
             {options.map((o) => (
               <button
@@ -351,6 +369,7 @@ function MultiSelectCell({ field, value, onCommit, onAddOption }: FieldCellProps
 
 function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
   const t = useT()
+  const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useOutsideClose(ref, open, () => setOpen(false))
@@ -363,7 +382,7 @@ function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
 
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
+      <button type="button" data-cell-edit tabIndex={tabIndex} aria-expanded={open} onClick={() => setOpen((v) => !v)} className={CELL_BTN}>
         {value ? (
           <FieldValue field={field} value={value} members={members} />
         ) : (
@@ -371,7 +390,7 @@ function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
         )}
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
+        <div data-cell-popup className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
           {!!value && (
             <button
               type="button"

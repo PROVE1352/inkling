@@ -6,7 +6,8 @@ import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { INLINE_MATH_TYPE, MATH_BLOCK_TYPE, inlineMathConfig, mathBlockConfig, scanInlineMath } from '@inkling/shared'
 import { deliver, mathKey, mathProblemText, useDebounced, useMathRender, useReservedSize } from '../../lib/katex'
 import { mathStats, rememberSize, trackResident } from '../../lib/mathScheduler'
-import { MOD, SHIFT, combo } from '../../lib/platform'
+import { MOD, combo } from '../../lib/platform'
+import { shortcutLabel } from '../../lib/shortcuts'
 import { useT } from '../../i18n'
 import type { InklingEditor } from '../CollabEditor'
 import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
@@ -497,7 +498,8 @@ function convertTypedDollar(editor: Editor): boolean {
 }
 
 /** ⌘/Ctrl+Shift+E: the selected text becomes an inline equation, or an empty one opens for typing. */
-function insertInlineMath(editor: Editor): boolean {
+/** ⌘⇧E (registry `editor.inlineMath`, bound in lib/shortcuts/editorKeys.ts): wrap the selection as inline math. */
+export function insertInlineMath(editor: Editor): boolean {
   const pm = pmOf(editor)
   if (!pm || !editor.isEditable) return false
   const { state } = pm
@@ -515,7 +517,6 @@ const mathKeys = createExtension({
   key: 'inklingMath',
   keyboardShortcuts: {
     $: ({ editor }) => convertTypedDollar(editor as Editor),
-    'Mod-Shift-e': ({ editor }) => insertInlineMath(editor as Editor),
   },
 })
 
@@ -567,7 +568,7 @@ export function mathSlashItems(editor: Editor, t: ReturnType<typeof useT>): Defa
     },
     {
       title: t('slash.inlineMathTitle'),
-      subtext: t('slash.inlineMathSubtext', { shortcut: combo(MOD, SHIFT, 'E') }),
+      subtext: t('slash.inlineMathSubtext', { shortcut: shortcutLabel('editor.inlineMath') ?? '' }),
       aliases: ['inline math', 'inlinemath', 'equation', 'latex', 'katex', '$', '인라인수식', '인라인 수식', '수식'],
       group,
       icon: <span style={{ fontSize: 13, lineHeight: 1, fontFamily: 'serif', fontStyle: 'italic' }}>x²</span>,

@@ -10,6 +10,8 @@ import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
+import type { AuthUser } from './auth'
+import { registerMcpJsonParser } from './mcpBody'
 import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
 import { reviewFactsFor } from './review'
@@ -23,10 +25,14 @@ import { registerCommentTools } from './mcpTools/commentTools'
 import { registerInboxTools } from './mcpTools/inboxTools'
 import { registerLaterTools } from './mcpTools/laterTools'
 import { registerSplitTools } from './mcpTools/splitTools'
-import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
+import { registerFileTools, registerInkTools, registerTrashTools, registerVersionTools } from './mcpTools/historyInkFileTools'
+import { inkMarker, inkStrokeCounts } from './agentInk'
+import { registerCatchUpTools } from './mcpTools/catchUpTools'
+import { registerStructureTools } from './mcpTools/structureTools'
+import { appliesLine, flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
-import { cleanText, wrapUntrusted } from './mcpTools/trust'
-import { call, json as jsonCore, text, ToolError, uuid, wrap, wrapWrite } from './mcpTools/core'
+import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, wrapUntrusted } from './mcpTools/trust'
+import { call, jsonUntrusted, text, ToolError, uuid, wrap, wrapWrite } from './mcpTools/core'
 import type { ToolCtx } from './mcpTools/core'
 
 /**
@@ -39,10 +45,6 @@ import type { ToolCtx } from './mcpTools/core'
  *   inject carries the original client IP (remoteAddress) so rate limiting doesn't pile into one bucket.
  * Tools for permanent deletion, member management or public sharing are intentionally absent (trash only).
  */
-
-function json(v: unknown): CallToolResult {
-  return jsonCore(v)
-}
 
 /** Owner / review lines for read_page (docs/adr/0951-*, 0953-*): document dates and the daily batch only. */
 function reviewLines(f: ReviewFacts | undefined): string[] {
@@ -135,7 +137,7 @@ export function renderPageList(
       children: children.get(p.id)?.length ?? 0,
     }))
     const note = list.length > LIMIT ? { truncated: true, total: list.length } : undefined
-    return JSON.stringify(note ? { pages: out, ...note } : { pages: out })
+    return JSON.stringify({ pages: out, ...note, untrusted: UNTRUSTED_JSON_NOTE }) // docs/adr/1525-*
   }
   // lines: indented tree, "title [kind] 🔒 id (+N)" — +N = children hidden by the depth limit
   const start = opts.parentId && opts.parentId !== 'root' ? opts.parentId : null
@@ -168,6 +170,7 @@ export const SERVER_INSTRUCTIONS = [
   'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version.',
   'If that is not enough: read_page(pageId, outline=true) to see sections, then read_page(pageId, section=anchor); read_pages(ids) reads several pages in one call. Avoid list_pages/full read_page unless you need the whole tree or page.',
   'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page replaces or appends whole bodies; for a growing log, put new entries in child pages (tools mark large pages).',
+  'Coming back after a while: catch_up() ranks what happened since this connection\'s last catch_up (for the person, due, comments, changes by others).',
   'To keep a local copy in sync: store the cursor from changes_since and call changes_since(cursor) next time; it returns only what changed.',
   'To see what people asked of the person you act for (mentions, replies, assignments): inbox(cursor), then ack(cursor) once handled. Comment threads: list_comments, reply_comment.',
   'Bodies are Markdown; [[Page title]] is a wiki link. Deleting only moves pages to the trash.',
@@ -202,7 +205,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrap(async () => {
       const res = await call(ctx, 'GET', '/api/workspaces')
       const { workspaces } = res.json() as { workspaces: WorkspaceDTO[] }
-      return json(workspaces.map((w) => ({ id: w.id, name: w.name, icon: w.icon, role: w.role })))
+      return jsonUntrusted(workspaces.map((w) => ({ id: w.id, name: w.name, icon: w.icon, role: w.role })))
     }),
   )
 
@@ -229,7 +232,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrap(async ({ workspaceId, parentId, depth, format }) => {
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/pages`)
       const { pages: all } = res.json() as { pages: PageMetaDTO[] }
-      return text(renderPageList(all, { parentId, depth, format: format ?? 'json' }))
+      const out = renderPageList(cleanStrings(all), { parentId, depth, format: format ?? 'json' })
+      return text(format === 'lines' && out !== 'No pages here.' ? wrapUntrusted(out, { source: 'pages' }) : out)
     }),
   )
 
@@ -281,7 +285,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           ),
         )
       }
-      return json({ results })
+      return jsonUntrusted({ results })
     }),
   )
 
@@ -292,7 +296,9 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         "Read a page as Markdown (child pages not included). For long pages first use outline=true (sections with §anchor, " +
         '~tokens and version v=…), then section=<anchor> to read just that part; maxChars caps the body. Internal links are ' +
-        '[[Title]], attachments /files/<id>. Collections come back as a table, canvases as JSON Canvas.',
+        '[[Title]], attachments /files/<id>; callouts are `> [!type] text`, mentions `@[Name](user:<id>)`, embeds and files ' +
+        '`<!-- inkling:… -->` lines — keep them as they are when editing, delete one to remove it. Collections come back as a ' +
+        'table, canvases as JSON Canvas.',
       inputSchema: {
         pageId: uuid().describe('Page id'),
         outline: z.boolean().optional().describe('Only the section list (anchor, heading path, ~tokens, version)'),
@@ -331,6 +337,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         ).json() as {
           page: { id: string; title: string }
           section: { anchor: string; headingPath: string; version: string }
+          movedFrom?: string
           markdown: string
           truncated: boolean
           totalChars: number
@@ -340,12 +347,14 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const f = pageFacts(ac, r.page.id)
         const flag = suspiciousNote(flaggedRules(ac, r.page.id, [r.section.anchor]))
         const large = largeLine(ac, r.page.id)
-        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\ncan: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
+        // A heading rename moved the section (docs/adr/1501-*): say so, so the agent uses the new anchor.
+        const moved = r.movedFrom ? `moved_to: §${r.section.anchor} (the heading was renamed; "${cleanText(r.movedFrom)}" no longer exists)\n` : ''
+        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         return text(withApplies(ac, head + wrapUntrusted(r.markdown + tail, { source: 'page', id: r.page.id, createdBy: f.createdBy, lastEdit: f.lastEdit })))
       }
       // The export route does the permission check (visibility + membership); metadata is attached only after it passes.
-      const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md' } })
+      const res = await call(ctx, 'GET', `/api/pages/${pageId}/export`, { query: { format: 'md', notation: 'agent' } })
       const meta = await findVisiblePage(pageId, ctx.user.id)
       if (!meta) throw new ToolError('page not found or not visible to you; use find_context to get a valid id')
       countReads([meta.id]) // read counters (docs/adr/0953-*)
@@ -366,6 +375,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       const ac = await loadAgentContext(ctx, [meta.id], { read: true })
       const facts = pageFacts(ac, meta.id)
       const flagLine = pageSuspiciousLine(ac, meta.id)
+      const inkStrokes = (await inkStrokeCounts([meta.id])).get(meta.id) // docs/adr/1512-*
       const header = [
         `# ${cleanText(titleOf(meta))}`,
         '',
@@ -379,6 +389,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         `- can: ${facts.can}`,
         ...(flagLine ? [`- ${flagLine}`] : []),
         ...(largeLine(ac, meta.id) ? [`- ${largeLine(ac, meta.id)}`] : []),
+        ...(inkStrokes ? [`- ${inkMarker(inkStrokes)}`] : []),
         ...(properties.length ? [`- properties: ${cleanText(JSON.stringify(properties))}`] : []),
         ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id)),
         '',
@@ -427,14 +438,10 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const r = await call(ctx, 'PATCH', `/api/pages/${created.id}`, { json: patch })
         page = (r.json() as { page: PageMetaDTO }).page
       }
-      return json({
-        id: page.id,
-        workspaceId: page.workspaceId,
-        title: page.title,
-        parentId: page.parentId,
-        section: sectionOf(page),
-        url: pageUrl(ctx, page),
-      })
+      return jsonUntrusted(
+        { id: page.id, workspaceId: page.workspaceId, title: page.title, parentId: page.parentId, section: sectionOf(page), url: pageUrl(ctx, page) },
+        appliesLine(await loadAgentContext(ctx, [page.id])),
+      )
     }),
   )
 
@@ -445,7 +452,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         "Upload a local folder's Markdown files in one go, keeping the directory structure. Folders become folder pages, .md files become document pages. " +
         'folderName becomes the title of the top-level folder page; files[].path is the path relative to it (e.g. "notes/day1.md"). ' +
-        'Non-.md files are ignored. Up to 300 files, 50 MB total. With parentId, the folder is created under that page.',
+        'Non-.md files are ignored. Up to 300 files and about 12 MB per call (split larger folders into several calls with parentId). With parentId, the folder is created under that page.',
       inputSchema: {
         workspaceId: uuid().describe('Workspace id'),
         folderName: z.string().trim().min(1).max(300).describe('Title of the top-level folder page (usually the local folder name)'),
@@ -492,7 +499,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       })
       const pages = (res.json() as { pages: PageMetaDTO[] }).pages
       const top = pages.find((p) => p.parentId === (parentId ?? null)) ?? pages[0]
-      return json({
+      return jsonUntrusted({
         created: pages.length,
         root: top ? { id: top.id, title: top.title, url: pageUrl(ctx, top) } : null,
         pages: pages.map((p) => ({ id: p.id, title: p.title, parentId: p.parentId })),
@@ -557,7 +564,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrapWrite(ctx, async ({ pageId, title }) => {
       const r = await call(ctx, 'PATCH', `/api/pages/${pageId}`, { json: { title } })
       const page = (r.json() as { page: PageMetaDTO }).page
-      return json({ id: page.id, title: page.title })
+      return jsonUntrusted({ id: page.id, title: page.title }, appliesLine(await loadAgentContext(ctx, [page.id])))
     }),
   )
 
@@ -583,7 +590,10 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       }
       const r = await call(ctx, 'PATCH', `/api/pages/${pageId}`, { json: body })
       const page = (r.json() as { page: PageMetaDTO }).page
-      return json({ id: page.id, title: titleOf(page), parentId: page.parentId, section: sectionOf(page) })
+      return jsonUntrusted(
+        { id: page.id, title: titleOf(page), parentId: page.parentId, section: sectionOf(page) },
+        appliesLine(await loadAgentContext(ctx, [page.id])),
+      )
     }),
   )
 
@@ -617,7 +627,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrap(async ({ workspaceId }) => {
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/templates`)
       const { templates } = res.json() as { templates: TemplateDTO[] }
-      return json(
+      return jsonUntrusted(
         templates.map((t) => ({
           id: t.id,
           name: t.name,
@@ -670,7 +680,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         },
       })
       const { page, pages } = res.json() as { page: PageMetaDTO; pages: PageMetaDTO[] }
-      return json({
+      return jsonUntrusted({
         id: page.id,
         title: page.title,
         section: sectionOf(page),
@@ -691,6 +701,14 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerChangeTools(server, ctx)
   registerCollectionTools(server, ctx)
   registerSplitTools(server, ctx)
+  // Handwriting, version history, trash and attachments (docs/adr/1510-* .. 1514-*)
+  registerInkTools(server, ctx)
+  registerVersionTools(server, ctx)
+  registerTrashTools(server, ctx)
+  registerFileTools(server, ctx)
+  // catch_up and collection structure tools (docs/adr/1520-*, 1523-*)
+  registerCatchUpTools(server, ctx)
+  registerStructureTools(server, ctx)
   return server
 }
 
@@ -699,10 +717,12 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
 // ---------------------------------------------------------------------------
 
 export async function registerMcpRoutes(scope: FastifyInstance, rootApp: FastifyInstance): Promise<void> {
+  // POST: the token was looked up before the body was read (B-L10, docs/adr/1526-*)
+  const earlyUsers = new WeakMap<FastifyRequest, AuthUser | null>()
   const handler = async (req: FastifyRequest, reply: FastifyReply) => {
     const origin = publicOrigin(req)
     const token = readBearer(req.headers.authorization)
-    const user = token ? await getBearerUser(token) : null
+    const user = !token ? null : earlyUsers.has(req) ? earlyUsers.get(req)! : await getBearerUser(token)
     if (!token || !user) {
       const metadata = `${origin}/.well-known/oauth-protected-resource/mcp`
       return reply
@@ -755,8 +775,18 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
     }
   }
 
-  // import_folder sends many files at once; the default 1 MB limit overflows even for small folders
-  scope.post('/mcp', { bodyLimit: 12 * 1024 * 1024 }, handler)
-  scope.get('/mcp', handler)
-  scope.delete('/mcp', handler)
+  await scope.register(async (inner) => {
+    // value cap before JSON.parse (B-L10, docs/adr/1526-*); scoped so /oauth/* keep the default parser
+    registerMcpJsonParser(inner)
+    const authFirst = async (req: FastifyRequest, reply: FastifyReply) => {
+      const token = readBearer(req.headers.authorization)
+      const user = token ? await getBearerUser(token) : null
+      earlyUsers.set(req, user)
+      if (!user) return handler(req, reply) // 401 without reading or parsing the body
+    }
+    // import_folder sends many files at once; the default 1 MB limit overflows even for small folders
+    inner.post('/mcp', { bodyLimit: 12 * 1024 * 1024, onRequest: authFirst }, handler)
+    inner.get('/mcp', handler)
+    inner.delete('/mcp', handler)
+  })
 }

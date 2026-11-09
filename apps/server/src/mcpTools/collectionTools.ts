@@ -313,13 +313,15 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const props = Object.fromEntries(Object.entries(mapped.props).filter(([, v]) => v !== null))
       assertSanitized(fields, props)
       const rel = await resolveRelationRefs(ctx, mapped)
+      const relLinks = Object.fromEntries(Object.entries(rel).filter(([, ids]) => ids.length))
       const tpls = await loadRowTemplates(ctx, collectionId)
       const templateId = pickRowTemplate(tpls, template)
       const created = (
         await call(ctx, 'POST', `/api/pages/${collectionId}/collection/rows`, {
           json: {
             title: title ?? mapped.title ?? '',
-            props,
+            // relation links are written in the row's transaction (docs/adr/1524-*, AGENT-C2)
+            props: { ...props, ...relLinks },
             ...(templateId !== undefined ? { template: templateId } : {}),
             ...(inputs ? { inputs } : {}),
           },
@@ -327,18 +329,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       ).json() as CreateRowResultDTO
       const rowId = created.row?.id
       if (!rowId) throw new ToolError('The row was not created')
-      const notes: string[] = []
-      const relLinks = Object.fromEntries(Object.entries(rel).filter(([, ids]) => ids.length))
-      if (Object.keys(relLinks).length) {
-        let res
-        try {
-          res = await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: relLinks } })
-        } catch (err) {
-          const msg = err instanceof ToolError ? err.message : 'internal error'
-          throw new ToolError(`Row ${rowId} was created but its relation links were not set (${msg}); retry them with update_row`)
-        }
-        notes.push(...droppedLinks(fields, relLinks, (res.json() as { row: { props: Record<string, unknown> } }).row.props))
-      }
+      const notes = droppedLinks(fields, relLinks, (created.row.props ?? {}) as Record<string, unknown>)
       const row = await getRow(ctx, rowId)
       const used = tpls.templates.find((t) => t.id === created.templateId)
       return text(

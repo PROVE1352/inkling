@@ -54,6 +54,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/ink')).registerInkRoutes(api)
       await (await import('../routes/context')).registerContextRoutes(api)
       await (await import('../routes/changes')).registerChangeRoutes(api)
+      await (await import('../routes/catchUp')).registerCatchUpRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
       await (await import('../routes/largePages')).registerLargePageRoutes(api)
       await (await import('../routes/splitPage')).registerSplitPageRoutes(api)
@@ -68,9 +69,11 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/threads')).registerThreadRoutes(api)
       await (await import('../routes/oauth')).registerOAuthApiRoutes(api)
       await (await import('../routes/sidebarPrefs')).registerSidebarPrefsRoutes(api)
+      await (await import('../routes/files')).registerFileRoutes(api)
     },
     { prefix: '/api' },
   )
+  await (await import('../routes/files')).registerFileDownloadRoute(app)
   await app.ready()
   return app
 }

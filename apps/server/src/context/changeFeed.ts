@@ -1,4 +1,5 @@
 import { asc, inArray, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { wrapUntrusted } from '../mcpTools/trust'
 import { db } from '../db/index'
 import { pageChanges, pageChunks } from '../db/schema'
@@ -473,9 +474,34 @@ function resyncText(cursor: string, why: string): string {
   )
 }
 
-async function loadRows(userId: string, from: number, to: number, workspaceId: string | null): Promise<FeedRow[]> {
+/**
+ * Log rows the caller may be told about (exported for catch_up, docs/adr/1520-*): live membership
+ * in a live workspace the connection is not blocked from and whose 2FA rule lets the user in, the
+ * row's visibility at log time, and the connection range. `c` is the page_changes alias.
+ */
+export function feedRowScopeSql(userId: string, workspaceId: string | null): SQL {
   const wsFilter = workspaceId ? sql`AND m.workspace_id = ${workspaceId}` : sql``
+  return sql`c.workspace_id IN (
+             SELECT m.workspace_id FROM workspace_members m
+              WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)}
+                AND ${agentAllowedSql(sql`m.workspace_id`)}
+                -- a workspace whose 2FA requirement blocks the user is left out (docs/adr/1112-*, 1300-*)
+                AND NOT ${twoFactorBlockedSql(sql`m.workspace_id`, userId)})
+       AND (c.scope = 'shared' OR c.owner_id = ${userId})
+       -- a range-limited connection sees only changes of pages in its range (docs/adr/1200-*)
+       AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, userId)}`
+}
+
+/** Rows after `from` up to `to` (seq order, at most FEED_MAX_ROWS + 1); `pageIds` narrows to those pages (catch_up). */
+export async function loadRows(
+  userId: string,
+  from: number,
+  to: number,
+  workspaceId: string | null,
+  pageIds?: string[],
+): Promise<FeedRow[]> {
   const visibleNow = sql`(pages.id IS NOT NULL AND pages.deleted_at IS NULL AND ${visibleTo(userId)})`
+  const pageFilter = pageIds ? sql`AND c.page_id = ANY(${`{${pageIds.join(',')}}`}::uuid[])` : sql``
   const rows = (await db.execute(sql`
     SELECT c.seq::text AS seq, c.page_id AS "pageId", c.anchor, c.prev_anchor AS "prevAnchor",
            c.heading_path AS "headingPath", c.kind,
@@ -490,16 +516,8 @@ async function loadRows(userId: string, from: number, to: number, workspaceId: s
       FROM page_changes c
       LEFT JOIN pages ON pages.id = c.page_id
       LEFT JOIN users u ON u.id = c.actor_id
-     WHERE c.seq > ${from}::bigint AND c.seq <= ${to}::bigint
-       AND c.workspace_id IN (
-             SELECT m.workspace_id FROM workspace_members m
-              WHERE m.user_id = ${userId} ${wsFilter} AND ${liveWorkspace(sql`m.workspace_id`)}
-                AND ${agentAllowedSql(sql`m.workspace_id`)}
-                -- a workspace whose 2FA requirement blocks the user is left out (docs/adr/1112-*, 1300-*)
-                AND NOT ${twoFactorBlockedSql(sql`m.workspace_id`, userId)})
-       AND (c.scope = 'shared' OR c.owner_id = ${userId})
-       -- a range-limited connection sees only changes of pages in its range (docs/adr/1200-*)
-       AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, userId)}
+     WHERE c.seq > ${from}::bigint AND c.seq <= ${to}::bigint ${pageFilter}
+       AND ${feedRowScopeSql(userId, workspaceId)}
      ORDER BY c.seq
      LIMIT ${FEED_MAX_ROWS + 1}
   `)) as unknown as (Omit<FeedRow, 'seq' | 'changedAt'> & { seq: string; changedAt: number })[]
@@ -507,7 +525,7 @@ async function loadRows(userId: string, from: number, to: number, workspaceId: s
 }
 
 /** Titles of visible pages (for "moved under …"). */
-async function visibleTitles(userId: string, ids: string[]): Promise<Map<string, string>> {
+export async function visibleTitles(userId: string, ids: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   if (ids.length === 0) return out
   const rows = (await db.execute(sql`
@@ -520,7 +538,7 @@ async function visibleTitles(userId: string, ids: string[]): Promise<Map<string,
 }
 
 /** Lazy text loader for the packer: texts by seq and current page content, in batches. */
-class TextLoader {
+export class TextLoader {
   private texts = new Map<number, { before: string | null; after: string | null }>()
   private content = new Map<string, string>()
   constructor(private units: FeedUnit[]) {}

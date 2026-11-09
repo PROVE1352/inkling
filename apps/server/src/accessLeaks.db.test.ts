@@ -103,11 +103,15 @@ describe('[db] access leaks: 2FA on cross-workspace reads, existence oracles, co
     const readPages = async () => (await req(member, 'GET', `/pages/read?ids=${page.id}`)).json() as { pages: { id: string }[]; missing: string[] }
     const contextPages = async () =>
       ((await req(member, 'GET', '/context?q=Zebracornix')).json() as { fragments: { pageId: string }[]; titleOnly: { pageId: string }[] }).fragments.map((f) => f.pageId)
+    // catch_up over the last hour, marker untouched (docs/adr/1520-*)
+    const since = encodeURIComponent(new Date(Date.now() - 3_600_000).toISOString())
+    const catchUpText = async (q = '') => ((await req(member, 'GET', `/catch-up?since=${since}&advance=0${q}`)).json() as { text: string }).text
 
     // not required yet: everything is there
     assert.ok((await inboxPages()).includes(page.id))
     assert.deepEqual((await readPages()).pages.map((p) => p.id), [page.id])
     assert.ok((await contextPages()).includes(page.id))
+    assert.ok((await catchUpText()).includes(page.id), 'catch_up before the requirement')
 
     await require2fa(ws.id)
     // the workspace-scoped forms already refused (docs/adr/1112-*)
@@ -118,6 +122,8 @@ describe('[db] access leaks: 2FA on cross-workspace reads, existence oracles, co
     assert.deepEqual(rp.pages, [], 'read_pages')
     assert.deepEqual(rp.missing, [page.id])
     assert.ok(!(await contextPages()).includes(page.id), 'find_context without workspaceId')
+    assert.ok(!(await catchUpText()).includes(page.id), 'catch_up without workspaceId')
+    assert.equal((await req(member, 'GET', `/catch-up?workspaceId=${ws.id}`)).json().error.code, 'TWO_FACTOR_REQUIRED')
 
     // turning 2FA on brings them back
     await enable2fa(member)

@@ -64,6 +64,7 @@ describe('[db] connection range and API tokens', { skip: !HAS_DB }, async () => 
         await r(import('./routes/editLock'), 'registerEditLockRoutes')
         await r(import('./routes/context'), 'registerContextRoutes')
         await r(import('./routes/changes'), 'registerChangeRoutes')
+        await r(import('./routes/catchUp'), 'registerCatchUpRoutes')
         await r(import('./routes/tasks'), 'registerTaskRoutes')
         await r(import('./routes/templates'), 'registerTemplateRoutes')
         await r(import('./routes/collections'), 'registerCollectionRoutes')
@@ -450,6 +451,7 @@ describe('[db] connection range and API tokens', { skip: !HAS_DB }, async () => 
           ['read_pages', { ids: [id.inner, id.outsideChild] }],
           ['changes_since', {}],
           ['inbox', {}],
+          ['catch_up', { since: '2000-01-01', peek: true }],
         ] as const) {
           const r = await mcp.tool(tool, args as Record<string, unknown>)
           assertNoOutside(r.text, `MCP ${tool}`)

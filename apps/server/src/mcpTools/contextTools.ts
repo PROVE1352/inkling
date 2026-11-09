@@ -12,6 +12,7 @@ import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLin
 import { LARGE_PAGE_HINT } from '../context/largePage'
 import { suspiciousNote } from '../context/injectionScan'
 import { wrapUntrusted } from './trust'
+import { inkMarker, inkStrokeCounts } from '../agentInk'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -45,6 +46,7 @@ export function renderFindContext(
   r: FindContextResult,
   review?: Map<string, ReviewFacts>,
   ac?: AgentContextDTO,
+  ink?: Map<string, number>,
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
   if (r.fragments.length === 0) {
@@ -70,7 +72,9 @@ export function renderFindContext(
     const flag = ac ? suspiciousNote(flaggedRules(ac, f.pageId, f.sections.map((s) => s.anchor))) : ''
     const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}${facts.large ? '; large page' : ''}` : ''
     if (i > 0) data.push('')
-    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))})`, f.text)
+    // handwriting marker (docs/adr/1512-*): only where agents may read ink
+    const inkNote = ink?.get(f.pageId) ? `; ${inkMarker(ink.get(f.pageId)!)}` : ''
+    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
   })
   if (r.more.length) {
     // One line per page; a page already shown is referred to by its result number.
@@ -150,7 +154,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const review = await reviewFactsFor(shown)
       countReads(shown) // read counters, page totals only (docs/adr/0953-*)
       const ac = await loadAgentContext(ctx, shown, { read: true })
-      return text(renderFindContext(query, result, review, ac))
+      return text(renderFindContext(query, result, review, ac, await inkStrokeCounts(shown)))
     }),
   )
 
@@ -224,12 +228,17 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
           ],
         }
       }
-      const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null }
+      const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null; movedFrom?: string }
       const ac = await loadAgentContext(ctx, [pageId])
       const large = largeLine(ac, pageId)
       const tail = large ? `\n${large}` : ''
-      if (!r.section) return text(withApplies(ac, `Done (${mode}). The section was removed.${tail}`))
-      return text(withApplies(ac, `Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.${tail}`))
+      // An old anchor after a heading rename was followed to the section's new anchor (docs/adr/1501-*).
+      const moved = r.movedFrom && r.section ? `\nmoved_to: §${r.section.anchor} (the heading was renamed; "${r.movedFrom}" no longer exists)` : ''
+      if (!r.section) {
+        const was = r.movedFrom ? ` (it had been renamed from "${r.movedFrom}")` : ''
+        return text(withApplies(ac, `Done (${mode}). The section was removed${was}.${tail}`))
+      }
+      return text(withApplies(ac, `Done (${mode}): §${r.section.anchor} is now v=${r.section.version}.${moved}${tail}`))
     }),
   )
 }

@@ -186,7 +186,8 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     const user = getUser(req)
     const id = idParam(req.params)
     const page = await requireCollectionPage(id, user.id)
-    await assertPageEditable(id, user.id)
+    const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
+    await assertPageEditable(id, user.id, { role, acl })
 
     const body = updateFieldsSchema.parse(req.body)
     const ids = body.fields.map((f) => f.id)
@@ -205,6 +206,14 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     try {
       await retryOnDeadlock(() =>
         db.transaction(async (tx) => {
+          // Write gate (docs/adr/1071-*, 1523-*): a lock, block or role change that committed since the
+          // check above is re-checked here, before any row lock; one that starts now waits for this write.
+          const gate = await gateWrite(tx, page.workspaceId, user.id)
+          if (gate.acl.version !== acl.version || gate.role !== role) {
+            if (!gate.role) throw forbidden()
+            await assertAgentAllowed(page.workspaceId, gate.acl.version, tx)
+            await assertPageEditable(id, user.id, { role: gate.role, acl: gate.acl, exec: tx })
+          }
           const [pre] = (await tx.execute(
             sql`SELECT fields FROM collections WHERE page_id = ${id}`,
           )) as unknown as { fields: unknown }[]

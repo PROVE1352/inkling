@@ -55,6 +55,7 @@ import { registerEditLockRoutes } from './routes/editLock'
 import { registerPageAccessRoutes } from './routes/pageAccess'
 import { registerContextRoutes } from './routes/context'
 import { registerChangeRoutes } from './routes/changes'
+import { registerCatchUpRoutes } from './routes/catchUp'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
@@ -473,6 +474,8 @@ async function main(): Promise<void> {
       await registerContextRoutes(api)
       // Change feed for agents: changes_since (docs/adr/0932-*)
       await registerChangeRoutes(api)
+      // catch_up: ranked "while you were away" material for agents (docs/adr/1520-*)
+      await registerCatchUpRoutes(api)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)

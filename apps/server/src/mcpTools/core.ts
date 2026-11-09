@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { AuthUser } from '../auth'
 import { MCP_INTERNAL_HEADER, MCP_INTERNAL_SECRET } from '../oauth'
+import { cleanStrings, UNTRUSTED_JSON_NOTE, untrustedObject } from './trust'
 
 /**
  * Shared plumbing for the MCP tool modules (mcp.ts and mcpTools/*.ts).
@@ -109,6 +110,19 @@ export function text(s: string): CallToolResult {
 }
 export function json(v: unknown): CallToolResult {
   return text(JSON.stringify(v))
+}
+
+/**
+ * JSON output that carries member-written strings (docs/adr/1525-*): an object keeps its keys and
+ * gains a trailing `untrusted` note (and `applies` when instructions apply); a bare array stays
+ * byte-for-byte the first text block and the note follows as a second block.
+ */
+export function jsonUntrusted(v: Record<string, unknown> | unknown[], applies?: string | null): CallToolResult {
+  if (Array.isArray(v)) {
+    const note = `${applies ? `${applies}\n` : ''}untrusted: ${UNTRUSTED_JSON_NOTE}`
+    return { content: [{ type: 'text', text: JSON.stringify(cleanStrings(v)) }, { type: 'text', text: note }] }
+  }
+  return text(JSON.stringify(untrustedObject(v, applies)))
 }
 
 /** Tool handler wrapper: turns ToolError/validation errors into an isError result */

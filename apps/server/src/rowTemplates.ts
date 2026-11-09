@@ -27,7 +27,8 @@ import { reindexPageTags } from './md/tagIndex'
 import { reindexPageTasks } from './md/taskIndex'
 import { reindexPageText } from './md/textIndex'
 import { reindexPageChunks } from './context/chunkIndex'
-import { nonMemberPersonIds } from './collectionRelations'
+import { nonMemberPersonIds, normalizeRelationWrite, syncPairedLinks } from './collectionRelations'
+import { actorFor, assertAllEditable } from './editLock'
 import { sanitizeBatchProps } from './routes/collectionsExt'
 import { parseDateValue } from './collectionQuery/filter'
 import { enqueueAssignments, newAssignees, taskAssignments } from './notify/producers'
@@ -244,8 +245,12 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
       )[0]?.fields ?? []) as CollectionField[])
     : []
 
-  // Explicit values: the batch rules (relations need PATCH /pages/:id/props), non-members → 400.
+  // Explicit values: the batch rules, non-members → 400. Relation values are written below in the
+  // row's own transaction (docs/adr/1524-*), with the same rules as PATCH /pages/:id/props.
   const explicit = sanitizeBatchProps(new Map(fields.map((f) => [f.id, f])), a.props).set
+  const relationWrites = fields.filter(
+    (f) => f.type === 'relation' && f.relation?.targetPageId && a.props?.[f.id] !== undefined && a.props[f.id] !== null,
+  )
   if ((await nonMemberPersonIds(coll.workspaceId, fields, [explicit])).length) {
     throw badRequest('Person cells may only reference members of this workspace')
   }
@@ -306,6 +311,18 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
       .from(pages)
       .where(and(eq(pages.workspaceId, coll.workspaceId), eq(pages.parentId, coll.id)))
     if (n + 1 > COLLECTION_MAX_ROWS) throw badRequest(`A collection can hold at most ${COLLECTION_MAX_ROWS} rows`)
+    // Relation links in the same transaction as the row: visible live rows of the target only
+    // (others dropped, as PATCH /props does); two-way targets must be editable, or no row is made.
+    const links: { field: CollectionField; ids: string[] }[] = []
+    for (const f of relationWrites) {
+      const ids = await normalizeRelationWrite(tx, f, undefined, a.props![f.id], a.user.id)
+      if (ids.length) {
+        props = { ...props, [f.id]: ids }
+        links.push({ field: f, ids })
+      }
+    }
+    const mirrored = links.flatMap((l) => (l.field.relation?.twoWay ? l.ids : []))
+    if (mirrored.length) await assertAllEditable(tx, mirrored, actorFor(a.user.id, a.role))
     const [created] = await tx
       .insert(pages)
       .values({
@@ -322,6 +339,7 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
         createdVia: a.user.via ? a.user.via.slice(0, 100) : null,
       })
       .returning({ ...pageColumns, props: pages.props })
+    for (const l of links) await syncPairedLinks(tx, l.field, created.id, [], l.ids)
     if (state) await tx.insert(pageDocs).values({ pageId: created.id, state })
     // Person defaults and values are assignments (docs/adr/1000-*); webhooks like POST /pages.
     // Both commit with the row (docs/adr/1150-*).

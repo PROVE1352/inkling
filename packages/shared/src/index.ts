@@ -911,6 +911,9 @@ export interface InkDTO {
   updatedAt: string | null
 }
 
+/** Stroke outline geometry shared by the web ink layer and the server's PNG renderer (docs/adr/1511-*). */
+export * from './inkStroke'
+
 // Collection extensions (relations/rollups, batch rows, spreadsheet, sheets sync, iCal)
 export * from './collectionExt'
 export * from './templates'
@@ -933,6 +936,8 @@ export * from './later'
 
 // Math (KaTeX) node names and the `$…$` rule shared by the editor and the server schema
 export * from './math'
+// Callout / embed / plugin block / mention configs shared with the server schema (docs/adr/1500-*)
+export * from './blocks'
 
 // Per-user sidebar menu order / visibility (docs/adr/1020-*)
 export * from './sidebar'

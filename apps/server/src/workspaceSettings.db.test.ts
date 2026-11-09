@@ -250,6 +250,11 @@ describe('[db] workspace settings, audit log and agent blocks', { skip: !HAS_DB 
       const lp = await mcp.tool('list_pages', { workspaceId: ws.id })
       assert.equal(lp.isError, true)
       assert.match(lp.text, /blocked this agent connection/)
+      // catch_up (docs/adr/1520-*): the blocked workspace is left out, and refused when named
+      const cu = await mcp.tool('catch_up', { since: '2000-01-01', peek: true })
+      assert.equal(cu.isError, false, cu.text)
+      assert.ok(!cu.text.includes(pageId), 'blocked workspace left out of catch_up')
+      assert.equal((await mcp.tool('catch_up', { workspaceId: ws.id })).isError, true)
       const fc = await mcp.tool('find_context', { query: 'blue lever' })
       assert.ok(!fc.text.includes(pageId), 'find_context across workspaces skips the blocked one')
       // other workspaces keep working

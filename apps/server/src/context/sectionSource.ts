@@ -5,6 +5,8 @@ import { db } from '../db/index'
 import { adoptIndexedStamp, docIndexIdle, indexedStamp, scheduleDocIndex } from '../docIndexer'
 import { liveDoc, liveDocStamp } from '../liveConnections'
 import { blocksToMarkdown, stateToBlocks } from '../md/convert'
+import { mentionKeysInDoc } from '../md/notation'
+import { mayHaveMentions } from '../notify/mentionScan'
 import type { AnyBlock } from '../md/convert'
 import { readTopRange } from './sectionPatch'
 import { chunkBlocks, findSection, joinPath, MAX_CHUNKS_PER_PAGE, PATH_SEP, splitSections } from './chunker'
@@ -317,8 +319,34 @@ export async function readSection(
   }
   const r = await readSectionBlocks(pageId, ref, loc)
   if (!r.found) return r
-  const { markdown } = await blocksToMarkdown(r.blocks, { assetMode: 'absolute' })
+  const { markdown } = await blocksToMarkdown(r.blocks, { assetMode: 'absolute', notation: 'agent' })
   const md = markdown.trim()
   if (r.stamp) cacheSet(`${pageId}\u0000${r.stamp}\u0000${r.section.anchor}`, md)
   return { found: true, section: r.section, markdown: md }
+}
+
+/**
+ * `kind:id` of the mention chips in the page now: the mentions an agent write may keep or move
+ * (docs/adr/1500-*; agents do not create new chips, ADR 1002). Reads the open document's XML
+ * without BlockNote, else the stored state; skipped when the Markdown has no mention token.
+ */
+export async function pageMentionKeys(pageId: string, markdown: string): Promise<Set<string>> {
+  if (!markdown.includes('@[')) return new Set()
+  const doc = liveDoc(pageId)
+  if (doc) return mentionKeysInDoc(doc)
+  const rows = (await db.execute(sql`SELECT state FROM page_docs WHERE page_id = ${pageId}`)) as unknown as { state: Uint8Array }[]
+  const state = rows[0]?.state
+  if (!state || !mayHaveMentions(state)) return new Set()
+  const tmp = new Y.Doc()
+  try {
+    applyStoredState(tmp, state)
+    return mentionKeysInDoc(tmp)
+  } finally {
+    tmp.destroy()
+  }
+}
+
+/** Blocks of the current document (open doc, else stored state), read on a copy. */
+export async function currentBlocks(pageId: string): Promise<AnyBlock[]> {
+  return (await decodeCurrent(pageId)).blocks
 }

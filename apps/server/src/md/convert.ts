@@ -1,6 +1,8 @@
 import * as Y from 'yjs'
 import { getServerEditor } from './editor'
 import { extractMath, prepareMathExport } from './math'
+import { extractNotation, prepareNotationExport } from './notation'
+import type { NotationMode, ParseNotationOptions } from './notation'
 import { applyStoredState } from '../yState'
 
 // ---------------------------------------------------------------------------
@@ -195,6 +197,11 @@ export interface BlocksToMarkdownOptions {
   assetMode: 'absolute' | 'relative'
   /** In relative mode, which relative path replaces /files/<id> (the caller knows mime→ext). */
   resolveAssetPath?: (fileId: string) => string
+  /**
+   * 'agent' writes the round-trip notation for embeds, plugin blocks, file/audio blocks and
+   * mentions (MCP reads, patch_section); 'plain' (default) is for people (docs/adr/1500-*).
+   */
+  notation?: NotationMode
 }
 
 export interface BlocksToMarkdownResult {
@@ -242,12 +249,15 @@ export async function blocksToMarkdown(
     })
   }
 
-  // 3) math nodes → `$$…$$` / `$…$`, written around BlockNote's exporter (md/math.ts, ADR 0996)
+  // 3) callouts, mentions, embeds → their notation (md/notation.ts, ADR 1500)
+  const finishNotation = prepareNotationExport(copy, opts.notation ?? 'plain')
+
+  // 4) math nodes → `$$…$$` / `$…$`, written around BlockNote's exporter (md/math.ts, ADR 0996)
   const finishMath = prepareMathExport(copy)
 
   const editor = getServerEditor()
   const input = copy as unknown as Parameters<typeof editor.blocksToMarkdownLossy>[0]
-  const markdown = finishMath(await editor.blocksToMarkdownLossy(input))
+  const markdown = finishNotation(finishMath(await editor.blocksToMarkdownLossy(input)))
   return { markdown, assetIds: [...new Set(assetIds)] }
 }
 
@@ -262,11 +272,14 @@ export async function markdownToBlocks(
   md: string,
   resolveTitle: ResolveTitle,
   resolveAsset?: ResolveAsset,
+  notation: ParseNotationOptions = {},
 ): Promise<AnyBlock[]> {
   const editor = getServerEditor()
+  // Block and mention tokens first (their JSON may hold `$`), then math (md/notation.ts, ADR 1500)
+  const marks = extractNotation(md, notation)
   // `$$…$$` / `$…$` are cut out before BlockNote's parser sees them (md/math.ts, ADR 0996)
-  const math = extractMath(md)
-  const blocks = math.restore((await editor.tryParseMarkdownToBlocks(math.markdown)) as unknown as AnyBlock[])
+  const math = extractMath(marks.markdown)
+  const blocks = marks.restore(math.restore((await editor.tryParseMarkdownToBlocks(math.markdown)) as unknown as AnyBlock[]))
 
   // Split [[title]] inside text inlines and replace it with a link/literal
   mapBlockInlines(blocks, (inlines) => expandWikiLinks(inlines, resolveTitle))
@@ -366,8 +379,34 @@ const EXTERNAL_HREF_RE = /^(?:https?:\/\/|mailto:)/i
  */
 export async function blocksToFullHTML(blocks: AnyBlock[]): Promise<string> {
   const editor = getServerEditor()
-  const input = blocks as unknown as Parameters<typeof editor.blocksToFullHTML>[0]
+  const input = publicBlocks(structuredClone(blocks)) as unknown as Parameters<typeof editor.blocksToFullHTML>[0]
   return editor.blocksToFullHTML(input)
+}
+
+/**
+ * Public HTML carries no internal ids (see neutralizeInternalLinksForPublic): page/link embeds and
+ * plugin blocks are left out as before the server knew them (their children stay), and mention
+ * chips become their `@label` text (docs/adr/1500-*).
+ */
+function publicBlocks(blocks: AnyBlock[]): AnyBlock[] {
+  const out: AnyBlock[] = []
+  for (const b of blocks) {
+    if (b.type === 'pageEmbed' || b.type === 'linkEmbed' || b.type === 'pluginBlock') {
+      out.push(...publicBlocks(b.children ?? []))
+      continue
+    }
+    out.push({ ...b, children: publicBlocks(b.children ?? []) })
+  }
+  mapBlockInlines(out, (inlines) =>
+    inlines.some((i) => i.type === 'mention')
+      ? inlines.map((i) =>
+          i.type === 'mention'
+            ? ({ type: 'text', text: `@${String((i as { props?: { label?: unknown } }).props?.label ?? '')}`, styles: {} } as StyledText)
+            : i,
+        )
+      : inlines,
+  )
+  return out
 }
 
 /**

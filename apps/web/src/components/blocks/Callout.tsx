@@ -1,17 +1,15 @@
 import { useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
+import { CALLOUT_TYPES, calloutConfig, type CalloutType } from '@inkling/shared'
 import { useT, type TKey } from '../../i18n'
 
 // Callout custom block (M14) — colored/emoji highlight box + type switching.
 // - props: type('note'|'tip'|'warning'|'danger'|'info'). content 'inline' (body is editable).
-// - The server's default schema has no callout, so a stateToBlocks round trip drops it just like
-//   pageEmbed/mention (no crash — unknown nodes are dropped safely). Lost in server .md/Notion
-//   export (v1 limit).
+// - The config is shared with the server schema (@inkling/shared, docs/adr/1500-*), so server reads
+//   keep callouts and Markdown writes them as `> [!type] text`.
 // - toExternalHTML: falls back to a blockquote for client HTML copy/export so the text survives.
 
-export type CalloutType = 'note' | 'tip' | 'warning' | 'danger' | 'info'
-
-export const CALLOUT_TYPES: CalloutType[] = ['note', 'tip', 'warning', 'danger', 'info']
+export { CALLOUT_TYPES, type CalloutType }
 
 // Emoji, label key and accent color per type (hex saturated enough to color-mix in light and dark).
 // Labels are i18n keys, translated at render time.
@@ -26,14 +24,6 @@ const CALLOUT_META: Record<CalloutType, { emoji: string; label: TKey; accent: st
 function normalizeType(v: unknown): CalloutType {
   return (CALLOUT_TYPES as string[]).includes(v as string) ? (v as CalloutType) : 'note'
 }
-
-const calloutConfig = {
-  type: 'callout' as const,
-  propSchema: {
-    type: { default: 'note' as const, values: CALLOUT_TYPES },
-  },
-  content: 'inline' as const,
-} as const
 
 // Left gutter: emoji button + type dropdown. contentEditable=false, so it is not editable content.
 function TypeSwitcher({

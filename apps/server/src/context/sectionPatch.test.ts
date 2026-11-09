@@ -11,6 +11,7 @@ import { findSection, splitSections } from './chunker'
 import { blocksToMarkdown, markdownToBlocks } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
 import { getServerEditor } from '../md/editor'
+import { mentionKeysInDoc } from '../md/notation'
 import { applySectionPatch, buildEchoIndex, MARKDOWN_MARKS, NON_MARKDOWN_PROPS, readBlocks } from './sectionPatch'
 import type { PatchMode, PatchStats } from './sectionPatch'
 
@@ -53,21 +54,22 @@ function findContainer(doc: Y.Doc, pred: (text: string, el: Y.XmlElement) => boo
 const byText = (doc: Y.Doc, needle: string) => findContainer(doc, (t) => t.includes(needle))
 const firstText = (container: Y.XmlElement) => (container.get(0) as Y.XmlElement).toArray().find((x) => x instanceof Y.XmlText) as Y.XmlText
 
-/** Patch with the echo index the route computes (what the agent saw). */
+/** Patch with the echo index the route computes (what the agent saw; chips in the page may stay). */
 async function patch(doc: Y.Doc, ref: string, md: string, mode: PatchMode = 'replace', strategy?: 'merge' | 'splice') {
-  const incoming = await markdownToBlocks(md, noTitles)
+  const notation = { mentions: mentionKeysInDoc(doc) }
+  const incoming = await markdownToBlocks(md, noTitles, undefined, notation)
   const current = readBlocks(doc)
   const s = findSection(splitSections(current), ref)
-  const echo = s ? await buildEchoIndex(current.slice(s.start, s.end), noTitles) : null
+  const echo = s ? await buildEchoIndex(current.slice(s.start, s.end), noTitles, notation) : null
   const out = applySectionPatch(doc, ref, incoming, mode, undefined, echo, strategy ? { strategy } : {})
   assert.equal(out.status, 'ok')
   return out as Extract<typeof out, { status: 'ok' }>
 }
 
-async function sectionMd(doc: Y.Doc, ref: string): Promise<string> {
+async function sectionMd(doc: Y.Doc, ref: string, notation: 'plain' | 'agent' = 'plain'): Promise<string> {
   const blocks = readBlocks(doc)
   const s = findSection(splitSections(blocks), ref)!
-  return (await blocksToMarkdown(blocks.slice(s.start, s.end), { assetMode: 'absolute' })).markdown.trim()
+  return (await blocksToMarkdown(blocks.slice(s.start, s.end), { assetMode: 'absolute', notation })).markdown.trim()
 }
 
 /** Markdown of the blocks from the heading `from` up to (not including) the heading `to`. */
@@ -360,7 +362,12 @@ Tail paragraph.
       const calloutIn = insertCallout(server, 'Beta paragraph', 'Careful inside the section')
       const calloutOut = insertCallout(server, 'Other section', 'Careful in another section')
       const mention = insertMention(byText(server, 'Gamma paragraph'), 6, 'Kim')
-      const md = AGENT.replace('Gamma paragraph is the anchor', 'Gamma paragraph is the moved anchor')
+      // the agent edits the section as read_page shows it (callout and mention in their notation, ADR 1500)
+      const seen = (await sectionMd(server, 'plan', 'agent')).replace(/^## Plan\n\n/, '')
+      const md = seen
+        .replace('Beta paragraph will be edited', 'Beta paragraph was edited')
+        .replace('Gamma @[Kim](user:u-1)paragraph is the anchor', 'Gamma @[Kim](user:u-1)paragraph is the moved anchor')
+      assert.notEqual(md, seen)
       if (impl === 'legacy') legacyPatch(server, 'plan', await markdownToBlocks(md, noTitles))
       else await patch(server, 'plan', md)
       const r = [isAlive(calloutIn), isAlive(calloutOut), isAlive(mention)]
@@ -372,7 +379,7 @@ Tail paragraph.
         const gamma = byText(server, 'Gamma paragraph')
         const parts = (gamma.get(0) as Y.XmlElement).toArray().map((x) => (x instanceof Y.XmlText ? x.toString() : `@${(x as Y.XmlElement).getAttribute('label')}`))
         assert.equal(parts.join(''), 'Gamma @Kimparagraph is the moved anchor before an insert.')
-        assert.equal(await sectionMd(server, 'plan'), `## Plan\n\n${md}`)
+        assert.equal(await sectionMd(server, 'plan', 'agent'), `## Plan\n\n${md}`)
       }
     }
     for (const r of rows) console.log(`[eval] ${r}`)
@@ -496,6 +503,7 @@ third line
       client.destroy()
       const legacy = new Y.Doc()
       Y.applyUpdate(legacy, Y.encodeStateAsUpdate(server))
+      const legacyTypes = readBlocks(server)
 
       const out = await patch(server, 'target', agentMd)
       if (out.stats.strategy === 'merge') merged++
@@ -507,8 +515,14 @@ third line
       Y.applyUpdate(legacy, update)
       const after = allText(server)
       const afterLegacy = allText(legacy)
+      // A retyped block (paired by ADR 1500) gets a new content node: like a deleted block, typing
+      // that reaches the server after the patch is not merged into it.
+      const typeBefore = new Map<string, string>()
+      const collectTypes = (bs: AnyBlock[]) => bs.forEach((b) => (typeBefore.set(String(b.id), String(b.type)), collectTypes(b.children ?? [])))
+      collectTypes(legacyTypes)
       const liveIds = new Set<string>()
-      const collect = (bs: AnyBlock[]) => bs.forEach((b) => (liveIds.add(String(b.id)), collect(b.children ?? [])))
+      const collect = (bs: AnyBlock[]) =>
+        bs.forEach((b) => (typeBefore.get(String(b.id)) === String(b.type) && liveIds.add(String(b.id)), collect(b.children ?? [])))
       collect(readBlocks(server))
       for (const m of markers) {
         if (!liveIds.has(m.id)) continue // the agent deleted that block
@@ -553,14 +567,15 @@ third line
     assert.equal(server.clientID, id)
   })
 
-  it('the splice fallback still works and keeps unknown blocks', async () => {
+  it('the splice fallback still works and rebuilds the callouts it was sent', async () => {
     const server = await docFromMarkdown(PAGE)
-    const callout = insertCallout(server, 'Beta paragraph', 'Inside')
-    const out = await patch(server, 'plan', AGENT, 'replace', 'splice')
+    insertCallout(server, 'Beta paragraph', 'Inside')
+    const md = AGENT.replace('NEW paragraph', '> [!warning] Inside\n\nNEW paragraph')
+    const out = await patch(server, 'plan', md, 'replace', 'splice')
     const stats: PatchStats = out.stats
     assert.equal(stats.strategy, 'splice')
-    assert.ok(isAlive(callout))
-    assert.equal(await sectionMd(server, 'plan'), `## Plan\n\n${AGENT}`)
+    assert.match(server.getXmlFragment('document').toString(), /<callout type="warning">Inside<\/callout>/)
+    assert.equal(await sectionMd(server, 'plan', 'agent'), `## Plan\n\n${md}`)
   })
 
   it('MARKDOWN_MARKS / NON_MARKDOWN_PROPS match BlockNote’s Markdown round trip', async () => {

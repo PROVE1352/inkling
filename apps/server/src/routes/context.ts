@@ -12,7 +12,8 @@ import { joinPath } from '../context/chunker'
 import { applySectionPatch, buildEchoIndex } from '../context/sectionPatch'
 import type { EchoIndex, PatchOutcome } from '../context/sectionPatch'
 import type { Section } from '../context/chunker'
-import { readOutline, readSection, readSectionBlocks } from '../context/sectionSource'
+import { pageMentionKeys, readOutline, readSection, readSectionBlocks } from '../context/sectionSource'
+import { resolveMovedSection } from '../context/sectionMoves'
 import type { OutlineSection } from '../context/sectionSource'
 import { DEFAULT_BUDGET, findContext, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
@@ -93,8 +94,24 @@ function outlineOf(sections: OutlineSection[]) {
 }
 
 async function sectionMarkdown(blocks: AnyBlock[], s: Section): Promise<string> {
-  const { markdown } = await blocksToMarkdown(blocks.slice(s.start, s.end), { assetMode: 'absolute' })
+  const { markdown } = await blocksToMarkdown(blocks.slice(s.start, s.end), { assetMode: 'absolute', notation: 'agent' })
   return markdown.trim()
+}
+
+/** The renamed section's new anchor, or the error for a miss (docs/adr/1501-*). */
+async function movedOrThrow(pageId: string, ref: string, sections: { anchor: string }[]): Promise<string> {
+  const moved = await resolveMovedSection(pageId, ref, sections.map((s) => s.anchor))
+  if (moved.status === 'moved') return moved.anchor
+  if (moved.status === 'ambiguous') {
+    return Promise.reject(
+      new AppError(
+        409,
+        'SECTION_AMBIGUOUS',
+        `Section "${ref}" was renamed and now matches several sections: ${moved.anchors.join(', ')}. Use one of these anchors.`,
+      ),
+    )
+  }
+  return Promise.reject(sectionNotFound(ref, sections))
 }
 
 function sectionNotFound(ref: string, sections: { anchor: string }[]): AppError {
@@ -146,8 +163,15 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     const page = await guardPage(idParam(req.params), user.id)
     const { ref, maxChars } = sectionQuerySchema.parse(req.query)
     if (page.kind !== 'doc') throw badRequest('Only document pages have sections; use read_page')
-    const r = await readSection(page.id, ref)
-    if (!r.found) throw sectionNotFound(ref, r.sections)
+    let r = await readSection(page.id, ref)
+    // An anchor from before a heading rename reads the section under its new anchor (docs/adr/1501-*).
+    let movedFrom: string | undefined
+    if (!r.found) {
+      const anchor = await movedOrThrow(page.id, ref, r.sections)
+      r = await readSection(page.id, anchor)
+      if (!r.found) throw sectionNotFound(ref, r.sections)
+      movedFrom = ref
+    }
     const s = r.section
     let markdown = r.markdown
     const totalChars = markdown.length
@@ -156,6 +180,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     return {
       page: { id: page.id, title: page.title, workspaceId: page.workspaceId },
       section: { anchor: s.anchor, headingPath: joinPath(s.headingPath), level: s.level, version: s.version },
+      ...(movedFrom ? { movedFrom } : {}),
       markdown,
       truncated,
       totalChars,
@@ -213,7 +238,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       if (page.kind === 'doc') {
         const live = liveDocState(id)
         const st = live ?? stateById.get(id)
-        body = st ? (await blocksToMarkdown(stateToBlocks(st), { assetMode: 'absolute' })).markdown : ''
+        body = st ? (await blocksToMarkdown(stateToBlocks(st), { assetMode: 'absolute', notation: 'agent' })).markdown : ''
       } else if (page.kind === 'canvas') {
         body = (await exportPageCanvas(page, user.id)).body
       } else {
@@ -252,7 +277,9 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       if (page.kind !== 'doc') throw badRequest('Only document pages have editable sections')
 
       const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
-      const incoming = body.mode === 'delete' ? [] : await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle)
+      // Mention chips already in the page may be kept or moved, not created (docs/adr/1500-*).
+      const notation = { mentions: await pageMentionKeys(id, body.markdown) }
+      const incoming = body.mode === 'delete' ? [] : await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle, undefined, notation)
       // Full convertibility check on a throwaway doc before touching the live one.
       if (incoming.length) blocksToStateBuffer(incoming)
 
@@ -278,30 +305,41 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
         }
       }
 
-      // What the agent saw of each block (Markdown round trip), so untouched blocks stay untouched.
-      // Computed before the synchronous patch; blocks that changed in between are simply diffed.
-      let echo: EchoIndex | null = null
-      if (body.mode === 'replace') {
-        const r = await readSectionBlocks(id, body.ref)
-        if (r.found) echo = await buildEchoIndex(r.blocks, resolveTitle)
-      }
-
-      let outcome: PatchOutcome | null = null
-      await withEditActor([id], actorOf(user), async () => {
-        const conn = await hocuspocus.openDirectConnection(id)
-        try {
-          // The patch is applied under the write gate (docs/adr/1150-*); the store runs after it.
-          const gate = pageEditGate(id, page.workspaceId, user.id, access)
-          await gatedTransact(conn, (doc) => {
-            outcome = applySectionPatch(doc, body.ref, incoming, body.mode, body.baseVersion, echo)
-          }, gate)
-        } finally {
-          await conn.disconnect()
+      const attempt = async (ref: string): Promise<PatchOutcome> => {
+        // What the agent saw of each block (Markdown round trip), so untouched blocks stay untouched.
+        // Computed before the synchronous patch; blocks that changed in between are simply diffed.
+        let echo: EchoIndex | null = null
+        if (body.mode === 'replace') {
+          const r = await readSectionBlocks(id, ref)
+          if (r.found) echo = await buildEchoIndex(r.blocks, resolveTitle, notation, incoming)
         }
-      })
-      const res = outcome as PatchOutcome | null
-      if (!res) throw new AppError(500, 'INTERNAL', 'Patch did not run')
-      if (res.status === 'not_found') throw sectionNotFound(body.ref, res.sections)
+        let outcome: PatchOutcome | null = null
+        await withEditActor([id], actorOf(user), async () => {
+          const conn = await hocuspocus.openDirectConnection(id)
+          try {
+            // The patch is applied under the write gate (docs/adr/1150-*); the store runs after it.
+            const gate = pageEditGate(id, page.workspaceId, user.id, access)
+            await gatedTransact(conn, (doc) => {
+              outcome = applySectionPatch(doc, ref, incoming, body.mode, body.baseVersion, echo)
+            }, gate)
+          } finally {
+            await conn.disconnect()
+          }
+        })
+        const out = outcome as PatchOutcome | null
+        if (!out) throw new AppError(500, 'INTERNAL', 'Patch did not run')
+        return out
+      }
+      let res = await attempt(body.ref)
+      // An anchor from before a heading rename patches the section under its new anchor (docs/adr/1501-*).
+      // Nothing was written by the missed attempt; the version check still applies to the section found.
+      let movedFrom: string | undefined
+      if (res.status === 'not_found') {
+        const anchor = await movedOrThrow(id, body.ref, res.sections)
+        res = await attempt(anchor)
+        if (res.status === 'not_found') throw sectionNotFound(body.ref, res.sections)
+        movedFrom = body.ref
+      }
       // Non-destructive agent patches leave no "Before" snapshot: mark them in history like an
       // update_page append (throttled "AI edit" snapshot, docs/adr/0936-*).
       if (res.status === 'ok' && user.via && body.mode !== 'replace' && body.mode !== 'delete' && !(await hasRecentAgentSnapshot(id))) {
@@ -316,7 +354,10 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
         return reply.code(409).send({
           error: {
             code: 'SECTION_CONFLICT',
-            message: `Section "${res.section.anchor}" changed since baseVersion ${body.baseVersion}; nothing was written. Merge your edit into the current content and retry with baseVersion ${res.section.version}.`,
+            message: movedFrom
+              ? `Section "${movedFrom}" was renamed to "${res.section.anchor}" (its version includes the heading, so it changed since baseVersion ${body.baseVersion}); nothing was written. Check the current content and retry with section "${res.section.anchor}" and baseVersion ${res.section.version}.`
+              : `Section "${res.section.anchor}" changed since baseVersion ${body.baseVersion}; nothing was written. Merge your edit into the current content and retry with baseVersion ${res.section.version}.`,
+            ...(movedFrom ? { movedFrom } : {}),
             current: {
               anchor: res.section.anchor,
               headingPath: joinPath(res.section.headingPath),
@@ -331,6 +372,7 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
         section: res.section
           ? { anchor: res.section.anchor, headingPath: joinPath(res.section.headingPath), version: res.section.version }
           : null,
+        ...(movedFrom ? { movedFrom } : {}),
         sections: res.sections.length,
       }
     },

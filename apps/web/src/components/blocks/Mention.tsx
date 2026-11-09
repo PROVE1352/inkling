@@ -1,22 +1,13 @@
 import { useNavigate, useParams } from 'react-router'
 import { createReactInlineContentSpec } from '@blocknote/react'
+import { mentionConfig } from '@inkling/shared'
 import { useT } from '../../i18n'
 
 // @mention custom inline content (M13).
 // - props: kind('user'|'page'), id, label. content 'none' → an atom inline node, not a cursor/edit target.
-// - Not in the server schema, but y-prosemirror safely drops unknown XmlElement nodes (same mechanism
-//   as the pageEmbed block), so an export/index round trip only loses the mention — no crash or text damage.
+// - The config is shared with the server schema (@inkling/shared, docs/adr/1500-*): server reads keep
+//   the chip; Markdown writes `@label` (exports) or `@[label](kind:id)` (agent reads).
 // - toExternalHTML: falls back to `@label` text for client HTML export/copy.
-
-const mentionConfig = {
-  type: 'mention' as const,
-  propSchema: {
-    kind: { default: 'user' },
-    id: { default: '' },
-    label: { default: '' },
-  },
-  content: 'none',
-} as const
 
 // Person mention — blue chip (no click action, v1). Page mention — acts like a link (SPA navigation on click).
 function MentionChip({

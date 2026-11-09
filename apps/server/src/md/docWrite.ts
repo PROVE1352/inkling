@@ -3,7 +3,8 @@ import { hocuspocus } from '../collab'
 import { blocksToStateBuffer, blocksToXmlFragment } from './convert'
 import type { AnyBlock } from './convert'
 import { getServerEditor } from './editor'
-import { readBlocks } from '../context/sectionPatch'
+import { applyDocumentReplace, readBlocks } from '../context/sectionPatch'
+import type { EchoIndex } from '../context/sectionPatch'
 import type { DocGate } from '../docWriteGate'
 
 type DirectConnection = Awaited<ReturnType<typeof hocuspocus.openDirectConnection>>
@@ -31,6 +32,11 @@ export async function gatedTransact(conn: DirectConnection, fn: (doc: Y.Doc) => 
 
 /**
  * Replace or append blocks in a live doc — the same safe path as snapshot restore.
+ *   - replace of a document that has content is a minimal edit of the whole document
+ *     (`applyDocumentReplace`, docs/adr/1500-*): blocks the new content leaves alone keep their
+ *     ids, colors, toggles and concurrent typing; `echo` (buildEchoIndex of the blocks the caller
+ *     read) lets them be recognized through the lossy Markdown round trip. If that edit does not
+ *     validate, the document is rewritten as before.
  *   - Never builds Yjs fragments by hand (only the BlockNote conversion blocksToXmlFragment).
  *   - DirectConnection.transact → live propagation to clients viewing it + store hooks (save, reindex).
  *   - append only inserts the new blocks after the existing ones (existing blocks are never read
@@ -44,6 +50,7 @@ export async function writeBlocksToDoc(
   incoming: AnyBlock[],
   mode: 'replace' | 'append',
   gate?: DocGate,
+  echo: EchoIndex | null = null,
 ): Promise<void> {
   const conn = await hocuspocus.openDirectConnection(pageId)
   try {
@@ -62,6 +69,15 @@ export async function writeBlocksToDoc(
       if (next.length === 0) next = [{ type: 'paragraph', content: [] }]
       // Check full conversion first (throwaway doc) — if this throws, the live doc is untouched.
       blocksToStateBuffer(next)
+      if (mode === 'replace' && frag.length > 0) {
+        try {
+          applyDocumentReplace(doc, next, echo)
+          return
+        } catch (err) {
+          // nothing was written (the edit is validated on a copy first); rewrite as before
+          console.warn(`[update_page] minimal replace not applied (${err instanceof Error ? err.message : String(err)}); rewriting the document`)
+        }
+      }
       // Delete + insert in one Yjs transaction so clients receive a single update
       doc.transact(() => {
         frag.delete(0, frag.length)

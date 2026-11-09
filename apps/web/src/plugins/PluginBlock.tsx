@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
 import type { BlockNoteEditor } from '@blocknote/core'
+import { pluginBlockConfig } from '@inkling/shared'
 import { PlugIcon } from '../components/Icons'
 import { usePlugins, usePluginsEnabled, type PluginInfo } from './api'
 import { contextFromLocation, onSlotFreed, startBlockFrame, type PluginFrame } from './host'
@@ -17,18 +18,8 @@ import { PLUGIN_STRINGS as S } from './strings'
 // This spec is ALWAYS part of the editor schema, even when the `plugins` experiment is off or the
 // plugin is gone: otherwise y-prosemirror would drop unknown nodes on the next edit and the user's
 // block data would be lost. Without an active plugin it renders an inert placeholder card.
-// Like pageEmbed/callout, the server-side BlockNote schema does not know this block, so Markdown
-// export drops it (documented limitation).
-
-const pluginBlockConfig = {
-  type: 'pluginBlock' as const,
-  propSchema: {
-    pluginId: { default: '' },
-    blockType: { default: '' },
-    data: { default: '{}' },
-  },
-  content: 'none' as const,
-} as const
+// The config is shared with the server schema (@inkling/shared, docs/adr/1500-*), so server reads keep
+// the block; Markdown exports leave it out, agent reads carry it as an `<!-- inkling:pluginBlock … -->` line.
 
 /** Tear a frame down after it has been off-screen this long (frees a slot). */
 const OFFSCREEN_GRACE_MS = 3_000

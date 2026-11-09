@@ -16,6 +16,7 @@ import { visibleTo } from '../pageDto'
 import { collectAssetRefs, collectPageRefs, stateToCanvasJson } from './canvas'
 import type { StateToCanvasOptions } from './canvas'
 import { blocksToMarkdown, stateToBlocks } from './convert'
+import type { NotationMode } from './notation'
 import type { AnyBlock } from './convert'
 import { extForMime, sanitizeName } from './mime'
 
@@ -239,12 +240,13 @@ export async function exportPageMd(
     kind?: string
   },
   userId: string,
+  notation: NotationMode = 'plain',
 ): Promise<ExportedMd> {
   const markdown =
     page.kind === 'collection'
       ? await collectionTableMd(page.id, userId)
       : (
-          await blocksToMarkdown(await loadBlocks(page.id), { assetMode: 'absolute' })
+          await blocksToMarkdown(await loadBlocks(page.id), { assetMode: 'absolute', notation })
         ).markdown
   const body = frontmatter(page.id, page.updatedAt) + markdown
   return { filename: `${sanitizeName(page.title)}.md`, body }

@@ -12,7 +12,7 @@ import { en as bnEn, ko as bnKo } from '@blocknote/core/locales'
 import { codeBlockOptions } from '../../lib/codeBlockOptions'
 import { createReactBlockSpec, useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
-import type { PageMetaDTO } from '@inkling/shared'
+import { pageEmbedConfig, type PageMetaDTO } from '@inkling/shared'
 import { useMe, usePages } from '../../api'
 import { openCollab, readStatus } from '../../lib/collabSocket'
 import { PageIconGlyph } from '../PageIconGlyph'
@@ -28,12 +28,6 @@ import { inlineMathSpec, mathBlockSpec } from './Math'
 //   embed inside an embed cannot spawn providers endlessly (recursion guard).
 
 type ConnStatus = 'connected' | 'connecting' | 'disconnected'
-
-const pageEmbedConfig = {
-  type: 'pageEmbed' as const,
-  propSchema: { pageId: { default: '' } },
-  content: 'none' as const,
-}
 
 // Card header — icon + title; click navigates (SPA) to the target page. Shared by full/shallow.
 function PageEmbedHeader({

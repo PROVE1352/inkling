@@ -35,7 +35,8 @@ const MAX_FILE_BYTES = importLimits.maxUploadBytes
 const MAX_FOLDER_FILES = importLimits.maxFiles
 const MAX_FOLDER_BYTES = importLimits.maxUnpackedBytes
 const MAX_FOLDER_FILE_BYTES = importLimits.maxEntryBytes
-const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional() })
+// notation=agent: the round-trip Markdown notation MCP read_page uses (docs/adr/1500-*); md only.
+const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional(), notation: z.enum(['plain', 'agent']).optional() })
 const importQuerySchema = z.object({
   parentId: z.uuid().optional(),
   /** zip only: 'notion' = Notion "Markdown & CSV" export, 'markdown' = plain folder zip, default = detect */
@@ -144,7 +145,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    const { format } = exportQuerySchema.parse(req.query)
+    const { format, notation } = exportQuerySchema.parse(req.query)
 
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
@@ -178,7 +179,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       throw badRequest('The canvas format is only available for canvas pages')
     }
 
-    const { filename, body } = await exportPageMd(page, user.id)
+    const { filename, body } = await exportPageMd(page, user.id, notation)
     reply.header('Content-Type', 'text/markdown; charset=utf-8')
     attachHeader(reply, filename)
     return reply.send(body)

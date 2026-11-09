@@ -2,11 +2,20 @@ import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { inlineMathConfig, mathBlockConfig } from '@inkling/shared'
+import {
+  calloutConfig,
+  inlineMathConfig,
+  linkEmbedConfig,
+  mathBlockConfig,
+  mentionConfig,
+  pageEmbedConfig,
+  pluginBlockConfig,
+} from '@inkling/shared'
 
 /**
  * The server's BlockNote schema: BlockNote's defaults plus the math nodes
- * (docs/adr/0995-math-nodes-in-both-editor-schemas.md).
+ * (docs/adr/0995-math-nodes-in-both-editor-schemas.md) and the web editor's callout, page embed,
+ * link embed, plugin block and mention (docs/adr/1500-agent-markdown-notation-for-custom-nodes.md).
  *
  * y-prosemirror deletes Yjs items whose node the reading schema does not know (ADR 0940), so every
  * node the server must not lose has to be in this schema with the same name and attributes as in
@@ -64,6 +73,15 @@ const core = await loadCore()
 interface DomElement {
   className: string
   textContent: string | null
+  setAttribute(name: string, value: string): void
+  appendChild(child: DomElement): DomElement
+}
+
+function element(tag: string, className: string): DomElement {
+  const doc = (globalThis as unknown as { document: { createElement(tag: string): DomElement } }).document
+  const el = doc.createElement(tag)
+  el.className = className
+  return el
 }
 
 function sourceElement(tag: 'div' | 'span', latex: string): DomElement {
@@ -83,8 +101,48 @@ const inlineMathSpec = core.createInlineContentSpec(inlineMathConfig, {
   render: (inline: { props: { latex: string } }) => ({ dom: sourceElement('span', inline.props.latex) }),
 })
 
+/**
+ * Server renders of the web-only nodes (HTML only: the public share page and BlockNote's own
+ * Markdown pipeline, which md/notation.ts keeps these nodes away from). A callout is a box around its
+ * editable text; embeds and plugin blocks render as empty placeholders (their content lives
+ * elsewhere and the public page never loaded it); a mention is its `@label` text.
+ */
+const calloutSpec = core.createBlockSpec(calloutConfig, {
+  render: (block: { props: { type: string } }) => {
+    const dom = element('div', 'nd-callout')
+    dom.setAttribute('data-callout-type', block.props.type)
+    const contentDOM = element('div', 'nd-callout-content')
+    dom.appendChild(contentDOM)
+    return { dom, contentDOM }
+  },
+})
+
+const placeholder = (className: string) => () => ({ dom: element('div', className) })
+const pageEmbedSpec = core.createBlockSpec(pageEmbedConfig, { render: placeholder('nd-page-embed') })
+const linkEmbedSpec = core.createBlockSpec(linkEmbedConfig, { render: placeholder('nd-link-embed') })
+const pluginBlockSpec = core.createBlockSpec(pluginBlockConfig, { render: placeholder('nd-plugin-block') })
+
+const mentionSpec = core.createInlineContentSpec(mentionConfig, {
+  render: (inline: { props: { label: string } }) => {
+    const dom = element('span', 'nd-mention')
+    dom.textContent = `@${inline.props.label}`
+    return { dom }
+  },
+})
+
 /** The schema passed to `ServerBlockNoteEditor.create`. */
 export const serverSchema = core.BlockNoteSchema.create({
-  blockSpecs: { ...core.defaultBlockSpecs, [mathBlockConfig.type]: mathBlockSpec() },
-  inlineContentSpecs: { ...core.defaultInlineContentSpecs, [inlineMathConfig.type]: inlineMathSpec },
+  blockSpecs: {
+    ...core.defaultBlockSpecs,
+    [mathBlockConfig.type]: mathBlockSpec(),
+    [calloutConfig.type]: calloutSpec(),
+    [pageEmbedConfig.type]: pageEmbedSpec(),
+    [linkEmbedConfig.type]: linkEmbedSpec(),
+    [pluginBlockConfig.type]: pluginBlockSpec(),
+  },
+  inlineContentSpecs: {
+    ...core.defaultInlineContentSpecs,
+    [inlineMathConfig.type]: inlineMathSpec,
+    [mentionConfig.type]: mentionSpec,
+  },
 })

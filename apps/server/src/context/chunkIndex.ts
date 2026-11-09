@@ -241,12 +241,34 @@ export async function reindexPageChunks(
  */
 async function promoteUncutIndexes(): Promise<number> {
   const rows = (await db.execute(sql`
-    UPDATE page_chunk_index m SET version = ${CHUNKER_VERSION}
+    UPDATE page_chunk_index m SET version = 3
      WHERE m.version = 2
        AND NOT EXISTS (
          SELECT 1 FROM page_chunks c WHERE c.page_id = m.page_id
           GROUP BY c.page_id HAVING sum(octet_length(c.text)) > ${V2_TEXT_CAP_BYTES} OR count(*) >= ${V2_MAX_CHUNKS}
        )
+    RETURNING m.page_id
+  `)) as unknown as unknown[]
+  return rows.length
+}
+
+/**
+ * Version 3 → 4 only taught the chunker the nodes the server schema gained (callout, mention, page /
+ * link embed, plugin block; docs/adr/1500-*): a document holding none of them chunks exactly as in
+ * version 3. Yjs keeps node names as plain UTF-8 in both update encodings (the test the mention
+ * index already relies on, docs/adr/1002-*), so a state without any of these names is stamped as
+ * current; the rest are re-indexed. A name in ordinary text only costs that page a re-index.
+ */
+async function promoteWithoutNewNodes(): Promise<number> {
+  const names = ['callout', 'mention', 'pageEmbed', 'linkEmbed', 'pluginBlock']
+  const any = sql.join(
+    names.map((n) => sql`position(${Buffer.from(n)}::bytea in d.state) > 0`),
+    sql` OR `,
+  )
+  const rows = (await db.execute(sql`
+    UPDATE page_chunk_index m SET version = 4
+     WHERE m.version = 3
+       AND NOT EXISTS (SELECT 1 FROM page_docs d WHERE d.page_id = m.page_id AND (${any}))
     RETURNING m.page_id
   `)) as unknown as unknown[]
   return rows.length
@@ -264,9 +286,11 @@ export async function backfillPageChunks(
   const BATCH = 50
   let total = 0
   try {
-    if (CHUNKER_VERSION === 3) {
+    if (CHUNKER_VERSION === 4) {
       const promoted = await promoteUncutIndexes()
       if (promoted > 0) log(`[inkling] page_chunks: ${promoted} complete version-2 indexes kept as version 3`)
+      const kept = await promoteWithoutNewNodes()
+      if (kept > 0) log(`[inkling] page_chunks: ${kept} version-3 indexes without callouts, mentions or embeds kept as version 4`)
     }
     while (total < maxPages) {
       const rows = await db

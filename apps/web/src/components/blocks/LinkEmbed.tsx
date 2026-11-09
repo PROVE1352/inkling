@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { BlockNoteEditor, PartialBlock } from '@blocknote/core'
 import { createReactBlockSpec } from '@blocknote/react'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
-import { EMBED_PROVIDER_LABELS, parseHttpUrl, toEmbed } from '@inkling/shared'
+import { EMBED_PROVIDER_LABELS, linkEmbedConfig, parseHttpUrl, toEmbed, type LinkEmbedDisplay } from '@inkling/shared'
 import { useLinkPreview } from '../../api'
 import { GlobeIcon, LinkIcon } from '../Icons'
 import { t } from '../../i18n'
@@ -38,16 +38,7 @@ const T = {
   get slashGroup() { return t('linkEmbed.slashGroup') },
 }
 
-export type LinkEmbedDisplay = 'embed' | 'card'
-
-const linkEmbedConfig = {
-  type: 'linkEmbed' as const,
-  propSchema: {
-    url: { default: '' },
-    display: { default: 'embed' as LinkEmbedDisplay, values: ['embed', 'card'] as LinkEmbedDisplay[] },
-  },
-  content: 'none' as const,
-}
+export type { LinkEmbedDisplay }
 
 function hostOf(url: string): string {
   return parseHttpUrl(url)?.hostname.replace(/^www\./, '') ?? url

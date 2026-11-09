@@ -20,7 +20,8 @@ import { estimateTokens, isCjkCode } from './tokens'
 /** Bump when chunk text/anchors change shape: the boot backfill then re-indexes every page. */
 // 2: page_chunks.suspicious (injection heuristics, docs/adr/0977-*; INJECTION_RULES_VERSION 1).
 // 3: no 200 KB text cap, the whole document is indexed up to MAX_CHUNKS_PER_PAGE (docs/adr/1040-*).
-export const CHUNKER_VERSION = 3
+// 4: callouts, mentions and embeds are known to the server schema and appear in the text (docs/adr/1500-*).
+export const CHUNKER_VERSION = 4
 export const MAX_CHUNK_TOKENS = 600
 export const INTRO_ANCHOR = '_intro'
 /**
@@ -88,6 +89,7 @@ function inlineText(inl: InlineLike): string {
     return href && href !== label ? `[${label}](${href})` : label
   }
   if (typeof inl.text === 'string') return inl.text
+  if (inl.type === 'mention') return `@${String(inl.props?.label ?? '')}`
   return ''
 }
 
@@ -134,6 +136,18 @@ function blockLines(b: AnyBlock, indent: string, out: string[]): void {
       break
     case 'quote':
       out.push(`${indent}> ${t}`)
+      break
+    case 'callout':
+      out.push(`${indent}> [!${String(props.type || 'note')}] ${t}`.trimEnd())
+      break
+    case 'pageEmbed':
+      out.push(`${indent}[embedded page]`)
+      break
+    case 'linkEmbed':
+      out.push(`${indent}[embed: ${String(props.url ?? '')}]`)
+      break
+    case 'pluginBlock':
+      out.push(`${indent}[plugin block: ${String(props.pluginId ?? '')}]`)
       break
     case 'codeBlock': {
       const lang = typeof props.language === 'string' && props.language !== 'text' ? props.language : ''

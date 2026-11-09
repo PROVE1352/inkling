@@ -65,11 +65,10 @@ const schema = BlockNoteSchema.create({
     ...defaultBlockSpecs,
     // Code block + Query block (language `dataview` renders live results — docs/QUERY.md)
     codeBlock: queryCodeBlockSpec,
-    // Page embed `![[...]]` (M12). Not in the server schema, but yDocToBlocks safely drops unknown
-    // nodes, so export/indexing survive (only the embed is lost on a round trip — see the report).
+    // Page embed `![[...]]` (M12). Callout, plugin block, link embed and mention below share their
+    // configs with the server schema (@inkling/shared, docs/adr/1500-*), so server reads keep them.
     pageEmbed: pageEmbedSpec,
-    // Callout (M14). Like pageEmbed it is not in the server's default schema, so a stateToBlocks
-    // round trip drops it safely (no crash). Kept in the app's Yjs doc; lost in server .md export (v1 limit).
+    // Callout (M14). Markdown: `> [!type] text` (docs/adr/1500-*).
     callout: calloutSpec,
     // Plugin API v0 placeholder block — always registered so plugin block data survives even
     // when plugins are off (renders an inert card). See apps/web/src/plugins/PluginBlock.tsx.
@@ -80,8 +79,7 @@ const schema = BlockNoteSchema.create({
     // server reads keep it and Markdown writes it as $$…$$ (docs/adr/0995-*, 0996-*).
     math: mathBlockSpec,
   },
-  // @mention inline (M13). Like pageEmbed it is not in the server schema, but y-prosemirror safely
-  // drops unknown inline XmlElements (only the mention is lost on a round trip — see the report).
+  // @mention inline (M13), in the server schema too (docs/adr/1500-*).
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     mention: mentionSpec,

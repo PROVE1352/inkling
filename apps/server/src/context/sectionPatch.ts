@@ -2,8 +2,9 @@ import * as Y from 'yjs'
 import { badRequest } from '../errors'
 import { blocksToMarkdown, markdownToBlocks } from '../md/convert'
 import type { AnyBlock, ResolveTitle } from '../md/convert'
+import type { ParseNotationOptions } from '../md/notation'
 import { getServerEditor } from '../md/editor'
-import { blocksToLightMarkdown, findSection, splitSections } from './chunker'
+import { blocksToLightMarkdown, findSection, inlinesText, splitSections } from './chunker'
 import type { Section } from './chunker'
 import { myers } from './diff'
 
@@ -124,12 +125,34 @@ function keyOf(b: AnyBlock): string {
   return JSON.stringify([b.type ?? '', b.props ?? {}, b.content ?? null])
 }
 
-/** Echo keys for blocks (and their children) — async, computed before the synchronous patch. */
-export async function buildEchoIndex(blocks: AnyBlock[], resolveTitle: ResolveTitle): Promise<EchoIndex> {
+/**
+ * Echo keys for blocks (and their children) — async, computed before the synchronous patch. The
+ * agent read the section in the agent notation (docs/adr/1500-*), so the echo uses it too, and
+ * parses with the same options as the agent's Markdown (`notation`: which mention chips may stay).
+ */
+export async function buildEchoIndex(
+  blocks: AnyBlock[],
+  resolveTitle: ResolveTitle,
+  notation: ParseNotationOptions = {},
+  incoming?: AnyBlock[],
+): Promise<EchoIndex> {
   const out: EchoIndex = new Map()
+  // Shortcut (docs/adr/1500-*): a block equal to one of the agent's new blocks as it is (key without
+  // the round trip) needs no echo — it was sent back exactly. Only the others pay two conversions.
+  const direct = new Set<string>()
+  if (incoming?.length) {
+    const collect = (bs: AnyBlock[]) => bs.forEach((x) => (direct.add(keyOf(x)), collect(x.children ?? [])))
+    collect(normalizeBlocks(incoming))
+  }
   const visit = async (b: AnyBlock): Promise<void> => {
-    const { markdown } = await blocksToMarkdown([{ ...b, children: [] }], { assetMode: 'absolute' })
-    const parsed = normalizeBlocks(await markdownToBlocks(markdown, resolveTitle))
+    const own = keyOf(b)
+    if (direct.has(own)) {
+      out.set(fingerprint(b), { key: own, type: b.type ?? '' })
+      for (const c of b.children ?? []) await visit(c)
+      return
+    }
+    const { markdown } = await blocksToMarkdown([{ ...b, children: [] }], { assetMode: 'absolute', notation: 'agent' })
+    const parsed = normalizeBlocks(await markdownToBlocks(markdown, resolveTitle, undefined, notation))
     out.set(fingerprint(b), {
       key: parsed.length === 1 ? keyOf(parsed[0]) : `\u0000multi:${JSON.stringify(parsed.map(keyOf))}`,
       type: parsed.length === 1 ? (parsed[0].type ?? '') : (b.type ?? ''),
@@ -492,6 +515,11 @@ function reconcileAttrs(oldContent: Y.XmlElement, newContent: Y.XmlElement): voi
   }
 }
 
+/** Content nodes a retype can carry inline content between (code blocks take no marks). */
+function retypable(el: Y.XmlElement): boolean {
+  return el.nodeName !== 'table' && el.nodeName !== 'codeBlock' && el.length > 0 && hasInlineContent(el)
+}
+
 function hasInlineContent(el: Y.XmlElement): boolean {
   return el.toArray().every((c) => c instanceof Y.XmlText || (isEl(c) && c.nodeName !== 'tableRow' && c.nodeName !== 'blockGroup'))
 }
@@ -515,7 +543,19 @@ function reconcileBlock(
     ctx.stats.edited++
     ctx.expect.push({ id: oldBlock.id as string, block: newBlock })
     const sameNode = oc.nodeName === nc.nodeName || (pairType(oc.nodeName) === pairType(nc.nodeName))
-    if (!sameNode || oc.nodeName === 'table' || !hasInlineContent(oc) || !hasInlineContent(nc)) {
+    if (!sameNode && retypable(oc) && retypable(nc)) {
+      // Retyped (paragraph → list item, …): a node of the new type that starts from the old inline
+      // content — marks Markdown cannot express and mention chips stay — then the character diff.
+      // Block colors / alignment the new type also has are carried over (docs/adr/1500-*).
+      const el = new Y.XmlElement(nc.nodeName)
+      oldEl.insert(0, [el])
+      const newAttrs = nc.getAttributes()
+      const oldAttrs = oc.getAttributes()
+      for (const [k, v] of Object.entries(newAttrs)) el.setAttribute(k, (NON_MARKDOWN_PROPS.has(k) && k in oldAttrs ? oldAttrs[k] : v) as never)
+      el.insert(0, oc.toArray().map((c) => (c as Y.XmlElement | Y.XmlText).clone()))
+      oldEl.delete(1, 1)
+      reconcileInline(el, nc)
+    } else if (!sameNode || oc.nodeName === 'table' || !hasInlineContent(oc) || !hasInlineContent(nc)) {
       // Tables (and anything that is not inline content) are replaced as a whole node; the block id stays.
       oldEl.insert(0, [nc.clone()])
       oldEl.delete(1, 1)
@@ -553,6 +593,68 @@ function expectInserted(group: Y.XmlElement, blocks: AnyBlock[], ctx: Ctx): void
   })
 }
 
+type Act = { t: 'keep' | 'edit'; i: number; j: number } | { t: 'del'; i: number } | { t: 'ins'; j: number }
+
+const RETYPE_MIN_SIMILARITY = 0.5
+
+function words(b: AnyBlock): string[] {
+  return inlinesText(b.content).toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+/** Dice coefficient of the two blocks' word multisets (1 = same words). */
+function similarity(a: AnyBlock, b: AnyBlock): number {
+  const wa = words(a)
+  const wb = words(b)
+  if (!wa.length || !wb.length) return 0
+  const count = new Map<string, number>()
+  for (const w of wa) count.set(w, (count.get(w) ?? 0) + 1)
+  let common = 0
+  for (const w of wb) {
+    const n = count.get(w) ?? 0
+    if (n > 0) {
+      common++
+      count.set(w, n - 1)
+    }
+  }
+  return (2 * common) / (wa.length + wb.length)
+}
+
+const inlineBlock = (b: AnyBlock) => Array.isArray(b.content) && b.type !== 'codeBlock'
+
+/**
+ * A block the agent retyped (paragraph → list item, …) comes out of the type alignment as a
+ * deletion plus an insertion. Between two edits, when the deleted and inserted blocks pair up one to
+ * one with mostly the same words, they are edits instead: the block keeps its id, and what Markdown
+ * cannot say (marks, chips, colors) moves to the new type (docs/adr/1500-*).
+ */
+function pairRetypes(run: Act[], oldBlocks: AnyBlock[], newBlocks: AnyBlock[]): Act[] {
+  const out: Act[] = []
+  let seg: Act[] = []
+  const flush = () => {
+    const dels = seg.filter((a): a is { t: 'del'; i: number } => a.t === 'del')
+    const ins = seg.filter((a): a is { t: 'ins'; j: number } => a.t === 'ins')
+    const ok =
+      dels.length > 0 &&
+      dels.length === ins.length &&
+      dels.every((d, k) => {
+        const o = oldBlocks[d.i]
+        const n = newBlocks[ins[k].j]
+        return inlineBlock(o) && inlineBlock(n) && similarity(o, n) >= RETYPE_MIN_SIMILARITY
+      })
+    if (ok) dels.forEach((d, k) => out.push({ t: 'edit', i: d.i, j: ins[k].j }))
+    else out.push(...seg)
+    seg = []
+  }
+  for (const a of run) {
+    if (a.t === 'edit' || a.t === 'keep') {
+      flush()
+      out.push(a)
+    } else seg.push(a)
+  }
+  flush()
+  return out
+}
+
 /**
  * Makes the visible blocks `oldBlocks` (containers inside `group`) become `newBlocks`.
  * Containers in `group` that are not in `oldBlocks` (unknown to the server schema) stay where they are.
@@ -578,7 +680,6 @@ function syncList(
   const ops = align(oldKeys, newKeys, 2_000, 2_000_000)
 
   // Within each run of changes pair blocks of the same type (edited in place); the rest is delete/insert.
-  type Act = { t: 'keep' | 'edit'; i: number; j: number } | { t: 'del'; i: number } | { t: 'ins'; j: number }
   const acts: Act[] = []
   let k = 0
   while (k < ops.length) {
@@ -598,11 +699,13 @@ function syncList(
     }
     const oldTypes = dels.map((i) => pairType(echo(oldBlocks[i])?.type ?? oldBlocks[i].type ?? ''))
     const newTypes = ins.map((j) => pairType(newBlocks[j].type ?? ''))
+    const run: Act[] = []
     for (const p of align(oldTypes, newTypes, 1_000, 1_000_000)) {
-      if (p.t === '=') acts.push({ t: 'edit', i: dels[p.i], j: ins[p.j] })
-      else if (p.t === '-') acts.push({ t: 'del', i: dels[p.i] })
-      else acts.push({ t: 'ins', j: ins[p.j] })
+      if (p.t === '=') run.push({ t: 'edit', i: dels[p.i], j: ins[p.j] })
+      else if (p.t === '-') run.push({ t: 'del', i: dels[p.i] })
+      else run.push({ t: 'ins', j: ins[p.j] })
     }
+    acts.push(...pairRetypes(run, oldBlocks, newBlocks))
   }
 
   let anchor: Y.XmlElement | null = start
@@ -731,6 +834,89 @@ function validate(doc: Y.Doc, expect: Ctx['expect']): string | null {
 }
 
 /**
+ * replace on the live range `r` of `group` (docs/adr/0940-*): dry run on a copy of the region,
+ * validated, then the same edit on `doc`; the block splice when the merge does not validate.
+ */
+function replaceRange(
+  doc: Y.Doc,
+  group: Y.XmlElement,
+  r: Range,
+  incoming: AnyBlock[],
+  echo: EchoIndex | null,
+  forced: 'merge' | 'splice' | undefined,
+): { stats: PatchStats; firstId: string | null } {
+  const { tmp, els, read } = buildIncoming(incoming)
+  try {
+    if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
+    /**
+     * Runs the edit on `target` (one transaction) for the range starting at top-level index `from`;
+     * returns its stats, expectations and first new id.
+     */
+    const editOn = (target: Y.Doc, strategy: 'merge' | 'splice', from: number) => {
+      const tGroup = topGroup(target)
+      const tTop = tGroup.toArray() as Y.XmlElement[]
+      const tLive = new Map<string, Y.XmlElement>()
+      indexContainers(tGroup, tLive)
+      const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [] }
+      const startRef = from > 0 ? tTop[from - 1] : null
+      target.transact(() => {
+        if (strategy === 'merge') {
+          syncList(tGroup, r.blocks, read, els, startRef, ctx)
+        } else {
+          // fallback: the visible blocks of the range are replaced; unknown containers stay
+          const olds = r.blocks.map((b) => tLive.get(String(b.id))!)
+          const clones = els.map((e) => e.clone())
+          tGroup.insertAfter(startRef, clones)
+          for (const el of olds) {
+            const idx = tGroup.toArray().indexOf(el)
+            if (idx >= 0) tGroup.delete(idx, 1)
+          }
+          ctx.stats.inserted = countBlocks(read)
+          ctx.stats.deleted = countBlocks(r.blocks)
+          clones.forEach((c, n) => ctx.expect.push({ id: String(c.getAttribute('id')), block: read[n] }))
+        }
+      })
+      // first new or kept top-level block of the range after the edit
+      const firstEl = (tGroup.toArray() as Y.XmlElement[]).find(
+        (el) => isEl(el, 'blockContainer') && ctx.expect.some((e) => e.id === el.getAttribute('id')),
+      )
+      return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null }
+    }
+    /**
+     * Dry run on a copy of the edited region (the range plus the container before it, the insert
+     * anchor) — the edit only touches the range, so its copy validates it like a copy of the whole
+     * document did; null when the result validates, else the problem.
+     */
+    const lo = Math.max(0, r.from - 1)
+    const dryRun = (strategy: 'merge' | 'splice'): string | null => {
+      const work = copyTopRange(group, lo, r.to)
+      try {
+        const res = editOn(work, strategy, r.from - lo)
+        return validate(work, res.expect)
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err)
+      } finally {
+        work.destroy()
+      }
+    }
+    let strategy: 'merge' | 'splice' = forced ?? 'merge'
+    let problem = dryRun(strategy)
+    if (problem && strategy === 'merge') {
+      console.warn(`[patch_section] merge validation failed (${problem}); falling back to block replacement`)
+      strategy = 'splice'
+      problem = dryRun(strategy)
+    }
+    if (problem) throw badRequest(`Could not apply the patch (${problem}); nothing was changed. Use update_page instead.`)
+    // The same deterministic edit on the live document (same content, same structure as the copy),
+    // written by the live doc's own client so concurrent client edits merge as usual.
+    const res = editOn(doc, strategy, r.from)
+    return { stats: res.stats, firstId: res.firstId }
+  } finally {
+    tmp.destroy()
+  }
+}
+
+/**
  * Applies a section patch to a Y.Doc (normally the live document inside DirectConnection.transact).
  * Synchronous, so the version check and the edit are atomic with respect to other edits in this
  * process. `echo` (buildEchoIndex, computed beforehand) lets untouched blocks be recognized through
@@ -800,76 +986,9 @@ export function applySectionPatch(
     const blockFrom = replacesHeading ? sec.start : bodyBlock
     const r = liveRange(top, live, blocks, blockFrom, sec.end, replacesHeading ? secLive : bodyLive)
     ;[liveA, liveB, visA, visB] = [r.from, r.to, blockFrom, sec.end]
-    const { tmp, els, read } = buildIncoming(incoming)
-    try {
-      if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
-      /**
-       * Runs the edit on `target` (one transaction) for the range starting at top-level index `from`;
-       * returns its stats, expectations and first new id.
-       */
-      const editOn = (target: Y.Doc, strategy: 'merge' | 'splice', from: number) => {
-        const tGroup = topGroup(target)
-        const tTop = tGroup.toArray() as Y.XmlElement[]
-        const tLive = new Map<string, Y.XmlElement>()
-        indexContainers(tGroup, tLive)
-        const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [] }
-        const startRef = from > 0 ? tTop[from - 1] : null
-        target.transact(() => {
-          if (strategy === 'merge') {
-            syncList(tGroup, r.blocks, read, els, startRef, ctx)
-          } else {
-            // fallback: the visible blocks of the range are replaced; unknown containers stay
-            const olds = r.blocks.map((b) => tLive.get(String(b.id))!)
-            const clones = els.map((e) => e.clone())
-            tGroup.insertAfter(startRef, clones)
-            for (const el of olds) {
-              const idx = tGroup.toArray().indexOf(el)
-              if (idx >= 0) tGroup.delete(idx, 1)
-            }
-            ctx.stats.inserted = countBlocks(read)
-            ctx.stats.deleted = countBlocks(r.blocks)
-            clones.forEach((c, n) => ctx.expect.push({ id: String(c.getAttribute('id')), block: read[n] }))
-          }
-        })
-        // first new or kept top-level block of the range after the edit
-        const firstEl = (tGroup.toArray() as Y.XmlElement[]).find(
-          (el) => isEl(el, 'blockContainer') && ctx.expect.some((e) => e.id === el.getAttribute('id')),
-        )
-        return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null }
-      }
-      /**
-       * Dry run on a copy of the edited region (the range plus the container before it, the insert
-       * anchor) — the edit only touches the range, so its copy validates it like a copy of the whole
-       * document did; null when the result validates, else the problem.
-       */
-      const lo = Math.max(0, r.from - 1)
-      const dryRun = (strategy: 'merge' | 'splice'): string | null => {
-        const work = copyTopRange(group, lo, r.to)
-        try {
-          const res = editOn(work, strategy, r.from - lo)
-          return validate(work, res.expect)
-        } catch (err) {
-          return err instanceof Error ? err.message : String(err)
-        } finally {
-          work.destroy()
-        }
-      }
-      let strategy: 'merge' | 'splice' = opts.strategy ?? 'merge'
-      let problem = dryRun(strategy)
-      if (problem && strategy === 'merge') {
-        console.warn(`[patch_section] merge validation failed (${problem}); falling back to block replacement`)
-        strategy = 'splice'
-        problem = dryRun(strategy)
-      }
-      if (problem) throw badRequest(`Could not apply the patch (${problem}); nothing was changed. Use update_page instead.`)
-      // The same deterministic edit on the live document (same content, same structure as the copy),
-      // written by the live doc's own client so concurrent client edits merge as usual.
-      const res = editOn(doc, strategy, r.from)
-      Object.assign(stats, res.stats)
-      firstNewId = res.firstId
-    } finally {
-      tmp.destroy()
-    }
+    const res = replaceRange(doc, group, r, incoming, echo, opts.strategy)
+    Object.assign(stats, res.stats)
+    firstNewId = res.firstId
   }
 
   // Blocks after the edit: unchanged blocks from the first read, the edited region read back.
@@ -886,4 +1005,18 @@ export function applySectionPatch(
       null
   }
   return { status: 'ok', section: next, sections: nextSections, stats }
+}
+
+/**
+ * update_page(replace) as a minimal edit of the whole document (docs/adr/1500-*): the same block
+ * alignment and in-place character edits as patch_section's replace, over every top-level block,
+ * so blocks the agent left alone keep their ids, colors, toggles, marks and concurrent typing.
+ * Synchronous (call inside DirectConnection.transact). Throws when neither the merge nor the block
+ * splice validates; the caller then rewrites the document as before.
+ */
+export function applyDocumentReplace(doc: Y.Doc, incoming: AnyBlock[], echo: EchoIndex | null): PatchStats {
+  const blocks = readBlocks(doc)
+  const group = topGroup(doc)
+  const next = incoming.length ? incoming : [{ type: 'paragraph', content: [] }]
+  return replaceRange(doc, group, { from: 0, to: group.length, blocks }, next, echo, undefined).stats
 }

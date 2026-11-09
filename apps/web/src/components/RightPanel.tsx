@@ -27,6 +27,7 @@ import type { InklingEditor } from './CollabEditor'
 import { FieldCell } from './collection/cells/FieldCell'
 import { CommentsPanel } from './comments/CommentsPanel'
 import { HistoryModal, snapLabel } from './HistoryModal'
+import { PageChanges } from './PageChanges'
 import { PageReviewCard } from './PageReview'
 import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import {
@@ -653,6 +654,8 @@ export function RightPanel({
               </button>
             </div>
           )}
+          {/* Recent changes with "revert" for agent edits (docs/adr/1620-*) */}
+          {sections.history && <PageChanges wsId={wsId} pageId={page.id} readOnly={readOnly} />}
         </Section>
       )}
 

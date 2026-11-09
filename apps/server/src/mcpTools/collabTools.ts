@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S } from '@inkling/shared'
+import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S, SUGGESTION_STATUS_FILTERS } from '@inkling/shared'
 import type { PageSuggestionsDTO, SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { claimLine } from '../leases'
 import { ruleText } from '../autoAccept'
@@ -81,16 +81,26 @@ export function suggestionsMadeText(list: SuggestionDTO[]): string {
 
 function suggestionLine(s: SuggestionDTO): string {
   const by = `${cleanText(s.author.name)}${s.via ? ` (via ${attr(s.via)})` : ''}`
-  const decider = s.status === 'withdrawn' ? 'withdrawn' : s.rule ? `by rule (${attr(s.rule)})` : `by ${cleanText(s.decidedBy?.name ?? 'someone')}`
+  const decider =
+    s.status === 'withdrawn'
+      ? 'withdrawn'
+      : s.status === 'superseded'
+        ? `replaced by ${s.supersededBy ?? 'a newer suggestion'}`
+        : s.rule
+          ? `by rule (${attr(s.rule)})`
+          : `by ${cleanText(s.decidedBy?.name ?? 'someone')}`
   const pending = s.status === 'open' ? (s.autoAt ? ` | auto-accept at ${minute(s.autoAt)}` : s.reviewReason ? ` | needs review: ${attr(s.reviewReason)}` : '') : ''
   const decided = s.decidedAt ? ` | ${decider} ${minute(s.decidedAt)}` : pending
-  return `${s.id} | ${s.status} | page ${s.pageId} ${where(s)} | ${s.mode} | ${by} | ${minute(s.createdAt)}${decided}`
+  // accepted_partial (docs/adr/1622-*): the agent learns that only some of its hunks went in.
+  const status = s.partial ? `${s.status} (${s.partial.applied} of ${s.partial.total} changes applied)` : s.status
+  return `${s.id} | ${status} | page ${s.pageId} ${where(s)} | ${s.mode} | ${by} | ${minute(s.createdAt)}${decided}`
 }
 
 export function renderPageSuggestions(pageId: string, r: PageSuggestionsDTO): string {
   const out: string[] = []
   const open = r.suggestions.filter((s) => s.status === 'open')
-  out.push(`${open.length} open suggestion(s) on page ${pageId}${r.suggestions.length > open.length ? `, ${r.suggestions.length - open.length} decided` : ''}`)
+  const others = r.suggestions.length - open.length
+  out.push(`${open.length} open suggestion(s) on page ${pageId}${others ? `, ${others} not open` : ''}`)
   for (const s of r.suggestions) {
     out.push(suggestionLine(s))
     if (s.status === 'open' && s.markdown) {
@@ -118,17 +128,25 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
         'suggestion: id | status | page §section | mode | by (via) | time | decided by … at ….',
       inputSchema: {
         pageId: uuid().optional().describe('Page id (default: your own suggestions everywhere)'),
+        status: z
+          .enum(SUGGESTION_STATUS_FILTERS)
+          .optional()
+          .describe('open (default), decided (accepted, accepted_partial, rejected), all, or one status (withdrawn, superseded, …)'),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ pageId }) => {
+    wrap(async ({ pageId, status }) => {
+      // One status filter for both paths (docs/adr/1626-*).
+      const query = { status: status ?? 'open' }
       if (pageId) {
-        const res = await call(ctx, 'GET', `/api/pages/${pageId}/suggestions`, { query: { all: '1' } })
+        const res = await call(ctx, 'GET', `/api/pages/${pageId}/suggestions`, { query })
         return text(renderPageSuggestions(pageId, res.json() as PageSuggestionsDTO))
       }
-      const { suggestions } = (await call(ctx, 'GET', '/api/suggestions')).json() as { suggestions: SuggestionDTO[] }
-      if (!suggestions.length) return text('No suggestions of yours are open or were decided in the last 7 days.')
-      return text([`${suggestions.length} suggestion(s) of yours (newest first):`, ...suggestions.map(suggestionLine)].join('\n'))
+      const { suggestions } = (await call(ctx, 'GET', '/api/suggestions', { query })).json() as { suggestions: SuggestionDTO[] }
+      if (!suggestions.length) {
+        return text(`No suggestions of yours with status ${query.status}.${query.status === 'all' ? '' : ' status: "all" lists every state.'}`)
+      }
+      return text([`${suggestions.length} suggestion(s) of yours, status ${query.status} (newest first):`, ...suggestions.map(suggestionLine)].join('\n'))
     }),
   )
 
@@ -136,7 +154,7 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
     'withdraw_suggestion',
     {
       title: 'Withdraw suggestion',
-      description: 'Take back one of your open suggestions (people no longer see it). Use the id from list_suggestions or patch_section.',
+      description: 'Take back one of your open suggestions (people no longer see it). Use the id from list_suggestions or patch_section. A suggestion that is no longer open (replaced, decided, withdrawn) is answered with its state.',
       inputSchema: { suggestionId: uuid().describe('Suggestion id') },
     },
     wrapWrite(ctx, async ({ suggestionId }) => {

@@ -18,7 +18,7 @@ import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { isTwoFactorBlocked } from './twoFactorPolicy'
 import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
-import { noteLiveEdit } from './context/attribution'
+import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
 import { liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
@@ -315,6 +315,14 @@ export const hocuspocus = new Hocuspocus({
 })
 
 registerHocuspocus(hocuspocus)
+// Before a server edit of a page someone is typing in, index the live document first, so the
+// typing is logged as the typist's and the edit's change rows hold only the edit (CF-2,
+// docs/adr/1625-*). The state indexed here is not stored yet; the edit's store follows at once.
+registerTypingFlush(async (pageId) => {
+  const doc = hocuspocus.documents.get(pageId)
+  if (!doc) return
+  await scheduleDocIndex(pageId, encodeStoredState(doc), true, null)
+})
 
 /**
  * Broadcast a stateless message to the collab clients that have the page open.

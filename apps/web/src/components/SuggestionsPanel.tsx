@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { SuggestionDTO } from '@inkling/shared'
+import { useEffect, useMemo, useState } from 'react'
+import type { SuggestionDTO, SuggestionHunkDTO, SuggestionMergeDTO } from '@inkling/shared'
 import { ApiError } from '../api'
 import { useT } from '../i18n'
 import type { TKey } from '../i18n'
@@ -116,8 +116,8 @@ function SuggestionHistory({ pageId }: { pageId: string }) {
           <span className="font-medium text-ink">{s.anchor === '' ? t('suggestions.wholePage') : s.headingPath || t('suggestions.intro')}</span>
           <span className="text-sub">· {t(MODE_LABEL[s.mode])}</span>
           <span className="text-sub">· {s.via ? t('suggestions.by', { name: s.author.name, client: s.via }) : s.author.name}</span>
-          <span
-            className={`ml-auto rounded px-1.5 py-0.5 ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-hover text-sub'}`}
+"          <span
+            className={`ml-auto rounded px-1.5 py-0.5 ${s.status === 'accepted' || s.status === 'accepted_partial' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-hover text-sub'}`}
           >
             {statusText(t, s)}
           </span>
@@ -133,6 +133,13 @@ function statusText(t: ReturnType<typeof useT>, s: SuggestionDTO): string {
     return t('suggestions.status.acceptedRule', { rule: s.rule === 'workspace' ? t('suggestions.rule.workspace') : t('suggestions.rule.page') })
   }
   if (s.status === 'accepted') return t('suggestions.status.accepted', { name: s.decidedBy?.name ?? '' })
+  if (s.status === 'accepted_partial') {
+    return t('suggestions.status.acceptedPartial', {
+      name: s.decidedBy?.name ?? '',
+      applied: s.partial?.applied ?? 0,
+      total: s.partial?.total ?? 0,
+    })
+  }
   if (s.status === 'rejected') return t('suggestions.status.rejected', { name: s.decidedBy?.name ?? '' })
   return t('suggestions.status.withdrawn')
 }
@@ -161,6 +168,34 @@ function SuggestionItem({ s, pageId, canDecide, onDone }: { s: SuggestionDTO; pa
   const decide = useDecideSuggestion(pageId)
   const [confirming, setConfirming] = useState(false)
   const p = s.preview
+  const merge = p?.merge && p.merge.hunks.length > 0 ? p.merge : null
+  const [chosen, setChosen] = useState<Set<number>>(() => defaultChosen(merge))
+  const [showDiff, setShowDiff] = useState(false)
+  // A new merge (the section or the base moved): start from the defaults again.
+  const mergeKey = merge?.key ?? ''
+  useEffect(() => setChosen(defaultChosen(merge)), [mergeKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const effective = useMemo(() => (merge ? merge.hunks.filter((h) => !h.same) : []), [merge])
+  const picked = effective.filter((h) => chosen.has(h.id)).length
+  const applyHunks = () =>
+    decide.mutate(
+      { id: s.id, decision: 'accept', hunks: [...chosen], mergeKey: merge!.key },
+      {
+        onSuccess: (r) => {
+          toast({
+            message:
+              r.suggestion.status === 'accepted_partial'
+                ? t('suggestions.acceptedPartial', { applied: r.suggestion.partial?.applied ?? picked, total: r.suggestion.partial?.total ?? effective.length })
+                : t('suggestions.accepted'),
+          })
+          onDone?.()
+        },
+        onError: (err) =>
+          toast({
+            message:
+              err instanceof ApiError && err.code === 'SUGGESTION_CHANGED' ? t('suggestions.hunksChanged') : err instanceof ApiError ? err.message : t('suggestions.failed'),
+          }),
+      },
+    )
   const where = s.anchor === '' ? t('suggestions.wholePage') : s.headingPath || t('suggestions.intro')
   const run = (decision: 'accept' | 'reject', confirmChanged = false) =>
     decide.mutate(
@@ -201,11 +236,46 @@ function SuggestionItem({ s, pageId, canDecide, onDone }: { s: SuggestionDTO; pa
       {p && !p.found && <p className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">{t('suggestions.gone')}</p>}
       {p?.found && p.changed && (
         <p role="alert" data-testid="suggestion-changed" className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
-          {t('suggestions.changed')}
+          {merge ? (merge.baseKnown ? t('suggestions.changedMerge') : t('suggestions.changedNoBase')) : t('suggestions.changed')}
         </p>
       )}
-      {p && <DiffView ops={p.ops} large={p.large} before={p.before} after={p.after} />}
-      {canDecide && (
+      {merge ? (
+        <>
+          <HunkList merge={merge} chosen={chosen} canDecide={canDecide} onToggle={(id, on) => setChosen((c) => toggled(c, id, on))} />
+          <button type="button" onClick={() => setShowDiff((v) => !v)} className="self-start text-[11px] text-sub hover:text-ink hover:underline">
+            {showDiff ? t('suggestions.hideFullDiff') : t('suggestions.showFullDiff')}
+          </button>
+          {showDiff && p && <DiffView ops={p.ops} large={p.large} before={p.before} after={p.after} />}
+        </>
+      ) : (
+        p && <DiffView ops={p.ops} large={p.large} before={p.before} after={p.after} />
+      )}
+      {canDecide && merge && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {decide.isPending && <Spinner size={12} />}
+          <span className="mr-auto text-[11px] text-sub" data-testid="hunks-picked">
+            {t('suggestions.hunksPicked', { picked, total: effective.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => run('reject')}
+            disabled={decide.isPending}
+            className="rounded-md border border-line px-3 py-1.5 text-xs text-ink hover:bg-hover disabled:opacity-60"
+          >
+            {t('suggestions.reject')}
+          </button>
+          <button
+            type="button"
+            onClick={applyHunks}
+            disabled={decide.isPending || picked === 0}
+            data-testid="apply-hunks"
+            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+          >
+            {picked === effective.length && !p?.changed ? t('suggestions.accept') : t('suggestions.applySelected', { count: picked })}
+          </button>
+        </div>
+      )}
+      {canDecide && !merge && (
         <div className="flex items-center justify-end gap-2">
           {decide.isPending && <Spinner size={12} />}
           {confirming ? (
@@ -245,5 +315,114 @@ function SuggestionItem({ s, pageId, canDecide, onDone }: { s: SuggestionDTO; pa
         </div>
       )}
     </section>
+  )
+}
+
+function defaultChosen(merge: SuggestionMergeDTO | null): Set<number> {
+  return new Set((merge?.hunks ?? []).filter((h) => !h.conflict && !h.same).map((h) => h.id))
+}
+
+function toggled(c: Set<number>, id: number, on: boolean): Set<number> {
+  const next = new Set(c)
+  if (on) next.add(id)
+  else next.delete(id)
+  return next
+}
+
+/**
+ * The suggestion in hunks (top-level blocks), each with a checkbox (docs/adr/1621-*). A hunk that
+ * overlaps what people changed since the agent read the section is marked and starts unchecked,
+ * with the text there now; checking it puts the agent's version in its place.
+ */
+function HunkList({
+  merge,
+  chosen,
+  canDecide,
+  onToggle,
+}: {
+  merge: SuggestionMergeDTO
+  chosen: Set<number>
+  canDecide: boolean
+  onToggle: (id: number, on: boolean) => void
+}) {
+  const t = useT()
+  return (
+    <ol className="flex flex-col gap-2" data-testid="suggestion-hunks">
+      {merge.hunks.map((h, i) => (
+        <HunkItem key={h.id} h={h} n={i + 1} checked={chosen.has(h.id)} canDecide={canDecide} onToggle={onToggle} t={t} />
+      ))}
+    </ol>
+  )
+}
+
+function HunkItem({
+  h,
+  n,
+  checked,
+  canDecide,
+  onToggle,
+  t,
+}: {
+  h: SuggestionHunkDTO
+  n: number
+  checked: boolean
+  canDecide: boolean
+  onToggle: (id: number, on: boolean) => void
+  t: ReturnType<typeof useT>
+}) {
+  const lines = (text: string, tone: 'del' | 'add' | 'now') =>
+    text
+      ? text.split('\n').map((l, i) =>
+          l === '' ? (
+            <div key={i} className="h-1.5" aria-hidden />
+          ) : (
+          <div
+            key={i}
+            className={`whitespace-pre-wrap break-words px-2 ${
+              tone === 'del'
+                ? 'bg-red-500/10 text-red-700 line-through decoration-red-400/60 dark:text-red-300'
+                : tone === 'add'
+                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-500/10 text-amber-800 dark:text-amber-200'
+            }`}
+          >
+            {l}
+          </div>
+          ),
+        )
+      : null
+  return (
+    <li
+      data-testid="suggestion-hunk"
+      data-conflict={h.conflict ? '1' : '0'}
+      className={`overflow-hidden rounded-md border text-xs ${h.conflict ? 'border-amber-500/50' : 'border-line'} ${checked || h.same ? '' : 'opacity-70'}`}
+    >
+      <label className={`flex items-center gap-2 border-b px-2 py-1 ${h.conflict ? 'border-amber-500/30 bg-amber-500/5' : 'border-line bg-hover/40'}`}>
+        <input
+          type="checkbox"
+          checked={h.same || checked}
+          disabled={!canDecide || h.same}
+          onChange={(e) => onToggle(h.id, e.target.checked)}
+          aria-label={t('suggestions.hunkLabel', { n })}
+        />
+        <span className="font-medium text-ink">{t('suggestions.hunkLabel', { n })}</span>
+        {h.context && <span className="min-w-0 flex-1 truncate text-sub">· {h.context}</span>}
+        {h.same ? (
+          <span className="ml-auto shrink-0 text-sub">{t('suggestions.hunkSame')}</span>
+        ) : h.conflict ? (
+          <span className="ml-auto shrink-0 rounded bg-amber-500/15 px-1.5 text-amber-700 dark:text-amber-300">{t('suggestions.hunkConflict')}</span>
+        ) : null}
+      </label>
+      <div className="font-mono leading-relaxed">
+        {lines(h.before, 'del')}
+        {lines(h.after, 'add')}
+      </div>
+      {h.conflict && h.ours !== null && (
+        <div className="border-t border-amber-500/30">
+          <div className="px-2 pt-1 text-[11px] text-amber-700 dark:text-amber-300">{t('suggestions.hunkNow')}</div>
+          <div className="font-mono leading-relaxed">{lines(h.ours, 'now')}</div>
+        </div>
+      )}
+    </li>
   )
 }

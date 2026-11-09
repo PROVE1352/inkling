@@ -21,6 +21,7 @@ import pageAccess from './ko/page-access'
 import shortcuts from './ko/shortcuts'
 import later from './ko/later'
 import suggestions from './ko/suggestions'
+import revert from './ko/revert'
 import charts from './ko/charts'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
@@ -47,5 +48,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...shortcuts,
   ...later,
   ...suggestions,
+  ...revert,
   ...charts,
 }

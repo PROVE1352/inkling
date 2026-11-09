@@ -153,6 +153,8 @@ export const AUDIT_ACTIONS = [
   'page.guest_invited',
   'guests.removed',
   'agent_policy.changed',
+  /** A person reverted logged changes on a page (docs/adr/1623-*): before.seqs reverted, after.seqs the revert's own edits. */
+  'page.changes_reverted',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

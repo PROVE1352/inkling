@@ -42,6 +42,7 @@ import { registerInkRoutes } from './routes/ink'
 import { registerNotificationRoutes } from './routes/notifications'
 import { registerSidebarPrefsRoutes } from './routes/sidebarPrefs'
 import { registerActivityRoutes } from './routes/activity'
+import { registerRevertRoutes } from './routes/revert'
 import { registerInboxRoutes } from './routes/inbox'
 import { registerLaterRoutes } from './routes/later'
 import { registerThreadRoutes } from './routes/threads'
@@ -505,6 +506,8 @@ async function main(): Promise<void> {
       await registerSidebarPrefsRoutes(api)
       // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)
       await registerActivityRoutes(api)
+      // Reverting logged changes, one or an agent's run (docs/adr/1620-* .. 1624-*)
+      await registerRevertRoutes(api)
       await registerInboxRoutes(api)
       // Later list with reminders, followed comment threads (docs/adr/1410-* .. 1413-*)
       await registerLaterRoutes(api)

@@ -9,8 +9,17 @@ import type { DiffOpDTO } from './notifications'
 export const SUGGESTION_MODES = ['replace', 'append', 'prepend', 'insert_after', 'delete', 'page_replace', 'page_append'] as const
 export type SuggestionMode = (typeof SUGGESTION_MODES)[number]
 
-export const SUGGESTION_STATUSES = ['open', 'accepted', 'rejected', 'superseded', 'withdrawn'] as const
+/** accepted_partial = a person applied some of its hunks (docs/adr/1622-*). */
+export const SUGGESTION_STATUSES = ['open', 'accepted', 'accepted_partial', 'rejected', 'superseded', 'withdrawn'] as const
 export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number]
+
+/**
+ * Status filter of GET /pages/:id/suggestions and GET /suggestions (`status=`), and of
+ * list_suggestions (docs/adr/1626-*): 'open' (default), 'decided' (accepted, accepted_partial,
+ * rejected), 'all', or one status. Both lists use the same filter.
+ */
+export const SUGGESTION_STATUS_FILTERS = ['open', 'decided', 'all', 'accepted', 'accepted_partial', 'rejected', 'withdrawn', 'superseded'] as const
+export type SuggestionStatusFilter = (typeof SUGGESTION_STATUS_FILTERS)[number]
 
 /** Open suggestions per page (the oldest must be decided before more come in). */
 export const MAX_OPEN_SUGGESTIONS_PER_PAGE = 100
@@ -49,6 +58,10 @@ export interface SuggestionDTO {
   autoAt: string | null
   /** Auto-accepted in the same request: the section after the edit. */
   applied?: { anchor: string; version: string } | null
+  /** superseded: the newer suggestion of the same connection for the same section (docs/adr/1626-*). */
+  supersededBy?: string | null
+  /** accepted_partial: how many of the suggestion's hunks were applied (docs/adr/1622-*). */
+  partial?: { applied: number; total: number } | null
   /** Only with ?preview=1 on open suggestions: the section now and with the suggestion applied. */
   preview?: SuggestionPreviewDTO
 }
@@ -65,7 +78,48 @@ export interface SuggestionPreviewDTO {
   after: string
   ops: DiffOpDTO[] | null
   large: boolean
+  /**
+   * `replace` suggestions: the change in hunks (top-level blocks), each checked against what people
+   * changed since the agent read the section (3-way, docs/adr/1621-*). Absent for other modes and
+   * when the section is gone or too large to split.
+   */
+  merge?: SuggestionMergeDTO | null
 }
+
+export interface SuggestionMergeDTO {
+  /** The section as the agent read it is known (stored at suggestion time, or unchanged since). */
+  baseKnown: boolean
+  /** Identifies base + current + suggestion; send it back with the chosen hunks. */
+  key: string
+  hunks: SuggestionHunkDTO[]
+}
+
+export interface SuggestionHunkDTO {
+  id: number
+  /** Overlaps an edit people made since the agent read the section (or the base is unknown). */
+  conflict: boolean
+  /** People already made exactly this change. */
+  same: boolean
+  /** Markdown the hunk replaces (as the agent read it). */
+  before: string
+  /** Markdown it brings in. */
+  after: string
+  /** Conflicts: what the section holds there now. */
+  ours: string | null
+  /** First line of the block before the hunk (orientation). */
+  context: string | null
+}
+
+/** POST /suggestions/:id/accept */
+export const acceptSuggestionSchema = z
+  .object({
+    confirmChanged: z.boolean().optional(),
+    /** Apply only these hunks (ids from preview.merge); needs `mergeKey`. */
+    hunks: z.array(z.number().int().min(0).max(10_000)).max(10_000).optional(),
+    mergeKey: z.string().max(64).optional(),
+  })
+  .strict()
+export type AcceptSuggestionInput = z.infer<typeof acceptSuggestionSchema>
 
 export interface SectionClaimDTO {
   pageId: string

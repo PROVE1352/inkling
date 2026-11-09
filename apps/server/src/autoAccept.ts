@@ -12,6 +12,7 @@ import type { Locale } from './i18n'
 import { env } from './env'
 import { notify } from './notify/engine'
 import { findLivePage } from './pageDto'
+import { dropSuggestionBases } from './suggestionMerge'
 
 /**
  * Agent edit policy and auto-accept rules (docs/adr/1544-*, 1545-*).
@@ -206,7 +207,10 @@ export async function applyByRule(row: ApplyRow, currentAnchor: string, label: s
       if (r.status === 409) return { ok: false, reason: 'the section changed before it could be applied' }
       return { ok: true, anchor: r.body.section?.anchor ?? null, version: r.body.section?.version ?? null }
     })
-    if (result.ok) return result
+    if (result.ok) {
+      await dropSuggestionBases(db, [row.id])
+      return result
+    }
     reason = result.reason
   } catch (err) {
     reason = `it could not be applied (${err instanceof Error ? err.message.slice(0, 200) : 'error'})`

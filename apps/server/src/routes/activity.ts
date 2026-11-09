@@ -17,6 +17,7 @@ import { liveWorkspace } from '../workspaceLive'
 import { snapshotBlocks } from '../snapshotStore'
 import type { AnyBlock } from '../md/convert'
 import { pageInRangeSql } from '../tokenRange'
+import { revertInfo } from '../revert'
 
 /**
  * Activity screen and diffs for people (docs/adr/1005-*). Reads the change log the agent feed
@@ -126,6 +127,12 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
       hasDiff: r.hasText && r.title !== null && !r.large,
       pageCreatedVia: r.createdVia,
     }))
+    // Revert facts (docs/adr/1623-*): revertable section changes, reverted ones, the reverts' own edits.
+    const info = await revertInfo(
+      id,
+      page.map((r) => ({ seq: r.seq, pageId: r.pageId, kind: r.kind, large: r.large, hasText: r.hasText && r.title !== null })),
+    )
+    for (const it of items) it.revert = info.get(it.seq)
     const clients = (await db.execute(sql`
       SELECT DISTINCT via_client AS via FROM page_changes
        WHERE workspace_id = ${id} AND via_client IS NOT NULL AND (scope = 'shared' OR owner_id = ${user.id})

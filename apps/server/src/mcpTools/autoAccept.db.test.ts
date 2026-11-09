@@ -104,7 +104,7 @@ describe('[db] agent edit policy and auto-accept rules', { skip: !HAS_DB }, asyn
     // the can: line says how edits land
     assert.match((await B.tool('read_page', { pageId: P, outline: true })).text, /can: read,comment,suggest,auto/)
     // the list shows the rule
-    assert.match((await B.tool('list_suggestions', { pageId: P })).text, /\| accepted \| .* \| by rule \(workspace\) /)
+    assert.match((await B.tool('list_suggestions', { pageId: P, status: 'all' })).text, /\| accepted \| .* \| by rule \(workspace\) /)
   })
 
   it('auto: modes, connections, size and a stale base are held for a person, with the reason', async () => {

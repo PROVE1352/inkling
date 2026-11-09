@@ -32,14 +32,25 @@ export function usePageSuggestions(pageId: string | undefined) {
   })
 }
 
-/** Accept (optionally confirming that the section changed since the agent read it) or reject. */
+/**
+ * Accept (optionally confirming that the section changed since the agent read it) or reject.
+ * `hunks` + `mergeKey`: apply only the chosen hunks of a replace (3-way, docs/adr/1621-*).
+ */
 export function useDecideSuggestion(pageId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (v: { id: string; decision: 'accept' | 'reject'; confirmChanged?: boolean }) =>
+    mutationFn: (v: { id: string; decision: 'accept' | 'reject'; confirmChanged?: boolean; hunks?: number[]; mergeKey?: string }) =>
       api<{ suggestion: SuggestionDTO }>(`/api/suggestions/${v.id}/${v.decision}`, {
         method: 'POST',
-        body: JSON.stringify(v.decision === 'accept' && v.confirmChanged ? { confirmChanged: true } : {}),
+        body: JSON.stringify(
+          v.decision !== 'accept'
+            ? {}
+            : v.hunks
+              ? { hunks: v.hunks, mergeKey: v.mergeKey }
+              : v.confirmChanged
+                ? { confirmChanged: true }
+                : {},
+        ),
       }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: qkSuggestions.page(pageId) }),
     // the history query shares the prefix and refreshes too

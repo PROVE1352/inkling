@@ -12,6 +12,8 @@ import { useLayout } from '../components/AppLayout'
 import { DiffView } from '../components/DiffView'
 import { HistoryIcon, MenuIcon } from '../components/Icons'
 import { Modal } from '../components/Modal'
+import { offersRevert, revertSourceOf } from '../components/PageChanges'
+import { RevertDialog, type RevertSource } from '../components/RevertDialog'
 import { NavButtons } from '../components/NavButtons'
 import { Spinner } from '../components/Spinner'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -38,6 +40,7 @@ export function ActivityView() {
   const [rest, setRest] = useState<Omit<ActivityFilters, 'rootId'>>(DEFAULT_ACTIVITY_FILTERS)
   const filters = useMemo<ActivityFilters>(() => ({ ...rest, rootId }), [rest, rootId])
   const [openSeq, setOpenSeq] = useState<string | null>(null)
+  const [revertSource, setRevertSource] = useState<RevertSource | null>(null)
 
   const pages = usePages(wsId)
   const members = useMembers(wsId)
@@ -201,7 +204,13 @@ export function ActivityView() {
                   </h2>
                   <ul className="divide-y divide-line rounded-lg border border-line">
                     {g.items.map((it) => (
-                      <ActivityRow key={it.seq} wsId={wsId} item={it} onOpen={() => setOpenSeq(it.seq)} />
+                      <ActivityRow
+                        key={it.seq}
+                        wsId={wsId}
+                        item={it}
+                        onOpen={() => setOpenSeq(it.seq)}
+                        onRevert={() => setRevertSource(revertSourceOf(it))}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -223,6 +232,7 @@ export function ActivityView() {
       </div>
 
       <ChangeDiffModal seq={openSeq} onClose={() => setOpenSeq(null)} />
+      <RevertDialog wsId={wsId} source={revertSource} onClose={() => setRevertSource(null)} />
     </div>
   )
 }
@@ -236,7 +246,7 @@ function ViaBadge({ via }: { via: string }) {
   )
 }
 
-function ActivityRow({ wsId, item, onOpen }: { wsId: string; item: ActivityItemDTO; onOpen: () => void }) {
+function ActivityRow({ wsId, item, onOpen, onRevert }: { wsId: string; item: ActivityItemDTO; onOpen: () => void; onRevert: () => void }) {
   const t = useT()
   return (
     <li
@@ -252,6 +262,9 @@ function ActivityRow({ wsId, item, onOpen }: { wsId: string; item: ActivityItemD
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
           <span className="font-medium text-ink">{item.actor?.name ?? t('activity.someone')}</span>
           {item.via && <ViaBadge via={item.via} />}
+          {item.revert?.isRevert && (
+            <span className="shrink-0 rounded bg-hover px-1.5 py-px text-[10px] font-medium text-sub">{t('revert.badgeRevert')}</span>
+          )}
           <span className="text-sub">{kindLabel(item.kind)}</span>
           {item.pageTitle !== null ? (
             <Link to={`/w/${wsId}/p/${item.pageId}`} className="min-w-0 truncate text-ink hover:underline">
@@ -270,6 +283,11 @@ function ActivityRow({ wsId, item, onOpen }: { wsId: string; item: ActivityItemD
           )}
         </div>
         {item.headingPath && <div className="truncate text-xs text-sub">{item.headingPath}</div>}
+        {item.revert?.revertedBy && (
+          <div className="text-[11px] text-sub" data-testid="activity-reverted">
+            {t('revert.revertedBy', { name: item.revert.revertedBy.name })} · {relativeTime(item.revert.revertedBy.at)}
+          </div>
+        )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-0.5">
         <time dateTime={item.changedAt} title={formatDateTime(item.changedAt)} className="text-[11px] text-sub">
@@ -282,6 +300,11 @@ function ActivityRow({ wsId, item, onOpen }: { wsId: string; item: ActivityItemD
         ) : item.large ? (
           <span className="text-[11px] text-sub">{t('activity.large')}</span>
         ) : null}
+        {offersRevert(item) && !item.revert?.revertedBy && item.pageTitle !== null && (
+          <button type="button" onClick={onRevert} className="text-[11px] text-accent hover:underline" data-testid="activity-revert">
+            {item.revert?.isRevert ? t('revert.undoShort') : t('revert.short')}
+          </button>
+        )}
       </div>
     </li>
   )

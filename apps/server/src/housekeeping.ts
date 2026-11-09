@@ -11,6 +11,7 @@ import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
 import { purgeOldChanges } from './context/changeLog'
+import { purgeStaleSuggestionBases } from './suggestionMerge'
 import { scanReviewDigests, scoreAllWorkspaces } from './review'
 import { flushReads, purgeOldReads } from './pageReads'
 import { runNotificationHousekeeping } from './notify/digest'
@@ -128,6 +129,8 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     const e = await purgeOldAuditEvents(now)
     // Section claims that have ended (docs/adr/1535-*; reads already ignore them)
     await sweepExpiredLeases()
+    // Stored suggestion bases whose suggestion was decided or deleted (docs/adr/1621-*)
+    await purgeStaleSuggestionBases()
     if (s.length || n.length || t || w || o || a || c || e) {
       log(
         `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,

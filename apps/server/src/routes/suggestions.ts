@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S } from '@inkling/shared'
+import { acceptSuggestionSchema, CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S, SUGGESTION_STATUS_FILTERS } from '@inkling/shared'
 import type { PageSuggestionsDTO } from '@inkling/shared'
 import { currentAgent } from '../agentAccess'
 import { getUser, requireUser } from '../auth'
@@ -23,10 +23,13 @@ import {
 /**
  * Suggested edits and section claims (docs/adr/1530-* .. 1536-*).
  *
- *   GET    /pages/:id/suggestions?preview=1&all=1   open suggestions (+ diffs) and live claims of a page
- *   GET    /suggestions                              the caller's own suggestions (open + decided in 7 days)
+ *   GET    /pages/:id/suggestions?preview=1&status=  a page's suggestions (+ diffs) and live claims; status = open
+ *                                             (default) | decided | all | one status; all=1 = the web history
+ *                                             (everything but superseded), docs/adr/1626-*
+ *   GET    /suggestions?status=                      the caller's own suggestions, same status filter (default open)
  *   GET    /suggestions/:id?preview=1                one suggestion
- *   POST   /suggestions/:id/accept {confirmChanged}  people only (browser or API token), edit access
+ *   POST   /suggestions/:id/accept {confirmChanged, hunks, mergeKey}  people only (browser or API token), edit access;
+ *                                             hunks = apply only these hunks of a replace (docs/adr/1621-*)
  *   POST   /suggestions/:id/reject                   people only, edit access
  *   POST   /suggestions/:id/withdraw                 the author (agents too)
  *   POST   /pages/:id/claims {section, ttlSeconds}   claim a section for this connection
@@ -39,7 +42,6 @@ import {
  */
 
 const idsSchema = z.object({ id: z.uuid() })
-const decideSchema = z.object({ confirmChanged: z.boolean().optional() }).strict()
 const claimSchema = z
   .object({
     section: z.string().trim().min(1).max(500),
@@ -59,7 +61,9 @@ export async function registerSuggestionRoutes(app: FastifyInstance): Promise<vo
   app.get('/pages/:id/suggestions', { preHandler: requireUser }, async (req): Promise<PageSuggestionsDTO> => {
     const user = getUser(req)
     const page = await guardPage(idParam(req.params), user.id)
-    const q = z.object({ preview: z.enum(['0', '1']).optional(), all: z.enum(['0', '1']).optional() }).parse(req.query)
+    const q = z
+      .object({ preview: z.enum(['0', '1']).optional(), all: z.enum(['0', '1']).optional(), status: z.enum(SUGGESTION_STATUS_FILTERS).optional() })
+      .parse(req.query)
     let canDecide = false
     if (!currentAgent()) {
       try {
@@ -70,7 +74,7 @@ export async function registerSuggestionRoutes(app: FastifyInstance): Promise<vo
       }
     }
     return {
-      suggestions: await pageSuggestions(page.id, user.id, { preview: q.preview === '1', all: q.all === '1' }),
+      suggestions: await pageSuggestions(page.id, user.id, { preview: q.preview === '1', all: q.all === '1', status: q.status }),
       claims: await pageClaims(page.id, user),
       canDecide,
     }
@@ -78,7 +82,8 @@ export async function registerSuggestionRoutes(app: FastifyInstance): Promise<vo
 
   app.get('/suggestions', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
-    return { suggestions: await mySuggestions(user) }
+    const q = z.object({ status: z.enum(SUGGESTION_STATUS_FILTERS).optional() }).parse(req.query)
+    return { suggestions: await mySuggestions(user, q.status ?? 'open') }
   })
 
   app.get('/suggestions/:id', { preHandler: requireUser }, async (req) => {
@@ -94,7 +99,7 @@ export async function registerSuggestionRoutes(app: FastifyInstance): Promise<vo
     async (req) => {
       const user = getUser(req)
       const { id } = idsSchema.parse(req.params)
-      const body = decideSchema.parse(req.body ?? {})
+      const body = acceptSuggestionSchema.parse(req.body ?? {})
       return { suggestion: await acceptSuggestion(id, user, body, () => requestLocale(req, user.id)) }
     },
   )

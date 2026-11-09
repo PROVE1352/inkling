@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ChangeRevertInfoDTO } from './revert'
 
 // ---------------------------------------------------------------------------
 // Notifications, subscriptions, agent inbox and the activity screen
@@ -118,6 +119,8 @@ export interface ActivityItemDTO {
   hasDiff: boolean
   /** The page was created through an agent connection (pages.created_via). */
   pageCreatedVia: string | null
+  /** Revert facts (docs/adr/1623-*). */
+  revert?: ChangeRevertInfoDTO
 }
 
 export interface ActivityPageDTO {

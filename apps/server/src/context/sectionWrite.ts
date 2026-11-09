@@ -34,6 +34,11 @@ export interface SectionPatchBody {
   markdown: string
   mode: PatchMode
   baseVersion?: string
+  /**
+   * The new blocks themselves instead of `markdown` (a merged section: live blocks kept as they are,
+   * docs/adr/1621-*). Not parsed; checked for convertibility like parsed Markdown.
+   */
+  blocks?: AnyBlock[]
 }
 
 export type SectionPatchResult =
@@ -122,7 +127,8 @@ export async function patchSectionAs(
   const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
   // Mention chips already in the page may be kept or moved, not created (docs/adr/1500-*).
   const notation = { mentions: await pageMentionKeys(id, body.markdown) }
-  const incoming = body.mode === 'delete' ? [] : await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle, undefined, notation)
+  const incoming =
+    body.mode === 'delete' ? [] : body.blocks ? body.blocks : await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle, undefined, notation)
   // Full convertibility check on a throwaway doc before touching the live one.
   if (incoming.length) blocksToStateBuffer(incoming)
 

@@ -191,7 +191,8 @@ describe('[db] suggestions and section claims', { skip: !HAS_DB }, async () => {
     const w = await B.tool('withdraw_suggestion', { suggestionId: id2 })
     assert.equal(w.isError, false, w.text)
     assert.match(w.text, /^Withdrawn: suggestion/)
-    assert.equal(code(await req(alice, 'POST', `/suggestions/${id2}/accept`, {})), 'SUGGESTION_DECIDED')
+    // a withdrawn suggestion says so (docs/adr/1626-*)
+    assert.equal(code(await req(alice, 'POST', `/suggestions/${id2}/accept`, {})), 'SUGGESTION_WITHDRAWN')
     // a non-member sees nothing
     assert.equal((await req(carol, 'GET', `/pages/${P}/suggestions`)).statusCode, 404)
     assert.equal((await req(carol, 'GET', `/suggestions/${id2}`)).statusCode, 404)

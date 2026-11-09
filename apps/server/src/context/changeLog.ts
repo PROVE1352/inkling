@@ -3,7 +3,7 @@ import { db } from '../db/index'
 import { pageChanges } from '../db/schema'
 import { drainOutbox, enqueue, failRow, OUTBOX_ORIGIN, outboxCommitted, registerOutboxHandler } from '../outbox'
 import type { Exec, RetryPolicy } from '../outbox'
-import { currentEditActor, liveEditors } from './attribution'
+import { currentEditActor, liveEditors, windowTypist } from './attribution'
 import { notifyPageEdited } from '../notify/producers'
 import type { EditActor } from './attribution'
 import { computeSectionChanges } from './sectionChanges'
@@ -113,6 +113,8 @@ type ChangeOp =
       actor: EditActor | null
       /** People typing in the page at log time (excluded from "page you follow changed"). */
       typing: string[]
+      /** No in-flight actor and exactly one person typed in this index window: the row is theirs (CF-2). */
+      typedBy?: string | null
       changes: StoredChange[]
     }
   | {
@@ -219,6 +221,7 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
       ownerId: delta.ownerId,
       actor,
       typing: liveEditors(delta.pageId),
+      typedBy: actor ? null : windowTypist(delta.pageId),
       changes: changes.map((c) => storeChange(c, !!actor?.via)),
     }
   }
@@ -512,7 +515,8 @@ async function writeSectionChanges(
   at: Date,
   origin: string | null,
 ): Promise<boolean> {
-  const actorId = op.actor?.userId ?? null
+  // Live typing is the typist's when one person typed in the index window (CF-2, docs/adr/1625-*).
+  const actorId = op.actor?.userId ?? op.typedBy ?? null
   const via = capVia(op.actor?.via)
   const changes = op.changes
 

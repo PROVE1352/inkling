@@ -956,5 +956,6 @@ export * from './accessTokens'
 export * from './pageAccess'
 // Suggested section edits and section claims (docs/adr/1530-*, 1535-*)
 export * from './suggestions'
+export * from './revert'
 // Chart blocks and chart views: stored format, aggregate shapes, view filters (docs/adr/1600-*)
 export * from './charts'

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { MAX_OPEN_SUGGESTIONS_PER_PAGE } from '@inkling/shared'
-import type { SuggestionDTO, SuggestionMode, SuggestionPreviewDTO, SuggestionStatus } from '@inkling/shared'
+import type { SuggestionDTO, SuggestionMode, SuggestionPreviewDTO, SuggestionStatus, SuggestionStatusFilter } from '@inkling/shared'
 import { gateWrite } from './aclVersion'
 import type { CheckedAccess } from './aclVersion'
 import { currentAgent } from './agentAccess'
@@ -24,6 +24,7 @@ import { buildTitleResolver } from './md/importer'
 import { notify, notifyOutboxRow } from './notify/engine'
 import { enqueue, outboxCommitted } from './outbox'
 import { writePageContentAs } from './pageContentWrite'
+import { dropSuggestionBases, mergedBlocks, parsePartial, recordPartial, storeSuggestionBase, SUGGESTION_BASE_STORE, suggestionMerge } from './suggestionMerge'
 import { findVisiblePage } from './pageDto'
 import type { PageRow } from './pageDto'
 
@@ -67,6 +68,10 @@ interface Row {
   reviewReason: string | null
   autoAt: string | null
   createdAt: string
+  /** accepted_partial: the decision record kept in plugin_storage (docs/adr/1622-*). */
+  partialValue: string | null
+  /** superseded: the next suggestion of the same connection for the same section. */
+  supersededBy: string | null
 }
 
 const SELECT = sql`
@@ -74,10 +79,16 @@ const SELECT = sql`
          s.heading_path AS "headingPath", s.base_version AS "baseVersion", s.markdown, s.mode, s.origin, s.status,
          s.author_id AS "authorId", a.name AS "authorName", s.via, s.connection, s.decided_by AS "decidedBy",
          d.name AS "deciderName", s.decided_at AS "decidedAt", s.rule, s.review_reason AS "reviewReason", s.auto_at AS "autoAt",
-         s.created_at AS "createdAt"
+         s.created_at AS "createdAt", CASE WHEN s.status = 'accepted_partial' THEN ps.value END AS "partialValue",
+         CASE WHEN s.status = 'superseded' THEN (
+           SELECT n.id FROM section_suggestions n
+            WHERE n.page_id = s.page_id AND n.anchor = s.anchor AND n.author_id = s.author_id AND n.connection = s.connection
+              AND n.created_at > s.created_at
+            ORDER BY n.created_at, n.id LIMIT 1) END AS "supersededBy"
     FROM section_suggestions s
     JOIN users a ON a.id = s.author_id
-    LEFT JOIN users d ON d.id = s.decided_by`
+    LEFT JOIN users d ON d.id = s.decided_by
+    LEFT JOIN plugin_storage ps ON ps.plugin_id = ${SUGGESTION_BASE_STORE} AND ps.user_id = s.author_id AND ps.key = s.id::text`
 
 const iso = (v: string | Date | null): string | null => (v === null ? null : new Date(v).toISOString())
 
@@ -102,6 +113,8 @@ function toDto(r: Row): SuggestionDTO {
     rule: r.status === 'accepted' ? r.rule : null,
     reviewReason: r.reviewReason,
     autoAt: r.status === 'open' ? iso(r.autoAt) : null,
+    ...(r.status === 'accepted_partial' ? { partial: parsePartial(r.partialValue) } : {}),
+    ...(r.status === 'superseded' ? { supersededBy: r.supersededBy } : {}),
   }
 }
 
@@ -172,6 +185,8 @@ interface Prepared {
   base: string | null
   markdown: string
   mode: SuggestionMode
+  /** The section as the agent read it (replace only, when baseVersion is the version now): docs/adr/1621-*. */
+  baseMarkdown: string | null
 }
 
 /** Resolves and checks one suggestion before any row is written (refused like the direct write). */
@@ -181,6 +196,7 @@ async function prepare(user: AuthUser, page: PageRow, i: SuggestItem, resolveTit
   let blockId: string | null = null
   let headingPath = ''
   let base: string | null
+  let baseMarkdown: string | null = null
   if (i.ref !== null) {
     const s = await locateSection(page.id, i.ref)
     if (!s) {
@@ -191,6 +207,10 @@ async function prepare(user: AuthUser, page: PageRow, i: SuggestItem, resolveTit
     blockId = s.blockId
     headingPath = joinPath(s.headingPath)
     base = i.baseVersion ?? s.version
+    if (i.mode === 'replace' && base === s.version) {
+      const r = await readSection(page.id, s.anchor)
+      if (r.found && r.section.version === s.version) baseMarkdown = r.markdown
+    }
   } else {
     base = await pageStamp(page.id)
   }
@@ -199,7 +219,7 @@ async function prepare(user: AuthUser, page: PageRow, i: SuggestItem, resolveTit
     const blocks = await markdownToBlocks(stripFrontmatter(i.markdown), resolveTitle)
     if (blocks.length) blocksToStateBuffer(blocks)
   }
-  return { anchor, blockId, headingPath, base, markdown: i.markdown, mode: i.mode }
+  return { anchor, blockId, headingPath, base, markdown: i.markdown, mode: i.mode, baseMarkdown }
 }
 
 /** Creates a suggestion (superseding the same connection's open one for that section). */
@@ -276,10 +296,12 @@ export async function createSuggestions(
     const out: string[] = []
     for (const [k, p] of prepared.entries()) {
       const f = fates[k]
-      await tx.execute(sql`
+      const gone = (await tx.execute(sql`
         UPDATE section_suggestions SET status = 'superseded', decided_at = now()
          WHERE page_id = ${page.id} AND anchor = ${p.anchor} AND author_id = ${user.id} AND connection = ${conn} AND status = 'open'
-      `)
+        RETURNING id
+      `)) as unknown as { id: string }[]
+      await dropSuggestionBases(tx, gone.map((g) => g.id))
       const [row] = (await tx.execute(sql`
         INSERT INTO section_suggestions (workspace_id, page_id, anchor, block_id, heading_path, base_version, markdown, mode, origin,
                                          author_id, via, connection, review_reason, auto_at, rule)
@@ -289,6 +311,7 @@ export async function createSuggestions(
         RETURNING id
       `)) as unknown as { id: string }[]
       out.push(row.id)
+      if (p.baseMarkdown !== null && p.base) await storeSuggestionBase(tx, user.id, row.id, p.base, p.baseMarkdown)
     }
     // Suggestions the rule accepts right now need nobody's approval (docs/adr/1545-*).
     const told = prepared.filter((_, k) => fates[k].kind !== 'now')
@@ -466,36 +489,57 @@ export async function previewOf(r: Row, viewerId: string): Promise<SuggestionPre
   return { found, currentAnchor, currentVersion, changed, before, after, ops, large: ops === null }
 }
 
+/** The preview plus, for `replace`, the hunks checked against people's edits (docs/adr/1621-*). */
+async function previewWithMerge(r: Row, viewerId: string): Promise<SuggestionPreviewDTO> {
+  const p = await previewOf(r, viewerId)
+  if (r.mode === 'replace' && p.found && p.currentAnchor) {
+    const m = await suggestionMerge(r, viewerId, p.currentAnchor).catch((err) => {
+      console.error('[inkling] suggestion merge failed', r.id, err)
+      return null
+    })
+    p.merge = m ? m.dto : null
+  }
+  return p
+}
+
 /** Suggestions of a page (the caller checked that `viewer` may see the page). */
 export async function pageSuggestions(
   pageId: string,
   viewerId: string,
-  opts: { preview?: boolean; all?: boolean } = {},
+  opts: { preview?: boolean; all?: boolean; status?: SuggestionStatusFilter } = {},
 ): Promise<SuggestionDTO[]> {
+  // `all=1` is the web history's view (everything but superseded); `status` the shared filter (docs/adr/1626-*).
+  const where = opts.status ? statusSql(opts.status) : opts.all ? sql`s.status <> 'superseded'` : sql`s.status = 'open'`
   const rows = (await db.execute(sql`
     ${SELECT}
-     WHERE s.page_id = ${pageId} AND ${opts.all ? sql`s.status <> 'superseded'` : sql`s.status = 'open'`}
+     WHERE s.page_id = ${pageId} AND ${where}
      ORDER BY s.created_at, s.id
      LIMIT 200
   `)) as unknown as Row[]
   const out: SuggestionDTO[] = []
   for (const r of rows) {
     const dto = toDto(r)
-    if (opts.preview && r.status === 'open') dto.preview = await previewOf(r, viewerId)
+    if (opts.preview && r.status === 'open') dto.preview = await previewWithMerge(r, viewerId)
     out.push(dto)
   }
   return out
 }
 
+/** SQL condition of a status filter (docs/adr/1626-*): the same for a page's list and the caller's own. */
+export function statusSql(f: SuggestionStatusFilter) {
+  if (f === 'all') return sql`true`
+  if (f === 'decided') return sql`s.status IN ('accepted', 'accepted_partial', 'rejected')`
+  return sql`s.status = ${f}`
+}
+
 /**
- * The caller's own suggestions (open, and those decided in the last 7 days), on pages they can
- * still see, newest first (list_suggestions without a page).
+ * The caller's own suggestions with the given status (default open), on pages they can still
+ * see, newest first, at most 50 (list_suggestions without a page). Same filter as a page's list.
  */
-export async function mySuggestions(user: AuthUser): Promise<SuggestionDTO[]> {
+export async function mySuggestions(user: AuthUser, status: SuggestionStatusFilter = 'open'): Promise<SuggestionDTO[]> {
   const rows = (await db.execute(sql`
     ${SELECT}
-     WHERE s.author_id = ${user.id}
-       AND (s.status = 'open' OR (s.status IN ('accepted', 'rejected') AND s.decided_at > now() - interval '7 days'))
+     WHERE s.author_id = ${user.id} AND ${statusSql(status)}
      ORDER BY s.created_at DESC, s.id
      LIMIT 50
   `)) as unknown as Row[]
@@ -531,6 +575,20 @@ function assertPerson(): void {
   }
 }
 
+/**
+ * Why a suggestion can no longer be withdrawn or decided, in words that fit its state
+ * (docs/adr/1626-*): replaced by which newer suggestion, decided by whom, or already withdrawn.
+ */
+function notOpen(row: Row): AppError {
+  if (row.status === 'superseded') {
+    const next = row.supersededBy ? `your newer suggestion ${row.supersededBy}` : 'a newer suggestion'
+    return new AppError(409, 'SUGGESTION_SUPERSEDED', `This suggestion was replaced by ${next} for ${row.anchor ? `§${row.anchor}` : 'the whole page'}; nothing changed`)
+  }
+  if (row.status === 'withdrawn') return new AppError(409, 'SUGGESTION_WITHDRAWN', 'This suggestion was already withdrawn; nothing changed')
+  const by = row.rule && row.status === 'accepted' ? `a rule (${row.rule})` : (row.deciderName ?? 'someone')
+  return new AppError(409, 'SUGGESTION_DECIDED', `This suggestion was already ${row.status.replace('_', ' ')} by ${by}`)
+}
+
 async function guardDecision(id: string, user: AuthUser): Promise<{ row: Row; page: PageRow; access: CheckedAccess }> {
   assertPerson()
   const row = await loadRow(id)
@@ -539,11 +597,11 @@ async function guardDecision(id: string, user: AuthUser): Promise<{ row: Row; pa
   if (!page) throw notFound()
   const access = await requireMembershipAcl(page.workspaceId, user.id)
   await assertPageEditable(page.id, user.id, { role: access.role, acl: access.acl })
-  if (row.status !== 'open') throw new AppError(409, 'SUGGESTION_DECIDED', `This suggestion is already ${row.status}`)
+  if (row.status !== 'open') throw notOpen(row)
   return { row, page, access }
 }
 
-function resultEvent(row: Row, decider: AuthUser, status: 'accepted' | 'rejected') {
+function resultEvent(row: Row, decider: AuthUser, status: 'accepted' | 'rejected' | 'accepted_partial', partial?: { applied: number; total: number }) {
   return {
     workspaceId: row.workspaceId,
     pageId: row.pageId,
@@ -552,7 +610,7 @@ function resultEvent(row: Row, decider: AuthUser, status: 'accepted' | 'rejected
     via: null,
     recipients: [{ userId: row.authorId, kind: 'approval_result' as const, reason: 'direct' as const }],
     anchor: row.anchor || null,
-    excerpt: `${status}: suggestion ${row.id} (${row.mode}${row.anchor ? ` §${row.anchor}` : ''})`,
+    excerpt: `${status}${partial ? ` (${partial.applied} of ${partial.total} changes)` : ''}: suggestion ${row.id} (${row.mode}${row.anchor ? ` §${row.anchor}` : ''})`,
   }
 }
 
@@ -564,6 +622,7 @@ export async function rejectSuggestion(id: string, user: AuthUser): Promise<Sugg
        WHERE id = ${id} AND status = 'open' RETURNING id
     `)) as unknown as unknown[]
     if (!r.length) return false
+    await dropSuggestionBases(tx, [id])
     const n = notifyOutboxRow(resultEvent(row, user, 'rejected'))
     if (n) await enqueue(tx, [n])
     return true
@@ -583,10 +642,11 @@ export async function rejectSuggestion(id: string, user: AuthUser): Promise<Sugg
 export async function acceptSuggestion(
   id: string,
   user: AuthUser,
-  opts: { confirmChanged?: boolean },
+  opts: { confirmChanged?: boolean; hunks?: number[]; mergeKey?: string },
   locale: () => Promise<Locale>,
 ): Promise<SuggestionDTO> {
   const { row, page, access } = await guardDecision(id, user)
+  if (opts.hunks !== undefined) return acceptHunks(row, page, access, user, opts.hunks, opts.mergeKey, locale)
   const preview = await previewOf(row, user.id)
   if (row.anchor !== '' && !preview.found) {
     throw new AppError(409, 'SECTION_GONE', `The section "${row.headingPath || row.anchor}" no longer exists; reject the suggestion or apply it by hand`, undefined, { preview })
@@ -616,19 +676,78 @@ export async function acceptSuggestion(
     await db.execute(sql`UPDATE section_suggestions SET status = 'open', decided_by = NULL, decided_at = NULL WHERE id = ${id} AND status = 'accepted'`)
     throw err
   }
+  await dropSuggestionBases(db, [id])
   notify(resultEvent(row, user, 'accepted'))
   return toDto((await loadRow(id))!)
+}
+
+/**
+ * Accepts the chosen hunks of a `replace` suggestion (docs/adr/1621-*, 1622-*): the 3-way merge of
+ * base (the section as the agent read it), the section now and the suggestion is computed again
+ * here — never taken from the client — and must be the one the person looked at (`mergeKey`), else
+ * 409 SUGGESTION_CHANGED with the fresh hunks. The merged section is written with the section's
+ * version as base version, so typing that lands meanwhile also answers 409 instead of being undone.
+ * All effective hunks → `accepted`; some → `accepted_partial` with {applied, total} kept.
+ */
+async function acceptHunks(
+  row: Row,
+  page: PageRow,
+  access: CheckedAccess,
+  user: AuthUser,
+  hunks: number[],
+  mergeKey: string | undefined,
+  locale: () => Promise<Locale>,
+): Promise<SuggestionDTO> {
+  if (row.mode !== 'replace' || row.anchor === '') throw badRequest('Only section replace suggestions can be accepted in part; accept or reject it whole')
+  const preview = await previewOf(row, user.id)
+  if (!preview.found || !preview.currentAnchor) {
+    throw new AppError(409, 'SECTION_GONE', `The section "${row.headingPath || row.anchor}" no longer exists; reject the suggestion or apply it by hand`, undefined, { preview })
+  }
+  const m = await suggestionMerge(row, user.id, preview.currentAnchor)
+  if (!m) throw new AppError(409, 'SUGGESTION_UNSPLITTABLE', 'This suggestion is too large to split into hunks; accept or reject it whole')
+  if (mergeKey !== m.dto.key) {
+    preview.merge = m.dto
+    throw new AppError(409, 'SUGGESTION_CHANGED', 'The section changed while you were choosing; check the hunks again.', undefined, { preview })
+  }
+  const known = new Set(m.dto.hunks.map((h) => h.id))
+  const chosen = new Set(hunks)
+  for (const h of chosen) if (!known.has(h)) throw badRequest(`Unknown hunk ${h}`)
+  const effective = m.dto.hunks.filter((h) => !h.same)
+  const applied = effective.filter((h) => chosen.has(h.id)).length
+  if (applied === 0) throw badRequest('Choose at least one change to apply, or reject the suggestion')
+  const status = applied === effective.length ? 'accepted' : 'accepted_partial'
+  const claimed = (await db.execute(sql`
+    UPDATE section_suggestions SET status = ${status}, decided_by = ${user.id}, decided_at = now()
+     WHERE id = ${row.id} AND status = 'open' RETURNING id
+  `)) as unknown as unknown[]
+  if (!claimed.length) throw new AppError(409, 'SUGGESTION_DECIDED', 'Someone decided on this suggestion just now')
+  try {
+    const blocks = mergedBlocks(m, chosen)
+    const r = await patchSectionAs(user, page, access, { ref: m.section.anchor, markdown: '', blocks, mode: 'replace', baseVersion: m.section.version }, locale)
+    if (r.status !== 200) {
+      throw new AppError(409, 'SUGGESTION_CHANGED', 'The section changed while you were choosing; check the hunks again.')
+    }
+  } catch (err) {
+    await db.execute(sql`UPDATE section_suggestions SET status = 'open', decided_by = NULL, decided_at = NULL WHERE id = ${row.id} AND status = ${status}`)
+    throw err
+  }
+  const partial = { applied, total: effective.length }
+  if (status === 'accepted_partial') await recordPartial(db, row.authorId, row.id, partial)
+  else await dropSuggestionBases(db, [row.id])
+  notify(resultEvent(row, user, status, status === 'accepted_partial' ? partial : undefined))
+  return toDto((await loadRow(row.id))!)
 }
 
 /** The author withdraws their own open suggestion (agents may; it is their own). */
 export async function withdrawSuggestion(id: string, user: AuthUser): Promise<SuggestionDTO> {
   const row = await loadRow(id)
   if (!row || row.authorId !== user.id || !(await canSee(row.pageId, user.id))) throw notFound()
-  if (row.status !== 'open') throw new AppError(409, 'SUGGESTION_DECIDED', `This suggestion is already ${row.status}`)
+  if (row.status !== 'open') throw notOpen(row)
   await db.execute(sql`
     UPDATE section_suggestions SET status = 'withdrawn', decided_by = ${user.id}, decided_at = now()
      WHERE id = ${id} AND status = 'open'
   `)
+  await dropSuggestionBases(db, [id])
   return toDto((await loadRow(id))!)
 }
 
@@ -637,7 +756,7 @@ export async function suggestionFor(id: string, user: AuthUser, preview: boolean
   const row = await loadRow(id)
   if (!row || !(await canSee(row.pageId, user.id))) throw notFound()
   const dto = toDto(row)
-  if (preview && row.status === 'open') dto.preview = await previewOf(row, user.id)
+  if (preview && row.status === 'open') dto.preview = await previewWithMerge(row, user.id)
   return dto
 }
 

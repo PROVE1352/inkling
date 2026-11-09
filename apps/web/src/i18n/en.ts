@@ -20,6 +20,7 @@ import pageAccess from './en/page-access'
 import shortcuts from './en/shortcuts'
 import later from './en/later'
 import suggestions from './en/suggestions'
+import revert from './en/revert'
 import charts from './en/charts'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
@@ -47,6 +48,7 @@ export const en = {
   ...shortcuts,
   ...later,
   ...suggestions,
+  ...revert,
   ...charts,
 }
 

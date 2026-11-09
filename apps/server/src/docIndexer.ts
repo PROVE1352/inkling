@@ -8,7 +8,7 @@ import { reindexPageLinks } from './md/linkIndex'
 import { blocksToTagText, extractTags, reindexPageTags } from './md/tagIndex'
 import { extractTasks, reindexPageTasks } from './md/taskIndex'
 import { blocksToPlainText, reindexPageText } from './md/textIndex'
-import { indexActor } from './context/attribution'
+import { beginIndexWindow, endIndexWindow, indexActor } from './context/attribution'
 import { mentionSignature, syncDocMentions } from './notify/producers'
 
 /**
@@ -86,6 +86,16 @@ function rememberStamp(pageId: string, stamp: string | null): void {
 }
 
 async function runIndex(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
+  // Who typed since the last pass (CF-2, docs/adr/1625-*): taken now, read by the change logger.
+  beginIndexWindow(pageId)
+  try {
+    await runIndexPass(pageId, state, stamp)
+  } finally {
+    endIndexWindow(pageId)
+  }
+}
+
+async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
   docIndexStats.runs++
   // One decode per pass (docs/adr/1102-*): the mention walk reads the Yjs tree first, then BlockNote
   // reads the same throwaway doc (its read deletes nodes the server schema lacks, mention chips among

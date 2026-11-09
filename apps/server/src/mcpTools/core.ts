@@ -58,6 +58,10 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   PAGE_ACCESS:
     'nothing was written; the user only has view or comment access to this page. Do not retry or copy the page to get around it. ' +
     'Ask a person with full access to change it, or leave the suggestion with add_comment if the can: line allows commenting',
+  // docs/adr/1626-*: a suggestion that is no longer open; the message says which state and why
+  SUGGESTION_SUPERSEDED: 'nothing to do for this id; list_suggestions(status: "open") shows what is still waiting',
+  SUGGESTION_WITHDRAWN: 'nothing to do',
+  SUGGESTION_DECIDED: 'nothing to do; the outcome also arrives in inbox as approval_result',
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }

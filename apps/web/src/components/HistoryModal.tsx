@@ -33,6 +33,9 @@ const SYSTEM_LABELS: Record<string, TKey> = {
   'AI 편집 전': 'history.labelBeforeAiEdit',
   'AI edit': 'history.labelAiEdit',
   'AI 편집': 'history.labelAiEdit',
+  // taken before a revert of logged changes (docs/adr/1623-*)
+  'Before revert': 'history.labelBeforeRevert',
+  '되돌리기 전': 'history.labelBeforeRevert',
 }
 
 /** "Alice" / "Alice (via Claude)" for a snapshot's author line; null when there is none (autosave). */

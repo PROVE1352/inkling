@@ -288,6 +288,13 @@
       "when": 1794228688573,
       "tag": "0040_v012_agent_ink_setting",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794234596509,
+      "tag": "0041_v012_suggestions_leases",
+      "breakpoints": true
     }
   ]
 }

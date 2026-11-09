@@ -115,6 +115,8 @@ stop_app
 DOCS=$(psql_q "select count(*) from page_docs d join pages p on p.id = d.page_id where p.title in ('Upgrade doc', 'Nested child')")
 [ "$DOCS" = 2 ] || fail "page_docs has $DOCS of 2 seeded documents after the old release stopped"
 table_counts >"$WORK/counts.before"
+# catch_up markers the old release kept in plugin_storage (moved to catch_up_markers by 0041)
+MARKERS_BEFORE=$(psql_q "select count(*) from plugin_storage where plugin_id = 'inkling:catch_up'")
 log "old release stopped; $(wc -l <"$WORK/counts.before" | tr -d ' ') tables recorded"
 
 # --- 2. new release ------------------------------------------------------------------------------
@@ -134,12 +136,16 @@ table_counts >"$WORK/counts.after"
 # - workspace_acl_versions may only grow: rows are created lazily by writes and the boot
 #   reconcile (reconcileAclVersions, docs/adr/1071-*) adds one for every workspace without one,
 #   e.g. a workspace created after the old release booted. It is derived state, rebuilt at boot.
+# - plugin_storage may shrink by exactly its reserved 'inkling:catch_up' rows: migration 0041 moves
+#   them to catch_up_markers (docs/adr/1537-*). No plugin row may change.
 changed=0
 while read -r t n; do
   m=$(awk -v t="$t" '$1 == t { print $2 }' "$WORK/counts.after")
   if [ -z "$m" ]; then
     log "table $t ($n rows) is gone"
     changed=1
+  elif [ "$t" = plugin_storage ] && [ "$m" = "$((n - MARKERS_BEFORE))" ]; then
+    [ "$m" != "$n" ] && log "table $t: $n rows -> $m (allowed: $MARKERS_BEFORE catch_up markers moved)"
   elif [ "$t" = workspace_acl_versions ] && [ "$m" -ge "$n" ]; then
     [ "$m" != "$n" ] && log "table $t: $n rows -> $m (allowed: boot reconcile fills missing rows)"
   elif [ "$m" != "$n" ]; then

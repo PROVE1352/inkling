@@ -896,3 +896,5 @@ export * from './schema-apiTokens'
 export * from './schema-guests'
 // Later list with reminders and followed comment threads (docs/adr/1410-*, 1412-*)
 export * from './schema-later'
+// Suggested section edits, section claims and catch_up markers (docs/adr/1530-*, 1535-*, 1537-*)
+export * from './schema-collab'

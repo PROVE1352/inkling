@@ -29,9 +29,12 @@ export function editableByLine(lock: PageLockDTO): string {
   return t('lock.editableBy', { names: names.join(', ') })
 }
 
-/** "AI agents: read only" / "comment only", or null when agents follow their person. */
+/** "AI agents: read only" / "comment only" / "suggestions only", or null when agents follow their person. */
 export function agentRuleLine(lock: PageLockDTO): string | null {
   if (lock.agents === 'read') return t('lock.agentRule.read')
+  if (lock.agents === 'suggest') return t('lock.agentRule.suggest')
+  if (lock.agents === 'auto') return t('lock.agentRule.auto')
+  if (lock.agents === 'direct') return t('lock.agentRule.direct')
   if (lock.agents === 'comment') return t('lock.agentRule.comment')
   return null
 }

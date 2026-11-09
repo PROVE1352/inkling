@@ -1,6 +1,6 @@
 # 1522. The "last catch_up" marker lives in plugin_storage under a reserved id
 
-- Status: Accepted
+- Status: Superseded by [ADR 1537](1537-catch-up-markers-table.md) (0.12, migration 0041)
 - Date: 2026-11-09
 
 ## Context

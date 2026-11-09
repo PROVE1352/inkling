@@ -15,7 +15,8 @@ import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
 import { agentAllowedSql, currentAgent } from '../agentAccess'
 import { aclColumns, toAcl } from '../aclVersion'
-import { actorFor, CAP_COMMENT, CAP_EDIT, capsFor, pageLockStatus, setPageLock } from '../editLock'
+import { actorFor, CAP_COMMENT, CAP_EDIT, CAP_SUGGEST, capsFor, pageLockStatus, setPageLock } from '../editLock'
+import { effectivePolicies } from '../autoAccept'
 import {
   applicableInstructions,
   instructionBundle,
@@ -175,6 +176,8 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
     ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })),
     versions,
   )
+  // How an agent's body edits land (docs/adr/1544-*): direct, auto-accept rules, or review.
+  const policies = await effectivePolicies(ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })))
   const flags = await suspiciousSections(ordered.map((r) => r.id))
   if (opts.read && flags.size) await markTainted()
   return {
@@ -182,7 +185,13 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
       const c = caps.get(r.id) ?? 0
       return {
         id: r.id,
-        can: ['read', ...(c & CAP_COMMENT ? ['comment'] : []), ...(c & CAP_EDIT ? ['edit'] : [])].join(','),
+        // 'suggest': edits become suggestions under an "agents: suggestions only" lock (docs/adr/1532-*)
+        // under an "auto"/"review" policy edits become suggestions: 'suggest' (+ 'auto' when rules may accept them)
+        can: (() => {
+          const level = policies.get(r.id)?.level ?? 'direct'
+          const edit = c & CAP_EDIT && level === 'direct' ? ['edit'] : c & (CAP_EDIT | CAP_SUGGEST) ? ['suggest', ...(level === 'auto' ? ['auto'] : [])] : []
+          return ['read', ...(c & CAP_COMMENT ? ['comment'] : []), ...edit].join(',')
+        })(),
         createdBy: r.createdBy,
         lastEdit: r.hasChange ? { name: r.editorName, via: r.via } : null,
         suspicious: (flags.get(r.id) ?? []).map((f) => ({ anchor: f.anchor, rules: f.rules })),

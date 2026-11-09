@@ -1,4 +1,5 @@
 import { unlink } from 'node:fs/promises'
+import { sweepExpiredLeases } from './leases'
 import path from 'node:path'
 import { and, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { db, relaxStatementTimeout } from './db/index'
@@ -125,6 +126,8 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     // Change feed log retention (an older cursor gets resync_required)
     const c = await purgeOldChanges(now, env.changeFeedRetentionDays)
     const e = await purgeOldAuditEvents(now)
+    // Section claims that have ended (docs/adr/1535-*; reads already ignore them)
+    await sweepExpiredLeases()
     if (s.length || n.length || t || w || o || a || c || e) {
       log(
         `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,

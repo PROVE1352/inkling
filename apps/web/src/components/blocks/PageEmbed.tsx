@@ -12,7 +12,12 @@ import { en as bnEn, ko as bnKo } from '@blocknote/core/locales'
 import { codeBlockOptions } from '../../lib/codeBlockOptions'
 import { createReactBlockSpec, useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
-import { pageEmbedConfig, type PageMetaDTO } from '@inkling/shared'
+import {
+  pageEmbedConfig,
+  type CustomBlockType,
+  type CustomInlineContentType,
+  type PageMetaDTO,
+} from '@inkling/shared'
 import { useMe, usePages } from '../../api'
 import { openCollab, readStatus } from '../../lib/collabSocket'
 import { PageIconGlyph } from '../PageIconGlyph'
@@ -20,6 +25,10 @@ import { useTheme } from '../../lib/theme'
 import { LinkIcon, LockIcon } from '../Icons'
 import { getLocale, useT } from '../../i18n'
 import { inlineMathSpec, mathBlockSpec } from './Math'
+import { calloutSpec } from './Callout'
+import { linkEmbedSpec } from './LinkEmbed'
+import { mentionSpec } from './Mention'
+import { pluginBlockSpec } from '../../plugins/PluginBlock'
 
 // pageEmbed custom block (`![[transclusion]]`).
 // - prop: pageId. content 'none' (no inline content) → not a PM cursor/edit target.
@@ -212,26 +221,61 @@ function PageEmbedShallow({ pageId }: { pageId: string }) {
   )
 }
 
-// Schema for the read-only embed viewer — pageEmbed is shallow (card only), so nested embeds do
-// not create new providers. Code block highlighting is injected the same way in the viewer.
+// Shallow variant spec — card only, so a pageEmbed met inside an embed does not create a provider.
 const pageEmbedShallowSpec = createReactBlockSpec(pageEmbedConfig, {
   render: ({ block }) => <PageEmbedShallow pageId={block.props.pageId} />,
 })()
 
-// Math nodes are registered here too: the viewer is bound to the live Yjs doc, and y-prosemirror
-// deletes nodes its schema does not know (docs/adr/0995-*).
-const embedSchema = BlockNoteSchema.create({
-  blockSpecs: {
-    ...defaultBlockSpecs,
-    codeBlock: createCodeBlockSpec(codeBlockOptions),
-    pageEmbed: pageEmbedShallowSpec,
+/**
+ * Block and inline specs of the editor schema — the one list both schemas are built from: the main
+ * editor (CollabEditor) and the read-only embed viewer below. The viewer is bound to the embedded
+ * page's LIVE Yjs doc and y-prosemirror deletes the nodes its schema does not know, so it must know
+ * every node the editor writes (docs/adr/1539-*, 0995-*). The callers differ only in renders of the
+ * same node types: pageEmbed (full card + body vs. card only, the recursion guard) and codeBlock
+ * (with or without live query results, which need the editor's QueryBlockPortals).
+ *
+ * The custom maps `satisfies` the shared type lists in @inkling/shared (CUSTOM_BLOCK_TYPES,
+ * CUSTOM_INLINE_CONTENT_TYPES), so a node added there and not registered here fails typecheck.
+ * Each custom spec shares its config (name, props, defaults) with the server schema (docs/adr/1500-*).
+ */
+export function editorSchemaSpecs(renders: {
+  pageEmbed: typeof pageEmbedShallowSpec
+  codeBlock: ReturnType<typeof createCodeBlockSpec>
+}) {
+  const customBlockSpecs = {
+    // Page embed `![[...]]` (M12).
+    pageEmbed: renders.pageEmbed,
+    // Callout (M14). Markdown: `> [!type] text`.
+    callout: calloutSpec,
+    // Plugin API v0 placeholder block — always registered so plugin block data survives even
+    // when plugins are off (renders an inert card). See apps/web/src/plugins/PluginBlock.tsx.
+    pluginBlock: pluginBlockSpec,
+    // Link embed / preview card (YouTube, Figma, … or OG card). docs/adr/0501-*, 0502-*
+    linkEmbed: linkEmbedSpec,
+    // Display equation (KaTeX); Markdown `$$…$$` (docs/adr/0995-*, 0996-*).
     math: mathBlockSpec,
-  },
-  inlineContentSpecs: {
-    ...defaultInlineContentSpecs,
+  } satisfies Record<CustomBlockType, unknown>
+  const customInlineContentSpecs = {
+    // @mention chip (M13).
+    mention: mentionSpec,
+    // Inline equation `$…$`.
     inlineMath: inlineMathSpec,
-  },
-})
+  } satisfies Record<CustomInlineContentType, unknown>
+  return {
+    // Code block highlighting is injected via the schema, not an editor option (Appendix A).
+    blockSpecs: { ...defaultBlockSpecs, codeBlock: renders.codeBlock, ...customBlockSpecs },
+    inlineContentSpecs: { ...defaultInlineContentSpecs, ...customInlineContentSpecs },
+  }
+}
+
+// Schema for the read-only embed viewer: every node of the main schema, pageEmbed shallow (nested
+// embeds do not create new providers) and the plain highlighted code block (no query results).
+export const embedSchema = BlockNoteSchema.create(
+  editorSchemaSpecs({
+    pageEmbed: pageEmbedShallowSpec,
+    codeBlock: createCodeBlockSpec(codeBlockOptions),
+  }),
+)
 
 // Full-variant BlockSpec that joins the main editor schema.
 export const pageEmbedSpec = createReactBlockSpec(pageEmbedConfig, {

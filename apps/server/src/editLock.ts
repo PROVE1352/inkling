@@ -59,6 +59,20 @@ import {
 
 export const CAP_EDIT = 1
 export const CAP_COMMENT = 2
+/**
+ * Agents only (docs/adr/1532-*): the agent may not edit but its writes become suggestions a person
+ * accepts or rejects. Set by the 'suggest' agents preset (allow SUGGEST, deny EDIT); never part of
+ * the default bits, and only kept while the agent's person may edit the page (a suggestion is an
+ * edit waiting for a person, so it cannot reach further than the person could).
+ */
+export const CAP_SUGGEST = 4
+/**
+ * Markers of the agents row, never effective bits (docs/adr/1544-*): AUTO = the node's suggestions
+ * are accepted by its auto-accept rules (with SUGGEST, deny EDIT); DIRECT = agents edit directly here
+ * whatever the workspace's default policy says (no EDIT is granted: a lock never loosens).
+ */
+export const CAP_AUTO = 8
+export const CAP_DIRECT = 16
 const CAP_ALL = CAP_EDIT | CAP_COMMENT
 
 type Exec = Pick<typeof db, 'execute'>
@@ -165,6 +179,16 @@ function applyLayer(caps: number, o: { a: number; d: number } | undefined): numb
   return (caps & ~o.d) | (o.a & ~o.d)
 }
 
+/**
+ * The agents layer of one node. A layer that takes EDIT away without granting SUGGEST also takes an
+ * inherited SUGGEST away (docs/adr/1532-*): 'comment'/'read' rows written before SUGGEST existed deny
+ * EDIT only, and a nearer stricter node must still win over an outer 'suggest'.
+ */
+function agentLayer(o: { a: number; d: number } | undefined): { a: number; d: number } | undefined {
+  if (!o) return o
+  return o.d & CAP_EDIT && !(o.a & CAP_SUGGEST) ? { a: o.a, d: o.d | CAP_SUGGEST } : o
+}
+
 /** Effective bits of `actor` on a page whose lock nodes (top level first) are `chain`. */
 export function effectiveCaps(chain: LockNode[], actor: AccessActor): number {
   let caps = CAP_ALL
@@ -177,9 +201,41 @@ export function effectiveCaps(chain: LockNode[], actor: AccessActor): number {
       const ownerAllow = node.ownerId === actor.userId ? CAP_EDIT : 0
       caps = applyLayer(caps, own || ownerAllow ? { a: (own?.a ?? 0) | ownerAllow, d: own?.d ?? 0 } : undefined)
     }
-    if (actor.agent) caps = applyLayer(caps, by.get('agents'))
+    if (actor.agent) caps = applyLayer(caps, agentLayer(by.get('agents')))
   }
-  return caps
+  // SUGGEST is an agent bit, and only while the agent's person may edit here (docs/adr/1532-*).
+  if (caps & CAP_SUGGEST && (!actor.agent || caps & CAP_EDIT || !(effectiveCaps(chain, { ...actor, agent: false }) & CAP_EDIT))) {
+    caps &= ~CAP_SUGGEST
+  }
+  return caps & ~(CAP_AUTO | CAP_DIRECT)
+}
+
+/**
+ * The agent edit policy a lock chain sets (docs/adr/1544-*): the nearest node with an agents rule
+ * decides — 'direct', 'auto' (with that node's rules) or 'review' (suggestions only) — and null when
+ * no node has one (the workspace default applies) or the nearest one only takes rights away
+ * (comment/read: the caps refuse the write anyway).
+ */
+export function chainAgentPolicy(chain: LockNode[]): { level: 'direct' | 'auto' | 'review'; nodeId: string } | null {
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const o = chain[i].overrides.find((x) => x.s === 'agents')
+    if (!o) continue
+    if (o.a & CAP_DIRECT) return { level: 'direct', nodeId: chain[i].id }
+    if (o.a & CAP_AUTO) return { level: 'auto', nodeId: chain[i].id }
+    if (o.a & CAP_SUGGEST) return { level: 'review', nodeId: chain[i].id }
+    return null
+  }
+  return null
+}
+
+/** chainAgentPolicy for each page (cached lock chains, docs/adr/1071-*). */
+export async function lockAgentPolicies(
+  exec: Exec,
+  pageIds: string[],
+): Promise<Map<string, { level: 'direct' | 'auto' | 'review'; nodeId: string } | null>> {
+  const states = await aclForPages(exec, pageIds)
+  const chains = await chainsFor(exec, pageIds, states)
+  return new Map(pageIds.map((id) => [id, chainAgentPolicy(chains.get(id) ?? [])]))
 }
 
 /** Presets of a lock node, read back from its override rows. */
@@ -189,7 +245,18 @@ export function nodePresets(node: LockNode): { people: LockPeople; agents: LockA
   const agents = by.get('agents')
   return {
     people: everyone && everyone.d & CAP_EDIT ? 'editors' : 'everyone',
-    agents: agents && agents.d & CAP_COMMENT ? 'read' : agents && agents.d & CAP_EDIT ? 'comment' : 'same',
+    agents:
+      agents && agents.d & CAP_COMMENT
+        ? 'read'
+        : agents && agents.a & CAP_DIRECT
+          ? 'direct'
+          : agents && agents.a & CAP_AUTO
+            ? 'auto'
+            : agents && agents.a & CAP_SUGGEST
+          ? 'suggest'
+          : agents && agents.d & CAP_EDIT
+            ? 'comment'
+            : 'same',
     editorIds: node.overrides
       .filter((o) => o.s.startsWith('user:') && o.a & CAP_EDIT)
       .map((o) => o.s.slice(5))
@@ -232,10 +299,17 @@ export async function pageLockedError(chain: LockNode[], actor: AccessActor, bit
     })
   }
   const title = `"${node.title || 'Untitled'}"`
-  const agentRule = actor.agent && presets.agents !== 'same'
+  // Under 'suggest', an agent whose person may not edit here is refused for the person's reason.
+  const suggestive = presets.agents === 'suggest' || presets.agents === 'auto'
+  const personBlocked = suggestive && !(effectiveCaps(chain, { ...actor, agent: false }) & CAP_EDIT)
+  const agentRule = actor.agent && presets.agents !== 'same' && presets.agents !== 'direct' && !personBlocked
   let message: string
   if (bit === CAP_COMMENT) {
     message = `${title} is locked: agents may not comment on it. Ask a person to comment instead.`
+  } else if (agentRule && suggestive) {
+    message =
+      `${title} is locked for agents (suggestions only): this kind of change cannot be suggested. ` +
+      'Use patch_section or update_page; they leave a suggestion that a person accepts or rejects.'
   } else if (agentRule) {
     message =
       `${title} is locked for agents (${presets.agents === 'comment' ? 'comment only' : 'read only'}). ` +
@@ -261,8 +335,33 @@ export async function capsFor(
   // workspace without rows (cached per access version).
   const levels = await grantLevelsFor(exec, pageIds, actor.userId, states)
   return new Map(
-    pageIds.map((id) => [id, effectiveCaps(chains.get(id) ?? [], actor) & grantCaps(actor.role, levels.get(id) ?? null)]),
+    pageIds.map((id) => {
+      const grant = grantCaps(actor.role, levels.get(id) ?? null)
+      // SUGGEST survives the people rows only where they allow editing (docs/adr/1532-*).
+      return [id, effectiveCaps(chains.get(id) ?? [], actor) & (grant | (grant & CAP_EDIT ? CAP_SUGGEST : 0))]
+    }),
   )
+}
+
+/**
+ * May the agent of this request leave a suggestion on `pageId` (docs/adr/1532-*)? Its person must be
+ * able to edit the page (lock, people rows), and the lock must let the agent edit or suggest. Throws
+ * the person's PAGE_LOCKED / PAGE_ACCESS when the person may not edit; returns 'edit' when the agent
+ * may edit directly, 'suggest' when only suggestions are allowed, null when neither.
+ */
+export async function suggestionRight(
+  exec: Exec,
+  pageId: string,
+  userId: string,
+  role: WorkspaceAccessRole | null,
+  acl?: AclState,
+): Promise<'edit' | 'suggest' | null> {
+  const person: AccessActor = { userId, role, agent: false }
+  await assertCan(exec, pageId, person, { acl })
+  const actor = actorFor(userId, role)
+  if (!actor.agent) return 'edit'
+  const caps = (await capsFor(exec, [pageId], actor, acl ? new Map([[pageId, acl]]) : undefined)).get(pageId) ?? 0
+  return caps & CAP_EDIT ? 'edit' : caps & CAP_SUGGEST ? 'suggest' : null
 }
 
 /** Throws PAGE_ACCESS unless a fresh (uncached) walk of the people rows grants `bit` after all. */
@@ -378,7 +477,7 @@ export async function assertPageCommentable(
 // Lock status and changes (GET/PUT /pages/:id/lock)
 // ---------------------------------------------------------------------------
 
-interface LockTarget {
+export interface LockTarget {
   id: string
   workspaceId: string
   title: string
@@ -410,7 +509,7 @@ export async function loadLockTarget(exec: Pick<typeof db, 'select'>, pageId: st
  * May `userId` change the own lock of `target`? Workspace owners/admins; or the page owner while
  * they can edit it as a person (a nested lock must not become a way around an outer one).
  */
-function canManageLock(target: LockTarget, chain: LockNode[], userId: string, role: WorkspaceAccessRole | null): boolean {
+export function canManageLock(target: LockTarget, chain: LockNode[], userId: string, role: WorkspaceAccessRole | null): boolean {
   if (target.scope !== 'shared') return false
   if (isManagerRole(role)) return true
   return target.ownerId === userId && (effectiveCaps(chain, { userId, role, agent: false }) & CAP_EDIT) !== 0
@@ -479,7 +578,15 @@ function presetRows(pageId: string, people: LockPeople, agents: LockAgents, edit
   const rows: { pageId: string; subject: string; userId: string | null; allow: number; deny: number }[] = []
   if (people === 'editors') rows.push({ pageId, subject: 'everyone', userId: null, allow: 0, deny: CAP_EDIT })
   if (agents !== 'same') {
-    rows.push({ pageId, subject: 'agents', userId: null, allow: 0, deny: agents === 'read' ? CAP_EDIT | CAP_COMMENT : CAP_EDIT })
+    // 'suggest' allows SUGGEST and denies EDIT; the stricter presets deny SUGGEST too (docs/adr/1532-*).
+    // 'auto' adds the AUTO marker, 'direct' is a marker only (docs/adr/1544-*).
+    rows.push(
+      agents === 'suggest' || agents === 'auto'
+        ? { pageId, subject: 'agents', userId: null, allow: CAP_SUGGEST | (agents === 'auto' ? CAP_AUTO : 0), deny: CAP_EDIT }
+        : agents === 'direct'
+          ? { pageId, subject: 'agents', userId: null, allow: CAP_DIRECT, deny: 0 }
+          : { pageId, subject: 'agents', userId: null, allow: 0, deny: agents === 'read' ? CAP_EDIT | CAP_COMMENT | CAP_SUGGEST : CAP_EDIT | CAP_SUGGEST },
+    )
   }
   for (const id of editorIds) rows.push({ pageId, subject: `user:${id}`, userId: id, allow: CAP_EDIT, deny: 0 })
   return rows

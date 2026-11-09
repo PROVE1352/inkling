@@ -16,11 +16,14 @@ export const LOCK_PEOPLE = ['editors', 'everyone'] as const
 export type LockPeople = (typeof LOCK_PEOPLE)[number]
 
 /**
- * What agent (MCP / OAuth) requests may do under a lock: 'same' = what their user may do,
+ * What agent (MCP / OAuth) requests may do under a lock: 'same' = what their user may do, under the
+ * workspace's agent edit policy (docs/adr/1544-*); 'direct' = edit directly whatever the workspace
+ * default says; 'auto' = suggestions accepted by this node's rules; 'suggest' = every edit becomes a
+ * suggestion a person accepts or rejects (docs/adr/1532-*),
  * 'comment' = comment but not edit, 'read' = neither edit nor comment. Applies to every member's
  * agent, owners and admins included.
  */
-export const LOCK_AGENTS = ['same', 'comment', 'read'] as const
+export const LOCK_AGENTS = ['same', 'direct', 'auto', 'suggest', 'comment', 'read'] as const
 export type LockAgents = (typeof LOCK_AGENTS)[number]
 
 /** PUT /pages/:id/lock */

@@ -136,7 +136,9 @@ describe('[db] catch_up', { skip: !HAS_DB }, async () => {
     // peek did not move the marker: the previous call's window is still what comes next
     const r = await A.tool('catch_up', { workspaceId: ws.id, peek: true })
     // due tasks and reminders are current state, not window events: they stay listed
-    assert.match(r.text, /\n0 pages changed .* 0 for you · 1 due by/)
+    assert.match(r.text, /\n0 pages changed .* 0 for you · 1 due \(0 overdue\)/)
+    // the date-dependent due window sits at the end, right before the cursor (docs/adr/1543-*)
+    assert.match(r.text, /\ndue window: up to \d{4}-\d\d-\d\d\nnext since: \S+ \(up to \S+\)$/)
     assert.match(r.text, /## Due soon/)
   })
 
@@ -163,5 +165,31 @@ describe('[db] catch_up', { skip: !HAS_DB }, async () => {
     // carol's own workspace still works
     await newPage(carol, 'Carol page', doc({ A: 'a' }), {}, other.id)
     assert.match((await C.tool('catch_up', {})).text, /Carol page/)
+  })
+
+  it('markers live in catch_up_markers, not plugin_storage (docs/adr/1537-*); never backwards', async () => {
+    const { and, eq } = await import('drizzle-orm')
+    const before = Date.now()
+    await A.tool('catch_up', { workspaceId: ws.id })
+    const rows = await db.select().from(schema.catchUpMarkers).where(eq(schema.catchUpMarkers.userId, alice.id))
+    const keys = rows.map((r) => r.key).sort()
+    assert.ok(keys.includes(`person:${ws.id}`), keys.join(','))
+    assert.ok(keys.some((k) => k.startsWith('grant:') && k.endsWith(`:${ws.id}`)), keys.join(','))
+    for (const r of rows) assert.ok(r.cursor.length > 0 && r.at > 0)
+    const legacy = await db
+      .select()
+      .from(schema.pluginStorage)
+      .where(and(eq(schema.pluginStorage.pluginId, 'inkling:catch_up'), eq(schema.pluginStorage.userId, alice.id)))
+    assert.equal(legacy.length, 0)
+    // an older marker never overwrites a newer one
+    const { storeMarker } = await import('../catchUp')
+    const person = rows.find((r) => r.key === `person:${ws.id}`)!
+    assert.ok(person.at >= before - 1000)
+    await storeMarker({ userId: alice.id, connection: null, workspaceId: ws.id }, { seq: 1, at: 1 })
+    const [again] = await db
+      .select()
+      .from(schema.catchUpMarkers)
+      .where(and(eq(schema.catchUpMarkers.userId, alice.id), eq(schema.catchUpMarkers.key, `person:${ws.id}`)))
+    assert.equal(again.at, person.at)
   })
 })

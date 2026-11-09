@@ -18,8 +18,11 @@ import {
   useSetAgentInstructions,
   useSetPageLock,
   useWorkspaceAgentInstructions,
+  useWorkspaceAgents,
   useWorkspaces,
 } from '../api'
+import { usePageAgentRules, useSetPageAgentRules } from '../agentPolicyApi'
+import { AgentRulesEditor } from './AgentRulesEditor'
 import { agentRuleLine, editableByLine } from '../lib/editLock'
 import { useT, type TKey } from '../i18n'
 import { Modal } from './Modal'
@@ -42,6 +45,9 @@ const PEOPLE_LABEL: Record<LockPeople, TKey> = {
 }
 const AGENTS_LABEL: Record<LockAgents, TKey> = {
   same: 'lock.agentsSame',
+  direct: 'lock.agentsDirect',
+  auto: 'lock.agentsAuto',
+  suggest: 'lock.agentsSuggest',
   comment: 'lock.agentsComment',
   read: 'lock.agentsRead',
 }
@@ -209,6 +215,7 @@ function LockSection({
                 </select>
               </label>
               <p className="text-xs text-sub">{t('lock.agentsHint')}</p>
+              {lock.own && lock.agents === 'auto' && <PageRulesSection pageId={page.id} wsId={wsId} />}
 
               {(lock.people ?? 'editors') === 'editors' && (
                 <div className="flex flex-col gap-1.5">
@@ -470,6 +477,34 @@ function InstructionsForm({
           </button>
         )}
       </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+/** Auto-accept rules of this lock node (docs/adr/1545-*); same right as changing the lock. */
+function PageRulesSection({ pageId, wsId }: { pageId: string; wsId: string }) {
+  const t = useT()
+  const rules = usePageAgentRules(pageId)
+  const set = useSetPageAgentRules(pageId)
+  const ws = useWorkspaces().data?.find((w) => w.id === wsId)
+  const manager = ws?.role === 'owner' || ws?.role === 'admin'
+  const agents = useWorkspaceAgents(wsId, manager)
+  const [error, setError] = useState<string | null>(null)
+  const connections = (agents.data?.connections ?? []).map((c) => ({ key: `grant:${c.grantId}`, label: `${c.client.name} · ${c.user.name}` }))
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-line p-2.5" data-testid="page-agent-rules">
+      <span className="text-xs font-medium text-sub">{t('agentPolicy.pageRules')}</span>
+      <AgentRulesEditor
+        rules={rules.data?.rules}
+        connections={connections}
+        disabled={!rules.data?.canManage}
+        saving={set.isPending}
+        onSave={(r) => {
+          setError(null)
+          set.mutate(r, { onError: (e) => setError(e instanceof ApiError ? e.message : t('lock.saveFailed')) })
+        }}
+      />
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   )

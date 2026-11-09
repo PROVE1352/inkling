@@ -48,6 +48,7 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 | `reply_comment` / `resolve_comment` | write | Reply in a thread; resolve (or reopen) a thread — agents may resolve only threads their person started |
 | `inbox` | read | Mentions, replies, comments on your person's pages and assignments, not yet acknowledged, after `cursor`; one line each with `can: edit/comment/read`; cursor on the last line. `kinds`, `budget` (default 2,000) |
 | `ack` | write | Acknowledge inbox items by `ids` or up to a `cursor` (does not mark them read for the person) |
+| `later` | read | Your person's Later list (pages, comment threads, notifications they saved) with reminders, newest first; `state` open (default) or done; items they can no longer open are listed without a title. `budget` (default 1,500). Read-only: saving and reminders stay in the app ([ADR 1413](adr/1413-later-list-for-agents-read-only.md)) |
 | `create_from_template` | write | A page or page tree from a template |
 
 Tokens are for `/mcp` only. Calling the REST API directly with the same token is rejected (no member management, public sharing or admin features).

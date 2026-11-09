@@ -7,6 +7,102 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-09
+
+Database migration `0039_v011_later_threads` adds `later_items`, `thread_follows` and two columns on
+`user_notification_settings` (`thread_auto_follow`, `thread_replies`, both on by default). It backfills
+`thread_follows`: everyone who wrote in an existing comment thread follows it, so replies reach the same people as
+before the upgrade. Upgrade matrix adds v0.10.0: CI also tests the upgrade from it with data
+(`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- Keyboard shortcuts people know from Notion and Obsidian: ⌘⇧D duplicates the block, ⌘Enter checks or unchecks a
+  to-do, ⌘⌥S adds the open page to favorites or removes it, ⌘⌥\ opens and closes the right panel, ⌘⌥P turns pen mode
+  on and off (Ctrl instead of ⌘ on Windows and Linux). Moving blocks (⌘⇧↑/↓), headings and text (⌘⌥0–3), lists
+  (⌘⇧6–9), indent (Tab), underline, strikethrough and inline code were already there through the editor and are now
+  listed (docs/adr/1401-*).
+- The command palette (⌘P) lists every command that can run on the current screen with its key, including editor
+  commands, and searches English and Korean names together, Korean initial consonants (ㄱㄹㅍ finds 그래프) and
+  half-typed syllables. The commands you ran last come first. It works with the keyboard alone and is announced as a
+  combobox with a list to screen readers (docs/adr/1402-*).
+- The `?` shortcut window has a search box and groups keys by where they work: everywhere, on a page, in the editor,
+  in the sidebar tree, in a database table, in pen mode (docs/adr/1403-*).
+- Menu items with a key show it: pen mode in the page ⋯ menu, rename (F2) and delete in the tree's row menu, search
+  and graph in the sidebar; tooltips of the favorite star, the right-panel and sidebar buttons and back/forward carry
+  the key (docs/adr/1403-*).
+- Change shortcut keys in Settings → Keyboard shortcuts: click a command's key and press the new one. Inkling refuses
+  keys that would be typed as text or that the system or the browser never hands to a page (⌘W, ⌘Q, developer tools)
+  and ⌘A/⌘C/⌘X/⌘V; it names the command that already uses a key and asks before moving it; it warns about keys a
+  browser tab keeps (⌘N) and browser functions (⌘F, ⌘R) and lets you use them anyway. Commands without a key (Today's
+  daily note, New database, Later, Threads …) can get one. A new key works at once, in open pages and editors too, and
+  the `?` window, the palette and the menus show it. Default / Reset all put keys back; Export and Import move them to
+  another device as a JSON file. Keys are saved per browser. Keys built into the editor (bold, headings, lists, moving
+  blocks, undo) stay fixed (docs/adr/1404-*, 1405-*, 1406-*).
+- Database tables work from the keyboard: arrows, Tab / ⇧Tab and Home / End move between cells; Enter or F2 edits (or
+  opens the select list, or ticks the checkbox); in a text cell Enter saves and moves down and Esc cancels; Space ticks
+  a checkbox; ⌫ / Del clears the selected cells; ⇧+arrows extend the selection for copy and paste; ⌘Enter adds a row
+  and opens its title; ⌘⇧Enter opens the row as a page. Screen readers get a grid with row and column numbers, and the
+  table is one Tab stop. These keys are in the shortcut list and can be changed (docs/adr/1407-*).
+- **Later**: save a page (⋯ menu, or "Save this page for later" in the palette), a comment thread (clock button on
+  its card) or a notification (clock button in the bell) to come back to it; the Later screen in the sidebar has Open
+  and Done tabs. Reminders: in 20 minutes, this evening, tomorrow 9:00, next Monday 9:00 or a picked date and time, in
+  the device's time zone; when it comes due you get a bell item and, with "Email right away", a mail. The sidebar
+  shows how many reminders are due. An item whose page you can no longer open (made private, workspace left, two-step
+  requirement) stays without its title and its reminder is not sent (docs/adr/1410-*, 1411-*).
+- **Threads**: follow any comment thread (Follow thread on its card); threads you start or reply in are followed
+  automatically. The Threads screen in the sidebar lists followed threads with new replies, newest first, with the
+  number of new replies and the last one; opening a thread marks it read there and in the bell (docs/adr/1412-*).
+- Settings → Notifications: "Follow threads I start or reply in" and "Notify me about replies in threads I follow".
+- Palette commands for Later, Threads and "Save this page for later", without a default key (a key can be set in
+  Settings). The registry also has "Follow / unfollow the thread" for the focused thread card, without a key and
+  outside the palette (docs/adr/1410-*).
+- MCP: read-only `later` tool lists the person's Later list with reminders (docs/adr/1413-*).
+
+### Changed
+- All shortcuts are defined in one registry and go through one set of rules (docs/adr/1400-*): ⌘ on a Mac and Ctrl
+  elsewhere, never both; modifiers must match exactly; nothing fires while an input method is composing a character;
+  on Windows a Ctrl+Alt combination that types a character on your layout (AltGr) types it; bare keys such as `?` and
+  F2 never fire from a text field. Because modifiers match exactly, on Windows Ctrl+Alt+P no longer opens the palette
+  (it is pen mode now), and Shift+arrow keys in the sidebar tree no longer move the selection (plain arrows do).
+- ⌘L, ⌘D, ⌘. and ⌘⇧E are now handled inside the editor (Inkling's editor extension) instead of the window; ⌘L, ⌘D,
+  ⌘Enter, ⌘⇧D and ⌘⇧E also work in the body of a database row. These editor commands look up their key on each key
+  press instead of a keymap built when the page opens, so a changed key works without reopening the page
+  (docs/adr/1406-*).
+- The palette's "Open search" and "New document" are listed in the `?` window as "Search" and "New page".
+- A reply in a comment thread now notifies the thread's followers instead of everyone who wrote in it. After the
+  upgrade the two are the same people (backfill); unfollowing a thread or turning off reply notifications stops them.
+  Mentions are unchanged. The agent inbox `reply` kind follows the same rule (docs/adr/1412-*).
+- Later reminders (`later_reminder`) pass a page's or workspace's mute and the hourly notification caps, since you set
+  them yourself; they are mailed at once with "Email right away" and are not agent inbox items (docs/adr/1411-*).
+- Opening a single comment, reply or mention notification in the bell marks its thread read in the Threads screen
+  ("Mark all read" does not).
+- Sidebar: Later and Threads are new menus after Search; a saved menu order keeps them in their default place, and
+  they can be hidden like the others. `SIDEBAR_MENU_IDS` adds `later` and `threads`.
+- For API clients: new `/api/later` and `/api/threads` routes, `threadAutoFollow` / `threadReplies` in notification
+  settings, `NotificationType` `later_reminder` ([docs/API.md](docs/API.md), "v0.11.0 additions").
+
+### Fixed
+- ⌘F (open every fold before the browser's find) took either ⌘ or Ctrl on every platform; it now follows the platform
+  modifier like the other keys.
+- In a database table, Enter that finishes a Korean (or other IME) syllable in a text or title cell no longer saves
+  and closes the cell halfway through the word.
+
+### Removed
+- Unused interface texts left over from the old hand-written shortcut list and palette.
+
+### Performance
+- Later reminders, idle tick (nothing due): due rows are claimed through a partial index on `later_items(remind_at)`;
+  p50 0.81–0.91 ms instead of 3.41–3.62 ms with a scan of 25,000 rows (4.0–4.2×).
+- 10,000 reminders due at once (for example after a long downtime): claimed in 20 sweeps of 500 (444–460 ms) and
+  written by the notification consumer in 3.2–3.3 s, 3.6–3.7 s in total; other notification events wait behind them.
+- Reminders as future-dated outbox rows were measured and rejected: every notification pass would pay +1.3–1.5 ms p50
+  for reminders not due yet (docs/adr/1411-*).
+- The comment POST now also writes the author's `thread_follows` row in the same statement: at 1 client p50
+  4.07–4.36 ms instead of 3.47–3.91 ms (+0.4–0.9 ms, slower in every round); at 16 clients p50 16.2–17.4 ms
+  against 16.1–22.8 ms, within the spread; commits per request unchanged (6.16 / 5.17). Measured against v0.10.0
+  with `apps/server/scripts/comment-post-bench.ts`, 4 interleaved rounds (docs/KNOWN-ISSUES.md, THREADS-2).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## [0.10.0] - 2026-11-09
 
 No database migration. Upgrade matrix adds v0.8.0 and v0.9.0: CI also tests the upgrades from them with data

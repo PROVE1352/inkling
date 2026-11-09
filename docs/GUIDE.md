@@ -137,6 +137,11 @@ Create one with **New database**. Each row is a page; **Open row as a page** ope
 - **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup.
   Add one with **Add a property**.
 - **Sort & filter** sets sorting, filters and visible properties per view. Boards group by a select property.
+- **Keyboard** in a table: click a cell or Tab into the table, then move with the arrows, Tab / ⇧Tab and Home / End.
+  Enter or F2 edits the cell (or opens its list or ticks its checkbox); in a text cell Enter saves and moves down,
+  Esc cancels. Space ticks a checkbox, ⌫ clears the selected cells, ⇧+arrows extend the selection for ⌘C / ⌘V,
+  ⌘Enter adds a row and opens its title (so does Enter on the last row), ⌘⇧Enter opens the row as a page. Without
+  edit rights the keys only move. The keys are in the shortcut list under *Database table* and can be changed there.
 - **Column width** in a table: drag the right edge of a column header. The width is saved on the view for everyone;
   double-click the edge to go back to the automatic width (←/→ also work on a focused edge). If you can't edit the
   database, the width changes on your screen only. Long text is cut with "…"; hover to see all of it.
@@ -202,9 +207,11 @@ a thread.
 The bell at the top right holds notifications from all your workspaces. You are notified when someone:
 
 - mentions you in a page or comment,
-- replies in your thread,
+- replies in a comment thread you follow (see *Following a comment thread*),
 - makes you a page owner or assigns you in a Person cell,
 - edits a page you follow.
+
+A reminder you set on your Later list also arrives there when it comes due.
 
 Mentions written by an AI agent arrive quietly (no badge or mail) and in the summary email.
 
@@ -220,6 +227,37 @@ Mentions written by an AI agent arrive quietly (no badge or mail) and in the sum
 Settings → **Notifications** lists everything you follow and sets email: **Email right away** for mentions,
 replies and assignments, and a **Summary email** (daily or weekly). If the server has no mail set up,
 notifications stay in the app.
+
+### Following a comment thread
+
+When you start a comment thread or reply in one, you follow it: replies by others reach your bell (and your
+email, by your settings). **Follow thread** / **Following** on a thread card in the comments panel follows or
+stops following any thread, including ones you never wrote in. An unfollow sticks even if you reply again.
+
+**Threads** in the sidebar lists the threads you follow that have new replies, newest first, with how many
+replies are new and the last one. Opening a thread there marks it read, and the bell item for that thread
+too. Check **Show threads without new replies** to see every thread you follow (for example to unfollow).
+
+Settings → **Notifications** has two switches: **Follow threads I start or reply in** (off: you only follow
+by hand) and **Notify me about replies in threads I follow** (off: replies only show under Threads, no badge
+or mail; mentions still notify you).
+
+### Later
+
+**Save for later** keeps a page, a comment thread or a notification on your **Later** list (sidebar):
+
+- a page: **⋯** menu → **Save for later**, or *Save this page for later* in the ⌘P palette
+- a thread: the clock button on its card in the comments panel
+- a notification: the clock button on the item in the bell
+
+The same dialog sets a **reminder**: in 20 minutes, this evening (18:00), tomorrow 9:00, next Monday 9:00,
+or a date and time you pick. Times are your device's local time. When the time comes you get a bell item
+(and an email if you get email right away); the sidebar shows how many reminders are due. Mark items
+**Done** (they move to the Done tab) or remove them. If you lose access to a saved page (it was made
+private, you left the workspace, or the workspace now needs two-step verification), the item stays on
+your list without its title, and its reminder is not sent.
+
+Connected AI agents can read your Later list (the `later` tool) but cannot add to it or set reminders.
 
 ### Activity
 
@@ -478,7 +516,7 @@ Saved on this device only (marked **This device** next to the setting):
 
 ### Sidebar menus
 
-Settings → **Sidebar** chooses which of Search, Graph, Tags, Web shares, Due, Calendar, Activity and Today appear
+Settings → **Sidebar** chooses which of Search, Later, Threads, Graph, Tags, Web shares, Due, Calendar, Activity and Today appear
 at the top of the sidebar, and in what order (drag, or the ↑/↓ buttons, which appear when you hover
 over a row or reach it with the keyboard). **Reset to default** restores them. You
 can also right-click (or long-press) a menu → **Hide from sidebar**. Hidden menus still open from the ⌘P palette
@@ -490,43 +528,115 @@ The width is kept on this device only.
 
 ## Keyboard shortcuts
 
-Press `?` (outside a text field) to see this list in the app. Settings → Keyboard shortcuts shows it too, with a search
-box.
-Custom shortcuts aren't supported yet.
+Press `?` (outside a text field) to see this list in the app, grouped by where each key works; type in its search box
+to keep only the matching rows (English or Korean names, Korean initial consonants such as ㄱㄹㅍ, or a key such as
+⌘⌥). Settings → Keyboard shortcuts shows the same list and lets you change the keys (below).
+
+**Changing keys.** In Settings → Keyboard shortcuts, click a command's key and press the new combination; Esc
+stops without changing anything, **No key** leaves the command without one. A key needs ⌘, ⌥ or ⌃ (Ctrl or Alt on
+Windows and Linux), except F1–F12, and arrows, Enter, Tab or Space for the sidebar tree and the database table.
+Keys the system or the browser never hands to a page (⌘W, ⌘Q, ⌘Tab, developer tools) and ⌘A/⌘C/⌘X/⌘V are refused.
+If another command already has the key, Inkling names it and asks before moving the key over. Keys a browser tab
+keeps for itself (⌘N, ⌘⇧N) or browser functions (⌘F find, ⌘R reload, zoom) can be used after a warning. Commands
+without a default key, such as *Today's daily note*, *Later*, *Threads* or *Save this page for later*, can get one too. Keys built into the editor (bold, italic,
+headings, lists, moving blocks, undo) and the table's copy and paste are marked **Built in** and stay as they are.
+A new key works at once, in open pages and in the editor too, and the `?` window, the palette and the menus show it.
+**Default** puts one command back, **Reset all** every command. Your keys are saved in this browser only; **Export**
+saves them as a JSON file and **Import** loads such a file on another device (a file that would put two commands on
+one key is refused).
+
+**Command palette.** ⌘P lists every command that can run on the current screen, each with its key, and finds pages
+by title once you type. It searches the English and the Korean name of each command, so "sidebar", "사이드바" and
+"ㅅㅇㄷ" all find *Toggle sidebar*. With an empty box the commands you ran last come first. ↑/↓ move, Enter runs,
+Esc closes. Editor commands (headings, move block, duplicate…) act on the block where the cursor was. Menu items
+that have a key show it at the right (page ⋯ menu, the tree's row menu, the sidebar).
 
 | Action | Mac | Windows / Linux |
 |---|---|---|
+| **Global** | | |
 | Search | ⌘K | Ctrl+K |
 | Quick switcher (titles) | ⌘O | Ctrl+O |
 | Full-text search | ⌘⇧F | Ctrl+Shift+F |
 | Command palette | ⌘P | Ctrl+P |
-| New page | ⌘N or ⌘⌥N | Ctrl+Alt+N |
-| Back / Forward | ⌘⌥← / ⌘⌥→ | Alt+← / Alt+→ |
+| New page | ⌘⌥N or ⌘N | Ctrl+Alt+N |
+| Back | ⌘⌥← | Alt+← |
+| Forward | ⌘⌥→ | Alt+→ |
 | Graph | ⌘G | Ctrl+G |
 | Settings | ⌘, | Ctrl+, |
 | Toggle sidebar | ⌘\ | Ctrl+\ |
-| Move to trash (pages selected in the tree) | ⌘⌫ | Ctrl+Del or Del |
 | Shortcut help | ? | ? |
-| **Sidebar tree** | | |
-| Move up / down | ↑ / ↓ | ↑ / ↓ |
-| Collapse / expand | ← / → | ← / → |
-| Open / toggle folder | Enter | Enter |
-| Rename | F2 | F2 |
-| Context menu | Right-click | Right-click |
 | **Page** | | |
 | Rename title (outside the tree) | F2 | F2 |
 | Open properties panel | ⌘; | Ctrl+; |
+| Toggle right panel | ⌘⌥\ | Ctrl+Alt+\ |
+| Add to / remove from favorites | ⌘⌥S | Ctrl+Alt+S |
+| Pen mode on / off | ⌘⌥P | Ctrl+Alt+P |
 | **Editor** | | |
 | Block menu | / | / |
 | Bold | ⌘B | Ctrl+B |
 | Italic | ⌘I | Ctrl+I |
-| Toggle checkbox | ⌘L | Ctrl+L |
+| Underline | ⌘U | Ctrl+U |
+| Strikethrough | ⌘⇧S | Ctrl+Shift+S |
+| Inline code | ⌘E | Ctrl+E |
 | Inline math (wraps the selection) | ⌘⇧E or `$…$` | Ctrl+Shift+E or `$…$` |
+| Turn into text | ⌘⌥0 | Ctrl+Alt+0 |
+| Turn into heading 1 | ⌘⌥1 | Ctrl+Alt+1 |
+| Turn into heading 2 | ⌘⌥2 | Ctrl+Alt+2 |
+| Turn into heading 3 | ⌘⌥3 | Ctrl+Alt+3 |
+| Turn into toggle list | ⌘⇧6 | Ctrl+Shift+6 |
+| Turn into numbered list | ⌘⇧7 | Ctrl+Shift+7 |
+| Turn into bulleted list | ⌘⇧8 | Ctrl+Shift+8 |
+| Turn into to-do list | ⌘⇧9 | Ctrl+Shift+9 |
+| Toggle checkbox | ⌘L | Ctrl+L |
+| Check / uncheck the to-do | ⌘Enter | Ctrl+Enter |
+| Move block up | ⌘⇧↑ | Ctrl+Shift+↑ |
+| Move block down | ⌘⇧↓ | Ctrl+Shift+↓ |
+| Indent block | Tab | Tab |
+| Outdent block | ⇧Tab | Shift+Tab |
+| Duplicate block | ⌘⇧D | Ctrl+Shift+D |
 | Delete current block | ⌘D | Ctrl+D |
 | Fold / unfold the section at the cursor | ⌘. | Ctrl+. |
 | Undo | ⌘Z | Ctrl+Z |
+| Redo | ⌘⇧Z | Ctrl+Y or Ctrl+Shift+Z |
+| **Sidebar tree** | | |
+| Select the row above | ↑ | ↑ |
+| Select the row below | ↓ | ↓ |
+| Collapse, or go to the parent | ← | ← |
+| Expand, or go to the first child | → | → |
+| Open / toggle folder | Enter | Enter |
+| Rename | F2 | F2 |
+| Move to trash | ⌘⌫ | Ctrl+Del or Del |
+| **Database table** | | |
+| Move to the cell above | ↑ | ↑ |
+| Move to the cell below | ↓ | ↓ |
+| Move to the cell on the left | ← | ← |
+| Move to the cell on the right | → | → |
+| Next cell | Tab | Tab |
+| Previous cell | ⇧Tab | Shift+Tab |
+| First cell of the row | Home | Home |
+| Last cell of the row | End | End |
+| Extend the selection up | ⇧↑ | Shift+↑ |
+| Extend the selection down | ⇧↓ | Shift+↓ |
+| Extend the selection left | ⇧← | Shift+← |
+| Extend the selection right | ⇧→ | Shift+→ |
+| Edit the cell (Enter saves and moves down, Esc cancels) | Enter or F2 | Enter or F2 |
+| Check / uncheck a checkbox cell | Space | Space |
+| Clear the selected cells | ⌫ | Del |
+| New row | ⌘Enter | Ctrl+Enter |
+| Open the row as a page | ⌘⇧Enter | Ctrl+Shift+Enter |
+| Copy the selected cells | ⌘C | Ctrl+C |
+| Paste cells | ⌘V | Ctrl+V |
+| **Pen mode** | | |
+| Undo the last stroke | ⌘Z | Ctrl+Z |
 
-⌘L and ⌘D work only while the cursor is in a document. In a normal browser tab ⌘N may open a new window, so use ⌘⌥N.
+
+Editor keys work while the cursor is in a document. ⌘D deletes the block (as in Obsidian); ⌘⇧D duplicates it
+(Notion's ⌘D). ⌘Enter checks or unchecks a to-do and does nothing on other blocks; ⌘L also turns text into a to-do.
+In a normal browser tab ⌘N opens a new browser window, so use ⌘⌥N; the installed app takes both. In Chrome on a Mac
+⌘⌥←/→ switch browser tabs, so in a tab use the browser's own ⌘[ / ⌘] for back and forward; the installed app takes
+⌘⌥←/→. While a Korean (or other) input method is composing a character, shortcuts wait until the character is
+done. On Windows, Ctrl+Alt combinations that your keyboard layout uses to type a character (AltGr) type that
+character.
 
 ## Phone and tablet
 

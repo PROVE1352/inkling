@@ -67,7 +67,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 | GET | `/api/me/sidebar` | – | `SidebarPrefsDTO { order: string[], hidden: string[] }`; `{ order: [], hidden: [] }` when never customized (also returned as `user.sidebar` by `GET /api/auth/me`). |
 | PUT | `/api/me/sidebar` | `sidebarPrefsSchema` `{ order, hidden }` | The stored value. Replaces the whole value; both lists empty = back to the default (stored as NULL). Ids match `^[a-z][a-z0-9-]{0,31}$`, at most 32 per list, duplicates dropped (first kept); anything else → 400 `VALIDATION` and nothing changes. |
 
-- Built-in ids in default order (`SIDEBAR_MENU_IDS`): `search, graph, tags, shared, due, calendar, activity, today`.
+- Built-in ids in default order (`SIDEBAR_MENU_IDS`): `search, later, threads, graph, tags, shared, due, calendar, activity, today` (`later` and `threads` since v0.11.0).
 - The server validates the shape, not the vocabulary: well-formed ids it does not know are stored. Clients ignore
   unknown ids when drawing and keep them when saving. A known id missing from `order` (a menu added later) shows at
   its default position, right after the menu that precedes it by default; ids in `hidden` are not shown.
@@ -854,3 +854,29 @@ All routes below are browser session only.
 
 ### Ink (docs/adr/1340)
 - `GET /api/pages/:id/ink` → `{ ink: InkDTO { pageId, strokes, updatedAt | null } }`. `PUT /api/pages/:id/ink { strokes, expectedUpdatedAt?: ISO | null }` → `{ ink }` (edit lock applies). With `expectedUpdatedAt` a version mismatch answers 412 `INK_CONFLICT` with the current ink in `error.ink` (docs/adr/0815-*). New: a PUT without `expectedUpdatedAt` that would replace non-empty ink with `[]` also answers 412 `INK_CONFLICT` and writes nothing. Versioned clears and unversioned saves of non-empty lists behave as before (last write wins).
+
+## v0.11.0 additions
+
+### Later list and followed threads (docs/adr/1410–1413)
+Migration `0039_v011_later_threads` adds `later_items`, `thread_follows` and two columns on `user_notification_settings`.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/api/later` | `workspaceId?, state=open\|done` | `{ items: LaterItemDTO[], open, due }` — the caller's items, newest first (≤ 200). `accessible: false` items carry no title, preview, actor, anchor or notification type. Items of workspaces outside a token's range or blocked for the agent are left out. Read-only tokens may call it (MCP `later`) |
+| GET | `/api/later/target` | exactly one of `pageId`, `threadId`, `notificationId`, `id` | `{ item: LaterItemDTO \| null }` — is this target on my list |
+| POST | `/api/later` | `{ kind: 'page'\|'thread'\|'notification', pageId?, threadId?, notificationId?, anchor?, remindAt?: ISO \| null, remindTz? }` | 201 (new) / 200 (already saved: reopened; a `remindAt` in the body replaces the reminder) `{ item }`. 404 when the caller cannot see the target (outsiders included); 400 for a workspace-level notification, a reminder in the past (more than 1 min) or more than 732 days ahead; 409 `LATER_FULL` at 500 open items |
+| PATCH | `/api/later/:id` | `{ done?: boolean, remindAt?: ISO \| null, remindTz? }` | `{ item }` — own items only (404 otherwise). A new `remindAt` re-arms the reminder |
+| DELETE | `/api/later/:id` | | 204 |
+| GET | `/api/threads` | `workspaceId, all=0\|1` | `{ threads: ThreadSummaryDTO[], unread }` — followed threads with replies by others since `lastReadAt` (all=1: every followed thread), newest activity first (≤ 100); pages the caller cannot see are left out. Guests: inside their shared trees |
+| GET | `/api/pages/:id/thread-follows` | | `{ follows: ThreadFollowDTO[] }` — the caller's rows on this page |
+| GET | `/api/threads/:id/follow` | | `ThreadFollowDTO` (`source: null` = no row) |
+| PUT | `/api/threads/:id/follow` | `{ following: boolean }` | `ThreadFollowDTO`. Following by hand reads the thread up to now. 404 for a reply id or a thread the caller cannot see |
+| POST | `/api/threads/:id/read` | `{}` | `{ ok, notificationsRead }` — reads the thread and marks the caller's unread bell rows of it (`cr:`/`c:`/`cm:` group keys) read |
+
+Changed:
+- `GET/PATCH /api/me/notification-settings`: `NotificationSettingsDTO` adds `threadAutoFollow` (default true) and `threadReplies` (default true); PATCH accepts both.
+- `POST /api/notifications/read` with `ids`: comment, reply and mention items also mark their thread read in `GET /api/threads`. Without `ids` ("mark all read") threads are not touched.
+- `NotificationType` adds `later_reminder` (no actor; passes mute and the hourly caps; instant mail; not an agent inbox item).
+- `POST /api/pages/:id/comments`: the author follows the thread (unless `threadAutoFollow` is off; an earlier unfollow stays) and has it read up to now. `comment_reply` goes to the thread's followers with `threadReplies` on, instead of everyone who wrote in the thread; the agent inbox `reply` kind follows the same rule. The migration makes every earlier author of a thread follow it, so the recipients are the same right after the upgrade.
+- Sidebar menu ids (`SIDEBAR_MENU_IDS`) add `later` and `threads`, after `search`. A saved order without them shows them at their default place.
+- MCP: `later(workspaceId?, state?, budget?)`, read ([MCP.md](MCP.md), docs/adr/1413-*).

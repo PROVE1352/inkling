@@ -469,6 +469,28 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1353](1353-unchanged-relation-fields-with-a-hidden-target.md) | Unchanged relation fields pass when their target is hidden from the editor | Accepted |
 | [1354](1354-collection-toolbar-wraps-on-phones.md) | Collection toolbar wraps under the view tabs on narrow screens | Accepted |
 
+## 1400–1409 Keyboard shortcuts
+
+| ADR | Title | Status |
+|---|---|---|
+| [1400](1400-shortcut-registry.md) | One registry for keyboard shortcuts and commands | Accepted |
+| [1401](1401-familiar-keys-and-browser-conflicts.md) | Familiar keys from Notion and Obsidian, checked against browser and OS keys | Accepted |
+| [1402](1402-command-palette-from-the-registry.md) | Command palette lists the registry, searches both languages and Korean initials | Accepted |
+| [1403](1403-help-window-and-menu-keys-from-the-registry.md) | The ? window and menu items read their keys from the registry | Accepted |
+| [1404](1404-user-shortcut-keys-per-device.md) | Users change shortcut keys in Settings; the keys are kept per device | Accepted |
+| [1405](1405-capturing-and-checking-a-new-key.md) | Capturing a new key and checking it before it is saved | Accepted |
+| [1406](1406-editor-keys-read-at-key-press.md) | Editor commands read their keys at each key press; the editor's own keys stay fixed | Accepted |
+| [1407](1407-database-table-keyboard-grid.md) | The database table is a keyboard grid | Accepted |
+
+## 1410–1419 Later list and followed threads
+
+| ADR | Title | Status |
+|---|---|---|
+| [1410](1410-later-list-saved-items.md) | Later list: saved pages, threads and notifications, titles joined at read time | Accepted |
+| [1411](1411-later-reminders-through-the-outbox.md) | Later reminders: a sweep that queues notification events through the outbox | Accepted |
+| [1412](1412-followed-threads-and-the-inbox.md) | Followed comment threads, the Threads view and the reply notification | Accepted |
+| [1413](1413-later-list-for-agents-read-only.md) | Agents read the Later list; they do not write it, and threads get no tool | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

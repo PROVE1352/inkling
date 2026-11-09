@@ -15,7 +15,8 @@ import { copyText, inviteLink } from '../lib/clipboard'
 import { useDailyNote } from '../lib/dailyNote'
 import { useNewPage } from '../lib/newPage'
 import { PageIconGlyph } from './PageIconGlyph'
-import { modKey } from '../lib/platform'
+import { useShortcutKeys, withShortcut } from '../lib/shortcuts'
+import { MenuShortcut } from './MenuShortcut'
 import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
 import { resolveSidebarMenu, setEntryHidden, toSidebarPrefs, visibleSidebarMenu } from '../lib/sidebarMenu'
@@ -26,8 +27,11 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { PageTree } from './PageTree'
 import { TrashModal } from './TrashModal'
 import { Spinner } from './Spinner'
+import { useLaterList, useThreads } from '../laterApi'
 import {
   AlarmIcon,
+  ClockIcon,
+  MessageIcon,
   HistoryIcon,
   CalendarDayIcon,
   CalendarIcon,
@@ -62,6 +66,8 @@ export function Sidebar({
   onOpenHelp: () => void
   onOpenTemplates: () => void
 }) {
+  // tooltips and menu items carry the keys; re-render when the user changes one
+  useShortcutKeys()
   const t = useT()
   const navigate = useNavigate()
   const location = useLocation()
@@ -77,6 +83,13 @@ export function Sidebar({
   const dueBadge = dueOverdue + (due.data?.counts.today ?? 0)
   const calendarActive = location.pathname === `/w/${wsId}/calendar`
   const activityActive = location.pathname === `/w/${wsId}/activity`
+  // Later list and followed threads (docs/adr/1410-*, 1412-*): badges = reminders due / threads with new replies.
+  const laterActive = location.pathname === `/w/${wsId}/later`
+  const threadsActive = location.pathname === `/w/${wsId}/threads`
+  const laterList = useLaterList(wsId, 'open')
+  const laterDue = laterList.data?.due ?? 0
+  const threadList = useThreads(wsId)
+  const threadsUnread = threadList.data?.unread ?? 0
   const settingsActive = location.pathname === `/w/${wsId}/settings`
   const me = useMe()
   const workspaces = useWorkspaces()
@@ -207,7 +220,49 @@ export function Sidebar({
       >
         <SearchIcon size={16} />
         {t('common.search')}
-        <span className="ml-auto text-xs text-sub/70">{modKey('K')}</span>
+        <MenuShortcut id="app.search" className="text-sub/70" />
+      </button>
+    ),
+    later: (
+      <button
+        key="later"
+        data-sidebar-menu="later"
+        {...menuTrigger('later')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/later`)}
+        aria-current={laterActive ? 'page' : undefined}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          laterActive ? 'bg-active font-medium text-ink' : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <ClockIcon size={16} />
+        <span className="flex-1 text-left">{t('sidebar.later')}</span>
+        {laterDue > 0 && (
+          <span data-testid="later-badge" className="min-w-5 rounded-full bg-red-500/15 px-1.5 text-center text-[11px] font-medium text-red-500">
+            {laterDue}
+          </span>
+        )}
+      </button>
+    ),
+    threads: (
+      <button
+        key="threads"
+        data-sidebar-menu="threads"
+        {...menuTrigger('threads')}
+        type="button"
+        onClick={() => navigate(`/w/${wsId}/threads`)}
+        aria-current={threadsActive ? 'page' : undefined}
+        className={`flex w-full items-center gap-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] rounded-md px-2 py-1.5 text-sm transition-colors duration-150 ${
+          threadsActive ? 'bg-active font-medium text-ink' : 'text-sub hover:bg-hover hover:text-ink'
+        }`}
+      >
+        <MessageIcon size={16} />
+        <span className={`flex-1 text-left ${threadsUnread > 0 ? 'font-medium text-ink' : ''}`}>{t('sidebar.threads')}</span>
+        {threadsUnread > 0 && (
+          <span data-testid="threads-badge" className="min-w-5 rounded-full bg-accent px-1.5 text-center text-[11px] font-medium text-white">
+            {threadsUnread}
+          </span>
+        )}
       </button>
     ),
     graph: (
@@ -226,6 +281,7 @@ export function Sidebar({
       >
         <GraphIcon size={16} />
         {t('sidebar.graph')}
+        <MenuShortcut id="app.graph" className="text-sub/70" />
       </button>
     ),
     tags: (
@@ -389,7 +445,7 @@ export function Sidebar({
           type="button"
           onClick={newPage}
           disabled={createPage.isPending || newPagePending}
-          title={`${t('sidebar.newPage')} (${modKey('N')})`}
+          title={withShortcut(t('sidebar.newPage'), 'app.newPage')}
           className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-60"
         >
           {createPage.isPending || newPagePending ? <Spinner size={16} /> : <PlusIcon size={16} />}
@@ -416,6 +472,7 @@ export function Sidebar({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
             >
               <FileTextIcon size={15} /> {t('palette.newDoc')}
+              <MenuShortcut id="app.newPage" />
             </button>
             <button
               type="button"
@@ -548,7 +605,7 @@ export function Sidebar({
         >
           <KeyboardIcon size={16} />
           {t('sidebar.shortcuts')}
-          <span className="ml-auto text-xs text-sub/70">?</span>
+          <MenuShortcut id="app.help" className="text-sub/70" />
         </button>
         <button
           type="button"
@@ -562,7 +619,7 @@ export function Sidebar({
         >
           <SettingsIcon size={16} />
           {t('common.settings')}
-          <span className="ml-auto text-xs text-sub/70">{modKey(',')}</span>
+          <MenuShortcut id="app.settings" className="text-sub/70" />
         </button>
       </div>
 

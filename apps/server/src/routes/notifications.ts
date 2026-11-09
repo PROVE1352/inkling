@@ -144,6 +144,15 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         .update(notifications)
         .set({ read: '1' })
         .where(and(eq(notifications.userId, user.id), inArray(notifications.id, ids), visibleOnly))
+      // Opening one comment item reads its thread in the Threads view too (docs/adr/1412-*); "mark all
+      // read" does not: the Threads view is the list of what is left to read.
+      await db.execute(sql`
+        UPDATE thread_follows f SET last_read_at = now(), updated_at = now()
+          FROM notifications n JOIN comments c ON c.id = n.comment_id
+         WHERE n.user_id = ${user.id} AND n.id = ANY(${`{${ids.join(',')}}`}::uuid[])
+           AND n.type IN ('comment', 'comment_reply', 'comment_mention')
+           AND f.user_id = ${user.id} AND f.thread_id = c.thread_id
+      `)
     } else {
       await db
         .update(notifications)

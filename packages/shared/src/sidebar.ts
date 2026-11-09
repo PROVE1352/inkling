@@ -9,7 +9,7 @@ import { z } from 'zod'
 // server therefore validates the shape (id syntax, lengths), never the vocabulary.
 
 /** Built-in top-of-sidebar menus in their default order (all visible by default). */
-export const SIDEBAR_MENU_IDS = ['search', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today'] as const
+export const SIDEBAR_MENU_IDS = ['search', 'later', 'threads', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today'] as const
 export type SidebarMenuId = (typeof SIDEBAR_MENU_IDS)[number]
 
 /** Upper bound per list. Well above the menu count, small enough to keep the row tiny. */

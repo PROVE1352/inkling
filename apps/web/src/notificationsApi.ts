@@ -42,7 +42,7 @@ export function useNotificationSettings() {
 export function useUpdateNotificationSettings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode }) =>
+    mutationFn: (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode; threadAutoFollow?: boolean; threadReplies?: boolean }) =>
       api<NotificationSettingsDTO | void>('/api/me/notification-settings', {
         method: 'PATCH',
         body: JSON.stringify(input),

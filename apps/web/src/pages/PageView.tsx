@@ -30,7 +30,8 @@ import { LINE_WIDTH_FULL, setLastPage, usePrefs } from '../lib/prefs'
 import { appendFilesToEditor, useFileDropZone } from '../lib/fileDrop'
 import { InkLayer } from '../components/ink/InkLayer'
 import { KindIcon } from '../components/PageIconGlyph'
-import { modKey } from '../lib/platform'
+import { MenuShortcut, ariaKeys } from '../components/MenuShortcut'
+import { shortcutLabel, useCommand, useShortcutKeys, withShortcut } from '../lib/shortcuts'
 import { EDITOR_DROP_ID } from '../components/dnd/AppDnd'
 import { useLayout } from '../components/AppLayout'
 import { Breadcrumb } from '../components/Breadcrumb'
@@ -69,9 +70,11 @@ import { revealBlock } from '../lib/headingFolds'
 import { LinkPreview } from '../components/LinkPreview'
 import { PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
 import { printElement } from '../lib/printPage'
+import { LaterModal } from '../components/LaterPanel'
 import {
   BellIcon,
   CheckIcon,
+  ClockIcon,
   GlobeIcon,
   LinkIcon,
   LockIcon,
@@ -137,6 +140,8 @@ type HeaderMenuItem = {
   /** Items that can be pressed repeatedly (like cycling the theme) keep the menu open */
   keepOpen?: boolean
   testId?: string
+  /** Registry command id: its key is shown at the end of the item (docs/adr/1403-*) */
+  shortcut?: string
 }
 
 // Top bar ⋯ menu (all widths) — the less frequent page actions (pen mode, edit lock, page
@@ -223,6 +228,7 @@ function PageHeaderMenu({
                 role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
                 aria-checked={it.checked}
                 data-testid={it.testId}
+                aria-keyshortcuts={it.shortcut ? ariaKeys(it.shortcut) : undefined}
                 onClick={() => {
                   it.onSelect()
                   if (!it.keepOpen) setOpen(false)
@@ -235,6 +241,8 @@ function PageHeaderMenu({
                   {it.icon}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{it.label}</span>
+                {/* no keyboard to speak of on a phone, and the label needs the room */}
+                {it.shortcut && <MenuShortcut id={it.shortcut} className="max-sm:hidden" />}
                 {it.checked && <CheckIcon size={14} className="shrink-0 text-accent" />}
               </button>
             ))}
@@ -471,6 +479,8 @@ function EditorDropZone({
 
 export function PageView() {
   const { wsId, pageId } = useParams()
+  // tooltips and the ⋯ menu carry the keys; re-render when the user changes one
+  useShortcutKeys()
   const { onToggleSidebar, openSearch } = useLayout()
   const me = useMe()
   const pages = usePages(wsId ?? '')
@@ -503,6 +513,9 @@ export function PageView() {
   // Page notifications (in the ⋯ menu). `following` puts a check on the item and a dot on ⋯.
   const [followOpen, setFollowOpen] = useState(false)
   useEffect(() => setFollowOpen(false), [pageId])
+  // Save for later / reminder (docs/adr/1410-*), in the ⋯ menu.
+  const [laterOpen, setLaterOpen] = useState(false)
+  useEffect(() => setLaterOpen(false), [pageId])
   // Split into subpages (docs/adr/1140-*); `?split=1` (the "large page" notification) opens it.
   const [splitOpen, setSplitOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -554,13 +567,6 @@ export function PageView() {
     return () => window.removeEventListener('inkling:open-props', onProps)
   }, [])
 
-  // Command palette "Open/close right panel"
-  useEffect(() => {
-    const onToggle = () => toggleRightRef.current()
-    window.addEventListener('inkling:toggle-right', onToggle)
-    return () => window.removeEventListener('inkling:toggle-right', onToggle)
-  }, [])
-
   const toggleRight = () => {
     setRightOpen((v) => {
       const next = !v
@@ -573,8 +579,6 @@ export function PageView() {
     })
   }
 
-  const toggleRightRef = useRef(toggleRight)
-  toggleRightRef.current = toggleRight
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // Pen mode — when on, the body is locked and a pen layer sits on top (same idea as PDF annotation).
@@ -619,6 +623,15 @@ export function PageView() {
   useEffect(() => {
     if (lockReadOnly) setPenPageId(null)
   }, [lockReadOnly])
+  // Page commands of the shortcut registry (docs/adr/1400-*, 1401-*): ⌘⌥\\ panel, ⌘⌥S favorite,
+  // ⌘⌥P pen mode. The same conditions as the buttons and menu items that do the same thing.
+  const canPen = isDoc && !lockReadOnly && !guest
+  const togglePen = () => setPenPageId((v) => (v === pageId ? null : (pageId ?? null)))
+  useCommand('page.toggleRightPanel', toggleRight, () => !!page)
+  useCommand('page.toggleFavorite', () => page && toggleBookmark.mutate(page), () => !!page && !guest)
+  useCommand('page.togglePen', togglePen, () => canPen)
+  // the ⋯ menu's "Save for later" (docs/adr/1410-*)
+  useCommand('page.saveForLater', () => setLaterOpen(true), () => !!page && !guest)
   const lockBanner = guest ? (
     <GuestAccessNote level={lockData?.level} />
   ) : isLocked ? (
@@ -675,6 +688,31 @@ export function PageView() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [])
 
+  // `?thread=<id>` (Threads view, Later list): open the comments panel at that thread card.
+  const threadParam = searchParams.get('thread')
+  useEffect(() => {
+    if (!threadParam || !page) return
+    setRightOpen(true)
+    let tries = 0
+    let timer = 0
+    const find = () => {
+      // The panel can be mounted twice (side panel and overlay); take the one on screen.
+      const card = [...document.querySelectorAll<HTMLElement>(`[data-thread-id="${CSS.escape(threadParam)}"]`)].find(
+        (el) => el.offsetParent !== null,
+      )
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        card.classList.add('nd-block-flash')
+        window.setTimeout(() => card.classList.remove('nd-block-flash'), 1600)
+        const next = new URLSearchParams(searchParams)
+        next.delete('thread')
+        setSearchParams(next, { replace: true })
+      } else if (++tries < 30) timer = window.setTimeout(find, 100)
+    }
+    timer = window.setTimeout(find, 50)
+    return () => window.clearTimeout(timer)
+  }, [threadParam, page, searchParams, setSearchParams])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Top bar */}
@@ -683,7 +721,7 @@ export function PageView() {
           type="button"
           onClick={onToggleSidebar}
           aria-label={tr('page.toggleSidebar')}
-          title={tr('page.toggleSidebarHint', { shortcut: modKey('\\') })}
+          title={tr('page.toggleSidebarHint', { shortcut: shortcutLabel('app.toggleSidebar') ?? '' })}
           className="rounded-md p-1.5 text-sub transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98]"
         >
           <MenuIcon size={18} />
@@ -700,7 +738,8 @@ export function PageView() {
             onClick={() => toggleBookmark.mutate(page)}
             aria-pressed={isBookmarked}
             aria-label={isBookmarked ? tr('page.unbookmark') : tr('page.bookmark')}
-            title={isBookmarked ? tr('page.unbookmark') : tr('page.bookmark')}
+            aria-keyshortcuts={ariaKeys('page.toggleFavorite')}
+            title={withShortcut(isBookmarked ? tr('page.unbookmark') : tr('page.bookmark'), 'page.toggleFavorite')}
             className={`rounded-md p-1.5 text-lg leading-none transition duration-150 hover:bg-hover active:scale-[.98] ${
               isBookmarked ? 'text-amber-500' : 'text-sub hover:text-ink'
             }`}
@@ -741,7 +780,8 @@ export function PageView() {
           type="button"
           onClick={toggleRight}
           aria-label={tr('page.togglePanel')}
-          title={tr('page.rightPanel')}
+          aria-keyshortcuts={ariaKeys('page.toggleRightPanel')}
+          title={withShortcut(tr('page.rightPanel'), 'page.toggleRightPanel')}
           className={`hidden rounded-md p-1.5 transition duration-150 hover:bg-hover hover:text-ink active:scale-[.98] sm:block ${
             rightOpen ? 'text-accent' : 'text-sub'
           }`}
@@ -767,17 +807,19 @@ export function PageView() {
                     label: rightOpen ? tr('page.closeRightPanel') : tr('page.openRightPanel'),
                     icon: <PanelRightIcon size={16} />,
                     active: rightOpen,
+                    shortcut: 'page.toggleRightPanel',
                     onSelect: toggleRight,
                   },
                 ]
               : []),
-            ...(isDoc && !lockReadOnly && !guest
+            ...(canPen
               ? [
                   {
                     label: tr('page.penMode'),
                     icon: <PenIcon size={16} />,
                     checked: penMode,
-                    onSelect: () => setPenPageId((v) => (v === pageId ? null : (pageId ?? null))),
+                    shortcut: 'page.togglePen',
+                    onSelect: togglePen,
                   },
                 ]
               : []),
@@ -809,6 +851,12 @@ export function PageView() {
                     checked: following,
                     onSelect: () => setFollowOpen(true),
                     testId: 'page-follow-button',
+                  },
+                  {
+                    label: tr('later.save'),
+                    icon: <ClockIcon size={16} />,
+                    onSelect: () => setLaterOpen(true),
+                    testId: 'page-later-button',
                   },
                 ]
               : []),
@@ -1021,6 +1069,9 @@ export function PageView() {
       )}
       {page && wsId && splitOpen && page.kind === 'doc' && !guest && (
         <SplitPageModal open={splitOpen} onClose={() => setSplitOpen(false)} wsId={wsId} page={page} />
+      )}
+      {page && laterOpen && !guest && (
+        <LaterModal open={laterOpen} onClose={() => setLaterOpen(false)} target={{ kind: 'page', pageId: page.id }} />
       )}
       {page && followOpen && !guest && (
         <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>

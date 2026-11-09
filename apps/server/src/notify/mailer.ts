@@ -128,6 +128,7 @@ const PHRASES: Record<Locale, Record<string, (a: string, t: string) => string>> 
     approval_request: (a, t) => `${a} asks for your approval on "${t}"`,
     approval_result: (a, t) => `${a} decided on your request on "${t}"`,
     reminder: (_a, t) => `Due today: "${t}"`,
+    later_reminder: (_a, t) => `Reminder: "${t}" (saved for later)`,
   },
   ko: {
     doc_mention: (a, t) => `${a}님이 "${t}"에서 회원님을 멘션했습니다`,
@@ -141,6 +142,7 @@ const PHRASES: Record<Locale, Record<string, (a: string, t: string) => string>> 
     approval_request: (a, t) => `${a}님이 "${t}"에 대한 승인을 요청했습니다`,
     approval_result: (a, t) => `${a}님이 "${t}" 요청에 대해 결정했습니다`,
     reminder: (_a, t) => `오늘 마감: "${t}"`,
+    later_reminder: (_a, t) => `리마인더: 나중에 보기로 저장한 "${t}"`,
   },
 }
 

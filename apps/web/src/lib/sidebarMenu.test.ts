@@ -7,10 +7,17 @@ import { SIDEBAR_MENU_IDS } from '@inkling/shared'
 import { moveEntry, resolveSidebarMenu, setEntryHidden, toSidebarPrefs, visibleSidebarMenu } from './sidebarMenu'
 
 const KNOWN = ['search', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today']
+// 0.11 adds Later and Threads right after search (docs/adr/1410-*, 1412-*).
+const CURRENT = ['search', 'later', 'threads', 'graph', 'tags', 'shared', 'due', 'calendar', 'activity', 'today']
 
 describe('visibleSidebarMenu', () => {
   it('the shared default list is the current sidebar order', () => {
-    assert.deepEqual([...SIDEBAR_MENU_IDS], KNOWN)
+    assert.deepEqual([...SIDEBAR_MENU_IDS], CURRENT)
+  })
+
+  it('a list saved before 0.11 shows Later and Threads after search, wherever search is', () => {
+    const prefs = { order: ['today', 'graph', 'search', 'tags', 'shared', 'due', 'calendar', 'activity'], hidden: ['tags'] }
+    assert.deepEqual(visibleSidebarMenu(prefs, CURRENT), ['today', 'graph', 'search', 'later', 'threads', 'shared', 'due', 'calendar', 'activity'])
   })
 
   it('nothing stored, or empty lists → every menu in the default order', () => {

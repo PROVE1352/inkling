@@ -504,7 +504,7 @@ export const notifications = pgTable(
       enum: [
         'comment', 'comment_mention', 'doc_mention', 'reminder', 'workspace_added', 'webhook_disabled', 'backup_failed', 'workspace_deleted',
         'comment_reply', 'page_owner', 'task_assigned', 'page_update', 'agent_digest', 'approval_request', 'approval_result',
-        'large_page',
+        'large_page', 'later_reminder',
       ],
     }).notNull(),
     pageId: uuid('page_id').references(() => pages.id, { onDelete: 'cascade' }),
@@ -889,3 +889,5 @@ export * from './schema-identities'
 export * from './schema-apiTokens'
 // People with access to a page tree, guests and page invitations (docs/adr/1250-*)
 export * from './schema-guests'
+// Later list with reminders and followed comment threads (docs/adr/1410-*, 1412-*)
+export * from './schema-later'

@@ -28,6 +28,8 @@ const PageView = lazyNamed(loadPageView, 'PageView')
 const Admin = lazyNamed(() => import('./pages/Admin'), 'Admin')
 const ActivityView = lazyNamed(() => import('./pages/ActivityView'), 'ActivityView')
 const DueView = lazyNamed(() => import('./pages/DueView'), 'DueView')
+const LaterView = lazyNamed(() => import('./pages/LaterView'), 'LaterView')
+const ThreadsView = lazyNamed(() => import('./pages/ThreadsView'), 'ThreadsView')
 const GlobalCalendar = lazyNamed(() => import('./pages/GlobalCalendar'), 'GlobalCalendar')
 const GraphView = lazyNamed(() => import('./pages/GraphView'), 'GraphView')
 const JoinWorkspace = lazyNamed(() => import('./pages/JoinWorkspace'), 'JoinWorkspace')
@@ -118,6 +120,8 @@ export function App() {
         <Route path="activity" element={<Pane><ActivityView /></Pane>} />
         <Route path="calendar" element={<Pane><GlobalCalendar /></Pane>} />
         <Route path="due" element={<Pane><DueView /></Pane>} />
+        <Route path="later" element={<Pane><LaterView /></Pane>} />
+        <Route path="threads" element={<Pane><ThreadsView /></Pane>} />
         <Route path="graph" element={<Pane><GraphView /></Pane>} />
         <Route path="settings" element={<Pane><Settings /></Pane>} />
         <Route path="workspace-settings" element={<Pane><WorkspaceSettings /></Pane>} />

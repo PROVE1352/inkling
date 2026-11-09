@@ -46,6 +46,10 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
   emailDigest: text('email_digest', { enum: ['off', 'daily', 'weekly'] }).notNull().default('daily'),
   /** End of the window the last digest covered (mail or in-app AI summary). */
   digestSentAt: timestamp('digest_sent_at', { withTimezone: true }),
+  /** Follow a comment thread when starting it or replying (docs/adr/1412-*). */
+  threadAutoFollow: boolean('thread_auto_follow').notNull().default(true),
+  /** Notify (bell, mail) about replies in followed threads; the Threads view lists them either way. */
+  threadReplies: boolean('thread_replies').notNull().default(true),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

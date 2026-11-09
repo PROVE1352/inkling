@@ -5,9 +5,11 @@ import {
   AlarmIcon,
   CalendarDayIcon,
   CalendarIcon,
+  ClockIcon,
   GlobeIcon,
   GraphIcon,
   HistoryIcon,
+  MessageIcon,
   SearchIcon,
   TagIcon,
 } from './Icons'
@@ -16,6 +18,8 @@ import {
 // its right-click menu and Settings → Sidebar. The default order lives in SIDEBAR_MENU_IDS (shared).
 export const SIDEBAR_MENU_META: Record<SidebarMenuId, { label: TKey; icon: (size: number) => ReactNode }> = {
   search: { label: 'common.search', icon: (s) => <SearchIcon size={s} /> },
+  later: { label: 'sidebar.later', icon: (s) => <ClockIcon size={s} /> },
+  threads: { label: 'sidebar.threads', icon: (s) => <MessageIcon size={s} /> },
   graph: { label: 'sidebar.graph', icon: (s) => <GraphIcon size={s} /> },
   tags: { label: 'sidebar.tags', icon: (s) => <TagIcon size={s} /> },
   shared: { label: 'sidebar.webShares', icon: (s) => <GlobeIcon size={s} /> },

@@ -43,6 +43,10 @@ export interface NotificationSettingsDTO {
   emailDigest: EmailDigestMode
   /** The server has SMTP configured; otherwise everything stays in the app. */
   mailAvailable: boolean
+  /** Follow a comment thread when I start it or reply in it (docs/adr/1412-*). */
+  threadAutoFollow: boolean
+  /** Notify me about replies in threads I follow (the Threads view lists them either way). */
+  threadReplies: boolean
   subscriptions: SubscriptionDTO[]
 }
 
@@ -50,8 +54,10 @@ export const updateNotificationSettingsSchema = z
   .object({
     emailInstant: z.boolean().optional(),
     emailDigest: emailDigestSchema.optional(),
+    threadAutoFollow: z.boolean().optional(),
+    threadReplies: z.boolean().optional(),
   })
-  .refine((d) => d.emailInstant !== undefined || d.emailDigest !== undefined, { message: 'Nothing to change' })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'Nothing to change' })
 export type UpdateNotificationSettingsInput = z.infer<typeof updateNotificationSettingsSchema>
 
 /** GET /pages/:id/subscription */

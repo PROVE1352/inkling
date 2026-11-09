@@ -64,6 +64,8 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/notifications')).registerNotificationRoutes(api)
       await (await import('../routes/activity')).registerActivityRoutes(api)
       await (await import('../routes/inbox')).registerInboxRoutes(api)
+      await (await import('../routes/later')).registerLaterRoutes(api)
+      await (await import('../routes/threads')).registerThreadRoutes(api)
       await (await import('../routes/oauth')).registerOAuthApiRoutes(api)
       await (await import('../routes/sidebarPrefs')).registerSidebarPrefsRoutes(api)
     },

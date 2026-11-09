@@ -21,6 +21,7 @@ import { registerContextTools } from './mcpTools/contextTools'
 import { registerInstructionTools } from './mcpTools/instructionTools'
 import { registerCommentTools } from './mcpTools/commentTools'
 import { registerInboxTools } from './mcpTools/inboxTools'
+import { registerLaterTools } from './mcpTools/laterTools'
 import { registerSplitTools } from './mcpTools/splitTools'
 import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
@@ -683,6 +684,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   // Comment threads and the agent inbox (docs/adr/1003-*, 1006-*)
   registerCommentTools(server, ctx)
   registerInboxTools(server, ctx)
+  // The person's Later list, read-only (docs/adr/1413-*)
+  registerLaterTools(server, ctx)
   registerContextTools(server, ctx)
   registerInstructionTools(server, ctx)
   registerChangeTools(server, ctx)

@@ -43,6 +43,9 @@ import { registerNotificationRoutes } from './routes/notifications'
 import { registerSidebarPrefsRoutes } from './routes/sidebarPrefs'
 import { registerActivityRoutes } from './routes/activity'
 import { registerInboxRoutes } from './routes/inbox'
+import { registerLaterRoutes } from './routes/later'
+import { registerThreadRoutes } from './routes/threads'
+import { startLaterReminders } from './later'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
 import { registerApiTokenRoutes } from './routes/apiTokens'
@@ -104,6 +107,7 @@ function isReservedPath(url: string): boolean {
 
 let appRef: FastifyInstance | null = null
 let stopReminders: (() => void) | null = null
+let stopLaterReminders: (() => void) | null = null
 let stopReadFlusher: (() => Promise<void>) | null = null
 let shutdownStarted = false
 
@@ -144,6 +148,7 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
     }
   }
   stopReminders?.()
+  stopLaterReminders?.()
   // ERR_SERVER_NOT_RUNNING from the later app.close() is tolerated by Fastify.
   if (appRef?.server.listening) appRef.server.close()
   await step('collab flush', () => destroyCollab(), COLLAB_FLUSH_TIMEOUT_MS)
@@ -486,6 +491,9 @@ async function main(): Promise<void> {
       // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)
       await registerActivityRoutes(api)
       await registerInboxRoutes(api)
+      // Later list with reminders, followed comment threads (docs/adr/1410-* .. 1413-*)
+      await registerLaterRoutes(api)
+      await registerThreadRoutes(api)
       await registerFileRoutes(api)
       // Public web sharing (M15): unauthenticated. No session/membership preHandler, only the token + scope gate.
       await registerPublicRoutes(api)
@@ -538,6 +546,9 @@ async function main(): Promise<void> {
   // 9.6) M17 due-date reminder scheduler: one delayed scan after boot + a rescan every hour.
   //      shutdown calls stop to clear the timer.
   stopReminders = startReminderScheduler((msg) => app.log.info(msg))
+  // Later-list reminders (docs/adr/1411-*): sweep at boot (what came due while down), then a timer
+  // to the next due reminder (at most 60 s apart); events go through the outbox.
+  stopLaterReminders = startLaterReminders((msg) => app.log.warn(msg))
   // Page read counters: flushed every minute (docs/adr/0953-*)
   stopReadFlusher = startReadFlusher((msg) => app.log.info(msg))
   // Outbox consumers: change log, notifications, webhooks (LISTEN + 1 s poll, docs/adr/1080-*, 1081-*)

@@ -32,11 +32,20 @@ async function requireSessionUser(req: FastifyRequest): Promise<void> {
 
 const MAX_SUBSCRIPTIONS = 500
 
-async function loadSettings(userId: string): Promise<{ emailInstant: boolean; emailDigest: EmailDigestMode }> {
+interface Settings {
+  emailInstant: boolean
+  emailDigest: EmailDigestMode
+  threadAutoFollow: boolean
+  threadReplies: boolean
+}
+
+async function loadSettings(userId: string): Promise<Settings> {
   const rows = (await db.execute(sql`
-    SELECT email_instant AS "emailInstant", email_digest AS "emailDigest" FROM user_notification_settings WHERE user_id = ${userId}
-  `)) as unknown as { emailInstant: boolean; emailDigest: EmailDigestMode }[]
-  return rows[0] ?? { emailInstant: true, emailDigest: 'daily' }
+    SELECT email_instant AS "emailInstant", email_digest AS "emailDigest",
+           thread_auto_follow AS "threadAutoFollow", thread_replies AS "threadReplies"
+      FROM user_notification_settings WHERE user_id = ${userId}
+  `)) as unknown as Settings[]
+  return rows[0] ?? { emailInstant: true, emailDigest: 'daily', threadAutoFollow: true, threadReplies: true }
 }
 
 async function listSubscriptions(userId: string): Promise<SubscriptionDTO[]> {
@@ -118,11 +127,17 @@ export async function registerNotificationSettingsRoutes(app: FastifyInstance): 
     const user = getUser(req)
     const b = updateNotificationSettingsSchema.parse(req.body)
     const cur = await loadSettings(user.id)
-    const next = { emailInstant: b.emailInstant ?? cur.emailInstant, emailDigest: b.emailDigest ?? cur.emailDigest }
+    const next: Settings = {
+      emailInstant: b.emailInstant ?? cur.emailInstant,
+      emailDigest: b.emailDigest ?? cur.emailDigest,
+      threadAutoFollow: b.threadAutoFollow ?? cur.threadAutoFollow,
+      threadReplies: b.threadReplies ?? cur.threadReplies,
+    }
     await db.execute(sql`
-      INSERT INTO user_notification_settings (user_id, email_instant, email_digest, updated_at)
-      VALUES (${user.id}, ${next.emailInstant}, ${next.emailDigest}, now())
-      ON CONFLICT (user_id) DO UPDATE SET email_instant = EXCLUDED.email_instant, email_digest = EXCLUDED.email_digest, updated_at = now()
+      INSERT INTO user_notification_settings (user_id, email_instant, email_digest, thread_auto_follow, thread_replies, updated_at)
+      VALUES (${user.id}, ${next.emailInstant}, ${next.emailDigest}, ${next.threadAutoFollow}, ${next.threadReplies}, now())
+      ON CONFLICT (user_id) DO UPDATE SET email_instant = EXCLUDED.email_instant, email_digest = EXCLUDED.email_digest,
+        thread_auto_follow = EXCLUDED.thread_auto_follow, thread_replies = EXCLUDED.thread_replies, updated_at = now()
     `)
     // Turning a channel off drops what was waiting for it.
     if (!next.emailInstant) {

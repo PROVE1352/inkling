@@ -9,9 +9,12 @@ import {
 } from '../../api'
 import { relativeTime } from '../../lib/time'
 import type { InklingEditor } from '../CollabEditor'
-import { CheckIcon, MessageIcon, ReplyIcon, TrashIcon } from '../Icons'
+import { BellIcon, CheckIcon, MessageIcon, ReplyIcon, TrashIcon } from '../Icons'
 import { CommentComposer } from './CommentComposer'
 import { useT } from '../../i18n'
+import { useFollowThread, useThreadFollows } from '../../laterApi'
+import { LaterButton } from '../LaterPanel'
+import { useCommand } from '../../lib/shortcuts'
 
 // ---------------------------------------------------------------------------
 // Block text lookup (anchor preview / scroll) — based on editor.document
@@ -172,6 +175,7 @@ function ThreadCard({
   isOwner,
   editor,
   canComment = true,
+  following,
 }: {
   thread: Thread
   pageId: string
@@ -180,8 +184,11 @@ function ThreadCard({
   isOwner: boolean
   editor: InklingEditor | null
   canComment?: boolean
+  /** I follow this thread (docs/adr/1412-*); undefined while loading. */
+  following?: boolean
 }) {
   const tr = useT()
+  const follow = useFollowThread(pageId)
   const update = useUpdateComment(pageId)
   const create = useCreateComment(pageId)
   const [replying, setReplying] = useState(false)
@@ -198,6 +205,7 @@ function ThreadCard({
 
   return (
     <div
+      data-thread-id={thread.root.threadId}
       className={`flex flex-col gap-2 rounded-md border border-line p-2 transition-opacity ${
         thread.resolved ? 'opacity-70' : ''
       }`}
@@ -234,6 +242,22 @@ function ThreadCard({
           ))}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={() => follow.mutate({ threadId: thread.root.threadId, following: !following })}
+          aria-pressed={!!following}
+          title={tr('threads.followHint')}
+          data-testid="thread-follow"
+          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:bg-hover ${
+            following ? 'text-accent' : 'text-sub hover:text-ink'
+          }`}
+        >
+          <BellIcon size={12} /> {following ? tr('threads.following') : tr('threads.follow')}
+        </button>
+        <LaterButton target={{ kind: 'thread', threadId: thread.root.threadId }} />
+      </div>
 
       {replying ? (
         <CommentComposer
@@ -307,8 +331,30 @@ export function CommentsPanel({
   const [showResolved, setShowResolved] = useState(false)
 
   const threads = useMemo(() => buildThreads(comments.data ?? []), [comments.data])
+  // My follow rows on this page (docs/adr/1412-*): one request for every thread card.
+  const follows = useThreadFollows(pageId, threads.length > 0)
+  const followed = useMemo(
+    () => new Set((follows.data ?? []).filter((f) => f.following).map((f) => f.threadId)),
+    [follows.data],
+  )
   const active = threads.filter((t) => !t.resolved)
   const resolved = threads.filter((t) => t.resolved)
+
+  // thread.toggleFollow (docs/adr/1412-*): the thread card that has the focus presses its own Follow
+  // button, so a key does exactly what the button does. No default key; a user can set one.
+  const focusedFollowButton = () =>
+    (document.activeElement as HTMLElement | null)
+      ?.closest('[data-thread-id]')
+      ?.querySelector<HTMLButtonElement>('[data-testid="thread-follow"]') ?? null
+  useCommand(
+    'thread.toggleFollow',
+    () => {
+      const button = focusedFollowButton()
+      if (!button) return false
+      button.click()
+    },
+    () => !!focusedFollowButton(),
+  )
 
   const myId = me.data?.id
   // owners and admins moderate comments (docs/adr/0945-*)
@@ -378,6 +424,7 @@ export function CommentsPanel({
               isOwner={isOwner}
               editor={editor}
               canComment={canComment}
+              following={follows.data ? followed.has(t.root.threadId) : undefined}
             />
           ))}
         </div>
@@ -403,6 +450,7 @@ export function CommentsPanel({
                 isOwner={isOwner}
                 editor={editor}
                 canComment={canComment}
+                following={follows.data ? followed.has(t.root.threadId) : undefined}
               />
             ))}
         </div>

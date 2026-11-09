@@ -11,6 +11,8 @@ import type { InboxKind, NotificationLevel } from '@inkling/shared'
  *              handling as direct, but never mailed right away.
  *  - activity: only subscribers at level "all" (comments and edits on a followed subtree).
  *  - summary:  produced from a subscription itself (the AI edit daily summary); always delivered.
+ *  - self:     a reminder the person set on their Later list (docs/adr/1411-*). Passes mute and the
+ *              hourly caps (the person asked for it; open items are capped per person instead).
  */
 export type NotifyKind =
   | 'doc_mention'
@@ -23,6 +25,7 @@ export type NotifyKind =
   | 'agent_digest'
   | 'approval_request'
   | 'approval_result'
+  | 'later_reminder'
 
 export interface KindSpec {
   /** Higher wins when one person qualifies for several kinds from one event. */
@@ -38,6 +41,7 @@ export interface KindSpec {
 }
 
 export const KINDS: Record<NotifyKind, KindSpec> = {
+  later_reminder: { priority: 95, instantMail: true, bypassMute: true, inbox: null, quietWhenAgent: false },
   approval_request: { priority: 90, instantMail: true, bypassMute: true, inbox: null, quietWhenAgent: false },
   approval_result: { priority: 85, instantMail: true, bypassMute: false, inbox: 'approval_result', quietWhenAgent: false },
   comment_mention: { priority: 80, instantMail: true, bypassMute: false, inbox: 'mention', quietWhenAgent: true },

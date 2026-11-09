@@ -312,7 +312,11 @@ interface CommentContext {
   ownerId: string | null
   /** Block of the thread root when `threadId` is a root of this page, else null. */
   rootBlockId: string | null
-  /** Authors in the thread so far (replies). */
+  /**
+   * Followers of the thread who want reply notifications (docs/adr/1412-*): people who started or
+   * replied in it (auto-follow) or followed it by hand, minus those who unfollowed it or turned
+   * "replies in threads I follow" off.
+   */
   participants: string[]
   /** Of the mentioned ids, the members of the workspace. */
   mentioned: string[]
@@ -325,7 +329,9 @@ async function commentContext(pageId: string, workspaceId: string, threadId: str
     SELECT p.created_by AS "createdBy", p.owner_id AS "ownerId",
            (SELECT c.block_id FROM comments c WHERE c.id = ${threadId} AND c.thread_id = ${threadId} AND c.page_id = ${pageId}) AS "rootBlockId",
            CASE WHEN ${threadId}::uuid IS NULL THEN '{}'::uuid[] ELSE
-             (SELECT coalesce(array_agg(DISTINCT c.author_id), '{}') FROM comments c WHERE c.thread_id = ${threadId} AND c.author_id IS NOT NULL) END AS participants,
+             (SELECT coalesce(array_agg(f.user_id), '{}') FROM thread_follows f
+               LEFT JOIN user_notification_settings s ON s.user_id = f.user_id
+               WHERE f.thread_id = ${threadId} AND f.following AND coalesce(s.thread_replies, true)) END AS participants,
            (SELECT coalesce(array_agg(m.user_id), '{}') FROM workspace_members m
              WHERE m.workspace_id = ${workspaceId} AND m.user_id = ANY(${ids}::uuid[])) AS mentioned
       FROM pages p WHERE p.id = ${pageId}
@@ -336,7 +342,7 @@ async function commentContext(pageId: string, workspaceId: string, threadId: str
 /**
  * Outbox rows of a new comment (A3, docs/adr/1000-*, 1150-*). Notification recipients and their kind:
  *   - members in mentionUserIds                         → 'comment_mention' (direct)
- *   - earlier participants of the thread (on a reply)    → 'comment_reply' (direct)
+ *   - followers of the thread (on a reply, ADR 1412)     → 'comment_reply' (direct)
  *   - the page's creator and document owner              → 'comment' (implicit: no subscription needed)
  *   - subscribers at level 'all'                          → 'comment' (activity)
  * The engine keeps one row per person (highest kind), never the actor, only people who can see
@@ -424,12 +430,27 @@ async function insertCommentWithEvents(
   const queue = events.length
     ? sql`, queued AS (${outboxInsertSql(events, sql`EXISTS (SELECT 1 FROM written)`)})`
     : sql``
+  // Followed threads (docs/adr/1412-*): writing in a thread reads it up to now, and follows it unless
+  // the author turned auto-follow off. An earlier unfollow stays (ON CONFLICT DO NOTHING). The
+  // foreign key to the new root is checked at the end of the statement, after `written`.
   const [r] = (await exec.execute(sql`
     WITH ${g.ctes},
       written AS (
         INSERT INTO comments (id, page_id, block_id, thread_id, author_id, body, via_client)
         SELECT ${v.id}, ${v.pageId}, ${v.blockId}, ${v.threadId}, ${v.authorId}, ${v.body}, ${v.viaClient} FROM gate_ok
         RETURNING id
+      ),
+      read_up AS (
+        UPDATE thread_follows SET last_read_at = now(), updated_at = now()
+         WHERE user_id = ${v.authorId} AND thread_id = ${v.threadId} AND EXISTS (SELECT 1 FROM written)
+        RETURNING 1
+      ),
+      auto_follow AS (
+        INSERT INTO thread_follows (user_id, thread_id, page_id, workspace_id, following, source, last_read_at)
+        SELECT ${v.authorId}, ${v.threadId}, ${v.pageId}, ${workspaceId}, true, 'auto', now() FROM written
+         WHERE coalesce((SELECT thread_auto_follow FROM user_notification_settings WHERE user_id = ${v.authorId}), true)
+        ON CONFLICT (user_id, thread_id) DO NOTHING
+        RETURNING 1
       )${queue}
     SELECT ${g.columns}
   `)) as unknown as { ok: boolean }[]

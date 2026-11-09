@@ -101,6 +101,8 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
         await r(import('./routes/notifications'), 'registerNotificationRoutes')
         await r(import('./routes/activity'), 'registerActivityRoutes')
         await r(import('./routes/inbox'), 'registerInboxRoutes')
+        await r(import('./routes/later'), 'registerLaterRoutes')
+        await r(import('./routes/threads'), 'registerThreadRoutes')
         await r(import('./routes/oauth'), 'registerOAuthApiRoutes')
         await r(import('./routes/apiTokens'), 'registerApiTokenRoutes')
         await r(import('./routes/query'), 'registerQueryRoutes')
@@ -421,6 +423,28 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
       assert.equal(list.statusCode, 200)
       assert.ok(list.body.includes('hi from guest'))
       assertNoOutside(list.body, 'comments')
+    })
+
+    it('Later list and thread follows (docs/adr/1410-*, 1412-*): inside the shared trees only', async () => {
+      assert.equal((await as(G, 'POST', '/api/later', { kind: 'page', pageId: id.root })).statusCode, 201)
+      for (const target of [id.outside, id.outsideChild, id.other]) {
+        const res = await as(G, 'POST', '/api/later', { kind: 'page', pageId: target })
+        assert.equal(res.statusCode, 404, `later ${target}`)
+        assertNoOutside(res.body, 'later save')
+      }
+      const outsideThread = (await as(M, 'POST', `/api/pages/${id.outside}/comments`, { blockId: 'b1', body: 'secret outside thread' })).json().comment
+      assert.equal((await as(G, 'PUT', `/api/threads/${outsideThread.id}/follow`, { following: true })).statusCode, 404)
+      assert.equal((await as(G, 'POST', '/api/later', { kind: 'thread', threadId: outsideThread.id })).statusCode, 404)
+      const own = (await as(G, 'POST', `/api/pages/${id.root}/comments`, { blockId: 'b1', body: 'guest thread' })).json().comment
+      assert.equal((await as(G, 'GET', `/api/threads/${own.id}/follow`)).json().following, true)
+      await as(M, 'POST', `/api/pages/${id.root}/comments`, { blockId: 'b1', body: 'member reply', threadId: own.id })
+      const view = await as(G, 'GET', `/api/threads?workspaceId=${ws1.id}&all=1`)
+      assert.equal(view.statusCode, 200)
+      assert.ok(view.body.includes('member reply'))
+      assertNoOutside(view.body, 'threads view')
+      const list = await as(G, 'GET', '/api/later')
+      assert.equal(list.statusCode, 200)
+      assertNoOutside(list.body, 'later list')
     })
 
     it('files: upload into an editable page, download only files of shared pages', async () => {

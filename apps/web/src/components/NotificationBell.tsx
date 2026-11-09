@@ -4,7 +4,9 @@ import type { NotificationDTO } from '@inkling/shared'
 import { useMarkRead, useNotifications } from '../api'
 import { relativeTime } from '../lib/time'
 import { t, useT } from '../i18n'
-import { BellIcon } from './Icons'
+import { BellIcon, ClockIcon } from './Icons'
+import { useSaveLater } from '../laterApi'
+import { toast } from '../lib/toast'
 
 // Builds the notification text — actorName commented on / mentioned you in pageTitle. reminder (M17) is a due-date line.
 // The switch is exhaustive over NotificationType, so a new type fails typecheck until it has a line.
@@ -48,6 +50,8 @@ function describe(n: NotificationDTO): string {
       return t('notifications.approvalResult', { actor, title })
     case 'large_page':
       return t('notifications.largePage', { title })
+    case 'later_reminder':
+      return t('notifications.laterReminder', { title })
     default: {
       const never: never = n.type
       return String(never)
@@ -68,6 +72,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
   const navigate = useNavigate()
   const notifications = useNotifications()
   const markRead = useMarkRead()
+  const saveLater = useSaveLater()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -143,7 +148,28 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                   const unreadItem = !n.read && !n.quiet
                   const repeat = repeatSuffix(n)
                   return (
-                    <li key={n.id}>
+                    <li key={n.id} className="group/notif relative">
+                      {/* Save for later (docs/adr/1410-*): page notifications only, the target must be a page. */}
+                      {n.pageId && n.type !== 'later_reminder' && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            saveLater.mutate(
+                              { kind: 'notification', notificationId: n.id },
+                              {
+                                onSuccess: () => toast({ message: t('later.savedToast') }),
+                                onError: (e) => toast({ message: e instanceof Error ? e.message : String(e) }),
+                              },
+                            )
+                          }
+                          aria-label={t('later.saveNotification')}
+                          title={t('later.saveNotification')}
+                          data-testid="notif-save-later"
+                          className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-sub opacity-0 transition-opacity hover:bg-app hover:text-ink focus-visible:opacity-100 group-hover/notif:opacity-100 pointer-coarse:opacity-100"
+                        >
+                          <ClockIcon size={13} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openItem(n)}
@@ -157,10 +183,10 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                           {unreadItem && (
                             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                           )}
-                          {n.type === 'reminder' && (
+                          {(n.type === 'reminder' || n.type === 'later_reminder') && (
                             <span className="shrink-0 text-xs leading-4">⏰</span>
                           )}
-                          <span className="min-w-0 flex-1 text-xs text-ink">
+                          <span className="min-w-0 flex-1 pr-5 text-xs text-ink">
                             {describe(n)}
                             {n.via && <span className="text-sub"> {t('comments.via', { client: n.via })}</span>}
                             {repeat && <span className="ml-1 text-sub">{repeat}</span>}

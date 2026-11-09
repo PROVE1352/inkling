@@ -698,7 +698,7 @@ export type NotificationType =
   /** An owner deleted a workspace you are a member of (restorable for 30 days) — docs/adr/0910-*. */
   | 'workspace_deleted'
   // --- docs/adr/1000-* ---------------------------------------------------------------
-  /** Someone replied in a comment thread you took part in. */
+  /** Someone replied in a comment thread you follow (started, replied in, or followed; docs/adr/1412-*). */
   | 'comment_reply'
   /** You were made the owner of a document. */
   | 'page_owner'
@@ -714,6 +714,8 @@ export type NotificationType =
   | 'approval_result'
   /** A page you own grew large while something appended to it: split it or let it split itself (docs/adr/1141-*). */
   | 'large_page'
+  /** A reminder you set on an item of your Later list came due (docs/adr/1411-*). */
+  | 'later_reminder'
 export interface NotificationDTO {
   id: string
   type: NotificationType
@@ -926,6 +928,8 @@ export * from './largePages'
 export * from './pageSplit'
 export * from './editLock'
 export * from './notifications'
+// Later list, reminders and followed threads (docs/adr/1410-* .. 1413-*)
+export * from './later'
 
 // Math (KaTeX) node names and the `$…$` rule shared by the editor and the server schema
 export * from './math'

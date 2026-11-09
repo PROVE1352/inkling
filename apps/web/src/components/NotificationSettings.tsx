@@ -22,7 +22,7 @@ export function NotificationSettings() {
   const [error, setError] = useState<string | null>(null)
 
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : t('notifSettings.saveFailed'))
-  const patch = (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode }) => {
+  const patch = (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode; threadAutoFollow?: boolean; threadReplies?: boolean }) => {
     setError(null)
     update.mutate(input, { onError })
   }
@@ -65,6 +65,21 @@ export function NotificationSettings() {
                 { value: 'daily', label: t('notifSettings.digestDaily') },
                 { value: 'weekly', label: t('notifSettings.digestWeekly') },
               ]}
+            />
+          </Row>
+          {/* Followed comment threads (docs/adr/1412-*) */}
+          <Row id="threadAutoFollow" title={t('notifSettings.threadAutoFollow')} desc={t('notifSettings.threadAutoFollowDesc')}>
+            <Toggle
+              label={t('notifSettings.threadAutoFollow')}
+              checked={data.threadAutoFollow}
+              onChange={(v) => patch({ threadAutoFollow: v })}
+            />
+          </Row>
+          <Row id="threadReplies" title={t('notifSettings.threadReplies')} desc={t('notifSettings.threadRepliesDesc')}>
+            <Toggle
+              label={t('notifSettings.threadReplies')}
+              checked={data.threadReplies}
+              onChange={(v) => patch({ threadReplies: v })}
             />
           </Row>
 

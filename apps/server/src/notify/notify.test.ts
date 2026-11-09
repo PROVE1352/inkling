@@ -83,10 +83,14 @@ describe('level rule', () => {
     // an agent's reply in your thread is an answer to you, not a broadcast
     assert.deepEqual(decide('comment_reply', 'direct', 'mentions', true), { deliver: true, delivery: 'now' })
   })
-  it('approval requests pass mute (the only kind flagged so)', () => {
+  it('approval requests and the person\'s own Later reminders pass mute (the only kinds flagged so)', () => {
     assert.deepEqual(decide('approval_request', 'direct', 'mute', false), { deliver: true, delivery: 'now' })
-    const bypass = Object.entries(KINDS).filter(([, s]) => s.bypassMute).map(([k]) => k)
-    assert.deepEqual(bypass, ['approval_request'])
+    // A reminder the person set on their Later list (docs/adr/1411-*) is an explicit request.
+    assert.deepEqual(decide('later_reminder', 'direct', 'mute', false), { deliver: true, delivery: 'now' })
+    const bypass = Object.entries(KINDS).filter(([, s]) => s.bypassMute).map(([k]) => k).sort()
+    assert.deepEqual(bypass, ['approval_request', 'later_reminder'])
+    // Not an agent inbox item.
+    assert.equal(KINDS.later_reminder.inbox, null)
   })
   it('maps inbox kinds to notification types', () => {
     assert.deepEqual(typesForInbox(['mention']).sort(), ['comment_mention', 'doc_mention'])

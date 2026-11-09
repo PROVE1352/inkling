@@ -1569,6 +1569,8 @@ export function useCreateComment(pageId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.comments(pageId) })
       qc.invalidateQueries({ queryKey: qk.notifications })
+      // Writing in a thread follows it (docs/adr/1412-*): the follow buttons and the Threads view.
+      qc.invalidateQueries({ queryKey: ['threads'] })
     },
   })
 }

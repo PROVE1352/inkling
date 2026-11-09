@@ -9,8 +9,7 @@ import {
 } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { qk, useMe, useWorkspaces } from '../api'
-import { isMac, isMod, isTypingElement } from '../lib/platform'
-import { getActiveEditor } from '../lib/activeEditor'
+import { useShortcutDispatcher } from '../lib/shortcuts'
 import { consumeAppEntry, setPref, usePrefs } from '../lib/prefs'
 import {
   SIDEBAR_DEFAULT,
@@ -21,7 +20,6 @@ import {
 } from '../lib/sidebarWidth'
 import { useT } from '../i18n'
 import { ResizeHandle } from './ResizeHandle'
-import { useNewPage } from '../lib/newPage'
 import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { SearchModal, type SearchMode } from './SearchModal'
@@ -29,8 +27,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { EmailVerifyBanner } from './EmailVerifyBanner'
 import { AdminStatusBanner } from '../status/AdminStatusBanner'
 import { TwoFactorBanner, TwoFactorGate, useTwoFactorRequiredListener } from './TwoFactorRequired'
-import { useHistoryNav } from './NavButtons'
-import { requestPropsFocus } from '../lib/propsFocus'
+import { useAppCommands } from './appCommands'
 import { CommandPalette } from './CommandPalette'
 import { ShortcutsModal } from './ShortcutsModal'
 import { TemplateGalleryModal } from './TemplateGalleryModal'
@@ -80,6 +77,9 @@ function InboxRealtime({ userId }: { userId: string }) {
           try {
             if (JSON.parse(payload)?.t === 'notifications') {
               queryClient.invalidateQueries({ queryKey: qk.notifications })
+              // A reply in a followed thread or a Later reminder (docs/adr/1411-*, 1412-*): badges in the sidebar.
+              queryClient.invalidateQueries({ queryKey: ['threads'] })
+              queryClient.invalidateQueries({ queryKey: ['later'] })
               // It may be a "you were added to a workspace" notification → refresh the switcher list too
               queryClient.invalidateQueries({ queryKey: qk.workspaces })
             }
@@ -156,8 +156,6 @@ export function AppLayout() {
     (q = '', mode: SearchMode = 'all') => setSearch({ open: true, q, mode }),
     [],
   )
-  const histNav = useHistoryNav()
-  const { create: newPage } = useNewPage(wsId ?? '')
 
   // The "page to open on startup" applies only to the first entry — the workspace home (index) consumes it
   // during render; if the app was entered on another screen, use it up here so pressing Home later does not redirect.
@@ -207,138 +205,19 @@ export function AppLayout() {
     setDrawerOpen(false)
   }, [location.pathname])
 
-  // Global shortcuts: ⌘K search, ⌘P command palette, ⌘\ toggle sidebar, ? help
-  // + Obsidian-style: ⌘⌥←/→ back/forward, ⌘O quick switcher, ⌘⇧F full-text search, ⌘N (⌘⌥N) new page,
-  //   ⌘, settings, ⌘G graph, F2 rename title, ⌘; properties, (inside the editor) ⌘L checkbox, ⌘D delete block.
-  // With ⌥ on a Mac, e.key turns into a special character (˜ etc.), so letter keys are matched on e.code.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const mod = isMod(e)
-      const code = e.code
-      // Back/forward — Mac ⌘⌥←/→, Windows Alt+←/→ (standard) or Ctrl+Alt+←/→.
-      const navCombo = isMac
-        ? mod && e.altKey
-        : e.altKey && !e.metaKey
-      if (navCombo && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        e.preventDefault()
-        if (e.key === 'ArrowLeft') histNav.back()
-        else histNav.forward()
-        return
-      }
-      if (guest && mod && !e.altKey && ['KeyO', 'KeyF', 'KeyN', 'KeyG', 'KeyK', 'KeyP'].includes(code)) {
-        // Keep the browser's own shortcut where it has one; nothing of ours to open for a guest.
-        return
-      }
-      if (mod && !e.altKey && !e.shiftKey && code === 'KeyO') {
-        // Quick switcher instead of the browser's "Open file"
-        e.preventDefault()
-        openSearch('', 'title')
-        return
-      }
-      if (mod && e.shiftKey && !e.altKey && code === 'KeyF') {
-        e.preventDefault()
-        openSearch('', 'all')
-        return
-      }
-      if (mod && !e.shiftKey && code === 'KeyN') {
-        // In a regular Safari tab the browser may grab ⌘N first → ⌘⌥N does the same (both work in the PWA).
-        e.preventDefault()
-        newPage()
-        return
-      }
-      if (mod && !e.altKey && !e.shiftKey && e.key === ',') {
-        e.preventDefault()
-        navigate(`/w/${wsId}/settings`)
-        return
-      }
-      if (mod && !e.altKey && !e.shiftKey && code === 'KeyG') {
-        // Graph instead of the browser's "Find next"
-        e.preventDefault()
-        navigate(`/w/${wsId}/graph`)
-        return
-      }
-      if (mod && !e.altKey && !e.shiftKey && e.key === ';') {
-        if (!location.pathname.includes('/p/')) return
-        e.preventDefault()
-        requestPropsFocus()
-        return
-      }
-      if (e.key === 'F2' && !mod && !e.defaultPrevented) {
-        // Skip if the tree already handled it as a rename of the selected row (defaultPrevented).
-        const el = document.activeElement
-        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
-        const title = document.querySelector<HTMLTextAreaElement>('textarea[data-page-title]')
-        if (!title) return
-        e.preventDefault()
-        title.focus()
-        title.select()
-        return
-      }
-      if (mod && !e.altKey && !e.shiftKey && (code === 'KeyL' || code === 'KeyD')) {
-        // Only while the cursor is inside the document editor — outside, leave it to the browser default (address bar/bookmarks).
-        const ed = getActiveEditor()?.editor
-        if (!ed || !ed.isEditable || !ed.domElement?.contains(document.activeElement)) return
-        e.preventDefault()
-        try {
-          const pos = ed.getTextCursorPosition()
-          const block = pos.block
-          if (code === 'KeyL') {
-            if (block.type === 'checkListItem') {
-              ed.updateBlock(block, { props: { checked: !block.props.checked } })
-            } else if (
-              block.type === 'paragraph' ||
-              block.type === 'bulletListItem' ||
-              block.type === 'numberedListItem'
-            ) {
-              ed.updateBlock(block, { type: 'checkListItem', props: { checked: false } })
-            }
-          } else {
-            const next = pos.nextBlock ?? pos.prevBlock
-            ed.removeBlocks([block])
-            if (next) ed.setTextCursorPosition(next, pos.nextBlock ? 'start' : 'end')
-          }
-        } catch {
-          // moments when the cursor position cannot be resolved (table cell selection, etc.) — ignore
-        }
-        return
-      }
-      if (mod && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        openSearch()
-      } else if (mod && e.key.toLowerCase() === 'p') {
-        // Clashes with the browser's print shortcut, so preventDefault is required.
-        e.preventDefault()
-        setPaletteOpen((o) => !o)
-      } else if (mod && e.key === '\\') {
-        e.preventDefault()
-        setCollapsedPersist(!collapsed)
-      } else if (
-        e.key === '?' &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !search.open &&
-        !isTypingElement(document.activeElement)
-      ) {
-        // Ignore while typing/editing or when the search modal is open.
-        e.preventDefault()
-        setHelpOpen(true)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [
-    openSearch,
-    collapsed,
-    setCollapsedPersist,
-    search.open,
-    histNav,
-    newPage,
-    navigate,
-    wsId,
-    location.pathname,
+  // Every app shortcut (⌘K, ⌘P, ⌘\\, ?, ⌘⌥←/→, …) is a registry command (lib/shortcuts/registry.ts,
+  // docs/adr/1400-*): one window listener matches the keys, these handlers carry them out.
+  useShortcutDispatcher()
+  useAppCommands({
+    wsId: wsId ?? '',
     guest,
-  ])
+    openSearch,
+    toggleSidebar: onToggleSidebar,
+    togglePalette: () => setPaletteOpen((o) => !o),
+    openHelp: () => setHelpOpen(true),
+    openTrash: () => setTrashOpen(true),
+    openTemplates: () => setTemplatesOpen(true),
+  })
 
   if (!wsId) return <Navigate to="/" replace />
   // "Require two-step verification" (docs/adr/1112-*): once it blocks me, only the setup screen.
@@ -445,15 +324,7 @@ export function AppLayout() {
         mode={search.mode}
       />
 
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        wsId={wsId}
-        onOpenSearch={openSearch}
-        onToggleSidebar={onToggleSidebar}
-        onOpenTrash={() => setTrashOpen(true)}
-        onOpenTemplates={() => setTemplatesOpen(true)}
-      />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} wsId={wsId} />
 
       <TemplateGalleryModal
         open={templatesOpen}

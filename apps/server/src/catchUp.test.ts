@@ -95,14 +95,15 @@ describe('catch_up items', () => {
   })
 
   it('pages by others outrank own pages; a page no longer visible shows no title', () => {
-    const base: Omit<PageAggregate, 'pageId' | 'others' | 'actors' | 'title' | 'visibleNow'> = {
-      workspaceId: 'w', n: 3, added: false, trashed: false, restored: false, moved: false, renamed: false, sections: 1, first: 1, last: 3, mine: false,
+    const base: Omit<PageAggregate, 'pageId' | 'others' | 'byOthers' | 'actors' | 'title' | 'visibleNow'> = {
+      workspaceId: 'w', n: 3, unattributed: 0, added: false, trashed: false, restored: false, roundTrip: false, moved: false, renamed: false,
+      sections: 1, first: 1, last: 3, mine: false, kind: 'doc', isRow: false, parentId: null, parentTitle: null,
     }
     const its = pageItems(
       [
-        { ...base, pageId: 'p-own', others: 0, actors: [{ name: 'alice', via: null, n: 3, me: true }], title: 'Mine', visibleNow: true },
-        { ...base, pageId: 'p-bob', others: 3, actors: [{ name: 'bob', via: 'Agent', n: 3, me: false }], title: 'Bob page', visibleNow: true },
-        { ...base, pageId: 'p-gone', others: 1, trashed: true, actors: [{ name: 'bob', via: null, n: 1, me: false }], title: null, visibleNow: false },
+        { ...base, pageId: 'p-own', others: 0, byOthers: false, actors: [{ name: 'alice', via: null, n: 3, me: true }], title: 'Mine', visibleNow: true },
+        { ...base, pageId: 'p-bob', others: 3, byOthers: true, actors: [{ name: 'bob', via: 'Agent', n: 3, me: false }], title: 'Bob page', visibleNow: true },
+        { ...base, pageId: 'p-gone', others: 1, byOthers: true, trashed: true, actors: [{ name: 'bob', via: null, n: 1, me: false }], title: null, visibleNow: false },
       ],
       new Map([['p-bob', { heads: [], detail: ['  modified s (S)', '    + new'] }]]),
     )

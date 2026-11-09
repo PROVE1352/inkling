@@ -33,13 +33,45 @@ export interface InjectOpts {
   query?: Record<string, string>
   /** Statuses returned to the caller instead of thrown (e.g. 409 to show conflict details). */
   passStatuses?: number[]
+  /** What a plain 404 means for this call (default: read from the URL, notFoundTarget). */
+  target?: NotFoundTarget
+}
+
+/**
+ * What a 404 NOT_FOUND is about, so the hint names it (docs/adr/1655-*, ADR 0929: say what to do
+ * next). Specific error codes (SECTION_NOT_FOUND, TEMPLATE_NOT_FOUND, …) keep their own hints.
+ */
+export type NotFoundTarget = 'page' | 'workspace' | 'file' | 'comment' | 'row' | 'collection' | 'version' | 'generic'
+
+const NOT_FOUND_HINT: Record<NotFoundTarget, string> = {
+  page: 'page not found or not visible to you; use find_context or list_pages to get a valid id',
+  workspace: 'workspace not found or you are not a member; use list_workspaces for valid workspace ids',
+  file: 'file not found or not visible to you; pass the id or the /files/<id> link exactly as read_page shows it',
+  comment: 'comment thread not found or not visible to you; use list_comments(pageId) for thread ids',
+  row: 'row not found or not visible to you; use query_rows(collectionId) for row ids',
+  collection: 'collection not found or not visible to you (or the id is not a collection); search or list_pages mark collections',
+  version: 'page or version not found; use list_versions(pageId) for version ids',
+  generic: 'not found or not visible to you; check the id you passed (find_context, list_pages and list_workspaces give valid ones)',
+}
+
+/** The target of a REST URL for the 404 hint (the route families the MCP tools call). */
+export function notFoundTarget(url: string): NotFoundTarget {
+  const path = url.split('?')[0]
+  if (/^\/(api\/)?files\//.test(path)) return 'file'
+  if (/^\/api\/comments\//.test(path)) return 'comment'
+  if (/^\/api\/pages\/[^/]+\/(row|props)$/.test(path)) return 'row'
+  if (/^\/api\/pages\/[^/]+\/collection(\/|$)/.test(path)) return 'collection'
+  if (/^\/api\/pages\/[^/]+\/snapshots\/[^/]+/.test(path)) return 'version'
+  if (/^\/api\/workspaces\/[^/]+/.test(path)) return 'workspace'
+  if (/^\/api\/pages\//.test(path)) return 'page'
+  // suggestions, later items, …: their own wording, or the generic one
+  return 'generic'
 }
 
 /** Next-step hints appended to REST errors, keyed by HTTP status. */
 const NEXT_STEP: Record<number, string> = {
   401: 'the access token is no longer valid; reconnect the Inkling connector',
   403: 'you are not a member of that workspace or lack permission; use list_workspaces for valid workspace ids',
-  404: 'page/workspace not found or not visible to you; use find_context or list_pages to get a valid id',
   409: 'the content changed since you read it; re-read it and retry',
   412: 'the content changed since you read it; re-read it and retry',
   429: 'rate limited; wait a minute before retrying',
@@ -62,6 +94,11 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   SUGGESTION_SUPERSEDED: 'nothing to do for this id; list_suggestions(status: "open") shows what is still waiting',
   SUGGESTION_WITHDRAWN: 'nothing to do',
   SUGGESTION_DECIDED: 'nothing to do; the outcome also arrives in inbox as approval_result',
+  // a section that is not on the page (the message lists the current anchors; docs/adr/1501-*, 1655-*)
+  SECTION_NOT_FOUND: 'the page exists but has no such section; use one of the anchors listed, or read_page(pageId, outline=true)',
+  SECTION_AMBIGUOUS: 'use one of the anchors listed',
+  TEMPLATE_NOT_FOUND: 'list_templates (page templates) or query_rows(collectionId, describe=true) (row templates) show valid names and ids',
+  PAGE_NOT_FOUND: NOT_FOUND_HINT.page,
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }
@@ -102,7 +139,9 @@ export async function call(
       // Body is not JSON: keep the default message
     }
     // Error codes first (more specific than the status), then the status.
-    const hint = (code && NEXT_STEP_BY_CODE[code]) || NEXT_STEP[res.statusCode]
+    const hint =
+      (code && NEXT_STEP_BY_CODE[code]) ||
+      (res.statusCode === 404 ? NOT_FOUND_HINT[opts.target ?? notFoundTarget(url)] : NEXT_STEP[res.statusCode])
     if (hint) message = `${message}: ${hint}`
     throw new ToolError(message)
   }

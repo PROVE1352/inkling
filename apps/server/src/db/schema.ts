@@ -721,7 +721,7 @@ export const pageChanges = pgTable(
     /** Previous anchor (renamed sections). */
     prevAnchor: text('prev_anchor'),
     headingPath: text('heading_path').notNull().default(''),
-    /** added | modified | removed | moved | renamed | page_added | page_renamed | page_moved | page_trashed | page_restored | page_visibility */
+    /** added | modified | removed | moved | renamed | page_added | page_renamed | page_moved | page_trashed | page_restored | page_visibility | page_props */
     kind: text('kind').notNull(),
     /** Section text (or page-level value) before / after, capped; null when absent or too large. */
     beforeText: text('before_text'),

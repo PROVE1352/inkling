@@ -105,7 +105,7 @@ export interface ActivityItemDTO {
   pageId: string
   /** null when the page is no longer visible (trashed / made private). */
   pageTitle: string | null
-  /** added | modified | removed | moved | renamed | page_added | page_renamed | page_moved | page_trashed | page_restored | page_visibility */
+  /** added | modified | removed | moved | renamed | page_added | page_renamed | page_moved | page_trashed | page_restored | page_visibility | page_props */
   kind: string
   anchor: string | null
   headingPath: string

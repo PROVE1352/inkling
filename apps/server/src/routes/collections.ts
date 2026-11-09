@@ -39,6 +39,8 @@ import { findVisiblePage, pageColumns, toRowDTO, visibleTo } from '../pageDto'
 import { memberOrGuestSql } from '../pageGrants'
 import { enqueueAssignments, newAssignees, taskAssignments } from '../notify/producers'
 import { outboxCommitted } from '../outbox'
+import type { OutboxTopic } from '../outbox'
+import { changedPropKeys, propsEventText, recordPageEvents } from '../context/changeLog'
 import type { PageRow } from '../pageDto'
 import { registerCollectionExtRoutes } from './collectionsExt'
 import { nonMemberPersonIds } from '../collectionRelations'
@@ -421,9 +423,15 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         // Task assignment (docs/adr/1000-*): people newly put in a person cell hear about it; the
         // events commit with the write (docs/adr/1150-*).
         const assigned = newAssignees(parentFields, oldProps, set)
-        const queued = assigned.length
+        const queued: OutboxTopic[] = assigned.length
           ? await enqueueAssignments(tx, taskAssignments({ workspaceId: target.workspaceId, rowId: id, actorId: user.id, via: user.via ?? null, changes: assigned }))
           : []
+        // Change feed (docs/adr/1650-*): which properties changed, committed with the write.
+        const changedKeys = changedPropKeys(oldProps, (updated?.props ?? {}) as Record<string, unknown>)
+        if (changedKeys.length) {
+          await recordPageEvents([{ pageId: id, kind: 'page_props', after: propsEventText(parentFields, changedKeys) }], actorOf(user), tx)
+          queued.push('change')
+        }
         return {
           row: r,
           merged: (updated?.props ?? {}) as Record<string, unknown>,

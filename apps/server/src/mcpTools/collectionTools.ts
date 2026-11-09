@@ -194,16 +194,23 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const head = `Collection "${r.collection.title || 'Untitled'}" (${r.collection.id})`
       if (describe) {
         const tpls = await loadRowTemplates(ctx, r.collection.id)
+        // Title, field names, option labels and template names are member-written: one data block
+        // like the rows (docs/adr/0976-*, 1656-*); the fixed operator help stays outside it.
         return text(
           [
-            head,
-            'Fields:',
-            '- Title (title)',
-            ...r.fields.map((f) => `- ${describeField(f)}`),
+            wrapUntrusted(
+              [
+                head,
+                'Fields:',
+                '- Title (title)',
+                ...r.fields.map((f) => `- ${describeField(f)}`),
+                'Duplicate or reserved names: use #fieldId (ids: ' + r.fields.map((f) => `${f.name}=#${f.id}`).join(', ') + ')',
+                ...templateLines(tpls),
+              ].join('\n'),
+              { source: 'rows', id: r.collection.id },
+            ),
             'Operators:',
             OPS_SUMMARY,
-            'Duplicate or reserved names: use #fieldId (ids: ' + r.fields.map((f) => `${f.name}=#${f.id}`).join(', ') + ')',
-            ...templateLines(tpls),
           ].join('\n'),
         )
       }

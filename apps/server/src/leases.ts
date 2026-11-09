@@ -3,6 +3,7 @@ import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S } from '@inkling/shared'
 import type { SectionClaimDTO } from '@inkling/shared'
 import type { AuthUser } from './auth'
 import { findSection } from './context/chunker'
+import { resolveMovedSection } from './context/sectionMoves'
 import { readOutline } from './context/sectionSource'
 import type { OutlineSection } from './context/sectionSource'
 import { db } from './db/index'
@@ -75,11 +76,19 @@ export function claimLine(c: SectionClaimDTO): string {
 export async function sectionForClaim(pageId: string, ref: string): Promise<OutlineSection> {
   const outline = await readOutline(pageId)
   const s = findSection(outline, ref)
-  if (!s) {
-    const list = outline.slice(0, 30).map((x) => x.anchor).join(', ')
-    throw new AppError(404, 'SECTION_NOT_FOUND', `Section "${ref}" not found. Available anchors: ${list || '(none: the page has no headings)'}`)
+  if (s) return s
+  // An anchor from before a heading rename claims the section under its new anchor, as
+  // read_page(section=…) and patch_section read and write it (docs/adr/1501-*, 1655-*).
+  const moved = await resolveMovedSection(pageId, ref.replace(/^§/, ''), outline.map((x) => x.anchor))
+  if (moved.status === 'moved') {
+    const to = outline.find((x) => x.anchor === moved.anchor)
+    if (to) return to
   }
-  return s
+  if (moved.status === 'ambiguous') {
+    throw new AppError(409, 'SECTION_AMBIGUOUS', `Section "${ref}" was renamed and now matches several sections: ${moved.anchors.join(', ')}. Use one of these anchors.`)
+  }
+  const list = outline.slice(0, 30).map((x) => x.anchor).join(', ')
+  throw new AppError(404, 'SECTION_NOT_FOUND', `Section "${ref}" not found. Available anchors: ${list || '(none: the page has no headings)'}`)
 }
 
 /**

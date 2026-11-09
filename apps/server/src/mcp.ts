@@ -29,7 +29,7 @@ import { registerFileTools, registerInkTools, registerTrashTools, registerVersio
 import { inkMarker, inkStrokeCounts } from './agentInk'
 import { registerCatchUpTools } from './mcpTools/catchUpTools'
 import { registerCollabTools, suggestionMadeText } from './mcpTools/collabTools'
-import { claimLine } from './leases'
+import { claimLine, pageClaims } from './leases'
 import type { SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { registerStructureTools } from './mcpTools/structureTools'
 import { annotateCharts, registerChartTools } from './mcpTools/chartTools'
@@ -194,6 +194,14 @@ export const READ_ONLY_INSTRUCTION =
   'This connection is read-only: tools that change notes will refuse; to edit, the user must reconnect Inkling and allow write access.'
 
 /** Builds the per-request MCP server (exported for tests). */
+/** "claims: §a claimed by X until …; §b …" for a page with live claims, else null (docs/adr/1654-*). */
+async function pageClaimsLine(ctx: ToolCtx, page: { id: string; kind: string }): Promise<string | null> {
+  if (page.kind !== 'doc') return null
+  const claims = await pageClaims(page.id, ctx.user)
+  if (!claims.length) return null
+  return `claims: ${claims.map((c) => `§${c.anchor} ${claimLine({ ...c, by: cleanText(c.by) })}`).join('; ')}`
+}
+
 export function buildMcpServer(ctx: ToolCtx): McpServer {
   const server = new McpServer(
     { name: 'inkling', version: '1.0.0' },
@@ -383,7 +391,10 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         }
         const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
         // The section the caller already has (docs/adr/1540-*); a renamed heading is never "unchanged".
-        if (known && known === r.section.version && !r.movedFrom) return unchangedText(ac, r.page.id, known, r.section.anchor)
+        if (known && known === r.section.version && !r.movedFrom) {
+          // a live claim is said even when the text is unchanged (docs/adr/1654-*)
+          return unchangedText(ac, r.page.id, known, r.section.anchor, r.claim ? claimLine({ ...r.claim, by: cleanText(r.claim.by) }) : null)
+        }
         countReads([r.page.id]) // read counters (docs/adr/0953-*)
         const f = pageFacts(ac, r.page.id)
         const flag = suspiciousNote(flaggedRules(ac, r.page.id, [r.section.anchor]))
@@ -413,7 +424,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       let body = meta.kind === 'canvas' ? res.body : stripFrontmatter(res.body)
       // Page version over what this read shows, before any cut (docs/adr/1540-*)
       const version = pageVersion({ kind: meta.kind, title: meta.title, properties, body })
-      if (known && known === version) return unchangedText(await loadAgentContext(ctx, [meta.id], { read: true }), meta.id, version)
+      // Live section claims (docs/adr/1535-*, 1654-*): not part of the version, said on every read.
+      const claimsLine = await pageClaimsLine(ctx, meta)
+      if (known && known === version) {
+        return unchangedText(await loadAgentContext(ctx, [meta.id], { read: true }), meta.id, version, undefined, claimsLine)
+      }
       countReads([meta.id]) // read counters (docs/adr/0953-*)
       // a data line under each chart token, for this reader; not part of the version (docs/adr/1606-*)
       if (meta.kind === 'doc') body = await annotateCharts(ctx, meta.workspaceId, body)
@@ -441,6 +456,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         ...(inkStrokes ? [`- ${inkMarker(inkStrokes)}`] : []),
         ...(properties.length ? [`- properties: ${cleanText(JSON.stringify(properties))}`] : []),
         ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id)),
+        // last header line: it changes with the clock, the lines above with the page (ADR 0937, 1543)
+        ...(claimsLine ? [`- ${claimsLine}`] : []),
         '',
         '---',
         '',

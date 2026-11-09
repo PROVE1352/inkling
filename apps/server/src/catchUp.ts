@@ -10,11 +10,13 @@ import { twoFactorBlockedSql } from './twoFactorPolicy'
 import { pageInRangeSql } from './tokenRange'
 import { reserveCursor } from './context/changeLog'
 import {
+  addedNoun,
   decodeCursor as decodeFeedCursor,
   FEED_MAX_ROWS,
   feedRowScopeSql,
   foldRows,
   loadRows,
+  ROW_GROUP_MIN,
   TextLoader,
   unitBody,
   unitHead,
@@ -357,10 +359,22 @@ export interface PageAggregate {
   pageId: string
   workspaceId: string
   n: number
+  /** Changes by identified other people (docs/adr/1653-*). */
   others: number
+  /** Changes nobody could be credited with (live typing with no single typist, CF-2). */
+  unattributed: number
+  /** Listed under "Pages changed by others": others > 0, or only unattributed changes (none of yours). */
+  byOthers: boolean
   added: boolean
   trashed: boolean
   restored: boolean
+  /** Trashed and restored again inside the window (docs/adr/1652-*). */
+  roundTrip: boolean
+  /** Page kind and whether it is a collection row; parent collection id/title when visible (docs/adr/1650-*). */
+  kind: string | null
+  isRow: boolean
+  parentId: string | null
+  parentTitle: string | null
   moved: boolean
   renamed: boolean
   sections: number
@@ -386,31 +400,50 @@ async function pageAggregates(
        WHERE c.seq > ${from}::bigint AND c.seq <= ${to}::bigint AND ${feedRowScopeSql(userId, ws)}
     ), agg AS (
       SELECT page_id, min(workspace_id::text) AS ws, count(*)::int AS n,
-             count(*) FILTER (WHERE actor_id IS DISTINCT FROM ${userId}::uuid)::int AS others,
+             -- by others = an identified other person; a change nobody could be credited with is
+             -- counted apart and only tips the page to "others" when none of it is yours (docs/adr/1653-*)
+             count(*) FILTER (WHERE actor_id IS NOT NULL AND actor_id <> ${userId}::uuid)::int AS others,
+             count(*) FILTER (WHERE actor_id IS NULL)::int AS unattributed,
+             count(*) FILTER (WHERE actor_id = ${userId}::uuid)::int AS own,
              bool_or(kind = 'page_added') AS added,
              (array_agg(kind ORDER BY seq DESC) FILTER (WHERE kind IN ('page_trashed', 'page_restored')))[1] AS trash,
+             (array_agg(kind ORDER BY seq) FILTER (WHERE kind IN ('page_trashed', 'page_restored')))[1] AS "firstTrash",
              bool_or(kind = 'page_moved') AS moved, bool_or(kind = 'page_renamed') AS renamed,
              count(DISTINCT anchor)::int AS sections, min(seq)::text AS first, max(seq)::text AS last
         FROM c GROUP BY page_id
+    ), side AS (
+      SELECT agg.*, (agg.others > 0 OR (agg.own = 0 AND agg.unattributed > 0)) AS "byOthers" FROM agg
     )
-    SELECT agg.page_id AS "pageId", agg.ws AS "workspaceId", agg.n, agg.others, agg.added, agg.trash,
+    SELECT agg.page_id AS "pageId", agg.ws AS "workspaceId", agg.n, agg.others, agg.unattributed, agg."byOthers",
+           agg.added, agg.trash, agg."firstTrash",
            agg.moved, agg.renamed, agg.sections, agg.first, agg.last,
            ${visibleNow} AS "visibleNow", CASE WHEN ${visibleNow} THEN pages.title END AS title,
            coalesce(pages.created_by = ${userId}::uuid, false) AS mine,
+           pages.kind, pages.parent_id AS "parentId", coalesce(parent.kind = 'collection', false) AS "isRow",
+           CASE WHEN parent.id IS NOT NULL AND parent.deleted_at IS NULL AND (parent.scope = 'shared' OR parent.created_by = ${userId}::uuid)
+                 AND ${pageInRangeSql(sql`parent.id`, sql`parent.workspace_id`, userId)} THEN parent.title END AS "parentTitle",
            count(*) OVER ()::int AS total,
-           count(*) FILTER (WHERE agg.others > 0) OVER ()::int AS "totalOthers",
+           count(*) FILTER (WHERE agg."byOthers") OVER ()::int AS "totalOthers",
            count(*) FILTER (WHERE agg.added AND ${visibleNow}) OVER ()::int AS "totalAdded",
            count(*) FILTER (WHERE agg.trash = 'page_trashed') OVER ()::int AS "totalTrashed"
-      FROM agg LEFT JOIN pages ON pages.id = agg.page_id
-     ORDER BY (agg.others > 0) DESC, agg.others DESC, agg.n DESC, agg.page_id
+      FROM side agg LEFT JOIN pages ON pages.id = agg.page_id
+      LEFT JOIN pages parent ON parent.id = pages.parent_id
+     ORDER BY agg."byOthers" DESC, agg.others DESC, agg.n DESC, agg.page_id
      LIMIT ${MAX_PAGES}
   `)) as unknown as {
     pageId: string
     workspaceId: string
     n: number
     others: number
+    unattributed: number
+    byOthers: boolean
     added: boolean
     trash: string | null
+    firstTrash: string | null
+    kind: string | null
+    parentId: string | null
+    isRow: boolean
+    parentTitle: string | null
     moved: boolean
     renamed: boolean
     sections: number
@@ -451,9 +484,16 @@ async function pageAggregates(
       workspaceId: r.workspaceId,
       n: r.n,
       others: r.others,
+      unattributed: r.unattributed,
+      byOthers: r.byOthers,
       added: r.added,
       trashed: r.trash === 'page_trashed',
-      restored: r.trash === 'page_restored',
+      restored: r.trash === 'page_restored' && r.firstTrash === 'page_restored',
+      roundTrip: r.trash === 'page_restored' && r.firstTrash === 'page_trashed',
+      kind: r.kind,
+      isRow: r.isRow,
+      parentId: r.parentId,
+      parentTitle: r.parentTitle,
       moved: r.moved,
       renamed: r.renamed,
       sections: r.sections,
@@ -671,27 +711,65 @@ export function commentItems(rows: CommentRow[], roots: Map<string, CommentRow>)
 
 export function pageItems(pages: PageAggregate[], details: Map<string, { heads: string[]; detail: string[] }>): Item[] {
   const items: Item[] = []
+  // Rows added to one collection, ROW_GROUP_MIN or more: one item (docs/adr/1651-*).
+  const rowAdds = new Map<string, PageAggregate[]>()
   for (const p of pages) {
+    if (p.visibleNow && p.added && p.isRow && p.parentId) rowAdds.set(p.parentId, [...(rowAdds.get(p.parentId) ?? []), p])
+  }
+  const grouped = new Set<string>()
+  for (const [coll, list] of rowAdds) {
+    if (list.length < ROW_GROUP_MIN) continue
+    for (const p of list) grouped.add(p.pageId)
+    const actors = new Map<string, ActorCount>()
+    for (const p of list) {
+      for (const a of p.actors) {
+        const k = `${a.me}\u0000${a.name ?? ''}\u0000${a.via ?? ''}`
+        const cur = actors.get(k)
+        if (cur) cur.n += a.n
+        else actors.set(k, { ...a })
+      }
+    }
+    const others = list.some((p) => p.byOthers)
+    const unattributed = list.reduce((n, p) => n + p.unattributed, 0)
+    const title = list[0].parentTitle
+    items.push({
+      group: others ? 'pages' : 'own',
+      score: others ? 0.45 : 0.2,
+      key: `pages:${coll}:rows`,
+      head: [
+        `- rows added: ${list.length} to collection ${title !== null ? `${q(title)} ` : ''}${coll} · ${actorPhrase([...actors.values()])}` +
+          `${unattributed ? ` · unattributed edits ${unattributed}` : ''} · query_rows(${coll}) lists them`,
+      ],
+    })
+  }
+  for (const p of pages) {
+    if (grouped.has(p.pageId)) continue
     if (!p.visibleNow) {
       // trashed, made private or out of reach now: the id only (the title is not ours to show)
       if (p.added) continue
       items.push({
-        group: p.others ? 'pages' : 'own',
-        score: p.others ? 0.42 : 0.2,
+        group: p.byOthers ? 'pages' : 'own',
+        score: p.byOthers ? 0.42 : 0.2,
         key: `pages:${p.pageId}`,
         head: [`- page ${p.pageId}: ${p.trashed ? 'moved to the trash' : 'no longer visible to you'} (${actorPhrase(p.actors)})`],
       })
       continue
     }
     const d = details.get(p.pageId)
-    const what = p.added ? 'new page' : `${p.n} edit${p.n === 1 ? '' : 's'}${p.sections ? ` in ${p.sections} section${p.sections === 1 ? '' : 's'}` : ''}`
-    const flags = [p.restored ? 'restored from trash' : null].filter(Boolean)
-    const head = [`- ${p.added ? 'page added' : 'page'} ${q(p.title)} ${p.pageId} · ${what} · ${actorPhrase(p.actors)}${flags.length ? ` · ${flags.join(', ')}` : ''}`]
+    const noun = addedNoun(p)
+    const what = p.added ? `new ${noun}` : `${p.n} edit${p.n === 1 ? '' : 's'}${p.sections ? ` in ${p.sections} section${p.sections === 1 ? '' : 's'}` : ''}`
+    const flags = [
+      p.restored ? 'restored from trash' : null,
+      p.roundTrip ? 'trashed, then restored' : null,
+      // live typing nobody could be credited with (CF-2): said, not counted as someone else's (docs/adr/1653-*)
+      p.unattributed ? `unattributed edits ${p.unattributed}` : null,
+    ].filter(Boolean)
+    const head = [`- ${p.added ? `${noun} added` : 'page'} ${q(p.title)} ${p.pageId} · ${what} · ${actorPhrase(p.actors)}${flags.length ? ` · ${flags.join(', ')}` : ''}`]
     if (d) head.push(...d.heads)
     else if (p.n > FEED_MAX_ROWS) head.push('    (too many edits for a diff: read the page)')
-    const others = p.others > 0
+    const others = p.byOthers
     const score = others
-      ? 0.4 + 0.25 * (1 - Math.exp(-p.others / 8)) + (p.mine ? 0.08 : 0) + (p.added ? 0.05 : 0)
+      ? 0.4 + 0.25 * (1 - Math.exp(-Math.max(p.others, 1) / 8)) + (p.mine ? 0.08 : 0) + (p.added ? 0.05 : 0)
       : 0.15 + Math.min(0.1, 0.01 * p.n)
     items.push({ group: others ? 'pages' : 'own', score: Math.round(score * 1e4) / 1e4, key: `pages:${p.pageId}`, head, detail: capLines(d?.detail ?? [], PAGE_DETAIL_LINES, 'read the page or changes_since for the rest') })
   }

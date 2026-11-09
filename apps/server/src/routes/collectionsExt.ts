@@ -28,6 +28,9 @@ import { idParam } from '../helpers'
 import { pageColumns, toRowDTO, visibleTo } from '../pageDto'
 import { enqueueAssignments, newAssignees, taskAssignments } from '../notify/producers'
 import { outboxCommitted } from '../outbox'
+import { changedPropKeys, propsEventText, recordPageEvents } from '../context/changeLog'
+import type { PageEvent } from '../context/changeLog'
+import { actorOf } from '../context/attribution'
 import type { OutboxTopic } from '../outbox'
 import { escapeLike } from '../util'
 import { requireCollectionPage } from './collections'
@@ -220,6 +223,9 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
             taskAssignments({ workspaceId: page.workspaceId, rowId: r.id, actorId: user.id, via: user.via ?? null, changes: newAssignees(fieldList, {}, (r.props ?? {}) as Record<string, unknown>) }),
           ),
         )
+        // Change feed (docs/adr/1650-*): the new rows are logged as added with them.
+        await recordPageEvents(rows.map((r) => ({ pageId: r.id, kind: 'page_added' as const })), actorOf(user), tx)
+        queued = [...queued, 'change']
         return rows
       })
       outboxCommitted(queued)
@@ -259,34 +265,66 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
              WHERE id = ANY(${`{${payload.map((p) => p.id).join(',')}}`}::uuid[]) AND parent_id = ${id}
           `)) as unknown as { id: string; props: Record<string, unknown> | null }[])
         : []
+      // The old title and props come along (the FROM side reads the rows as they were) for the
+      // change feed's rename and property events (docs/adr/1650-*).
       const update = (exec: Pick<typeof db, 'execute'>) =>
         exec.execute(sql`
           UPDATE pages SET
             props = (pages.props || x.set) - x.del,
             title = COALESCE(x.title, pages.title),
             updated_at = now()
-          FROM jsonb_to_recordset(${json}::jsonb) AS x(id uuid, set jsonb, del text[], title text)
+          FROM (SELECT r.id, r.set, r.del, r.title, p0.title AS old_title, p0.props AS old_props
+                  FROM jsonb_to_recordset(${json}::jsonb) AS r(id uuid, set jsonb, del text[], title text)
+                  JOIN pages p0 ON p0.id = r.id) AS x
           WHERE pages.id = x.id
             AND pages.parent_id = ${id}
             AND pages.deleted_at IS NULL
             AND ${visibleTo(user.id)}
-          RETURNING pages.id
-        `) as unknown as Promise<{ id: string }[]>
-      if (!personTouched) return { updated: (await update(db)).length }
+          RETURNING pages.id, x.old_title AS "oldTitle", pages.title, x.old_props AS "oldProps", pages.props
+        `) as unknown as Promise<{ id: string; oldTitle: string; title: string; oldProps: Record<string, unknown> | null; props: Record<string, unknown> | null }[]>
+      const events = (rows: Awaited<ReturnType<typeof update>>): PageEvent[] =>
+        rows.flatMap((r) => {
+          const out: PageEvent[] = []
+          if (r.oldTitle !== r.title) out.push({ pageId: r.id, kind: 'page_renamed', before: r.oldTitle, after: r.title })
+          const keys = changedPropKeys(r.oldProps ?? {}, r.props ?? {})
+          if (keys.length) out.push({ pageId: r.id, kind: 'page_props', after: propsEventText(fieldList, keys) })
+          return out
+        })
+      if (!personTouched) {
+        // The events commit with the update (docs/adr/1150-*).
+        let logged = false
+        const n = await db.transaction(async (tx) => {
+          const rows = await update(tx)
+          const ev = events(rows)
+          if (ev.length) await recordPageEvents(ev, actorOf(user), tx)
+          logged = ev.length > 0
+          return rows.length
+        })
+        if (logged) outboxCommitted(['change'])
+        return { updated: n }
+      }
       // Assignments commit with the update (docs/adr/1150-*).
       let queued: OutboxTopic[] = []
       const updated = await db.transaction(async (tx) => {
         const rows = await update(tx)
+        const ev = events(rows)
+        if (ev.length) {
+          await recordPageEvents(ev, actorOf(user), tx)
+          queued = ['change']
+        }
         const prevById = new Map(before.map((r) => [r.id, r.props ?? {}]))
         const done = new Set(rows.map((r) => r.id))
-        queued = await enqueueAssignments(
+        queued = [
+          ...queued,
+          ...(await enqueueAssignments(
           tx,
           payload
             .filter((p) => done.has(p.id))
             .flatMap((p) =>
               taskAssignments({ workspaceId: page.workspaceId, rowId: p.id, actorId: user.id, via: user.via ?? null, changes: newAssignees(fieldList, prevById.get(p.id) ?? {}, p.set) }),
             ),
-        )
+          )),
+        ]
         return rows
       })
       outboxCommitted(queued)

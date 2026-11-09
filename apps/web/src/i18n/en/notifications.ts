@@ -109,6 +109,7 @@ export default {
   'activity.kind.page_trashed': 'moved the page to trash',
   'activity.kind.page_restored': 'restored the page',
   'activity.kind.page_visibility': 'changed who can see the page',
+  'activity.kind.page_props': 'changed row properties',
 
   // Diff view
   'diff.title': 'Changes',

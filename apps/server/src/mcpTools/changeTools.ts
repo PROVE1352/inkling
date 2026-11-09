@@ -53,7 +53,8 @@ export function registerChangeTools(server: McpServer, ctx: ToolCtx): void {
       title: 'Changes since',
       description:
         'What changed in your notes since a cursor, as compact diffs per section (added text, -/+ lines, removed, ' +
-        'renamed, moved; page renames, moves, trash, visibility), with who/which agent made them. ' +
+        'renamed, moved; page renames, moves, trash, visibility; new collections and rows, row property changes), with ' +
+        'who/which agent made them. ' +
         'Without a cursor it only returns the current cursor: store it. In a later session call changes_since(cursor) ' +
         'and update only what changed instead of re-reading pages; every call returns the next cursor to store ' +
         '(always the last line). Output fits a token budget (default 3000, max 12000); entries that do not fit are ' +

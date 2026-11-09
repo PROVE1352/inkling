@@ -9,7 +9,7 @@ process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import type { AnyBlock } from '../md/convert'
-import { decodeCursor, encodeCursor, foldRows } from './changeFeed'
+import { decodeCursor, encodeCursor, foldRows, groupRowAdds, unitHead } from './changeFeed'
 import type { FeedRow } from './changeFeed'
 import { DIFF_LIMITS, diffText, myers, splitUnits } from './diff'
 import { computeSectionChanges, longestIncreasingSubsequence } from './sectionChanges'
@@ -325,11 +325,13 @@ describe('fold', () => {
     assert.deepEqual(never, [])
   })
 
-  it('trash then restore nets out; moved back nets out', () => {
-    assert.deepEqual(
-      foldRows([row({ anchor: null, kind: 'page_trashed' }), row({ anchor: null, kind: 'page_restored' })]),
-      [],
-    )
+  it('trash then restore in one window is one line (docs/adr/1652-*); moved back nets out', () => {
+    const rt = foldRows([row({ anchor: null, kind: 'page_trashed' }), row({ anchor: null, kind: 'page_restored' })])
+    assert.deepEqual(rt.map((u) => u.kind), ['page'])
+    assert.deepEqual(unitHead(rt[0], new Map()), ['  trashed, then restored'])
+    // in the trash at the cursor, back now: "restored from trash" as before
+    const back = foldRows([row({ anchor: null, kind: 'page_restored' })])
+    assert.deepEqual(unitHead(back[0], new Map()), ['  restored from trash'])
     assert.deepEqual(
       foldRows([
         row({ kind: 'moved', smallBefore: '0', smallAfter: '2' }),
@@ -337,6 +339,29 @@ describe('fold', () => {
       ]),
       [],
     )
+  })
+
+  it('row properties fold into one line per page, names in first-seen order (docs/adr/1650-*)', () => {
+    const u = foldRows([
+      row({ anchor: null, kind: 'page_props', smallAfter: 'Status' }),
+      row({ anchor: null, kind: 'page_props', smallAfter: 'Due, Status' }),
+    ])
+    assert.deepEqual(unitHead(u[0], new Map()), ['  properties: Status, Due'])
+  })
+
+  it('collections and rows are labelled; 10+ rows of one collection are one unit (docs/adr/1651-*)', () => {
+    const add = (pageId: string, o: Partial<FeedRow> = {}) => row({ pageId, anchor: null, kind: 'page_added', title: pageId, ...o })
+    const coll = foldRows([add('c1', { pageKind: 'collection' }), add('r1', { parentId: 'c1', parentIsCollection: true }), add('d1', { pageKind: 'doc' })])
+    assert.deepEqual(coll.map((x) => unitHead(x, new Map())[0].split(':')[0]), ['collection added', 'row added', 'page added'])
+    const x0 = add('x0')
+    const rows = Array.from({ length: 10 }, (_, i) => add(`r${i}`, { parentId: 'c1', parentIsCollection: true, actorName: 'bob' }))
+    const units = groupRowAdds(foldRows([x0, ...rows, add('y0', { parentId: 'c2', parentIsCollection: true })]))
+    assert.deepEqual(units.map((x) => x.kind), ['page_added', 'rows_added', 'page_added'])
+    assert.equal(units[1].members!.length, 10)
+    assert.equal(units[1].firstSeq, rows[0].seq)
+    assert.equal(unitHead(units[1], new Map([['c1', 'Tasks']]))[0], 'rows added: 10 to collection "Tasks" c1 (by bob): query_rows(c1) lists them')
+    // nine stay one per line
+    assert.deepEqual(groupRowAdds(foldRows(rows.slice(1))).map((x) => x.kind), Array(9).fill('page_added'))
   })
 })
 

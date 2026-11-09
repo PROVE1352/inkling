@@ -101,6 +101,7 @@ export default {
   'activity.kind.page_trashed': '페이지를 휴지통으로',
   'activity.kind.page_restored': '페이지 복원',
   'activity.kind.page_visibility': '공개 범위 변경',
+  'activity.kind.page_props': '행 속성 변경',
 
   'diff.title': '변경 내용',
   'diff.large': '변경이 너무 커서 줄 단위로 보여 줄 수 없습니다.',

@@ -125,6 +125,14 @@ type ChangeOp =
       ownerId: string | null
       actor: EditActor | null
       text: string | null
+      /**
+       * The first index's sections as 'added' changes, for a page whose page_added was already
+       * logged when it was created (collections and rows, docs/adr/1650-*): the body typed into an
+       * empty row later is then logged as added sections instead of being dropped.
+       */
+      sections?: StoredChange[]
+      typing?: string[]
+      typedBy?: string | null
     }
   | {
       op: 'events'
@@ -201,6 +209,8 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
   let op: ChangeOp
   if (delta.firstIndex && delta.before.length === 0) {
     const text = pageText(delta.after)
+    // An empty body (an opened, untyped row) has no section worth reporting.
+    const sections = computeSectionChanges([], delta.after).filter((c) => c.headingPath !== '' || (c.after ?? '').trim() !== '')
     op = {
       op: 'page_added',
       pageId: delta.pageId,
@@ -209,6 +219,13 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
       ownerId: delta.ownerId,
       actor,
       text: fits(text) ? text : null,
+      ...(sections.length
+        ? {
+            sections: firstIndexSections(sections, !!actor?.via),
+            typing: liveEditors(delta.pageId),
+            typedBy: actor ? null : windowTypist(delta.pageId),
+          }
+        : {}),
     }
   } else {
     const changes = computeSectionChanges(delta.before, delta.after)
@@ -226,6 +243,20 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
     }
   }
   await enqueue(exec ?? db, [{ topic: 'change', workspaceId: delta.workspaceId, payload: op }])
+}
+
+/**
+ * Sections of a first index, kept on the page_added op for pages already logged at creation
+ * (docs/adr/1650-*). Most first indexes are new document pages whose op is applied as page_added and
+ * these are never used, so the texts ride along only while they are small together; above that the
+ * sections are kept without text (the feed says "large change, read section").
+ */
+const FIRST_INDEX_SECTIONS_MAX_BYTES = 64 * 1024
+function firstIndexSections(changes: SectionChange[], agent: boolean): StoredChange[] {
+  const stored = changes.map((c) => storeChange(c, agent))
+  const bytes = stored.reduce((n, c) => n + (c.after ? Buffer.byteLength(c.after, 'utf8') : 0), 0)
+  if (bytes <= FIRST_INDEX_SECTIONS_MAX_BYTES) return stored
+  return stored.map((c) => ({ kind: c.kind, anchor: c.anchor, prevAnchor: c.prevAnchor, headingPath: c.headingPath, before: null, after: null, beforeLarge: false, afterLarge: true }))
 }
 
 function storeChange(c: SectionChange, agent: boolean): StoredChange {
@@ -260,11 +291,13 @@ export type PageEventKind =
   | 'page_trashed'
   | 'page_restored'
   | 'page_visibility'
+  /** Row properties set or cleared (after = the field names, docs/adr/1650-*). */
+  | 'page_props'
 
 export interface PageEvent {
   pageId: string
   kind: PageEventKind
-  /** page_renamed: old/new title; page_moved: old/new parent id ('' = top level); page_visibility: old/new scope. */
+  /** page_renamed: old/new title; page_moved: old/new parent id ('' = top level); page_visibility: old/new scope; page_props: after = field names. */
   before?: string | null
   after?: string | null
 }
@@ -277,7 +310,7 @@ export interface PageEvent {
 export async function recordPageEvents(events: PageEvent[], actor: EditActor | null, exec?: Exec): Promise<void> {
   if (events.length === 0) return
   const data = events.map((e, i) => {
-    const small = e.kind === 'page_renamed' ? capTitle : (s: string | null | undefined) => s ?? null
+    const small = e.kind === 'page_renamed' || e.kind === 'page_props' ? capTitle : (s: string | null | undefined) => s ?? null
     return { ord: i, page_id: e.pageId, kind: e.kind, before: small(e.before), after: small(e.after) }
   })
   const x = exec ?? db
@@ -306,6 +339,27 @@ export async function recordPageEvents(events: PageEvent[], actor: EditActor | n
     SELECT 1 AS z FROM ins LIMIT 1
   `)) as unknown as unknown[]
   if (out.length > 0 && x === db) outboxCommitted(['change'])
+}
+
+/**
+ * Field keys whose value differs between two prop objects (JSON equality), for a page_props event.
+ */
+export function changedPropKeys(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...keys].filter((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null))
+}
+
+/**
+ * The page_props event text (docs/adr/1650-*): the changed fields' names at log time, in the
+ * collection's field order (unknown keys after, by key), comma separated. Values are not logged:
+ * they can be option ids, people or relation ids, and the feed points at query_rows for them.
+ */
+export function propsEventText(fields: { id: string; name: string }[], keys: string[]): string {
+  const want = new Set(keys)
+  const named = fields.filter((f) => want.has(f.id))
+  const known = new Set(named.map((f) => f.id))
+  const rest = keys.filter((k) => !known.has(k)).sort()
+  return [...named.map((f) => f.name.replace(/\s+/g, ' ').trim() || f.id), ...rest].join(', ')
 }
 
 /**
@@ -458,9 +512,18 @@ export function drainChangeLog(maxPasses = 50): Promise<number> {
 /** Returns true when it queued notification events. */
 async function applyOp(tx: Tx, op: ChangeOp, hwm: number, at: Date, origin: string | null): Promise<boolean> {
   switch (op.op) {
-    case 'page_added':
-      await writePageAdded(tx, op, at)
-      return false
+    case 'page_added': {
+      if (await writePageAdded(tx, op, at)) return false
+      // Already logged at creation (collections, rows: docs/adr/1650-*): the first body is new sections.
+      if (!op.sections?.length) return false
+      return writeSectionChanges(
+        tx,
+        { op: 'sections', pageId: op.pageId, workspaceId: op.workspaceId, scope: op.scope, ownerId: op.ownerId, actor: op.actor, typing: op.typing ?? [], typedBy: op.typedBy ?? null, changes: op.sections },
+        hwm,
+        at,
+        origin,
+      )
+    }
     case 'sections':
       return writeSectionChanges(tx, op, hwm, at, origin)
     case 'events': {
@@ -492,10 +555,11 @@ async function applyOp(tx: Tx, op: ChangeOp, hwm: number, at: Date, origin: stri
   }
 }
 
-async function writePageAdded(tx: Tx, op: Extract<ChangeOp, { op: 'page_added' }>, at: Date): Promise<void> {
+/** Returns false when the page already had its page_added row (nothing written). */
+async function writePageAdded(tx: Tx, op: Extract<ChangeOp, { op: 'page_added' }>, at: Date): Promise<boolean> {
   const actor = op.actor
   // One page_added per page, ever (a duplicate's copy is logged by the route, then indexed later).
-  await tx.execute(sql`
+  const rows = (await tx.execute(sql`
     INSERT INTO page_changes (workspace_id, page_id, anchor, heading_path, kind, after_text, large, scope, owner_id, actor_id, via_client, changed_at)
     SELECT ${op.workspaceId}, ${op.pageId}, NULL, '', 'page_added', ${op.text}, ${op.text === null},
            ${op.scope}, ${op.ownerId},
@@ -505,7 +569,9 @@ async function writePageAdded(tx: Tx, op: Extract<ChangeOp, { op: 'page_added' }
            ${actor ? sql`${capVia(actor.via)}::text` : sql`(SELECT created_via FROM pages WHERE id = ${op.pageId})`},
            ${at.toISOString()}::timestamptz
     WHERE NOT EXISTS (SELECT 1 FROM page_changes WHERE page_id = ${op.pageId} AND kind = 'page_added')
-  `)
+    RETURNING 1 AS x
+  `)) as unknown as unknown[]
+  return rows.length > 0
 }
 
 async function writeSectionChanges(

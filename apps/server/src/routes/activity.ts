@@ -29,7 +29,8 @@ import { revertInfo } from '../revert'
  */
 
 const DEFAULT_LIMIT = 50
-const PAGE_EVENT_KINDS = ['page_added', 'page_renamed', 'page_moved', 'page_trashed', 'page_restored', 'page_visibility']
+// page_props (row properties, docs/adr/1650-*) is metadata like a title: a page event, not a body edit
+const PAGE_EVENT_KINDS = ['page_added', 'page_renamed', 'page_moved', 'page_trashed', 'page_restored', 'page_visibility', 'page_props']
 
 function kindFilter(kind: string | undefined): SQL {
   if (kind === 'page') return sql`AND c.kind IN (${sql.join(PAGE_EVENT_KINDS.map((k) => sql`${k}`), sql`, `)})`

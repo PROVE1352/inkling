@@ -21,8 +21,10 @@ import { cleanText, wrapUntrusted } from './trust'
  */
 
 /** `unchanged (page <id>[ §anchor] v=<v>; can: …)` with the applies line in front when instructions apply. */
-export function unchangedText(ac: AgentContextDTO, pageId: string, version: string, anchor?: string): CallToolResult {
-  return text(withApplies(ac, `unchanged (page ${pageId}${anchor ? ` §${anchor}` : ''} v=${version}; can: ${pageFacts(ac, pageId).can})`))
+export function unchangedText(ac: AgentContextDTO, pageId: string, version: string, anchor?: string, claims?: string | null): CallToolResult {
+  // A live claim is not part of the version: it is said after the stable line (docs/adr/1654-*).
+  const tail = claims ? `\n${claims}` : ''
+  return text(withApplies(ac, `unchanged (page ${pageId}${anchor ? ` §${anchor}` : ''} v=${version}; can: ${pageFacts(ac, pageId).can})${tail}`))
 }
 
 /** read_pages arguments: short ids resolved; `known` (keys may be short ids too) as the route's "id:v,…". */

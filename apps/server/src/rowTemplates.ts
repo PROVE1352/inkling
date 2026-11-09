@@ -27,6 +27,8 @@ import { reindexPageTags } from './md/tagIndex'
 import { reindexPageTasks } from './md/taskIndex'
 import { reindexPageText } from './md/textIndex'
 import { reindexPageChunks } from './context/chunkIndex'
+import { recordPageEvents } from './context/changeLog'
+import { withEditActor } from './context/attribution'
 import { nonMemberPersonIds, normalizeRelationWrite, syncPairedLinks } from './collectionRelations'
 import { actorFor, assertAllEditable } from './editLock'
 import { sanitizeBatchProps } from './routes/collectionsExt'
@@ -357,6 +359,10 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
       const n = await enqueueWebhookEvent(tx, { type: 'page_created', workspaceId: coll.workspaceId, pageId: created.id, actorId: a.user.id })
       if (n > 0) queued = [...queued, 'webhook']
     }
+    // Change feed (docs/adr/1650-*): the row is logged as added with it; a template body indexed
+    // after the commit follows as added sections.
+    await recordPageEvents([{ pageId: created.id, kind: 'page_added' }], { userId: a.user.id, via: a.user.via ?? null }, tx)
+    queued = [...queued, 'change']
     return created
   })
   outboxCommitted(queued)
@@ -366,7 +372,8 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
     try {
       const blocks = stateToBlocks(state)
       await reindexPageText(row.id, blocks)
-      await reindexPageChunks(row.id, blocks)
+      // the template body's sections are the row creator's in the change feed (docs/adr/1650-*)
+      await withEditActor([row.id], { userId: a.user.id, via: a.user.via ?? null }, () => reindexPageChunks(row.id, blocks))
       await reindexPageTags(row.id, blocks)
       await reindexPageTasks(row.id, blocks)
       await reindexPageLinks(row.id, blocks)

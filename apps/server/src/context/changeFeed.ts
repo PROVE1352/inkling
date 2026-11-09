@@ -40,6 +40,11 @@ const TEXT_BATCH = 40
 const PAGE_TEXT_BATCH = 5
 const MAX_ACTORS_SHOWN = 3
 /**
+ * Rows added to one collection within one answer at or above this count are one line
+ * ("rows added: N to collection …", docs/adr/1651-*); fewer are listed one by one.
+ */
+export const ROW_GROUP_MIN = 10
+/**
  * Diff work for all entries of one call (deterministic counter, ~10× one diff's cap); once spent,
  * remaining modified entries say "large change".
  */
@@ -105,6 +110,11 @@ export interface FeedRow {
   changedAt: number
   visibleNow: boolean
   title: string | null
+  /** The page's kind and parent now (labels "collection added" / "row added", docs/adr/1650-*). */
+  pageKind?: string | null
+  parentId?: string | null
+  /** The parent is a collection: the page is a row. */
+  parentIsCollection?: boolean | null
 }
 
 interface SecGroup {
@@ -130,6 +140,9 @@ interface PageAgg {
   pageId: string
   visibleNow: boolean
   title: string | null
+  kind: string | null
+  parentId: string | null
+  isRow: boolean
   firstSeq: number
   added: boolean
   pageLevelSeq: number | null
@@ -139,6 +152,8 @@ interface PageAgg {
   parentTo?: string | null
   trashedAtStart: boolean | null
   trashedAtEnd: boolean | null
+  /** Changed row properties (names at log time, first-seen order, docs/adr/1650-*). */
+  props: string[]
   scopeFrom?: string | null
   scopeTo?: string | null
   groups: SecGroup[]
@@ -146,7 +161,7 @@ interface PageAgg {
   actors: Map<string, { name: string | null; via: string | null }>
 }
 
-export type UnitKind = 'gone' | 'page_added' | 'page' | 'added' | 'modified' | 'removed' | 'renamed' | 'moved'
+export type UnitKind = 'gone' | 'page_added' | 'rows_added' | 'page' | 'added' | 'modified' | 'removed' | 'renamed' | 'moved'
 
 export interface FeedUnit {
   kind: UnitKind
@@ -157,6 +172,8 @@ export interface FeedUnit {
   textChanged?: boolean
   moved?: boolean
   large?: boolean
+  /** rows_added: the rows (page_added units of one collection), in log order. */
+  members?: PageAgg[]
 }
 
 const TEXT_KINDS = new Set(['added', 'modified', 'removed', 'renamed'])
@@ -192,11 +209,15 @@ export function foldRows(rows: FeedRow[]): FeedUnit[] {
         pageId: r.pageId,
         visibleNow: r.visibleNow,
         title: r.title,
+        kind: r.pageKind ?? null,
+        parentId: r.parentId ?? null,
+        isRow: r.parentIsCollection === true,
         firstSeq: r.seq,
         added: false,
         pageLevelSeq: null,
         trashedAtStart: null,
         trashedAtEnd: null,
+        props: [],
         groups: [],
         open: new Map(),
         actors: new Map(),
@@ -227,6 +248,9 @@ export function foldRows(rows: FeedRow[]): FeedUnit[] {
         case 'page_visibility':
           if (p.scopeFrom === undefined) p.scopeFrom = r.smallBefore
           p.scopeTo = r.smallAfter
+          break
+        case 'page_props':
+          for (const name of (r.smallAfter ?? '').split(', ')) if (name && !p.props.includes(name)) p.props.push(name)
           break
       }
       continue
@@ -323,9 +347,50 @@ function hasPageLevelChange(p: PageAgg): boolean {
   return (
     (p.titleFrom !== undefined && p.titleFrom !== p.titleTo) ||
     (p.parentFrom !== undefined && p.parentFrom !== p.parentTo) ||
-    (p.trashedAtStart === true && p.trashedAtEnd === false) ||
-    (p.scopeFrom !== undefined && p.scopeFrom !== p.scopeTo)
+    p.trashedAtEnd === false ||
+    (p.scopeFrom !== undefined && p.scopeFrom !== p.scopeTo) ||
+    p.props.length > 0
   )
+}
+
+/**
+ * Trash state across the window (docs/adr/1652-*): 'restored' = in the trash at the cursor and
+ * back now; 'round_trip' = trashed and restored again inside the window (no net change, but
+ * another client may have seen it gone); null = nothing to say (a page in the trash now is "gone").
+ */
+function trashNote(p: PageAgg): 'restored' | 'round_trip' | null {
+  if (p.trashedAtEnd !== false) return null
+  return p.trashedAtStart === true ? 'restored' : 'round_trip'
+}
+
+/**
+ * Rows added to one collection, ROW_GROUP_MIN or more in one answer: one rows_added unit at the
+ * place of the first (docs/adr/1651-*). Its firstSeq is the smallest of its rows, so a cut before it
+ * re-delivers all of them and a cut after it never loses one.
+ */
+export function groupRowAdds(units: FeedUnit[], min = ROW_GROUP_MIN): FeedUnit[] {
+  const count = new Map<string, number>()
+  for (const u of units) if (u.kind === 'page_added' && u.page.isRow && u.page.parentId) count.set(u.page.parentId, (count.get(u.page.parentId) ?? 0) + 1)
+  if (![...count.values()].some((n) => n >= min)) return units
+  const groups = new Map<string, FeedUnit>()
+  const out: FeedUnit[] = []
+  for (const u of units) {
+    const parent = u.kind === 'page_added' && u.page.isRow ? u.page.parentId : null
+    if (!parent || (count.get(parent) ?? 0) < min) {
+      out.push(u)
+      continue
+    }
+    const g = groups.get(parent)
+    if (g) {
+      g.members!.push(u.page)
+      g.firstSeq = Math.min(g.firstSeq, u.firstSeq)
+      continue
+    }
+    const unit: FeedUnit = { kind: 'rows_added', page: u.page, firstSeq: u.firstSeq, members: [u.page] }
+    groups.set(parent, unit)
+    out.push(unit)
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -334,9 +399,13 @@ function hasPageLevelChange(p: PageAgg): boolean {
 
 const quote = (s: string | null | undefined) => `"${(s ?? '').replace(/\s+/g, ' ').trim() || 'Untitled'}"`
 
-function provenance(p: PageAgg): string {
+function provenance(p: PageAgg | PageAgg[]): string {
   const parts: string[] = []
-  for (const a of p.actors.values()) {
+  const seen = new Set<string>()
+  const actors = (Array.isArray(p) ? p : [p]).flatMap((x) => [...x.actors.entries()])
+  for (const [key, a] of actors) {
+    if (seen.has(key)) continue
+    seen.add(key)
     if (a.name && a.via) parts.push(`by ${a.name} via ${a.via}`)
     else if (a.name) parts.push(`by ${a.name}`)
     else if (a.via) parts.push(`via ${a.via}`)
@@ -353,6 +422,11 @@ export function pageHeader(p: PageAgg): string {
 
 const hp = (g: SecGroup) => (g.headingPath ? ` (${g.headingPath})` : '')
 
+/** What a new page is called in the feed and in catch_up (docs/adr/1650-*). */
+export function addedNoun(p: { kind: string | null; isRow: boolean }): 'collection' | 'row' | 'page' {
+  return p.kind === 'collection' ? 'collection' : p.isRow ? 'row' : 'page'
+}
+
 /** First line of a unit (indented under its page header, except page-level units). */
 export function unitHead(u: FeedUnit, parentTitles: Map<string, string>): string[] {
   const p = u.page
@@ -361,7 +435,15 @@ export function unitHead(u: FeedUnit, parentTitles: Map<string, string>): string
     case 'gone':
       return [`page ${p.pageId}: removed (no longer visible)`]
     case 'page_added':
-      return [`page added: ${quote(p.title)} ${p.pageId}${provenance(p)}`]
+      return [`${addedNoun(p)} added: ${quote(p.title)} ${p.pageId}${provenance(p)}`]
+    case 'rows_added': {
+      const coll = p.parentId!
+      const title = parentTitles.get(coll)
+      return [
+        `rows added: ${u.members!.length} to collection ${title !== undefined ? `${quote(title)} ` : ''}${coll}${provenance(u.members!)}: ` +
+          `query_rows(${coll}) lists them`,
+      ]
+    }
     case 'page': {
       const out: string[] = []
       if (p.titleFrom !== undefined && p.titleFrom !== p.titleTo) out.push(`  title: ${quote(p.titleFrom)} → ${quote(p.titleTo)}`)
@@ -369,8 +451,11 @@ export function unitHead(u: FeedUnit, parentTitles: Map<string, string>): string
         const to = p.parentTo ? parentTitles.get(p.parentTo) : undefined
         out.push(p.parentTo ? `  moved under ${to ? quote(to) : 'another page'}${to ? ` ${p.parentTo}` : ''}` : '  moved to the top level')
       }
-      if (p.trashedAtStart === true && p.trashedAtEnd === false) out.push('  restored from trash')
+      const trash = trashNote(p)
+      if (trash === 'restored') out.push('  restored from trash')
+      if (trash === 'round_trip') out.push('  trashed, then restored')
       if (p.scopeFrom !== undefined && p.scopeFrom !== p.scopeTo) out.push(`  visibility: ${p.scopeFrom ?? '?'} → ${p.scopeTo ?? '?'}`)
+      if (p.props.length) out.push(`  properties: ${p.props.join(', ')}`)
       return out
     }
     case 'added':
@@ -501,6 +586,7 @@ export async function loadRows(
   pageIds?: string[],
 ): Promise<FeedRow[]> {
   const visibleNow = sql`(pages.id IS NOT NULL AND pages.deleted_at IS NULL AND ${visibleTo(userId)})`
+  // kind and parent are not member text: they label rows and collections (docs/adr/1650-*)
   const pageFilter = pageIds ? sql`AND c.page_id = ANY(${`{${pageIds.join(',')}}`}::uuid[])` : sql``
   const rows = (await db.execute(sql`
     SELECT c.seq::text AS seq, c.page_id AS "pageId", c.anchor, c.prev_anchor AS "prevAnchor",
@@ -512,9 +598,12 @@ export async function loadRows(
            u.name AS "actorName", c.via_client AS via,
            (extract(epoch from c.changed_at) * 1000)::float8 AS "changedAt",
            ${visibleNow} AS "visibleNow",
-           CASE WHEN ${visibleNow} THEN pages.title END AS title
+           CASE WHEN ${visibleNow} THEN pages.title END AS title,
+           pages.kind AS "pageKind", pages.parent_id AS "parentId",
+           (parent.kind = 'collection') AS "parentIsCollection"
       FROM page_changes c
       LEFT JOIN pages ON pages.id = c.page_id
+      LEFT JOIN pages parent ON parent.id = pages.parent_id
       LEFT JOIN users u ON u.id = c.actor_id
      WHERE c.seq > ${from}::bigint AND c.seq <= ${to}::bigint ${pageFilter}
        AND ${feedRowScopeSql(userId, workspaceId)}
@@ -635,9 +724,12 @@ export async function readChangeFeed(userId: string, opts: FeedOptions): Promise
   if (capped) rows = rows.slice(0, FEED_MAX_ROWS)
   const scanEnd = capped ? rows[rows.length - 1].seq : end.seq
 
-  const units = foldRows(rows)
+  const units = groupRowAdds(foldRows(rows))
   const parentIds = new Set<string>()
-  for (const u of units) if (u.kind === 'page' && u.page.parentTo) parentIds.add(u.page.parentTo)
+  for (const u of units) {
+    if (u.kind === 'page' && u.page.parentTo) parentIds.add(u.page.parentTo)
+    if (u.kind === 'rows_added' && u.page.parentId) parentIds.add(u.page.parentId)
+  }
   const parentTitles = await visibleTitles(userId, [...parentIds])
 
   // ---- pack ----
@@ -726,7 +818,7 @@ export async function readChangeFeed(userId: string, opts: FeedOptions): Promise
   const more = capped || cutAt >= 0
   const shown = cutAt >= 0 ? cutAt : units.length
 
-  const pagesShown = new Set(units.slice(0, shown).map((u) => u.page.pageId)).size
+  const pagesShown = new Set(units.slice(0, shown).flatMap((u) => (u.members ?? [u.page]).map((p) => p.pageId))).size
   const lines: string[] = []
   if (shown === 0 && !more) {
     lines.push('No changes since the cursor.')

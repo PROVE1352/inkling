@@ -322,8 +322,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     // Creation under a parent is a tree change (docs/adr/0800-*): the parent must still be live,
     // within the depth cap and not inside a public folder the actor may not publish into — all
     // checked under the workspace tree lock so a concurrent delete/move cannot slip in between.
-    const { queued, ...row } = await withTreeLock(body.workspaceId, async (tx) => {
+    const { queued, logged, ...row } = await withTreeLock(body.workspaceId, async (tx) => {
       let scope: PageScope = body.scope ?? 'shared'
+      let underCollection = false
       if (parentId) {
         const chain = await assertPlacement(tx, {
           workspaceId: body.workspaceId,
@@ -332,6 +333,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           userId: user.id,
         })
         scope = chain[0].scope
+        underCollection = chain[0].kind === 'collection'
       }
       const parentCond = parentId ? eq(pages.parentId, parentId) : isNull(pages.parentId)
       const [{ maxSort }] = await tx
@@ -366,15 +368,20 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           sortOrder: 1000,
         })
       }
+      // Change feed (docs/adr/1650-*): a document page is logged as added when its first body is
+      // indexed; a collection, or a row made here under one, may never get a body, so it is logged now.
+      const logNow = kind === 'collection' || underCollection
+      if (logNow) await recordPageEvents([{ pageId: page.id, kind: 'page_added' }], actorOf(user), tx)
       // Workspace webhooks: new pages in the shared section only (re-checked at delivery); queued
       // in the page's transaction (docs/adr/1150-*).
       const queued =
         page.scope === 'shared'
           ? await enqueueWebhookEvent(tx, { type: 'page_created', workspaceId: body.workspaceId, pageId: page.id, actorId: user.id })
           : 0
-      return { ...page, queued }
+      return { ...page, queued, logged: logNow }
     })
     if (queued > 0) outboxCommitted(['webhook'])
+    if (logged) outboxCommitted(['change'])
     return { page: toPageDTO(row) }
   })
 

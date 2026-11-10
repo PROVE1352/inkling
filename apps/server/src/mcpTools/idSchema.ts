@@ -19,10 +19,23 @@ export function isIdOrPrefix(s: string): boolean {
   return hex >= 8 && hex <= 32
 }
 
+/** Longest workspace reference taken: a full id, or a name (workspace names are at most 60 characters). */
+export const WORKSPACE_REF_MAX = 100
+
+/**
+ * A workspace argument (docs/adr/2186-*): an id or prefix as for every id, or else a name, which
+ * idArgs.ts resolveWorkspaceRef matches among this connection's workspaces. Only the length is
+ * checked here; a name that matches nothing gets an error that lists the workspaces.
+ */
+export function isWorkspaceRef(s: string): boolean {
+  const t = s.trim()
+  return t.length >= 1 && t.length <= WORKSPACE_REF_MAX
+}
+
 export const MESSAGES: Record<IdKind | 'any', string> = {
   page: 'expected a page id: the full id or its first 8+ hex characters (as find_context, list_pages and read_page print it)',
   trashedPage: 'expected the id of a trashed page: the full id or its first 8+ hex characters (list_trash)',
-  workspace: 'expected a workspace id: the full id or its first 8+ hex characters (list_workspaces)',
+  workspace: `expected a workspace id or name: the full id, its first 8+ hex characters, or the name (up to ${WORKSPACE_REF_MAX} characters; list_workspaces)`,
   thread: 'expected a comment thread id: the full id or its first 8+ hex characters (list_comments)',
   full: 'expected a full id (36 characters, as the tool that listed it prints it)',
   any: 'expected an id: the full id or its first 8+ hex characters',
@@ -31,7 +44,7 @@ export const MESSAGES: Record<IdKind | 'any', string> = {
 const CHECKS = {
   page: z.refine<string>((s) => isIdOrPrefix(s), { message: MESSAGES.page }),
   trashedPage: z.refine<string>((s) => isIdOrPrefix(s), { message: MESSAGES.trashedPage }),
-  workspace: z.refine<string>((s) => isIdOrPrefix(s), { message: MESSAGES.workspace }),
+  workspace: z.refine<string>((s) => isWorkspaceRef(s), { message: MESSAGES.workspace }),
   thread: z.refine<string>((s) => isIdOrPrefix(s), { message: MESSAGES.thread }),
   full: z.refine<string>((s) => FULL_RE.test(s.trim()), { message: MESSAGES.full }),
   any: z.refine<string>((s) => isIdOrPrefix(s), { message: MESSAGES.any }),

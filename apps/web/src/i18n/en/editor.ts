@@ -138,6 +138,12 @@ export default {
   'history.labelBeforeRestore': 'Before restore',
   'history.labelBeforeAiEdit': 'Before AI edit',
   'history.labelAiEdit': 'AI edit',
+  // one agent write = one version (docs/adr/2180-*)
+  'history.aiStep': 'AI edit · step {n}',
+  'history.stepWhole': 'whole page',
+  'history.stepMore': '+{n} more',
+  'history.stepLines': '+{added} −{removed} lines',
+  'history.stepRestored': 'restored an earlier version',
   'history.byVia': '{name} (via {client})',
   'history.snapshotFailed': 'Couldn\'t save the snapshot.',
   'history.restoreFailed': 'Couldn\'t restore.',

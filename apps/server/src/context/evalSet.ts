@@ -10,6 +10,17 @@ export interface EvalPage {
   markdown: string
   /** Wiki-link aliases (pages.aliases); the harness sets them after create_page (docs/adr/1701-*). */
   aliases?: string[]
+  /**
+   * Another workspace ("B", "C"; docs/adr/2188-*): the harness creates one workspace per label for
+   * these pages. Unlabelled pages are the main workspace. Questions name a labelled page as
+   * `<label>:<title>` (evalPageKey), so two workspaces may hold pages with the same title.
+   */
+  workspace?: string
+}
+
+/** How questions name a page: its title, or `<workspace>:<title>` for a page of another workspace. */
+export function evalPageKey(p: Pick<EvalPage, 'title' | 'workspace'>): string {
+  return p.workspace ? `${p.workspace}:${p.title}` : p.title
 }
 
 export interface EvalQuestion {
@@ -801,6 +812,111 @@ const FIELD_QUESTIONS: EvalQuestion[] = [
 ]
 
 /**
+ * Several workspaces (docs/adr/2188-*): two other contests of the same person, each in its own
+ * workspace (labels B and C), written with the vocabulary of the main workspace's contest pages and
+ * of each other — a HARNESS.md and an experiment log in both, a "best submission … score" section
+ * like the solar contest log's, a "팀 구성" section like the hackathon's. Fictional content written
+ * for this test. Not part of ALL_EVAL_PAGES: the one-workspace evaluation is unchanged; the
+ * several-workspace run adds these to a member of the main workspace.
+ */
+export const MULTI_WS_PAGES: EvalPage[] = [
+  {
+    workspace: 'B',
+    title: 'HARNESS.md',
+    markdown: `Harness for the Wind Power Forecast Cup submissions.
+
+## Run
+\`python harness.py --contest wind --folds 5\` trains every model in configs/ and writes the predictions to out/.
+
+## Validate
+Validation holds out the last 30 days; a run passes when the wind MAE on that holdout is below 1.9.
+
+## Submission rules
+At most 3 submissions per day; the harness refuses a fourth and logs the attempt.`,
+  },
+  {
+    workspace: 'B',
+    title: '실험 일지',
+    markdown: `풍력 예측 대회 실험 기록.
+
+# 실험 일지
+
+## exp-07 시차 변수
+풍속 시차 변수(1~6시간)를 넣었더니 검증 MAE가 2.10에서 1.86으로 내려갔다.
+
+## exp-08 앙상블
+LightGBM과 CatBoost를 반씩 섞었다. 검증 MAE 1.81, public score 0.912.
+
+## 최고 기록
+best submission은 exp-08 앙상블이다. public score 0.912로 지금까지 제일 좋다.`,
+  },
+  {
+    workspace: 'B',
+    title: '풍력 대회 요강',
+    markdown: `Wind Power Forecast Cup 요강에서 필요한 것만 옮겼다.
+
+## 팀 구성
+팀은 두 명까지다. 개인 참가도 받는다.
+
+## 제출 횟수
+하루 세 번까지 제출할 수 있고, 마감 전에 최종 제출 두 개를 고른다.
+
+## 평가 지표
+평가는 MAE이고 public 리더보드는 테스트 기간의 30%로 계산한다.`,
+  },
+  {
+    workspace: 'C',
+    title: 'HARNESS.md',
+    markdown: `Harness for the Air Quality Challenge (PM2.5 forecasting).
+
+## Run
+\`make harness CONTEST=air\` builds the features, then trains LightGBM with 7 seeds.
+
+## Validate
+Validation is a rolling 3-fold split by month; a run passes when the PM2.5 RMSE is below 11.
+
+## Submission rules
+5 submissions per day; keep 2 of them for the last day.`,
+  },
+  {
+    workspace: 'C',
+    title: '실험 일지',
+    markdown: `대기질 예측 챌린지 실험 기록.
+
+# 실험 일지
+
+## exp-03 기상 변수
+기온과 풍속을 넣자 PM2.5 RMSE가 12.4에서 11.2로 내려갔다.
+
+## exp-04 시드 앙상블
+시드 일곱 개를 평균했다. RMSE 10.8, leaderboard score 0.874.
+
+## 최고 기록
+best submission은 exp-04 시드 앙상블이다. leaderboard score 0.874로 리그 2위다.`,
+  },
+]
+
+/**
+ * Questions on MULTI_WS_PAGES (tag multi-ws), each naming its contest, in both splits. Some of them
+ * have their best lexical match in the wrong workspace (submissions per day, best score), which is
+ * what a "best workspace first" rule must not get wrong (docs/adr/2188-*).
+ */
+export const MULTI_WS_QUESTIONS: EvalQuestion[] = [
+  { q: 'wind forecast harness validation threshold', page: 'B:HARNESS.md', anchor: 'validate', split: 'dev', tag: 'multi-ws' },
+  { q: '풍력 실험 시차 변수 결과', page: 'B:실험 일지', anchor: '실험-일지/exp-07-시차-변수', split: 'dev', tag: 'multi-ws' },
+  { q: 'air quality harness submissions per day', page: 'C:HARNESS.md', anchor: 'submission-rules', split: 'dev', tag: 'multi-ws' },
+  { q: '대기질 최고 기록 leaderboard score', page: 'C:실험 일지', anchor: '실험-일지/최고-기록', evidence: 'leaderboard score 0.874로', split: 'dev', tag: 'multi-ws' },
+  { q: '풍력 대회 팀 구성', page: 'B:풍력 대회 요강', anchor: '팀-구성', split: 'dev', tag: 'multi-ws' },
+  { q: 'wind best submission score', queries: ['풍력 최고 기록'], page: 'B:실험 일지', anchor: '실험-일지/최고-기록', evidence: 'public score 0.912로', split: 'dev', tag: 'multi-ws' },
+  { q: 'air quality harness validation split', page: 'C:HARNESS.md', anchor: 'validate', split: 'test', tag: 'multi-ws' },
+  { q: '대기질 실험 시드 앙상블', page: 'C:실험 일지', anchor: '실험-일지/exp-04-시드-앙상블', split: 'test', tag: 'multi-ws' },
+  { q: 'wind harness run command', page: 'B:HARNESS.md', anchor: 'run', split: 'test', tag: 'multi-ws' },
+  { q: '풍력 최고 기록 public score', page: 'B:실험 일지', anchor: '실험-일지/최고-기록', evidence: 'public score 0.912로', split: 'test', tag: 'multi-ws' },
+  { q: '풍력 대회 제출 횟수', page: 'B:풍력 대회 요강', anchor: '제출-횟수', split: 'test', tag: 'multi-ws' },
+  { q: 'PM2.5 best score', queries: ['대기질 최고 점수'], page: 'C:실험 일지', anchor: '실험-일지/최고-기록', evidence: 'leaderboard score 0.874로', split: 'test', tag: 'multi-ws' },
+]
+
+/**
  * Every question. The 28 wiki questions of ADR 0927 are split by position (every third one is
  * held out as test); the contest, Korean partial-match and 0.15.1 questions carry their split
  * explicitly (new questions are appended after them, never into BASE_QUESTIONS).
@@ -817,9 +933,9 @@ export const EVAL_QUESTIONS: EvalQuestion[] = [
  * characters of the first non-empty line of the expected section (the fixtures' sections are one
  * or two sentences; their first line is the answer).
  */
-export function answerEvidence(q: EvalQuestion, pages: EvalPage[] = ALL_EVAL_PAGES): string {
+export function answerEvidence(q: EvalQuestion, pages: EvalPage[] = [...ALL_EVAL_PAGES, ...MULTI_WS_PAGES]): string {
   if (q.evidence) return q.evidence
-  const page = pages.find((p) => p.title === q.page)
+  const page = pages.find((p) => evalPageKey(p) === q.page)
   if (!page) throw new Error(`eval page missing: ${q.page}`)
   const leaf = q.anchor.split('/').pop()!
   const slug = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')

@@ -12,7 +12,9 @@ import { blocksToMarkdown, blocksToStateBuffer, markdownToBlocks, stripFrontmatt
 import type { AnyBlock } from '../md/convert'
 import { buildTitleResolver } from '../md/importer'
 import type { PageRow } from '../pageDto'
-import { createSnapshot, currentSnapshotSource, hasRecentAgentSnapshot } from '../snapshotStore'
+import { agentStepEnd, agentStepStart, createSnapshot, currentSnapshotSource } from '../snapshotStore'
+import type { StepMeta } from '../snapshotStore'
+import { diffOps } from './diff'
 import { actorOf, withEditActor } from './attribution'
 import { joinPath } from './chunker'
 import type { Section } from './chunker'
@@ -74,16 +76,75 @@ export async function beforeAgentEditSnapshot(pageId: string, user: Pick<AuthUse
   await createSnapshot(pageId, before, label, user.id, user.via ?? null)
 }
 
+// ---------------------------------------------------------------------------
+// AI steps (docs/adr/2180-*, 2181-*): every agent write is one version
+// ---------------------------------------------------------------------------
+
+/** Labels of the rows an agent write leaves, in the editor's locale (shown translated by the web). */
+async function stepLabels(locale: () => Promise<Locale>): Promise<{ before: string; step: string; beforeRestore: string }> {
+  return (await locale()) === 'ko'
+    ? { before: 'AI 편집 전', step: 'AI 편집', beforeRestore: '복원 전' }
+    : { before: 'Before AI edit', step: 'AI edit', beforeRestore: 'Before restore' }
+}
+
 /**
- * Agent edits that leave no "Before" snapshot (appends, inserts) are marked in history with a
- * throttled "AI edit" snapshot of the result (docs/adr/0936-*). Agents only (`via`).
+ * One agent write as AI steps: the page before it is a version (the agent's previous step when
+ * nothing happened since, else a new "Before AI edit" row), `write` runs, and the page after it is
+ * stored as one "AI edit" row with what `write` reports changed (null = nothing written: no step).
+ * People's writes (no agent `via`) run as they are. Returns the write's result and the step rows.
  */
-export async function afterAgentEditSnapshot(pageId: string, user: Pick<AuthUser, 'id' | 'via'>, locale: () => Promise<Locale>): Promise<void> {
-  if (!isAgentVia(user.via) || (await hasRecentAgentSnapshot(pageId))) return
-  const state = await currentSnapshotSource(pageId)
-  if (!state) return
-  const label = (await locale()) === 'ko' ? 'AI 편집' : 'AI edit'
-  await createSnapshot(pageId, state, label, user.id, user.via)
+export async function asAgentStep<T>(
+  pageId: string,
+  user: Pick<AuthUser, 'id' | 'via'>,
+  locale: () => Promise<Locale>,
+  write: () => Promise<{ result: T; step: StepMeta | null }>,
+  opts: { beforeLabel?: 'before' | 'beforeRestore' } = {},
+): Promise<{ result: T; before: string | null; step: string | null }> {
+  if (!isAgentVia(user.via)) return { result: (await write()).result, before: null, step: null }
+  const labels = await stepLabels(locale)
+  const before = await agentStepStart(pageId, user, labels[opts.beforeLabel ?? 'before'])
+  const { result, step } = await write()
+  const id = step ? await agentStepEnd(pageId, user, labels.step, step) : null
+  return { result, before, step: id }
+}
+
+const nonBlank = (s: string) => s.trim() !== ''
+
+/** Markdown lines removed from `before` and added in `after` (non-blank lines; whole sides when over the diff caps). */
+export function lineDelta(before: string, after: string): { added: number; removed: number } {
+  const ops = diffOps(before, after)
+  if (ops) {
+    return {
+      added: ops.filter((o) => o.t === '+' && nonBlank(o.s)).length,
+      removed: ops.filter((o) => o.t === '-' && nonBlank(o.s)).length,
+    }
+  }
+  const lines = (t: string) => t.split('\n').filter(nonBlank).length
+  return { added: lines(after), removed: lines(before) }
+}
+
+/**
+ * Lines one section edit changes: `old` = the section's blocks before (heading first), `incoming` = what
+ * is written. A replace whose Markdown has no leading heading keeps the heading: compared without it.
+ */
+export async function sectionEditDelta(
+  mode: PatchMode,
+  old: AnyBlock[] | null,
+  incoming: AnyBlock[],
+): Promise<{ added: number; removed: number }> {
+  const md = async (blocks: AnyBlock[]) =>
+    blocks.length ? (await blocksToMarkdown(blocks, { assetMode: 'absolute', notation: 'agent' })).markdown.trim() : ''
+  if (mode === 'delete') return lineDelta(await md(old ?? []), '')
+  if (mode !== 'replace') return lineDelta('', await md(incoming))
+  let before = old ?? []
+  if (before[0]?.type === 'heading' && incoming[0]?.type !== 'heading') before = before.slice(1)
+  return lineDelta(await md(before), await md(incoming))
+}
+
+/** At most three section anchors and how many more (step rows name what they touched). */
+export function stepSections(anchors: string[]): Pick<StepMeta, 'sections' | 'more'> {
+  const list = [...new Set(anchors)]
+  return { sections: list.slice(0, 3), ...(list.length > 3 ? { more: list.length - 3 } : {}) }
 }
 
 export async function sectionMarkdown(blocks: AnyBlock[], s: Section): Promise<string> {
@@ -133,7 +194,12 @@ export async function patchSectionAs(
   // Full convertibility check on a throwaway doc before touching the live one.
   if (incoming.length) blocksToStateBuffer(incoming)
 
-  if (body.mode === 'replace' || body.mode === 'delete') await beforeAgentEditSnapshot(id, user, locale)
+  // An agent write is one AI step (docs/adr/2180-*); a person's destructive patch (accepting a
+  // suggestion) keeps the "Before AI edit" undo point of docs/adr/0930-*.
+  const agent = isAgentVia(user.via)
+  if (!agent && (body.mode === 'replace' || body.mode === 'delete')) await beforeAgentEditSnapshot(id, user, locale)
+  // What the section held before, for the step's line counts (replace/delete only).
+  const old = agent && (body.mode === 'replace' || body.mode === 'delete') ? await readSectionBlocks(id, body.ref) : null
 
   const attempt = async (ref: string): Promise<PatchOutcome> => {
     // What the agent saw of each block (Markdown round trip), so untouched blocks stay untouched.
@@ -160,19 +226,27 @@ export async function patchSectionAs(
     if (!out) throw new AppError(500, 'INTERNAL', 'Patch did not run')
     return out
   }
-  let res = await attempt(body.ref)
-  // An anchor from before a heading rename patches the section under its new anchor (docs/adr/1501-*).
-  // Nothing was written by the missed attempt; the version check still applies to the section found.
-  let movedFrom: string | undefined
-  if (res.status === 'not_found') {
-    const anchor = await movedOrThrow(id, body.ref, res.sections)
-    res = await attempt(anchor)
-    if (res.status === 'not_found') throw sectionNotFound(body.ref, res.sections)
-    movedFrom = body.ref
+  const run = async () => {
+    let res = await attempt(body.ref)
+    // An anchor from before a heading rename patches the section under its new anchor (docs/adr/1501-*).
+    // Nothing was written by the missed attempt; the version check still applies to the section found.
+    let movedFrom: string | undefined
+    if (res.status === 'not_found') {
+      const anchor = await movedOrThrow(id, body.ref, res.sections)
+      res = await attempt(anchor)
+      if (res.status === 'not_found') throw sectionNotFound(body.ref, res.sections)
+      movedFrom = body.ref
+    }
+    let step: StepMeta | null = null
+    if (res.status === 'ok' && agent) {
+      const anchor = res.section?.anchor ?? (old?.found ? old.section.anchor : body.ref)
+      step = { tool: 'patch_section', mode: body.mode, ...stepSections([anchor]), ...(await sectionEditDelta(body.mode, old?.found ? old.blocks : null, incoming)) }
+    }
+    return { result: { res, movedFrom }, step }
   }
-  // Non-destructive agent patches leave no "Before" snapshot: mark them in history like an
-  // update_page append (throttled "AI edit" snapshot, docs/adr/0936-*).
-  if (res.status === 'ok' && body.mode !== 'replace' && body.mode !== 'delete') await afterAgentEditSnapshot(id, user, locale)
+  const {
+    result: { res, movedFrom },
+  } = await asAgentStep(id, user, locale, run)
   if (res.status === 'conflict') {
     const markdown = await sectionMarkdown(res.blocks, res.section)
     return {

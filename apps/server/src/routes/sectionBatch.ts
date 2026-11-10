@@ -21,7 +21,8 @@ import type { AnyBlock } from '../md/convert'
 import { gatedTransact } from '../md/docWrite'
 import { buildTitleResolver } from '../md/importer'
 import { findVisiblePage } from '../pageDto'
-import { afterAgentEditSnapshot, beforeAgentEditSnapshot } from '../context/sectionWrite'
+import { asAgentStep, beforeAgentEditSnapshot, sectionEditDelta, stepSections } from '../context/sectionWrite'
+import { isAgentVia } from '../agentVia'
 import { claimLine, claimOf, connectionKey, pageClaims } from '../leases'
 
 /**
@@ -174,34 +175,57 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
       if (conflicts.length) return sendConflicts(reply, conflicts, body.edits.length, anchors)
 
       // What the agent saw of each replaced section, so untouched blocks stay untouched (as POST …/section).
+      const agent = isAgentVia(user.via)
       const edits: BatchEdit[] = []
+      // What each replaced/deleted section held, for the AI step's line counts (docs/adr/2180-*).
+      const olds: (AnyBlock[] | null)[] = []
       for (const [index, e] of body.edits.entries()) {
         const t = targets[index]!
         let echo = null
-        if (e.mode === 'replace') {
+        let old: AnyBlock[] | null = null
+        if (e.mode === 'replace' || (agent && e.mode === 'delete')) {
           const r = await readSectionBlocks(id, t.anchor)
-          if (r.found) echo = await buildEchoIndex(r.blocks, resolveTitle, notation, incoming[index])
+          if (r.found) {
+            old = r.blocks
+            if (e.mode === 'replace') echo = await buildEchoIndex(r.blocks, resolveTitle, notation, incoming[index])
+          }
         }
+        olds.push(old)
         edits.push({ blockId: t.blockId, anchor: t.anchor, incoming: incoming[index], mode: e.mode, baseVersion: e.baseVersion, echo })
       }
 
       const destructive = body.edits.some((e) => e.mode === 'replace' || e.mode === 'delete')
-      if (destructive) await beforeAgentEditSnapshot(id, user, () => requestLocale(req, user.id))
+      const locale = () => requestLocale(req, user.id)
+      // A person's destructive batch keeps the "Before AI edit" undo point; an agent's batch is one AI step.
+      if (destructive && !agent) await beforeAgentEditSnapshot(id, user, locale)
 
-      let outcome: BatchOutcome | null = null
-      await withEditActor([id], actorOf(user), async () => {
-        const conn = await hocuspocus.openDirectConnection(id)
-        try {
-          // One write gate for the whole batch (docs/adr/1150-*); the store runs after it.
-          const gate = pageEditGate(id, page.workspaceId, user.id, access)
-          await gatedTransact(conn, (doc) => {
-            outcome = applySectionBatch(doc, edits)
-          }, gate)
-        } finally {
-          await conn.disconnect()
+      const { result: out } = await asAgentStep(id, user, locale, async () => {
+        let outcome: BatchOutcome | null = null
+        await withEditActor([id], actorOf(user), async () => {
+          const conn = await hocuspocus.openDirectConnection(id)
+          try {
+            // One write gate for the whole batch (docs/adr/1150-*); the store runs after it.
+            const gate = pageEditGate(id, page.workspaceId, user.id, access)
+            await gatedTransact(conn, (doc) => {
+              outcome = applySectionBatch(doc, edits)
+            }, gate)
+          } finally {
+            await conn.disconnect()
+          }
+        })
+        const res = outcome as BatchOutcome | null
+        if (!res || res.status !== 'ok' || !agent) return { result: res, step: null }
+        // all the batch's edits are one step: anchors written, lines summed
+        let added = 0
+        let removed = 0
+        for (const [index, e] of body.edits.entries()) {
+          const d = await sectionEditDelta(e.mode, olds[index], incoming[index])
+          added += d.added
+          removed += d.removed
         }
+        const anchors = res.results.map((sec, index) => sec?.anchor ?? targets[index]!.anchor)
+        return { result: res, step: { tool: 'patch_sections', ...stepSections(anchors), added, removed } }
       })
-      const out = outcome as BatchOutcome | null
       if (!out) throw new AppError(500, 'INTERNAL', 'Patch did not run')
       if (out.status === 'failed') {
         const list: SectionConflict[] = []
@@ -228,8 +252,6 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
         }
         return sendConflicts(reply, list, body.edits.length, out.sections.map((s) => s.anchor))
       }
-      // Non-destructive agent batches leave no "Before" snapshot: mark them in history (docs/adr/0936-*).
-      if (!destructive) await afterAgentEditSnapshot(id, user, () => requestLocale(req, user.id))
       return {
         ok: true,
         results: out.results.map((s, index) => ({

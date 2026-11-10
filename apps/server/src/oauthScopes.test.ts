@@ -304,14 +304,15 @@ describe('[db] read-only tokens and agent provenance', { skip: !HAS_DB }, async 
 
     const snaps = await app.inject({ method: 'GET', url: `/api/pages/${s.page.id}/snapshots`, headers: { cookie: s.user.cookie } })
     assert.equal(snaps.statusCode, 200)
-    const list = snaps.json().snapshots as { label: string; viaClient: string | null; author: { name: string } | null }[]
+    const list = snaps.json().snapshots as { label: string; viaClient: string | null; author: { name: string } | null; step?: { tool: string; mode?: string } }[]
     const before = list.find((x) => x.label === 'Before AI edit')
     assert.ok(before, JSON.stringify(list))
     assert.equal(before.viaClient, 'Claude Desktop')
     assert.equal(before.author?.name, 'alice')
-    // the "AI edit" marker is throttled: a replace snapshot by an agent was just taken, so the
-    // append right after it adds no second agent snapshot
-    assert.equal(list.filter((x) => x.viaClient).length, 1)
+    // 0.17: every agent write is one AI step (docs/adr/2180-*): "Before AI edit" (the page before the
+    // first write) + one step per write, all attributed to the client (0.16 throttled this to one row)
+    assert.equal(list.filter((x) => x.viaClient === 'Claude Desktop').length, 3)
+    assert.deepEqual(list.filter((x) => x.step).map((x) => x.step!.mode), ['append', 'replace'])
 
     const comments = await app.inject({ method: 'GET', url: `/api/pages/${s.page.id}/comments`, headers: { cookie: s.user.cookie } })
     const cs = comments.json().comments as { body: string; viaClient: string | null }[]
@@ -329,7 +330,7 @@ describe('[db] read-only tokens and agent provenance', { skip: !HAS_DB }, async 
     assert.equal(human.json().comment.viaClient, null)
   })
 
-  it('MCP append alone records a throttled "AI edit" snapshot', async () => {
+  it('MCP appends record one "AI edit" step each (docs/adr/2180-*; 0.16 throttled them to one)', async () => {
     const s = await setup('read write', 'Cursor')
     const m = await mcpFor(s)
     try {
@@ -342,8 +343,10 @@ describe('[db] read-only tokens and agent provenance', { skip: !HAS_DB }, async 
     }
     const rows = await db.select().from(schema.pageSnapshots).where(eq(schema.pageSnapshots.pageId, s.page.id))
     const agent = rows.filter((r) => r.viaClient)
-    assert.equal(agent.length, 1) // second append is inside the throttle window
-    assert.equal(agent[0].label, 'AI edit')
-    assert.equal(agent[0].viaClient, 'Cursor')
+    // "Before AI edit" (the page as it was) + one step per append
+    assert.equal(agent.length, 3)
+    const steps = agent.filter((r) => r.step)
+    assert.equal(steps.length, 2)
+    assert.ok(steps.every((r) => r.label === 'AI edit' && r.viaClient === 'Cursor' && r.step?.tool === 'update_page'))
   })
 })

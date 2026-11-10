@@ -53,6 +53,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/tasks')).registerTaskRoutes(api)
       await (await import('../routes/ink')).registerInkRoutes(api)
       await (await import('../routes/context')).registerContextRoutes(api)
+      await (await import('../routes/agentSearch')).registerAgentSearchRoutes(api) // MCP search (docs/adr/2183-*)
       await (await import('../routes/changes')).registerChangeRoutes(api)
       await (await import('../routes/catchUp')).registerCatchUpRoutes(api)
       await (await import('../routes/suggestions')).registerSuggestionRoutes(api)

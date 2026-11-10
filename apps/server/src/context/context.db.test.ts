@@ -103,6 +103,78 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.match(out, /\[\d\] 00 대회요강 › 우리 팀 체크리스트\n\(page [0-9a-f]{8}; §우리-팀-체크리스트 v=/)
   })
 
+  it('several workspaces (docs/adr/2185-*, 2188-*): labels, rank metrics with two more contest workspaces', async () => {
+    const { MULTI_WS_PAGES, MULTI_WS_QUESTIONS, evalPageKey } = await import('./evalSet')
+    const { runRankEval, parseFragments, samePage } = await import('./evalRun')
+    // a member of the main workspace who also has two other contests' workspaces (the owner keeps one)
+    const multi = await h.makeUser('multi')
+    await db.insert(schema.workspaceMembers).values({ workspaceId: ws.id, userId: multi.id, role: 'member' })
+    const m = await h.connectMcp(app, multi, await h.mintToken(multi))
+    const names: Record<string, string> = { B: 'Wind Power Forecast Cup', C: 'Air Quality Challenge' }
+    const wsByLabel = new Map<string, string>()
+    const ids = new Map(idByTitle)
+    const wsOfPage = new Map<string, string>([...idByTitle.values()].map((id) => [id, ws.id]))
+    for (const p of padPages(MULTI_WS_PAGES)) {
+      const label = p.workspace!
+      if (!wsByLabel.has(label)) wsByLabel.set(label, (await h.makeWorkspace(multi, [], names[label])).id)
+      const r = await m.tool('create_page', { workspaceId: wsByLabel.get(label)!, title: p.title, markdown: p.markdown })
+      assert.equal(r.isError, false, r.text)
+      const id = (JSON.parse(r.text) as { id: string }).id
+      ids.set(evalPageKey(p), id)
+      wsOfPage.set(id, wsByLabel.get(label)!)
+    }
+
+    // labels: an answer from two workspaces names them; workspaceId by name narrows to one
+    const both = (await m.tool('find_context', { query: 'harness validation' })).text
+    assert.match(both, /^\[1\] \{(Wind Power Forecast Cup|Air Quality Challenge)\} HARNESS\.md › /m)
+    assert.match(both, /^Results come from 2 workspaces \(\{name\} on each line\): [0-9a-f]{8} \[\d\]/m)
+    const one = (await m.tool('find_context', { query: 'harness validation', workspaceId: 'air quality' })).text
+    assert.doesNotMatch(one, /\{|Results come from/)
+    assert.match(one, /PM2\.5 RMSE/)
+
+    // rank metrics of every question (main + several-workspace ones) and the share of shown
+    // fragments outside the answer's workspace ("intrusion")
+    const questions = [...EVAL_QUESTIONS, ...MULTI_WS_QUESTIONS]
+    const final = !!process.env.INKLING_EVAL_FINAL // test split: one final look (docs/adr/1213-*)
+    const measure = async (name: string) => {
+      const outs: string[] = []
+      const tool = async (n: string, a?: Record<string, unknown>) => {
+        const r = await m.tool(n, a)
+        if (n === 'find_context') outs.push(r.text)
+        return r
+      }
+      const r = await runRankEval(tool, questions, ids)
+      const intrusion = (split: 'dev' | 'test', tag?: string) => {
+        let sum = 0
+        let n = 0
+        questions.forEach((qq, i) => {
+          if (qq.split !== split || (tag && qq.tag !== tag)) return
+          const home = wsOfPage.get(ids.get(qq.page)!)
+          const shown = parseFragments(outs[i]).slice(0, 5)
+          if (!shown.length) return
+          const wsOf = (printed: string) => wsOfPage.get([...wsOfPage.keys()].find((full) => samePage(full, printed))!)
+          sum += shown.filter((f) => wsOf(f.pageId) !== home).length / shown.length
+          n++
+        })
+        return Number((n ? sum / n : 0).toFixed(3))
+      }
+      const line = (split: 'dev' | 'test') => {
+        const s = r[split]
+        const mw = r.tags['multi-ws']?.[split]
+        return JSON.stringify({ n: s.n, mrr: s.mrr, recallAt5: s.recallAt5, inBody: s.inBody, tokens: s.tokens, intrusion: intrusion(split), multiWs: mw ? { n: mw.n, mrr: mw.mrr, recallAt5: mw.recallAt5, intrusion: intrusion(split, 'multi-ws') } : null })
+      }
+      console.log(`[multi] ${name} dev `, line('dev'))
+      if (final) console.log(`[multi] ${name} test`, line('test'))
+      for (const row of r.rows.filter((x) => x.tag === 'multi-ws' && (final || x.split === 'dev') && x.firstRank !== 1)) console.log(`[multi] ${name} miss`, row.firstRank, row.q)
+      return { r, outs }
+    }
+    // "best workspace first" (docs/adr/2188-*) was measured with this harness and not adopted; the
+    // switch was removed at integration (wave 16), the cases and these metrics stay
+    const off = await measure('rule off')
+    assert.ok(off.r.dev.mrr >= 0.8 && off.r.dev.recallAt5 >= 0.85, 'MRR / recall@5 with several workspaces')
+    await m.close()
+  })
+
   it('Korean partial match: a compound query finds the spaced form, an alias finds its page (docs/adr/1700-1701)', async () => {
     const { rankedSections, samePage, sameSection } = await import('./evalRun')
     const rankOf = async (query: string, title: string, anchor: string) => {

@@ -496,6 +496,26 @@ export interface SnapshotDTO {
   author?: { id: string; name: string } | null
   /** OAuth client name when an agent (MCP) edit caused it — shown as "(via X)". Additive. */
   viaClient?: string | null
+  /**
+   * Set on AI step rows: the page right after one agent write (docs/adr/2180-*). `n` numbers the steps
+   * of one run (consecutive steps of one client with no other version in between), from 1. Additive.
+   */
+  step?: SnapshotStepDTO | null
+}
+
+export interface SnapshotStepDTO {
+  n: number
+  /** MCP tool of the write: patch_section, patch_sections, update_page, restore_version. */
+  tool: string
+  mode?: string
+  /** Section anchors written (at most 3; `more` = how many others). Empty = the whole body. */
+  sections: string[]
+  more?: number
+  /** Markdown lines added / removed; absent when not counted (a very large page replaced whole). */
+  added?: number
+  removed?: number
+  /** restore_version: the version brought back. */
+  restoredFrom?: string
 }
 
 // ---------------------------------------------------------------------------

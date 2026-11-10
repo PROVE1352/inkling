@@ -6,12 +6,14 @@ import type { EchoIndex } from './context/sectionPatch'
 import { currentBlocks, pageMentionKeys } from './context/sectionSource'
 import { pageEditGate } from './docWriteGate'
 import type { Locale } from './i18n'
-import { markdownToBlocks, stripFrontmatter } from './md/convert'
+import { blocksToMarkdown, markdownToBlocks, stripFrontmatter } from './md/convert'
+import type { AnyBlock } from './md/convert'
 import { writeBlocksToDoc } from './md/docWrite'
 import { buildTitleResolver } from './md/importer'
 import type { PageRow } from './pageDto'
 import { createSnapshot, currentSnapshotSource } from './snapshotStore'
-import { afterAgentEditSnapshot } from './context/sectionWrite'
+import { asAgentStep, lineDelta } from './context/sectionWrite'
+import { isAgentVia } from './agentVia'
 
 /**
  * update_page's write as a given user (POST /pages/:id/content), shared with accepting a whole-body
@@ -42,7 +44,9 @@ export async function writePageContentAs(
   const notation = { mentions: await pageMentionKeys(id, body.markdown) }
   const incoming = await markdownToBlocks(stripFrontmatter(body.markdown), resolveTitle, undefined, notation)
 
-  if (body.mode === 'replace') {
+  // An agent write is one AI step (docs/adr/2180-*): asAgentStep keeps the page before and after it.
+  const agent = isAgentVia(user.via)
+  if (body.mode === 'replace' && !agent) {
     // Prefer the in-memory document: page_docs trails it by the store debounce (ADR 0757).
     const before = await currentSnapshotSource(id)
     // the label is stored in the DB, so it is written in the editor's locale
@@ -56,19 +60,26 @@ export async function writePageContentAs(
   // blocks it sent back unchanged stay untouched (docs/adr/1500-*). Very large pages skip the
   // echo (two conversions per block) and are diffed block by block instead.
   let echo: EchoIndex | null = null
+  // The page before a replace, for the step's line counts (only where the echo is computed too).
+  let old: AnyBlock[] | null = null
   if (body.mode === 'replace') {
     const blocks = await currentBlocks(id)
-    if (countBlocks(blocks) <= REPLACE_ECHO_MAX_BLOCKS) echo = await buildEchoIndex(blocks, resolveTitle, notation, incoming)
+    if (countBlocks(blocks) <= REPLACE_ECHO_MAX_BLOCKS) {
+      echo = await buildEchoIndex(blocks, resolveTitle, notation, incoming)
+      old = blocks
+    }
   }
 
   // The change feed reads the actor (user + OAuth client) while the store hook indexes this edit.
   // Under the write gate (docs/adr/1150-*): a lock change or agent block that commits after the
   // check above is seen before the edit, or waits until the edit is in the document.
   const gate = pageEditGate(id, page.workspaceId, user.id, access)
-  await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode, gate, echo))
-
-  // An agent append leaves no "Before" snapshot, so mark it in history with an "AI edit"
-  // snapshot of the result (docs/adr/0936-*), throttled per page like auto snapshots. The
-  // result is what the store hook just saved (the doc is usually unloaded by now).
-  if (body.mode === 'append') await afterAgentEditSnapshot(id, user, locale)
+  await asAgentStep(id, user, locale, async () => {
+    await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode, gate, echo))
+    if (!agent) return { result: undefined, step: null }
+    const md = async (blocks: AnyBlock[]) => (blocks.length ? (await blocksToMarkdown(blocks, { assetMode: 'absolute', notation: 'agent' })).markdown.trim() : '')
+    // A very large replaced page (no echo) reports no line counts: the whole body was written.
+    const delta = body.mode === 'append' ? lineDelta('', await md(incoming)) : old ? lineDelta(await md(old), await md(incoming)) : {}
+    return { result: undefined, step: { tool: 'update_page', mode: body.mode, ...delta } }
+  })
 }

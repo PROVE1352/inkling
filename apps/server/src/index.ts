@@ -540,6 +540,7 @@ async function main(): Promise<void> {
       await registerPageAccessRoutes(api)
       // Agent retrieval: find_context, outline/section, batch read, section patch (docs/adr/0926-0930)
       await registerContextRoutes(api)
+      await (await import('./routes/agentSearch')).registerAgentSearchRoutes(api) // agent search: GET /api/search (docs/adr/2183-*)
       // Change feed for agents: changes_since (docs/adr/0932-*)
       await registerChangeRoutes(api)
       // catch_up: ranked "while you were away" material for agents (docs/adr/1520-*)

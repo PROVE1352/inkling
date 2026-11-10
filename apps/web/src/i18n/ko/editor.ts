@@ -136,6 +136,12 @@ export default {
   'history.labelBeforeRestore': '복원 전',
   'history.labelBeforeAiEdit': 'AI 편집 전',
   'history.labelAiEdit': 'AI 편집',
+  // 에이전트 쓰기 한 번 = 버전 하나 (docs/adr/2180-*)
+  'history.aiStep': 'AI 편집 · {n}단계',
+  'history.stepWhole': '페이지 전체',
+  'history.stepMore': '외 {n}개',
+  'history.stepLines': '+{added} −{removed}줄',
+  'history.stepRestored': '이전 버전 복원',
   'history.byVia': '{name} ({client} 경유)',
   'history.snapshotFailed': '스냅샷 저장에 실패했습니다.',
   'history.restoreFailed': '복원에 실패했습니다.',

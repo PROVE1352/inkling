@@ -14,6 +14,7 @@ import { DiffView } from './DiffView'
 import { HistoryIcon, RestoreIcon, XIcon } from './Icons'
 import { Spinner } from './Spinner'
 import { t, useT, type TKey } from '../i18n'
+import type { SnapshotDTO } from '@inkling/shared'
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -42,6 +43,17 @@ const SYSTEM_LABELS: Record<string, TKey> = {
 export function snapAuthor(s: { author?: { name: string } | null; viaClient?: string | null }): string | null {
   if (!s.author) return s.viaClient ? t('comments.via', { client: s.viaClient }) : null
   return s.viaClient ? t('history.byVia', { name: s.author.name, client: s.viaClient }) : s.author.name
+}
+
+/** "§goals · +3 −1 lines" for an AI step row (docs/adr/2180-*); null for other versions. */
+export function snapStep(step: SnapshotDTO['step']): string | null {
+  if (!step) return null
+  if (step.restoredFrom) return t('history.stepRestored')
+  const where = step.sections.length
+    ? `${step.sections.map((a) => `§${a}`).join(', ')}${step.more ? ` ${t('history.stepMore', { n: step.more })}` : ''}`
+    : t('history.stepWhole')
+  const lines = step.added !== undefined || step.removed !== undefined ? ` · ${t('history.stepLines', { added: step.added ?? 0, removed: step.removed ?? 0 })}` : ''
+  return `${where}${lines}`
 }
 
 export function snapLabel(label: string | null): string {
@@ -167,8 +179,9 @@ export function HistoryModal({
                   }`}
                 >
                   <span className="truncate text-xs font-medium text-ink">
-                    {snapLabel(s.label)}
+                    {s.step ? t('history.aiStep', { n: s.step.n }) : snapLabel(s.label)}
                   </span>
+                  {snapStep(s.step) && <span className="truncate text-[11px] text-sub">{snapStep(s.step)}</span>}
                   {snapAuthor(s) && (
                     <span className="truncate text-[11px] text-sub">{snapAuthor(s)}</span>
                   )}

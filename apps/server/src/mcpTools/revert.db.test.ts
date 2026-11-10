@@ -158,6 +158,16 @@ describe('[db] reverting changes', { skip: !HAS_DB }, async () => {
     assert.equal(restored[0].styles.bold, true)
   })
 
+  it('a run of AI steps right after the change does not push its formatting source out (docs/adr/2180-*)', async () => {
+    const P = await newPage('Revert long run', [heading('F'), para('keep'), para('important', { bold: true }), heading('G'), para('g')])
+    await agentPatch(P, 'f', 'replace', 'keep\n\nreplaced')
+    // ten more agent writes within seconds: ten AI step rows newer than the change
+    for (let i = 0; i < 10; i++) await agentPatch(P, 'g', 'append', `g line ${i}`)
+    const seq = (await changes(P)).find((c) => c.via === 'Claude' && c.anchor === 'f')!.seq
+    const dry = (await req(alice, 'POST', `/changes/${seq}/revert`, { dryRun: true })).json()
+    assert.equal(dry.pages[0].changes[0].plainText, 0, JSON.stringify(dry))
+  })
+
   it('an added section is removed again; a removed section comes back after its old neighbour', async () => {
     const P = await newPage('Revert sections', [heading('One'), para('1'), heading('Two'), para('2'), heading('Three'), para('3')])
     await agentPatch(P, 'one', 'insert_after', '## Added\n\nnew text')

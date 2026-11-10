@@ -444,6 +444,13 @@ export const pageSnapshots = pgTable(
     depth: smallint('depth').notNull().default(0),
     /** State vector of the document this row represents; null on rows written before docs/adr/1100-*. */
     stateVector: bytea('state_vector'),
+    /**
+     * Content digest of the document this row represents: sha256 of the state vector and the delete
+     * set (equal digests = the same document). Null on rows written before docs/adr/2180-*.
+     */
+    digest: text('digest'),
+    /** Set on AI step rows (the page right after one agent write) — what the write changed (docs/adr/2180-*). */
+    step: jsonb('step').$type<{ tool: string; mode?: string; sections?: string[]; more?: number; added?: number; removed?: number; restoredFrom?: string }>(),
   },
   (t) => [index('page_snapshots_page_idx').on(t.pageId, t.createdAt)],
 )

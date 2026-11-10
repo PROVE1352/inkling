@@ -63,6 +63,7 @@ describe('[db] connection range and API tokens', { skip: !HAS_DB }, async () => 
         await r(import('./routes/pageContent'), 'registerPageContentRoutes')
         await r(import('./routes/editLock'), 'registerEditLockRoutes')
         await r(import('./routes/context'), 'registerContextRoutes')
+        await r(import('./routes/agentSearch'), 'registerAgentSearchRoutes')
         await r(import('./routes/changes'), 'registerChangeRoutes')
         await r(import('./routes/catchUp'), 'registerCatchUpRoutes')
         await r(import('./routes/tasks'), 'registerTaskRoutes')
@@ -187,6 +188,13 @@ describe('[db] connection range and API tokens', { skip: !HAS_DB }, async () => 
       assert.equal(res.statusCode, 200)
       assertNoOutside(res.body, 'search')
       assert.ok(res.body.includes(id.inner))
+      // the agent search route (docs/adr/2183-*): all workspaces, and one
+      for (const url of [`/api/search?q=${W}`, `/api/search?q=${W}&workspaceId=${ws1.id}`]) {
+        const r = await asToken(pat, 'GET', url)
+        assert.equal(r.statusCode, 200, r.body)
+        assertNoOutside(r.body, url)
+        assert.ok(r.body.includes(id.inner), url)
+      }
     })
 
     it('find_context (GET /context), all workspaces and one', async () => {
@@ -454,6 +462,8 @@ describe('[db] connection range and API tokens', { skip: !HAS_DB }, async () => 
           ['catch_up', { since: '2000-01-01', peek: true }],
         ] as const) {
           const r = await mcp.tool(tool, args as Record<string, unknown>)
+          // search answers from GET /api/search (docs/adr/2183-*): an error here would pass the check below vacuously
+          if (tool === 'search') assert.equal(r.isError, false, r.text)
           assertNoOutside(r.text, `MCP ${tool}`)
         }
         const rp = await mcp.tool('read_page', { pageId: id.outsideChild })

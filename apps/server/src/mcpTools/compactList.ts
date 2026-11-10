@@ -1,4 +1,7 @@
 import type { PageMetaDTO } from '@inkling/shared'
+import { SEARCH_MAX_LIMIT } from '../routes/agentSearchText'
+import type { AgentSearchHit, AgentSearchResponse } from '../routes/agentSearchText'
+import { cleanText, wrapUntrusted } from './trust'
 
 /**
  * `format: 'compact'` for list_pages and search (docs/adr/1541-*). Pure functions, no database.
@@ -166,14 +169,100 @@ export function renderCompactTree(all: PageMetaDTO[], opts: { parentId?: string;
   return lines.join('\n')
 }
 
-/** search(format='compact'): "shortId | title [kind] 🔒 | snippet" per result. */
-export function renderCompactSearch(results: { id: string; title: string; kind: string; section: string; snippet?: string }[]): string {
-  const short = shortIdsFor(results.map((r) => r.id))
-  return results
-    .map(
-      (r) =>
-        `${short.get(r.id)} | ${r.title}${r.kind !== 'doc' ? ` [${r.kind}]` : ''}${r.section === 'private' ? ' 🔒' : ''}` +
-        `${r.snippet ? ` | ${r.snippet.replace(/\s+/g, ' ')}` : ''}`,
-    )
-    .join('\n')
+// --- search (docs/adr/2184-*) ------------------------------------------------------------------
+
+const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
+const WS_NAME_MAX = 40
+/** Workspace names in group heads: one line, at most 40 characters (cleaned again by the wrapper). */
+function workspaceLabel(name: string): string {
+  const s = [...(oneLine(cleanText(name)) || 'Untitled')]
+  return s.length > WS_NAME_MAX ? `${s.slice(0, WS_NAME_MAX - 1).join('')}…` : s.join('')
+}
+const pageMarks = (h: AgentSearchHit) => `${h.kind !== 'doc' ? ` [${h.kind}]` : ''}${h.scope === 'private' ? ' 🔒' : ''}`
+/** Remaining matches per workspace (count desc, then id), after the ones shown. */
+function remainingByWorkspace(res: AgentSearchResponse): { id: string; name: string; more: number }[] {
+  const shown = new Map<string, number>()
+  for (const r of res.results) shown.set(r.workspaceId, (shown.get(r.workspaceId) ?? 0) + 1)
+  return res.workspaces
+    .map((w) => ({ id: w.id, name: w.name, more: w.matches - (shown.get(w.id) ?? 0) }))
+    .filter((w) => w.more > 0)
+    .sort((a, b) => b.more - a.more || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/**
+ * search(format 'compact' | 'lines'): one line per page, "id | title [kind] 🔒", then for a heading
+ * match " | §anchor Heading › Path", for a body match " | §anchor …snippet…". Results from more than
+ * one workspace are grouped under "## Name (id)" heads, groups in the order of their best hit; one
+ * workspace prints no head. The page lines (member-written) are wrapped as data; the "N more
+ * matches" line after them is ours (ids and counts only). Compact: 8-character page, workspace and
+ * section ids (shortest unique anchor suffix); lines: full ones.
+ */
+export function renderCompactSearch(res: AgentSearchResponse, opts: { format: 'compact' | 'lines'; workspaceGiven: boolean }): string {
+  const compact = opts.format === 'compact'
+  const pid = compact ? shortIdsFor(res.results.map((r) => r.id)) : new Map(res.results.map((r) => [r.id, r.id]))
+  const wid = compact ? shortIdsFor(res.workspaces.map((w) => w.id).sort()) : new Map(res.workspaces.map((w) => [w.id, w.id]))
+  const names = new Map(res.workspaces.map((w) => [w.id, w.name]))
+  const line = (h: AgentSearchHit) => {
+    let s = `${pid.get(h.id)} | ${oneLine(h.title) || 'Untitled'}${pageMarks(h)}`
+    const anchor = h.anchor ? `§${compact ? (h.shortAnchor ?? h.anchor) : h.anchor}` : ''
+    if (h.match === 'heading' && anchor) s += ` | ${anchor} ${oneLine(h.headingPath ?? '')}`.trimEnd()
+    else if (h.match === 'body' && (anchor || h.snippet)) s += ` | ${[anchor, h.snippet ? oneLine(h.snippet) : ''].filter(Boolean).join(' ')}`
+    return s
+  }
+  const groups = new Map<string, AgentSearchHit[]>()
+  for (const h of res.results) groups.set(h.workspaceId, [...(groups.get(h.workspaceId) ?? []), h])
+  const lines: string[] = []
+  if (groups.size > 1) {
+    for (const [ws, hits] of groups) {
+      if (lines.length) lines.push('')
+      lines.push(`## ${workspaceLabel(names.get(ws) ?? '')} (${wid.get(ws) ?? ws})`)
+      for (const h of hits) lines.push(line(h))
+    }
+  } else for (const h of res.results) lines.push(line(h))
+  const out = [wrapUntrusted(lines.join('\n'), { source: 'search' })]
+  const more = searchMoreLine(res, opts.workspaceGiven, (id) => wid.get(id) ?? id)
+  if (more) out.push(more)
+  if (compact) out.push(COMPACT_LEGEND)
+  return out.join('\n')
+}
+
+/**
+ * "12 more matches (7 in 1a2b3c4d, 5 in 5e6f7a8b); narrow with workspaceId=<id or name> or more
+ * specific words." when matches spread over several workspaces and none was given; otherwise a
+ * shorter line about the words and the limit. Null when everything was shown.
+ */
+export function searchMoreLine(res: AgentSearchResponse, workspaceGiven: boolean, wsId: (id: string) => string = (id) => id): string | null {
+  const more = res.total - res.results.length
+  if (more <= 0) return null
+  const noun = more === 1 ? 'match' : 'matches'
+  if (!workspaceGiven && res.workspaces.length > 1) {
+    const rest = remainingByWorkspace(res)
+    const listed = rest.slice(0, 5).map((w) => `${w.more} in ${wsId(w.id)}`)
+    const others = rest.slice(5)
+    if (others.length) listed.push(`${others.reduce((n, w) => n + w.more, 0)} in ${others.length} other workspaces`)
+    return `${more} more ${noun} (${listed.join(', ')}); narrow with workspaceId=<id or name> or more specific words.`
+  }
+  return `${more} more ${noun}; narrow with more specific words${res.limit < SEARCH_MAX_LIMIT ? ` or a higher limit (max ${SEARCH_MAX_LIMIT})` : ''}.`
+}
+
+/** search(format 'json'): `results` (as before, plus workspace, match, exact, anchor, heading), counts and the more line's numbers. */
+export function searchJson(res: AgentSearchResponse): Record<string, unknown> {
+  const names = new Map(res.workspaces.map((w) => [w.id, w.name]))
+  return {
+    results: res.results.map((h) => ({
+      id: h.id,
+      workspaceId: h.workspaceId,
+      workspace: names.get(h.workspaceId) ?? '',
+      title: h.title || 'Untitled',
+      kind: h.kind,
+      section: h.scope === 'private' ? 'private' : 'shared',
+      match: h.match,
+      exact: h.exact,
+      ...(h.anchor ? { anchor: h.anchor, heading: h.headingPath ?? '' } : {}),
+      ...(h.snippet ? { snippet: h.snippet } : {}),
+    })),
+    total: res.total,
+    more: Math.max(0, res.total - res.results.length),
+    moreByWorkspace: remainingByWorkspace(res).map((w) => ({ workspaceId: w.id, workspace: w.name, more: w.more })),
+  }
 }

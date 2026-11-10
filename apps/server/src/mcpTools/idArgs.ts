@@ -75,15 +75,63 @@ export async function resolveTrashedPageRef(ctx: ToolCtx, ref: string): Promise<
   throw ambiguous(hex, 'trashed pages', rows)
 }
 
-/** A workspace by id prefix, among the workspaces list_workspaces shows this connection. */
+/** A workspace by id, id prefix or name, among the workspaces list_workspaces shows this connection. */
 export async function resolveWorkspaceRef(ctx: ToolCtx, ref: string): Promise<string> {
   if (FULL_RE.test(ref.trim())) return ref.trim().toLowerCase()
-  const { hex } = prefixRange(ref)
-  const all = await listWorkspaces(ctx)
-  const rows = all.filter((w) => w.id.replace(/-/g, '').startsWith(hex)).map((w) => ({ id: w.id, label: w.name }))
-  if (rows.length === 1) return rows[0].id
-  if (!rows.length) throw new ToolError(`no workspace of yours has an id starting with "${hex}"; use list_workspaces for valid ids`)
-  throw ambiguous(hex, 'workspaces', rows)
+  return matchWorkspaceRef(await listWorkspaces(ctx), ref)
+}
+
+/** Workspaces listed in a "not found" or "ambiguous" error before "… N more". */
+const WORKSPACES_LISTED = 20
+/** Shortest name prefix taken (a one-character prefix is too easy to hit by accident in a write tool). */
+export const NAME_PREFIX_MIN = 2
+
+/** Workspace names compared: NFKC, case-insensitive, runs of whitespace as one space. */
+export function workspaceNameKey(s: string): string {
+  return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/** `1a2b3c4d "Name", …` (8-character ids, cleaned names), at most WORKSPACES_LISTED. */
+function workspaceList(ws: { id: string; name: string }[]): string {
+  const shown = ws.slice(0, WORKSPACES_LISTED).map((w) => `${w.id.slice(0, 8)} "${cleanText(w.name).replace(/\s+/g, ' ')}"`)
+  return shown.join(', ') + (ws.length > WORKSPACES_LISTED ? `, … ${ws.length - WORKSPACES_LISTED} more (list_workspaces)` : '')
+}
+
+/**
+ * The workspace a reference means (docs/adr/2186-*), among `all` (this connection's workspaces, in
+ * list_workspaces order). In this order, the first rule that matches anything decides:
+ *
+ *   1. a full id: that id (not checked here; the route checks membership);
+ *   2. something that looks like an id prefix (8+ hex characters): the workspaces whose id starts with it;
+ *   3. the name, compared as workspaceNameKey: the workspaces with exactly that name;
+ *   4. the start of a name (at least NAME_PREFIX_MIN characters): the workspaces whose name starts with it.
+ *
+ * One match is the answer; several are an error naming them (8-character id and name); none is an
+ * error listing this connection's workspaces. Exported for tests.
+ */
+export function matchWorkspaceRef(all: { id: string; name: string }[], ref: string): string {
+  const t = ref.trim()
+  if (FULL_RE.test(t)) return t.toLowerCase()
+  const pick = (rows: { id: string; name: string }[], what: string): string => {
+    if (rows.length === 1) return rows[0].id
+    throw new ToolError(`${what} matches ${rows.length} of your workspaces: ${workspaceList(rows)}. Pass one of these ids (8 characters are enough).`)
+  }
+  let hex: string | null = null
+  if (isIdOrPrefix(t)) {
+    hex = prefixRange(t).hex
+    const byId = all.filter((w) => w.id.replace(/-/g, '').startsWith(hex!))
+    if (byId.length) return pick(byId, `"${hex}"`)
+  }
+  const key = workspaceNameKey(t)
+  const exact = all.filter((w) => workspaceNameKey(w.name) === key)
+  if (exact.length) return pick(exact, `the name "${cleanText(t)}"`)
+  if ([...key].length >= NAME_PREFIX_MIN) {
+    const prefixed = all.filter((w) => workspaceNameKey(w.name).startsWith(key))
+    if (prefixed.length) return pick(prefixed, `"${cleanText(t)}" (the start of a name)`)
+  }
+  if (!all.length) throw new ToolError('you are not a member of any workspace this connection may use')
+  const what = hex ? `has an id starting with "${hex}" or a name "${cleanText(t)}"` : `is named "${cleanText(t)}" (or a name starting with it)`
+  throw new ToolError(`no workspace of yours ${what}. Yours: ${workspaceList(all)}. Pass an id or name from this list.`)
 }
 
 /** A comment thread by id prefix, among threads on pages this connection can see. */

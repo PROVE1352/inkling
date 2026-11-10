@@ -124,9 +124,67 @@ export function registerInkTools(server: McpServer, ctx: ToolCtx): void {
 const versionRef = () =>
   z.union([z.literal('current'), idArg('full')]).describe("A version id from list_versions, or 'current' (the page as it is now)")
 
+/** What an AI step changed, one line part: "patch_section replace §goals +3 −1" (docs/adr/2180-*). */
+export function stepWhat(st: NonNullable<SnapshotDTO['step']>): string {
+  const tool = st.mode ? `${st.tool} ${st.mode}` : st.tool
+  if (st.restoredFrom) return `${tool} of ${st.restoredFrom.slice(0, 8)}`
+  const where = st.sections.length ? `${st.sections.map((a) => `§${a}`).join(', ')}${st.more ? ` +${st.more} more` : ''}` : 'whole page'
+  const lines = st.added !== undefined || st.removed !== undefined ? ` +${st.added ?? 0} −${st.removed ?? 0} lines` : ''
+  return `${tool} ${where}${lines}`
+}
+
+/** The version's name in one line: its label, "AI step n" for a step row, "(autosave)". */
+function versionName(s: SnapshotDTO): string {
+  if (s.step) return `AI step ${s.step.n}`
+  return s.label ? `"${s.label.replace(/\s+/g, ' ')}"` : '(autosave)'
+}
+
 function versionLine(s: SnapshotDTO): string {
   const by = s.author ? ` | by ${s.author.name}${s.viaClient ? ` via ${s.viaClient}` : ''}` : s.viaClient ? ` | via ${s.viaClient}` : ''
-  return `${s.id} | ${minute(s.createdAt)} | ${s.label ? `"${s.label.replace(/\s+/g, ' ')}"` : '(autosave)'}${by}`
+  return `${s.id} | ${minute(s.createdAt)} | ${versionName(s)}${by}${s.step ? ` | ${stepWhat(s.step)}` : ''}`
+}
+
+/** Versions list_versions shows by default (all=true: every saved version, up to 50). */
+export const VERSIONS_SHOWN = 20
+/** A run of more AI steps than this shows its newest RUN_HEAD steps and its first; the rest fold into one line. */
+const RUN_FOLD_OVER = 4
+const RUN_HEAD = 3
+
+/**
+ * Lines of list_versions (newest first). Default: long runs of AI steps folded (newest RUN_HEAD steps,
+ * one "… steps a–b" line, step 1) and at most VERSIONS_SHOWN versions; `all` lists every version.
+ */
+export function versionLines(snapshots: SnapshotDTO[], all: boolean): string[] {
+  if (all) return snapshots.map(versionLine)
+  const out: string[] = []
+  let shown = 0
+  let i = 0
+  while (i < snapshots.length && shown < VERSIONS_SHOWN) {
+    // a run: consecutive AI steps of one client, numbered down by one
+    let r = 1
+    const s = snapshots[i]
+    while (s.step && i + r < snapshots.length) {
+      const next = snapshots[i + r]
+      if (!next.step || next.viaClient !== s.viaClient || next.step.n !== s.step.n - r) break
+      r++
+    }
+    if (r > RUN_FOLD_OVER) {
+      for (const h of snapshots.slice(i, i + RUN_HEAD)) out.push(versionLine(h))
+      const hidden = snapshots.slice(i + RUN_HEAD, i + r - 1).map((x) => x.step!.n)
+      const lo = Math.min(...hidden)
+      const hi = Math.max(...hidden)
+      out.push(`… ${lo === hi ? `AI step ${lo}` : `AI steps ${lo}–${hi}`} of this run not listed (all=true lists them)`)
+      out.push(versionLine(snapshots[i + r - 1]))
+      shown += RUN_HEAD + 1
+      i += r
+      continue
+    }
+    out.push(versionLine(s))
+    shown++
+    i++
+  }
+  if (i < snapshots.length) out.push(`… ${snapshots.length - i} older version${snapshots.length - i === 1 ? '' : 's'} not listed (all=true lists every version)`)
+  return out
 }
 
 const DIFF_DEFAULT_CHARS = 12_000
@@ -137,12 +195,16 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'List versions',
       description:
-        "A page's version history, newest first (up to 50): saved versions with when, label, who and the agent client that caused " +
-        'them. Use the ids with diff_versions to see what changed and restore_version to bring a version back.',
-      inputSchema: { pageId: idArg('page').describe('Page id') },
+        "A page's version history, newest first: when, label, who and the agent client. Each agent write is one \"AI step\" " +
+        '(tool, §sections, ±lines), so any step can be brought back. Newest 20, long step runs folded; all=true lists all (up to 50). ' +
+        'Use the ids with diff_versions and restore_version.',
+      inputSchema: {
+        pageId: idArg('page').describe('Page id'),
+        all: z.boolean().optional().describe('Every saved version, no folding'),
+      },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ pageId }) => {
+    wrap(async ({ pageId, all }) => {
       const { snapshots } = (await call(ctx, 'GET', `/api/pages/${pageId}/snapshots`)).json() as { snapshots: SnapshotDTO[] }
       const meta = await visibleMeta(ctx, pageId)
       const ac = await loadAgentContext(ctx, [pageId])
@@ -159,7 +221,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
           ac,
           [
             ...head,
-            wrapUntrusted(snapshots.map(versionLine).join('\n'), { source: 'versions', id: pageId }),
+            wrapUntrusted(versionLines(snapshots, !!all).join('\n'), { source: 'versions', id: pageId }),
             "Next: diff_versions(pageId, from=<id>) compares a version with the current page; restore_version(pageId, version=<id>) brings one back (undoable).",
           ].join('\n'),
         ),
@@ -234,8 +296,8 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Restore version',
       description:
-        'Bring a saved version of a document page back (from list_versions). Undoable: the page as it was right before is saved ' +
-        'as a new version first, and the restore is a new edit on top of the history (nothing is removed). Needs edit access; ' +
+        'Bring a saved version of a document page back (from list_versions). Undoable: the page as it was right before stays a ' +
+        'version, and the restore is a new AI step on top of the history (later steps are kept). Needs edit access; ' +
         'locked pages refuse. Changes show live to anyone viewing the page.',
       inputSchema: {
         pageId: idArg('page').describe('Page id (kind=doc)'),
@@ -247,14 +309,17 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
       const before = (await call(ctx, 'GET', `/api/pages/${pageId}/snapshots`)).json() as { snapshots: SnapshotDTO[] }
       const target = before.snapshots.find((s) => s.id === version)
       if (!target) throw new ToolError('version not found; use list_versions for valid ids')
-      await call(ctx, 'POST', `/api/pages/${pageId}/snapshots/${version}/restore`)
+      const done = (await call(ctx, 'POST', `/api/pages/${pageId}/snapshots/${version}/restore`)).json() as { before?: string | null }
       const { snapshots } = (await call(ctx, 'GET', `/api/pages/${pageId}/snapshots`)).json() as { snapshots: SnapshotDTO[] }
       const known = new Set(before.snapshots.map((s) => s.id))
-      const saved = snapshots.find((s) => !known.has(s.id))
-      const lines = [`Restored version ${version} (${minute(target.createdAt)}${target.label ? `, "${attr(target.label)}"` : ''}).`]
+      // The version equal to the page right before the restore (docs/adr/2181-*): the agent's previous
+      // AI step when nothing changed since, else the "Before restore" row this restore stored.
+      const saved = (done.before ? snapshots.find((s) => s.id === done.before) : null) ?? snapshots.find((s) => !known.has(s.id) && !s.step)
+      const name = (s: SnapshotDTO) => (s.step ? `AI step ${s.step.n}` : `"${attr(s.label ?? 'Before restore')}"`)
+      const lines = [`Restored version ${version} (${minute(target.createdAt)}${target.step ? `, AI step ${target.step.n}` : target.label ? `, "${attr(target.label)}"` : ''}).`]
       if (saved) {
         lines.push(
-          `The page as it was before is saved as version ${saved.id} ("${attr(saved.label ?? 'Before restore')}"); ` +
+          `The page as it was before is version ${saved.id} (${name(saved)}); ` +
             `restore_version(pageId, version=${saved.id}) undoes this restore.`,
         )
       }

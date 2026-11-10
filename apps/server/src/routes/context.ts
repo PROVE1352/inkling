@@ -145,13 +145,16 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     // Semantic search off (the default): one query takes the single path exactly as before; same
     // workspaces and permission filter, through the result cache (docs/adr/1550-*).
     const semantic = semanticOn()
-    const res =
+    const run = (only: string | null) =>
       queries.length === 1 && !semantic
-        ? await cachedFindContext(user.id, queries[0], workspaceId ?? null, budget ?? DEFAULT_BUDGET)
+        ? cachedFindContext(user.id, queries[0], only, budget ?? DEFAULT_BUDGET)
         : // Several phrasings: per-query entries of the same cache, merged under one budget (docs/adr/1720-*).
           // Semantic search on: every call merges, each query's semantic candidates joining as an extra
           // ranked list labelled with its number (docs/adr/1723-*). Called inside this request's scope.
-          await cachedFindContextMulti(user.id, queries, workspaceId ?? null, budget ?? DEFAULT_BUDGET, semantic ? { extraLists: semanticExtraLists } : {})
+          cachedFindContextMulti(user.id, queries, only, budget ?? DEFAULT_BUDGET, semantic ? { extraLists: semanticExtraLists } : {})
+    // ranks every workspace together without workspaceId; "best workspace first" was measured and not
+    // adopted (docs/adr/2188-*)
+    const res = await run(workspaceId ?? null)
     // An API token handed flagged sections becomes suggest-only for a while (docs/adr/2040-*).
     const shown = res.fragments.flatMap((f) => f.sections.map((s) => ({ pageId: f.pageId, anchor: s.anchor })))
     await recordTokenRead(user.tokenId, [...new Set(shown.map((x) => x.pageId))], shown)

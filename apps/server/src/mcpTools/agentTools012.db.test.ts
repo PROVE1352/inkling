@@ -189,7 +189,9 @@ describe('[db] agent tools 0.12: read_ink, versions, trash, read_file', { skip: 
     assert.equal(list.isError, false, list.text)
     assert.match(list.text, /First draft/)
     assert.match(list.text, /by Olivia/)
-    assert.match(list.text, /Before AI edit.*by Mia via Test Agent/)
+    // 0.17: the agent's write is one AI step (docs/adr/2180-*). The manual version already equals the page
+    // before it, so no "Before AI edit" row is added (it was in 0.16).
+    assert.match(list.text, /AI step 1 \| by Mia via Test Agent \| update_page replace whole page \+1 −1 lines/)
     assert.match(list.text, /<untrusted_content source="versions"/)
     const ids = [...list.text.matchAll(/^([0-9a-f-]{36}) \|/gm)].map((x) => x[1])
     assert.equal(ids.length, 2)
@@ -209,13 +211,14 @@ describe('[db] agent tools 0.12: read_ink, versions, trash, read_file', { skip: 
     // restore: the page comes back, the replaced state is kept as a version (undo), via is recorded
     const r = await m.tool('restore_version', { pageId: page.id, version: firstDraft })
     assert.equal(r.isError, false, r.text)
-    assert.match(r.text, /Before restore/)
+    // the page before the restore is the agent's AI step 1 itself (0.16: a "Before restore" copy of it)
+    assert.match(r.text, /The page as it was before is version [0-9a-f-]{36} \(AI step 1\)/)
     const md = (await m.tool('read_page', { pageId: page.id })).text
     assert.match(md, /beta line/)
     assert.doesNotMatch(md, /gamma line/)
     const after1 = (await m.tool('list_versions', { pageId: page.id })).text
-    assert.match(after1, /Before restore.*by Mia via Test Agent/)
-    const beforeRestore = after1.split('\n').find((l) => l.includes('Before restore'))!.slice(0, 36)
+    assert.match(after1, /AI step 2 \| by Mia via Test Agent \| restore_version of /)
+    const beforeRestore = after1.split('\n').find((l) => l.includes('| AI step 1 |'))!.slice(0, 36)
     // …and restoring that one undoes the restore
     assert.equal((await m.tool('restore_version', { pageId: page.id, version: beforeRestore })).isError, false)
     assert.match((await m.tool('read_page', { pageId: page.id })).text, /gamma line/)

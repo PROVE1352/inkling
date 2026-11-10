@@ -3,7 +3,7 @@ import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createSnapshotSchema } from '@inkling/shared'
-import type { SnapshotDTO } from '@inkling/shared'
+import type { SnapshotDTO, SnapshotStepDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { hocuspocus } from '../collab'
 import { db } from '../db/index'
@@ -18,6 +18,9 @@ import {
 } from '../md/convert'
 import { findVisiblePage } from '../pageDto'
 import { createSnapshot, snapshotBlocks } from '../snapshotStore'
+import type { StepMeta } from '../snapshotStore'
+import { asAgentStep } from '../context/sectionWrite'
+import { isAgentVia } from '../agentVia'
 import { liveDoc } from '../liveConnections'
 import { pageEditGate } from '../docWriteGate'
 import { gatedTransact } from '../md/docWrite'
@@ -78,13 +81,16 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
         authorId: pageSnapshots.createdBy,
         authorName: users.name,
         viaClient: pageSnapshots.viaClient,
+        step: pageSnapshots.step,
       })
       .from(pageSnapshots)
       .leftJoin(users, eq(users.id, pageSnapshots.createdBy))
       .where(eq(pageSnapshots.pageId, id))
-      .orderBy(desc(pageSnapshots.createdAt))
+      // id last: rows of one transaction share created_at (deterministic order, docs/adr/0937-*)
+      .orderBy(desc(pageSnapshots.createdAt), desc(pageSnapshots.id))
       .limit(50)
 
+    const steps = stepNumbers(rows)
     const snapshots: SnapshotDTO[] = rows.map((r) => ({
       id: r.id,
       label: r.label,
@@ -92,6 +98,7 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
       bytes: r.bytes,
       author: r.authorId && r.authorName !== null ? { id: r.authorId, name: r.authorName } : null,
       viaClient: r.viaClient,
+      ...(r.step ? { step: steps.get(r.id)! } : {}),
     }))
     return { snapshots }
   })
@@ -133,6 +140,50 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     const blocks = await snapshotBlocks(id, sid)
     if (!blocks) throw notFound()
 
+    const locale = () => requestLocale(req, user.id)
+    // The restore itself (applied live to the open document, under the write gate).
+    const apply = async () => {
+      // Inject the snapshot blocks into the live document fragment → propagated live to viewing clients
+      // Audit F4: if inject throws after the delete inside transact, Yjs does not roll back and the
+      // live document is broadcast and persisted empty. Verify the conversion first (throwaway doc) to
+      // guarantee "fully convert, then replace". If this throws, the live document is untouched.
+      blocksToStateBuffer(blocks)
+      // Under the write gate (docs/adr/1151-*, 1513-*): a lock change, agent block or member removal
+      // that commits after the check above is seen before the edit, or waits until it is applied.
+      // The change feed records who restored it (and the agent's client).
+      const gate = pageEditGate(id, page.workspaceId, user.id, { role, acl })
+      await withEditActor([id], actorOf(user), async () => {
+        const conn = await hocuspocus.openDirectConnection(id)
+        try {
+          await gatedTransact(
+            conn,
+            (doc) => {
+              // One Yjs transaction → one update broadcast (no transient empty document on clients).
+              doc.transact(() => {
+                const frag = doc.getXmlFragment('document')
+                frag.delete(0, frag.length)
+                blocksToXmlFragment(blocks, frag)
+              })
+            },
+            gate,
+          )
+        } finally {
+          await conn.disconnect()
+        }
+      })
+    }
+
+    // An agent's restore is one AI step (docs/adr/2180-*, 2181-*): the page before it is a version
+    // (its previous step when nothing happened since, else a "Before restore" row) and the restored
+    // page is a new step on top; the steps after the restored version stay in the history.
+    if (isAgentVia(user.via)) {
+      const r = await asAgentStep(id, user, locale, async () => {
+        await apply()
+        return { result: undefined, step: { tool: 'restore_version', restoredFrom: sid } satisfies StepMeta }
+      }, { beforeLabel: 'beforeRestore' })
+      return { ok: true, before: r.before, step: r.step }
+    }
+
     // Keep the current state as a "Before restore" snapshot right before restoring (for undo).
     // Prefer the in-memory document: page_docs trails it by the store debounce (ADR 0757).
     const live = liveDoc(id)
@@ -148,39 +199,37 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     const before = live ?? cur
     // The restore is a new edit on top of the history, never a rewind: this snapshot undoes it
     // (restore it again). An agent restore records its client like other agent edits (docs/adr/0936-*).
-    if (before) {
-      await createSnapshot(id, before, LABELS[await requestLocale(req, user.id)].beforeRestore, user.id, user.via ?? null)
-    }
-
-    // Inject the snapshot blocks into the live document fragment → propagated live to viewing clients
-    // Audit F4: if inject throws after the delete inside transact, Yjs does not roll back and the
-    // live document is broadcast and persisted empty. Verify the conversion first (throwaway doc) to
-    // guarantee "fully convert, then replace". If this throws, the live document is untouched.
-    blocksToStateBuffer(blocks)
-    // Under the write gate (docs/adr/1151-*, 1513-*): a lock change, agent block or member removal
-    // that commits after the check above is seen before the edit, or waits until it is applied.
-    // The change feed records who restored it (and the agent's client).
-    const gate = pageEditGate(id, page.workspaceId, user.id, { role, acl })
-    await withEditActor([id], actorOf(user), async () => {
-      const conn = await hocuspocus.openDirectConnection(id)
-      try {
-        await gatedTransact(
-          conn,
-          (doc) => {
-            // One Yjs transaction → one update broadcast (no transient empty document on clients).
-            doc.transact(() => {
-              const frag = doc.getXmlFragment('document')
-              frag.delete(0, frag.length)
-              blocksToXmlFragment(blocks, frag)
-            })
-          },
-          gate,
-        )
-      } finally {
-        await conn.disconnect()
-      }
-    })
-
-    return { ok: true }
+    const saved = before ? await createSnapshot(id, before, LABELS[await locale()].beforeRestore, user.id, user.via ?? null) : null
+    await apply()
+    return { ok: true, before: saved, step: null }
   })
+}
+
+/**
+ * Step numbers of AI step rows (newest first in `rows`): a run is consecutive step rows of one client
+ * with no other row in between; its steps count from 1, oldest first (docs/adr/2180-*).
+ */
+export function stepNumbers(rows: { id: string; viaClient: string | null; step: unknown }[]): Map<string, SnapshotStepDTO> {
+  const out = new Map<string, SnapshotStepDTO>()
+  let prev: { via: string | null; n: number } | null = null
+  for (const r of [...rows].reverse()) {
+    const meta = r.step as StepMeta | null
+    if (!meta) {
+      prev = null
+      continue
+    }
+    const n: number = prev && prev.via === r.viaClient ? prev.n + 1 : 1
+    prev = { via: r.viaClient, n }
+    out.set(r.id, {
+      n,
+      tool: meta.tool,
+      ...(meta.mode ? { mode: meta.mode } : {}),
+      sections: meta.sections ?? [],
+      ...(meta.more ? { more: meta.more } : {}),
+      ...(typeof meta.added === 'number' ? { added: meta.added } : {}),
+      ...(typeof meta.removed === 'number' ? { removed: meta.removed } : {}),
+      ...(meta.restoredFrom ? { restoredFrom: meta.restoredFrom } : {}),
+    })
+  }
+  return out
 }

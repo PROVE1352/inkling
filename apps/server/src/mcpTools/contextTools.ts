@@ -7,14 +7,14 @@ import { normalizeContextQuery } from '../context/contextCache'
 import { reviewFactsFor } from '../review'
 import { countReads } from '../pageReads'
 import type { ReviewFacts } from '../review'
-import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { call, idArg, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
 import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
 import { LARGE_PAGE_HINT } from '../context/largePage'
 import { groupSpans, queryGroups, searchText } from '../context/rank'
 import { suspiciousNote } from '../context/injectionScan'
-import { wrapUntrusted } from './trust'
+import { cleanText, wrapUntrusted } from './trust'
 import { inkMarker, inkStrokeCounts } from '../agentInk'
 import type { SuggestionDTO } from '@inkling/shared'
 import { suggestionMadeText } from './collabTools'
@@ -23,6 +23,9 @@ import { readPagesArgs } from './tokenSaving'
 import { verificationFactsFor, verificationNote } from '../verification'
 import type { VerificationFacts } from '../verification'
 import { mentionStatusLineForPage } from '../memberStatus'
+import { eq, inArray } from 'drizzle-orm'
+import { db } from '../db/index'
+import { pages, workspaces } from '../db/schema'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -89,11 +92,70 @@ export function otherLanguageHint(query: string, r: Pick<FindContextResult, 'fra
   return `Not in any result: ${missing.join(', ')}. If the notes may be in another language, ask again with queries=[${JSON.stringify(query)}, "<translation>"].`
 }
 
+/** The workspace of a printed page: its id and (member-written) name. */
+export interface PageWorkspace {
+  id: string
+  name: string
+}
+
+/** Longest workspace name printed in a result line (cut with "…"). */
+const WS_NAME_MAX = 40
+
+/**
+ * Workspace labels for one answer (docs/adr/2185-*): only when the printed pages (fragments,
+ * pointers, title matches) come from two or more workspaces, else null and the output is exactly
+ * the one-workspace output. `{Name}` goes on the member-text lines (inside the data block); the
+ * closing line names the workspaces by id only, in order of first appearance.
+ */
+export function workspaceLabels(
+  r: Pick<FindContextResult, 'fragments' | 'more' | 'titleOnly'>,
+  wsOf?: Map<string, PageWorkspace>,
+): { label: (pageId: string) => string; line: string } | null {
+  const of = (pageId: string, fallback?: string): PageWorkspace | null => {
+    const w = wsOf?.get(pageId)
+    return w ?? (fallback ? { id: fallback, name: '' } : null)
+  }
+  const fragNo = new Map<string, number[]>()
+  const order: PageWorkspace[] = []
+  const note = (w: PageWorkspace | null): string | null => {
+    if (!w) return null
+    if (!order.some((o) => o.id === w.id)) order.push(w)
+    return w.id
+  }
+  r.fragments.forEach((f, i) => {
+    const id = note(of(f.pageId, f.workspaceId))
+    if (id) fragNo.set(id, [...(fragNo.get(id) ?? []), i + 1])
+  })
+  for (const p of [...r.more, ...r.titleOnly]) note(of(p.pageId))
+  if (order.length < 2) return null
+  const ids = printedIds(order.map((w) => w.id))
+  const byId = new Map(order.map((w) => [w.id, w]))
+  const label = (pageId: string): string => {
+    const f = r.fragments.find((x) => x.pageId === pageId)
+    const w = of(pageId, f?.workspaceId)
+    if (!w) return ''
+    const w0 = byId.get(w.id) ?? w
+    const name = cleanText(w0.name).replace(/\s+/g, ' ').replace(/[{}]/g, '').trim()
+    const short = [...name].length > WS_NAME_MAX ? `${[...name].slice(0, WS_NAME_MAX - 1).join('')}…` : name
+    return `{${short || ids.get(w.id)}} `
+  }
+  const parts = order.map((w) => {
+    const nos = fragNo.get(w.id)
+    return `${ids.get(w.id)} ${nos ? nos.map((n) => `[${n}]`).join('') : '(Also relevant only)'}`
+  })
+  const line =
+    `Results come from ${order.length} workspaces ({name} on each line): ${parts.join(', ')}. ` +
+    'To search one, pass workspaceId=<its id> (its name works too).'
+  return { label, line }
+}
+
 /**
  * Render find_context results (exported for the evaluation, which measures exactly this text).
  * Everything members wrote (titles, headings, section text) sits inside one <untrusted_content>
  * block (docs/adr/0976-*); each fragment line says what this agent may do (`can:`) and who last
- * edited the page. `ac` is optional so the offline evaluation can render without it.
+ * edited the page. `ac` is optional so the offline evaluation can render without it. `wsOf` (page id
+ * → workspace) names the workspaces when an answer spans several (docs/adr/2185-*); without it the
+ * fragments' own workspace ids are used and the labels print short ids.
  */
 export function renderFindContext(
   query: string,
@@ -102,8 +164,12 @@ export function renderFindContext(
   ac?: AgentContextDTO,
   ink?: Map<string, number>,
   verifications?: Map<string, VerificationFacts>,
+  wsOf?: Map<string, PageWorkspace>,
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
+  // Two or more workspaces: `{Name} ` before each title and one closing line (docs/adr/2185-*); else ''.
+  const spans = workspaceLabels(r, wsOf)
+  const ws = (pageId: string) => (spans ? spans.label(pageId) : '')
   // Several queries (docs/adr/1720-*): one header naming them by number, `matched:` per fragment.
   // A merged result of ONE query (semantic search on, docs/adr/1723-*) keeps the single-query header
   // and no `matched:`; only its pointer lines use the merged form (`fused`).
@@ -121,8 +187,9 @@ export function renderFindContext(
     ]
     if (r.titleOnly.length) {
       lines.push('Pages whose title matches (no text):')
-      lines.push(wrapData(r.titleOnly.map((t) => `- ${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)))
+      lines.push(wrapData(r.titleOnly.map((t) => `- ${ws(t.pageId)}${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)))
     }
+    if (spans) lines.push(spans.line)
     return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
   }
   // `can:` once in the header when two or more results all have the same (docs/adr/1906-*); with one
@@ -153,7 +220,7 @@ export function renderFindContext(
     const matched = multi ? `; matched: ${multi.fragments[i].matched.join(',')}` : ''
     // a cut section says how long the whole is (read_page(section=…) returns it), docs/adr/1902-*
     const cut = f.truncated ? `; truncated${f.fullTokens ? `, section ~${f.fullTokens} tok` : ''}` : ''
-    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${idOf(f.pageId)}; ${versions}${cut}${matched}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
+    data.push(`[${i + 1}] ${ws(f.pageId)}${f.title || 'Untitled'}${path}`, `(page ${idOf(f.pageId)}; ${versions}${cut}${matched}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
   })
   if (r.more.length) {
     // One line per page; a page already shown is referred to by its result number.
@@ -161,7 +228,7 @@ export function renderFindContext(
     const byPage = new Map<string, typeof r.more>()
     for (const m of r.more) byPage.set(m.pageId, [...(byPage.get(m.pageId) ?? []), m])
     for (const [pageId, list] of byPage) {
-      const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${idOf(pageId)})`
+      const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${ws(pageId)}${list[0].title || 'Untitled'} (page ${idOf(pageId)})`
       // a pointer from an extra ranked list may name a whole page (no anchor) or have no size
       const one = (m: (typeof list)[number]) =>
         fused && !m.anchor ? 'whole page' : fused && !m.tokens ? `§${shortOf(m)}` : `§${shortOf(m)} ~${m.tokens} tok`
@@ -170,8 +237,9 @@ export function renderFindContext(
   }
   if (r.titleOnly.length) {
     data.push('', 'Title matches without text:')
-    for (const t of r.titleOnly) data.push(`- ${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)
+    for (const t of r.titleOnly) data.push(`- ${ws(t.pageId)}${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)
   }
+  // the "best workspace first" rule changed this answer (docs/adr/2188-*; off unless the evaluation turns it on)
   const out = [head, wrapData(data), '', 'Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.']
   // One hint for all large pages shown (docs/adr/1043-*).
   if (ac && r.fragments.some((f) => pageFacts(ac, f.pageId).large)) out.push(`Pages marked "large page": ${LARGE_PAGE_HINT.replace(/^large page: /, '')}.`)
@@ -180,6 +248,8 @@ export function renderFindContext(
   // no word with the query by design).
   const hint = fused ? null : otherLanguageHint(query, r)
   if (hint) out.push(hint)
+  // Several workspaces: which results are where, by id, and how to narrow (docs/adr/2185-*).
+  if (spans) out.push(spans.line)
   // Verified / stale marks (docs/adr/1842-*) are dated and flip with the clock: one line, last
   // (docs/adr/1907-*), so the fragments above stay byte-stable when a verification lapses.
   const marks = r.fragments.flatMap((f, i) => {
@@ -228,6 +298,24 @@ export function renderReadPages(r: ReadPagesResponse, ac?: AgentContextDTO): str
   return ac ? withApplies(ac, textOut) : textOut
 }
 
+/**
+ * Workspace (id, name) of every page an answer prints, or undefined when it cannot span two
+ * workspaces (all fragments in one, no pointer to another page). The page ids come from the
+ * permission-checked REST answer, so their workspaces are the caller's.
+ */
+async function printedWorkspaces(r: FindContextResult): Promise<Map<string, PageWorkspace> | undefined> {
+  const fragmentPages = new Set(r.fragments.map((f) => f.pageId))
+  const others = [...r.more, ...r.titleOnly].map((p) => p.pageId).filter((id) => !fragmentPages.has(id))
+  if (new Set(r.fragments.map((f) => f.workspaceId)).size < 2 && others.length === 0) return undefined
+  const ids = [...new Set([...fragmentPages, ...others])]
+  const rows = await db
+    .select({ pageId: pages.id, id: workspaces.id, name: workspaces.name })
+    .from(pages)
+    .innerJoin(workspaces, eq(workspaces.id, pages.workspaceId))
+    .where(inArray(pages.id, ids))
+  return new Map(rows.map((x) => [x.pageId, { id: x.id, name: x.name }]))
+}
+
 export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
   server.registerTool(
     'find_context',
@@ -246,7 +334,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
           .max(MAX_QUERIES)
           .optional()
           .describe('Other phrasings searched together (merged, each section once; "matched: 1,3" = query numbers)'),
-        workspaceId: uuid().optional().describe('Limit to one workspace (default: all of yours)'),
+        workspaceId: idArg('workspace').optional().describe('Limit to one workspace, id or name (default: all of yours)'),
         budget: z.number().int().min(300).max(MAX_BUDGET).optional().describe(`Max tokens to return (default ${DEFAULT_BUDGET})`),
       },
       annotations: { readOnlyHint: true },
@@ -269,7 +357,9 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const review = await reviewFactsFor(shown)
       countReads(shown) // read counters, page totals only (docs/adr/0953-*)
       const ac = await loadAgentContext(ctx, shown, { read: true })
-      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown), await verificationFactsFor(shown)))
+      // Workspace names only when this answer may span several (no workspaceId), docs/adr/2185-*
+      const wsOf = workspaceId ? undefined : await printedWorkspaces(result)
+      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown), await verificationFactsFor(shown), wsOf))
     }),
   )
 

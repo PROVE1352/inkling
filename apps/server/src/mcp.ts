@@ -42,7 +42,9 @@ import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, wrapUntrusted } from './m
 import { call, jsonUntrusted, text, ToolError, wrap, wrapWrite } from './mcpTools/core'
 import type { ToolCtx } from './mcpTools/core'
 import { meterTools } from './mcpTools/meter'
-import { COMPACT_LEGEND, renderCompactSearch, renderCompactTree } from './mcpTools/compactList'
+import { COMPACT_LEGEND, renderCompactSearch, renderCompactTree, searchJson } from './mcpTools/compactList'
+import { SEARCH_MAX_LIMIT } from './routes/agentSearchText'
+import type { AgentSearchResponse } from './routes/agentSearchText'
 import { pageRef, resolvePageRef, shortId } from './mcpTools/shortIds'
 import { PATH_SEP } from './context/chunker'
 import { inferWorkspace, resolveIdArgs } from './mcpTools/idArgs'
@@ -203,7 +205,7 @@ export function renderPageList(
  * client puts this into the model's context.
  */
 export const SERVER_INSTRUCTIONS = [
-  'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version. Unsure of the wording: queries=[…] searches up to 5 phrasings (synonyms, both languages) in that one call. If the notes may be in another language than the question, pass queries=[question, translation].',
+  'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version. Unsure of the wording: queries=[…] searches up to 5 phrasings (synonyms, both languages) in that one call. If the notes may be in another language than the question, pass queries=[question, translation]. With several workspaces (list_workspaces), pass workspaceId (an id or the name) to search only one.',
   'If that is not enough: read_page(pageId, outline=true) to see sections, then read_page(pageId, section=anchor); read_pages(ids) reads several pages in one call. Avoid list_pages/full read_page unless you need the whole tree or page.',
   'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page appends, or replaces the whole body given the page version you read (baseVersion); for a growing log, put new entries in child pages (tools mark large pages).',
   'Coming back after a while: catch_up() ranks what happened since this connection\'s last catch_up (for the person, due, comments, changes by others).',
@@ -411,57 +413,32 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     'search',
     {
       title: 'Search',
+      // what search is for next to find_context, in one line (docs/adr/2184-*)
       description:
-        'Substring search over page titles and bodies (title matches first, then most recently updated; up to 20 per workspace). ' +
-        'For answering questions prefer find_context (ranked sections, one call). Omit workspaceId to search all workspaces. ' +
-        "format 'compact' (default, 8-character ids) or 'lines' (full ids) print one line per result; 'json' gives objects.",
+        'Find pages by a name or exact words: title matches first, then headings, then bodies; whole words before parts of words. ' +
+        'To find what answers a question, use find_context. Omit workspaceId to search all workspaces. limit: default 10, max 50. ' +
+        "format 'compact' (default, 8-character ids), 'lines' (full ids) or 'json'.",
       inputSchema: {
         query: z.string().min(1).max(200).describe('Search query'),
         workspaceId: idArg('workspace').optional().describe('Limit to one workspace'),
+        limit: z.number().int().min(1).max(SEARCH_MAX_LIMIT).optional(),
         format: z.enum(['compact', 'lines', 'json']).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ query, workspaceId, format: formatArg }) => {
+    wrap(async ({ query, workspaceId, limit, format: formatArg }) => {
       const format = formatArg ?? 'compact' // the default since 0.15.1 (docs/adr/1944-*)
-      let wsIds: string[]
-      if (workspaceId) wsIds = [workspaceId]
-      else {
-        const res = await call(ctx, 'GET', '/api/workspaces')
-        wsIds = (res.json() as { workspaces: WorkspaceDTO[] }).workspaces.map((w) => w.id)
-      }
-      const results: { id: string; workspaceId: string; title: string; kind: string; section: string; snippet?: string }[] = []
-      for (const ws of wsIds) {
-        const res = await call(ctx, 'GET', `/api/workspaces/${ws}/search`, { query: { q: query } })
-        const { pages: found } = res.json() as { pages: (PageMetaDTO & { snippet?: string })[] }
-        for (const p of found) {
-          results.push({
-            id: p.id,
-            workspaceId: p.workspaceId,
-            title: titleOf(p),
-            kind: p.kind,
-            section: sectionOf(p),
-            ...(p.snippet ? { snippet: p.snippet } : {}),
-          })
-        }
-      }
-      if (format === 'compact') {
-        // docs/adr/1541-*
-        if (results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
-        return text(`${wrapUntrusted(renderCompactSearch(results), { source: 'search' })}\n${COMPACT_LEGEND}`)
-      }
-      if (format === 'lines') {
-        if (results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
-        return text(
-          wrapUntrusted(
-            results
-              .map((r) => `${r.id} | ${r.title}${r.kind !== 'doc' ? ` [${r.kind}]` : ''}${r.section === 'private' ? ' 🔒' : ''}${r.snippet ? ` | ${r.snippet.replace(/\s+/g, ' ')}` : ''}`)
-              .join('\n'),
-            { source: 'search' },
-          ),
-        )
-      }
-      return jsonUntrusted({ results })
+      // one request ranks every workspace together (docs/adr/2183-*)
+      const res = (
+        await call(ctx, 'GET', '/api/search', {
+          query: { q: query, ...(workspaceId ? { workspaceId } : {}), ...(limit ? { limit: String(limit) } : {}) },
+        })
+      ).json() as AgentSearchResponse
+      // json stays JSON when nothing matches (an empty results array, as before)
+      if (format === 'json') return jsonUntrusted(searchJson(res))
+      if (res.results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
+      // grouped by workspace when there are several, then the "N more" line (docs/adr/2184-*)
+      return text(renderCompactSearch(res, { format, workspaceGiven: !!workspaceId }))
     }),
   )
 

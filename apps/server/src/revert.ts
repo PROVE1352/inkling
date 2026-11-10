@@ -215,7 +215,9 @@ class PageReverter {
     this.snapshotsLoaded = true
     const ids = (await db.execute(sql`
       SELECT id FROM page_snapshots WHERE page_id = ${this.pageId} AND created_at <= ${this.newestAt.toISOString()}::timestamptz + interval '2 seconds'
-       ORDER BY created_at DESC LIMIT ${SNAPSHOT_SOURCES}
+       -- versions from before the change first: a burst of AI steps (docs/adr/2180-*) written within the
+       -- 2-second slack after it must not push the page as it was out of the window
+       ORDER BY (created_at <= ${this.newestAt.toISOString()}::timestamptz) DESC, created_at DESC LIMIT ${SNAPSHOT_SOURCES}
     `)) as unknown as { id: string }[]
     for (const { id } of ids) {
       const bs = await snapshotBlocks(this.pageId, id).catch(() => null)

@@ -50,9 +50,10 @@ git clone https://github.com/PROVE1352/inkling.git && cd inkling
 서버에 올리실 때는 서버를 가리키는 도메인과 열린 80, 443 포트를 준비하고 Caddy 오버레이를 같이 띄우시면 됩니다. 인증서는 Caddy가 받아 오고 갱신하며, 앱과 DB 포트는 밖에서 보이지 않게 됩니다.
 
 ```bash
+cp .env.example .env
 # .env 수정: PUBLIC_URL=https://notes.example.com   DOMAIN=notes.example.com
 #           POSTGRES_PASSWORD=<긴 무작위 문자열>     BACKUP_PASSPHRASE=<서버 밖에도 따로 보관>
-#           APP_SECRET_KEY=<openssl rand -base64 32>
+#           APP_SECRET_KEY=<openssl rand -base64 32>   (INKLING_DATA_NAME=inkling은 그대로 둡니다)
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 ./deploy/signup-key.sh new "first admin"   # https://notes.example.com/register 링크가 출력됩니다
 ```
@@ -68,7 +69,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 ```
 
-0.18 이하를 쓰던 서버를 0.19로 올리실 때는 `.env`에 `INKLING_DATA_NAME=nodian` 한 줄을 먼저 넣어 주세요. 그 버전들의 볼륨과 DB는 프로젝트의 예전 이름(nodian)으로 만들어져 있어서, 이 줄이 없으면 compose가 아예 시작하지 않습니다. 새 이름(inkling)으로 옮기는 건 선택이고 `./deploy/rename-from-nodian.sh`로 하시면 됩니다. 자세한 내용은 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)에 있습니다.
+0.18 이하를 쓰던 서버를 0.19로 올리실 때는 `.env`에 `INKLING_DATA_NAME=nodian` 한 줄을 먼저 넣어 주세요. 그 버전들의 볼륨과 DB는 프로젝트의 예전 이름(nodian)으로 만들어져 있어서, 이 줄이 없으면 compose가 아예 시작하지 않습니다. 새 이름(inkling)으로 옮기는 건 선택이라 업그레이드가 잘 된 걸 확인한 뒤에 하셔도 됩니다. `./deploy/rename-from-nodian.sh --dry-run`으로 먼저 계획을 보고 `--dry-run` 없이 한 번 더 돌리면 됩니다. compose를 `sudo`로 돌리는 서버라면 이 스크립트도 `sudo`로 돌리세요. 자세한 내용은 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)에 있습니다.
 
 ### 설정
 
@@ -84,7 +85,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |
 | `TZ` | `UTC` | 마감일, 데일리 노트, 알림, 백업 일정에서 "오늘"을 정하는 시간대입니다. 예: `Asia/Seoul` |
 
-나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.md](deploy/DEPLOY.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)를 보시면 되고, 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 참고하시기 바랍니다.
+나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.md](deploy/DEPLOY.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)를 보시면 되고, 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 참고하시기 바랍니다.
 
 ### 개발
 
@@ -122,7 +123,7 @@ pnpm dev        # API·협업 서버 :3001, 웹 :5173
 
 워크스페이스에는 초대 링크로 들어오고, 역할은 소유자, 관리자, 멤버 세 가지입니다. 페이지 트리마다 멤버의 권한(보기, 코멘트, 편집, 전체)을 따로 줄 수 있습니다. 워크스페이스 밖의 사람은 게스트로 초대해 공유받은 페이지만 보게 할 수 있습니다. 워크스페이스가 많으면 나만 보는 묶음으로 나누고, 끝난 것은 보관해 둘 수 있습니다. 편집 잠금을 걸면 페이지와 그 하위 페이지를 담당자와 지정한 편집자만 고치고, AI 에이전트는 사람과 따로 '제안만', '코멘트만', '읽기만'으로 묶어 둘 수 있습니다.
 
-페이지와 섹션에 코멘트를 달 수 있고, 알림은 메일 요약과 기기 푸시로도 받을 수 있으며, 활동 화면에서는 바뀐 줄을 비교해 봅니다. 문서마다 담당자와 검토일을 둘 수 있고, '페이지 확인 표시'로 이 문서가 언제까지 맞는지 적어 두면 그날이 지난 뒤 '다시 확인 필요'로 바뀝니다. 공개 링크는 만료일, 비밀번호, 공개 시작 시각을 정할 수 있습니다. 멤버마다 이모지와 짧은 상태 메시지를 걸어 둘 수 있어서 멘션할 때 함께 보입니다.
+페이지와 섹션에 코멘트를 달 수 있고, 알림은 메일 요약과 기기 푸시로도 받을 수 있으며, 활동 화면에서는 바뀐 줄을 비교해 봅니다. 문서마다 담당자와 검토일을 둘 수 있고, '페이지 확인 표시'로 이 문서가 언제까지 맞는지 적어 두면 그날이 지난 뒤 '다시 확인 필요'로 바뀝니다. 공개 링크는 만료일, 비밀번호, 공개 시작 시각을 정할 수 있고, 링크로 들어온 사람은 넓게 보기와 PDF 저장을 쓸 수 있습니다. 링크를 만든 사람이 허용하면 Markdown 파일로 내려받을 수도 있습니다. 멤버마다 이모지와 짧은 상태 메시지를 걸어 둘 수 있어서 멘션할 때 함께 보입니다.
 
 워크스페이스마다 Slack 앱을 연결하면 채널 알림, `/inkling` 검색, 링크 미리보기를 쓸 수 있습니다. Slack이나 Discord, 서명된 JSON을 받는 아무 https 주소로 웹훅을 보낼 수도 있습니다([docs/WEBHOOKS.md](docs/WEBHOOKS.md)).
 
@@ -179,6 +180,8 @@ claude.ai에서는 설정 › 커넥터 › Add custom connector에 같은 주�
 Inkling이 약한 점도 분명히 있습니다. PostgreSQL이 꼭 있어야 하고 SQLite 모드는 없습니다. 데스크톱이나 모바일 네이티브 앱이 없어서 웹 앱을 PWA로 설치해 쓰셔야 하고, 웹 푸시는 서버가 HTTPS여야 하며 iPhone·iPad에서는 홈 화면에 추가한 앱에서만 됩니다. 인스턴스 하나로만 돌게 만들어서, 같은 DB를 다른 프로세스가 쓰고 있으면 서버가 아예 뜨지 않고 수평 확장도 안 됩니다.
 
 오프라인에서는 오프라인 사본을 켠 기기에서 한 번 열어 본 페이지만 읽고 고칠 수 있습니다. 브라우저 탭은 이 설정이 기본으로 꺼져 있어서 오프라인 편집이 탭을 열어 두는 동안만 남습니다. 오프라인에서 페이지를 새로 만들거나 옮기는 일, 데이터베이스와 검색은 아직 안 됩니다. Inkling 자체에는 AI 모델이 없고, 글을 쓰거나 요약하는 일은 연결한 에이전트가 합니다. 의미 검색을 켜지 않으면 `find_context`는 단어로만 찾기 때문에, 영어로 물으면 한국어로만 적힌 노트를 찾지 못합니다. 이럴 때는 `queries=[질문, 번역]`으로 같이 물어보시거나 의미 검색을 켜시면 됩니다.
+
+테스트는 주로 Chrome에서 했습니다. 새로 들어간 화면은 Safari, Firefox, 터치 기기에서 아직 확인하지 못했고, iPhone·iPad의 웹 푸시와 안드로이드 공유 메뉴도 실제 기기에서는 확인하지 못했습니다.
 
 아직 쓰는 사람이 적은 새 프로젝트라서 부족한 부분이 많고, 피드백과 기여를 기다리고 있습니다. 첫 공개를 막을 정도는 아니라서 남겨 둔 문제들을 영역과 심각도별로 [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md)에 적어 두었고, 앞으로 할 일은 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다.
 

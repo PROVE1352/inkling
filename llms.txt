@@ -6,6 +6,7 @@ Start with the README for features and installation. For AI agents using a runni
 
 ## Use and operate
 - [README](README.md): features, quick start with Docker Compose
+- [User guide](docs/GUIDE.md): where each feature is in the app, for people using a server someone else runs
 - [MCP connector and agent guide](docs/MCP.md): connecting Claude, tools, find_context → outline → section, change feed, read-only access, workspace instructions (get_instructions), edit locks and untrusted content
 - [Deployment](deploy/DEPLOY.md): production setup with Caddy
 - [Operations](docs/OPERATIONS.md): deployment checklist, performance, caches, database tuning

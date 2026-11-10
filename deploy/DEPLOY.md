@@ -446,6 +446,15 @@ Keeping `nodian` is supported. What the script does, the downtime, the way back 
 trials, `COMPOSE_PROJECT_NAME`, overrides, cron lines that name containers): docs/OPERATIONS.md "Upgrading to
 0.19", docs/adr/2340-*, 2341-*.
 
+On a server where Docker runs through sudo, run the script the same way: `sudo ./deploy/rename-from-nodian.sh
+--dry-run`. It writes `.env` in place (owner and mode kept) and keeps its state in
+`./backups/rename-nodian-to-inkling/` (root-owned then). If `.env` belongs to root, add the line with
+`sudo sh -c "printf '\nINKLING_DATA_NAME=nodian\n' >> .env"`.
+
+0.19 applies one migration (`0059_share_allow_download`, a column with a constant default). The v0.18.0 image
+also starts on the migrated database, so going back to 0.18.0 did not need a restore in a check on a near-empty
+database; keep the backup from before the upgrade anyway (docs/OPERATIONS.md "Upgrades").
+
 On a stop signal (SIGTERM) the app saves collaborative documents being edited to the DB before
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't
 cut it short with `docker kill` / `docker compose kill`. A new container started while the old one is still

@@ -58,9 +58,10 @@ On a server, point a domain at it (ports 80 and 443 open) and add the Caddy over
 the certificate and keeps the app and database ports private:
 
 ```bash
+cp .env.example .env
 # in .env: PUBLIC_URL=https://notes.example.com   DOMAIN=notes.example.com
 #          POSTGRES_PASSWORD=<long random string>  BACKUP_PASSPHRASE=<keep a copy off the server>
-#          APP_SECRET_KEY=<openssl rand -base64 32>
+#          APP_SECRET_KEY=<openssl rand -base64 32>   (keep INKLING_DATA_NAME=inkling)
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 ./deploy/signup-key.sh new "first admin"   # prints https://notes.example.com/register
 ```
@@ -81,7 +82,9 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 
 Upgrading a server from 0.18 or older to 0.19: add `INKLING_DATA_NAME=nodian` to `.env` first, or compose
 refuses to start (the volumes and database of those releases carry the project's old name). Moving them to the
-new names is optional: `./deploy/rename-from-nodian.sh` ([docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)).
+new names is optional and can wait until the upgrade is checked: `./deploy/rename-from-nodian.sh --dry-run`, then
+without `--dry-run` (with `sudo` where you run compose with it;
+[docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)).
 
 ### Configuration
 
@@ -100,6 +103,8 @@ The essentials, all in `.env`:
 Everything else is in [.env.example](.env.example) and [deploy/DEPLOY.md](deploy/DEPLOY.md): mail
 ([3-E](deploy/DEPLOY.md#3-e-mail-optional)), OpenID Connect sign-in ([3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional)),
 semantic search ([3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)) and running behind your own reverse proxy.
+Web push (`WEB_PUSH`, `VAPID_*`) and OAuth Client ID Metadata Documents (`OAUTH_CIMD`) work without settings or stay
+off until set: [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018).
 Memory limits and Postgres tuning: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ### Development
@@ -141,7 +146,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Invite links, owner, admin and member roles, private pages, per-page levels (view, comment, edit, full) and guests who see only the pages shared with them; your own workspace groups and an archive for finished ones
 - Edit lock for a page tree; agents can be held separately to suggestions, comments or reading
 - Comments on pages and sections, notifications with mail digests and web push to your devices, an Activity screen with a diff per change, page owners and review dates, and "Verify page", which marks a page correct until a date
-- Public links for a page or a folder, with expiry, password and a scheduled start
+- Public links for a page or a folder, with expiry, password and a scheduled start; visitors get a wide view, Save as PDF and, when you allow it, a Markdown download
 - Member status (emoji, message, clear time) in the members panel, mentions and presence
 - Slack app per workspace (channel posts, `/inkling` search, link previews), and webhooks to Slack, Discord or any https endpoint ([docs/WEBHOOKS.md](docs/WEBHOOKS.md))
 
@@ -224,6 +229,7 @@ A rough comparison as of November 2026, from each project's repository, document
 - Offline you can read and edit only the pages you opened on a device with offline copies on (off by default in a browser tab, where offline edits survive only while the tab stays open); you cannot create or move pages, open databases or search offline.
 - Inkling has no AI model of its own; writing and summarizing are done by the agents you connect.
 - Without semantic search, `find_context` matches words, so an English question does not find a note written only in Korean. Pass `queries=[question, translation]` or turn semantic search on.
+- Tested mostly in Chrome. Safari, Firefox and touch devices were not tried for the newest screens, and web push on iPhone and iPad and the Android share target have not been checked on real devices yet.
 - It is a young project with a small user base. Open problems by area and severity: [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md); planned work: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Architecture

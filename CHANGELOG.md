@@ -7,6 +7,154 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-11
+
+> **Before you upgrade a server that ran 0.18 or older: add one line to `.env`.**
+> 0.19 renames the compose project, volumes, database role and database from the old project name `nodian` to
+> `inkling`, and takes the names from a new required setting, `INKLING_DATA_NAME`. Put
+> `INKLING_DATA_NAME=nodian` in `.env` **before** `docker compose up` (for example
+> `printf '\nINKLING_DATA_NAME=nodian\n' >> .env`) and nothing else changes: the same containers, volumes and
+> data. Without the line compose refuses to start (and leaves the running stack alone); do **not** answer that by
+> setting `inkling` on an existing server, which starts an empty instance next to your data. Moving to the new
+> names is optional and can wait: `./deploy/rename-from-nodian.sh --dry-run`, then without `--dry-run` (copies the
+> volumes, keeps the old ones, `--rollback` at any point). Local trials started with `./deploy/local.sh` need
+> nothing. Details: [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names).
+
+A minor release that moves the data plumbing from the project's old name to `inkling`, gives public links a toolbar
+(wide view, Save as PDF and a Markdown download the link's owner can turn on), fixes the app's PDF export and the
+sidebar's "More", and shows a notice with a Reload button where a screen used to stay white. One database
+migration, additive: `0059_share_allow_download` (`pages.share_allow_download`). A 0.18 database goes from 59 to 60
+applied migrations. No new dependency. One new setting, `INKLING_DATA_NAME`, required and without a default (see
+above); no other new variable. The MCP tool list is unchanged (48 tools, 32 in core). Upgrade matrix adds v0.18.0,
+and a new `rename` job upgrades and renames installs from v0.17.1 and v0.18.0 (`.github/workflows/upgrade.yml`).
+
+Checked in Chrome only (desktop and a 390 px window): the public page toolbar, its PDF, the app's PDF export, the
+sidebar and the start-up notices were not tried in Safari, Firefox or on a touch device. The `rename` job has not
+run on GitHub Actions yet; the same script passed locally from v0.17.1 and from v0.18.0 (docs/KNOWN-ISSUES.md,
+"Added in 0.19.0").
+
+### Upgrade notes
+- **The order on a server from 0.18 or older**: the upgrade first, on the old names; the rename later, if at all,
+  after the upgrade is checked, so a migration and a rename never happen in one go.
+
+  ```bash
+  ./deploy/backup.sh
+  printf '\nINKLING_DATA_NAME=nodian\n' >> .env     # 1. keep the old names
+  git pull && docker compose pull app && docker compose up -d
+  ./deploy/rename-from-nodian.sh --dry-run       # 2. optional, later: plan, sizes, free disk, downtime
+  ./deploy/rename-from-nodian.sh                 #    the rename (asks once; --rollback at any point)
+  ```
+
+  Without the line every compose command stops with "required variable INKLING_DATA_NAME is missing a value";
+  nothing was created or stopped. New installs copy `.env.example` (`inkling`). Keeping the old names is supported
+  at least until 1.0 (docs/adr/2340-*, 2341-*).
+- **Set `inkling` on an old server by mistake**: compose starts an empty `inkling` project next to the untouched old
+  volumes. Put `INKLING_DATA_NAME=nodian` back, `docker compose -p inkling down`, `docker compose up -d`, and delete
+  the empty `inkling_inkling-*` volumes.
+- **Servers that run Docker through sudo**: run the rename script the way you run compose,
+  `sudo ./deploy/rename-from-nodian.sh --dry-run`. It writes `.env` in place (owner and mode kept) and its state
+  under `./backups/rename-nodian-to-inkling/` (root-owned when run with sudo).
+- An override that names old volume keys (`nodian-data:/…`) must use the new keys (`data`, `db`, `backups`,
+  `backup-ctl`, `rclone-bin`); compose reports "undefined volume" until then.
+- After the rename, containers are `inkling-app-1`, `inkling-db-1`, `inkling-backup-1`: cron lines that name
+  `nodian-*` containers need the new names. `POSTGRES_USER`/`POSTGRES_DB` lines in `.env` are not read (they never
+  were); delete them.
+- **Migration 0059** adds `pages.share_allow_download boolean not null default false` (a constant default:
+  metadata-only, no backfill, milliseconds). Existing links keep the download off. Going back to 0.18.0 after the
+  upgrade needs no restore: the v0.18.0 image started on a database migrated to 60 rows, served a new share link and
+  logged no error (checked on a near-empty database, not a copy of production). A link that allowed downloads,
+  unpublished and published again while 0.18.0 runs, keeps the setting and offers the download again once 0.19 runs
+  (KNOWN-ISSUES SHARE-5).
+- Markdown downloads of public pages link images and files with `PUBLIC_URL` (`APP_URL` as fallback). Set it in
+  production; without it the request host is used, as for OAuth metadata.
+- `PATCH /api/pages/:id/share` accepts `allowDownload: boolean`; `POST /api/pages/:id/share` does not (strict body:
+  400 if sent). New audit action `share.download_changed` (before/after `{ allowDownload }`).
+- Developers: the dev database moves to `inkling-db-1` on the same port 55432; stop an old `nodian-db-1` first and
+  drop a `nodian` `DATABASE_URL` from your `.env` (CONTRIBUTING.md).
+
+### Added
+- **`deploy/rename-from-nodian.sh`** (`--dry-run`, `--yes`, `--rollback`) moves an install to the new names:
+  pre-rename backup (sidecar, or `pg_dump` when there is none), row counts, a **copy** of every volume whose name
+  changes (the old ones are only read and never deleted), the role and database renamed inside the copy (the
+  password set again from `.env`, which covers MD5), `.env` switched, then health, counts, files and a backup
+  checked under the new names. It continues where an interrupted run stopped, and `--rollback` starts the old
+  names again from any point. Downtime about a minute for a small server; needs free disk for a copy of the
+  volumes (docs/adr/2341-*).
+- **Rename test**: `scripts/upgrade-test/rename.sh` and a `rename` job in `.github/workflows/upgrade.yml` (from
+  v0.17.1 and v0.18.0, by commit): an old release installed like a server, the upgrade refused without the new
+  line, the new release on the old names with its migrations (59 → 60 rows from v0.18.0), the rename (also
+  killed after the copy and after the role rename, and rolled back) leaving the journal as it was, and a new
+  install with no old name anywhere (docs/adr/2342-*).
+- **Public links: Wide view.** Pages follow their own "Full width" setting by default; a visitor's choice is
+  remembered in their browser. Tables, code, diagrams and the tables of charts, database views and query results
+  use the whole window; running text stops at a readable width (docs/adr/2360-*).
+- **Public links: Save as PDF** opens the browser's print dialog with the page title as the file name. The
+  printout is the article alone, always in the light palette, with wide tables wrapped to the paper, code wrapped,
+  toggles open, diagrams, formulas, images and checkboxes, without buttons or the folder list; the browser's own
+  Print command gives the same result (docs/adr/2361-*).
+- **Public links: Download Markdown**, per link and off by default. People who manage links turn it on in the
+  share dialog ("Let visitors download it as Markdown"); the file holds only what the public page shows
+  (docs/adr/2362-*). Changes are in the audit log as "Public link download changed".
+- Public page actions fold into one "⋯" menu on narrow screens, with keyboard support (docs/adr/2363-*).
+- **A screen that cannot be drawn says so instead of going white.** It shows "This screen could not be shown" with
+  a Reload button (and the error under Details). A page that fails keeps the sidebar, and moving to another page
+  tries again. A route chunk that still fails after the one automatic reload (server restarting, flaky connection)
+  ends there too, and a start whose script never ran shows a reload notice after 12 s (docs/adr/2324-*).
+
+### Changed
+- **The data plumbing is called `inkling`, from one required setting.** Up to 0.18 the compose project, the
+  volumes (`nodian-db`, `nodian-data`, `nodian-backups`, `nodian-backup-ctl`, `nodian-rclone-bin`), the database
+  role and the database were named `nodian`, the project's old name. They now follow `INKLING_DATA_NAME` in
+  `.env`: `inkling` gives project `inkling`, volumes `inkling_inkling-db`, `-data`, `-backups`, `-backup-ctl`,
+  `-rclone-bin`, role and database `inkling`; `nodian` gives exactly the 0.18 names. The setting has no default,
+  so an install that upgrades without reading this cannot come up on new, empty volumes: compose refuses before it
+  creates or stops anything and says which line to add. `.env.example` sets `inkling` (docs/adr/2340-*).
+- `deploy/signup-key.sh`, `deploy/reset-password.sh` and `deploy/cli-token.sh` read the role and database from
+  the db container instead of assuming `nodian`, so they work on old-name and new-name installs alike. The db
+  container now sets `PGUSER`/`PGDATABASE`: `docker compose exec db psql` needs no `-U`/`-d`.
+- Development: `pnpm db:up` starts `inkling-db-1` with role, password and database `inkling`; the default
+  `DATABASE_URL` (server, drizzle-kit, benches) is `postgres://inkling:inkling@localhost:55432/inkling`.
+- `deploy/local.sh` writes `INKLING_DATA_NAME=inkling` for new trials and adds `INKLING_DATA_NAME=nodian` to the
+  `.env` of a trial started before 0.19, so it keeps its data.
+- `ShareStatusDTO.allowDownload` and `PublicPageDTO.fullWidth` / `.download` are new, additive fields; two new
+  public routes, `GET /api/public/:token/export.md` and `GET /api/public/:token/p/:ref/export.md`
+  ([docs/API.md](docs/API.md), "v0.19.0 additions").
+- Not changed: MCP tool descriptions, the tool list and the server instructions (full 48 tools ~12,777 tokens, core
+  32 ~7,533).
+
+### Fixed
+- **`deploy/signup-key.sh new` makes a key that works at once.** Since 0.5 the server compares signup keys by their
+  SHA-256 (docs/adr/1110-*), but the script still stored the key in plain text, so a key from the script was refused
+  ("invalid or expired") until the next app restart hashed it. The script now stores the hash and the last four
+  characters like the admin screen does; `list` shows `…ABCD` for such keys, `revoke` takes the full key for both
+  kinds. Found by the rename test's new-install step.
+- **"More (n)" in the sidebar opens all n menus.** On a window that is not full-screen the sidebar folds the menus
+  that do not fit under "More (n)"; opening it showed about one more row, and the rest scrolled inside a small box
+  with nothing that said so ("More (3)" opened one). The page tree now gives way while "More" is open (down to
+  120 px, with its own scroll), so every folded menu shows. On a very short window where even that is not enough,
+  the list scrolls in whole rows above a "k more below" row that scrolls it (docs/adr/1643-*).
+- **Export as PDF prints wide tables, closed toggles and the dark theme properly.** In the app's PDF export a
+  table with many columns lost its right-hand columns; the columns now share the page width (smaller type from
+  7 columns). Closed toggles and toggle headings print their contents. In the dark theme the body text printed
+  almost white on the white page; it prints in the light palette now (docs/adr/0308-*).
+- PDF export (app and public pages): a heading no longer ends up alone at the bottom of a page.
+- Public pages: drawn Mermaid diagrams and formulas no longer turn back into source text when the page re-renders
+  (closing a presentation, the new width toggle).
+- Public pages: code blocks were white text on a light grey box; they follow the page palette now.
+- Public pages: a table wider than the column scrolls inside its own box instead of running past the column (and
+  making phones scroll sideways).
+- **Offline copies: a page no longer waits on "Connecting…" for a browser storage that never answers.** When
+  `indexedDB.open` gave neither success nor error, a page waiting for its device copy stayed on "Connecting…"; after
+  5 s the device store now counts as unavailable and the page opens from the server.
+
+### Performance
+- Public page bundle: +822 B on the entry (i18n strings) and +6,278 B JS, +5,827 B CSS on the public page (≈ +3.4 KB
+  gzip in total) for the toolbar, the print styles shared with the app's PDF export and the view CSS
+  ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
+### Database
+- Migration 0059: `pages.share_allow_download boolean not null default false` (docs/adr/2362-*).
+
 ## [0.18.0] - 2026-11-10
 
 A minor release about writing from anywhere: offline copies of the pages you open, web push notifications to your

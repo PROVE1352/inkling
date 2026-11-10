@@ -17,6 +17,7 @@ lists both.
 - [Edit lock](#edit-lock)
 - [Slack](#slack)
 - [Connecting your AI (MCP)](#connecting-your-ai-mcp)
+- [Save from the web](#save-from-the-web)
 - [Importing from Notion](#importing-from-notion)
 - [Export](#export)
 - [Long pages: split into subpages](#long-pages-split-into-subpages)
@@ -515,6 +516,19 @@ the date and time (in your device's time zone). Until then the link answers like
 published, the dialog says **Opens …** with **Change start** and **Open now**, and **Web shares** marks the link.
 Changing the start is in the audit log.
 
+### Reading, printing and downloading
+
+Visitors of a public link see a row of actions above the title (one **⋯** button on a phone):
+
+- **Present** shows the page as slides.
+- **Wide view** uses the whole window for tables, code and diagrams; text keeps a readable width. A page
+  with "Full width" turned on opens wide. Your choice is remembered in your browser.
+- **Save as PDF** opens your browser's print dialog; pick "Save as PDF" there. The PDF has the page only,
+  on white, named after the page.
+- **Download Markdown** appears when the person who shared the link allowed it. Turn it on in the share
+  dialog under the link's settings: **Let visitors download it as Markdown**. The file holds only what the
+  public page shows. It is off for every new link, and publishing again turns it off.
+
 ## Edit lock
 
 An edit lock protects a page and everything under it. Others can still read and comment.
@@ -784,7 +798,9 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 - One page: **⋯** menu → **Export (.md)**, or **Export with subpages (.zip)**. Canvases export as `.canvas`.
   Charts, database views and query blocks are written with a table of their numbers at export time; importing the
   file brings the blocks back.
-- PDF: **Export as PDF** in the page header's **⋯** menu.
+- PDF: **Export as PDF** in the page header's **⋯** menu opens the browser's print dialog. Wide tables are fitted to
+  the page width (smaller type from 7 columns; for very wide tables choose landscape there), closed toggles print
+  their contents, and the dark theme prints in light colors.
 - Database: **Export view as CSV** / **Export view as Excel**.
 - Whole workspace: workspace menu → **Export all (.zip)**. An owner may limit who can do this.
 - **Send to Notion** in the **⋯** menu works only if your server is set up for it.
@@ -817,7 +833,7 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 ## Settings and the sidebar
 
 Open Settings with ⌘, or **Settings** at the bottom of the sidebar. The sections (Account, Security, Notifications,
-Editor, Sidebar, Files & links, Appearance, Connections, Keyboard shortcuts, About) are listed on the left and the
+Editor, Sidebar, Files & links, Appearance, Connections, Keyboard shortcuts, Offline, About) are listed on the left and the
 chosen one opens on the right; on a phone the list comes first and a section opens over it. Two-step verification is
 under Security; the app version and a link to this guide are under About.
 
@@ -843,8 +859,9 @@ can also right-click (or long-press) a menu → **Hide from sidebar**. Hidden me
 and their shortcuts.
 
 The page list always keeps a good part of the sidebar's height. When the menus don't fit above it (a laptop
-with every menu on, a tablet with the browser's bars), the last ones fold under **More**; tap it to see them
-all, and again (**Show less**) to fold them. On a short screen the trash, shortcuts, settings and account rows
+with every menu on, a tablet with the browser's bars), the last ones fold under **More (n)**; tap it to see all
+n of them (the page list gets shorter while it is open), and again (**Show less**) to fold them. On a very short
+window the open list scrolls, with a "k more below" row at the bottom. On a short screen the trash, shortcuts, settings and account rows
 become one row of icons at the bottom.
 
 ⌘\ hides or shows the whole sidebar. To make it wider or narrower, drag its right edge (200–480 px);
@@ -981,8 +998,9 @@ the dot next to the page says **Not uploaded yet** while your edits wait on the 
 they are uploaded and you see **Offline edits uploaded**. If someone restored an older version of the page, reverted
 or split it, moved it to the trash or took away your edit right in the meantime, your offline edits are not mixed
 into it: they are kept under Settings → Offline → **Recovery**, where you can read them and copy what you need.
-Offline you cannot create, move or delete pages, open databases, attachments or the canvas, or search. Logging out
-deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.
+Offline you cannot create, move or delete pages, open databases, attachments or the canvas, or search. If the
+browser's storage does not answer, the page opens from the server after about 5 seconds instead of waiting on
+"Connecting…". Logging out deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.
 
 ## FAQ
 
@@ -1009,6 +1027,11 @@ The page has an edit lock that doesn't allow agents to edit. Ask the page owner 
 
 **I'm not getting emails.**
 Check Settings → Notifications. If it says the server has no mail configured, notifications stay in the app.
+
+**The screen says "This screen could not be shown".**
+Something failed while drawing it. Press **Reload**; if a page keeps failing, the sidebar still works, so you can
+open another page. When you report it, copy the text under **Details**. If the app does not start at all, a notice
+with a reload link appears after 12 seconds.
 
 **How do I leave a workspace?**
 Workspace settings → **Danger zone** → **Leave workspace**. Your private pages there go to the trash. If you are

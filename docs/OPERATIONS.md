@@ -152,7 +152,12 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   "Article text" makes outbound HTTP(S) requests; a 15-minute automation timer runs per process. Nothing else changes
   for people until they turn something on.
 - 0.18 → 0.19 needs one line in `.env` before compose starts again: `INKLING_DATA_NAME=nodian` on an existing
-  install (see "Upgrading to 0.19" below), then optionally `deploy/rename-from-nodian.sh`.
+  install (see "Upgrading to 0.19" below), then optionally `deploy/rename-from-nodian.sh`. It applies 1 migration
+  (59 → 60 rows in `drizzle.__drizzle_migrations`): `0059_share_allow_download` adds
+  `pages.share_allow_download boolean not null default false` (a constant default: metadata-only, no backfill,
+  milliseconds). No new dependency. No new environment variable besides `INKLING_DATA_NAME`. Going back to
+  0.18.0 after the upgrade needs no restore: 0.18.0 starts on the 60-row database (the extra column has a
+  default and 0.18.0 does not read it; checked on a near-empty database, KNOWN-ISSUES SHARE-5).
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
@@ -228,6 +233,11 @@ Notes:
 - Set `inkling` on an old server by mistake: compose starts an empty `inkling` project next to the untouched old
   volumes. Put `INKLING_DATA_NAME=nodian` back, `docker compose -p inkling down`, `docker compose up -d`, and
   delete the empty `inkling_inkling-*` volumes.
+- Servers that run Docker through sudo: run the rename script the way you run compose,
+  `sudo ./deploy/rename-from-nodian.sh --dry-run`. It writes `.env` in place (owner and mode kept) and its state
+  under `./backups/rename-nodian-to-inkling/` (root-owned when run with sudo). The `printf … >> .env` line above
+  needs a shell that may write `.env`: `sudo sh -c "printf '\nINKLING_DATA_NAME=nodian\n' >> .env"` when the file
+  belongs to root.
 
 ### Client updates
 
@@ -789,3 +799,24 @@ only route where a visitor without an account writes data.
 
 - Nothing to configure. The rows go with the account, with the workspace's purge, and when a member leaves or is
   removed; a soft-deleted workspace keeps them for a restore. Downgrading to 0.17 leaves the two tables unused.
+
+## 13. Public page downloads and start-up notices (0.19)
+
+### Public page downloads (docs/adr/2360-* .. 2363-*)
+
+- Public links can offer a Markdown download (per link, off by default). Responses are `no-store` and
+  `noindex`; they are rate-limited with the other public routes (60/min per route and IP). Downloads are
+  not logged beyond the request log. Image and file addresses in the file use `PUBLIC_URL`.
+- To find links with downloads on: `SELECT id, title FROM pages WHERE share_token IS NOT NULL AND share_allow_download;`
+  To turn them all off: `UPDATE pages SET share_allow_download = false WHERE share_allow_download;`
+- Wide view and Save as PDF run in the visitor's browser; nothing to configure.
+
+### Start-up and screen notices (docs/adr/2324-*)
+
+- `index.html` carries a short static notice (English and Korean) with a reload link, revealed by CSS after 12 s if
+  the app's script never started. It needs no script, so the shell's `script-src 'self'` is unchanged. A proxy that
+  rewrites or caches `index.html` must keep it `no-cache` (section 4) as before.
+- A screen that fails to render shows "This screen could not be shown" with a Reload button and the error under
+  Details. Ask people who report a blank or broken screen for that Details text.
+- In a browser whose IndexedDB never answers, a page with offline copies on opens from the server after 5 s instead
+  of waiting on "Connecting…".

@@ -1695,3 +1695,25 @@ No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (
 find_context, search and catch_up without `workspaceId` leave the caller's archived workspaces out and say so in a
 closing line; `list_workspaces` adds `group` and `archived`; `query_rows describe=true` lists enabled automations;
 buttons read as `<!-- inkling:button … -->`. Details: [MCP.md](MCP.md).
+
+## v0.19.0 additions
+
+Migration 0059 (`pages.share_allow_download boolean not null default false`), additive. Existing answers keep their
+shape; new fields are additive.
+
+### Public page downloads (docs/adr/2360–2363)
+
+| Method | Path | Answer |
+|---|---|---|
+| GET | `/api/public/:token/export.md` | Markdown of a single-page link's page, only when the link allows downloads (`allowDownload`). Same gate as `/api/public/:token`: unknown 404 (counted as a guess), expired 410, before a scheduled start 404, password 401 until unlocked; then a folder token or canvas → 404, download off → 404. `200 text/markdown; charset=utf-8`, `Content-Disposition: attachment; filename*=UTF-8''<title>.md`, `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`. Content = the public page's blocks (no ids, no tokens, no frontmatter), links and files as absolute `PUBLIC_URL` addresses. 60/min |
+| GET | `/api/public/:token/p/:ref/export.md` | The same for a page of a folder link (doc or collection); the folder link's setting applies. Ref outside the subtree, private or trashed → 404 |
+
+- `PATCH /api/pages/:id/share` body adds `allowDownload?: boolean` (owners and admins; audited as
+  `share.download_changed` with before/after `{ allowDownload }`). `POST` does not take it (strict body: 400 if
+  sent): a new link always starts with downloads off. Publishing and unpublishing reset it to off.
+- `ShareStatusDTO` adds `allowDownload: boolean`.
+- `PublicPageDTO` adds `fullWidth?: true` (the page's "Full width") and `download?: true` (the link allows
+  `…/export.md`); both left out when false.
+
+### MCP tools
+No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (~7,533). Details: [MCP.md](MCP.md).

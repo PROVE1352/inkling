@@ -39,6 +39,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0305](0305-spreadsheet-import-export-in-browser.md) | Spreadsheet import/export in the browser; exceljs only via dynamic import; batch row APIs | Accepted |
 | [0306](0306-sheets-read-sync.md) | Google Sheets read sync (experimental): published-CSV pull, key upsert, claim-based locking | Accepted (experimental, flag `sheets-sync`) |
 | [0307](0307-pdf-export-print-css.md) | "Export as PDF" = print-only CSS + window.print() | Accepted |
+| [0308](0308-app-pdf-export-reaches-the-editor-node-views.md) | The app's "Export as PDF" reaches the editor's node views | Accepted |
 
 ## 04xx Plugins & feature flags
 
@@ -585,6 +586,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1640](1640-the-page-tree-keeps-its-height-menus-fold.md) | The page tree keeps its height; menus that do not fit fold under "More" | Accepted |
 | [1641](1641-four-sidebar-menus-by-default.md) | Four sidebar menus by default; saved choices keep their meaning | Accepted |
 | [1642](1642-typing-a-table-pipe-row-size-and-paste.md) | Typing a table: a pipe row and Enter, "/table 3x4", pasted Markdown | Accepted |
+| [1643](1643-opening-more-shows-every-folded-menu.md) | Opening "More" shows every folded menu; the page tree gives way | Accepted |
 
 ## 1650–1659 Change feed and MCP fixes
 
@@ -909,6 +911,24 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2321](2321-no-answer-from-the-server-on-the-0-18-screens.md) | No answer from the server: one "No connection" error, 0.18 screens fail at once, logout drops the push subscription it could not end | Accepted |
 | [2322](2322-menus-at-the-caret-choose-their-side-from-the-room.md) | Menus at the caret choose their side from the room around the caret | Accepted |
 | [2323](2323-presentation-splits-at-the-shallowest-repeated-heading-level.md) | Presentation mode splits at the shallowest heading level used twice, and long slides scroll | Accepted |
+| [2324](2324-a-screen-that-cannot-be-drawn-says-so-instead-of-going-white.md) | A screen that cannot be drawn says so instead of going white | Accepted |
+
+## 2340–2349 0.19 names
+
+| ADR | Title | Status |
+|---|---|---|
+| [2340](2340-data-names-from-one-required-variable.md) | Data names from one required variable: INKLING_DATA_NAME, and compose refuses without it | Accepted |
+| [2341](2341-rename-by-copying-volumes-and-renaming-in-the-copy.md) | Moving an install to the new names: copy the volumes, rename the role in the copy | Accepted |
+| [2342](2342-rename-test-in-ci.md) | Rename test: an old-name install upgraded and moved in CI, the same script locally | Accepted |
+
+## 2360–2369 Public page toolbar: wide view, PDF and Markdown download
+
+| ADR | Title | Status |
+|---|---|---|
+| [2360](2360-public-page-wide-view-follows-the-page-and-the-visitor.md) | Wide view on public pages follows the page, then the visitor; running text capped at 60rem | Accepted |
+| [2361](2361-public-page-pdf-through-the-browser-print.md) | "Save as PDF" on public pages is the browser's print, with the article marked while it is shown | Accepted |
+| [2362](2362-markdown-download-of-public-pages.md) | Markdown download of public pages: per link, off by default, the page's own blocks | Accepted |
+| [2363](2363-public-page-toolbar-folds-into-one-menu-on-phones.md) | Public page actions: a row of buttons, one "⋯" menu on narrow screens | Accepted |
 
 ## 099x Client updates
 

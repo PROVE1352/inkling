@@ -173,6 +173,16 @@ export function securityEnvFacts(): Omit<StatusFacts['security'], 'plaintextSecr
   }
 }
 
+/** Web push counts (docs/adr/2222-*): one small query each, no endpoints. */
+async function pushFacts(): Promise<NonNullable<StatusFacts['push']>> {
+  const { pushEnv } = await import('../push/config')
+  const { vapidProblem } = await import('../push/keys')
+  const { pushSummary } = await import('../push/deliver')
+  const s = await pushSummary()
+  const problem = pushEnv.enabled ? await vapidProblem() : null
+  return { enabled: pushEnv.enabled, problem, subscriptions: s.subscriptions, failing: s.failing, dead24h: s.dead24h, lastFailureAt: s.lastFailureAt }
+}
+
 /** All facts: heavy (cached) + live. */
 export async function gatherFacts(opts: { refresh?: boolean } = {}): Promise<{ facts: StatusFacts; cache: { hit: boolean; at: number } }> {
   const now = Date.now()
@@ -201,6 +211,7 @@ export async function gatherFacts(opts: { refresh?: boolean } = {}): Promise<{ f
     restarts: restartStats(now),
     errors: errorStats(now),
     migrations: h.facts.migrations,
+    push: await safe(pushFacts),
     security: { ...securityEnvFacts(), plaintextSecrets: h.facts.plaintextSecrets, sealedSecrets: h.facts.sealedSecrets },
     update: {
       enabled: updateEnv.check === 'github',

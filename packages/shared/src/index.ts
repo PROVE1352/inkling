@@ -1045,3 +1045,5 @@ export * from './taint'
 export * from './agentTokens'
 // Web clipper: POST /api/clip and the /clip screen (docs/adr/2260-*)
 export * from './clip'
+// Web push: settings, devices, subscribe input, payload (docs/adr/2220-*)
+export * from './push'

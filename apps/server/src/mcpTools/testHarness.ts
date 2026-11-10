@@ -86,6 +86,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/query')).registerQueryRoutes(api)
       await (await import('../routes/charts')).registerChartRoutes(api)
       await (await import('../routes/apiTokens')).registerApiTokenRoutes(api)
+      await (await import('../push/routes')).registerPushRoutes(api) // web push (docs/adr/2220-*)
       // memory check and instruction length (docs/adr/2003-*, 2004-*)
       await (await import('../routes/notesCheck')).registerNotesCheckRoutes(api)
       await (await import('../routes/instructionLength')).registerInstructionLengthRoutes(api)

@@ -11,6 +11,7 @@ import type { NotifyKind, Reason } from './kinds'
 import { scheduleInstantMail } from './mailer'
 import { enqueueSlackInTx, slackCommitted } from '../slack/notify'
 import { isAgentVia } from '../agentVia'
+import { enqueuePushInTx, pushCommitted } from '../push/deliver'
 
 /**
  * Notification engine (docs/adr/1000-*).
@@ -138,6 +139,8 @@ async function notifyPass(isolate: boolean): Promise<number> {
   const written: Written[] = []
   // Slack channel posts of these events, queued in this transaction (docs/adr/1802-*)
   let slackQueued = false
+  // Web push deliveries of the rows written, queued in this transaction (docs/adr/2222-*)
+  let pushQueued = false
   const n = await db.transaction(async (tx) => {
     // Fast path claims by deleting (one statement); the delete commits only with the rows written.
     const claim = isolate
@@ -164,6 +167,7 @@ async function notifyPass(isolate: boolean): Promise<number> {
       const info = await lookupRecipients(tx, planned)
       for (const p of planned) written.push(...(await writePlanned(p, info, tx)).written)
       slackQueued = await enqueueSlackInTx(tx, rows.map((r) => r.payload))
+      pushQueued = await enqueuePushInTx(tx, written)
       notifyStats.passes++
       notifyStats.events += rows.length
       await notifyTestHooks.beforeCommit?.()
@@ -182,12 +186,14 @@ async function notifyPass(isolate: boolean): Promise<number> {
     }
     if (done.length) await tx.execute(sql`DELETE FROM outbox WHERE id = ANY(${`{${done.join(',')}}`}::bigint[])`)
     slackQueued = await enqueueSlackInTx(tx, rows.filter((r) => done.includes(r.id)).map((r) => r.payload))
+    pushQueued = await enqueuePushInTx(tx, written)
     await notifyTestHooks.beforeCommit?.()
     return done.length
   })
   // After the commit: the client refetches and must see the rows.
   sideEffects(written)
   slackCommitted(slackQueued)
+  pushCommitted(pushQueued)
   return n
 }
 
@@ -249,8 +255,15 @@ export interface ProcessResult {
 }
 
 interface Written {
+  /** Notification row id (web push queues deliveries per row, docs/adr/2222-*). */
+  id: string
   userId: string
   mailState: string | null
+  type: NotifyKind
+  delivery: 'now' | 'quiet'
+  workspaceId: string | null
+  connection: string | null
+  personToo: boolean
 }
 
 function sideEffects(written: Written[]): void {
@@ -477,12 +490,13 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
         WHEN EXCLUDED.mail_state = 'digest' OR notifications.mail_state = 'digest' THEN 'digest'
         ELSE notifications.mail_state END,
       acked_at = NULL
-    RETURNING user_id AS "userId", type, delivery, mail_state AS "mailState", (xmax = 0) AS inserted
-  `)) as unknown as { userId: string; type: NotifyKind; delivery: 'now' | 'quiet'; mailState: string | null; inserted: boolean }[]
+    RETURNING id, user_id AS "userId", type, delivery, mail_state AS "mailState", (xmax = 0) AS inserted,
+              workspace_id AS "workspaceId", connection, person_too AS "personToo"
+  `)) as unknown as ({ inserted: boolean } & Written)[]
 
   for (const r of out) {
     delivered.set(r.userId, { kind: r.type, delivery: r.delivery })
-    written.push({ userId: r.userId, mailState: r.mailState })
+    written.push({ id: r.id, userId: r.userId, mailState: r.mailState, type: r.type, delivery: r.delivery, workspaceId: r.workspaceId, connection: r.connection, personToo: r.personToo })
     // A new row counts toward the hourly cap of later events in this pass (a collapse adds none).
     if (r.inserted) look.counts.set(r.userId, (look.counts.get(r.userId) ?? 0) + 1)
   }

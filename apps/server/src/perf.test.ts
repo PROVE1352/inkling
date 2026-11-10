@@ -31,7 +31,7 @@ describe('httpCache', async () => {
   it('static roles', () => {
     assert.match(staticCacheControl('assets/index-abc123.js'), /immutable/)
     assert.match(staticCacheControl('workbox-1a2b3c4d.js'), /immutable/)
-    for (const f of ['index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest']) {
+    for (const f of ['index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest', 'push-sw.js']) {
       assert.equal(staticCacheControl(f), 'no-cache')
     }
     assert.equal(staticCacheControl('icons/i-192.png'), 'public, max-age=86400')

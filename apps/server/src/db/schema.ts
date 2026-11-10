@@ -988,3 +988,5 @@ export * from './schema-slack'
 export * from './schema-forms'
 // Connections handed flagged content: suggest-only window and releases (docs/adr/2040-*)
 export * from './schema-taint'
+// Web push subscriptions, VAPID key and per-person push settings (docs/adr/2220-*)
+export * from './schema-push'

@@ -95,6 +95,7 @@ import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
 import { registerSlackRoutes } from './routes/slack'
 import { initSlack } from './slack/notify'
+import { initPush } from './push/deliver'
 import { flushNotifications, initNotifications } from './notify/engine'
 import { startOutboxWorker, stopOutboxWorker } from './outbox'
 import { releaseChangeWaiters } from './context/changeWait'
@@ -434,6 +435,7 @@ async function main(): Promise<void> {
   registerEmbedCsp(app)
   initWebhooks((msg) => app.log.warn(msg))
   initSlack((msg) => app.log.warn(msg))
+  initPush((msg) => app.log.warn(msg))
   // Notification engine + mail (docs/adr/1000-*, 1004-*)
   initNotifications((msg) => app.log.warn(msg))
   initNotificationMail((msg) => app.log.warn(msg))
@@ -603,6 +605,8 @@ async function main(): Promise<void> {
       await registerWebhookRoutes(api)
       // Slack app per workspace: settings, account links, /inkling and Events API (docs/adr/1800-*)
       await registerSlackRoutes(api)
+      // Web push: VAPID key, this device's subscription, push settings and a test (docs/adr/2220-*)
+      await (await import('./push/routes')).registerPushRoutes(api)
       // Admin → Backups status, trigger and download (sidecar-based) — docs/BACKUP.md
       await registerBackupRoutes(api)
     },

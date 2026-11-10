@@ -31,6 +31,10 @@ export type SecretPurpose =
   // Slack app of a workspace (docs/adr/1801-*)
   | 'slack-bot-token'
   | 'slack-signing-secret'
+  // Web push: subscription endpoint and auth secret, the generated VAPID private key (docs/adr/2221-*)
+  | 'push-endpoint'
+  | 'push-auth'
+  | 'push-vapid-key'
 
 function sha256hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex')
@@ -127,6 +131,10 @@ const SEALED_COLUMNS: { table: string; col: string; aad: string; purpose: Secret
   // Slack bot token and signing secret (docs/adr/1801-*)
   { table: 'slack_integrations', col: 'bot_token', aad: 'workspace_id', purpose: 'slack-bot-token', pk: 'workspace_id', ws: 'workspace_id' },
   { table: 'slack_integrations', col: 'signing_secret', aad: 'workspace_id', purpose: 'slack-signing-secret', pk: 'workspace_id', ws: 'workspace_id' },
+  // Web push (docs/adr/2221-*): endpoint and auth secret per browser, the generated VAPID private key
+  { table: 'push_subscriptions', col: 'endpoint', aad: 'id', purpose: 'push-endpoint', pk: 'id', ws: null },
+  { table: 'push_subscriptions', col: 'auth', aad: 'id', purpose: 'push-auth', pk: 'id', ws: null },
+  { table: 'push_vapid_keys', col: 'private_key', aad: 'id', purpose: 'push-vapid-key', pk: 'id', ws: null },
 ]
 
 /** Plaintext and sealed values of one sealed column (optionally limited by a workspace predicate). */

@@ -379,6 +379,13 @@
       "when": 1794296100000,
       "tag": "0053_v017_snapshot_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794296700000,
+      "tag": "0054_w18_web_push",
+      "breakpoints": true
     }
   ]
 }

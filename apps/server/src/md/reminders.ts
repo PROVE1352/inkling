@@ -5,6 +5,7 @@ import { db } from '../db/index'
 import { collections, notifications, pageTasks, pages, workspaceMembers } from '../db/schema'
 import { runHousekeeping } from '../housekeeping'
 import { emitWebhookEvent } from '../webhooks'
+import { pushForInserted } from '../push/deliver'
 import { liveWorkspace } from '../workspaceLive'
 
 /**
@@ -115,7 +116,7 @@ export async function scanDueReminders(log: Logger): Promise<void> {
 
             if (recipients.size === 0) continue
 
-            await db.insert(notifications).values(
+            const inserted = await db.insert(notifications).values(
               [...recipients].map((userId) => ({
                 userId,
                 type: 'reminder' as const,
@@ -123,7 +124,9 @@ export async function scanDueReminders(log: Logger): Promise<void> {
                 workspaceId: row.workspaceId,
                 actorId: null,
               })),
-            )
+            ).returning({ id: notifications.id })
+            // web push of the same rows (docs/adr/2222-*)
+            void pushForInserted(inserted.map((r) => r.id))
             // M16: push to each recipient's inbox channel right away (broadcastToUser isolates failures)
             for (const rid of recipients) broadcastToUser(rid, { t: 'notifications' })
             emitWebhookEvent({ type: 'reminder', workspaceId: row.workspaceId, pageId: row.id })
@@ -187,7 +190,8 @@ async function scanTaskReminders(today: string, midnight: Date, log: Logger): Pr
           .where(and(eq(workspaceMembers.workspaceId, p.workspaceId), eq(workspaceMembers.userId, owner)))
           .limit(1)
         if (member.length === 0) continue
-        await db.insert(notifications).values({ userId: owner, type: 'reminder', pageId: p.pageId, workspaceId: p.workspaceId, actorId: null })
+        const inserted = await db.insert(notifications).values({ userId: owner, type: 'reminder', pageId: p.pageId, workspaceId: p.workspaceId, actorId: null }).returning({ id: notifications.id })
+        void pushForInserted(inserted.map((r) => r.id)) // docs/adr/2222-*
         broadcastToUser(owner, { t: 'notifications' })
         emitWebhookEvent({ type: 'reminder', workspaceId: p.workspaceId, pageId: p.pageId })
         created++

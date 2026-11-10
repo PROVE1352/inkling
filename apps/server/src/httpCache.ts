@@ -26,7 +26,9 @@ export function ifNoneMatch(header: string | string[] | undefined, etag: string)
 }
 
 const HASHED_ASSET = /^assets\/|^workbox-[0-9a-f]{6,}\.js$/
-const SHELL_FILES = new Set(['index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest'])
+// push-sw.js: imported by sw.js; importScripts goes through the HTTP cache on updates
+// (updateViaCache 'imports'), so a day-long max-age would keep old push handlers after a deploy (docs/adr/2223-*).
+const SHELL_FILES = new Set(['index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest', 'push-sw.js'])
 
 /** @fastify/static setHeaders: Cache-Control by file role. `rel` is relative to WEB_DIST. */
 export function staticCacheControl(rel: string): string {

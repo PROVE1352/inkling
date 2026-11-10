@@ -75,6 +75,19 @@ export interface StatusFacts {
     /** Uploads by AI agents (docs/adr/2065-*): server default and limits; warnings = values not taken as written. */
     agentUploads?: { mode: 'on' | 'off' | 'never'; maxBytes: number; dailyBytes: number | null; mcpBodyBytes: number; warnings: number }
   }
+  /** Web push (docs/adr/2222-*): counts only, never endpoints. Absent = not gathered. */
+  push?: {
+    /** WEB_PUSH is not off. */
+    enabled: boolean
+    /** Why the server cannot push although it is on (VAPID key missing half, invalid or unreadable). */
+    problem: string | null
+    subscriptions: number
+    /** Subscriptions whose last delivery failed. */
+    failing: number
+    /** Deliveries that gave up in the last 24 h. */
+    dead24h: number
+    lastFailureAt: string | null
+  } | null
   update: {
     enabled: boolean
     current: string
@@ -93,6 +106,8 @@ const DAY = 24 * HOUR
 const MB = 1024 * 1024
 
 export const THRESHOLDS = {
+  /** Web push deliveries that gave up in the last 24 h → warn (docs/adr/2222-*). */
+  pushDeadWarn24h: 20,
   /** Last successful backup older than 2 × schedule interval + 1 h → warn (one run missed). */
   backupMissedFactor: 2,
   backupSlackMs: HOUR,
@@ -373,6 +388,17 @@ function appItems(f: StatusFacts): StatusItem[] {
     level: ml,
     data: { state: mstate, applied: m?.applied ?? null, expected: m?.expected ?? null, latest: m?.latest ?? null },
   })
+  const p = f.push
+  if (p) {
+    const state = !p.enabled ? 'off' : p.problem ? 'problem' : 'ok'
+    const pl: StatusLevel = state === 'off' ? 'off' : state === 'problem' || p.dead24h >= THRESHOLDS.pushDeadWarn24h ? 'warn' : 'ok'
+    out.push({
+      key: 'app.push',
+      group: g,
+      level: pl,
+      data: { state, problem: p.problem, subscriptions: p.subscriptions, failing: p.failing, dead24h: p.dead24h, lastFailureAt: p.lastFailureAt },
+    })
+  }
   return out
 }
 

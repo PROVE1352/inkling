@@ -84,6 +84,16 @@ describe('admin status: evaluator', () => {
     assert.ok(s.groups.every((g) => g.summary === null))
   })
 
+  it('web push (docs/adr/2222-*): absent without facts, off when switched off, warn on a key problem or many given-up deliveries', () => {
+    assert.equal(evaluateStatus(healthy()).groups.flatMap((g) => g.items).find((i) => i.key === 'app.push'), undefined)
+    const push = { enabled: true, problem: null, subscriptions: 3, failing: 1, dead24h: 0, lastFailureAt: null }
+    assert.equal(item({ ...healthy(), push }, 'app.push').level, 'ok')
+    assert.equal(item({ ...healthy(), push: { ...push, enabled: false } }, 'app.push').level, 'off')
+    assert.equal(item({ ...healthy(), push: { ...push, problem: 'stored_unreadable' } }, 'app.push').level, 'warn')
+    assert.equal(item({ ...healthy(), push: { ...push, dead24h: 20 } }, 'app.push').level, 'warn')
+    assert.deepEqual(Object.keys(item({ ...healthy(), push }, 'app.push').data).sort(), ['dead24h', 'failing', 'lastFailureAt', 'problem', 'state', 'subscriptions'])
+  })
+
   it('backup age: warn after one missed run, error after 7 days, manual schedule only reminds', () => {
     const f = healthy()
     f.backup.status!.lastSuccess = { at: ago(48 * H) }

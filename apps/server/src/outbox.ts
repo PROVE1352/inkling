@@ -25,9 +25,10 @@ import { env } from './env'
  * scripts) kicks and `drainOutbox` still process rows in-process.
  */
 
-export type OutboxTopic = 'change' | 'notify' | 'webhook' | 'slack'
+export type OutboxTopic = 'change' | 'notify' | 'webhook' | 'slack' | 'push'
 // 'slack': Slack channel posts and link unfurls of a workspace's Slack app (slack/notify.ts, docs/adr/1802-*)
-export const OUTBOX_TOPICS: OutboxTopic[] = ['change', 'notify', 'webhook', 'slack']
+// 'push': one web push delivery (notification × browser subscription, push/deliver.ts, docs/adr/2222-*)
+export const OUTBOX_TOPICS: OutboxTopic[] = ['change', 'notify', 'webhook', 'slack', 'push']
 export const OUTBOX_CHANNEL = 'inkling_outbox'
 /** Backstop poll: the upper bound of the consumer lag when a notification is lost. */
 export const OUTBOX_POLL_MS = 1_000
@@ -348,7 +349,7 @@ export async function pendingOutbox(exec: Exec = db): Promise<Record<OutboxTopic
   const rows = (await exec.execute(sql`
     SELECT topic, count(*)::int AS n FROM outbox WHERE state = 'pending' GROUP BY topic
   `)) as unknown as { topic: OutboxTopic; n: number }[]
-  const out: Record<OutboxTopic, number> = { change: 0, notify: 0, webhook: 0, slack: 0 }
+  const out: Record<OutboxTopic, number> = { change: 0, notify: 0, webhook: 0, slack: 0, push: 0 }
   for (const r of rows) out[r.topic] = Number(r.n)
   return out
 }

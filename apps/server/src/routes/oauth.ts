@@ -8,11 +8,11 @@ import { oauthClients, oauthCodes, oauthGrants } from '../db/schema'
 import { AppError, forbidden, notFound } from '../errors'
 import { recordFailure } from '../guard'
 import { isWellKnownClient, memberNameClashes, reservedClientName } from '../clientName'
-import { accessRangeSchema, updateGrantRangeSchema } from '@inkling/shared'
-import type { ClientNameNotice } from '@inkling/shared'
+import { accessRangeSchema, createAgentTokenSchema, updateGrantRangeSchema } from '@inkling/shared'
+import type { ClientNameNotice, CreatedAgentTokenDTO } from '@inkling/shared'
 import { rangeToColumns, rangeView, validateRange } from '../tokenRange'
 import { idParam } from '../helpers'
-import { handBackConnections } from '../teamAgents'
+import { createAgentToken, getAgentToken, listAgentTokens, revokeConnection, updateConnectionRange } from '../agentTokens'
 import {
   ACCESS_TOKEN_TTL_MS,
   AUTH_CODE_TTL_MS,
@@ -49,6 +49,9 @@ import { suggestOnlyStates } from '../agentTaint'
  *   GET    /api/oauth/grants           connected apps
  *   PATCH  /api/oauth/grants/:id       change the connection's range (docs/adr/1200-*)
  *   DELETE /api/oauth/grants/:id       disconnect (tokens revoked immediately)
+ *   GET    /api/agent-tokens           agent connection tokens (docs/adr/2060-*), no secrets
+ *   POST   /api/agent-tokens           make one → { token, secret } (secret shown once)
+ *   DELETE /api/agent-tokens/:id       revoke (range changes: PATCH /api/oauth/grants/:id)
  */
 
 // strict per-IP limits for the token / registration endpoints
@@ -282,6 +285,11 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
         await db.delete(oauthGrants).where(eq(oauthGrants.prevRefreshHash, hash))
         return oauthError(reply, 400, 'invalid_grant', 'Invalid refresh token')
       }
+      // An agent connection token is never refreshed (docs/adr/2060-*); its refresh hash is unknowable anyway.
+      if (grant.kind !== 'oauth') {
+        await recordFailure(req, 'oauth-token')
+        return oauthError(reply, 400, 'invalid_grant', 'Invalid refresh token')
+      }
       if (grant.refreshExpiresAt.getTime() <= Date.now()) {
         await db.delete(oauthGrants).where(eq(oauthGrants.id, grant.id))
         return oauthError(reply, 400, 'invalid_grant', 'Refresh token expired')
@@ -472,7 +480,8 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       })
       .from(oauthGrants)
       .innerJoin(oauthClients, eq(oauthClients.id, oauthGrants.clientId))
-      .where(eq(oauthGrants.userId, user.id))
+      // agent connection tokens are listed by GET /agent-tokens (docs/adr/2060-*)
+      .where(and(eq(oauthGrants.userId, user.id), eq(oauthGrants.kind, 'oauth')))
       .orderBy(desc(oauthGrants.createdAt))
     const states = await suggestOnlyStates(rows.map((r) => `grant:${r.id}`))
     const grants = []
@@ -499,26 +508,49 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
     const id = idParam(req.params)
     const { range } = updateGrantRangeSchema.parse(req.body)
     await validateRange(user.id, range)
-    const updated = await db
-      .update(oauthGrants)
-      .set(rangeToColumns(range))
-      .where(and(eq(oauthGrants.id, id), eq(oauthGrants.userId, user.id)))
-      .returning({ id: oauthGrants.id })
-    if (updated.length === 0) throw notFound()
+    // an agent connection token's change is audited where it reaches (docs/adr/2063-*)
+    if (!(await updateConnectionRange({ id: user.id, name: user.name }, id, rangeToColumns(range)))) throw notFound()
     return { ok: true }
   })
 
-  // disconnect — access/refresh tokens revoked immediately
+  // disconnect — access/refresh tokens revoked immediately; also takes an agent connection token's id
   app.delete('/oauth/grants/:id', { preHandler: requireCookieUser }, async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    const deleted = await db
-      .delete(oauthGrants)
-      .where(and(eq(oauthGrants.id, id), eq(oauthGrants.userId, user.id)))
-      .returning({ id: oauthGrants.id })
-    if (deleted.length === 0) throw notFound()
-    // what was handed to this connection falls to its person (docs/adr/1863-*)
-    await handBackConnections(deleted.map((d) => `grant:${d.id}`))
+    // what was handed to this connection falls to its person (docs/adr/1863-*), inside revokeConnection
+    if (!(await revokeConnection({ id: user.id, name: user.name }, id))) throw notFound()
+    return reply.code(204).send()
+  })
+
+  // ── Agent connection tokens (docs/adr/2060-* .. 2063-*) ─────────────────
+  // Browser sessions only: an agent (OAuth or token) or a personal API token never makes, lists or
+  // revokes them, so a leaked credential cannot mint a longer-lived one or hide itself.
+  app.get('/agent-tokens', { preHandler: requireCookieUser }, async (req) => {
+    const user = getUser(req)
+    return { tokens: await listAgentTokens(user.id) }
+  })
+
+  app.post(
+    '/agent-tokens',
+    { preHandler: requireCookieUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const user = getUser(req)
+      const body = createAgentTokenSchema.parse(req.body)
+      const { id, secret } = await createAgentToken({ id: user.id, name: user.name }, body)
+      const out: CreatedAgentTokenDTO = { token: (await getAgentToken(user.id, id))!, secret }
+      return reply.code(201).header('Cache-Control', 'no-store').send(out)
+    },
+  )
+
+  app.delete('/agent-tokens/:id', { preHandler: requireCookieUser }, async (req, reply) => {
+    const user = getUser(req)
+    const id = idParam(req.params)
+    const [row] = await db
+      .select({ id: oauthGrants.id })
+      .from(oauthGrants)
+      .where(and(eq(oauthGrants.id, id), eq(oauthGrants.userId, user.id), eq(oauthGrants.kind, 'token')))
+      .limit(1)
+    if (!row || !(await revokeConnection({ id: user.id, name: user.name }, id))) throw notFound()
     return reply.code(204).send()
   })
 }

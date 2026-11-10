@@ -15,6 +15,7 @@ import {
 } from './oauth'
 import { hashSessionToken, mayBeLegacyToken } from './sessionTokens'
 import { getApiTokenUser, isApiTokenShaped } from './apiTokens'
+import { AGENT_TOKEN_PREFIX } from '@inkling/shared'
 import { assertNotBanned, recordFailure } from './guard'
 import { runInRange } from './tokenRange'
 import { hasGrantsSql, peopleScopeFor, runAsGuest } from './pageGrants'
@@ -292,8 +293,13 @@ async function authenticate(req: FastifyRequest): Promise<void> {
   }
   if (bearer !== null) {
     // The token is valid only in the /mcp handler's internal inject; direct REST use from outside is refused.
+    // Agent connection tokens (`ink_agt_`, docs/adr/2060-*) are OAuth grants of kind 'token': the same rule.
     if (req.headers[MCP_INTERNAL_HEADER] !== MCP_INTERNAL_SECRET) {
-      throw unauthorized('MCP access tokens can only be used at /mcp')
+      throw unauthorized(
+        bearer.startsWith(AGENT_TOKEN_PREFIX)
+          ? 'Agent connection tokens can only be used at /mcp; use a personal API token for the REST API'
+          : 'MCP access tokens can only be used at /mcp',
+      )
     }
     const user = bearer ? await getBearerUser(bearer) : null
     if (!user) throw unauthorized('Invalid access token')

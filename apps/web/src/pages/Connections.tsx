@@ -1,35 +1,42 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { API_TOKEN_EXPIRY_DAYS, API_TOKEN_NAME_MAX } from '@inkling/shared'
-import type { AccessRange, ApiTokenDTO } from '@inkling/shared'
+import {
+  AGENT_TOKEN_DEFAULT_EXPIRY_DAYS,
+  AGENT_TOKEN_EXPIRY_DAYS,
+  AGENT_TOKEN_NAME_MAX,
+  API_TOKEN_EXPIRY_DAYS,
+  API_TOKEN_NAME_MAX,
+} from '@inkling/shared'
+import type { AccessRange, AgentTokenDTO, AgentTokenExpiryDays, ApiTokenDTO, SuggestOnlyDTO } from '@inkling/shared'
 import { ApiError, useOAuthGrants, useRevokeOAuthGrant } from '../api'
 import type { OAuthGrantDTO } from '../api'
 import { useApiTokens, useCreateApiToken, useRevokeApiToken, useUpdateApiToken, useUpdateGrantRange } from '../apiTokens'
+import {
+  useAgentTokens,
+  useCreateAgentToken,
+  useReleaseConnection,
+  useRevokeAgentToken,
+  useUpdateAgentTokenRange,
+} from '../agentTokens'
 import { RangeBadge, RangePicker, rangeFromView } from '../components/RangePicker'
 import { Spinner } from '../components/Spinner'
+import { McpSetup } from '../components/McpSetup'
 import { fmtDate, fmtRelative, useT } from '../i18n'
 
 /**
- * Connections (/settings/connections): the MCP URL for AI apps, the connected apps with their access
- * and range (docs/adr/1200-*), and personal API tokens for scripts and inklingctl (docs/adr/1201-*).
- * Disconnecting or revoking cuts access at once.
+ * Connections (/settings/connections): connection settings for AI apps (docs/adr/2020-*), agent connection tokens for
+ * apps that cannot sign in (docs/adr/2060-*), the connected apps with their access and range (docs/adr/1200-*), and
+ * personal API tokens for scripts and inklingctl (docs/adr/1201-*). Disconnecting or revoking cuts access at once; a
+ * connection that is suggest-only after flagged content says so and its owner can lift it (docs/adr/2042-*).
  */
 export function Connections() {
   const t = useT()
   const grants = useOAuthGrants()
   const revoke = useRevokeOAuthGrant()
-  const mcpUrl = `${window.location.origin}/mcp`
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(mcpUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // No clipboard permission — the user selects and copies it manually
-    }
-  }
+  // The agent connection token made on this screen a moment ago: shown once in its section and filled into the
+  // connection settings while it is shown. React state only, never storage or the URL (docs/adr/2020-*, 2063-*).
+  // A personal API token is never handed to the generator: it would be refused at /mcp (docs/adr/1201-*).
+  const [agentSecret, setAgentSecret] = useState<string | null>(null)
 
   return (
     <div className="min-h-full bg-app px-4 py-12">
@@ -41,24 +48,9 @@ export function Connections() {
           </Link>
         </div>
 
-        <section className="flex flex-col gap-2 rounded-lg border border-line p-4">
-          <h2 className="text-sm font-semibold text-ink">{t('connections.serverUrl')}</h2>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-side px-2 py-1 text-xs text-ink">{mcpUrl}</code>
-            <button
-              type="button"
-              onClick={copy}
-              className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover"
-            >
-              {copied ? t('common.copied') : t('common.copy')}
-            </button>
-          </div>
-          <p className="text-xs text-sub">
-            Claude Code: <code>claude mcp add --transport http inkling {mcpUrl}</code>
-            <br />
-            claude.ai: {t('connections.claudeAiHint')}
-          </p>
-        </section>
+        <McpSetup origin={window.location.origin} secret={agentSecret} />
+
+        <AgentTokensSection secret={agentSecret} setSecret={setAgentSecret} />
 
         <section className="flex flex-col gap-2 rounded-lg border border-line p-4">
           <h2 className="text-sm font-semibold text-ink">{t('connections.apps')}</h2>
@@ -98,7 +90,41 @@ function AccessBadge({ access }: { access: 'read' | 'write' | undefined }) {
   )
 }
 
-function GrantRow({ grant: g, onRevoke, revoking }: { grant: OAuthGrantDTO; onRevoke: () => void; revoking: boolean }) {
+/** "Suggestions only until HH:MM" and, for the connection's owner (this screen), the button that lifts it. */
+export function SuggestOnlyLine({ state, connection }: { state: SuggestOnlyDTO | null | undefined; connection: string }) {
+  const t = useT()
+  const release = useReleaseConnection()
+  if (!state) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="suggest-only">
+      <span
+        className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400"
+        title={t('suggestOnly.tooltip')}
+      >
+        {t('suggestOnly.badge', { time: fmtDate(state.until, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })}
+      </span>
+      <button
+        type="button"
+        disabled={release.isPending}
+        onClick={() => release.mutate(connection)}
+        className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-hover disabled:opacity-60"
+      >
+        {t('suggestOnly.release')}
+      </button>
+      {release.isError && <span className="text-[11px] text-red-600">{t('suggestOnly.releaseFailed')}</span>}
+    </div>
+  )
+}
+
+function GrantRow({
+  grant: g,
+  onRevoke,
+  revoking,
+}: {
+  grant: OAuthGrantDTO & { suggestOnly?: SuggestOnlyDTO | null }
+  onRevoke: () => void
+  revoking: boolean
+}) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<AccessRange | null>(null)
@@ -118,6 +144,7 @@ function GrantRow({ grant: g, onRevoke, revoking }: { grant: OAuthGrantDTO; onRe
               lastUsed: g.lastUsedAt ? fmtRelative(g.lastUsedAt) : t('connections.never'),
             })}
           </div>
+          <SuggestOnlyLine state={g.suggestOnly} connection={`grant:${g.id}`} />
         </div>
         <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
           <button
@@ -169,10 +196,11 @@ function GrantRow({ grant: g, onRevoke, revoking }: { grant: OAuthGrantDTO; onRe
 
 function ApiTokensSection() {
   const t = useT()
+  // shown once, here only; never filled into the MCP settings (API tokens are 401 at /mcp, docs/adr/1201-*)
+  const [secret, setSecret] = useState<string | null>(null)
   const tokens = useApiTokens()
   const revoke = useRevokeApiToken()
   const [creating, setCreating] = useState(false)
-  const [secret, setSecret] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   return (
@@ -283,6 +311,7 @@ function TokenRow({ token: tok, onRevoke, revoking }: { token: ApiTokenDTO; onRe
             })}
             {tok.lastUsedIp ? ` ${t('tokens.lastIp', { ip: tok.lastUsedIp })}` : ''}
           </div>
+          <SuggestOnlyLine state={tok.suggestOnly} connection={`token:${tok.id}`} />
         </div>
         <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
           <button
@@ -415,6 +444,259 @@ function NewTokenForm({ onCancel, onCreated }: { onCancel: () => void; onCreated
           className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {create.isPending ? t('tokens.creating') : t('tokens.create')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * Agent connection tokens (docs/adr/2060-* .. 2063-*): for apps that cannot sign in here. Made with a name (its
+ * "via" label), an access level, a range and an expiry; shown once; listed without the token; revoked at once.
+ */
+function AgentTokensSection({ secret, setSecret }: { secret: string | null; setSecret: (s: string | null) => void }) {
+  const t = useT()
+  const tokens = useAgentTokens()
+  const revoke = useRevokeAgentToken()
+  const [creating, setCreating] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border border-line p-4" id="agent-tokens" data-testid="agent-tokens">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink">{t('agentTokens.title')}</h2>
+        {!creating && !secret && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover"
+          >
+            {t('agentTokens.new')}
+          </button>
+        )}
+      </div>
+      <p className="text-xs leading-relaxed text-sub">{t('agentTokens.intro')}</p>
+
+      {secret && (
+        <div role="status" className="flex flex-col gap-2 rounded-md border border-accent/50 bg-accent/5 p-3">
+          <p className="text-sm font-medium text-ink">{t('agentTokens.createdTitle')}</p>
+          <code className="select-all break-all rounded bg-side px-2 py-1 font-mono text-xs text-ink" data-testid="agent-token-secret">
+            {secret}
+          </code>
+          <p className="text-xs text-sub">{t('agentTokens.createdHint')}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(secret).then(() => setCopied(true))
+              }}
+              className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover"
+            >
+              {copied ? t('common.copied') : t('common.copy')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSecret(null)
+                setCopied(false)
+              }}
+              className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:opacity-90"
+            >
+              {t('agentTokens.done')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {creating && (
+        <NewAgentTokenForm
+          onCancel={() => setCreating(false)}
+          onCreated={(s) => {
+            setCreating(false)
+            setSecret(s)
+          }}
+        />
+      )}
+
+      {tokens.isLoading ? (
+        <div className="flex justify-center py-4">
+          <Spinner size={18} />
+        </div>
+      ) : tokens.isError ? (
+        <p className="text-xs text-red-600">{t('agentTokens.loadFailed')}</p>
+      ) : !tokens.data || tokens.data.length === 0 ? (
+        <p className="text-xs text-sub">{t('agentTokens.empty')}</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-line">
+          {tokens.data.map((tok) => (
+            <AgentTokenRow
+              key={tok.id}
+              token={tok}
+              revoking={revoke.isPending}
+              onRevoke={() => {
+                if (window.confirm(t('agentTokens.revokeConfirm', { name: tok.name }))) revoke.mutate(tok.id)
+              }}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function AgentTokenRow({ token: tok, onRevoke, revoking }: { token: AgentTokenDTO; onRevoke: () => void; revoking: boolean }) {
+  const t = useT()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<AccessRange | null>(null)
+  const update = useUpdateAgentTokenRange()
+  const expired = new Date(tok.expiresAt).getTime() <= Date.now()
+  return (
+    <li className="flex flex-col gap-2 py-2" data-testid="agent-token-row">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="truncate text-sm text-ink">{tok.name}</span>
+            <code className="shrink-0 font-mono text-[10px] text-sub">{tok.prefix}…</code>
+            <AccessBadge access={tok.access} />
+            <RangeBadge range={tok.range} />
+            {expired && (
+              <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-600">{t('agentTokens.expired')}</span>
+            )}
+          </div>
+          <div className="text-xs text-sub">
+            {t('agentTokens.meta', {
+              created: fmtRelative(tok.createdAt),
+              expires: fmtDate(tok.expiresAt),
+              lastUsed: tok.lastUsedAt ? fmtRelative(tok.lastUsedAt) : t('agentTokens.never'),
+            })}
+          </div>
+          <SuggestOnlyLine state={tok.suggestOnly} connection={`grant:${tok.id}`} />
+        </div>
+        <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover"
+          >
+            {t('range.change')}
+          </button>
+          <button
+            type="button"
+            disabled={revoking}
+            onClick={onRevoke}
+            className="rounded-md border border-line px-2 py-1 text-xs text-red-600 hover:bg-hover disabled:opacity-60"
+          >
+            {t('agentTokens.revoke')}
+          </button>
+        </div>
+      </div>
+      {editing && (
+        <div className="flex flex-col gap-2 rounded-md border border-line p-2">
+          <RangePicker
+            name={`agent-token-range-${tok.id}`}
+            initial={rangeFromView(tok.range)}
+            initialWorkspaceId={tok.range.kind === 'subtree' ? tok.range.page.workspaceId : null}
+            onChange={setDraft}
+          />
+          {update.isError && (
+            <p className="text-xs text-red-600">{update.error instanceof ApiError ? update.error.message : ''}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEditing(false)} className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover">
+              {t('range.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={!draft || update.isPending}
+              onClick={() => draft && update.mutate({ id: tok.id, range: draft }, { onSuccess: () => setEditing(false) })}
+              className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {t('range.save')}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  )
+}
+
+function NewAgentTokenForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (secret: string) => void }) {
+  const t = useT()
+  const create = useCreateAgentToken()
+  const [name, setName] = useState('')
+  const [expiry, setExpiry] = useState<AgentTokenExpiryDays>(AGENT_TOKEN_DEFAULT_EXPIRY_DAYS)
+  // preselected like the OAuth consent screen, where apps ask for read and write
+  const [access, setAccess] = useState<'read' | 'write'>('write')
+  const [range, setRange] = useState<AccessRange | null>({ kind: 'all' })
+  const valid = name.trim().length > 0 && range !== null
+  const submit = () => {
+    if (!valid || !range) return
+    create.mutate({ name: name.trim(), expiresInDays: expiry, access, range }, { onSuccess: (r) => onCreated(r.secret) })
+  }
+  return (
+    <form
+      className="flex flex-col gap-3 rounded-md border border-line p-3"
+      data-testid="agent-token-form"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      <label className="flex flex-col gap-1 text-xs text-ink">
+        {t('agentTokens.name')}
+        <input
+          value={name}
+          maxLength={AGENT_TOKEN_NAME_MAX}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t('agentTokens.namePlaceholder')}
+          className="rounded border border-line bg-app px-2 py-1 text-sm text-ink"
+          autoFocus
+        />
+      </label>
+      <label className="flex flex-wrap items-center gap-2 text-xs text-ink">
+        {t('agentTokens.expiry')}
+        <select
+          value={String(expiry)}
+          onChange={(e) => setExpiry(Number(e.target.value) as AgentTokenExpiryDays)}
+          className="rounded border border-line bg-app px-1.5 py-1 text-xs text-ink"
+        >
+          {AGENT_TOKEN_EXPIRY_DAYS.map((d) => (
+            <option key={d} value={String(d)}>
+              {t('agentTokens.expiryDays', { days: d })}
+            </option>
+          ))}
+        </select>
+        <span className="text-sub">{t('agentTokens.expiryHint')}</span>
+      </label>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1 text-xs font-medium text-ink">{t('oauth.accessLabel')}</legend>
+        {(['write', 'read'] as const).map((opt) => (
+          <label
+            key={opt}
+            className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${access === opt ? 'border-accent' : 'border-line'}`}
+          >
+            <input type="radio" name="agent-token-access" className="mt-0.5" checked={access === opt} onChange={() => setAccess(opt)} />
+            <span className="flex flex-col">
+              <span className="font-medium text-ink">{opt === 'write' ? t('oauth.accessWrite') : t('oauth.accessRead')}</span>
+              <span className="text-sub">{opt === 'write' ? t('oauth.accessWriteHint') : t('oauth.accessReadHint')}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <RangePicker name="agent-token-range-new" onChange={setRange} />
+      {create.isError && (
+        <p className="text-xs text-red-600">{create.error instanceof ApiError ? create.error.message : ''}</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover">
+          {t('agentTokens.cancel')}
+        </button>
+        <button
+          type="submit"
+          disabled={!valid || create.isPending}
+          className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {create.isPending ? t('agentTokens.creating') : t('agentTokens.create')}
         </button>
       </div>
     </form>

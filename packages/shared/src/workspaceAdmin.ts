@@ -164,6 +164,12 @@ export const AUDIT_ACTIONS = [
   'agent.tainted',
   /** A person lifted a connection's suggest-only state (docs/adr/2042-*): before.sources, after.scope ('workspace' | 'all'). */
   'agent.taint_released',
+  /** An agent connection token was made (docs/adr/2063-*): target `grant:<id>` + its name; after.access, after.range, after.expiresAt; never the token. */
+  'agent.token_created',
+  /** An agent connection token was revoked by its owner (docs/adr/2063-*). */
+  'agent.token_revoked',
+  /** An agent connection token's range was changed by its owner (docs/adr/2063-*): before.range, after.range (kinds). */
+  'agent.token_range_changed',
   /** A person reverted logged changes on a page (docs/adr/1623-*): before.seqs reverted, after.seqs the revert's own edits. */
   'page.changes_reverted',
   /** A page was marked verified (after.expiresAt) or its verification removed (docs/adr/1840-*). */

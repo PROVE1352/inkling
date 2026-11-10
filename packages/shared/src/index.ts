@@ -995,3 +995,5 @@ export * from './slack'
 export * from './teamAgents'
 // Suggest-only connections after flagged content (docs/adr/2040-*)
 export * from './taint'
+// Agent connection tokens: hand-made agent connections for /mcp (docs/adr/2060-*)
+export * from './agentTokens'

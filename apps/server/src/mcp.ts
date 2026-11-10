@@ -10,6 +10,7 @@ import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
+import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFailure } from './agentTokens'
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
 import { rangeInstruction } from './tokenRange'
@@ -980,8 +981,11 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
   const handler = async (req: FastifyRequest, reply: FastifyReply) => {
     const origin = publicOrigin(req)
     const token = readBearer(req.headers.authorization)
+    if (!earlyUsers.has(req) && agentTokenBanMs(req, token) > 0) return agentTokenBanned(req, reply, token)
     const user = !token ? null : earlyUsers.has(req) ? earlyUsers.get(req)! : await getBearerUser(token)
     if (!token || !user) {
+      // guessing agent connection tokens counts towards the IP ban (docs/adr/2062-*)
+      await noteAgentTokenFailure(req, token)
       const metadata = `${origin}/.well-known/oauth-protected-resource/mcp`
       return reply
         .code(401)
@@ -991,7 +995,10 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
         )
         .send({
           error: token !== null ? 'invalid_token' : 'unauthorized',
-          error_description: 'Sign-in required (OAuth access token)',
+          error_description:
+            token !== null && isAgentTokenShaped(token)
+              ? 'Invalid, expired or revoked agent connection token'
+              : 'Sign-in required (OAuth access token)',
         })
     }
 
@@ -1042,6 +1049,7 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
     registerMcpJsonParser(inner)
     const authFirst = async (req: FastifyRequest, reply: FastifyReply) => {
       const token = readBearer(req.headers.authorization)
+      if (agentTokenBanMs(req, token) > 0) return agentTokenBanned(req, reply, token)
       const user = token ? await getBearerUser(token) : null
       earlyUsers.set(req, user)
       if (!user) return handler(req, reply) // 401 without reading or parsing the body

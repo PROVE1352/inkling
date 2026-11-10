@@ -893,6 +893,15 @@ export const oauthGrants = pgTable(
      * Recorded only (throttled); nothing reads it for decisions yet — the hook for taint tracking.
      */
     taintedAt: timestamp('tainted_at', { withTimezone: true }),
+    /**
+     * 'oauth' = made by the OAuth flow (rotating access + refresh tokens). 'token' = an agent connection
+     * token a person made in Settings › Connections (docs/adr/2060-*): one long-lived access token, no
+     * usable refresh token, access_expires_at = refresh_expires_at = the chosen expiry, and its own
+     * oauth_clients row whose name is the name the person gave.
+     */
+    kind: text('kind').notNull().default('oauth'),
+    /** kind 'token' only: `ink_agt_` + 4 characters, to recognise the token in the list (docs/adr/2061-*). */
+    tokenPrefix: text('token_prefix'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

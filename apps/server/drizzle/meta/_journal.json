@@ -344,6 +344,13 @@
       "when": 1794288740123,
       "tag": "0048_wave16_taint",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794291620848,
+      "tag": "0049_wave16_agent_tokens",
+      "breakpoints": true
     }
   ]
 }

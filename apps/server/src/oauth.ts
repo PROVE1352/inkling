@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, gt, lt } from 'drizzle-orm'
+import { and, eq, gt, lt, sql } from 'drizzle-orm'
 import { hasGrantsSql } from './pageGrants'
 import type { FastifyRequest } from 'fastify'
 import { configuredPublicOrigin } from './origin'
@@ -273,5 +273,11 @@ export async function purgeExpiredOAuth(now: Date): Promise<number> {
     .delete(oauthGrants)
     .where(lt(oauthGrants.refreshExpiresAt, now))
     .returning({ id: oauthGrants.id })
-  return c.length + g.length
+  // the client rows of agent connection tokens whose grant is gone (docs/adr/2060-*)
+  const t = (await db.execute(sql`
+    DELETE FROM oauth_clients c
+     WHERE c.id LIKE 'ink_tc_%' AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.id)
+    RETURNING c.id
+  `)) as unknown as unknown[]
+  return c.length + g.length + t.length
 }

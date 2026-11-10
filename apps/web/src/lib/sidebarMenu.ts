@@ -92,7 +92,7 @@ export function toSidebarPrefs(
   return { order, hidden: hiddenOut }
 }
 
-// --- fitting the menus above the page tree (docs/adr/1640-*, 1643-*) ---------------------------------
+// --- fitting the menus above the page tree (docs/adr/1640-*, 1643-*, with the card: 2384-*) -----------
 
 /** Height the page tree always keeps: 40 % of the sidebar, at least 200 px, at most 280 px. */
 export function sidebarTreeMinHeight(sidebarHeight: number): number {
@@ -153,6 +153,81 @@ export function expandedMenusLayout({
   if (count * rowHeight <= room) return { treeMin: floor, maxHeight: null }
   const rows = Math.max(1, Math.floor((room - MENUS_MORE_BELOW_ROW) / rowHeight))
   return { treeMin: floor, maxHeight: rows * rowHeight }
+}
+
+/**
+ * What the "Getting started" card says about its own size, margins included (docs/adr/2384-*).
+ * `open` is the height of the open card with nothing cut, or null when the person folded it.
+ */
+export type SidebarCardSize = {
+  /** drawn folded: the title row and the progress bar */
+  folded: number
+  /** drawn open with every item, or null: the person folded the card */
+  open: number | null
+  /** the smallest open card worth drawing: title row, progress bar and the first two items */
+  minOpen: number
+}
+
+export type SidebarLayout = {
+  /** menus shown above the tree while "More" is closed (the count in "More (k)" is the rest) */
+  shown: number
+  folding: boolean
+  /** "More" open: the open list's layout (`expandedMenusLayout`); null while closed or nothing folds */
+  open: { treeMin: number; maxHeight: number | null } | null
+  /** the page tree's minimum height */
+  navMin: number
+  /** the card: drawn open in at most `height` px (it scrolls inside when its items need more), or folded */
+  card: { open: boolean; height: number } | null
+}
+
+/**
+ * The whole sidebar budget with the "Getting started" card in it (docs/adr/1640-*, 1643-*, 2384-*).
+ * `free` is the sidebar height less every row that is not the menus, the tree or the card.
+ *
+ * Order (ADR 1643, then 2384): the tree keeps at least `expandedTreeMinHeight` (120 px); "More" opened
+ * reaches every folded menu; the open card gets what is left. The card is drawn open only in the room
+ * left after the tree floor and the menus' least (one row while "More" is closed, every menu plus
+ * "Show less" while it is open), scrolling inside when its items need more, and is drawn folded when
+ * that room cannot hold `minOpen`. Whether the menus fold is decided with the card as it is drawn while
+ * "More" is closed, so opening "More" never changes the count. Without a card it is exactly
+ * `menusThatFit` + `expandedMenusLayout` with the tree minimum `treeMin`.
+ */
+export function sidebarLayout({
+  free,
+  count,
+  rowHeight,
+  treeMin,
+  expanded,
+  card,
+}: {
+  free: number
+  count: number
+  rowHeight: number
+  treeMin: number
+  /** the person's "More" open/closed state */
+  expanded: boolean
+  card: SidebarCardSize | null
+}): SidebarLayout {
+  const floor = expandedTreeMinHeight(treeMin)
+  const row = rowHeight > 0 ? rowHeight : 0
+  const draw = (room: number) => {
+    if (!card) return null
+    if (card.open == null || room < card.minOpen) return { open: false, height: card.folded }
+    return { open: true, height: Math.min(card.open, Math.floor(room)) }
+  }
+  const closedCard = draw(free - floor - (count > 0 ? row : 0))
+  const closedH = closedCard?.height ?? 0
+  const shown = menusThatFit({ count, available: free - closedH - treeMin, rowHeight })
+  const folding = shown < count
+  if (folding && expanded) {
+    const openCard = draw(free - floor - (count + 1) * row)
+    const open = expandedMenusLayout({ count, available: free - (openCard?.height ?? 0) - treeMin, treeMin, rowHeight })
+    return { shown, folding, open, navMin: open.treeMin, card: openCard }
+  }
+  // An open card may take the tree below `treeMin`, never below the floor.
+  const menusH = (shown + (folding ? 1 : 0)) * row
+  const navMin = card ? Math.min(treeMin, Math.max(floor, free - closedH - menusH)) : treeMin
+  return { shown, folding, open: null, navMin, card: closedCard }
 }
 
 /**

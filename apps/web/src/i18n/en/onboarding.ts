@@ -13,6 +13,7 @@ export default {
   'getStarted.sampleOpen': 'Open the sample page',
   'getStarted.sampleHint': 'Only you see it, in your private pages.',
   'getStarted.sampleFailed': 'Could not make the sample page.',
+  'getStarted.noRoom': 'No room to open it here: close “More” or make the window taller.',
   'getStarted.allDone': 'All done.',
   'getStarted.hintClose': 'Close',
   'getStarted.item.page': 'Create your first page',

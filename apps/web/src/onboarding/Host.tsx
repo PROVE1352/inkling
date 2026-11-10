@@ -4,6 +4,7 @@ import { useWorkspaces } from '../api'
 import { isStandalone } from '../lib/platform'
 import { isOfflineEnabled } from '../lib/offline/runtime'
 import { INTRO_EVENT, noteOnboarding, useOnboarding, useUpdateOnboarding } from './api'
+import { SCREEN_FAILED_EVENT } from '../components/AppErrorBoundary'
 
 // Mounted once in the app layout (docs/adr/2380-*, 2382-*): plays the intro for a new account the
 // first time, or when asked (Settings, the card), and records the few things only the browser sees.
@@ -43,6 +44,11 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
   const open = useCallback((isAuto: boolean) => {
     auto.current = isAuto
     void loadIntro().then((C) => {
+      // the screen failed while the intro was loading: try again on the next screen
+      if (isAuto && document.querySelector('[data-testid="app-crash"]')) {
+        autoTried.current = false
+        return
+      }
       if (C) setIntro(() => C)
     })
   }, [])
@@ -50,9 +56,12 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
   // Play it by itself once per page load when the server says so (a new account, or an existing one
   // on a server with ONBOARDING_EXISTING_USERS=once). Never over someone typing: while a text field
   // or the editor has the focus it waits for the next screen change (or the window regaining focus).
+  // The same wait while the crash notice is showing.
   useEffect(() => {
     if (!dto?.intro || autoTried.current) return
     if (typingSomewhere()) return
+    // nor over the "could not show this screen" notice (docs/adr/2324-*): wait for the next screen
+    if (document.querySelector('[data-testid="app-crash"]')) return
     autoTried.current = true
     open(true)
   }, [dto?.intro, open, pathname, recheck])
@@ -64,6 +73,18 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
     window.addEventListener('focus', again)
     return () => window.removeEventListener('focus', again)
   }, [dto?.intro])
+
+  // The screen failed after the intro opened by itself (docs/adr/2324-*): close it without marking it
+  // seen; it opens again on the next screen.
+  useEffect(() => {
+    const onFailed = () => {
+      if (!auto.current) return
+      autoTried.current = false
+      setIntro(null)
+    }
+    window.addEventListener(SCREEN_FAILED_EVENT, onFailed)
+    return () => window.removeEventListener(SCREEN_FAILED_EVENT, onFailed)
+  }, [])
 
   useEffect(() => {
     const onAsk = () => open(false)

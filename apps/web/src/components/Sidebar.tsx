@@ -21,12 +21,12 @@ import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
 import {
   compactSidebarFooter,
-  expandedMenusLayout,
-  menusThatFit,
   resolveSidebarMenu,
   rowsOutOfView,
   setEntryHidden,
+  sidebarLayout,
   sidebarTreeMinHeight,
+  type SidebarCardSize,
   toSidebarPrefs,
   visibleSidebarMenu,
 } from '../lib/sidebarMenu'
@@ -237,7 +237,9 @@ export function Sidebar({
   const [asideH, setAsideH] = useState(0)
   // bumped on every size change: a width change alone (the footer wrapping at 200 px) must re-measure too
   const [, setResizeTick] = useState(0)
-  const [fit, setFit] = useState<{ available: number; rowHeight: number } | null>(null)
+  const [fit, setFit] = useState<{ free: number; rowHeight: number } | null>(null)
+  // the "Getting started" card's own sizes (docs/adr/2384-*), reported by the card; null while it is not drawn
+  const [cardSize, setCardSize] = useState<SidebarCardSize | null>(null)
   const [menusExpanded, setMenusExpanded] = useState(() => {
     try {
       return localStorage.getItem('inkling:sidebarMenusExpanded') === '1'
@@ -271,21 +273,22 @@ export function Sidebar({
   }, [])
   const compactFooter = compactSidebarFooter(asideH)
   const treeMin = asideH ? sidebarTreeMinHeight(asideH) : 0
-  // Every render: what is left for the menus once the other rows and the tree minimum are placed. The
-  // menus and the tree are not counted, so the result does not depend on how many menus show.
+  // Every render: what is left for the menus, the tree and the card once the other rows are placed. The
+  // menus, the tree and the card are not counted, so the result does not depend on how they are drawn
+  // (the card reports its sizes itself, margins included).
   useLayoutEffect(() => {
     const aside = asideRef.current
     if (!aside || !asideH) return
     let fixed = 0
     for (const el of Array.from(aside.children) as HTMLElement[]) {
-      if (el === menusRef.current || el === navRef.current) continue
+      if (el === menusRef.current || el === navRef.current || el.hasAttribute('data-sidebar-card')) continue
       const pos = getComputedStyle(el).position
       if (pos === 'fixed' || pos === 'absolute') continue
       fixed += el.getBoundingClientRect().height
     }
     const rowHeight = menusRef.current?.querySelector<HTMLElement>('[data-sidebar-menu]')?.offsetHeight || 32
-    const available = Math.floor(asideH - fixed - treeMin)
-    setFit((prev) => (prev && prev.available === available && prev.rowHeight === rowHeight ? prev : { available, rowHeight }))
+    const free = Math.floor(asideH - fixed)
+    setFit((prev) => (prev && prev.free === free && prev.rowHeight === rowHeight ? prev : { free, rowHeight }))
   })
   const menuActive: Partial<Record<SidebarMenuId, boolean>> = {
     later: laterActive,
@@ -298,20 +301,29 @@ export function Sidebar({
     activity: activityActive,
   }
   const menuBadge: Partial<Record<SidebarMenuId, boolean>> = { later: laterDue > 0, threads: threadsUnread > 0, due: dueBadge > 0 }
-  const shownMenus = fit
-    ? menusThatFit({ count: visibleMenus.length, available: fit.available, rowHeight: fit.rowHeight })
-    : visibleMenus.length
+  // "More" open (docs/adr/1643-*): every menu shows and the tree gives way down to a smaller minimum.
+  // Whether the menus fold stays decided by the folded budget, so "Show less" stays put. Only when even
+  // that leaves too little room does the list scroll, in whole rows, above a "k more below" row.
+  // The "Getting started" card is in the same budget (docs/adr/2384-*): it is drawn open only in what the
+  // tree floor and the menus leave, scrolls inside when its items need more, and is drawn folded when
+  // not even two items fit. Below COMPACT_FOOTER_BELOW it is not drawn at all.
+  const card = compactFooter ? null : cardSize
+  const layout = fit
+    ? sidebarLayout({
+        free: fit.free,
+        count: visibleMenus.length,
+        rowHeight: fit.rowHeight,
+        treeMin,
+        expanded: menusExpanded,
+        card,
+      })
+    : null
+  const shownMenus = layout ? layout.shown : visibleMenus.length
   const folding = shownMenus < visibleMenus.length
   const foldedMenus = folding ? visibleMenus.slice(shownMenus) : []
-  // "More" open (docs/adr/1643-*): every menu shows and the tree gives way down to a smaller minimum.
-  // Whether the menus fold stays decided by the folded budget above, so "Show less" stays put. Only when
-  // even that leaves too little room does the list scroll, in whole rows, above a "k more below" row.
   const menusOpen = folding && menusExpanded
-  const openLayout =
-    menusOpen && fit
-      ? expandedMenusLayout({ count: visibleMenus.length, available: fit.available, treeMin, rowHeight: fit.rowHeight })
-      : null
-  const navMin = openLayout ? openLayout.treeMin : treeMin
+  const openLayout = menusOpen ? (layout?.open ?? null) : null
+  const navMin = layout ? layout.navMin : treeMin
   const openScrolls = openLayout?.maxHeight != null
   const menusBoxRef = useRef<HTMLDivElement>(null)
   const [outOfView, setOutOfView] = useState({ above: 0, below: 0 })
@@ -783,7 +795,7 @@ export function Sidebar({
         )}
       </nav>
 
-      {!compactFooter && <OnboardingSidebarEntry wsId={wsId} />}
+      {!compactFooter && <OnboardingSidebarEntry wsId={wsId} fit={layout?.card ?? null} onSize={setCardSize} />}
       {compactFooter ? (
         // Short sidebar (a tablet in landscape with the browser's bars, an in-app browser): the footer is
         // one row of icons so the page tree keeps its room (docs/adr/1640-*).

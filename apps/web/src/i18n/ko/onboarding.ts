@@ -12,6 +12,7 @@ export default {
   'getStarted.sampleOpen': '샘플 페이지 열기',
   'getStarted.sampleHint': '내 개인 페이지에 만들어져 나만 봅니다.',
   'getStarted.sampleFailed': '샘플 페이지를 만들지 못했습니다.',
+  'getStarted.noRoom': '여기서는 펼칠 자리가 없습니다. \'더보기\'를 닫거나 창을 키우세요.',
   'getStarted.allDone': '모두 해 봤습니다.',
   'getStarted.hintClose': '닫기',
   'getStarted.item.page': '첫 페이지 만들기',

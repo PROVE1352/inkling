@@ -49,6 +49,9 @@ export function CrashScreen({ error, inline = false }: { error: unknown; inline?
   )
 }
 
+/** Sent on window when a boundary catches a render error (the onboarding intro steps aside, Host.tsx). */
+export const SCREEN_FAILED_EVENT = 'inkling:screen-failed'
+
 type Props = {
   children: ReactNode
   /** The page area's boundary: a smaller notice, and a new value (the route) clears the error. */
@@ -75,6 +78,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
     console.error('[inkling] a screen failed to render', error, info.componentStack)
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(SCREEN_FAILED_EVENT))
   }
 
   override render(): ReactNode {

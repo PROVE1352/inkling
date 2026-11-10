@@ -13,6 +13,7 @@ import {
   resolveSidebarMenu,
   rowsOutOfView,
   setEntryHidden,
+  sidebarLayout,
   sidebarTreeMinHeight,
   toSidebarPrefs,
   visibleSidebarMenu,
@@ -231,5 +232,96 @@ describe('"More" opened: every folded menu shows (docs/adr/1643-*)', () => {
     assert.deepEqual(rows(224), { above: 7, below: 0 }) // scrolled to the end
     assert.deepEqual(rowsOutOfView({ count: 4, rowHeight: 32, scrollTop: 0, clientHeight: 200 }), { above: 0, below: 0 })
     assert.deepEqual(rowsOutOfView({ count: 4, rowHeight: 0, scrollTop: 0, clientHeight: 0 }), { above: 0, below: 0 })
+  })
+})
+
+describe('the "Getting started" card in the sidebar budget (docs/adr/2384-*)', () => {
+  // Measured in Chrome at 1280 px wide (0.19): header 48, "New page" row 40, footer 100 + 89 → other rows 277;
+  // menu rows 32; the card folded 64 (56 + 8 margin), open 437, two items 138.
+  const OTHER = 277
+  const CARD_OPEN = { folded: 64, open: 437, minOpen: 138 }
+  const CARD_FOLDED = { folded: 64, open: null, minOpen: 138 }
+  const layout = (asideH: number, count: number, expanded: boolean, card: any) =>
+    sidebarLayout({ free: asideH - OTHER, count, rowHeight: 32, treeMin: sidebarTreeMinHeight(asideH), expanded, card })
+  const used = (l: any, count: number) => {
+    const menus = l.open
+      ? (l.open.maxHeight == null ? count * 32 : l.open.maxHeight + 24) + 32
+      : (l.shown + (l.folding ? 1 : 0)) * 32
+    return menus + l.navMin + (l.card?.height ?? 0)
+  }
+
+  it('without a card it is menusThatFit + expandedMenusLayout as before', () => {
+    for (let asideH = 420; asideH <= 1000; asideH += 20) {
+      const treeMin = sidebarTreeMinHeight(asideH)
+      const available = asideH - OTHER - treeMin
+      for (let count = 0; count <= 10; count++) {
+        const shown = menusThatFit({ count, available, rowHeight: 32 })
+        for (const expanded of [false, true]) {
+          const l = layout(asideH, count, expanded, null)
+          assert.equal(l.shown, shown)
+          assert.equal(l.card, null)
+          if (expanded && shown < count) {
+            assert.deepEqual(l.open, expandedMenusLayout({ count, available, treeMin, rowHeight: 32 }))
+            assert.equal(l.navMin, 120)
+          } else {
+            assert.equal(l.open, null)
+            assert.equal(l.navMin, treeMin)
+          }
+        }
+      }
+    }
+  })
+
+  it('720–1000 px × 1–10 menus × card folded/open × "More" closed/open: everything fits, the count does not move', () => {
+    for (let asideH = 720; asideH <= 1000; asideH += 10) {
+      for (let count = 1; count <= 10; count++) {
+        for (const card of [CARD_OPEN, CARD_FOLDED]) {
+          const closed = layout(asideH, count, false, card)
+          const opened = layout(asideH, count, true, card)
+          const where = `${asideH} px, ${count} menus, card ${card.open ? 'open' : 'folded'}`
+          assert.equal(opened.shown, closed.shown, `${where}: the count in "More (k)" is the same open and closed`)
+          for (const l of [closed, opened]) {
+            assert.ok(used(l, count) <= asideH - OTHER, `${where}: ${used(l, count)} > ${asideH - OTHER}`)
+            assert.ok(l.navMin >= 120, `${where}: tree ${l.navMin}`)
+            if (l.card!.open) {
+              assert.ok(l.card!.height >= card.minOpen && l.card!.height <= card.open!, where)
+            } else {
+              assert.equal(l.card!.height, card.folded, where)
+            }
+          }
+          if (!card.open) assert.equal(closed.card!.open, false)
+        }
+      }
+    }
+  })
+
+  it('1280×720/800/900/1000, ten menus, card open: it scrolls inside when it must, and the menus fold', () => {
+    // 720: free 443, room 443 − 120 − 32 = 291 → the card is drawn 291 px tall and scrolls; all menus under "More (10)"
+    assert.deepEqual(layout(720, 10, false, CARD_OPEN), { shown: 0, folding: true, open: null, navMin: 120, card: { open: true, height: 291 } })
+    assert.deepEqual(layout(800, 10, false, CARD_OPEN).card, { open: true, height: 371 })
+    // 900 and 1000: the whole card fits; the tree keeps what is left (≥ 120)
+    const l900 = layout(900, 10, false, CARD_OPEN)
+    assert.deepEqual(l900.card, { open: true, height: 437 })
+    assert.equal(l900.shown, 0)
+    assert.equal(l900.navMin, 900 - OTHER - 437 - 32)
+    const l1000 = layout(1000, 10, false, CARD_OPEN)
+    assert.equal(l1000.navMin, 1000 - OTHER - 437 - 32)
+  })
+
+  it('"More" opened: the menus come first, the card gets what is left or is drawn folded', () => {
+    // 720: every menu + "Show less" + tree 120 leave −29 px → card folded, the list scrolls above "k more below"
+    const l720 = layout(720, 10, true, CARD_OPEN)
+    assert.deepEqual(l720.card, { open: false, height: 64 })
+    assert.notEqual(l720.open!.maxHeight, null)
+    // 900: 623 − 120 − 352 = 151 ≥ two items → drawn open in 151 px, all ten menus without a scroll
+    const l900 = layout(900, 10, true, CARD_OPEN)
+    assert.deepEqual(l900.card, { open: true, height: 151 })
+    assert.deepEqual(l900.open, { treeMin: 120, maxHeight: null })
+  })
+
+  it('1280×900, card folded: "More (3)" (the tree keeps its 280 px minimum); 1280×1000 shows all ten', () => {
+    assert.equal(layout(900, 10, false, CARD_FOLDED).shown, 7)
+    assert.equal(layout(900, 10, false, null).shown, 10)
+    assert.equal(layout(1000, 10, false, CARD_FOLDED).shown, 10)
   })
 })

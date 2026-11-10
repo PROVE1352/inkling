@@ -451,9 +451,12 @@ On a server where Docker runs through sudo, run the script the same way: `sudo .
 `./backups/rename-nodian-to-inkling/` (root-owned then). If `.env` belongs to root, add the line with
 `sudo sh -c "printf '\nINKLING_DATA_NAME=nodian\n' >> .env"`.
 
-0.19 applies one migration (`0059_share_allow_download`, a column with a constant default). The v0.18.0 image
-also starts on the migrated database, so going back to 0.18.0 did not need a restore in a check on a near-empty
-database; keep the backup from before the upgrade anyway (docs/OPERATIONS.md "Upgrades").
+0.19 applies two migrations (`0059_share_allow_download`, a column with a constant default, and
+`0060_onboarding`, a new table with one row per existing account). The v0.18.0 image started on a database with
+0059 applied, so going back to 0.18.0 did not need a restore in a check on a near-empty database; with 0060 this was
+not checked again. Keep the backup from before the upgrade (docs/OPERATIONS.md "Upgrades"). New accounts see a short
+intro and a Getting started card; `ONBOARDING=off` in `.env` turns them off for everyone (docs/OPERATIONS.md
+section 13).
 
 On a stop signal (SIGTERM) the app saves collaborative documents being edited to the DB before
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't

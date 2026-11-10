@@ -1715,5 +1715,20 @@ shape; new fields are additive.
 - `PublicPageDTO` adds `fullWidth?: true` (the page's "Full width") and `download?: true` (the link allows
   `…/export.md`); both left out when false.
 
+### Onboarding (docs/adr/2380–2383)
+
+Migration 0060 (`user_onboarding`, a `{"legacy": true}` row for every account that existed before it). Browser
+session only: bearer tokens get 403.
+
+| Method | Path | Body | Answer | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/api/me/onboarding` | — | `OnboardingDTO` `{ enabled, audience: owner\|member\|guest, intro, checklist: { show, collapsed, dismissed, complete, items: [{ id, done }] }, samples: { [workspaceId]: pageId } }` | The first call makes the person's row; for the first admin of a new server it also makes the sample page. 120/min |
+| PATCH | `/api/me/onboarding` | any of `{ introSeen: true, collapsed, dismissed, event: slash\|link\|ai\|explore\|install }` (strict) | `OnboardingDTO` | 400 on an empty or unknown field. 60/min |
+| POST | `/api/me/onboarding/sample` | `{ workspaceId }` | `{ pageId, workspaceId, created }` | Members (not guests) of the workspace; private pages; returns the live sample when there is one (`created: false`); 409 `SAMPLE_IN_PROGRESS` while one is being made; 404 `ONBOARDING_OFF`. 10/min |
+
+- `ONBOARDING=off`: GET and PATCH answer `enabled: false` and change nothing visible; POST is 404 `ONBOARDING_OFF`.
+- `POST /api/pages/from-template` (and so `create_from_template`): a page embed in a template document that names a
+  page of the same template now points at the new copy of that page (docs/adr/2381-*).
+
 ### MCP tools
 No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (~7,533). Details: [MCP.md](MCP.md).

@@ -152,12 +152,14 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   "Article text" makes outbound HTTP(S) requests; a 15-minute automation timer runs per process. Nothing else changes
   for people until they turn something on.
 - 0.18 → 0.19 needs one line in `.env` before compose starts again: `INKLING_DATA_NAME=nodian` on an existing
-  install (see "Upgrading to 0.19" below), then optionally `deploy/rename-from-nodian.sh`. It applies 1 migration
-  (59 → 60 rows in `drizzle.__drizzle_migrations`): `0059_share_allow_download` adds
+  install (see "Upgrading to 0.19" below), then optionally `deploy/rename-from-nodian.sh`. It applies 2 migrations
+  (59 → 61 rows in `drizzle.__drizzle_migrations`): `0059_share_allow_download` adds
   `pages.share_allow_download boolean not null default false` (a constant default: metadata-only, no backfill,
-  milliseconds). No new dependency. No new environment variable besides `INKLING_DATA_NAME`. Going back to
-  0.18.0 after the upgrade needs no restore: 0.18.0 starts on the 60-row database (the extra column has a
-  default and 0.18.0 does not read it; checked on a near-empty database, KNOWN-ISSUES SHARE-5).
+  milliseconds), and `0060_onboarding` creates `user_onboarding` and inserts one `{"legacy": true}` row per existing
+  account (one INSERT…SELECT over `users`). No new dependency. New: `INKLING_DATA_NAME` (required), and the optional
+  `ONBOARDING`, `ONBOARDING_EXISTING_USERS` (section 13). Going back to 0.18.0 after 0059 alone needed no restore:
+  0.18.0 started on the 60-row database (the extra column has a default and 0.18.0 does not read it; checked on a
+  near-empty database, KNOWN-ISSUES SHARE-5). With 0060 as well it was not checked again (ONBOARD-5).
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
@@ -800,7 +802,7 @@ only route where a visitor without an account writes data.
 - Nothing to configure. The rows go with the account, with the workspace's purge, and when a member leaves or is
   removed; a soft-deleted workspace keeps them for a restore. Downgrading to 0.17 leaves the two tables unused.
 
-## 13. Public page downloads and start-up notices (0.19)
+## 13. Public page downloads, start-up notices and onboarding (0.19)
 
 ### Public page downloads (docs/adr/2360-* .. 2363-*)
 
@@ -820,3 +822,18 @@ only route where a visitor without an account writes data.
   Details. Ask people who report a blank or broken screen for that Details text.
 - In a browser whose IndexedDB never answers, a page with offline copies on opens from the server after 5 s instead
   of waiting on "Connecting…".
+
+### Onboarding (docs/adr/2380-* .. 2383-*)
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ONBOARDING` | on | `off` (or `0`, `false`, `no`): no intro, no Getting started card, no sample page, for everyone. Use it when your organisation has its own guide. Accounts first seen while it is off count as existing accounts if you turn it on later. |
+| `ONBOARDING_EXISTING_USERS` | off | `once`: accounts that existed before onboarding (and accounts first seen while `ONBOARDING=off`) also see the intro once, on their next app load. Only the intro: their checklist stays off and no sample page is made. Stored per person (`introSeenAt`): restarts with the variable still set do not repeat it; unsetting it later changes nothing. `ONBOARDING=off` wins. |
+
+Both are read per request and passed through by `compose.yaml`; recreate the app container after changing them
+(`docker compose up -d app`). The routes are for browser sessions only; agents and tokens never see onboarding.
+
+Onboarding state lives in `user_onboarding` (one row per account, deleted with the account). To show the
+intro again to one person: `UPDATE user_onboarding SET state = state - 'introSeenAt' - 'legacy' WHERE user_id = '…';`
+(or the person uses Settings › About › Watch the intro again). The first admin of a new server gets a sample page
+in their private pages on their first app load; nobody else gets one unless they press the card's button.

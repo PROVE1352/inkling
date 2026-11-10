@@ -85,7 +85,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |
 | `TZ` | `UTC` | 마감일, 데일리 노트, 알림, 백업 일정에서 "오늘"을 정하는 시간대입니다. 예: `Asia/Seoul` |
 
-나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.md](deploy/DEPLOY.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)를 보시면 되고, 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 참고하시기 바랍니다.
+나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.md](deploy/DEPLOY.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)를 보시면 되고, 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 새 계정에는 짧은 소개와 시작하기 체크리스트가 나오는데, `ONBOARDING=off`로 끌 수 있고 `ONBOARDING_EXISTING_USERS=once`를 넣으면 0.19 전부터 있던 계정에도 소개를 한 번 보여 줍니다([docs/OPERATIONS.md](docs/OPERATIONS.md#13-public-page-downloads-start-up-notices-and-onboarding-019)). 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 참고하시기 바랍니다.
 
 ### 개발
 
@@ -105,7 +105,7 @@ pnpm dev        # API·협업 서버 :3001, 웹 :5173
 
 에디터는 BlockNote 블록 에디터입니다. `/` 슬래시 메뉴로 코드 블록, 체크리스트, 콜아웃, KaTeX 수식 같은 블록을 넣고(코드 블록 언어를 `mermaid`로 두면 다이어그램이 그려집니다), 이미지와 파일은 끌어다 놓으면 들어가고, 링크는 미리보기나 임베드로 보여 줍니다. 표는 빈 줄에 `| 이름 | 역할 |`처럼 치고 Enter를 누르거나 `/표 3x4`로 바로 만들 수 있습니다. `[[위키링크]]`(`[[페이지#헤딩]]`이면 그 헤딩으로 바로 갑니다), `#태그`, `@멘션`, 데일리 노트가 있고, 템플릿은 페이지 하나뿐 아니라 하위 페이지와 데이터베이스까지 묶어서 만들 수 있습니다([docs/TEMPLATES.md](docs/TEMPLATES.md)). 펜 모드로 페이지 위에 손글씨나 형광펜을 남길 수도 있습니다.
 
-페이지는 폴더처럼 겹겹이 넣고 사이드바에서 끌어서 순서를 바꿉니다. 검색(⌘K)은 제목과 본문을 같이 찾고, 체크리스트에 날짜를 붙이면 할 일로 잡혀 마감 화면과 전체 캘린더에 나옵니다. 그 밖에 이름 붙인 버전 기록, 휴지통, PDF 내보내기, 페이지를 제목 단위로 나눠 슬라이드처럼 보여 주는 발표 모드가 있습니다. 명령 팔레트와 직접 바꿀 수 있는 단축키, 다시 볼 페이지를 모아 두고 알림을 받는 '나중에 보기', 팔로우한 코멘트 스레드 목록도 있습니다. `/버튼`으로 넣는 버튼은 누르면 행 추가, 값 바꾸기, 페이지 열기, 웹훅 보내기를 차례로 해 줍니다. 웹에서 본 글은 북마클릿이나 `/clip` 화면, 안드로이드 공유 메뉴로 링크나 본문째 저장할 수 있습니다. 화면은 한국어와 영어를 지원하고, PWA로 설치할 수 있으며(설치한 앱은 연 페이지를 기기에 보관해서 오프라인에서도 열고 고칠 수 있습니다), 라이트·다크 테마가 있습니다.
+페이지는 폴더처럼 겹겹이 넣고 사이드바에서 끌어서 순서를 바꿉니다. 검색(⌘K)은 제목과 본문을 같이 찾고, 체크리스트에 날짜를 붙이면 할 일로 잡혀 마감 화면과 전체 캘린더에 나옵니다. 그 밖에 이름 붙인 버전 기록, 휴지통, PDF 내보내기, 페이지를 제목 단위로 나눠 슬라이드처럼 보여 주는 발표 모드가 있습니다. 명령 팔레트와 직접 바꿀 수 있는 단축키, 다시 볼 페이지를 모아 두고 알림을 받는 '나중에 보기', 팔로우한 코멘트 스레드 목록도 있습니다. `/버튼`으로 넣는 버튼은 누르면 행 추가, 값 바꾸기, 페이지 열기, 웹훅 보내기를 차례로 해 줍니다. 웹에서 본 글은 북마클릿이나 `/clip` 화면, 안드로이드 공유 메뉴로 링크나 본문째 저장할 수 있습니다. 화면은 한국어와 영어를 지원하고, PWA로 설치할 수 있으며(설치한 앱은 연 페이지를 기기에 보관해서 오프라인에서도 열고 고칠 수 있습니다), 라이트·다크 테마가 있습니다. 처음 가입하면 짧은 소개와 시작하기 체크리스트가 나오고, 이것저것 눌러 볼 수 있는 샘플 페이지도 만들 수 있습니다.
 
 ### 데이터베이스
 

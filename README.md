@@ -105,6 +105,8 @@ Everything else is in [.env.example](.env.example) and [deploy/DEPLOY.md](deploy
 semantic search ([3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)) and running behind your own reverse proxy.
 Web push (`WEB_PUSH`, `VAPID_*`) and OAuth Client ID Metadata Documents (`OAUTH_CIMD`) work without settings or stay
 off until set: [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018).
+New accounts get a short intro and a Getting started checklist; `ONBOARDING=off` turns that off and
+`ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before 0.19 ([docs/OPERATIONS.md](docs/OPERATIONS.md#13-public-page-downloads-start-up-notices-and-onboarding-019)).
 Memory limits and Postgres tuning: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ### Development
@@ -129,6 +131,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Command palette, shortcuts you can change, Later reminders and followed comment threads; button blocks that add a row, set values, open a page or call a webhook
 - Save from the web with a bookmarklet, the `/clip` screen or Android's share sheet, as a link or the article's text
 - English and Korean UI, installable PWA with offline copies of the pages you open, light and dark themes
+- A short intro and a Getting started checklist for new accounts, and a sample page to try things on
 
 **Databases**
 - Table, board, calendar, gallery, timeline, chart, form and list views, each with its own sort, filter (with OR and NOT) and grouping; any view can also sit inside a page (`/database view`)

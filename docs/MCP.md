@@ -675,9 +675,11 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
   raise the page's document generation, so browsers holding offline edits of that page keep those edits as recovery
   items instead of merging them ([ADR 2201](adr/2201-document-generation-and-the-sync-gate.md)). `OAUTH_CIMD=1`
   turns on Client ID Metadata Documents (see "Client ID Metadata Documents" above and docs/OPERATIONS.md section 12).
-- **0.19**: one migration (`0059_share_allow_download`: `pages.share_allow_download`); none changes a tool. Fixed cost
-  per session is the same as 0.18 (full 48 tools ~12,777 tokens, core 32 ~7,533). The Markdown download of public
-  pages is a public route, not a tool.
+- **0.19**: two migrations (`0059_share_allow_download`: `pages.share_allow_download`; `0060_onboarding`:
+  `user_onboarding`); none changes a tool. Fixed cost per session is the same as 0.18 (full 48 tools ~12,777 tokens,
+  core 32 ~7,533). The Markdown download of public pages is a public route, not a tool, and onboarding is for browser
+  sessions only. `create_from_template`: an inline view of a database inside the same template now points at the new
+  copy of that database ([ADR 2381](adr/2381-sample-page-first-admin-auto-members-by-button.md)).
 
 ## Checking connections with real clients (DCR and Client ID Metadata Documents)
 

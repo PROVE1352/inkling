@@ -930,6 +930,15 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2362](2362-markdown-download-of-public-pages.md) | Markdown download of public pages: per link, off by default, the page's own blocks | Accepted |
 | [2363](2363-public-page-toolbar-folds-into-one-menu-on-phones.md) | Public page actions: a row of buttons, one "⋯" menu on narrow screens | Accepted |
 
+## 2380–2389 Onboarding
+
+| ADR | Title | Status |
+|---|---|---|
+| [2380](2380-onboarding-state-per-person-new-accounts-only.md) | Onboarding state per person, for new accounts only; the checklist ticks itself from stored facts | Accepted |
+| [2381](2381-sample-page-first-admin-auto-members-by-button.md) | The sample page: made for the first admin once, for members by button, private, labelled as a sample | Accepted |
+| [2382](2382-intro-motion-drawn-in-code-as-a-function-of-time.md) | The intro motion is SVG drawn in code as a pure function of time, in a lazy chunk | Accepted |
+| [2383](2383-operators-can-show-the-intro-to-existing-accounts-once.md) | Operators can show the intro to existing accounts once (ONBOARDING_EXISTING_USERS=once) | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

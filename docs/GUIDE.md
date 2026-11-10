@@ -38,6 +38,22 @@ lists both.
   otherwise your admin sends you a code.
 - The language follows your browser. Change it in Settings → Appearance → **Language**.
 
+### The intro and the Getting started card
+
+A new account sees a short intro the first time it opens Inkling. Skip it with **Esc** or the Skip
+button; ← and → change scenes and Space pauses. With "reduce motion" turned on in your system, the intro
+shows one still picture per scene.
+
+The **Getting started** card on the empty workspace screen (and folded at the bottom of the sidebar)
+lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
+where it is done; a short bubble points at the button. **Make a sample page to try things on** creates a page in
+your private pages (only you see it); delete it when you are done, it does not come back.
+**Don't show again** hides the card.
+
+Settings → About → Getting started: **Watch the intro again**, and a switch to show the checklist again.
+Accounts that existed before the upgrade start with the checklist off, and see the intro only if the
+server's operator set `ONBOARDING_EXISTING_USERS=once`. The intro never opens while you are typing.
+
 ### Workspaces
 
 A workspace is a shared space for a team. After your first sign-in you either **Create a workspace** or
@@ -837,7 +853,7 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 Open Settings with ⌘, or **Settings** at the bottom of the sidebar. The sections (Account, Security, Notifications,
 Editor, Sidebar, Files & links, Appearance, Connections, Keyboard shortcuts, Offline, About) are listed on the left and the
 chosen one opens on the right; on a phone the list comes first and a section opens over it. Two-step verification is
-under Security; the app version and a link to this guide are under About.
+under Security; the app version, a link to this guide, the intro and the Getting started checklist are under About.
 
 Saved to your account (the same on every device):
 

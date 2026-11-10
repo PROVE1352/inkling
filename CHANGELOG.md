@@ -22,14 +22,16 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 A minor release that moves the data plumbing from the project's old name to `inkling`, gives public links a toolbar
 (wide view, Save as PDF and a Markdown download the link's owner can turn on), fixes the app's PDF export and the
-sidebar's "More", and shows a notice with a Reload button where a screen used to stay white. One database
-migration, additive: `0059_share_allow_download` (`pages.share_allow_download`). A 0.18 database goes from 59 to 60
-applied migrations. No new dependency. One new setting, `INKLING_DATA_NAME`, required and without a default (see
-above); no other new variable. The MCP tool list is unchanged (48 tools, 32 in core). Upgrade matrix adds v0.18.0,
+sidebar's "More", shows a notice with a Reload button where a screen used to stay white, and greets new accounts
+with a short intro, a Getting started card and a sample page. Two database migrations, both additive:
+`0059_share_allow_download` (`pages.share_allow_download`) and `0060_onboarding` (`user_onboarding`, one row per
+existing account). A 0.18 database goes from 59 to 61 applied migrations. No new dependency. One new setting,
+`INKLING_DATA_NAME`, required and without a default (see above); two optional ones, `ONBOARDING` and
+`ONBOARDING_EXISTING_USERS`. The MCP tool list is unchanged (48 tools, 32 in core). Upgrade matrix adds v0.18.0,
 and a new `rename` job upgrades and renames installs from v0.17.1 and v0.18.0 (`.github/workflows/upgrade.yml`).
 
 Checked in Chrome only (desktop and a 390 px window): the public page toolbar, its PDF, the app's PDF export, the
-sidebar and the start-up notices were not tried in Safari, Firefox or on a touch device. The `rename` job has not
+sidebar, the start-up notices, the intro and the Getting started card were not tried in Safari, Firefox or on a touch device. The `rename` job has not
 run on GitHub Actions yet; the same script passed locally from v0.17.1 and from v0.18.0 (docs/KNOWN-ISSUES.md,
 "Added in 0.19.0").
 
@@ -61,10 +63,25 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   were); delete them.
 - **Migration 0059** adds `pages.share_allow_download boolean not null default false` (a constant default:
   metadata-only, no backfill, milliseconds). Existing links keep the download off. Going back to 0.18.0 after the
-  upgrade needs no restore: the v0.18.0 image started on a database migrated to 60 rows, served a new share link and
-  logged no error (checked on a near-empty database, not a copy of production). A link that allowed downloads,
+  upgrade needed no restore in a check before onboarding was merged: the v0.18.0 image started on a database
+  migrated to 60 rows (0059 only), served a new share link and logged no error (a near-empty database, not a copy of
+  production). With 0060's `user_onboarding` table this was not checked again (KNOWN-ISSUES ONBOARD-5). A link that allowed downloads,
   unpublished and published again while 0.18.0 runs, keeps the setting and offers the download again once 0.19 runs
   (KNOWN-ISSUES SHARE-5).
+- **Migration 0060** adds `user_onboarding` and gives every existing account a row `{"legacy": true}` (one
+  INSERT…SELECT over `users`): people who already use Inkling are not shown the intro or the checklist after the
+  upgrade. They can open both from Settings › About (docs/adr/2380-*).
+- **New optional variables** `ONBOARDING` (empty = on, `off` = no intro, card or sample page for anyone) and
+  `ONBOARDING_EXISTING_USERS` (`once` = accounts from before the upgrade also see the intro once, on their next app
+  load; closing or skipping it is stored per person, so it does not come back after restarts, and unsetting the
+  variable later changes nothing for those who saw it; their checklist stays off and no sample page is made for
+  them). Accounts first seen while `ONBOARDING=off` count as existing accounts if it is turned on later. Both are
+  passed through by `compose.yaml`; recreate the container after changing them (docs/adr/2383-*).
+- **Templates with a database and an inline view of it**: a custom template that contains a database **and** an
+  inline view (page embed) of that database now gives each new copy a view of its own copy; before, the view pointed
+  at the original database. This applies to "Start from template" in the app and to `POST /api/pages/from-template`
+  (the MCP `create_from_template` tool uses it); embeds of pages outside the template are kept as before
+  (docs/adr/2381-*).
 - Markdown downloads of public pages link images and files with `PUBLIC_URL` (`APP_URL` as fallback). Set it in
   production; without it the request host is used, as for OAuth metadata.
 - `PATCH /api/pages/:id/share` accepts `allowDownload: boolean`; `POST /api/pages/:id/share` does not (strict body:
@@ -100,6 +117,17 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   a Reload button (and the error under Details). A page that fails keeps the sidebar, and moving to another page
   tries again. A route chunk that still fails after the one automatic reload (server restarting, flaky connection)
   ends there too, and a start whose script never ran shows a reload notice after 12 s (docs/adr/2324-*).
+- **Onboarding for new accounts** (docs/adr/2380-* .. 2382-*). A new account sees a 26-second intro once (notes and
+  `[[links]]`, databases and views, AI agents over MCP with suggestions and undo, your own server and offline), drawn
+  in code, skippable, pausable, keyboard and screen-reader friendly, still pictures with reduced motion. A
+  **Getting started** card on the empty workspace screen and, folded, at the bottom of the sidebar lists first steps
+  that tick themselves as you do them (first page, `/` menu, `[[` link, database, inviting or sharing, connecting an
+  AI agent, installing or offline; invited members get "look around the team workspace" and "leave a comment"
+  instead of the database and invite items). Each item takes you where it is done and points at the button. The
+  first admin of a new server gets a **sample page** in their private pages, in their language; anyone can make one
+  from the card. Settings › About: "Watch the intro again" and a switch for the checklist. `ONBOARDING=off` turns it
+  all off; `ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before the upgrade
+  (docs/adr/2383-*).
 
 ### Changed
 - **The data plumbing is called `inkling`, from one required setting.** Up to 0.18 the compose project, the
@@ -119,6 +147,10 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
 - `ShareStatusDTO.allowDownload` and `PublicPageDTO.fullWidth` / `.download` are new, additive fields; two new
   public routes, `GET /api/public/:token/export.md` and `GET /api/public/:token/p/:ref/export.md`
   ([docs/API.md](docs/API.md), "v0.19.0 additions").
+- Templates: an inline database view (page embed) of a database inside the same template now points at the new copy
+  when the template is used (docs/adr/2381-*).
+- REST: `GET/PATCH /api/me/onboarding`, `POST /api/me/onboarding/sample`, browser session only
+  ([docs/API.md](docs/API.md), "v0.19.0 additions"). Agents never see onboarding.
 - Not changed: MCP tool descriptions, the tool list and the server instructions (full 48 tools ~12,777 tokens, core
   32 ~7,533).
 
@@ -151,9 +183,13 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
 - Public page bundle: +822 B on the entry (i18n strings) and +6,278 B JS, +5,827 B CSS on the public page (≈ +3.4 KB
   gzip in total) for the toolbar, the print styles shared with the app's PDF export and the view CSS
   ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- Onboarding: entry `index-*.js` +1,216 B gzip (most of it the en and ko strings), entry plus modulepreload +5,583 B
+  gzip, precache +24.66 KiB; the intro is a lazy chunk (7.59 kB gzip, not precached) loaded only when it plays.
 
 ### Database
 - Migration 0059: `pages.share_allow_download boolean not null default false` (docs/adr/2362-*).
+- Migration 0060: `user_onboarding` (one row per account, deleted with the account) and a `{"legacy": true}` row for
+  every existing account (docs/adr/2380-*).
 
 ## [0.18.0] - 2026-11-10
 

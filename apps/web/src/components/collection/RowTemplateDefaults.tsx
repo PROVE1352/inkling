@@ -41,6 +41,8 @@ export function DefaultValueEditor({
   switch (field.type) {
     case 'text':
     case 'url':
+    case 'email':
+    case 'phone':
       return (
         <input
           className={INPUT}

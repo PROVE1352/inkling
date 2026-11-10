@@ -11,6 +11,7 @@
 // This file must not import values from './index' (index re-exports it); type imports are fine.
 
 import { formulaResultType, isFormulaErrorCell } from './formula'
+import { matchesViewFilter, viewFilterOf } from './collectionFields'
 import { z } from 'zod'
 import type { CollectionField, FilterOp } from './index'
 
@@ -284,7 +285,11 @@ export interface ChartResolvers {
 }
 
 /** Fields a chart can group by. */
-export const CHART_GROUP_TYPES = new Set<CollectionField['type']>(['select', 'multiSelect', 'person', 'date', 'checkbox', 'relation', 'text', 'url', 'number'])
+export const CHART_GROUP_TYPES = new Set<CollectionField['type']>([
+  'select', 'multiSelect', 'person', 'date', 'checkbox', 'relation', 'text', 'url', 'number',
+  // 0.17 (docs/adr/2140-*): email / phone like text, created / edited time like dates (UTC day), created / edited by like people
+  'email', 'phone', 'createdTime', 'editedTime', 'createdBy', 'editedBy',
+])
 /** Fields a chart can sum / average. */
 export const CHART_MEASURE_TYPES = new Set<CollectionField['type']>(['number', 'rollup'])
 
@@ -335,7 +340,9 @@ export function collectionKeys(
       }
       return out.length ? out : empty
     }
-    case 'person': {
+    case 'person':
+    case 'createdBy':
+    case 'editedBy': {
       const ids = Array.isArray(value) ? value : [value]
       const out: ChartKey[] = []
       for (const id of new Set(ids)) {
@@ -355,7 +362,9 @@ export function collectionKeys(
       }
       return out.length ? out : empty
     }
-    case 'date': {
+    case 'date':
+    case 'createdTime':
+    case 'editedTime': {
       const s = dateValue(value)
       const k = s ? dateBucket(s, bucket) : null
       return k ? [{ key: k, label: k, order: k }] : empty
@@ -367,7 +376,9 @@ export function collectionKeys(
     case 'number':
       return typeof value === 'number' && Number.isFinite(value) ? [{ key: String(value), label: String(value), order: value }] : empty
     case 'text':
-    case 'url': {
+    case 'url':
+    case 'email':
+    case 'phone': {
       const s = typeof value === 'string' ? value.trim() : ''
       return s ? [textKey(s)] : empty
     }
@@ -550,73 +561,24 @@ export function aggregateItems(items: ChartItem[], o: AggregateOptions): Aggrega
 
 /** Dimensions whose values have an order of their own ('auto' sort keeps it). */
 export function naturalOrder(type: string): boolean {
-  return type === 'select' || type === 'date' || type === 'checkbox' || type === 'number'
+  return type === 'select' || type === 'date' || type === 'checkbox' || type === 'number' || type === 'createdTime' || type === 'editedTime'
 }
 
 // ---------------------------------------------------------------------------
 // View filters (shared by the web views and the server's chart aggregate)
 // ---------------------------------------------------------------------------
 
-/** One filter of a view (viewConfig.filters) against a row's stored value. */
-export function matchesFilter(
-  field: CollectionField,
-  value: unknown,
-  op: FilterOp,
-  target: string | number | boolean | undefined,
-): boolean {
-  // a formula error (web marker) reads as an empty value
-  if (isFormulaErrorCell(value)) value = null
-  const isEmpty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
-  switch (op) {
-    case 'empty':
-      return isEmpty
-    case 'notEmpty':
-      return !isEmpty
-    case 'eq':
-      if (field.type === 'multiSelect') return Array.isArray(value) && value.includes(target as string)
-      return String(value ?? '') === String(target ?? '')
-    case 'ne':
-      if (field.type === 'multiSelect') return !(Array.isArray(value) && value.includes(target as string))
-      return String(value ?? '') !== String(target ?? '')
-    case 'contains':
-      if (field.type === 'rollup' && Array.isArray(value))
-        return value.some((v) => String(v).toLowerCase().includes(String(target ?? '').toLowerCase()))
-      if (Array.isArray(value)) return value.includes(target as string)
-      return String(value ?? '')
-        .toLowerCase()
-        .includes(String(target ?? '').toLowerCase())
-    case 'gt':
-    case 'lt': {
-      if (field.type === 'number' || ((field.type === 'rollup' || field.type === 'formula') && typeof value === 'number')) {
-        const a = Number(value)
-        const b = Number(target)
-        if (Number.isNaN(a) || Number.isNaN(b)) return false
-        return op === 'gt' ? a > b : a < b
-      }
-      // date/text etc. compare lexicographically as strings
-      if (isEmpty) return false
-      const a = String(value)
-      const b = String(target ?? '')
-      return op === 'gt' ? a > b : a < b
-    }
-    default:
-      return true
-  }
-}
-
-/** Every filter must match; filters on fields that no longer exist are ignored (as the views do). */
+/**
+ * Every filter of a flat list must match (the pre-0.17 `viewConfig.filters`); filters on fields that
+ * no longer exist are ignored. The tree form and the one evaluator live in ./collectionFields
+ * (`matchesViewFilter`, docs/adr/2142-*).
+ */
 export function matchesViewFilters(
   props: Record<string, unknown>,
   fields: CollectionField[],
   filters: { fieldId: string; op: FilterOp; value?: string | number | boolean }[] | undefined,
 ): boolean {
-  if (!filters?.length) return true
-  for (const flt of filters) {
-    const field = fields.find((f) => f.id === flt.fieldId)
-    if (!field) continue
-    if (!matchesFilter(field, props[flt.fieldId], flt.op, flt.value)) return false
-  }
-  return true
+  return matchesViewFilter(props, fields, viewFilterOf({ filters }))
 }
 
 // ---------------------------------------------------------------------------

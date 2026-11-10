@@ -37,6 +37,7 @@ import {
 } from '../rowTemplates'
 import type { RowTemplateRow } from '../rowTemplates'
 import { requireCollectionPage } from './collections'
+import { stripAgentKeys } from '../collectionQuery/guestView'
 
 async function loadFields(pageId: string): Promise<CollectionField[]> {
   const [row] = await db.select({ fields: collections.fields }).from(collections).where(eq(collections.pageId, pageId)).limit(1)
@@ -62,7 +63,8 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
   app.get('/pages/:id/collection/row-templates', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireCollectionPage(id, user.id)
+    // a guest who can see the collection may use its templates (docs/adr/2146-*)
+    await requireCollectionPage(id, user.id, { guests: true })
     const rows = await listRowTemplates(id)
     const out: RowTemplateListDTO = {
       templates: rows.map(toRowTemplateDTO),
@@ -199,7 +201,9 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
       // requireCollectionPage without its membership query: the role is needed here anyway.
       const coll = await findVisiblePage(id, user.id)
       if (!coll) throw notFound()
-      const role = await requireMembership(coll.workspaceId, user.id)
+      // Page guests with edit on the collection add rows (docs/adr/2146-*): assertPlacement keeps them
+      // inside the trees shared with them at edit level.
+      const role = await requireMembership(coll.workspaceId, user.id, { guests: true })
       if (coll.kind !== 'collection') throw badRequest('Not a collection page')
       const body = createRowSchema.parse(req.body ?? {})
       const result = await createRow({
@@ -213,6 +217,7 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
         tz: body.tz,
         locale: await requestLocale(req, user.id),
       })
+      if (role === 'guest') stripAgentKeys(result.row.props)
       return result
     },
   )

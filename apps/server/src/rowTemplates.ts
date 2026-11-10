@@ -14,8 +14,8 @@
  */
 import { and, asc, eq, inArray, max, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
-import type { CollectionField, RowDTO, RowTemplateDTO, TemplateCursorDTO, TemplateInputDTO, WorkspaceRole } from '@inkling/shared'
-import { COLLECTION_MAX_ROWS, ROW_TEMPLATE_BODY_MAX_BYTES, ROW_TEMPLATE_DATE_RE, ROW_TEMPLATES_MAX } from '@inkling/shared'
+import type { CollectionField, RowDTO, RowTemplateDTO, TemplateCursorDTO, TemplateInputDTO, WorkspaceAccessRole } from '@inkling/shared'
+import { COLLECTION_MAX_ROWS, fillAutoProps, ROW_TEMPLATE_BODY_MAX_BYTES, ROW_TEMPLATE_DATE_RE, ROW_TEMPLATES_MAX } from '@inkling/shared'
 import { db } from './db/index'
 import { collectionRowTemplates, collections, pageDocs, pages, workspaces } from './db/schema'
 import { AppError, badRequest, notFound } from './errors'
@@ -33,6 +33,7 @@ import { nonMemberPersonIds, normalizeRelationWrite, syncPairedLinks } from './c
 import { actorFor, assertAllEditable } from './editLock'
 import { sanitizeBatchProps } from './routes/collectionsExt'
 import { parseDateValue } from './collectionQuery/filter'
+import { autoSourceColumns } from './collectionQuery/autoValues'
 import { enqueueAssignments, newAssignees, taskAssignments } from './notify/producers'
 import { enqueueWebhookEvent } from './webhooks'
 import { outboxCommitted } from './outbox'
@@ -103,7 +104,7 @@ export function resolveTemplateProps(
       if (d) out[key] = d
     } else if (f.type === 'person') {
       out[key] = value === 'me' ? opts.userId : value
-    } else if ((f.type === 'text' || f.type === 'url') && typeof value === 'string') {
+    } else if ((f.type === 'text' || f.type === 'url' || f.type === 'email' || f.type === 'phone') && typeof value === 'string') {
       out[key] = opts.render(value).slice(0, 10_000)
     } else {
       out[key] = value
@@ -209,7 +210,7 @@ export function mergeBody(stored: Uint8Array | null, update: Uint8Array): Buffer
 export interface CreateRowArgs {
   collection: PageRow
   user: Pick<AuthUser, 'id' | 'name' | 'via'>
-  role: WorkspaceRole
+  role: WorkspaceAccessRole
   /** undefined = the collection's default; null = empty row; id = that template. */
   template: string | null | undefined
   title?: string
@@ -239,13 +240,10 @@ async function pickTemplate(collectionId: string, template: string | null | unde
 export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
   const coll = a.collection
   const tpl = await pickTemplate(coll.id, a.template)
-  // Field definitions only when there are values to check (an empty row needs none).
-  const needFields = !!tpl || (a.props !== undefined && Object.keys(a.props).length > 0)
-  const fields = needFields
-    ? (((
-        await db.select({ fields: collections.fields }).from(collections).where(eq(collections.pageId, coll.id)).limit(1)
-      )[0]?.fields ?? []) as CollectionField[])
-    : []
+  // Field definitions: to check the values and to answer with the row's automatic values (docs/adr/2140-*).
+  const fields = (((
+    await db.select({ fields: collections.fields }).from(collections).where(eq(collections.pageId, coll.id)).limit(1)
+  )[0]?.fields ?? []) as CollectionField[])
 
   // Explicit values: the batch rules, non-members → 400. Relation values are written below in the
   // row's own transaction (docs/adr/1524-*), with the same rules as PATCH /pages/:id/props.
@@ -255,6 +253,10 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
   )
   if ((await nonMemberPersonIds(coll.workspaceId, fields, [explicit])).length) {
     throw badRequest('Person cells may only reference members of this workspace')
+  }
+  // a guest cannot see the member list, so it cannot assign people (docs/adr/2146-*)
+  if (a.role === 'guest' && fields.some((f) => f.type === 'person' && f.id in explicit)) {
+    throw new AppError(403, 'GUEST_PERSON', 'Guests cannot assign people')
   }
 
   let title = (a.title ?? '').trim().slice(0, 300)
@@ -317,7 +319,9 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
     // (others dropped, as PATCH /props does); two-way targets must be editable, or no row is made.
     const links: { field: CollectionField; ids: string[] }[] = []
     for (const f of relationWrites) {
-      const ids = await normalizeRelationWrite(tx, f, undefined, a.props![f.id], a.user.id)
+      let ids = await normalizeRelationWrite(tx, f, undefined, a.props![f.id], a.user.id)
+      // a new row's parent (sub-items, docs/adr/2144-*): one row; a new row has no sub-items, so no cycle
+      if (f.relation?.subItems) ids = ids.slice(0, 1)
       if (ids.length) {
         props = { ...props, [f.id]: ids }
         links.push({ field: f, ids })
@@ -340,7 +344,7 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
         createdBy: a.user.id,
         createdVia: a.user.via ? a.user.via.slice(0, 100) : null,
       })
-      .returning({ ...pageColumns, props: pages.props })
+      .returning({ ...pageColumns, props: pages.props, ...autoSourceColumns })
     for (const l of links) await syncPairedLinks(tx, l.field, created.id, [], l.ids)
     if (state) await tx.insert(pageDocs).values({ pageId: created.id, state })
     // Person defaults and values are assignments (docs/adr/1000-*); webhooks like POST /pages.
@@ -381,7 +385,9 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
       console.error('[inkling] row template: indexing failed', row.id, err)
     }
   }
-  const dto = toRowDTO(row, (row.props ?? {}) as Record<string, unknown>)
+  const dto = toRowDTO(row, { ...((row.props ?? {}) as Record<string, unknown>) })
+  // automatic values of the new row (docs/adr/2140-*)
+  fillAutoProps(fields, dto.props, row)
   return {
     row: dto,
     templateId: tpl?.id ?? null,

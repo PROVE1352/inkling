@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CollectionField, FieldType, SelectOption } from '@inkling/shared'
+import { isAutoFieldType } from '@inkling/shared'
 import { useT } from '../../i18n'
 import {
   OPTION_COLORS,
@@ -9,7 +10,7 @@ import {
 import type { OptionColor } from '../../lib/optionColors'
 import { ConfirmPopover } from '../ConfirmPopover'
 import { PlusIcon, TrashIcon, XIcon } from '../Icons'
-import { FormulaEditor, RelationEditor, RollupEditor } from './FieldConfigEditors'
+import { FormulaEditor, RelationEditor, RollupEditor, UniqueIdEditor, uniqueIdPrefixValid } from './FieldConfigEditors'
 import { FIELD_TYPE_LABEL as TYPE_LABEL } from './strings'
 
 const TYPE_ORDER: FieldType[] = [
@@ -21,9 +22,17 @@ const TYPE_ORDER: FieldType[] = [
   'checkbox',
   'person',
   'url',
+  'email',
+  'phone',
   'relation',
   'rollup',
   'formula',
+  // automatic values (docs/adr/2140-*)
+  'createdTime',
+  'editedTime',
+  'createdBy',
+  'editedBy',
+  'uniqueId',
 ]
 
 function newId(): string {
@@ -157,6 +166,7 @@ export function FieldsModal({
               options: needsOptions ? f.options ?? [] : undefined,
               relation: type === 'relation' ? f.relation : undefined,
               formula: type === 'formula' ? f.formula ?? { expression: '' } : undefined,
+              uniqueId: type === 'uniqueId' ? f.uniqueId ?? {} : undefined,
               rollup:
                 type === 'rollup'
                   ? f.rollup ??
@@ -193,7 +203,8 @@ export function FieldsModal({
     (f) =>
       (f.type === 'relation' && !f.relation?.targetPageId) ||
       (f.type === 'rollup' && !f.rollup) ||
-      (f.type === 'formula' && !f.formula?.expression.trim()),
+      (f.type === 'formula' && !f.formula?.expression.trim()) ||
+      (f.type === 'uniqueId' && !uniqueIdPrefixValid(f.uniqueId?.prefix ?? '')),
   )
 
   const save = () => {
@@ -202,6 +213,7 @@ export function FieldsModal({
     const cleaned = draft.map((f) => ({
       ...f,
       name: f.name.trim() || t('fields.fallbackName'),
+      ...(f.type === 'uniqueId' ? { uniqueId: f.uniqueId?.prefix?.trim() ? { prefix: f.uniqueId.prefix.trim() } : {} } : {}),
     }))
     onSave(cleaned)
   }
@@ -259,7 +271,10 @@ export function FieldsModal({
                       onChange={(e) => changeType(f.id, e.target.value as FieldType)}
                       className="rounded border border-line bg-app px-1.5 py-1 text-sm text-ink outline-none focus-visible:border-accent"
                     >
-                      {TYPE_ORDER.map((ft) => (
+                      {TYPE_ORDER.filter(
+                        // one ID property per collection: the option stays on the field that is it
+                        (ft) => ft !== 'uniqueId' || f.type === 'uniqueId' || !draft.some((x) => x.type === 'uniqueId'),
+                      ).map((ft) => (
                         <option key={ft} value={ft}>
                           {TYPE_LABEL[ft]}
                         </option>
@@ -289,7 +304,10 @@ export function FieldsModal({
                       onChange={(next) => update(f.id, { options: next })}
                     />
                   )}
-                  {f.type === 'relation' && (
+                  {f.type === 'relation' && f.relation?.subItems ? (
+                    // the sub-items "Parent item": a one-way relation to this collection, set from the ⋯ menu
+                    <p className="mt-2 text-xs text-sub">{t('fields.parentItem')}</p>
+                  ) : f.type === 'relation' && (
                     <RelationEditor
                       wsId={wsId}
                       pageId={pageId}
@@ -299,6 +317,10 @@ export function FieldsModal({
                   )}
                   {f.type === 'formula' && (
                     <FormulaEditor field={f} draft={draft} onChange={(p) => update(f.id, p)} />
+                  )}
+                  {f.type === 'uniqueId' && <UniqueIdEditor field={f} onChange={(p) => update(f.id, p)} />}
+                  {isAutoFieldType(f.type) && f.type !== 'uniqueId' && (
+                    <p className="mt-2 text-xs text-sub">{t('fields.automatic')}</p>
                   )}
                   {f.type === 'rollup' && (
                     <RollupEditor

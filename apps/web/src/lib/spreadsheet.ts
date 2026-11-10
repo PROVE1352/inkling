@@ -6,6 +6,7 @@ import {
   IMPORT_MAX_BYTES,
   IMPORT_MAX_COLS,
   IMPORT_MAX_ROWS,
+  isTimestampType,
   parseCsv,
   toCsv,
 } from '@inkling/shared'
@@ -111,7 +112,11 @@ export interface ExportContext {
   titleHeader?: string
 }
 
-/** Display grid: header + one string per cell (same text the UI shows). */
+/**
+ * Display grid: header + one string per cell (same text the UI shows), except created / last
+ * edited time, which are written as the stored ISO UTC timestamp (2026-11-10T09:12:33.120Z) in CSV,
+ * Excel and copied TSV alike, so a file means the same moment wherever it is opened.
+ */
 export function viewGrid(ctx: ExportContext): string[][] {
   const memberName = (id: string) => ctx.members?.find((m) => m.id === id)?.name
   const refTitle = (id: string) => ctx.refs?.[id]?.title
@@ -123,7 +128,11 @@ export function viewGrid(ctx: ExportContext): string[][] {
         ? r.props[f.id]
           ? 'TRUE'
           : 'FALSE'
-        : formatValue(f, r.props[f.id], memberName, refTitle),
+        : isTimestampType(f.type)
+          ? typeof r.props[f.id] === 'string'
+            ? String(r.props[f.id])
+            : ''
+          : formatValue(f, r.props[f.id], memberName, refTitle),
     ),
   ])
   return [header, ...body]

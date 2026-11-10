@@ -19,7 +19,7 @@ import { connectionKey } from '../leases'
 import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
-import { agentPropKey } from '@inkling/shared'
+import { agentPropKey, parseUniqueId, subItemsField } from '@inkling/shared'
 import { peopleStatusLine } from '../memberStatus'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -37,6 +37,7 @@ const OPS_SUMMARY = [
   `select/person: ${opsHelp('select')} (person: me, member name, email or user id)`,
   `multiSelect/relation: ${opsHelp('multiSelect')} (relation: row title or row id)`,
   'rollup: read-only, not filterable',
+  'email/phone: as text; created/edited time: as date (UTC day); created/edited by: as person; uniqueId: as number (TASK-12 or 12). These five are read-only',
 ].join('\n')
 
 function rowLines(columns: string[], cells: string[]): string {
@@ -75,13 +76,19 @@ async function loadMembers(ctx: ToolCtx, workspaceId: string): Promise<Member[]>
  * Relation refs (row ids or exact titles, case-insensitive) → row ids of the target collection.
  * Titles are looked up with the relation picker route (visible rows only); one call per distinct title.
  */
-async function resolveRelationRefs(ctx: ToolCtx, mapped: MappedWrite): Promise<Record<string, string[]>> {
+async function resolveRelationRefs(ctx: ToolCtx, mapped: MappedWrite, fields: CollectionField[] = []): Promise<Record<string, string[]>> {
   const out: Record<string, string[]> = {}
   const errors: string[] = []
+  // a Parent item (sub-items, docs/adr/2144-*) also takes the parent's ID (TASK-3)
+  const uid = fields.find((f) => f.type === 'uniqueId')
   for (const { field, refs } of mapped.relations) {
     const target = field.relation?.targetPageId
     if (!target) {
       errors.push(`"${field.name}" has no target collection configured`)
+      continue
+    }
+    if (field.relation?.subItems && refs.length > 1) {
+      errors.push(`"${field.name}" takes one parent row`)
       continue
     }
     const ids: string[] = []
@@ -89,6 +96,14 @@ async function resolveRelationRefs(ctx: ToolCtx, mapped: MappedWrite): Promise<R
       if (UUID_RE.test(ref)) {
         ids.push(ref.toLowerCase())
         continue
+      }
+      if (field.relation?.subItems && uid && parseUniqueId(uid, ref) !== null) {
+        const res = await call(ctx, 'GET', `/api/pages/${target}/collection/query`, { query: { filter: `#${uid.id} = ${parseUniqueId(uid, ref)}`, limit: '1', fields: '[]' } })
+        const hit = (res.json() as QueryRowsDTO).rows[0]
+        if (hit) {
+          ids.push(hit.id)
+          continue
+        }
       }
       const res = await call(ctx, 'GET', `/api/pages/${target}/collection/row-options`, { query: { q: ref, limit: '200' } })
       const rows = (res.json() as { rows: { id: string; title: string }[] }).rows
@@ -204,11 +219,15 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         limit: z.number().int().min(1).max(200).optional().describe('Rows per page (default 25, max 200)'),
         cursor: z.string().max(8000).optional().describe('`next cursor` from the previous call (same filter and sort)'),
         describe: z.boolean().optional().describe('Only return the schema (fields, options, operators), no rows'),
+        under: z.string().max(300).optional().describe('Sub-items: only rows under this row (id, ID like TASK-3, or title)'),
+        depth: z.number().int().min(1).max(8).optional().describe('Levels under `under` (default 1)'),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ collectionId, filter, sort, fields, limit, cursor, describe }) => {
+    wrap(async ({ collectionId, filter, sort, fields, limit, cursor, describe, under, depth }) => {
       const query: Record<string, string> = {}
+      if (under !== undefined) query.under = under
+      if (depth !== undefined) query.depth = String(depth)
       if (describe) query.describe = '1'
       if (filter) query.filter = filter
       if (sort) query.sort = sort
@@ -294,7 +313,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       }
       if (mapped.title !== undefined) throw new ToolError('update_row does not change the title; use rename_page. Nothing was written.')
       assertSanitized(cur.fields, mapped.props)
-      const rel = await resolveRelationRefs(ctx, mapped)
+      const rel = await resolveRelationRefs(ctx, mapped, cur.fields)
       let res
       try {
         res = await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: { ...mapped.props, ...rel }, baseVersion } })
@@ -333,14 +352,22 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         properties: z.record(z.string().max(100), z.unknown()).optional().describe('{ "Property name": value }'),
         template: z.string().max(100).optional().describe('Row template name or id; "none" = empty row; omitted = default template'),
         inputs: z.record(z.string().max(200), z.string().max(2000)).optional().describe('{ "Prompt": "answer" } for {{input:…}} prompts'),
+        parent: z.string().max(300).optional().describe('Sub-items: the parent row (id, ID like TASK-3, or title)'),
       },
       annotations: { destructiveHint: false },
     },
-    wrapWrite(ctx, async ({ collectionId, title, properties = {}, template, inputs }) => {
+    wrapWrite(ctx, async ({ collectionId, title, properties = {}, template, inputs, parent }) => {
       const def = (
         await call(ctx, 'GET', `/api/pages/${collectionId}/collection/query`, { query: { describe: '1' } })
       ).json() as QueryRowsDTO
       const fields = def.definitions ?? []
+      if (parent !== undefined) {
+        // sub-items (docs/adr/2144-*): the parent is the collection's Parent item property
+        const pf = subItemsField(fields, collectionId)
+        if (!pf) throw new ToolError('This collection has no sub-items (no Parent item property); turn them on with update_fields add { name: "Parent item", type: "relation", subItems: true }. Nothing was written.')
+        if (Object.keys(properties).some((k) => k === pf.name || k === `#${pf.id}`)) throw new ToolError(`Give the parent once: parent or "${cleanText(pf.name)}". Nothing was written.`)
+        properties = { ...properties, [`#${pf.id}`]: parent }
+      }
       let mapped: MappedWrite
       try {
         const members = needsMembers(fields, properties) ? await loadMembers(ctx, def.workspaceId) : undefined
@@ -351,7 +378,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       }
       const props = Object.fromEntries(Object.entries(mapped.props).filter(([, v]) => v !== null))
       assertSanitized(fields, props)
-      const rel = await resolveRelationRefs(ctx, mapped)
+      const rel = await resolveRelationRefs(ctx, mapped, fields)
       const relLinks = Object.fromEntries(Object.entries(rel).filter(([, ids]) => ids.length))
       const tpls = await loadRowTemplates(ctx, collectionId)
       const templateId = pickRowTemplate(tpls, template)

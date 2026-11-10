@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { DownloadIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, TemplateIcon, UploadIcon } from '../Icons'
+import { CheckIcon, DownloadIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, TemplateIcon, UploadIcon } from '../Icons'
 import { useT } from '../../i18n'
 import { S } from './strings'
 
@@ -11,6 +11,8 @@ export function CollectionMenu({
   onExportXlsx,
   onCopyTsv,
   onSheetSync,
+  subItems,
+  onToggleSubItems,
 }: {
   /** row templates (docs/adr/1180-*) */
   onRowTemplates?: () => void
@@ -21,6 +23,10 @@ export function CollectionMenu({
   onCopyTsv: () => void
   /** shown only when the experimental `sheets-sync` flag is enabled */
   onSheetSync?: () => void
+  /** the collection has a sub-items ("Parent item") field */
+  subItems?: boolean
+  /** turn sub-items on / off (omitted when read-only) */
+  onToggleSubItems?: () => void
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -65,6 +71,12 @@ export function CollectionMenu({
           {onRowTemplates && (
             <button type="button" className={`${item} border-b border-line`} onClick={run(onRowTemplates)}>
               <TemplateIcon size={14} /> {t('rowTpl.manage')}
+            </button>
+          )}
+          {onToggleSubItems && (
+            <button type="button" className={`${item} border-b border-line`} onClick={run(onToggleSubItems)} aria-pressed={!!subItems}>
+              <span className="flex w-3.5 justify-center">{subItems ? <CheckIcon size={14} /> : null}</span>
+              {subItems ? t('subItems.turnOff') : t('subItems.turnOn')}
             </button>
           )}
           {onImport && (

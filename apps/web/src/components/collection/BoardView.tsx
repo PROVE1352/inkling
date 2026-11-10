@@ -89,7 +89,7 @@ function Card({
         <div className="mt-1.5 flex flex-col gap-1">
           {shown.map((f) => (
             <div key={f.id} className="min-w-0">
-              <FieldValue field={f} value={row.props[f.id]} members={members} />
+              <FieldValue field={f} value={row.props[f.id]} members={members} rowProps={row.props} />
             </div>
           ))}
         </div>

@@ -132,6 +132,13 @@ export const FIELD_TYPE_LABEL = {
   get relation() { return t('field.typeRelation') },
   get rollup() { return t('field.typeRollup') },
   get formula() { return t('field.typeFormula') },
+  get email() { return t('field.typeEmail') },
+  get phone() { return t('field.typePhone') },
+  get createdTime() { return t('field.typeCreatedTime') },
+  get editedTime() { return t('field.typeEditedTime') },
+  get createdBy() { return t('field.typeCreatedBy') },
+  get editedBy() { return t('field.typeEditedBy') },
+  get uniqueId() { return t('field.typeUniqueId') },
 } satisfies Record<FieldType, string>
 
 /** View type names, translated on access. Also the default name of a new view. */
@@ -143,4 +150,5 @@ export const VIEW_TYPE_LABEL = {
   get timeline() { return t('view.typeTimeline') },
   get chart() { return t('chart.viewType') },
   get form() { return t('view.typeForm') },
+  get list() { return t('view.typeList') },
 } satisfies Record<ViewType, string>

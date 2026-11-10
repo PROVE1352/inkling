@@ -36,6 +36,7 @@ import { escapeLike } from '../util'
 import { requireCollectionPage } from './collections'
 import { nonMemberPersonIds } from '../collectionRelations'
 import { registerSheetSyncRoutes } from './sheetSync'
+import { autoSourceColumns, fillAutoInto } from '../collectionQuery/autoValues'
 import { registerCollectionQueryRoutes } from './collectionQuery'
 import { registerRowTemplateRoutes } from './rowTemplates'
 
@@ -77,8 +78,11 @@ export function sanitizeBatchProps(
     switch (f.type) {
       case 'text':
       case 'url':
+      case 'email':
+      case 'phone':
         if (typeof value === 'string') set[key] = value.slice(0, 10_000)
         break
+      // automatic values (createdTime … uniqueId, docs/adr/2140-*) have no case: never written
       case 'number':
         if (typeof value === 'number' && Number.isFinite(value)) set[key] = value
         break
@@ -121,7 +125,8 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
   app.get('/pages/:id/collection/row-options', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireCollectionPage(id, user.id)
+    // guests pick among the rows they can see (docs/adr/2146-*): visibleTo is narrowed to their trees
+    await requireCollectionPage(id, user.id, { guests: true })
     const { q, limit = 50 } = optionsQuery.parse(req.query)
     const conds = [eq(pages.parentId, id), isNull(pages.deletedAt), visibleTo(user.id)]
     if (q && q.trim()) conds.push(ilike(pages.title, `%${escapeLike(q.trim())}%`))
@@ -139,7 +144,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
   app.get('/pages/:id/collection/covers', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireCollectionPage(id, user.id)
+    await requireCollectionPage(id, user.id, { guests: true })
     const rows = await db
       .selectDistinctOn([files.pageId], { pageId: files.pageId, fileId: files.id })
       .from(files)
@@ -214,7 +219,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
         const rows = await tx
           .insert(pages)
           .values(values)
-          .returning({ ...pageColumns, props: pages.props })
+          .returning({ ...pageColumns, props: pages.props, ...autoSourceColumns })
         // New rows created with people in person cells are assignments too (docs/adr/1000-*); the
         // events commit with the rows (docs/adr/1150-*).
         queued = await enqueueAssignments(
@@ -229,9 +234,10 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
         return rows
       })
       outboxCommitted(queued)
-      return {
-        rows: created.map((r) => toRowDTO(r, (r.props ?? {}) as Record<string, unknown>)),
-      }
+      const dtos = created.map((r) => toRowDTO(r, { ...((r.props ?? {}) as Record<string, unknown>) }))
+      // automatic values of the new rows (docs/adr/2140-*), as GET /collection serves them
+      fillAutoInto(fieldList, dtos, created)
+      return { rows: dtos }
     },
   )
 

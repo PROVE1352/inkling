@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as Y from 'yjs'
 import type { CollectionField, MemberDTO, RowTemplateDTO, UserDTO } from '@inkling/shared'
+import { isReadOnlyFieldType } from '@inkling/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '../../i18n'
 import { LocalDocEditor } from '../CollabEditor'
@@ -149,7 +150,8 @@ export function RowTemplateEditor({
     return () => window.removeEventListener('keydown', onKey)
   }, [close, iconOpen])
 
-  const editable = fields.filter((f) => f.type !== 'rollup' && f.type !== 'formula')
+  // computed and automatic values (created/edited, ID) are never set by a template
+  const editable = fields.filter((f) => !isReadOnlyFieldType(f.type))
   const setProp = (fieldId: string, value: unknown) => {
     if (!tpl) return
     const next = { ...tpl.props }

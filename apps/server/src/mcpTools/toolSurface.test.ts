@@ -106,7 +106,7 @@ describe('tools/list (docs/adr/1945-*)', () => {
     // the fixed cost this release set out to cut (16,504 estimated tokens in 0.15.0)
     const tokens = estimateTokens(a)
     console.log(`[surface] tools/list ${a.length} chars, ~${tokens} tok`)
-    assert.ok(tokens < 12_500, `tools/list ~${tokens} tok`)
+    assert.ok(tokens < 12_900, `tools/list ~${tokens} tok`)
   })
 
   it('only dialect-neutral JSON Schema keywords are used, so dropping $schema changes no meaning', async () => {

@@ -10,7 +10,7 @@
  * field type, and values are converted to what the props store holds (option names → option ids,
  * `today` → a date). The SQL compiler (./compile.ts) only ever sees a fully resolved tree.
  */
-import { formulaResultType } from '@inkling/shared'
+import { formatUniqueId, formulaResultType, parseUniqueId } from '@inkling/shared'
 import type { CollectionField, FieldType } from '@inkling/shared'
 
 export class FilterError extends Error {
@@ -34,7 +34,12 @@ export const TITLE: ResolvedField = { kind: 'title', name: 'Title' }
 
 export type ResolvedField = { kind: 'title'; name: 'Title' } | { kind: 'field'; name: string; field: CollectionField }
 
-export type FieldKind = FieldType | 'title'
+/**
+ * How a field is filtered and sorted. The 0.17 types take the kind of what they hold
+ * (docs/adr/2140-*): email / phone → text, created / edited time → date (UTC day), created /
+ * edited by → person, unique ID → number (TASK-12 or 12).
+ */
+export type FieldKind = Exclude<FieldType, 'email' | 'phone' | 'createdTime' | 'editedTime' | 'createdBy' | 'editedBy' | 'uniqueId'> | 'title'
 
 /** Bound values: what the compiler compares against (already in stored form). */
 export type Value =
@@ -113,7 +118,22 @@ const OP_LABEL: Record<Op, string> = {
 }
 
 export function kindOf(f: ResolvedField): FieldKind {
-  return f.kind === 'title' ? 'title' : f.field.type
+  if (f.kind === 'title') return 'title'
+  switch (f.field.type) {
+    case 'email':
+    case 'phone':
+      return 'text'
+    case 'createdTime':
+    case 'editedTime':
+      return 'date'
+    case 'createdBy':
+    case 'editedBy':
+      return 'person'
+    case 'uniqueId':
+      return 'number'
+    default:
+      return f.field.type
+  }
 }
 
 export function opsHelp(kind: FieldKind): string {
@@ -444,6 +464,12 @@ function bindValue(field: ResolvedField, kind: FieldKind, raw: string, quoted: b
     case 'url':
       return { t: 'text', v: raw }
     case 'number': {
+      const f = field.kind === 'field' ? field.field : null
+      if (f?.type === 'uniqueId') {
+        const id = parseUniqueId(f, raw)
+        if (id === null) throw new FilterError(`"${name}" is an ID; use ${formatUniqueId(f, 12) || '12'} or the number (got "${raw}")`, pos)
+        return { t: 'number', v: id }
+      }
       const n = Number(raw.trim())
       if (raw.trim() === '' || !Number.isFinite(n)) throw new FilterError(`"${name}" is a number field; "${raw}" is not a number`, pos)
       return { t: 'number', v: n }

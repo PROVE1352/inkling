@@ -562,7 +562,11 @@ function fieldResultType(f: CollectionField | undefined, compiled: CompiledFormu
     case 'checkbox':
       return 'boolean'
     case 'date':
+    case 'createdTime':
+    case 'editedTime':
       return 'date'
+    case 'uniqueId':
+      return 'number'
     case 'rollup':
       if (!f.rollup) return null
       if (ROLLUP_NUMBER.has(f.rollup.fn)) return 'number'
@@ -878,6 +882,12 @@ function fromProp(f: CollectionField | undefined, raw: unknown): V {
       return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
     case 'checkbox':
       return raw === true
+    case 'createdTime':
+    case 'editedTime':
+      return typeof raw === 'string' ? parseFormulaDate(raw) : null
+    case 'uniqueId':
+      // the number (12 of TASK-12); docs/adr/2140-*
+      return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
     case 'date': {
       const s = typeof raw === 'string' ? raw : typeof raw === 'object' && typeof (raw as { start?: unknown }).start === 'string' ? (raw as { start: string }).start : null
       if (!s) return null
@@ -906,6 +916,8 @@ function fromProp(f: CollectionField | undefined, raw: unknown): V {
     // viewers and are not known to the evaluator) — docs/adr/1824-*
     case 'person':
     case 'relation':
+    case 'createdBy':
+    case 'editedBy':
       return null
     default:
       return typeof raw === 'string' ? raw : typeof raw === 'number' ? raw : null

@@ -6,6 +6,7 @@ import type { WorkspaceAccessRole } from './pageAccess'
 import { chartSettingsSchema } from './charts'
 import { formSettingsSchema } from './forms'
 import { mentionConnectionsSchema } from './teamAgents'
+import { filterOpSchema, uniqueIdConfigSchema, viewFilterSchema } from './collectionFields'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -506,6 +507,16 @@ export const fieldTypeSchema = z.enum([
   'rollup',
   /** computed from other properties of the same row (docs/adr/1823-*); never stored in props */
   'formula',
+  // 0.17 (docs/adr/2140-*): stored text like url
+  'email',
+  'phone',
+  // 0.17 automatic values: filled in from the page by the server, never stored in props, never written
+  'createdTime',
+  'editedTime',
+  'createdBy',
+  'editedBy',
+  /** prefix + a number per collection (TASK-12), handed out once (docs/adr/2140-*) */
+  'uniqueId',
 ])
 export type FieldType = z.infer<typeof fieldTypeSchema>
 
@@ -525,6 +536,11 @@ export const relationConfigSchema = z.object({
   twoWay: z.boolean().optional(),
   /** id of the paired relation field on the target collection (set by the server) */
   pairFieldId: z.string().min(1).max(40).optional(),
+  /**
+   * Sub-items (docs/adr/2144-*): this relation is the collection's "Parent item" field. Only on a
+   * one-way relation to the same collection; one per collection; at most one link, never a cycle.
+   */
+  subItems: z.boolean().optional(),
 })
 export type RelationConfig = z.infer<typeof relationConfigSchema>
 
@@ -568,6 +584,8 @@ export const collectionFieldSchema = z.object({
   rollup: rollupConfigSchema.optional(),
   /** formula: the expression, as typed (prop("Name") reads a property; docs/adr/1823-*) */
   formula: formulaConfigSchema.optional(),
+  /** uniqueId: the prefix shown before the number (docs/adr/2140-*) */
+  uniqueId: uniqueIdConfigSchema.optional(),
 })
 export type CollectionField = z.infer<typeof collectionFieldSchema>
 
@@ -575,16 +593,7 @@ export const updateFieldsSchema = z.object({
   fields: z.array(collectionFieldSchema).max(200),
 })
 
-export const filterOpSchema = z.enum([
-  'contains',
-  'eq',
-  'ne',
-  'empty',
-  'notEmpty',
-  'gt',
-  'lt',
-])
-export type FilterOp = z.infer<typeof filterOpSchema>
+// filterOpSchema / FilterOp: ./collectionFields (the view filter tree lives there, docs/adr/2142-*)
 
 /**
  * Table column widths a view may store (px, docs/adr/1351-*). The minimums are the table's track
@@ -607,6 +616,11 @@ export const viewConfigSchema = z.object({
     )
     .max(10)
     .optional(),
+  /**
+   * Filter tree with OR groups and NOT (0.17, docs/adr/2142-*). Wins over `filters` when present;
+   * a plain AND list is still saved as `filters` so 0.16 clients keep applying it.
+   */
+  filter: viewFilterSchema.optional(),
   groupByFieldId: z.string().optional(),
   columnOrder: z.array(z.string()).max(200).optional(),
   hiddenFields: z.array(z.string()).max(200).optional(),
@@ -633,10 +647,12 @@ export const viewConfigSchema = z.object({
   chart: chartSettingsSchema.optional(),
   /** form view: which properties the form asks for, in order (docs/adr/1820-*) */
   form: formSettingsSchema.optional(),
+  /** table: show sub-items as a tree (default) or as flat rows (docs/adr/2144-*) */
+  subItems: z.enum(['nested', 'flat']).optional(),
 })
 export type ViewConfig = z.infer<typeof viewConfigSchema>
 
-export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form'])
+export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form', 'list'])
 export type ViewType = z.infer<typeof viewTypeSchema>
 
 export const createViewSchema = z.object({
@@ -984,6 +1000,8 @@ export * from './revert'
 // Chart blocks and chart views: stored format, aggregate shapes, view filters (docs/adr/1600-*)
 export * from './charts'
 export * from './formula'
+// 0.17 field types, view filter tree, sub-items (docs/adr/2140-*, 2142-*, 2144-*)
+export * from './collectionFields'
 export * from './forms'
 // Page verification with an expiry (docs/adr/1840-*)
 export * from './verification'

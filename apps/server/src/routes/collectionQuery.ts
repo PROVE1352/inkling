@@ -10,12 +10,14 @@
  * cells reduced to visible links and rollups computed by resolveRelations (ADR 0300/0301).
  * Cells are display strings (option names, member names, linked row titles).
  */
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { formulaResultType } from '@inkling/shared'
+import { fillAutoProps, formatUniqueId, formulaResultType, isAutoFieldType, isPersonLikeType, parseUniqueId, SUB_ITEMS_MAX_DEPTH, subItemsField } from '@inkling/shared'
 import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
+import { autoPropsSql, autoSourceColumns } from '../collectionQuery/autoValues'
+import { descendantsSql } from '../collectionQuery/rowFields'
 import { getUser, requireUser } from '../auth'
 import { computeFormulas, formulasNeedLinks, isWorkspaceMember, resolveRelations } from '../collectionRelations'
 import {
@@ -120,6 +122,8 @@ async function summarizeFields(fields: CollectionField[], userId: string): Promi
     if (f.type === 'relation' && f.relation) s.target = titles.get(f.relation.targetPageId) ?? '(hidden collection)'
     if (f.type === 'rollup' && f.rollup) s.rollup = f.rollup.fn
     if (f.type === 'formula') s.formula = { expression: f.formula?.expression ?? '', result: formulaResultType(fields, f.id) }
+    if (f.type === 'uniqueId') s.prefix = f.uniqueId?.prefix ?? ''
+    if (f.type === 'relation' && f.relation?.subItems) s.subItems = true
     return s
   })
 }
@@ -158,9 +162,10 @@ async function formatRows(
   }
   const personNames = new Map<string, string>()
   const personFields = shown.filter((f) => f.type === 'person')
-  if (personFields.length) {
+  const nameFields = shown.filter((f) => isPersonLikeType(f.type))
+  if (nameFields.length) {
     const ids = new Set<string>()
-    for (const r of rows) for (const f of personFields) if (typeof r.props[f.id] === 'string') ids.add(r.props[f.id] as string)
+    for (const r of rows) for (const f of nameFields) if (typeof r.props[f.id] === 'string') ids.add(r.props[f.id] as string)
     const valid = [...ids].filter((id) => /^[0-9a-f-]{36}$/i.test(id))
     if (valid.length) {
       // member names only: a person cell holding any other user's id must not reveal that user (C-L11)
@@ -169,6 +174,17 @@ async function formatRows(
         .from(users)
         .where(and(inArray(users.id, valid), isWorkspaceMember(workspaceId)))
       for (const u of us) personNames.set(u.id, u.name)
+    }
+  }
+  // Sub-items (docs/adr/2144-*): the parent cell is short — the parent's ID (TASK-3) when the
+  // collection has one, else its title (visible parents only, as for any relation).
+  const parentField = subItemsField(fields)
+  const uid = fields.find((f) => f.type === 'uniqueId')
+  if (parentField && uid && shown.includes(parentField)) {
+    const pids = [...new Set(rows.flatMap((r) => (Array.isArray(r.props[parentField.id]) ? (r.props[parentField.id] as string[]).slice(0, 1) : [])))].filter((x) => refTitles.has(x))
+    if (pids.length) {
+      const nums = await db.select({ id: pages.id, n: pages.rowNumber }).from(pages).where(inArray(pages.id, pids))
+      for (const x of nums) if (x.n !== null) refTitles.set(x.id, formatUniqueId(uid, x.n))
     }
   }
   // A person cell assigned to the person's live agent connection reads `Name → Client (g:1a2b3c4d)`
@@ -192,6 +208,9 @@ function parseColumns(param: string | undefined, fields: CollectionField[], extr
   let names: string[]
   if (param === undefined || param.trim() === '') {
     names = fields.slice(0, DEFAULT_EXTRA_COLUMNS).map((f) => `#${f.id}`)
+    // the parent of a sub-item is always shown (docs/adr/2144-*)
+    const parent = subItemsField(fields)
+    if (parent && !names.includes(`#${parent.id}`)) names.push(`#${parent.id}`)
   } else if (param.trim() === '*' || param.trim() === '["*"]') {
     names = fields.map((f) => `#${f.id}`)
   } else if (param.trim().startsWith('[')) {
@@ -229,7 +248,45 @@ const queryParams = z.object({
   limit: z.coerce.number().int().min(1).max(QUERY_MAX_LIMIT).optional(),
   cursor: z.string().max(8000).optional(),
   describe: z.enum(['1', 'true', '0', 'false']).optional(),
+  /** sub-items (docs/adr/2144-*): only rows under this row (id, ID like TASK-3, or exact title) … */
+  under: z.string().max(300).optional(),
+  /** … down to this many levels (1 = its sub-items; default 1, max SUB_ITEMS_MAX_DEPTH) */
+  depth: z.coerce.number().int().min(1).max(SUB_ITEMS_MAX_DEPTH).optional(),
 })
+
+function rowSource(collectionId: string, used: CollectionField[]): { from: ReturnType<typeof sql>; stored: ReturnType<typeof sql> } {
+  if (!used.length) return { from: sql`${pages}`, stored: sql`${pages.props}` }
+  const cols = Object.values(getTableColumns(pages)).map((c) =>
+    c.name === 'props' ? sql`(${pages.props} || ${autoPropsSql(used)}) AS "props"` : sql`${pages}.${sql.identifier(c.name)}`,
+  )
+  return {
+    from: sql`(SELECT ${sql.join(cols, sql`, `)}, ${pages.props} AS "stored_props" FROM ${pages} WHERE ${pages.parentId} = ${collectionId}::uuid) AS "pages"`,
+    stored: sql`"pages"."stored_props"`,
+  }
+}
+
+const invalidUnder = (m: string) => new AppError(400, 'INVALID_QUERY', m)
+
+/** `under` → a row id of this collection the viewer can see: row id, unique ID (TASK-3) or exact title. */
+async function resolveUnder(collectionId: string, fields: CollectionField[], ref: string, userId: string): Promise<string> {
+  const r = ref.trim()
+  const base = and(eq(pages.parentId, collectionId), sql`${pages.deletedAt} IS NULL`, visibleTo(userId))
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r)) {
+    const [hit] = await db.select({ id: pages.id }).from(pages).where(and(base, eq(pages.id, r.toLowerCase()))).limit(1)
+    if (hit) return hit.id
+    throw invalidUnder(`under: no visible row ${r} in this collection`)
+  }
+  const uid = fields.find((f) => f.type === 'uniqueId')
+  const n = uid ? parseUniqueId(uid, r) : null
+  if (n !== null) {
+    const [hit] = await db.select({ id: pages.id }).from(pages).where(and(base, eq(pages.rowNumber, n))).limit(1)
+    if (hit) return hit.id
+  }
+  const hits = await db.select({ id: pages.id }).from(pages).where(and(base, sql`lower(${pages.title}) = lower(${r})`)).limit(3)
+  if (hits.length === 1) return hits[0].id
+  if (hits.length > 1) throw invalidUnder(`under: ${hits.length} rows are titled "${r}"; pass a row id`)
+  throw invalidUnder(`under: no row "${r}" in this collection (row id, ${uid ? 'ID, ' : ''}or exact title)`)
+}
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -248,8 +305,18 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
 
     const limit = q.limit ?? QUERY_DEFAULT_LIMIT
     const filterSrc = q.filter ?? ''
+    // the cursor is bound to the sub-item scope as well
+    const underKey = q.under !== undefined ? `\nunder:${q.under}|${q.depth ?? 1}` : ''
     const sortSrc = q.sort ?? ''
     let filterSql: SQL
+    let underSql: SQL = sql`true`
+    const parentField = subItemsField(fields, id)
+    if (q.under !== undefined || q.depth !== undefined) {
+      if (!parentField) throw invalidQuery('under / depth need sub-items: this collection has no Parent item property')
+      if (q.under === undefined) throw invalidQuery('depth needs under (the row whose sub-items to list)')
+      const root = await resolveUnder(id, fields, q.under, user.id)
+      underSql = sql`${pages.id} IN ${descendantsSql(id, parentField, root, q.depth ?? 1)}`
+    }
     let columns: ResolvedField[]
     let parts: ReturnType<typeof orderKeys>
     let after: SQL = sql`true`
@@ -273,7 +340,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
       parts = orderKeys(sort, pre?.ranks)
       columns = parseColumns(q.fields, fields, sort.map((s) => s.field))
       if (q.cursor) {
-        const values = decodeCursor(q.cursor, querySignature(id, filterSrc, sortSrc), parts)
+        const values = decodeCursor(q.cursor, querySignature(id, filterSrc + underKey, sortSrc), parts)
         after = afterCursor(parts, values)
       }
     } catch (err) {
@@ -282,18 +349,20 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     }
 
     let raw: RawRow[]
+    const src = rowSource(id, fields.filter((f) => isAutoFieldType(f.type)))
     try {
       raw = await db.transaction(async (tx) => {
         await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`))
         await tx.execute(sql.raw('SET LOCAL jit = off'))
         return (await tx.execute(sql`
           SELECT ${pages.id} AS id, ${pages.title} AS title, ${pages.props} AS props,
-                 ${rowVersionSql()} AS version, ${keySelect(parts)}
-            FROM ${pages}
+                 ${rowVersionSql(src.stored)} AS version, ${keySelect(parts)}
+            FROM ${src.from}
            WHERE ${pages.parentId} = ${id}::uuid
              AND ${pages.deletedAt} IS NULL
              AND ${visibleTo(user.id)}
              AND ${filterSql}
+             AND ${underSql}
              AND ${after}
            ORDER BY ${orderBySql(parts)}
            LIMIT ${limit + 1}
@@ -310,7 +379,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     const nextCursor =
       raw.length > limit && last
         ? encodeCursor(
-            querySignature(id, filterSrc, sortSrc),
+            querySignature(id, filterSrc + underKey, sortSrc),
             parts.map((_, i) => String(last[`k${i}`])),
           )
         : null
@@ -338,10 +407,15 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
       throw new AppError(400, 'NOT_A_ROW', 'This page is not a row of a collection')
     }
     const fields = await loadFields(parent.id)
-    const raw = (await db.execute(sql`
-      SELECT ${pages.id} AS id, ${pages.title} AS title, ${pages.props} AS props, ${rowVersionSql()} AS version
-        FROM ${pages} WHERE ${pages.id} = ${id}::uuid
-    `)) as unknown as RawRow[]
+    const [one] = await db
+      .select({ id: pages.id, title: pages.title, props: pages.props, version: rowVersionSql(), ...autoSourceColumns })
+      .from(pages)
+      .where(eq(pages.id, id))
+      .limit(1)
+    const props = { ...((one?.props ?? {}) as Record<string, unknown>) }
+    // automatic values (docs/adr/2140-*); the version stays the hash of the stored props
+    if (one) fillAutoProps(fields, props, one)
+    const raw: RawRow[] = one ? [{ id: one.id, title: one.title, props, version: one.version as string }] : []
     const columns: ResolvedField[] = [
       { kind: 'title', name: 'Title' },
       ...fields.map((f) => ({ kind: 'field' as const, name: f.name, field: f })),

@@ -11,7 +11,7 @@
  */
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { fieldTypeSchema, rollupFnSchema, selectOptionSchema, updateFieldsSchema } from '@inkling/shared'
+import { fieldTypeSchema, rollupFnSchema, selectOptionSchema, UNIQUE_ID_PREFIX_RE, updateFieldsSchema } from '@inkling/shared'
 import type { CollectionField, PageMetaDTO, SelectOption } from '@inkling/shared'
 import { call, text, ToolError, wrapWrite, idArg } from './core'
 import type { McpServer, ToolCtx } from './core'
@@ -42,6 +42,8 @@ export const fieldSpecSchema = z.object({
     .max(2000)
     .optional()
     .describe('formula: e.g. if(prop("Done"), 0, prop("Price") * prop("Qty")); functions: if, and, or, not, concat, length, round, min, max, abs, now, dateAdd, dateBetween, prop'),
+  prefix: z.string().trim().max(12).optional().describe('uniqueId: prefix, e.g. TASK → TASK-12'),
+  subItems: z.boolean().optional().describe('relation: the Parent item of sub-items (target = this collection; update_fields only)'),
 })
 export type FieldSpec = z.infer<typeof fieldSpecSchema>
 
@@ -107,10 +109,18 @@ export function mapSpecs(
     const f: CollectionField = { id: newId(), name: s.name, type: s.type }
     if (s.type === 'select' || s.type === 'multiSelect') f.options = toOptions(s.options)
     else if (s.options?.length) throw new ToolError(`"${cleanText(s.name)}": options are only for select and multiSelect. Nothing was written.`)
-    if (s.type === 'relation') {
+    if (s.type === 'relation' && s.subItems) {
+      // sub-items (docs/adr/2144-*): a one-way relation of the collection to itself
+      if (!self) throw new ToolError(`"${cleanText(s.name)}": sub-items need the collection to exist; add it with update_fields. Nothing was written.`)
+      f.relation = { targetPageId: self, subItems: true }
+    } else if (s.type === 'relation') {
       if (!s.target) throw new ToolError(`Relation "${cleanText(s.name)}" needs target (a collection id). Nothing was written.`)
       f.relation = { targetPageId: s.target, ...(s.twoWay ? { twoWay: true } : {}) }
-    }
+    } else if (s.subItems) throw new ToolError(`"${cleanText(s.name)}": subItems is only for type relation. Nothing was written.`)
+    if (s.type === 'uniqueId') {
+      if (s.prefix && !UNIQUE_ID_PREFIX_RE.test(s.prefix)) throw new ToolError(`"${cleanText(s.name)}": prefix takes letters and digits only (max 12). Nothing was written.`)
+      f.uniqueId = s.prefix ? { prefix: s.prefix } : {}
+    } else if (s.prefix !== undefined) throw new ToolError(`"${cleanText(s.name)}": prefix is only for type uniqueId. Nothing was written.`)
     if (s.type === 'formula') {
       if (!s.expression?.trim()) throw new ToolError(`Formula "${cleanText(s.name)}" needs expression, e.g. prop("Price") * 2. Nothing was written.`)
       f.formula = { expression: s.expression }
@@ -142,7 +152,9 @@ export function mapSpecs(
 export function fieldLines(fields: CollectionField[]): string[] {
   return fields.map((f) => {
     if (f.type === 'select' || f.type === 'multiSelect') return `- ${f.name} (${f.type}: ${(f.options ?? []).map((o) => o.name).join(', ') || 'no options'}) #${f.id}`
+    if (f.type === 'relation' && f.relation?.subItems) return `- ${f.name} (parent item, sub-items) #${f.id}`
     if (f.type === 'relation') return `- ${f.name} (relation → ${f.relation?.targetPageId ?? '?'}${f.relation?.twoWay ? ', two-way' : ''}) #${f.id}`
+    if (f.type === 'uniqueId') return `- ${f.name} (ID ${f.uniqueId?.prefix ? `${f.uniqueId.prefix}-N` : 'N'}, automatic) #${f.id}`
     if (f.type === 'rollup') {
       const rel = fields.find((x) => x.id === f.rollup?.relationFieldId)
       return `- ${f.name} (rollup ${f.rollup?.fn ?? '?'} of ${rel?.name ?? '?'}.${f.rollup?.targetFieldId ?? '?'}, read-only) #${f.id}`
@@ -174,7 +186,7 @@ function findField(fields: CollectionField[], ref: string): CollectionField {
   throw new ToolError(`No property "${cleanText(r)}". Properties: ${fields.map((f) => cleanText(f.name)).join(', ') || '(none)'}. Nothing was written.`)
 }
 
-const SIMPLE = new Set(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'person', 'url'])
+const SIMPLE = new Set(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'person', 'url', 'email', 'phone'])
 
 const changeSpec = z.object({
   field: z.string().trim().min(1).max(60).describe('Property name or #id'),

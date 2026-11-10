@@ -5,7 +5,7 @@ import { MoreHorizontalIcon, PlusIcon, TrashIcon } from '../Icons'
 import { useCollectionReadOnly } from './readOnlyContext'
 import { VIEW_TYPE_LABEL as TYPE_LABEL } from './strings'
 
-const CREATABLE_TYPES: ViewType[] = ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form']
+const CREATABLE_TYPES: ViewType[] = ['table', 'list', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form']
 
 function Tab({
   view,

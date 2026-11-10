@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { CollectionField, MemberDTO } from '@inkling/shared'
+import { isPersonLikeType, isReadOnlyFieldType, phoneHref } from '@inkling/shared'
 import { useT } from '../../../i18n'
-import { CheckIcon } from '../../Icons'
+import { useIsGuest } from '../../../lib/useGuest'
+import { CheckIcon, ExternalLinkIcon } from '../../Icons'
 import { FieldValue, FormulaValue, OptionBadge } from './FieldValue'
 import { useCollectionReadOnly } from '../readOnlyContext'
 import { useCellTabIndex } from '../gridContext'
@@ -28,6 +30,8 @@ export type FieldCellProps = {
   rowProps?: Record<string, unknown>
   /** Several keys at once (person + agent). Without it the person cell offers people only. */
   onCommitPatch?: (patch: Record<string, unknown>) => void
+  /** The row's id: the "Parent item" (sub-items) cell leaves the row itself out of its picker. */
+  rowId?: string
 }
 
 function useOutsideClose(
@@ -91,7 +95,7 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
     return (
       <input
         autoFocus
-        type={field.type === 'number' ? 'number' : 'text'}
+        type={field.type === 'number' ? 'number' : field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
         data-cell-input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -112,17 +116,38 @@ function TextCell({ field, value, onCommit }: FieldCellProps) {
     )
   }
 
-  return (
+  const linked = field.type === 'url' || field.type === 'email' || field.type === 'phone'
+  const text = value == null ? '' : String(value)
+  // email / phone: a click edits like the other text cells; the small link next to the value opens it
+  const href = text && field.type === 'email' ? `mailto:${text.trim()}` : text && field.type === 'phone' ? phoneHref(text) : null
+  const btn = (
     <button type="button" data-cell-edit tabIndex={tabIndex} onClick={start} className={CELL_BTN}>
-      {value == null || value === '' ? (
+      {text === '' ? (
         <span className="select-none text-transparent">·</span>
       ) : (
         // one line with an ellipsis; the whole value on hover
-        <span className={`truncate ${field.type === 'url' ? 'text-accent' : 'text-ink'}`} title={String(value)}>
-          {String(value)}
+        <span className={`truncate ${linked ? 'text-accent' : 'text-ink'}`} title={text}>
+          {text}
         </span>
       )}
     </button>
+  )
+  if (!href) return btn
+  return (
+    <div className="group/link relative flex min-w-0 items-center">
+      {btn}
+      <a
+        href={href}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        aria-label={text}
+        title={text}
+        className="absolute right-1 rounded bg-app p-0.5 text-sub opacity-0 hover:text-accent group-hover/link:opacity-100"
+      >
+        <ExternalLinkIcon size={12} />
+      </a>
+    </div>
   )
 }
 
@@ -463,17 +488,37 @@ function PersonCell({ field, value, members, onCommit, rowProps, onCommitPatch }
   )
 }
 
+function DisplayCell(props: FieldCellProps) {
+  return (
+    <div className="flex min-h-[30px] w-full min-w-0 items-center px-2 py-1">
+      <FieldValue
+        field={props.field}
+        value={props.value}
+        members={props.members}
+        rowProps={isPersonLikeType(props.field.type) ? props.rowProps : undefined}
+      />
+    </div>
+  )
+}
+
+/**
+ * Guests cannot read the member list, so they get no person picker (names come from the
+ * collection response's `people`). Only person cells ask, not every cell of the grid.
+ */
+function PersonOrDisplayCell(props: FieldCellProps) {
+  const guest = useIsGuest()
+  return guest ? <DisplayCell {...props} /> : <PersonCell {...props} />
+}
+
 // Dispatches to the inline cell editor for each field type.
 export function FieldCell(props: FieldCellProps) {
   const ctxReadOnly = useCollectionReadOnly()
-  if (props.readOnly || ctxReadOnly) {
-    return (
-      <div className="flex min-h-[30px] w-full min-w-0 items-center px-2 py-1">
-        <FieldValue field={props.field} value={props.value} members={props.members} />
-      </div>
-    )
+  const type = props.field.type
+  // automatic values (created/edited time and by, ID) are never written: display only, no editor
+  if (props.readOnly || ctxReadOnly || (isReadOnlyFieldType(type) && type !== 'formula' && type !== 'rollup')) {
+    return <DisplayCell {...props} />
   }
-  switch (props.field.type) {
+  switch (type) {
     case 'checkbox':
       return <CheckboxCell {...props} />
     case 'select':
@@ -481,11 +526,11 @@ export function FieldCell(props: FieldCellProps) {
     case 'multiSelect':
       return <MultiSelectCell {...props} />
     case 'person':
-      return <PersonCell {...props} />
+      return <PersonOrDisplayCell {...props} />
     case 'date':
       return <DateCell {...props} />
     case 'relation':
-      return <RelationCell field={props.field} value={props.value} onCommit={props.onCommit} />
+      return <RelationCell field={props.field} value={props.value} onCommit={props.onCommit} rowId={props.rowId} />
     case 'formula':
       // computed (server and web, docs/adr/1823-*) — read-only
       return (

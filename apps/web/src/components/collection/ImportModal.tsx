@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import type { CollectionField, FieldType, PageMetaDTO, SelectOption } from '@inkling/shared'
+import type { AutoFieldType, CollectionField, FieldType, PageMetaDTO, SelectOption } from '@inkling/shared'
 import {
   coerceCellValue,
   IMPORT_MAX_BYTES,
@@ -19,8 +19,9 @@ import { toast } from '../../lib/toast'
 import { UploadIcon, XIcon } from '../Icons'
 import { FIELD_TYPE_LABEL, S } from './strings'
 
-type ColType = Exclude<FieldType, 'person' | 'relation' | 'rollup' | 'formula'>
-const COL_TYPES: ColType[] = ['text', 'number', 'date', 'select', 'multiSelect', 'checkbox', 'url']
+// automatic values (created/edited time and by, ID) are never offered: nobody writes them
+type ColType = Exclude<FieldType, 'person' | 'relation' | 'rollup' | 'formula' | AutoFieldType>
+const COL_TYPES: ColType[] = ['text', 'number', 'date', 'select', 'multiSelect', 'checkbox', 'url', 'email', 'phone']
 const TYPE_LABEL: Record<ColType, string> = FIELD_TYPE_LABEL
 const MAX_OPTIONS = 50
 
@@ -64,6 +65,8 @@ function buildFields(
   for (const c of plan) {
     if (!c.include) continue
     let f = fields.find(
+      // an automatic property of the same name matches too (its column is then skipped: coerceCellValue
+      // writes nothing to it) instead of adding a second property with its name
       (x) => x.name.trim().toLowerCase() === c.name.trim().toLowerCase() && x.type !== 'relation' && x.type !== 'rollup' && x.type !== 'formula',
     )
     if (!f) {

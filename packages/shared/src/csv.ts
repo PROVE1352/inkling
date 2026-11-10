@@ -1,4 +1,5 @@
 import type { CollectionField } from './index'
+import { isAutoFieldType } from './collectionFields'
 // ---------------------------------------------------------------------------
 // CSV (RFC 4180) parse/serialize + spreadsheet value helpers.
 // Shared by the web importer/exporter and the server-side Google Sheets sync.
@@ -255,6 +256,8 @@ export function coerceCellValue(
 ): unknown {
   const t = raw.trim()
   if (field.type === 'relation' || field.type === 'rollup' || field.type === 'formula') return undefined
+  // automatic values (docs/adr/2140-*) are never written from a cell
+  if (isAutoFieldType(field.type)) return undefined
   if (t === '') return field.type === 'checkbox' ? false : null
   switch (field.type) {
     case 'number':

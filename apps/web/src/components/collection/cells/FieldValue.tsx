@@ -1,5 +1,7 @@
 import type { CollectionField, MemberDTO } from '@inkling/shared'
+import { formatUniqueId, phoneHref, viaPropKey } from '@inkling/shared'
 import { t } from '../../../i18n'
+import { formatTimestamp } from '../../../lib/collection'
 import { OPTION_BADGE_CLASS } from '../../../lib/optionColors'
 import { CheckIcon } from '../../Icons'
 import { RelationChips, RollupValue } from './RelationCell'
@@ -49,15 +51,32 @@ export function OptionBadge({
   )
 }
 
+function PersonChip({ id, members, via }: { id: string; members?: MemberDTO[]; via?: string }) {
+  const m = members?.find((x) => x.id === id)
+  const name = m?.name ?? t('cell.unknownPerson')
+  const initial = name.slice(0, 1).toUpperCase()
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-sm text-ink">
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-medium text-accent">
+        {initial}
+      </span>
+      <span className="truncate">{via ? t('history.byVia', { name, client: via }) : name}</span>
+    </span>
+  )
+}
+
 // Read-only render per field type. Reused by board cards, idle table cells and the RightPanel.
 export function FieldValue({
   field,
   value,
   members,
+  rowProps,
 }: {
   field: CollectionField
   value: unknown
   members?: MemberDTO[]
+  /** The row's props: created by / last edited by read the agent client next to them (`via:<fieldId>`). */
+  rowProps?: Record<string, unknown>
 }) {
   switch (field.type) {
     case 'checkbox':
@@ -87,16 +106,52 @@ export function FieldValue({
 
     case 'person': {
       if (!value) return null
-      const m = members?.find((x) => x.id === value)
-      const name = m?.name ?? t('cell.unknownPerson')
-      const initial = name.slice(0, 1).toUpperCase()
-      return (
-        <span className="inline-flex items-center gap-1.5 text-sm text-ink">
-          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-medium text-accent">
-            {initial}
-          </span>
-          <span className="truncate">{name}</span>
+      return <PersonChip id={String(value)} members={members} />
+    }
+
+    case 'createdBy':
+    case 'editedBy': {
+      if (!value) return null
+      const via = rowProps?.[viaPropKey(field.id)]
+      return <PersonChip id={String(value)} members={members} via={typeof via === 'string' && via ? via : undefined} />
+    }
+
+    case 'createdTime':
+    case 'editedTime': {
+      const text = formatTimestamp(value)
+      return text ? (
+        <span className="truncate text-sm text-ink" title={typeof value === 'string' ? value : undefined}>
+          {text}
         </span>
+      ) : null
+    }
+
+    case 'uniqueId': {
+      const text = formatUniqueId(field, value)
+      return text ? <span className="truncate font-mono text-sm text-sub">{text}</span> : null
+    }
+
+    case 'email': {
+      if (!value) return null
+      const text = String(value)
+      return (
+        <a
+          href={`mailto:${text.trim()}`}
+          onClick={(e) => e.stopPropagation()}
+          className="truncate text-sm text-accent hover:underline"
+        >
+          {text}
+        </a>
+      )
+    }
+
+    case 'phone': {
+      if (!value) return null
+      const text = String(value)
+      return (
+        <a href={phoneHref(text)} onClick={(e) => e.stopPropagation()} className="truncate text-sm text-accent hover:underline">
+          {text}
+        </a>
       )
     }
 

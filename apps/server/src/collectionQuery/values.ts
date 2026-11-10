@@ -7,7 +7,7 @@
  * route's sanitizer, but strict: an invalid value is an error that names the valid ones instead of
  * being dropped silently.
  */
-import { formatFormulaNumber, formulaErrorText } from '@inkling/shared'
+import { formatFormulaDate, formatFormulaNumber, formatUniqueId, formulaErrorText, isAutoFieldType, looksLikeEmail, looksLikePhone, parseFormulaDate, viaPropKey } from '@inkling/shared'
 import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
 import { fieldResolver, findOption, optionNames, parseBool, parseDateValue } from './filter'
 import { agentPropKey } from '@inkling/shared'
@@ -67,8 +67,25 @@ export function formatCell(f: ResolvedField, title: string, props: Record<string
   switch (field.type) {
     case 'text':
     case 'url':
+    case 'email':
+    case 'phone':
     case 'date':
       return cleanCell(String(v))
+    case 'createdTime':
+    case 'editedTime': {
+      // minute precision, UTC, the same on every call: 2026-11-10T09:12Z
+      const d = typeof v === 'string' ? parseFormulaDate(v) : null
+      return d ? formatFormulaDate(d) : ''
+    }
+    case 'createdBy':
+    case 'editedBy': {
+      // "Name (via Client)" when an agent connection made it, as the change feed says it (docs/adr/2141-*)
+      const name = ctx.personNames.get(String(v)) ?? ''
+      const via = props[viaPropKey(field.id)]
+      return cleanCell(name && typeof via === 'string' && via ? `${name} (via ${via})` : name)
+    }
+    case 'uniqueId':
+      return formatUniqueId(field, v)
     case 'number':
       return typeof v === 'number' ? formatNumber(v) : cleanCell(String(v))
     case 'select':
@@ -109,6 +126,10 @@ export interface FieldSummary {
   rollup?: string
   /** formula: expression and result type (read-only) */
   formula?: { expression: string; result: string }
+  /** uniqueId: its prefix ('' = bare numbers) */
+  prefix?: string
+  /** relation: this is the Parent item of sub-items (docs/adr/2144-*) */
+  subItems?: true
 }
 
 /** `Status (select: Todo, Doing, Done)` */
@@ -122,7 +143,15 @@ export function describeField(f: FieldSummary, maxOptions = Infinity): string {
       return `${f.name} (${f.type}: ${opts.length ? shown + more : 'no options'})`
     }
     case 'relation':
+      if (f.subItems) return `${f.name} (parent item: sub-items of this collection; set with a row id, ID or title)`
       return `${f.name} (relation → ${f.target ?? '?'})`
+    case 'createdTime':
+    case 'editedTime':
+    case 'createdBy':
+    case 'editedBy':
+      return `${f.name} (${f.type}, automatic, read-only)`
+    case 'uniqueId':
+      return `${f.name} (ID ${f.prefix ? `${f.prefix}-N` : 'N'}, automatic, read-only)`
     case 'rollup':
       return `${f.name} (rollup ${f.rollup ?? ''}, read-only)`
     case 'formula':
@@ -213,6 +242,10 @@ export function mapWrite(fields: CollectionField[], input: Record<string, unknow
       errors.push(`"${field.name}" is a formula (computed, read-only); change the properties it reads instead`)
       continue
     }
+    if (isAutoFieldType(field.type)) {
+      errors.push(`"${field.name}" is an automatic value (${field.type}, read-only); the server sets it`)
+      continue
+    }
     if (value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
       if (field.type === 'relation') out.relations.push({ field, refs: [] })
       else out.props[field.id] = null
@@ -224,6 +257,14 @@ export function mapWrite(fields: CollectionField[], input: Record<string, unknow
       case 'url':
         if (typeof value === 'string' || typeof value === 'number') out.props[field.id] = String(value).slice(0, 10_000)
         else bad('expects a string')
+        break
+      case 'email':
+        if (typeof value === 'string' && looksLikeEmail(value)) out.props[field.id] = value.trim().slice(0, 320)
+        else bad('expects an email address like name@example.com')
+        break
+      case 'phone':
+        if ((typeof value === 'string' || typeof value === 'number') && looksLikePhone(String(value))) out.props[field.id] = String(value).trim()
+        else bad('expects a phone number (digits, spaces, + ( ) - .)')
         break
       case 'number': {
         const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN

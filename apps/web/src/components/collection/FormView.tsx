@@ -171,6 +171,10 @@ function QuestionInput({
       return <input id={id} type="date" value={str} onChange={(e) => onChange(e.target.value)} className={INPUT} />
     case 'url':
       return <input id={id} type="url" value={str} onChange={(e) => onChange(e.target.value)} maxLength={2000} className={INPUT} />
+    case 'email':
+      return <input id={id} type="email" autoComplete="email" value={str} onChange={(e) => onChange(e.target.value)} maxLength={2000} className={INPUT} />
+    case 'phone':
+      return <input id={id} type="tel" autoComplete="tel" value={str} onChange={(e) => onChange(e.target.value)} maxLength={2000} className={INPUT} />
     case 'checkbox':
       return (
         <label className="flex items-center gap-2 text-sm text-ink">

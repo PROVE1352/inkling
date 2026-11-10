@@ -7,9 +7,10 @@ import type {
   RowDTO,
   ViewConfig,
 } from '@inkling/shared'
-import { COLUMN_WIDTH } from '@inkling/shared'
+import { COLUMN_WIDTH, isPersonLikeType, isReadOnlyFieldType } from '@inkling/shared'
 import { useT } from '../../i18n'
 import { applyView, formatValue, orderedFields } from '../../lib/collection'
+import { viewTree } from '../../lib/collectionTree'
 import {
   FIELD_MIN,
   TITLE_MIN,
@@ -31,6 +32,17 @@ import { ResizeHandle } from '../ResizeHandle'
 import { FieldCell } from './cells/FieldCell'
 import { InGridContext } from './gridContext'
 import { useCollectionReadOnly } from './readOnlyContext'
+import { TreeToggle, useCollapsedRows } from './subItems'
+
+/** A row's place in the sub-items tree (nested table, docs/adr/2144-*). */
+type RowTree = {
+  depth: number
+  childCount: number
+  collapsed: boolean
+  onToggle: () => void
+  /** create a row under this one; omitted when read-only or not offered */
+  onAddSub?: () => void
+}
 
 type Handlers = {
   wsId: string
@@ -49,11 +61,13 @@ function TitleCell({
   wsId,
   onUpdateTitle,
   onDeleteRow,
+  tree,
 }: {
   row: RowDTO
   wsId: string
   onUpdateTitle: (rowId: string, title: string) => void
   onDeleteRow: (rowId: string) => void
+  tree?: RowTree
 }) {
   const t = useT()
   const navigate = useNavigate()
@@ -116,7 +130,7 @@ function TitleCell({
             </button>
           </ConfirmPopover>
           {menuOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1 w-28 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
+            <div className="absolute left-0 top-full z-40 mt-1 w-36 overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
               <button
                 type="button"
                 onClick={() => {
@@ -127,6 +141,18 @@ function TitleCell({
               >
                 {t('common.open')}
               </button>
+              {tree?.onAddSub && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    tree.onAddSub?.()
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
+                >
+                  <PlusIcon size={14} /> {t('subItems.add')}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -140,6 +166,10 @@ function TitleCell({
             </div>
           )}
         </div>
+      )}
+
+      {tree && (
+        <TreeToggle depth={tree.depth} childCount={tree.childCount} collapsed={tree.collapsed} onToggle={tree.onToggle} />
       )}
 
       {editing ? (
@@ -211,6 +241,7 @@ function TableRow({
   sel,
   tabCell,
   onCellDown,
+  tree,
 }: {
   row: RowDTO
   rowIndex: number
@@ -222,6 +253,7 @@ function TableRow({
   /** the column whose cell is this row's Tab stop (roving tabindex), or null */
   tabCell: number | null
   onCellDown: (e: React.MouseEvent, r: number, c: number) => void
+  tree?: RowTree
 }) {
   const selCls = (c: number) => (inSel(sel, rowIndex, c) ? 'bg-accent-soft/60 ring-1 ring-inset ring-accent/50' : '')
   // a grid cell (docs/adr/1407-*): one Tab stop for the whole table, the arrows move between cells; the
@@ -250,6 +282,7 @@ function TableRow({
           wsId={handlers.wsId}
           onUpdateTitle={handlers.onUpdateTitle}
           onDeleteRow={handlers.onDeleteRow}
+          tree={tree}
         />
       </div>
       {cols.map((f, ci) => (
@@ -275,7 +308,8 @@ function TableRow({
             value={row.props[f.id]}
             members={handlers.members}
             onCommit={(v) => handlers.onCommitProps(row.id, { [f.id]: v })}
-            rowProps={f.type === 'person' ? row.props : undefined}
+            rowProps={isPersonLikeType(f.type) ? row.props : undefined}
+            rowId={row.id}
             onCommitPatch={f.type === 'person' ? (patch) => handlers.onCommitProps(row.id, patch) : undefined}
             onAddOption={
               f.type === 'select' || f.type === 'multiSelect'
@@ -305,6 +339,8 @@ export function TableView({
   onOpenFields,
   onCreateRow,
   creatingRow,
+  collectionId,
+  onCreateSubItem,
 }: {
   view: CollectionViewDTO
   fields: CollectionField[]
@@ -314,15 +350,43 @@ export function TableView({
   onOpenFields: () => void
   onCreateRow: () => void
   creatingRow?: boolean
+  /** the collection's page id: narrows the sub-items field to a relation to itself */
+  collectionId?: string
+  /** "Add sub-item" in a row's menu (nested tables); omit to hide it */
+  onCreateSubItem?: (parentRowId: string) => void
 }) {
   const t = useT()
   const navigate = useNavigate()
   const readOnly = useCollectionReadOnly()
   const cols = useMemo(() => orderedFields(fields, view.config), [fields, view.config])
-  const display = useMemo(
+  const filtered = useMemo(
     () => applyView(rows, fields, view.config),
     [rows, fields, view.config],
   )
+  // Sub-items (docs/adr/2144-*): the filtered, sorted rows as a tree unless the view says 'flat'.
+  // `display` stays the one flat list every index below (selection, focus, windowing, paste) uses.
+  const [collapsed, toggleCollapsed, expandRow] = useCollapsedRows(view.id)
+  const tree = useMemo(
+    () => viewTree(filtered, fields, view.config, collapsed, collectionId),
+    [filtered, fields, view.config, collapsed, collectionId],
+  )
+  const display = tree.rows
+  const rowTree = (row: RowDTO): RowTree | undefined => {
+    const meta = tree.meta?.get(row.id)
+    if (!meta) return undefined
+    return {
+      ...meta,
+      collapsed: collapsed.has(row.id),
+      onToggle: () => toggleCollapsed(row.id),
+      onAddSub:
+        readOnly || !onCreateSubItem
+          ? undefined
+          : () => {
+              expandRow(row.id)
+              onCreateSubItem(row.id)
+            },
+    }
+  }
 
   const sorts = view.config.sorts ?? []
   const sortFor = (fieldId: string) => sorts.find((s) => s.fieldId === fieldId)
@@ -524,7 +588,8 @@ export function TableView({
           continue
         }
         const f = cols[col - 1]
-        if (!f || f.type === 'rollup' || f.type === 'formula') continue
+        // computed and automatic values are never written
+        if (!f || isReadOnlyFieldType(f.type)) continue
         const empty = f.type === 'checkbox' ? false : null
         if ((row.props[f.id] ?? null) !== empty && row.props[f.id] !== undefined) patch[f.id] = empty
       }
@@ -836,6 +901,7 @@ export function TableView({
                   sel={sel}
                   tabCell={tabPos.r === win.start + i ? tabPos.c : null}
                   onCellDown={onCellDown}
+                  tree={rowTree(row)}
                 />
               ))}
             </div>

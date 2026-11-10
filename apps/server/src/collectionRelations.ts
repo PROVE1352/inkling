@@ -15,7 +15,7 @@
  */
 import { actorFor, assertAllEditable, roleForPage } from './editLock'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { applyFormulas, compileFormulas, FORMULA_LIMITS, renameFormulaProps } from '@inkling/shared'
+import { applyFormulas, compileFormulas, FORMULA_LIMITS, isAutoFieldType, renameFormulaProps } from '@inkling/shared'
 import type {
   CollectionField,
   FormulaErrorCode,
@@ -38,7 +38,7 @@ export function relationFields(fields: CollectionField[]): CollectionField[] {
 }
 
 export function isComputedField(f: CollectionField | undefined): boolean {
-  return f?.type === 'rollup' || f?.type === 'formula'
+  return f?.type === 'rollup' || f?.type === 'formula' || isAutoFieldType(f?.type)
 }
 
 /** Normalize an arbitrary prop value to a deduplicated list of uuid strings. */
@@ -261,7 +261,7 @@ export function computeRollup(
   if (cfg.fn === 'count') return targets.length
   // depth-1 rule: never aggregate another computed/relation field (cycle-free by construction);
   // a formula of the target is not computed for linked rows either (docs/adr/1824-*)
-  if (!tf || tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula') return null
+  if (!tf || tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula' || isAutoFieldType(tf.type)) return null
   const raw = targets.map((t) => (tf.id === 'title' ? t.title : t.props[tf.id]))
   switch (cfg.fn) {
     case 'sum':
@@ -426,8 +426,22 @@ export async function applyFieldsUpdate(
     if (f.type !== 'rollup') delete out.rollup
     if (f.type !== 'formula') delete out.formula
     if (f.type !== 'select' && f.type !== 'multiSelect') delete out.options
+    if (f.type !== 'uniqueId') delete out.uniqueId
+    if (out.relation && !out.relation.subItems) {
+      const { subItems: _drop, ...rest } = out.relation
+      out.relation = rest
+    }
     return out
   })
+
+  // ---- 0.17 field types (docs/adr/2140-*, 2144-*) ----
+  if (fields.filter((f) => f.type === 'uniqueId').length > 1) throw new FieldConfigError('A collection can have one ID property')
+  const parentFields = fields.filter((f) => f.type === 'relation' && f.relation?.subItems)
+  if (parentFields.length > 1) throw new FieldConfigError('A collection can have one Parent item (sub-items) property')
+  for (const f of parentFields) {
+    if (f.relation!.targetPageId !== page.id) throw new FieldConfigError(`"${f.name}": sub-items link rows of the same collection`)
+    if (f.relation!.twoWay) throw new FieldConfigError(`"${f.name}": a Parent item property is one-way (sub-items are found from the parents)`)
+  }
 
   // ---- relation targets ----
   const rels = fields.filter((f) => f.type === 'relation')
@@ -491,8 +505,8 @@ export async function applyFieldsUpdate(
     if (cfg.targetFieldId !== 'title') {
       const tf = defsOf(rel.relation!.targetPageId).find((x) => x.id === cfg.targetFieldId)
       if (!tf) throw new FieldConfigError(`Rollup "${f.name}": target property not found`)
-      if ((tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula') && cfg.fn !== 'count')
-        throw new FieldConfigError(`Rollup "${f.name}" cannot aggregate a relation, rollup or formula property`)
+      if ((tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula' || isAutoFieldType(tf.type)) && cfg.fn !== 'count')
+        throw new FieldConfigError(`Rollup "${f.name}" cannot aggregate a relation, rollup, formula or automatic property (count only)`)
     }
   }
 

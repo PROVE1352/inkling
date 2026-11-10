@@ -1,6 +1,12 @@
-import { isFormulaErrorCell, matchesFilter } from '@inkling/shared'
+import {
+  formatUniqueId,
+  isFormulaErrorCell,
+  matchesFilter,
+  matchesViewFilter,
+  viewFilterOf,
+} from '@inkling/shared'
 import { formulaText } from './formulas'
-import type { CollectionField, RowDTO, ViewConfig } from '@inkling/shared'
+import type { CollectionField, MemberDTO, RowDTO, ViewConfig } from '@inkling/shared'
 
 // Builds the displayed field order by applying the view's columnOrder/hiddenFields.
 export function orderedFields(
@@ -64,12 +70,48 @@ export function formatValue(
         .filter((n): n is string => !!n)
         .join(', ')
     case 'person':
+    case 'createdBy':
+    case 'editedBy':
       return memberName?.(String(value)) ?? String(value)
+    case 'createdTime':
+    case 'editedTime':
+      return formatTimestamp(value)
+    case 'uniqueId':
+      return formatUniqueId(field, value)
     case 'number':
       return typeof value === 'number' ? String(value) : ''
     default:
       return String(value)
   }
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * An automatic timestamp (ISO UTC string) as local date and time, `2026-11-10 18:12` — the same
+ * YYYY-MM-DD the date cells show, plus the time. '' for anything that is not a date.
+ */
+export function formatTimestamp(value: unknown): string {
+  if (typeof value !== 'string' || !value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/**
+ * The workspace member list with the names a guest's collection response carries (`people`, user id →
+ * name; guests cannot read the member list). Only for showing names: never offer it as a picker.
+ */
+export function membersWithPeople(
+  members: MemberDTO[] | undefined,
+  people: Record<string, string> | undefined | null,
+): MemberDTO[] | undefined {
+  if (!people) return members
+  const have = new Set((members ?? []).map((m) => m.id))
+  const extra = Object.entries(people)
+    .filter(([id]) => !have.has(id))
+    .map(([id, name]): MemberDTO => ({ id, name, email: '', role: 'member' }))
+  return extra.length ? [...(members ?? []), ...extra] : members
 }
 
 /** Number display without float noise (rollup averages etc.). */
@@ -104,6 +146,12 @@ function sortKey(field: CollectionField, value: unknown): number | string {
     }
     case 'relation':
       return Array.isArray(value) ? value.length : 0
+    case 'uniqueId':
+      return typeof value === 'number' ? value : Number.NEGATIVE_INFINITY
+    case 'createdTime':
+    case 'editedTime':
+      // ISO UTC strings sort as text (full precision)
+      return typeof value === 'string' ? value : ''
     case 'rollup':
       if (typeof value === 'number') return value
       if (Array.isArray(value)) return value.join(', ').toLowerCase()
@@ -111,6 +159,12 @@ function sortKey(field: CollectionField, value: unknown): number | string {
     case 'date':
     case 'text':
     case 'url':
+    case 'email':
+    case 'phone':
+    // person-like cells sort by the stored user id, as person always has
+    case 'person':
+    case 'createdBy':
+    case 'editedBy':
       return typeof value === 'string' ? value.toLowerCase() : ''
     default:
       return typeof value === 'string' ? value.toLowerCase() : ''
@@ -135,7 +189,8 @@ function compareRows(
 // counts the rows the other views show (packages/shared/src/charts.ts, docs/adr/1602-*).
 export { matchesFilter }
 
-// Returns the rows with the view config applied: filter, then sort.
+// Returns the rows with the view config applied: filter (the 0.17 tree, or the legacy flat AND list
+// read as one, docs/adr/2142-*), then sort.
 export function applyView(
   rows: RowDTO[],
   fields: CollectionField[],
@@ -143,15 +198,9 @@ export function applyView(
 ): RowDTO[] {
   const byId = new Map(fields.map((f) => [f.id, f]))
   let out = rows
-  const filters = config.filters ?? []
-  if (filters.length) {
-    out = out.filter((row) =>
-      filters.every((flt) => {
-        const field = byId.get(flt.fieldId)
-        if (!field) return true
-        return matchesFilter(field, row.props[flt.fieldId], flt.op, flt.value)
-      }),
-    )
+  const tree = viewFilterOf(config)
+  if (tree && tree.items.length) {
+    out = out.filter((row) => matchesViewFilter(row.props, byId, tree))
   }
   const sorts = config.sorts ?? []
   if (sorts.length) {

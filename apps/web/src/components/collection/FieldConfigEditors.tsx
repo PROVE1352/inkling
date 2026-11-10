@@ -1,5 +1,5 @@
 import type { CollectionField, RollupFn } from '@inkling/shared'
-import { compileFormulas, formulaResultType, rollupFnSchema } from '@inkling/shared'
+import { UNIQUE_ID_PREFIX_RE, compileFormulas, formatUniqueId, formulaResultType, rollupFnSchema } from '@inkling/shared'
 import { useT } from '../../i18n'
 import type { MessageKey } from '../../i18n/en'
 import { usePages } from '../../api'
@@ -205,6 +205,43 @@ export function FormulaEditor({
         <p className="text-xs text-sub">{t('formula.result', { type: t(`formula.type.${type}` as MessageKey) })}</p>
       ) : null}
       <p className="text-[11px] leading-snug text-sub">{t('formula.help')}</p>
+    </div>
+  )
+}
+
+/** A unique ID prefix the server accepts: letters and digits (any script), at most 12, or none. */
+export function uniqueIdPrefixValid(prefix: string): boolean {
+  return UNIQUE_ID_PREFIX_RE.test(prefix.trim())
+}
+
+/** ID property: the prefix shown before the number (TASK-12; docs/adr/2140-*). */
+export function UniqueIdEditor({
+  field,
+  onChange,
+}: {
+  field: CollectionField
+  onChange: (patch: Partial<CollectionField>) => void
+}) {
+  const t = useT()
+  const prefix = field.uniqueId?.prefix ?? ''
+  const ok = uniqueIdPrefixValid(prefix)
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 rounded-md border border-line p-2">
+      <label className="flex items-center gap-2 text-xs text-sub">
+        <span className="w-20 shrink-0">{t('fields.uniqueIdPrefix')}</span>
+        <input
+          value={prefix}
+          maxLength={12}
+          onChange={(e) => onChange({ uniqueId: { prefix: e.target.value.replace(/\s/g, '') } })}
+          placeholder="TASK"
+          aria-invalid={!ok || undefined}
+          className={`${SELECT} font-mono ${ok ? '' : 'border-red-500'}`}
+        />
+      </label>
+      <p className={`text-xs ${ok ? 'text-sub' : 'text-red-600'}`}>
+        {ok ? t('fields.uniqueIdPrefixHelp', { example: formatUniqueId({ uniqueId: { prefix: prefix.trim() } }, 12) }) : t('fields.uniqueIdPrefixInvalid')}
+      </p>
+      <p className="text-[11px] text-sub">{t('fields.automatic')}</p>
     </div>
   )
 }

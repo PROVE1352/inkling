@@ -373,6 +373,20 @@ export const pages = pgTable('pages', {
    * import_folder, create_from_template); null = created in the app (docs/adr/1005-*).
    */
   createdVia: text('created_via'),
+  /**
+   * Unique ID number of a collection row (docs/adr/2140-*): handed out by the pages_row_number
+   * trigger (migration 0051) from collections.row_seq when the row enters a collection that has a
+   * uniqueId field; never reused within the collection. Null for other pages.
+   */
+  rowNumber: integer('row_number'),
+  /**
+   * Last editor of the page as the change log saw it (docs/adr/2141-*): written with every logged
+   * property, title or body change, so it is the actor of the newest page_changes row and outlives
+   * the feed's retention. Null = never edited since 0.17 (the creator counts).
+   */
+  editedBy: uuid('edited_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+  /** OAuth client name of that edit when it came through an agent connection (as page_changes.via_client). */
+  editedVia: text('edited_via'),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.
@@ -383,6 +397,8 @@ export const pages = pgTable('pages', {
   index('pages_owner_idx').on(t.ownerId),
   // Lock pages of a workspace (recount of workspace_acl_versions.locked_pages, docs/adr/1071-*).
   index('pages_ws_locked_idx').on(t.workspaceId).where(sql`${t.editLocked}`),
+  // Backstop for the unique ID counter (docs/adr/2140-*): a number appears once per collection.
+  uniqueIndex('pages_row_number_uq').on(t.parentId, t.rowNumber).where(sql`${t.rowNumber} IS NOT NULL`),
 ])
 
 export const pageDocs = pgTable('page_docs', {
@@ -440,6 +456,8 @@ export const collections = pgTable('collections', {
   /** CollectionField[] — { id, name, type, options? } */
   fields: jsonb('fields').notNull().default(sql`'[]'::jsonb`),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Last unique ID number handed out in this collection (docs/adr/2140-*); only grows. */
+  rowSeq: integer('row_seq').notNull().default(0),
 })
 
 export const collectionViews = pgTable('collection_views', {
@@ -448,8 +466,8 @@ export const collectionViews = pgTable('collection_views', {
     .notNull()
     .references(() => pages.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
-  // TS-only enum (no CHECK in the database): 'chart' (0.13, docs/adr/1603-*) needed no migration
-  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form'] }).notNull(),
+  // TS-only enum (no CHECK in the database): 'chart' (0.13, docs/adr/1603-*) and 'list' (0.17, docs/adr/2145-*) needed no migration
+  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form', 'list'] }).notNull(),
   /** ViewConfig — sorts/filters/groupByFieldId/columnOrder/hiddenFields */
   config: jsonb('config').notNull().default(sql`'{}'::jsonb`),
   sortOrder: doublePrecision('sort_order').notNull().default(0),

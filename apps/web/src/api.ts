@@ -83,6 +83,8 @@ export type CollectionBundle = {
   collection: CollectionDTO
   rows: RowDTO[]
   refs?: Record<string, import('@inkling/shared').RowRefDTO>
+  /** guests only (0.17, docs/adr/2146-*): names of the people in the rows' person cells */
+  people?: Record<string, string>
 }
 
 // Search result — the server adds a body-match snippet to PageMetaDTO as an extra field (shared stays unchanged).
@@ -1332,7 +1334,6 @@ export function useImportWorkspace(wsId: string) {
 
 // Collection fields + views + rows. 15 s polling + refresh on focus picks up concurrent team edits.
 export function useCollection(pageId: string | undefined) {
-  const member = useMemberScope()
   const queryClient = useQueryClient()
   return useQuery({
     ...pollingQuery<CollectionBundle>(
@@ -1340,7 +1341,8 @@ export function useCollection(pageId: string | undefined) {
       qk.collection(pageId ?? ''),
       `/api/pages/${pageId}/collection`,
     ),
-    enabled: !!pageId && member,
+    // page guests open collections shared with them too (0.17, docs/adr/2146-*); others answer 404
+    enabled: !!pageId,
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
   })

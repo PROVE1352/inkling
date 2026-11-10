@@ -23,6 +23,8 @@ export const builtinTemplateKeySchema = z.enum([
   'meetingSeries',
   'readingList',
   'weeklyReview',
+  // 0.17: tasks with sub-tasks for a team of agents (docs/adr/2147-*)
+  'agentBoard',
 ])
 export type BuiltinTemplateKey = z.infer<typeof builtinTemplateKeySchema>
 

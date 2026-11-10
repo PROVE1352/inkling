@@ -14,7 +14,9 @@ import type {
   CollectionViewDTO,
   ViewConfig,
   ViewType,
+  WorkspaceAccessRole,
 } from '@inkling/shared'
+import { isAutoFieldType, subItemsField, VIA_PROP_PREFIX } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import {
   applyFieldsUpdate,
@@ -47,6 +49,9 @@ import { registerFormRoutes } from './forms'
 import { nonMemberPersonIds } from '../collectionRelations'
 import { connectionKey } from '../leases'
 import { normalizeAgentProps } from '../teamAgents'
+import { autoSourceColumns, fillAutoInto } from '../collectionQuery/autoValues'
+import { assertNoSubItemCycle } from '../collectionQuery/rowFields'
+import { guestPeopleNames, redactHiddenTargets, stripAgentKeys } from '../collectionQuery/guestView'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -104,13 +109,17 @@ async function loadCollectionDTO(pageId: string): Promise<CollectionDTO> {
   }
 }
 
-/** Page lookup → membership → collection kind check (shared guard) */
-export async function requireCollectionPage(pageId: string, userId: string): Promise<PageRow> {
+/**
+ * Page lookup → membership → collection kind check (shared guard). `guests: true` lets a page guest
+ * in (docs/adr/2146-*): findVisiblePage is already narrowed to the trees shared with them, so a
+ * collection outside those trees is a 404 as for anyone else.
+ */
+export async function requireCollectionPage(pageId: string, userId: string, opts?: { guests: true }): Promise<PageRow & { role: WorkspaceAccessRole }> {
   const page = await findVisiblePage(pageId, userId)
   if (!page) throw notFound()
-  await requireMembership(page.workspaceId, userId)
+  const role = opts?.guests ? await requireMembership(page.workspaceId, userId, { guests: true }) : await requireMembership(page.workspaceId, userId)
   if (page.kind !== 'collection') throw badRequest('Not a collection page')
-  return page
+  return { ...page, role }
 }
 
 /** View id → the view and its page, or null (→ 404) */
@@ -154,7 +163,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
   app.get('/pages/:id/collection', { preHandler: requireUser }, async (req, reply) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    const page = await requireCollectionPage(id, user.id)
+    const page = await requireCollectionPage(id, user.id, { guests: true })
 
     // Conditional GET (docs/adr/0752-*): the response is a pure function of the viewer, the
     // workspace's pages/collections (rows, relation targets and rollup sources live in the same
@@ -176,15 +185,25 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     // Collection access is already guarded. Rows (children) inherit the parent's scope, but apply
     // visibleTo once more defensively so nobody else's private rows leak.
     const rows = await db
-      .select({ ...pageColumns, props: pages.props })
+      .select({ ...pageColumns, props: pages.props, ...autoSourceColumns })
       .from(pages)
       .where(and(eq(pages.parentId, id), isNull(pages.deletedAt), visibleTo(user.id)))
       .orderBy(asc(pages.sortOrder), asc(pages.createdAt))
 
-    // relation cells → visible links only; rollups computed set-wise (no per-row queries)
+    // relation cells → visible links only; rollups computed set-wise (no per-row queries).
+    // Automatic values first (docs/adr/2140-*): formulas may read them.
     const dtos = rows.map((r) => toRowDTO(r, { ...((r.props ?? {}) as Record<string, unknown>) }))
+    fillAutoInto(collection.fields, dtos, rows)
     const { refs } = await resolveRelations(page.workspaceId, collection.fields, dtos, user.id)
 
+    // A guest cannot read the member list (docs/adr/2146-*): the names of the people in the person
+    // cells of these rows come with them, members only, names only.
+    if (page.role === 'guest') {
+      // a member's agent connection next to a person cell names that connection: not for guests
+      for (const d of dtos) stripAgentKeys(d.props)
+      const people = await guestPeopleNames(page.workspaceId, collection.fields, dtos)
+      return { collection: { ...collection, fields: await redactHiddenTargets(collection.fields, user.id) }, rows: dtos, refs, people }
+    }
     return { collection, rows: dtos, refs }
   })
 
@@ -238,6 +257,8 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
             .update(collections)
             .set({ fields, updatedAt: new Date() })
             .where(eq(collections.pageId, id))
+          // A new ID property: the collections trigger of migration 0051 numbers the rows that have none
+          // in this same statement (docs/adr/2140-*); later rows get theirs from the pages insert trigger.
         }),
       )
     } catch (err) {
@@ -340,13 +361,15 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
             eq(pages.id, id),
             isNull(pages.deletedAt),
             visibleTo(user.id),
-            memberOrGuestSql(pages.workspaceId, user.id, false),
+            memberOrGuestSql(pages.workspaceId, user.id),
           ),
         )
         .limit(1)
     )[0]
     if (!target) throw notFound()
-    const { role, acl } = await requireMembershipAcl(target.workspaceId, user.id)
+    // Page guests with edit on the row edit its cells (docs/adr/2146-*); the grant level is checked
+    // by assertPageEditable like for any page.
+    const { role, acl } = await requireMembershipAcl(target.workspaceId, user.id, { guests: true })
     await assertPageEditable(id, user.id, { role, acl })
 
     const body = updatePropsSchema.parse(req.body)
@@ -364,6 +387,11 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         )[0]?.fields ?? []) as CollectionField[])
       : []
     const fieldById = new Map(parentFields.map((f) => [f.id, f]))
+    // A guest cannot see the member list, so it cannot assign people either (no member oracle).
+    if (role === 'guest' && parentFields.some((f) => f.type === 'person' && (f.id in body.props || `agent:${f.id}` in body.props))) {
+      throw new AppError(403, 'GUEST_PERSON', 'Guests cannot assign people')
+    }
+    const parentField = target.parentId ? subItemsField(parentFields, target.parentId) : null
 
     const bad = await nonMemberPersonIds(target.workspaceId, parentFields, [body.props])
     if (bad.length) throw badRequest('Only members of this workspace can be assigned')
@@ -374,7 +402,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
       db.transaction(async (tx) => {
         // Write gate (docs/adr/1071-*): an access change that committed since the check above is
         // re-checked here; one that starts now waits for this write.
-        const gate = await gateWrite(tx, target.workspaceId, user.id)
+        const gate = role === 'guest' ? await gateWrite(tx, target.workspaceId, user.id, { guests: true }) : await gateWrite(tx, target.workspaceId, user.id)
         if (gate.acl.version !== acl.version || gate.role !== role) {
           if (!gate.role) throw forbidden()
           await assertAgentAllowed(target.workspaceId, gate.acl.version, tx)
@@ -398,7 +426,18 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         const pairSyncs: { field: CollectionField; oldIds: string[]; newIds: string[] }[] = []
         for (const [key, value] of Object.entries(body.props)) {
           const field = fieldById.get(key)
-          if (field?.type === 'rollup' || field?.type === 'formula') continue
+          // computed and automatic values are never stored (docs/adr/2140-*), nor the via labels served next to them
+          if (field?.type === 'rollup' || field?.type === 'formula' || isAutoFieldType(field?.type) || key.startsWith(VIA_PROP_PREFIX)) continue
+          if (field && field === parentField) {
+            // sub-items (docs/adr/2144-*): one parent, never the row itself or one of its sub-items
+            let next = await normalizeRelationWrite(tx, field, oldProps[key], value, user.id)
+            const submitted = idList(value)
+            if (next.length > 1) next = submitted.length ? next.filter((x) => submitted.includes(x)).slice(0, 1) : next.slice(0, 1)
+            await assertNoSubItemCycle(tx, target.parentId!, field, id, next[0] ?? null)
+            if (next.length === 0) del.push(key)
+            else set[key] = next
+            continue
+          }
           if (field?.type === 'relation' && field.relation?.targetPageId) {
             const next = await normalizeRelationWrite(tx, field, oldProps[key], value, user.id)
             if (next.length === 0) del.push(key)
@@ -424,7 +463,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         for (const p of pairSyncs) await syncPairedLinks(tx, p.field, id, p.oldIds, p.newIds)
         // version read after the pair sync (a self-referencing two-way relation may touch this row)
         const [r] = await tx
-          .select({ ...pageColumns, version: rowVersionSql() })
+          .select({ ...pageColumns, version: rowVersionSql(), ...autoSourceColumns })
           .from(pages)
           .where(eq(pages.id, id))
           .limit(1)
@@ -460,9 +499,12 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     outboxCommitted(queued)
     // Relation cells return only visible links (hidden links stay stored but are never exposed in the response).
     const dto = toRowDTO(row, { ...merged })
+    // automatic values as of this write; the last editor is set by the change log in the same transaction
+    fillAutoInto(parentFields, [dto], [row])
     if (target.parentId && parentFields.length) {
       await resolveRelations(target.workspaceId, parentFields, [dto], user.id)
     }
+    if (role === 'guest') stripAgentKeys(dto.props)
     // `version` only for callers that use the version check (response unchanged for the web app)
     return baseVersion !== undefined ? { row: dto, version } : { row: dto }
   })

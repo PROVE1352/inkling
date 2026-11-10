@@ -860,6 +860,79 @@ Tick each day in [[${habits}]], then note the pattern here.
 // registry
 // ---------------------------------------------------------------------------
 
+/**
+ * Placeholders a spec may use where an id is not known before compile (docs/adr/2147-*): a relation
+ * field of a collection pointing at that same collection, and a row value naming another starter row
+ * of the same collection by its title. compile() turns both into node ids, which instantiation remaps.
+ */
+const SELF_COLLECTION = '@self'
+const rowRef = (title: string) => `@row:${title}`
+
+function agentBoardSpec(locale: Locale): SpecNode {
+  const ko = locale === 'ko'
+  const t = {
+    parent: ko ? '예시: 기능 X 출시' : 'Example: ship feature X',
+    sub1: ko ? '예시: X의 API 작성' : 'Example: write the X API',
+    sub2: ko ? '예시: X 문서화' : 'Example: document X',
+  }
+  const body = (lines: string[]) => lines.join('\n')
+  return {
+    kind: 'collection',
+    title: ko ? '에이전트 작업 보드' : 'Agent task board',
+    icon: '🤖',
+    fields: [
+      select('status', ko ? '상태' : 'Status', [
+        ['todo', ko ? '할 일' : 'To do', 'gray'],
+        ['doing', ko ? '진행 중' : 'In progress', 'blue'],
+        ['blocked', ko ? '막힘' : 'Blocked', 'red'],
+        ['done', ko ? '완료' : 'Done', 'green'],
+      ]),
+      // a person, or a person's agent connection next to them (docs/adr/1861-*)
+      { id: 'assignee', name: ko ? '담당' : 'Assignee', type: 'person' },
+      { id: 'parent', name: ko ? '상위 작업' : 'Parent task', type: 'relation', relation: { targetPageId: SELF_COLLECTION, subItems: true } },
+      { id: 'evidence', name: ko ? '완료 근거' : 'Evidence', type: 'text' },
+      { id: 'taskId', name: 'ID', type: 'uniqueId', uniqueId: { prefix: 'TASK' } },
+    ],
+    views: [
+      { name: ko ? '상태별' : 'By status', type: 'board', config: { groupByFieldId: 'status' } },
+      { name: ko ? '작업 트리' : 'Task tree', type: 'table', config: { columnOrder: ['taskId', 'status', 'assignee', 'parent', 'evidence'], subItems: 'nested' } },
+      { name: ko ? '목록' : 'List', type: 'list', config: { columnOrder: ['taskId', 'status', 'assignee'], hiddenFields: ['parent', 'evidence'] } },
+    ],
+    children: [
+      {
+        kind: 'doc',
+        title: t.parent,
+        props: { status: 'doing' },
+        md: ko
+          ? body([
+              '## 목표',
+              '',
+              '- 이 작업이 끝나면 무엇이 달라지는지 한 줄로',
+              '',
+              '## 쪼개기',
+              '',
+              '- 큰 작업을 맡은 에이전트가 하위 작업을 만들고(create_row parent=이 작업의 ID) 담당을 비워 둡니다',
+              '- 다른 에이전트가 담당이 빈 하위 작업을 가져갑니다(update_row 담당 = this connection, 상태 = 진행 중)',
+              '- 끝낸 에이전트는 완료 근거(PR, 커밋, 문서 링크)를 적고 상태를 완료로 바꿉니다',
+            ])
+          : body([
+              '## Goal',
+              '',
+              '- One line on what is different when this is done',
+              '',
+              '## Splitting',
+              '',
+              '- The agent that owns a large task adds sub-tasks (create_row parent=this task\'s ID) and leaves Assignee empty',
+              '- Another agent takes an unassigned sub-task (update_row Assignee = this connection, Status = In progress)',
+              '- When done, it fills Evidence (PR, commit, doc link) and sets Status to Done',
+            ]),
+      },
+      { kind: 'doc', title: t.sub1, props: { status: 'todo', parent: [rowRef(t.parent)] }, md: '' },
+      { kind: 'doc', title: t.sub2, props: { status: 'todo', parent: [rowRef(t.parent)] }, md: '' },
+    ],
+  }
+}
+
 const BUILTINS: BuiltinDef[] = [
   {
     key: 'meeting',
@@ -1016,6 +1089,23 @@ const BUILTINS: BuiltinDef[] = [
       },
     },
   },
+  {
+    key: 'agentBoard',
+    icon: '🤖',
+    category: 'projects',
+    text: {
+      en: {
+        name: 'Agent task board',
+        description: 'Tasks with sub-tasks, IDs and evidence, for agents that split work and pick it up',
+        root: agentBoardSpec('en'),
+      },
+      ko: {
+        name: '에이전트 작업 보드',
+        description: '하위 작업, ID, 완료 근거가 있는 작업표. 에이전트가 일을 쪼개 올리고 나눠 가져가는 용도',
+        root: agentBoardSpec('ko'),
+      },
+    },
+  },
 ]
 
 function specTexts(n: SpecNode, out: string[] = []): string[] {
@@ -1111,10 +1201,21 @@ async function compile(spec: SpecNode): Promise<TNode> {
       node.state = blocksToStateBuffer(blocks).toString('base64')
     }
     if (n.kind === 'collection') {
-      node.fields = structuredClone(n.fields ?? [])
+      node.fields = structuredClone(n.fields ?? []).map((f) =>
+        f.relation?.targetPageId === SELF_COLLECTION ? { ...f, relation: { ...f.relation, targetPageId: node.id } } : f,
+      )
       node.views = (n.views ?? []).map((v, i) => ({ ...structuredClone(v), sortOrder: i * 1000 }))
     }
     for (const c of n.children ?? []) node.children.push(await build(c))
+    if (n.kind === 'collection') {
+      // starter rows that name another starter row (sub-items): the title becomes that row's node id
+      const rowIds = new Map((n.children ?? []).map((c) => [c.title, ids.get(c)!]))
+      for (const child of node.children) {
+        for (const [k, v] of Object.entries(child.props ?? {})) {
+          if (Array.isArray(v)) child.props![k] = v.map((x) => (typeof x === 'string' && x.startsWith('@row:') ? (rowIds.get(x.slice(5)) ?? null) : x)).filter((x) => x !== null)
+        }
+      }
+    }
     return node
   }
   return build(spec)

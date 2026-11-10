@@ -24,7 +24,11 @@ import {
   chartNumber,
   collectionKeys,
   formulaResultType,
-  matchesViewFilters,
+  matchesViewFilter,
+  viewFilterFieldIds,
+  viewFilterOf,
+  isAutoFieldType,
+  isPersonLikeType,
   naturalOrder,
   queryCellKeys,
 } from '@inkling/shared'
@@ -34,6 +38,7 @@ import { collections, pages, users } from '../db/schema'
 import { AppError } from '../errors'
 import { computeFormulas, isWorkspaceMember, resolveRelations } from '../collectionRelations'
 import { visibleTo } from '../pageDto'
+import { autoPropsSql } from '../collectionQuery/autoValues'
 import { runWorkspaceQuery } from '../routes/query'
 import { rangeCacheKey } from '../tokenRange'
 import { workspaceVersion } from '../versions'
@@ -132,10 +137,12 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
     throw invalidChart('relation groups are not shown on public pages')
   }
 
-  const filters = (target.view?.config.filters ?? []).filter((f) => fields.some((x) => x.id === f.fieldId))
+  // the view's filter tree (OR groups, NOT; the flat list read as AND), the one evaluator the web uses (docs/adr/2142-*)
+  const filter = viewFilterOf(target.view?.config)
+  const filterIds = viewFilterFieldIds(filter).filter((fid) => fields.some((x) => x.id === fid))
   const version = await workspaceVersion(target.workspaceId)
   const viewerKey = viewer.kind === 'user' ? `${viewer.userId}|${rangeCacheKey(viewer.userId)}` : 'public'
-  const key = `c|${viewerKey}|${target.collectionId}|${JSON.stringify(input)}|${JSON.stringify(filters)}|${target.view?.name ?? ''}`
+  const key = `c|${viewerKey}|${target.collectionId}|${JSON.stringify(input)}|${JSON.stringify(filter)}|${target.view?.name ?? ''}`
   const hit = cacheGet(key, version)
   if (hit) return { ...hit, cached: true }
 
@@ -152,15 +159,15 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
   want(group.field)
   want(series?.field)
   want(measureField)
-  for (const flt of filters) want(fields.find((x) => x.id === flt.fieldId))
+  for (const fid of filterIds) want(fields.find((x) => x.id === fid))
   // a formula may read any property of the row (and rollups): read the whole row then
   const formulaIds = new Set([group.field, series?.field, measureField].filter((f): f is CollectionField => !!f && f !== CHART_TITLE_FIELD).map((f) => f.id))
-  for (const flt of filters) formulaIds.add(flt.fieldId)
+  for (const fid of filterIds) formulaIds.add(fid)
   const withFormulas = fields.some((f) => f.type === 'formula' && formulaIds.has(f.id))
   if (withFormulas) for (const f of fields) need.set(f.id, f)
   const needed = [...need.values()]
 
-  const propsSql: SQL = withFormulas
+  const storedSql: SQL = withFormulas
     ? sql`${pages.props}`
     : needed.length
     ? sql`jsonb_build_object(${sql.join(
@@ -168,6 +175,9 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
         sql`, `,
       )})`
     : sql`'{}'::jsonb`
+  // automatic values (docs/adr/2140-*) come from the page itself, never from props
+  const autoNeeded = withFormulas ? fields : needed
+  const propsSql: SQL = autoNeeded.some((f) => isAutoFieldType(f.type)) ? sql`(${storedSql} || ${autoPropsSql(autoNeeded)})` : storedSql
   const rowGate: SQL = viewer.kind === 'user' ? visibleTo(viewer.userId) : sql`${pages.scope} = 'shared'`
 
   let raw: { id: string; title: string | null; props: Record<string, unknown> | null }[]
@@ -213,10 +223,10 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
     computeFormulas(needed, rows, now)
   }
 
-  const kept = filters.length ? rows.filter((r) => matchesViewFilters(r.props, fields, filters)) : rows
+  const kept = filter ? rows.filter((r) => matchesViewFilter(r.props, fields, filter)) : rows
 
   const memberNames = new Map<string, string>()
-  const people = [group.field, series?.field].filter((f): f is CollectionField => !!f && f !== CHART_TITLE_FIELD && f.type === 'person')
+  const people = [group.field, series?.field].filter((f): f is CollectionField => !!f && f !== CHART_TITLE_FIELD && isPersonLikeType(f.type))
   if (people.length) {
     const ids = new Set<string>()
     for (const r of kept)

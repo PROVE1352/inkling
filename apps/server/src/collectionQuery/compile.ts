@@ -219,6 +219,8 @@ function sortExpr(k: SortKey, ranks?: FormulaRanks): { expr: SQL; cast: Cast; fa
     case 'number':
       return { expr: num(fid), cast: 'numeric', fallback: sql`0::numeric` }
     case 'date':
+      // created / edited time sort by the whole timestamp (fixed-width ISO text), not by the day
+      if (f?.type === 'createdTime' || f?.type === 'editedTime') return { expr: propText(fid), cast: 'text', fallback: sql`''` }
       return { expr: date(fid), cast: 'text', fallback: sql`''` }
     case 'checkbox':
       // unchecked is a value, not "empty": never NULL

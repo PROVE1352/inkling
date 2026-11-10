@@ -11,6 +11,7 @@
  */
 import { z } from 'zod'
 import type { CollectionField, FieldType, SelectOption } from './index'
+import { looksLikeEmail, looksLikePhone } from './collectionFields'
 
 /** The row title in a form's field list (not a property). */
 export const FORM_TITLE_FIELD = 'title'
@@ -30,8 +31,9 @@ export const FORM_LIMITS = {
 } as const
 
 /** Property types a form can ask for. Person is for member forms only (public visitors cannot see members). */
-export const FORM_FIELD_TYPES = new Set<FieldType>(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url', 'person'])
-export const PUBLIC_FORM_FIELD_TYPES = new Set<FieldType>(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url'])
+// Automatic values (created / edited time and by, unique ID; docs/adr/2140-*) are never asked.
+export const FORM_FIELD_TYPES = new Set<FieldType>(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url', 'email', 'phone', 'person'])
+export const PUBLIC_FORM_FIELD_TYPES = new Set<FieldType>(['text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url', 'email', 'phone'])
 
 export const formFieldSchema = z.object({
   /** property id, or 'title' for the row title */
@@ -161,6 +163,12 @@ export function formSubmissionProps(
         break
       case 'url':
         if (typeof raw === 'string' && raw.trim().length <= FORM_LIMITS.url && !/[\s<>"]/.test(raw.trim())) v = raw.trim()
+        break
+      case 'email':
+        if (typeof raw === 'string' && raw.trim().length <= FORM_LIMITS.url && looksLikeEmail(raw)) v = raw.trim()
+        break
+      case 'phone':
+        if (typeof raw === 'string' && looksLikePhone(raw)) v = raw.trim()
         break
       case 'number': {
         const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN

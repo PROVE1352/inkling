@@ -14,6 +14,7 @@
  * for the formula's result kind (text: case-insensitive; dates: the YYYY-MM-DD prefix; an empty value
  * sorts last).
  */
+import { autoSourceColumns, fillAutoInto } from './autoValues'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { CollectionField, FormulaValue } from '@inkling/shared'
 import { db } from '../db/index'
@@ -152,10 +153,12 @@ export async function precomputeFormulaQuery(
   const sorts = q.sort.filter(isFormulaSort)
   if (!conds.length && !sorts.length) return null
   const raw = await db
-    .select({ id: pages.id, title: pages.title, props: pages.props })
+    .select({ id: pages.id, title: pages.title, props: pages.props, ...autoSourceColumns })
     .from(pages)
     .where(and(eq(pages.parentId, q.collectionId), isNull(pages.deletedAt), visibleTo(q.userId)))
   const rows = raw.map((r) => ({ id: r.id, title: r.title ?? '', props: { ...((r.props ?? {}) as Record<string, unknown>) } }))
+  // formulas may read the automatic values (docs/adr/2140-*)
+  fillAutoInto(q.fields, rows, raw)
   // rollups only when a formula reads one (the same per-viewer link rules as the response)
   if (formulasNeedLinks(q.fields)) await resolveRelations(q.workspaceId, q.fields, rows, q.userId, { now: q.now })
   else computeFormulas(q.fields, rows, q.now)

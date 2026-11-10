@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { CollectionField, RowDTO, RowTemplateDTO, ViewConfig, ViewType } from '@inkling/shared'
 import {
+  ApiError,
   qk,
   usePages,
   useCollection,
@@ -17,7 +18,7 @@ import {
   useUpdateView,
   type CollectionBundle,
 } from '../../api'
-import { applyView, orderedFields } from '../../lib/collection'
+import { applyView, membersWithPeople, orderedFields } from '../../lib/collection'
 import {
   useCreateRow,
   useCreateRowTemplate,
@@ -40,6 +41,7 @@ import { GalleryView } from './GalleryView'
 import { ImportModal } from './ImportModal'
 import { NewRowButton, RowInputsModal, RowTemplatesModal } from './RowTemplateMenus'
 import { RowTemplateEditor } from './RowTemplateEditor'
+import { useIsGuest } from '../../lib/useGuest'
 import { CollectionReadOnlyContext } from './readOnlyContext'
 import { CollectionRefsContext } from './refsContext'
 import { SheetSyncModal } from './SheetSyncModal'
@@ -49,7 +51,8 @@ import { TimelineView } from './TimelineView'
 import { ChartView } from './ChartView'
 import { FormView } from './FormView'
 import { withFormulas } from '../../lib/formulas'
-import { defaultFormSettings } from '@inkling/shared'
+import { defaultFormSettings, subItemsField } from '@inkling/shared'
+import { ListView } from './ListView'
 import { ViewSettings } from './ViewSettings'
 import { ViewTabs } from './ViewTabs'
 
@@ -67,6 +70,9 @@ export function CollectionView({
   const qc = useQueryClient()
   const collection = useCollection(pageId)
   const members = useMembers(wsId)
+  // a page guest edits cells and rows at most; properties, views, import and paste are member-only (docs/adr/2146-*)
+  const guest = useIsGuest(wsId)
+  const schemaLocked = readOnly || guest
 
   const updateFields = useUpdateFields(pageId)
   const createView = useCreateView(pageId)
@@ -103,6 +109,11 @@ export function CollectionView({
   const raw = collection.data
   const views = raw?.collection.views ?? []
   const fields = raw?.collection.fields ?? []
+  // A guest's response names the people in its rows (`people`: user id → name), because guests
+  // cannot read the member list. Display only: pickers and paste keep the real member list.
+  const people = (raw as (CollectionBundle & { people?: Record<string, string> }) | undefined)?.people
+  const memberNames = useMemo(() => membersWithPeople(members.data, people), [members.data, people])
+  const parentField = subItemsField(fields, pageId)
   // Formulas recomputed from the rows' current props (after optimistic edits too), with the same
   // engine as the server (docs/adr/1825-*).
   const rowsWithFormulas = useMemo(() => (raw ? withFormulas(raw.rows, raw.collection.fields) : []), [raw])
@@ -141,7 +152,7 @@ export function CollectionView({
     return {
       fields: orderedFields(fields, cfg),
       rows: applyView(data.rows, fields, cfg),
-      members: members.data,
+      members: memberNames,
       refs,
     }
   }
@@ -192,7 +203,39 @@ export function CollectionView({
 
   // ---- handlers ----
   const onCommitProps = (rowId: string, patch: Record<string, unknown>) =>
-    updateProps.mutate({ id: rowId, props: patch })
+    updateProps.mutate(
+      { id: rowId, props: patch },
+      {
+        // the edit is reverted by the mutation; say why when the server refused a sub-item loop
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === 'SUBITEM_CYCLE') toast({ message: e.message || t('errors.SUBITEM_CYCLE') })
+        },
+      },
+    )
+
+  // Sub-items on/off (docs/adr/2144-*): on adds a "Parent item" relation to this collection itself;
+  // off keeps that field as a plain relation.
+  const onToggleSubItems = () => {
+    const next: CollectionField[] = parentField
+      ? fields.map((f) => {
+          if (f.id !== parentField.id || !f.relation) return f
+          const { subItems: _drop, ...relation } = f.relation
+          void _drop
+          return { ...f, relation }
+        })
+      : [
+          ...fields,
+          {
+            id: crypto.randomUUID().slice(0, 8),
+            name: t('subItems.parentFieldName'),
+            type: 'relation',
+            relation: { targetPageId: pageId, subItems: true },
+          },
+        ]
+    updateFields.mutate(next, {
+      onError: (e) => toast({ message: (e as Error).message }),
+    })
+  }
 
   const onAddOption = (fieldId: string, name: string): string => {
     const id = crypto.randomUUID().slice(0, 8)
@@ -244,6 +287,11 @@ export function CollectionView({
   }
 
   const onCreateRow = () => requestCreate(undefined)
+
+  // "Add sub-item": a new row (through the default template like any new row) with this parent
+  const onCreateSubItem = (parentRowId: string) => {
+    if (parentField) requestCreate(undefined, { [parentField.id]: [parentRowId] })
+  }
 
   // Board column "+": the column's option over the template's values, in the same request.
   const onCreateRowInColumn = (optionId: string | null) => {
@@ -311,7 +359,7 @@ export function CollectionView({
         if (!f || !/\.(csv|tsv|xlsx)$/i.test(f.name)) return
         e.preventDefault()
         e.stopPropagation()
-        if (readOnly) return
+        if (schemaLocked) return
         setImportFile(f)
         setImportOpen(true)
       }}
@@ -330,13 +378,14 @@ export function CollectionView({
         />
         {view && (
           <div className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap pl-2">
-            {/* Read-only: filters/sorts/fields are saved on the server (writes the lock denies) */}
-            {!readOnly && (
+            {/* Read-only: filters/sorts/fields are saved on the server (writes the lock denies).
+                Guests edit cells and rows only, never properties or views (docs/adr/2146-*). */}
+            {!schemaLocked && (
               <>
                 <ViewSettings
                   view={view}
                   fields={fields}
-                  members={members.data}
+                  members={memberNames}
                   onUpdateConfig={onUpdateConfig}
                 />
                 <button
@@ -360,7 +409,7 @@ export function CollectionView({
             <CollectionMenu
               onRowTemplates={() => setManageOpen(true)}
               onImport={
-                readOnly
+                schemaLocked
                   ? undefined
                   : () => {
                       setImportFile(null)
@@ -370,7 +419,9 @@ export function CollectionView({
               onExportCsv={onExportCsv}
               onExportXlsx={onExportXlsx}
               onCopyTsv={() => void onCopyTsv()}
-              onSheetSync={sheetsSync && !readOnly ? () => setSyncOpen(true) : undefined}
+              onSheetSync={sheetsSync && !schemaLocked ? () => setSyncOpen(true) : undefined}
+              subItems={!!parentField}
+              onToggleSubItems={schemaLocked ? undefined : onToggleSubItems}
             />
           </div>
         )}
@@ -387,12 +438,23 @@ export function CollectionView({
         />
       ) : view?.type === 'chart' ? (
         <ChartView view={view} wsId={wsId} collectionId={pageId} onUpdateConfig={onUpdateConfig} />
+      ) : view?.type === 'list' ? (
+        <ListView
+          view={view}
+          fields={fields}
+          rows={data.rows}
+          members={memberNames}
+          wsId={wsId}
+          onCreateRow={onCreateRow}
+          creatingRow={createRow.isPending}
+          collectionId={pageId}
+        />
       ) : view?.type === 'gallery' ? (
         <GalleryView
           view={view}
           fields={fields}
           rows={data.rows}
-          members={members.data}
+          members={memberNames}
           wsId={wsId}
           pageId={pageId}
           onCreateRow={onCreateRow}
@@ -412,7 +474,7 @@ export function CollectionView({
           view={view}
           fields={fields}
           rows={data.rows}
-          members={members.data}
+          members={memberNames}
           wsId={wsId}
           onCommitProps={onCommitProps}
           onUpdateConfig={onUpdateConfig}
@@ -424,7 +486,7 @@ export function CollectionView({
           view={view}
           fields={fields}
           rows={data.rows}
-          members={members.data}
+          members={memberNames}
           wsId={wsId}
           onCommitProps={onCommitProps}
           onUpdateConfig={onUpdateConfig}
@@ -437,18 +499,20 @@ export function CollectionView({
           rows={data.rows}
           handlers={{
             wsId,
-            members: members.data,
+            members: memberNames,
             onCommitProps,
             onAddOption,
             onUpdateTitle,
             onDeleteRow,
-            onPasteGrid: readOnly ? undefined : onPasteGrid,
+            onPasteGrid: schemaLocked ? undefined : onPasteGrid,
             refs,
           }}
           onUpdateConfig={onUpdateConfig}
           onOpenFields={() => setFieldsOpen(true)}
           onCreateRow={onCreateRow}
           creatingRow={createRow.isPending}
+          collectionId={pageId}
+          onCreateSubItem={parentField && !readOnly ? onCreateSubItem : undefined}
         />
       ) : null}
 
@@ -490,7 +554,7 @@ export function CollectionView({
         open={manageOpen}
         onClose={() => setManageOpen(false)}
         templates={templates}
-        readOnly={readOnly}
+        readOnly={schemaLocked}
         onEdit={(id) => {
           setManageOpen(false)
           setEditingTemplate(id)

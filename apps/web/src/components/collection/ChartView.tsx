@@ -3,7 +3,7 @@
 // The server aggregates with the view's saved filters, and the key carries them, so a filter change
 // draws again at once.
 import { useMemo, useState } from 'react'
-import { canonicalChartConfig } from '@inkling/shared'
+import { canonicalChartConfig, viewFilterOf } from '@inkling/shared'
 import type { ChartBlockConfig, CollectionViewDTO, ViewConfig } from '@inkling/shared'
 import { t } from '../../i18n'
 import { ChartPanel } from '../charts/ChartPanel'
@@ -28,7 +28,8 @@ export function ChartView({
     () => (chart ? { ...chart, source: { type: 'collection', collectionId, viewId: view.id } } : null),
     [chart, collectionId, view.id],
   )
-  const filtersKey = JSON.stringify(view.config.filters ?? [])
+  // the filter the server applies (tree or legacy list, docs/adr/2142-*): a change draws again at once
+  const filtersKey = JSON.stringify(viewFilterOf(view.config) ?? null)
 
   if (!config || editing) {
     if (readOnly) return <p className="px-1 py-10 text-center text-sm text-sub">{t('chart.viewNotSet')}</p>

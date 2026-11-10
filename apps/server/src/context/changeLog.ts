@@ -242,6 +242,9 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
       typedBy: actor ? null : windowTypist(delta.pageId),
       changes: changes.map((c) => storeChange(c, isAgentVia(actor?.via))),
     }
+    // body edits make their author the last editor (docs/adr/2141-*); the first index of a new page does not
+    const typist = actor ? null : windowTypist(delta.pageId)
+    await markEdited(exec ?? db, [delta.pageId], actor ?? (typist ? { userId: typist, via: null } : null), { touchCollection: true })
   }
   await enqueue(exec ?? db, [{ topic: 'change', workspaceId: delta.workspaceId, payload: op }])
 }
@@ -339,7 +342,40 @@ export async function recordPageEvents(events: PageEvent[], actor: EditActor | n
     )
     SELECT 1 AS z FROM ins LIMIT 1
   `)) as unknown as unknown[]
+  await markEdited(x, events.filter((e) => EDIT_KINDS.has(e.kind)).map((e) => e.pageId), actor)
   if (out.length > 0 && x === db) outboxCommitted(['change'])
+}
+
+/** Page events that make the actor the page's last editor (docs/adr/2141-*). */
+const EDIT_KINDS = new Set<PageEventKind>(['page_renamed', 'page_props'])
+
+/**
+ * Last editor (docs/adr/2141-*): every logged property, title or body change writes its actor onto
+ * the page in the same transaction as the log entry, so a collection's "Last edited by" is the
+ * change feed's newest actor (and its via) without reading page_changes, which is pruned and merged.
+ * A change with no known actor leaves the previous editor.
+ */
+async function markEdited(x: Exec, pageIds: string[], actor: EditActor | null | undefined, opts: { touchCollection?: boolean } = {}): Promise<void> {
+  if (!actor || pageIds.length === 0) return
+  const ids = [...new Set(pageIds)]
+  const via = capVia(actor.via)
+  const set = sql`
+    UPDATE pages SET edited_by = ${actor.userId}::uuid, edited_via = ${via}
+     WHERE id = ANY(${`{${ids.join(',')}}`}::uuid[])
+       AND (edited_by IS DISTINCT FROM ${actor.userId}::uuid OR edited_via IS DISTINCT FROM ${via})
+       AND EXISTS (SELECT 1 FROM users u WHERE u.id = ${actor.userId}::uuid)`
+  if (!opts.touchCollection) {
+    await x.execute(set)
+    return
+  }
+  // A body edit is indexed seconds after the store bumped updated_at: the collection's version moves
+  // again when its "Last edited by" changes, so a client that polled in between sees the new editor.
+  await x.execute(sql`
+    WITH u AS (${set} RETURNING parent_id)
+    UPDATE collections SET updated_at = now()
+     WHERE page_id IN (SELECT parent_id FROM u WHERE parent_id IS NOT NULL)
+       AND fields @> '[{"type":"editedBy"}]'::jsonb
+  `)
 }
 
 /**

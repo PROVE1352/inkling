@@ -447,6 +447,28 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
       assertNoOutside(list.body, 'later list')
     })
 
+    it('collections in the shared tree (docs/adr/2146-*): read, pick, add rows and edit cells; the rest stays member-only', async () => {
+      // more cases (links, rollups and people outside, levels): collectionQuery/rows017.db.test.ts
+      const coll = (await as(O, 'POST', '/api/pages', { workspaceId: ws1.id, parentId: id.root, kind: 'collection', title: `Coll ${W}` })).json().page.id as string
+      assert.equal((await as(O, 'PUT', `/api/pages/${coll}/collection/fields`, { fields: [{ id: 'n', name: 'Note', type: 'text' }] })).statusCode, 200)
+      for (const url of [`/api/pages/${coll}/collection`, `/api/pages/${coll}/collection/row-options`, `/api/pages/${coll}/collection/covers`, `/api/pages/${coll}/collection/row-templates`]) {
+        const res = await as(G, 'GET', url)
+        assert.equal(res.statusCode, 200, `${url}: ${res.body.slice(0, 200)}`)
+        assertNoOutside(res.body, url)
+      }
+      const row = await as(G, 'POST', `/api/pages/${coll}/collection/rows`, { title: 'guest row', template: null })
+      assert.equal(row.statusCode, 200, row.body)
+      assert.equal((await as(G, 'PATCH', `/api/pages/${row.json().row.id}/props`, { props: { n: 'x' } })).statusCode, 200)
+      for (const [method, url, body] of [
+        ['PUT', `/api/pages/${coll}/collection/fields`, { fields: [] }],
+        ['POST', `/api/pages/${coll}/collection/views`, { name: 'v', type: 'table' }],
+        ['POST', `/api/pages/${coll}/collection/rows/batch`, { rows: [{ title: 'x' }] }],
+        ['GET', `/api/pages/${coll}/collection/query`],
+      ] as [string, string, unknown?][]) {
+        assert.equal((await as(G, method, url, body)).statusCode, 403, `${method} ${url}`)
+      }
+    })
+
     it('files: upload into an editable page, download only files of shared pages', async () => {
       const boundary = '----inkguest'
       const payload =

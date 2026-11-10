@@ -128,7 +128,7 @@ export function GalleryView({
                       {cardFields.map((f) => (
                         <div key={f.id} className="flex min-w-0 items-center overflow-hidden" style={{ height: PROP_H }}>
                           {isEmpty(row.props[f.id]) ? null : (
-                            <FieldValue field={f} value={row.props[f.id]} members={members} />
+                            <FieldValue field={f} value={row.props[f.id]} members={members} rowProps={row.props} />
                           )}
                         </div>
                       ))}

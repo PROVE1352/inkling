@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { CollectionField, PageMetaDTO } from '@inkling/shared'
+import { isPersonLikeType } from '@inkling/shared'
+import { membersWithPeople } from '../lib/collection'
 import {
   ApiError,
   useBacklinks,
@@ -679,12 +681,13 @@ export function RightPanel({
                     <FieldCell
                       field={f}
                       value={rowProps[f.id]}
-                      members={members.data}
+                      members={membersWithPeople(members.data, parentCollection.data?.people)}
                       readOnly={readOnly}
                       onCommit={(v) =>
                         updateProps.mutate({ id: page.id, props: { [f.id]: v } })
                       }
-                      rowProps={f.type === 'person' ? rowProps : undefined}
+                      rowId={page.id}
+                      rowProps={isPersonLikeType(f.type) ? rowProps : undefined}
                       onCommitPatch={f.type === 'person' ? (patch) => updateProps.mutate({ id: page.id, props: patch }) : undefined}
                       onAddOption={
                         f.type === 'select' || f.type === 'multiSelect'

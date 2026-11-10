@@ -65,11 +65,16 @@ export function RelationCell({
   field,
   value,
   onCommit,
+  rowId,
 }: {
   field: CollectionField
   value: unknown
   onCommit: (value: unknown) => void
+  /** this row: the "Parent item" field (sub-items) never offers the row itself */
+  rowId?: string
 }) {
+  // Parent item (sub-items, docs/adr/2144-*): at most one link, picking replaces it
+  const single = field.relation?.subItems === true
   const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -104,9 +109,15 @@ export function RelationCell({
   }, [open, close])
 
   const toggle = (id: string) => {
+    if (single) {
+      onCommit(ids.includes(id) ? null : [id])
+      close()
+      return
+    }
     const next = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]
     onCommit(next.length ? next : null)
   }
+  const optionRows = (options.data?.rows ?? []).filter((r) => !(single && r.id === rowId))
 
   return (
     <div ref={ref} className="relative">
@@ -133,10 +144,10 @@ export function RelationCell({
             />
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
-            {options.data?.rows.length === 0 && (
+            {options.data && optionRows.length === 0 && (
               <p className="px-3 py-2 text-xs text-sub">{S.relationEmpty}</p>
             )}
-            {options.data?.rows.map((r) => {
+            {optionRows.map((r) => {
               const on = ids.includes(r.id)
               return (
                 <button
@@ -146,7 +157,7 @@ export function RelationCell({
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
                 >
                   <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center ${single ? 'rounded-full' : 'rounded'} border ${
                       on ? 'border-accent bg-accent text-white' : 'border-line'
                     }`}
                   >

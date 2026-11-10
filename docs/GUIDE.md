@@ -40,9 +40,12 @@ lists both.
 
 ### The intro and the Getting started card
 
-A new account sees a short intro the first time it opens Inkling. Skip it with **Esc** or the Skip
-button; ← and → change scenes and Space pauses. With "reduce motion" turned on in your system, the intro
-shows one still picture per scene.
+A new account sees a short intro the first time it opens Inkling: writing together, an AI agent reading
+just the sections it needs, an agent's edit that a person accepts, and your own server with offline copies.
+Skip it with **Esc** or the Skip button; ← and → change scenes and Space pauses. At the end it stops on a
+screen with next steps: open (or make) the sample page, **New page**, **Connect an AI agent** and **Close**.
+With "reduce motion" turned on in your system, the intro shows one still picture per scene and the same
+end screen after the last one.
 
 The **Getting started** card on the empty workspace screen (and folded at the bottom of the sidebar)
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go

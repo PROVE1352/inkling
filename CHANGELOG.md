@@ -7,6 +7,35 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-11-11
+
+A patch release that redoes the onboarding intro after it was seen in production. Web app only: no database
+migration, no new dependency, no API or configuration change.
+
+### Changed
+- **The intro shows the real thing and moves like it** (docs/adr/2385-*). The four scenes are now drawn with real
+  content instead of grey bars: two people writing on a "Weekly sync" page with named cursors, a `[[link]]` to a second
+  page with its backlink, and the database view inside the page turning from a table into a board; an AI agent asking
+  `find_context` and getting back just the two sections it needs (cited as `Page › Heading`); the agent suggesting a
+  sentence that a person reviews and accepts (a new version, Revert), then `update_row` moving a board card; your own
+  server syncing a laptop and a phone, going offline and back. A camera pushes in on what matters and pulls back out,
+  scenes change with an ink wipe from where the drop lands, and the drop has eyes, hops, squashes and leaves a short
+  tail. The picture takes about two thirds of the dialog; on a phone the camera shows a close part of each scene so
+  the words in it stay readable. Still 26 seconds, still pictures with reduced motion.
+- **The intro ends on next steps instead of closing.** After the last scene (or the last still) it stops on the logo
+  with "Ready to write?" and buttons: open or make the sample page (new accounts), New page, Connect an AI agent
+  (Settings › Connections), Close. Accounts shown the intro with `ONBOARDING_EXISTING_USERS=once` are not offered the
+  sample. A button closes the intro (it counts as seen) and then does what it says; → stays, ← goes back to the last
+  scene, Esc closes.
+- **The intro no longer says "open source"**; scene 4 now reads "It runs on your own server. Turn on offline copies and
+  pages keep opening without a connection."
+
+### Performance
+- The intro's lazy chunk is 34.64 kB (13.42 kB gzip) instead of 20.63 kB (7.60 kB gzip), still loaded only when it
+  plays and not precached. Entry `index-*.js` 447,094 → 447,032 B (122,916 → 122,979 B gzip); entry plus modulepreload
+  1,368,719 → 1,371,579 B (403,057 → 403,132 B gzip, the longer intro copy in the i18n chunk); precache 104 entries,
+  +2,115 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
 ## [0.19.0] - 2026-11-11
 
 > **Before you upgrade a server that ran 0.18 or older: add one line to `.env`.**

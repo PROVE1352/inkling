@@ -296,4 +296,11 @@ export default {
   'notionImport.skipped': 'Skipped files ({count})',
   'notionImport.more': '…and {count} more',
   'notionImport.open': 'Open',
+
+  // a screen that failed to draw (components/AppErrorBoundary.tsx, docs/adr/2324-*)
+  'crash.title': 'This screen could not be shown',
+  'crash.body': 'Something went wrong while drawing it. Reloading the page usually fixes this.',
+  'crash.chunk': 'Part of the app could not be loaded: the connection dropped or a new version was installed. Reload the page.',
+  'crash.reload': 'Reload',
+  'crash.details': 'Details',
 } satisfies Record<string, string>

@@ -84,6 +84,33 @@ body {
   overscroll-behavior: none;
 }
 
+/* Static notice inside #root (index.html), replaced by React's first render. If the app never starts
+   (its script failed to load or run) it appears after 12 s instead of a blank page (docs/adr/2324-*).
+   A step, not motion: prefers-reduced-motion leaves it on. Unstyled if this file failed too: then it
+   shows at once, which is still better than nothing. */
+.nd-boot-fallback {
+  visibility: hidden;
+  animation: nd-boot-reveal 0s linear 12s forwards;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-sub);
+}
+.nd-boot-fallback a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+@keyframes nd-boot-reveal {
+  to {
+    visibility: visible;
+  }
+}
+
 /* Keep clear of the notch / home indicator (pairs with viewport-fit=cover in index.html). 0 normally. */
 #root {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)

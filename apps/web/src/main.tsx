@@ -9,6 +9,7 @@ import { initPwa } from './lib/pwa'
 import { initOffline } from './lib/offline/runtime'
 import { addUpdateSafetyCheck, noteServerBuild, setUpdateMode } from './lib/update'
 import { UpdateBanner } from './components/UpdateBanner'
+import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { getLocale, setServerDefaultLocale, useLocale } from './i18n'
 
 // Note: StrictMode is deliberately omitted. Its dev double-mount would destroy, in cleanup, the
@@ -69,10 +70,14 @@ function LocaleRoot() {
 const root = document.getElementById('root')
 if (!root) throw new Error('#root element not found')
 
+// The boundary is outermost: an error React cannot hand to a nearer one shows a notice with a reload
+// button instead of unmounting everything (docs/adr/2324-*). The page area has its own (AppLayout).
 createRoot(root).render(
-  <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
-      <LocaleRoot />
-    </BrowserRouter>
-  </QueryClientProvider>,
+  <AppErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <LocaleRoot />
+      </BrowserRouter>
+    </QueryClientProvider>
+  </AppErrorBoundary>,
 )

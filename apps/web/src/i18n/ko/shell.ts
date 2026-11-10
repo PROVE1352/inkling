@@ -283,4 +283,11 @@ export default {
   'notionImport.skipped': '건너뛴 파일 ({count}개)',
   'notionImport.more': '…외 {count}개',
   'notionImport.open': '열기',
+
+  // 그리지 못한 화면 (components/AppErrorBoundary.tsx, docs/adr/2324-*)
+  'crash.title': '이 화면을 표시하지 못했습니다',
+  'crash.body': '화면을 그리다가 문제가 생겼습니다. 페이지를 새로고침하면 대개 해결됩니다.',
+  'crash.chunk': '앱의 일부를 불러오지 못했습니다. 연결이 끊겼거나 새 버전이 설치되었습니다. 페이지를 새로고침하세요.',
+  'crash.reload': '새로고침',
+  'crash.details': '자세히',
 } satisfies Partial<Record<keyof typeof en, string>>

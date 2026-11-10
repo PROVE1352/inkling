@@ -17,7 +17,12 @@
     <script src="/theme-init.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Replaced by React's first render. Shown only if the app has not started after 12 s (its script
+         failed to load or run): a notice with a reload link instead of a blank page (docs/adr/2324-*). -->
+    <div id="root"><div class="nd-boot-fallback" data-testid="boot-fallback">
+      <p>Inkling is taking longer than usual to start. <a href="">Reload the page</a></p>
+      <p lang="ko">Inkling을 여는 데 평소보다 오래 걸립니다. <a href="">페이지 새로고침</a></p>
+    </div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

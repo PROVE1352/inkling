@@ -35,6 +35,7 @@ import { TemplateGalleryModal } from './TemplateGalleryModal'
 import { TrashModal } from './TrashModal'
 import { ToastContainer } from './Toast'
 import { AppDnd } from './dnd/AppDnd'
+import { AppErrorBoundary } from './AppErrorBoundary'
 
 export type LayoutContext = {
   onToggleSidebar: () => void
@@ -303,11 +304,14 @@ export function AppLayout() {
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />
         <OfflineBanner />
-        <Outlet
-          context={
-            { onToggleSidebar, openSearch } satisfies LayoutContext
-          }
-        />
+        {/* a page that cannot be drawn keeps the sidebar; moving to another page tries again (docs/adr/2324-*) */}
+        <AppErrorBoundary inline resetKey={location.pathname}>
+          <Outlet
+            context={
+              { onToggleSidebar, openSearch } satisfies LayoutContext
+            }
+          />
+        </AppErrorBoundary>
       </main>
 
       {/* Global notification bell — all my notifications regardless of workspace (fixed top-right). */}

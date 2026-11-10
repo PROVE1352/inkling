@@ -81,6 +81,8 @@ import { registerLinkPreviewRoutes } from './routes/linkPreview'
 import { registerShareMetaRoutes } from './routes/shareMeta'
 import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
+import { registerSlackRoutes } from './routes/slack'
+import { initSlack } from './slack/notify'
 import { flushNotifications, initNotifications } from './notify/engine'
 import { startOutboxWorker, stopOutboxWorker } from './outbox'
 import { releaseChangeWaiters } from './context/changeWait'
@@ -383,6 +385,7 @@ async function main(): Promise<void> {
   // CSP frame-src for HTML responses without their own CSP (embed providers) — docs/adr/0501-*
   registerEmbedCsp(app)
   initWebhooks((msg) => app.log.warn(msg))
+  initSlack((msg) => app.log.warn(msg))
   // Notification engine + mail (docs/adr/1000-*, 1004-*)
   initNotifications((msg) => app.log.warn(msg))
   initNotificationMail((msg) => app.log.warn(msg))
@@ -537,6 +540,8 @@ async function main(): Promise<void> {
       // Link preview cards + workspace Slack/Discord webhooks (stable) — docs/adr/0502-*, 0504-*
       await registerLinkPreviewRoutes(api)
       await registerWebhookRoutes(api)
+      // Slack app per workspace: settings, account links, /inkling and Events API (docs/adr/1800-*)
+      await registerSlackRoutes(api)
       // Admin → Backups status, trigger and download (sidecar-based) — docs/BACKUP.md
       await registerBackupRoutes(api)
     },

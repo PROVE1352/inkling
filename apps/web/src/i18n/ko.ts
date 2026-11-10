@@ -15,6 +15,7 @@ import largePages from './ko/large-pages'
 import split from './ko/split'
 import shareLinks from './ko/share-links'
 import webhooks from './ko/webhooks'
+import slack from './ko/slack'
 import apiTokens from './ko/api-tokens'
 import adminStatus from './ko/admin-status'
 import pageAccess from './ko/page-access'
@@ -42,6 +43,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...split,
   ...shareLinks,
   ...webhooks,
+  ...slack,
   ...apiTokens,
   ...adminStatus,
   ...pageAccess,

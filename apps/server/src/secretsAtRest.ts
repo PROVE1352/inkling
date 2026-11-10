@@ -21,7 +21,16 @@ import { openSecret, sealSecret, secretBoxAvailable } from './secretBox'
 export const HASH_RE = /^[0-9a-f]{64}$/
 const SEALED_PREFIX = 'v1.'
 
-export type SecretPurpose = 'share-token' | 'invite-code' | 'signup-key' | 'webhook-url' | 'webhook-secret' | 'sheet-sync-url'
+export type SecretPurpose =
+  | 'share-token'
+  | 'invite-code'
+  | 'signup-key'
+  | 'webhook-url'
+  | 'webhook-secret'
+  | 'sheet-sync-url'
+  // Slack app of a workspace (docs/adr/1801-*)
+  | 'slack-bot-token'
+  | 'slack-signing-secret'
 
 function sha256hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex')
@@ -115,6 +124,9 @@ const SEALED_COLUMNS: { table: string; col: string; aad: string; purpose: Secret
   { table: 'workspace_webhooks', col: 'secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
   { table: 'workspace_webhooks', col: 'previous_secret', aad: 'id', purpose: 'webhook-secret', pk: 'id', ws: 'workspace_id' },
   { table: 'collection_sheet_syncs', col: 'url', aad: 'page_id', purpose: 'sheet-sync-url', pk: 'page_id', ws: 'workspace_id' },
+  // Slack bot token and signing secret (docs/adr/1801-*)
+  { table: 'slack_integrations', col: 'bot_token', aad: 'workspace_id', purpose: 'slack-bot-token', pk: 'workspace_id', ws: 'workspace_id' },
+  { table: 'slack_integrations', col: 'signing_secret', aad: 'workspace_id', purpose: 'slack-signing-secret', pk: 'workspace_id', ws: 'workspace_id' },
 ]
 
 /** Plaintext and sealed values of one sealed column (optionally limited by a workspace predicate). */

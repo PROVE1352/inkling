@@ -901,3 +901,5 @@ export * from './schema-later'
 export * from './schema-collab'
 // Optional semantic search: chunk embeddings, written only when an embedding endpoint is set (docs/adr/1740-*)
 export * from './schema-semantic'
+// Slack app per workspace: secrets, account links, link codes, replay guard (docs/adr/1800-*)
+export * from './schema-slack'

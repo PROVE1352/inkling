@@ -45,6 +45,7 @@ const TagsView = lazyNamed(() => import('./pages/TagsView'), 'TagsView')
 const SharedView = lazyNamed(() => import('./pages/SharedView'), 'SharedView')
 const WorkspaceHome = lazyNamed(() => import('./pages/WorkspaceHome'), 'WorkspaceHome')
 const WorkspaceSettings = lazyNamed(() => import('./pages/WorkspaceSettings'), 'WorkspaceSettings')
+const SlackLink = lazyNamed(() => import('./pages/SlackLink'), 'SlackLink')
 
 /** Full-screen fallback for top-level routes. */
 function Page({ children }: { children: ReactNode }) {
@@ -96,6 +97,8 @@ export function App() {
       <Route path="/s/:token/p/:ref" element={<Page><PublicView /></Page>} />
       {/* MCP connector OAuth consent screen — redirects to /login?next= itself when signed out */}
       <Route path="/oauth/authorize" element={<Page><OAuthAuthorize /></Page>} />
+      {/* Slack account link (#code=… fragment); sends signed-out visitors to /login?next= itself */}
+      <Route path="/slack/link" element={<Page><SlackLink /></Page>} />
       <Route
         path="/settings/connections"
         element={

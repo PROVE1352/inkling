@@ -9,6 +9,7 @@ import { liveWorkspace } from '../workspaceLive'
 import { decide, KINDS } from './kinds'
 import type { NotifyKind, Reason } from './kinds'
 import { scheduleInstantMail } from './mailer'
+import { enqueueSlackInTx, slackCommitted } from '../slack/notify'
 
 /**
  * Notification engine (docs/adr/1000-*).
@@ -126,6 +127,8 @@ export async function runNotifyBatch(): Promise<number> {
 
 async function notifyPass(isolate: boolean): Promise<number> {
   const written: Written[] = []
+  // Slack channel posts of these events, queued in this transaction (docs/adr/1802-*)
+  let slackQueued = false
   const n = await db.transaction(async (tx) => {
     // Fast path claims by deleting (one statement); the delete commits only with the rows written.
     const claim = isolate
@@ -151,6 +154,7 @@ async function notifyPass(isolate: boolean): Promise<number> {
       const planned = await planEvents(rows.map((r) => r.payload), tx)
       const info = await lookupRecipients(tx, planned)
       for (const p of planned) written.push(...(await writePlanned(p, info, tx)).written)
+      slackQueued = await enqueueSlackInTx(tx, rows.map((r) => r.payload))
       notifyStats.passes++
       notifyStats.events += rows.length
       await notifyTestHooks.beforeCommit?.()
@@ -168,11 +172,13 @@ async function notifyPass(isolate: boolean): Promise<number> {
       }
     }
     if (done.length) await tx.execute(sql`DELETE FROM outbox WHERE id = ANY(${`{${done.join(',')}}`}::bigint[])`)
+    slackQueued = await enqueueSlackInTx(tx, rows.filter((r) => done.includes(r.id)).map((r) => r.payload))
     await notifyTestHooks.beforeCommit?.()
     return done.length
   })
   // After the commit: the client refetches and must see the rows.
   sideEffects(written)
+  slackCommitted(slackQueued)
   return n
 }
 

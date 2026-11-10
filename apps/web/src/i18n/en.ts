@@ -14,6 +14,7 @@ import largePages from './en/large-pages'
 import split from './en/split'
 import shareLinks from './en/share-links'
 import webhooks from './en/webhooks'
+import slack from './en/slack'
 import apiTokens from './en/api-tokens'
 import adminStatus from './en/admin-status'
 import pageAccess from './en/page-access'
@@ -42,6 +43,7 @@ export const en = {
   ...split,
   ...shareLinks,
   ...webhooks,
+  ...slack,
   ...apiTokens,
   ...adminStatus,
   ...pageAccess,

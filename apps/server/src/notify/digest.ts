@@ -5,6 +5,7 @@ import { emitWebhookEvent } from '../webhooks'
 import { liveWorkspace } from '../workspaceLive'
 import { flushNotifications, notify } from './engine'
 import { runMailDigests, sweepInstantMails } from './mailer'
+import { runSlackHousekeeping } from '../slack/notify'
 
 /**
  * Daily AI-edit summaries (docs/adr/1004-*), run from housekeeping.
@@ -127,6 +128,8 @@ export async function runNotificationHousekeeping(now: Date, log: (msg: string) 
     // Let the queued AI summaries land before the digest reads them.
     await flushNotifications()
     const mails = await runMailDigests(now)
+    // Slack: the daily change summary of shared pages, replay nonces and link codes (docs/adr/1802-*)
+    await runSlackHousekeeping(now, log)
     if (swept || summaries || hooks || mails) {
       log(`[inkling] notifications: ${swept} delayed instant item(s) mailed, ${summaries} AI summaries, ${hooks} AI webhook digest(s), ${mails} digest mail(s)`)
     }

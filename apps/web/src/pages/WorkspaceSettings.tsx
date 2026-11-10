@@ -47,6 +47,7 @@ import {
   LockIcon,
   LogOutIcon,
   MenuIcon,
+  MessageIcon,
   PlugIcon,
   SlidersIcon,
   TrashIcon,
@@ -62,6 +63,7 @@ import { NavButtons } from '../components/NavButtons'
 import { Group, Row, Select, Toggle } from '../components/SettingsRows'
 import { Spinner } from '../components/Spinner'
 import { WebhooksPanel } from '../components/WebhooksPanel'
+import { SlackPanel } from '../components/SlackPanel'
 import { LargePagesPanel } from '../components/LargePagesPanel'
 import { WorkspaceAvatar } from '../components/WorkspaceAvatar'
 import { DeletedWorkspacesList, WorkspaceDangerDialogs, type DangerAction } from '../components/WorkspaceDanger'
@@ -71,7 +73,7 @@ import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, useT, type TKey } from '.
 // One screen for what used to be spread over the switcher menu and four modals. Tabs follow the
 // caller's role (WorkspaceDTO.can, computed by the server); every rule is enforced server-side too.
 
-type Tab = 'general' | 'members' | 'sharing' | 'agents' | 'audit' | 'review' | 'large' | 'webhooks' | 'danger'
+type Tab = 'general' | 'members' | 'sharing' | 'agents' | 'audit' | 'review' | 'large' | 'webhooks' | 'slack' | 'danger'
 
 const TABS: { id: Tab; label: TKey; icon: ReactNode; show: (c: WorkspaceCapabilities) => boolean }[] = [
   { id: 'general', label: 'wsSettings.tabGeneral', icon: <SlidersIcon size={15} />, show: () => true },
@@ -83,6 +85,7 @@ const TABS: { id: Tab; label: TKey; icon: ReactNode; show: (c: WorkspaceCapabili
   // Large pages (docs/adr/1103-*): owners and admins, like the audit log.
   { id: 'large', label: 'wsSettings.tabLargePages', icon: <FileTextIcon size={15} />, show: (c) => c.manage },
   { id: 'webhooks', label: 'wsSettings.tabWebhooks', icon: <PlugIcon size={15} />, show: (c) => c.editSettings },
+  { id: 'slack', label: 'slack.tab', icon: <MessageIcon size={15} />, show: (c) => c.editSettings },
   { id: 'danger', label: 'wsSettings.tabDanger', icon: <TrashIcon size={15} />, show: () => true },
 ]
 
@@ -179,6 +182,7 @@ export function WorkspaceSettings() {
           {tab === 'review' && <ReviewTab ws={ws} can={can} />}
           {tab === 'large' && <LargePagesPanel wsId={wsId} />}
           {tab === 'webhooks' && <WebhooksPanel wsId={wsId} />}
+          {tab === 'slack' && <SlackPanel wsId={wsId} />}
           {tab === 'danger' && <DangerTab ws={ws} />}
         </div>
       </div>

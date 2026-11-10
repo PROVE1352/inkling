@@ -16,6 +16,8 @@ import { workspaces } from './schema'
  *              notification rows: exactly once.
  *  - 'webhook' one delivery (event × hook). Leased while the HTTP call is in flight; kept as 'done'
  *              for the dedupe window so a re-emitted event with the same key is a no-op.
+ *  - 'slack'   one Slack channel post or link unfurl of a workspace's Slack app (docs/adr/1802-*), leased
+ *              like a webhook delivery.
  *
  * state: 'pending' → (deleted) | 'done' | 'dead' (gave up after OUTBOX_MAX_ATTEMPTS, kept for
  * inspection until purged).
@@ -24,7 +26,7 @@ export const outbox = pgTable(
   'outbox',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    topic: text('topic', { enum: ['change', 'notify', 'webhook'] }).notNull(),
+    topic: text('topic', { enum: ['change', 'notify', 'webhook', 'slack'] }).notNull(),
     /** Idempotency key (webhook deliveries: event key + hook id). Unique while the row exists. */
     dedupeKey: text('dedupe_key'),
     /**

@@ -959,3 +959,5 @@ export * from './suggestions'
 export * from './revert'
 // Chart blocks and chart views: stored format, aggregate shapes, view filters (docs/adr/1600-*)
 export * from './charts'
+// Slack app per workspace: channel notifications, /inkling search, link unfurls (docs/adr/1800-*)
+export * from './slack'

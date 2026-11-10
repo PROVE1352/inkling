@@ -13,8 +13,10 @@ connection off:
   saving a clip stayed on "Saving…" until the connection came back, the automations screen and the push
   devices list spun;
 - the push section read "not available on this server" because its key request failed;
-- logging out offline deleted the device copies (ADR 2203) but could not end the server session, so its
-  push subscriptions (bound to that session, ADR 2221) kept delivering to a device the person had left.
+- logging out after the browser had gone offline did nothing at all: the logout is a mutation, React Query
+  held it until the connection came back, and with it the deletion of the device copies (ADR 2203);
+- a logout that does run offline cannot end the server session, so its push subscriptions (bound to that
+  session, ADR 2221) kept delivering to a device the person had left.
 
 ## Decision
 - `api()` turns a fetch that rejects with a `TypeError` (no HTTP answer; an abort stays an `AbortError`) into
@@ -26,8 +28,8 @@ connection off:
   `networkMode: 'always'`: offline they fail at once with that error instead of waiting paused. The rest of
   the app keeps React Query's default (a paused edit is sent when the connection is back).
 - Push settings get a device state `offline`.
-- `useLogout`: after trying `POST /api/auth/logout`, the device copies are deleted and, only when that
-  request did not succeed, this browser's push subscription is unsubscribed — together
+- `useLogout` runs with `networkMode: 'always'`: after trying `POST /api/auth/logout`, the device copies
+  are deleted and, only when that request did not succeed, this browser's push subscription is unsubscribed — together
   (`Promise.allSettled`, the push part given up after 2 s), so neither blocks the other. The server removes
   the dead subscription's row at its next delivery (404/410). A logout the server saw removes the rows
   through the session foreign key and leaves the browser subscription for the same person's next sign-in

@@ -853,6 +853,9 @@ export function useLogout() {
     // means leaving this device (docs/adr/2203-*).
     // A logout that did not reach the server leaves the session (and its push rows) there: this
     // browser's push subscription goes too, so the device stops receiving pushes (docs/adr/2321-*).
+    // 'always': after the browser's offline event React Query would otherwise hold the logout (and the
+    // deletion of this device's copies) until the connection is back.
+    networkMode: 'always',
     mutationFn: async () => {
       let reached = false
       try {

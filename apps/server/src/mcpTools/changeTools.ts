@@ -7,7 +7,7 @@ import { CHANGE_WAIT_MAX_SEC, changeMark, waitForChanges } from '../context/chan
 import { noteWait } from '../connectionUsage'
 import { db } from '../db/index'
 import { workspaceMembers } from '../db/schema'
-import { call, text, uuid, wrap } from './core'
+import { call, text, wrap, idArg } from './core'
 import type { ToolCtx } from './core'
 
 /** Said when a wait could not be granted (limits, shutdown): the answer is the plain read. */
@@ -61,7 +61,7 @@ export function registerChangeTools(server: McpServer, ctx: ToolCtx): void {
         'listed without detail.',
       inputSchema: {
         cursor: z.string().trim().min(1).max(200).optional().describe('Cursor from a previous call (omit to start tracking)'),
-        workspaceId: uuid().optional().describe('Limit to one workspace (keep using the same value with its cursors)'),
+        workspaceId: idArg('workspace').optional().describe('Limit to one workspace (keep using the same value with its cursors)'),
         budget: z
           .number()
           .int()

@@ -522,7 +522,8 @@ describe('[db] notifications, inbox, comment tools and activity', { skip: !HAS_D
       assert.match(bad.text, /current sections: .*§risks/)
       const list = (await mcp.tool('list_comments', { pageId: S.id, section: 'risks' })).text
       assert.match(list, /· 1 thread\(s\) \(open, §risks\)/)
-      assert.match(list, new RegExp(`t:${added.threadId} \\| §risks \\| open \\| Alice \\(via Test Agent\\) \\| 0 replies`))
+      // 8-character thread ids since 0.15.1 (docs/adr/1942-*); reply/resolve take them
+      assert.match(list, new RegExp(`t:${added.threadId.slice(0, 8)} \\| §risks \\| open \\| Alice \\(via Test Agent\\) \\| 0 replies`))
       assert.match(list, /Risk 2 is missing/)
       // a person's thread
       const doc = (await db.select({ s: schema.pageDocs.state }).from(schema.pageDocs).where(eq(schema.pageDocs.pageId, S.id)))[0]
@@ -533,7 +534,7 @@ describe('[db] notifications, inbox, comment tools and activity', { skip: !HAS_D
       const refused = await mcp.tool('resolve_comment', { threadId: bob.id })
       assert.equal(refused.isError, true)
       assert.match(refused.text, /AGENT_RESOLVE_NOT_ALLOWED/)
-      assert.equal((await mcp.tool('resolve_comment', { threadId: added.threadId })).isError, false)
+      assert.equal((await mcp.tool('resolve_comment', { threadId: added.threadId.slice(0, 8) })).isError, false)
       const all = (await mcp.tool('list_comments', { pageId: S.id, status: 'all' })).text
       assert.match(all, /§risks \| resolved/)
       assert.match(all, /§goals \| open \| Bob \| 1 reply/)

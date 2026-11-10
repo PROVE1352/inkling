@@ -14,7 +14,7 @@ import { sanitizeBatchProps } from '../routes/collectionsExt'
 import { opsHelp } from '../collectionQuery/filter'
 import { describeField, mapWrite, needsMembers, ValueError } from '../collectionQuery/values'
 import type { MappedWrite, Member } from '../collectionQuery/values'
-import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import { connectionKey } from '../leases'
 import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
@@ -193,7 +193,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         FILTER_HELP +
         ' Use describe=true for the field list (types, options) and the operators per type.',
       inputSchema: {
-        collectionId: uuid().describe('Collection page id (kind "collection" in list_pages / search)'),
+        collectionId: idArg('page').describe('Collection page id (kind "collection" in list_pages / search)'),
         filter: z.string().max(2000).optional().describe('e.g. Status = Done AND Due < today'),
         sort: z.string().max(300).optional().describe('e.g. "Due desc, Title" (max 3 keys; empty values last). Default: manual order'),
         fields: z
@@ -274,7 +274,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         'replace the links. baseVersion is the row version from query_rows: if the row changed since, nothing is written and the ' +
         'error shows the current values and version to retry with. Rollups are read-only; rename a row with rename_page.',
       inputSchema: {
-        rowId: uuid().describe('Row id (first column of query_rows)'),
+        rowId: idArg('page').describe('Row id (first column of query_rows)'),
         properties: z.record(z.string().max(100), z.unknown()).describe('{ "Property name": value }'),
         baseVersion: z.string().min(1).max(64).describe('Row version from query_rows (second column)'),
       },
@@ -328,7 +328,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         'collection\'s default template, "none" = an empty row. inputs answer the template\'s {{input:…}} prompts. ' +
         'Returns the new row id and version.',
       inputSchema: {
-        collectionId: uuid().describe('Collection page id'),
+        collectionId: idArg('page').describe('Collection page id'),
         title: z.string().max(500).optional().describe('Row title (default: the template\'s title pattern)'),
         properties: z.record(z.string().max(100), z.unknown()).optional().describe('{ "Property name": value }'),
         template: z.string().max(100).optional().describe('Row template name or id; "none" = empty row; omitted = default template'),

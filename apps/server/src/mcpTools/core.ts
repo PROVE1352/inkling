@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance } from 'fastify'
-import { z } from 'zod'
+import { anyIdArg } from './idSchema'
 import type { AuthUser } from '../auth'
 import { MCP_INTERNAL_HEADER, MCP_INTERNAL_SECRET } from '../oauth'
 import { cleanStrings, UNTRUSTED_JSON_NOTE, untrustedObject } from './trust'
@@ -195,7 +195,13 @@ export function wrapWrite<A>(ctx: ToolCtx, fn: (args: A) => Promise<CallToolResu
   })
 }
 
-export const uuid = () => z.uuid()
+/**
+ * An id argument (docs/adr/1940-*): a plain string in the tool list; full id or 8+ hex prefix,
+ * resolved before the handler by the field name's kind (idSchema.ts FIELD_KINDS). Tools that know
+ * the kind use `idArg(kind)` instead.
+ */
+export const uuid = () => anyIdArg()
+export { idArg } from './idSchema'
 
 export type { McpServer, CallToolResult }
 

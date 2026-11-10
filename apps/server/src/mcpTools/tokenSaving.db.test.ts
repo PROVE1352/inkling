@@ -62,7 +62,8 @@ describe('[db] MCP token saving: known versions, patch_sections, compact lists',
     assert.ok(v, first.text)
     const same = await mcp.tool('read_page', { pageId, known: v })
     assert.equal(same.isError, false, same.text)
-    assert.match(same.text, new RegExp(`^unchanged \\(page ${pageId} v=${v}; can: [a-z, ]+\\)$`))
+    // 8-character page id since 0.15.1 (docs/adr/1942-*)
+    assert.match(same.text, new RegExp(`^unchanged \\(page ${pageId.slice(0, 8)} v=${v}; can: [a-z, ]+\\)$`))
     assert.ok(estimateTokens(same.text) < estimateTokens(first.text) / 4)
     // a stale or foreign version reads in full
     const wrong = await mcp.tool('read_page', { pageId, known: '000000000000' })
@@ -103,7 +104,7 @@ describe('[db] MCP token saving: known versions, patch_sections, compact lists',
     const pageId = await create('Runbook C', RUNBOOK)
     const vs = await outlineVersions(pageId)
     const same = await mcp.tool('read_page', { pageId, section: 'backups', known: vs.backups })
-    assert.match(same.text, new RegExp(`^unchanged \\(page ${pageId} §backups v=${vs.backups}; can: [a-z, ]+\\)$`))
+    assert.match(same.text, new RegExp(`^unchanged \\(page ${pageId.slice(0, 8)} §backups v=${vs.backups}; can: [a-z, ]+\\)$`))
     await mcp.tool('patch_section', { pageId, section: 'backups', mode: 'replace', markdown: 'Hourly.', baseVersion: vs.backups })
     const changed = await mcp.tool('read_page', { pageId, section: 'backups', known: vs.backups })
     assert.ok(changed.text.includes('Hourly.'), changed.text)
@@ -299,7 +300,8 @@ describe('[db] MCP token saving: known versions, patch_sections, compact lists',
     for (const id of ids) assert.ok(lines.text.includes(id))
     // short ids are accepted by read_page, read_pages and list_pages(parentId)
     const one = await mcp.tool('read_page', { pageId: ids[2].slice(0, 8) })
-    assert.ok(one.text.includes(`- id: ${ids[2]}`), one.text)
+    // the header prints the 8-character id; the url keeps the full one (docs/adr/1942-*)
+    assert.ok(one.text.includes(`- id: ${ids[2].slice(0, 8)}\n`) && one.text.includes(`/p/${ids[2]}\n`), one.text)
     const many = await mcp.tool('read_pages', { pageIds: ids.slice(0, 2).map((i) => i.slice(0, 8)) })
     assert.ok(many.text.includes('Notes 1.') && many.text.includes('Notes 2.'), many.text)
     const sub = await mcp.tool('list_pages', { workspaceId: ws.id, parentId: folder.slice(0, 8), format: 'compact' })
@@ -359,6 +361,9 @@ describe('[db] MCP token saving: known versions, patch_sections, compact lists',
       ['get_instructions', { workspaceId: ws.id }],
       ['list_workspaces', {}],
       ['list_pages', { workspaceId: ws.id, format: 'compact' }],
+      ['list_pages', { workspaceId: ws.id }],
+      ['read_page', { pageId, outline: true }],
+      ['read_page', { pageId }],
       ['read_pages', { pageIds: [pageId], known: { [pageId]: '000000000000' } }],
       ['read_page', { pageId, knownSections: { setup: '0' } }],
       ['search', { query: 'Install', workspaceId: ws.id, format: 'compact' }],

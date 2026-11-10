@@ -20,8 +20,8 @@ const MIN_RUN = 3
 const LIMIT = 500
 
 export const COMPACT_LEGEND =
-  'ids are 8-character prefixes: read_page, read_pages, list_pages(parentId) and patch_sections accept them; other tools need ' +
-  'the full id (read_page prints it). A line like "Log {1..3}" stands for Log 1, Log 2, Log 3; its "ids:" are in the same order.'
+  'ids are 8-character prefixes, accepted by every tool. A line like "Log {1..3}" stands for Log 1, Log 2, Log 3; ' +
+  'its "ids:" are in the same order.'
 
 /** id → printed id: the 8-character prefix, or the full id where two pages of `ids` share a prefix. */
 export function shortIdsFor(ids: string[]): Map<string, string> {

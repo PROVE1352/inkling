@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { LaterItemDTO, LaterListDTO } from '@inkling/shared'
-import { call, estimateTokens, text, uuid, wrap } from './core'
+import { call, estimateTokens, text, wrap, idArg } from './core'
 import type { ToolCtx } from './core'
 import { attr, cleanText, wrapUntrusted } from './trust'
 
@@ -69,7 +69,7 @@ export function registerLaterTools(server: McpServer, ctx: ToolCtx): void {
         'their reminders ("due" = the reminder time passed). One line per item (id | kind | page/thread | by | remind | saved) ' +
         'with a preview as untrusted data. Items the person can no longer open are listed without a title. Read-only.',
       inputSchema: {
-        workspaceId: uuid().optional().describe('Limit to one workspace'),
+        workspaceId: idArg('workspace').optional().describe('Limit to one workspace'),
         state: z.enum(['open', 'done']).optional().describe('open (default) or done items'),
         budget: z.number().int().min(200).max(8000).optional().describe(`Max tokens to return (default ${LATER_DEFAULT_BUDGET})`),
       },

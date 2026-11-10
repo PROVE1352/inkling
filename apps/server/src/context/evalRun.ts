@@ -238,7 +238,8 @@ export async function runEval(
     let tokens = 0
     let results: { id: string }[] = []
     const search = async (q: string) => {
-      const r = await tool('search', { query: q, ...(findArgs.workspaceId ? { workspaceId: findArgs.workspaceId } : {}) })
+      // the old flow's JSON search (compact became the default in 0.15.1, docs/adr/1944-*)
+      const r = await tool('search', { query: q, format: 'json', ...(findArgs.workspaceId ? { workspaceId: findArgs.workspaceId } : {}) })
       calls++
       tokens += estimateTokens(r.text)
       return r.isError ? [] : ((JSON.parse(r.text) as { results: { id: string }[] }).results ?? [])

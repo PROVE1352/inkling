@@ -8,9 +8,11 @@ import { db } from '../db/index'
 import { comments, pageDocs, pages } from '../db/schema'
 import { stateToBlocks } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
-import { call, json, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { call, json, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
 import { attr, cleanText, wrapUntrusted } from './trust'
+import { shortIdsFor } from './compactList'
+import { shortId } from './shortIds'
 
 /**
  * Comment thread tools (docs/adr/1006-*): list_comments, add_comment (with a section anchor),
@@ -66,6 +68,8 @@ export function formatThreads(
   }
   const out: string[] = []
   let n = 0
+  // 8-character thread ids (full where two share a prefix), accepted by reply/resolve (docs/adr/1942-*)
+  const printed = shortIdsFor([...threads.keys()])
   for (const [threadId, t] of threads) {
     if (!t.root) continue
     const resolved = t.root.resolved
@@ -78,14 +82,14 @@ export function formatThreads(
       .map((c, i) => `${i === 0 ? '' : '  ↳ '}${c.author.name}${c.viaClient ? ` (via ${c.viaClient})` : ''}: ${c.body}`)
       .join('\n')
     out.push(
-      `t:${threadId} | ${anchor ? `§${attr(anchor)}` : '§(detached)'} | ${resolved ? 'resolved' : 'open'} | ${by(t.root)} | ` +
+      `t:${printed.get(threadId) ?? threadId} | ${anchor ? `§${attr(anchor)}` : '§(detached)'} | ${resolved ? 'resolved' : 'open'} | ${by(t.root)} | ` +
         `${t.replies.length} repl${t.replies.length === 1 ? 'y' : 'ies'} | ${minute(t.root.createdAt)}`,
-      wrapUntrusted(body, { source: 'comments', id: threadId }),
+      wrapUntrusted(body, { source: 'comments', id: printed.get(threadId) ?? threadId }),
     )
     n++
   }
   const scope = `${opts.status}${opts.section !== null ? `, §${attr(opts.section)}` : ''}`
-  return [`comments: page ${page.id} "${cleanText(page.title.trim() || 'Untitled')}" · ${n} thread(s) (${scope})`, ...out].join('\n')
+  return [`comments: page ${shortId(page.id)} "${cleanText(page.title.trim() || 'Untitled')}" · ${n} thread(s) (${scope})`, ...out].join('\n')
 }
 
 export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
@@ -99,7 +103,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         'anchored in that section (§anchor, heading text or path, as in read_page outline). People review AI edits here: ' +
         'read open threads before editing a page you were asked to fix.',
       inputSchema: {
-        pageId: uuid().describe('Page id'),
+        pageId: idArg('page').describe('Page id'),
         section: z.string().trim().min(1).max(500).optional().describe('Only threads in this section'),
         status: z.enum(['open', 'resolved', 'all']).optional().describe('Default open'),
       },
@@ -131,7 +135,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         "section's heading; otherwise to the page's first block. Use it to leave a suggestion when you may not edit (see " +
         'the can: line of read_page). text (or body) is plain text.',
       inputSchema: {
-        pageId: uuid().describe('Page id (kind=doc)'),
+        pageId: idArg('page').describe('Page id (kind=doc)'),
         text: z.string().trim().min(1).max(4000).optional().describe('Comment text'),
         body: z.string().trim().min(1).max(4000).optional().describe('Same as text (older name)'),
         section: z.string().trim().min(1).max(500).optional().describe('Anchor the thread to this section'),
@@ -168,7 +172,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
       title: 'Reply to comment thread',
       description: 'Reply in an existing comment thread (threadId = the t:<id> of list_comments, or a comment id from add_comment).',
       inputSchema: {
-        threadId: uuid().describe('Thread id'),
+        threadId: idArg('thread').describe('Thread id'),
         text: z.string().trim().min(1).max(4000).describe('Reply text'),
         handoffTo: HANDOFF_ARG,
       },
@@ -202,7 +206,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         'Mark a thread resolved (or reopen it with resolved=false). Agents can resolve only threads started by the person ' +
         'they act for; for anyone else\'s thread, reply with what you did and let a person resolve it.',
       inputSchema: {
-        threadId: uuid().describe('Thread id'),
+        threadId: idArg('thread').describe('Thread id'),
         resolved: z.boolean().optional().describe('Default true'),
       },
     },

@@ -1,5 +1,5 @@
 import { and, asc, between, inArray, isNull } from 'drizzle-orm'
-import { z } from 'zod'
+import { idArg } from './idSchema'
 import { db } from '../db/index'
 import { pages } from '../db/schema'
 import { memberWorkspaceIds } from '../context/retrieve'
@@ -23,14 +23,11 @@ import { cleanText } from './trust'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const AMBIGUOUS_SHOWN = 5
 
-/** Page id argument: a full id or a prefix of at least 8 hex characters. */
-export const pageRef = () =>
-  z
-    .string()
-    .trim()
-    .min(8)
-    .max(36)
-    .regex(/^[0-9a-fA-F-]+$/, 'expected a page id (full, or its first 8 or more hex characters)')
+/** Page id argument: a full id or a prefix of at least 8 hex characters (docs/adr/1940-*: no pattern in the tool list). */
+export const pageRef = () => idArg('page')
+
+/** The 8-character form tools print (docs/adr/1541-*, 1942-*). */
+export const shortId = (id: string) => id.slice(0, 8)
 
 const asUuid = (hex32: string) =>
   `${hex32.slice(0, 8)}-${hex32.slice(8, 12)}-${hex32.slice(12, 16)}-${hex32.slice(16, 20)}-${hex32.slice(20)}`

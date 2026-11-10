@@ -280,13 +280,14 @@ describe('[db] MCP fixes 0.13 (J)', { skip: !HAS_DB }, async () => {
 
     const full = await A.tool('read_page', { pageId: id })
     assert.match(full.text, /^- claims: §alpha claimed by Bob Agent until \S+Z$/m, full.text)
-    // after the stable header lines (version, url, can) so a cached prefix survives a claim
-    assert.ok(full.text.indexOf('- claims:') > full.text.indexOf('- can:'), full.text)
+    // after the body since 0.15.1 (docs/adr/1946-*), so header and body stay a cached prefix through a claim
+    assert.ok(full.text.indexOf('- claims:') > full.text.indexOf('</untrusted_content>'), full.text)
     assert.equal(idIn(full.text, /^- version: (\S+)$/m), version, 'a claim does not change the page version')
 
     const outline = await A.tool('read_page', { pageId: id, outline: true })
-    assert.match(outline.text, /§alpha {2}Alpha .*claimed by Bob Agent until \S+Z/, outline.text)
-    assert.doesNotMatch(outline.text, /§beta .*claimed/)
+    // one claims line after the section list (short anchors), not on the section lines (docs/adr/1942-*, 1946-*)
+    assert.match(outline.text, /\n\nclaims: §alpha claimed by Bob Agent until \S+Z$/, outline.text)
+    assert.doesNotMatch(outline.text, /§beta[^\n]*claimed/)
 
     // known = current version: "unchanged", but the live claim is still said
     const same = await A.tool('read_page', { pageId: id, known: version })

@@ -316,7 +316,9 @@ describe('[db] chart aggregate', { skip: !HAS_DB }, async () => {
       // sending the read back unchanged writes nothing new (the data line is dropped, the chart kept)
       const md = /<untrusted_content[^>]*>\n([^]*)\n<\/untrusted_content>/.exec(read.text)![1]
       const before = (await as(bob, 'GET', `/pages/${pg.id}/export?format=md&notation=agent`)).body
-      const rep = await B.tool('update_page', { pageId: pg.id, markdown: md, mode: 'replace' })
+      // the version read_page printed (docs/adr/1947-*): a person edited this page last
+      const baseVersion = /^- version: (\S+)$/m.exec(read.text)![1]
+      const rep = await B.tool('update_page', { pageId: pg.id, markdown: md, mode: 'replace', baseVersion })
       assert.equal(rep.isError, false, rep.text)
       assert.equal((await as(bob, 'GET', `/pages/${pg.id}/export?format=md&notation=agent`)).body.replace(/updated: .*\n/, ''), before.replace(/updated: .*\n/, ''))
       // a suggestion instead of a write

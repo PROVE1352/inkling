@@ -30,7 +30,7 @@ import {
   viewTypeSchema,
 } from '@inkling/shared'
 import type { ChartBlockConfig, ChartDataDTO, ChartSettings, CollectionField, CollectionViewDTO, SuggestionDTO, ViewConfig } from '@inkling/shared'
-import { call, text, ToolError, uuid, wrapWrite } from './core'
+import { call, text, ToolError, wrapWrite, idArg } from './core'
 import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, withApplies } from './agentContext'
 import { suggestionMadeText } from './collabTools'
@@ -147,17 +147,17 @@ function fieldId(fields: CollectionField[], ref: string, what: string): string {
 }
 
 const settingsInput = {
-  kind: z.enum(CHART_KINDS).describe('bar, barH (horizontal), stackedBar, line, area, donut, pie; also lollipop, funnel, treemap, waffle, radialBar, pareto, segmented, heatmap (needs series), radar, stream'),
-  groupBy: dimSpec.describe('Property name or id to group by (select, multiSelect, person, date, checkbox, relation, text, number, or "title"); for a query source, a column name'),
-  bucket: z.enum(CHART_BUCKETS).optional().describe('date grouping: day, week or month'),
+  kind: z.enum(CHART_KINDS).describe('barH is horizontal; heatmap needs series'),
+  groupBy: dimSpec.describe('Property (name or id, "title" for the row title) or query column to group by'),
+  bucket: z.enum(CHART_BUCKETS).optional().describe('date grouping'),
   series: dimSpec.optional().describe('Second grouping (stacked / grouped bars, several lines)'),
   seriesBucket: z.enum(CHART_BUCKETS).optional(),
-  measure: z.enum(CHART_FNS).optional().describe('count (default) or sum / avg / min / max of measureField'),
+  measure: z.enum(CHART_FNS).optional().describe('count (default), or an aggregate of measureField'),
   measureField: dimSpec.optional().describe('Number property (or query column) for sum / avg / min / max'),
-  sort: z.enum(CHART_SORTS).optional().describe('auto (default: option / date order, else largest first), label, valueDesc, valueAsc'),
+  sort: z.enum(CHART_SORTS).optional().describe('auto (default): option / date order, else largest first'),
   limit: z.number().int().min(1).max(100).optional().describe('Groups drawn at most (default 12 for pies, 30 otherwise)'),
   title: z.string().trim().max(120).optional(),
-  options: chartOptionsSchema.optional().describe('Chart library options (plain values: e.g. {"showLabels": false, "unit": "h"})'),
+  options: chartOptionsSchema.optional().describe('Chart library options, e.g. {"showLabels": false, "unit": "h"}'),
 }
 type SettingsArgs = {
   kind: ChartSettings['kind']
@@ -205,10 +205,10 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
         'kept as a suggestion (suggest=true, or the page/workspace policy). read_page shows charts as `<!-- inkling:chart {…} -->` ' +
         'with a data line under it.',
       inputSchema: {
-        pageId: uuid().describe('Document page to insert into'),
+        pageId: idArg('page').describe('Document page to insert into'),
         section: z.string().trim().min(1).max(500).optional().describe('Section anchor; omit to append to the page'),
         placement: z.enum(['end', 'start', 'after']).optional().describe('In the section: end (default), start, or after the section'),
-        collectionId: uuid().optional().describe('Data source: a collection (use this or query)'),
+        collectionId: idArg('page').optional().describe('Data source: a collection (use this or query)'),
         view: z.string().trim().min(1).max(100).optional().describe("Use this view's filters (view name or id of the collection)"),
         query: z.string().trim().min(1).max(2000).optional().describe('Data source: a query block query, e.g. TABLE Status, Points FROM "Roadmap"'),
         ...settingsInput,
@@ -272,18 +272,17 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Create view',
       description:
-        'Add a view to a collection: table, board, calendar, gallery, timeline, chart or form. config is optional; property names are ' +
-        'accepted wherever a field id goes (groupByFieldId, dateFieldId, startFieldId, endFieldId, sorts/filters fieldId). ' +
-        'For type=chart give chart settings (kind, groupBy, bucket, series, measure, measureField, sort, limit, title); the ' +
-        "chart draws the rows the view's filters keep. For type=form give form settings (fields in order, each with " +
-        'required and description; title, description, submitLabel, successMessage); without them the form asks for the title ' +
-        'and the first properties. A form adds rows; its public link is turned on by an owner or admin in the app.',
+        'Add a view to a collection. config is optional; property names are accepted wherever a field id goes ' +
+        '(groupByFieldId, dateFieldId, startFieldId, endFieldId, sorts/filters fieldId). type=chart needs chart; it draws the ' +
+        "rows the view's filters keep. type=form takes form (without it the form asks for the title and the first properties); " +
+        'a form adds rows, and an owner or admin turns on its public link in the app.',
       inputSchema: {
-        collectionId: uuid().describe('Collection id'),
-        type: viewTypeSchema.describe('table, board, calendar, gallery, timeline, chart or form'),
+        collectionId: idArg('page').describe('Collection id'),
+        type: viewTypeSchema,
         name: z.string().trim().min(1).max(60).describe('View name'),
         config: z.record(z.string(), z.unknown()).optional().describe('View config (sorts, filters, groupByFieldId, dateFieldId, …)'),
-        chart: z.object(settingsInput).optional().describe('type=chart: what to draw'),
+        // create_chart's settings, checked in the handler (docs/adr/1945-*: one copy in the tool list)
+        chart: z.record(z.string(), z.unknown()).optional().describe("create_chart's settings: kind, groupBy, bucket, series, measure, measureField, sort, limit, title, options"),
         form: z
           .object({
             title: z.string().max(200).optional(),
@@ -305,7 +304,16 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       },
       annotations: { destructiveHint: false },
     },
-    wrapWrite(ctx, async ({ collectionId, type, name, config, chart, form }: { collectionId: string; type: z.infer<typeof viewTypeSchema>; name: string; config?: Record<string, unknown>; chart?: SettingsArgs; form?: FormArgs }) => {
+    wrapWrite(ctx, async ({ collectionId, type, name, config, chart: chartRaw, form }: { collectionId: string; type: z.infer<typeof viewTypeSchema>; name: string; config?: Record<string, unknown>; chart?: Record<string, unknown>; form?: FormArgs }) => {
+      let chart: SettingsArgs | undefined
+      if (chartRaw) {
+        const p = z.object(settingsInput).safeParse(chartRaw)
+        if (!p.success) {
+          const i = p.error.issues[0]
+          throw new ToolError(`Invalid chart settings: ${i ? `${i.path.join('.')}: ${i.message}` : 'bad settings'}. Nothing was written.`)
+        }
+        chart = p.data as SettingsArgs
+      }
       if (chart && type !== 'chart') throw new ToolError('chart settings are for type="chart". Nothing was written.')
       if (form && type !== 'form') throw new ToolError('form settings are for type="form". Nothing was written.')
       if (type === 'chart' && !chart) throw new ToolError('type="chart" needs chart settings (at least kind and groupBy). Nothing was written.')

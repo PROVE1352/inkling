@@ -13,8 +13,9 @@ import { INK_MAX_TILES, renderInk } from '../ink/render'
 import type { StoredStroke } from '../ink/render'
 import { findVisiblePage } from '../pageDto'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
-import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
+import { inferWorkspace } from './idArgs'
 import { attr, cleanText, wrapUntrusted } from './trust'
 
 /**
@@ -58,7 +59,7 @@ export function registerInkTools(server: McpServer, ctx: ToolCtx): void {
         `only the strokes are drawn, not the text. Tall pages come as several images (at most ${INK_MAX_TILES} per call; the answer ` +
         'says where to continue); top/height pick a range, scale (0.25–2) resizes.',
       inputSchema: {
-        pageId: uuid().describe('Page id'),
+        pageId: idArg('page').describe('Page id'),
         top: z.number().int().min(0).max(1_000_000).optional().describe('Start of the range (y in sheet px, default 0)'),
         height: z.number().int().min(16).max(50_000).optional().describe('Height of the range (default: down to the lowest stroke)'),
         scale: z.number().min(0.25).max(2).optional().describe('Image scale (default 1 = 896 px wide)'),
@@ -111,7 +112,7 @@ export function registerInkTools(server: McpServer, ctx: ToolCtx): void {
 // ---------------------------------------------------------------------------
 
 const versionRef = () =>
-  z.union([z.literal('current'), z.uuid()]).describe("A version id from list_versions, or 'current' (the page as it is now)")
+  z.union([z.literal('current'), idArg('full')]).describe("A version id from list_versions, or 'current' (the page as it is now)")
 
 function versionLine(s: SnapshotDTO): string {
   const by = s.author ? ` | by ${s.author.name}${s.viaClient ? ` via ${s.viaClient}` : ''}` : s.viaClient ? ` | via ${s.viaClient}` : ''
@@ -128,7 +129,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
       description:
         "A page's version history, newest first (up to 50): saved versions with when, label, who and the agent client that caused " +
         'them. Use the ids with diff_versions to see what changed and restore_version to bring a version back.',
-      inputSchema: { pageId: uuid().describe('Page id') },
+      inputSchema: { pageId: idArg('page').describe('Page id') },
       annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId }) => {
@@ -164,7 +165,7 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
         "What changed between two versions of a page, as Markdown line diff hunks ('- ' removed, '+ ' added, one context line). " +
         "from/to are version ids from list_versions or 'current' (default to). Very large differences are reported as such.",
       inputSchema: {
-        pageId: uuid().describe('Page id'),
+        pageId: idArg('page').describe('Page id'),
         from: versionRef(),
         to: versionRef().optional(),
         maxChars: z.number().int().min(500).max(100_000).optional().describe(`Cap on the diff text (default ${DIFF_DEFAULT_CHARS})`),
@@ -227,8 +228,8 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
         'as a new version first, and the restore is a new edit on top of the history (nothing is removed). Needs edit access; ' +
         'locked pages refuse. Changes show live to anyone viewing the page.',
       inputSchema: {
-        pageId: uuid().describe('Page id (kind=doc)'),
-        version: uuid().describe('Version id from list_versions'),
+        pageId: idArg('page').describe('Page id (kind=doc)'),
+        version: idArg('full').describe('Version id from list_versions'),
       },
       annotations: { destructiveHint: true },
     },
@@ -267,10 +268,11 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
         "Pages in a workspace's trash that I can see (newest first): title, id, when it was trashed, its former parent. " +
         'restore_page(pageId) brings one back with its subpages. Trashed pages are deleted for good after the workspace\'s ' +
         'retention period; there is no permanent-delete tool.',
-      inputSchema: { workspaceId: uuid().describe('Workspace id (from list_workspaces)') },
+      inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace') },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ workspaceId }) => {
+    wrap(async ({ workspaceId: wsRef }) => {
+      const workspaceId = await inferWorkspace(ctx, wsRef) // docs/adr/1943-*
       const { pages } = (await call(ctx, 'GET', `/api/workspaces/${workspaceId}/trash`)).json() as { pages: PageMetaDTO[] }
       // Membership was checked by the route; the retention period is a workspace setting members see.
       const [ws] = await db.select({ days: workspaces.trashRetentionDays }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
@@ -301,7 +303,7 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
       description:
         'Bring a trashed page (and its trashed subpages) back to its old place; if its parent is gone or still in the trash it goes ' +
         'to the top level. Same rules as the trash in the web app (edit locks apply).',
-      inputSchema: { pageId: uuid().describe('Id of the trashed page (from list_trash)') },
+      inputSchema: { pageId: idArg('trashedPage').describe('Id of the trashed page (from list_trash)') },
     },
     wrapWrite(ctx, async ({ pageId }) => {
       // The trash list tells how many subpages come back and where the page used to be.

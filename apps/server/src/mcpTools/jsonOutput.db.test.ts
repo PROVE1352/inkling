@@ -50,14 +50,14 @@ describe('[db] JSON tool output marks member-written strings', { skip: !HAS_DB }
 
   it('list_pages json keeps pages[] and adds the note; lines are wrapped; search json too', async () => {
     await h.makeDocPage(ws.id, u.id, evil, [])
-    const j = JSON.parse((await blocks('list_pages', { workspaceId: ws.id }))[0])
+    const j = JSON.parse((await blocks('list_pages', { workspaceId: ws.id, format: 'json' }))[0]) // compact is the default since 0.15.1
     assert.ok(Array.isArray(j.pages))
     assert.equal(typeof j.untrusted, 'string')
     assert.ok(j.pages.every((p: { title: string }) => !p.title.includes('<untrusted_content')))
     const [lines] = await blocks('list_pages', { workspaceId: ws.id, format: 'lines' })
     assert.match(lines, /^<untrusted_content source="pages">\n[\s\S]*\n<\/untrusted_content>$/)
     assert.equal((lines.match(/<untrusted_content/g) ?? []).length, 1, 'a title cannot open a second block')
-    const s = JSON.parse((await blocks('search', { query: 'Notes', workspaceId: ws.id }))[0])
+    const s = JSON.parse((await blocks('search', { query: 'Notes', workspaceId: ws.id, format: 'json' }))[0])
     assert.ok(Array.isArray(s.results))
     assert.equal(typeof s.untrusted, 'string')
   })

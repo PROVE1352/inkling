@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { SPLIT_MAX_PAGES } from '@inkling/shared'
 import type { SplitPlanDTO } from '@inkling/shared'
-import { call, text, uuid, wrapWrite } from './core'
+import { call, text, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
 import { cleanText } from './trust'
 
@@ -56,7 +56,7 @@ export function registerSplitTools(server: McpServer, ctx: ToolCtx): void {
         'Block ids and comment threads move with their blocks; links to the page keep working. ' +
         `Use dry_run=true first to see the sections. At most ${SPLIT_MAX_PAGES} subpages per call.`,
       inputSchema: {
-        pageId: uuid().describe('Page id (kind=doc)'),
+        pageId: idArg('page').describe('Page id (kind=doc)'),
         level: z.number().int().min(1).max(6).default(2).describe('Heading level to split at (1 = h1, 2 = h2, …); default 2'),
         sections: z
           .array(z.string().min(1).max(100))

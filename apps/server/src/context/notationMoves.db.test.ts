@@ -139,11 +139,13 @@ describe('[db] agent notation and moved section anchors', { skip: !HAS_DB }, asy
     const before = await docXml(pg.id)
     const full = await mcp.tool('read_page', { pageId: pg.id })
     const md = body(full.text)
-    const r = await mcp.tool('update_page', { pageId: pg.id, mode: 'replace', markdown: md })
+    // a replace names the version it read (docs/adr/1947-*): a person made this page
+    const baseVersion = /^- version: (\S+)$/m.exec(full.text)![1]
+    const r = await mcp.tool('update_page', { pageId: pg.id, mode: 'replace', markdown: md, baseVersion })
     assert.equal(r.isError, false, r.text)
     assert.equal(await docXml(pg.id), before, 'update_page with the page as read rewrote it')
     // an edit keeps the ids of untouched blocks, colors included
-    const r2 = await mcp.tool('update_page', { pageId: pg.id, mode: 'replace', markdown: md.replace('Red tail.', 'Red tail, edited.') })
+    const r2 = await mcp.tool('update_page', { pageId: pg.id, mode: 'replace', markdown: md.replace('Red tail.', 'Red tail, edited.'), baseVersion })
     assert.equal(r2.isError, false, r2.text)
     const x = await docXml(pg.id)
     assert.equal(x.replace('Red tail, edited.', 'Red tail.'), before)

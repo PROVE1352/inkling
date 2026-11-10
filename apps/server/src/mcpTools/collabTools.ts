@@ -4,7 +4,7 @@ import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S, SUGGESTION_STATUS_FILTERS } from 
 import type { PageSuggestionsDTO, SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { claimLine } from '../leases'
 import { ruleText } from '../autoAccept'
-import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
 import { attr, cleanText, wrapUntrusted } from './trust'
 
@@ -127,7 +127,7 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
         'Markdown) and its section claims. Without: your own suggestions (open, and decided in the last 7 days). One line per ' +
         'suggestion: id | status | page §section | mode | by (via) | time | decided by … at ….',
       inputSchema: {
-        pageId: uuid().optional().describe('Page id (default: your own suggestions everywhere)'),
+        pageId: idArg('page').optional().describe('Page id (default: your own suggestions everywhere)'),
         status: z
           .enum(SUGGESTION_STATUS_FILTERS)
           .optional()
@@ -155,7 +155,7 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Withdraw suggestion',
       description: 'Take back one of your open suggestions (people no longer see it). Use the id from list_suggestions or patch_section. A suggestion that is no longer open (replaced, decided, withdrawn) is answered with its state.',
-      inputSchema: { suggestionId: uuid().describe('Suggestion id') },
+      inputSchema: { suggestionId: idArg('full').describe('Suggestion id') },
     },
     wrapWrite(ctx, async ({ suggestionId }) => {
       const { suggestion } = (await call(ctx, 'POST', `/api/suggestions/${suggestionId}/withdraw`)).json() as { suggestion: SuggestionDTO }
@@ -172,7 +172,7 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
         'refused until the claim ends or you release_section it. People are never blocked; the web app shows the claim. ' +
         'Claiming again extends it. read_page shows claims as "claimed by … until …".',
       inputSchema: {
-        pageId: uuid().describe('Page id (kind=doc)'),
+        pageId: idArg('page').describe('Page id (kind=doc)'),
         section: z.string().trim().min(1).max(500).describe('Section anchor, heading text or heading block id'),
         minutes: z.number().int().min(1).max(CLAIM_TTL_MAX_S / 60).optional().describe(`How long (default ${CLAIM_TTL_DEFAULT_S / 60})`),
       },
@@ -192,7 +192,7 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
       title: 'Release section',
       description: 'End your claim on a section (claims also end by themselves).',
       inputSchema: {
-        pageId: uuid().describe('Page id'),
+        pageId: idArg('page').describe('Page id'),
         section: z.string().trim().min(1).max(500).describe('Section anchor or heading you claimed'),
       },
     },

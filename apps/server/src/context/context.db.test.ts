@@ -246,7 +246,8 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
   it('read_page: outline, section, maxChars, legacy full read', async () => {
     const id = idByTitle.get('Deploy runbook')!
     const o = await mcp.tool('read_page', { pageId: id, outline: true })
-    assert.match(o.text, /- §rollback {2}Rollback {2}~\d+ tok {2}v=[0-9a-f]{12}/)
+    // short anchor, no repeated heading text (docs/adr/1942-*)
+    assert.match(o.text, /\n- §rollback ~\d+ tok v=[0-9a-f]{12}\n/)
     const s = await mcp.tool('read_page', { pageId: id, section: 'rollback' })
     assert.match(s.text, /^# Deploy runbook › Rollback/)
     assert.match(s.text, /--rollback/)
@@ -263,15 +264,20 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.match(capped.text, /\[truncated: 200 of \d+ chars/)
   })
 
-  it('list_pages / search: legacy JSON stays the default, lines are compact', async () => {
-    const legacy = await mcp.tool('list_pages', { workspaceId: ws.id })
+  it('list_pages / search: compact is the default (0.15.1), json and lines on request', async () => {
+    const compact = await mcp.tool('list_pages', { workspaceId: ws.id })
+    assert.match(compact.text, /^- Deploy runbook [0-9a-f]{8}$/m)
+    assert.ok(compact.text.endsWith('its "ids:" are in the same order.'), compact.text)
+    const legacy = await mcp.tool('list_pages', { workspaceId: ws.id, format: 'json' })
     const parsed = JSON.parse(legacy.text) as { pages: { id: string; path: string; children: number }[] }
     assert.ok(parsed.pages.length >= EVAL_PAGES.length)
     const lines = await mcp.tool('list_pages', { workspaceId: ws.id, format: 'lines' })
     assert.match(lines.text, /^- Deploy runbook [0-9a-f-]{36}$/m)
     console.log('[eval] list_pages tokens json', estimateTokens(legacy.text), 'lines', estimateTokens(lines.text))
     assert.ok(estimateTokens(lines.text) < estimateTokens(legacy.text) / 2)
-    const sj = await mcp.tool('search', { query: 'rollback' })
+    const sc = await mcp.tool('search', { query: 'rollback' })
+    assert.match(sc.text, /^[0-9a-f]{8} \| Deploy runbook/m)
+    const sj = await mcp.tool('search', { query: 'rollback', format: 'json' })
     assert.ok(Array.isArray((JSON.parse(sj.text) as { results: unknown[] }).results))
     const sl = await mcp.tool('search', { query: 'rollback', format: 'lines' })
     assert.match(sl.text, /^[0-9a-f-]{36} \| Deploy runbook/m)
@@ -285,7 +291,7 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     const r = await mcp.tool('list_pages', { workspaceId: ws.id, parentId: parent.id, depth: 1, format: 'lines' })
     // titles are member-written: the lines come wrapped as data (docs/adr/1525-*)
     assert.equal(r.text, `<untrusted_content source="pages">\n- Child ${child.id} (+1)\n</untrusted_content>`)
-    const j = JSON.parse((await mcp.tool('list_pages', { workspaceId: ws.id, parentId: parent.id, depth: 2 })).text)
+    const j = JSON.parse((await mcp.tool('list_pages', { workspaceId: ws.id, parentId: parent.id, depth: 2, format: 'json' })).text)
     assert.deepEqual(j.pages.map((p: { title: string }) => p.title), ['Child', 'Grandchild'])
   })
 

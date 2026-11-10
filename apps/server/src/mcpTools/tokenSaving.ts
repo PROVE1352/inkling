@@ -4,7 +4,8 @@ import { suspiciousNote } from '../context/injectionScan'
 import { call, text } from './core'
 import type { CallToolResult, ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
-import { resolvePageRef, resolvePageRefs } from './shortIds'
+import { resolvePageRef, resolvePageRefs, shortId } from './shortIds'
+import { shortAnchors } from '../context/chunker'
 import { cleanText, wrapUntrusted } from './trust'
 
 /**
@@ -20,11 +21,23 @@ import { cleanText, wrapUntrusted } from './trust'
  *   content did not change. The applies: line (instructions) stays in front as everywhere.
  */
 
-/** `unchanged (page <id>[ §anchor] v=<v>; can: …)` with the applies line in front when instructions apply. */
-export function unchangedText(ac: AgentContextDTO, pageId: string, version: string, anchor?: string, claims?: string | null): CallToolResult {
+/**
+ * `unchanged (page <id8>[ outline][ §anchor] v=<v>; can: …)` with the applies line in front when
+ * instructions apply. The page id is the 8-character form (docs/adr/1942-*).
+ */
+export function unchangedText(
+  ac: AgentContextDTO,
+  pageId: string,
+  version: string,
+  anchor?: string,
+  claims?: string | null,
+  what?: 'outline',
+): CallToolResult {
   // A live claim is not part of the version: it is said after the stable line (docs/adr/1654-*).
   const tail = claims ? `\n${claims}` : ''
-  return text(withApplies(ac, `unchanged (page ${pageId}${anchor ? ` §${anchor}` : ''} v=${version}; can: ${pageFacts(ac, pageId).can})${tail}`))
+  return text(
+    withApplies(ac, `unchanged (page ${shortId(pageId)}${what ? ` ${what}` : ''}${anchor ? ` §${anchor}` : ''} v=${version}; can: ${pageFacts(ac, pageId).can})${tail}`),
+  )
 }
 
 /** read_pages arguments: short ids resolved; `known` (keys may be short ids too) as the route's "id:v,…". */
@@ -77,11 +90,27 @@ export async function readChangedSections(
 ): Promise<CallToolResult | null> {
   const outline = (await call(ctx, 'GET', `/api/pages/${pageId}/outline`)).json() as OutlineResponse
   if (outline.page.kind !== 'doc') return null
-  const known = new Map(Object.entries(knownSections).map(([k, v]) => [k.replace(/^§/, ''), v]))
+  // Keys may be find_context's short anchors (docs/adr/1212-*): mapped to the full anchor they stand
+  // for now (read only: at worst a section comes back that the caller already had); a key that is
+  // neither stays as given and is reported removed.
+  const shorts = shortAnchors(outline.sections.map((s) => s.anchor))
+  const fullOf = new Map<string, string>()
+  for (const [full, short] of shorts) {
+    fullOf.set(full, full)
+    if (!fullOf.has(short)) fullOf.set(short, full)
+  }
+  const known = new Map<string, string>()
+  const given = new Map<string, string>() // full anchor → the key the caller used
+  for (const [k, v] of Object.entries(knownSections)) {
+    const key = k.replace(/^§/, '')
+    const full = fullOf.get(key) ?? key
+    known.set(full, v)
+    given.set(full, key)
+  }
   const current = new Set(outline.sections.map((s) => s.anchor))
   const changed = outline.sections.filter((s) => known.get(s.anchor) !== s.version)
   const unchangedCount = outline.sections.length - changed.length
-  const removed = [...known.keys()].filter((a) => !current.has(a)).sort()
+  const removed = [...known.keys()].filter((a) => !current.has(a)).map((a) => given.get(a) ?? a).sort()
   const bodies: SectionResponse[] = []
   for (const s of changed) {
     bodies.push(
@@ -98,7 +127,7 @@ export async function readChangedSections(
   const large = largeLine(ac, pageId)
   const head = [
     `# ${cleanText(outline.page.title || 'Untitled')}`,
-    `(page ${pageId}; ${changed.length} changed or new, ${unchangedCount} unchanged, ${removed.length} removed of your ${known.size} known sections)`,
+    `(page ${shortId(pageId)}; ${changed.length} changed or new, ${unchangedCount} unchanged, ${removed.length} removed of your ${known.size} known sections)`,
     `can: ${f.can}`,
     ...(large ? [large] : []),
     ...(removed.length ? [`removed: ${removed.map((a) => `§${cleanText(a)}`).join(', ')}`] : []),
@@ -114,6 +143,6 @@ export async function readChangedSections(
     )
   }
   return text(
-    withApplies(ac, `${head.join('\n')}\n\n${wrapUntrusted(data.join('\n'), { source: 'page', id: pageId, createdBy: f.createdBy, lastEdit: f.lastEdit })}`),
+    withApplies(ac, `${head.join('\n')}\n\n${wrapUntrusted(data.join('\n'), { source: 'page', id: shortId(pageId), createdBy: f.createdBy, lastEdit: f.lastEdit })}`),
   )
 }

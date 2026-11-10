@@ -343,7 +343,7 @@ describe('[db] incremental snapshots and V2 storage', { skip: !HAS_DB }, async (
     await db.execute(sql`UPDATE page_docs SET state = ${Buffer.from(v2)}, state_format = 2 WHERE page_id = ${v2Page.id}`)
     const mcp = await h.connectMcp(app, owner, await h.mintToken(owner))
     // the body part of read_page (the header carries ids and timestamps)
-    const read = async (id: string) => (await mcp.tool('read_page', { pageId: id })).text.split('\n---\n')[1].replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, 'X').replace(/ last_edit="[^"]*"/, '')
+    const read = async (id: string) => (await mcp.tool('read_page', { pageId: id })).text.split('\n---\n')[1].replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, 'X').replace(/ id="[0-9a-f]{8}"/, ' id="X"').replace(/ last_edit="[^"]*"/, '')
     assert.equal(await read(v2Page.id), await read(v1Page.id))
     const md = async (id: string) => {
       const r = await get(`/api/pages/${id}/export?format=md`)

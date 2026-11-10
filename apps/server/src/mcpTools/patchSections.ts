@@ -67,7 +67,7 @@ export function registerPatchSectionsTool(server: McpServer, ctx: ToolCtx): void
           .min(1)
           .max(20)
           .describe('Edits, applied in order'),
-        suggest: z.boolean().optional().describe('true: write nothing; leave every edit as a suggestion for a person (docs/adr/1538-*)'),
+        suggest: z.boolean().optional().describe('true: write nothing; leave every edit as a suggestion for a person'),
       },
       annotations: { destructiveHint: true },
     },

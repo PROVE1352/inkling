@@ -429,13 +429,13 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       const b = await mcpM.tool('get_instructions', { workspaceId: wsId, forPageId: D })
       assert.equal(a.text, b.text)
       const t = a.text
-      assert.match(t, /^Agent instructions for workspace [0-9a-f-]{36} \(v=[0-9a-f]{12}\)/)
-      const iAlways = t.indexOf(`<instructions page="${I1}" title="House rules" mode="always">`)
-      const iSubtree = t.indexOf(`<instructions page="${I2}"`)
-      const iGlob = t.indexOf(`<instructions page="${I3}"`)
+      assert.match(t, /^Agent instructions for workspace [0-9a-f]{8} \(v=[0-9a-f]{12}\)/) // 8-character ids since 0.15.1
+      const iAlways = t.indexOf(`<instructions page="${I1.slice(0, 8)}" title="House rules" mode="always">`)
+      const iSubtree = t.indexOf(`<instructions page="${I2.slice(0, 8)}"`)
+      const iGlob = t.indexOf(`<instructions page="${I3.slice(0, 8)}"`)
       assert.ok(iAlways > 0 && iSubtree > iAlways && iGlob > iSubtree, t)
       assert.match(t, /Write in English\./)
-      assert.match(t, /On request \(read_page when relevant\):\n- Release checklist \(page [0-9a-f-]{36}\) — before tagging/)
+      assert.match(t, /On request \(read_page when relevant\):\n- Release checklist \(page [0-9a-f]{8}\) — before tagging/)
       assert.doesNotMatch(t, /Tag the release\./, 'manual bodies are not inlined')
       const plain = (await mcpM.tool('get_instructions', { workspaceId: wsId })).text
       assert.match(plain, /Path-specific instructions \(pass forPageId/)
@@ -491,7 +491,7 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       assert.match(t, /＜\/untrusted_content>/)
       assert.match(t, /hidden\\u200Bword/)
       // created through MCP: the creation is attributed to the person and the client (docs/adr/1005-*)
-      assert.match(t, /<untrusted_content source="page" id="[0-9a-f-]{36}" created_by="Member" last_edit="Member via Test Agent" hidden_chars="1">/)
+      assert.match(t, /<untrusted_content source="page" id="[0-9a-f]{8}" created_by="Member" last_edit="Member via Test Agent" hidden_chars="1">/)
       assert.match(t, /^- suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\) in §footer$/m)
       assert.equal((await mcpM.tool('read_page', { pageId: P })).text, t, 'byte-identical')
       const o = (await mcpM.tool('read_page', { pageId: P, outline: true })).text

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { CATCH_UP_DEFAULT_BUDGET, CATCH_UP_MAX_BUDGET, CATCH_UP_MIN_BUDGET } from '../catchUp'
 import type { CatchUpResult } from '../catchUp'
-import { call, text, uuid, wrap } from './core'
+import { call, text, wrap, idArg } from './core'
 import type { ToolCtx } from './core'
 
 /**
@@ -23,7 +23,7 @@ export function registerCatchUpTools(server: McpServer, ctx: ToolCtx): void {
         'Material for your summary: the server does not summarize. It acknowledges nothing (use inbox/ack) and is not a ' +
         `sync cursor (use changes_since). Output fits a token budget (default ${CATCH_UP_DEFAULT_BUDGET}); the last line is the next since.`,
       inputSchema: {
-        workspaceId: uuid().optional().describe('Limit to one workspace (its own "last catch_up" marker)'),
+        workspaceId: idArg('workspace').optional().describe('Limit to one workspace (its own "last catch_up" marker)'),
         since: z
           .string()
           .trim()

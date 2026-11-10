@@ -104,7 +104,8 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
 
     assert.equal((await req(s.owner, 'POST', `/pages/${s.page.id}/verification`, { expiresInDays: 30, note: 'checked with finance' })).statusCode, 200)
     const verifiedRead = await a.tool('read_page', { pageId: s.page.id })
-    assert.match(verifiedRead.text, /\n- verified: until \d{4}-\d\d-\d\d\n/)
+    // after the body since 0.15.1: it changes with the clock, not the page (docs/adr/1946-*)
+    assert.match(verifiedRead.text, /<\/untrusted_content>\n\n- verified: until \d{4}-\d\d-\d\d$/)
     const fc = await a.tool('find_context', { query: 'zanzibar refunds' })
     // find_context: one line at the end since 0.15.1, the fragment header unchanged (docs/adr/1907-*)
     assert.match(fc.text, /\nVerification: \[1\] verified$/)
@@ -129,7 +130,7 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
     v = (await req(s.member, 'GET', `/pages/${s.page.id}/verification`)).json().verification
     assert.equal(v.changedSections, 2, 'each section once, page-level events not counted')
     assert.equal(v.changedMuch, false)
-    assert.match((await a.tool('read_page', { pageId: s.page.id })).text, /- verified: until \S+, 2 sections changed since\n/)
+    assert.match((await a.tool('read_page', { pageId: s.page.id })).text, /- verified: until \S+, 2 sections changed since$/)
     await log(s.admin.id, 'faq', 'added', true)
     v = (await req(s.member, 'GET', `/pages/${s.page.id}/verification`)).json().verification
     assert.equal(v.changedMuch, true)
@@ -149,7 +150,7 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
     list = (await req(s.member, 'GET', `/workspaces/${s.ws.id}/verified`)).json()
     assert.equal(list.expired[0].verification.state, 'expired')
     const stale = await a.tool('read_page', { pageId: s.page.id })
-    assert.match(stale.text, /\n- stale: verification lapsed \d{4}-\d\d-\d\d, 3 sections changed since\n/)
+    assert.match(stale.text, /\n- stale: verification lapsed \d{4}-\d\d-\d\d, 3 sections changed since$/) // after the body (docs/adr/1946-*)
     assert.match((await a.tool('find_context', { query: 'zanzibar refunds' })).text, /\nVerification: \[1\] stale: verification lapsed$/)
     assert.equal((await req(s.outsider, 'GET', `/workspaces/${s.ws.id}/verified`)).statusCode, 403)
   })
@@ -187,7 +188,10 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
 
     // The document owner's status rides on read_page's owner line.
     await db.update(schema.pages).set({ ownerId: s.member.id }).where(eq(schema.pages.id, s.page.id))
-    assert.match((await o.tool('read_page', { pageId: s.page.id })).text, /\n- owner: Mia \(status "🎓 Exam week" until \d{4}-\d\d-\d\d\)\n/)
+    // the owner line stays in the header; the live status goes after the body (docs/adr/1946-*)
+    const ownerRead = (await o.tool('read_page', { pageId: s.page.id })).text
+    assert.match(ownerRead, /\n- owner: Mia\n/)
+    assert.match(ownerRead, /<\/untrusted_content>\n\n- owner status: "🎓 Exam week" until \d{4}-\d\d-\d\d$/)
 
     // Past its clear time the status is gone everywhere, without any sweep.
     await db.update(schema.userStatuses).set({ clearAt: new Date(Date.now() - 1000) }).where(eq(schema.userStatuses.userId, s.member.id))

@@ -13,8 +13,10 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { fieldTypeSchema, rollupFnSchema, selectOptionSchema, updateFieldsSchema } from '@inkling/shared'
 import type { CollectionField, PageMetaDTO, SelectOption } from '@inkling/shared'
-import { call, text, ToolError, uuid, wrapWrite } from './core'
+import { call, text, ToolError, wrapWrite, idArg } from './core'
 import type { McpServer, ToolCtx } from './core'
+import { inferWorkspace } from './idArgs'
+import { resolvePageRef } from './shortIds'
 import { loadAgentContext, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
 
@@ -28,13 +30,13 @@ const optionSpec = z.union([
 
 export const fieldSpecSchema = z.object({
   name: z.string().trim().min(1).max(60).describe('Property name (unique in the collection)'),
-  type: fieldTypeSchema.describe('text, number, select, multiSelect, date, checkbox, person, url, relation, rollup, formula'),
+  type: fieldTypeSchema,
   options: z.array(optionSpec).max(50).optional().describe('select/multiSelect: option names (or { name, color })'),
-  target: uuid().optional().describe('relation: id of the collection whose rows can be linked'),
+  target: idArg('page').optional().describe('relation: id of the collection whose rows can be linked'),
   twoWay: z.boolean().optional().describe('relation: also add a mirrored relation on the target collection'),
   relation: z.string().trim().min(1).max(60).optional().describe('rollup: name of a relation property of this collection'),
   property: z.string().trim().min(1).max(60).optional().describe('rollup: property of the linked rows to aggregate ("title" for the row title)'),
-  fn: rollupFnSchema.optional().describe('rollup: count, sum, avg, min, max, earliest, latest, percentChecked, showUnique'),
+  fn: rollupFnSchema.optional().describe('rollup: how to aggregate'),
   expression: z
     .string()
     .max(2000)
@@ -177,18 +179,48 @@ const SIMPLE = new Set(['text', 'number', 'select', 'multiSelect', 'date', 'chec
 const changeSpec = z.object({
   field: z.string().trim().min(1).max(60).describe('Property name or #id'),
   name: z.string().trim().min(1).max(60).optional().describe('New name'),
-  type: fieldTypeSchema.optional().describe('New type (between text, number, select, multiSelect, date, checkbox, person, url only)'),
-  options: z.array(optionSpec).max(50).optional().describe('select/multiSelect: the full option list (existing names keep their ids and colors)'),
-  addOptions: z.array(optionSpec).max(50).optional().describe('select/multiSelect: options to add'),
+  type: fieldTypeSchema.optional().describe('New type (not relation, rollup or formula)'),
+  // option lists in the create_collection form, checked in the handler (docs/adr/1945-*: one copy in the tool list)
+  options: z.array(z.unknown()).max(50).optional().describe('select/multiSelect: the full option list, names or { name, color } (existing names keep their ids and colors)'),
+  addOptions: z.array(z.unknown()).max(50).optional().describe('select/multiSelect: options to add, as in options'),
   removeOptions: z.array(z.string().trim().min(1).max(60)).max(50).optional().describe('select/multiSelect: option names to remove'),
   twoWay: z.boolean().optional().describe('relation: turn two-way on or off'),
 })
+
+type ChangeOp = Omit<z.infer<typeof changeSpec>, 'options' | 'addOptions'> & {
+  options?: z.infer<typeof optionSpec>[]
+  addOptions?: z.infer<typeof optionSpec>[]
+}
+
+/** First zod issue as "path: message" (handler-side checks of loosely listed arguments). */
+function issueText(e: z.ZodError, prefix: string): string {
+  const i = e.issues[0]
+  return i ? `${prefix}${i.path.length ? `.${i.path.join('.')}` : ''}: ${i.message}` : `${prefix}: invalid`
+}
+
+/** update_fields add: each item checked as a create_collection spec; relation targets may be short ids (docs/adr/1940-*). */
+async function parseSpecs(ctx: ToolCtx, raw: Record<string, unknown>[]): Promise<FieldSpec[]> {
+  const out: FieldSpec[] = []
+  for (const [i, r] of raw.entries()) {
+    const p = fieldSpecSchema.safeParse(r)
+    if (!p.success) throw new ToolError(`${issueText(p.error, `add[${i}]`)}. Nothing was written.`)
+    out.push(p.data.target ? { ...p.data, target: await resolvePageRef(ctx, p.data.target) } : p.data)
+  }
+  return out
+}
+
+/** Option lists of update_fields change, checked like create_collection's. */
+function parseOptions(raw: unknown[], where: string): z.infer<typeof optionSpec>[] {
+  const p = z.array(optionSpec).safeParse(raw)
+  if (!p.success) throw new ToolError(`${issueText(p.error, where)}. Nothing was written.`)
+  return p.data
+}
 
 export function applyChanges(
   current: CollectionField[],
   ops: {
     add?: FieldSpec[]
-    change?: z.infer<typeof changeSpec>[]
+    change?: ChangeOp[]
     remove?: string[]
     order?: string[]
   },
@@ -281,15 +313,16 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         'Rows always have a Title. Empty fields = the default Status/Assignee/Due properties. The collection gets a table view; ' +
         'views are edited in the app. With parentId it goes under that page (inheriting its section).',
       inputSchema: {
-        workspaceId: uuid().describe('Workspace id'),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
         title: z.string().trim().min(1).max(300).describe('Collection title'),
         fields: z.array(fieldSpecSchema).max(100).describe('Properties, in order (no Title: every row has one)'),
-        parentId: uuid().optional().describe('Parent page id'),
-        private: z.boolean().optional().describe('Create at the top level of the private (🔒) section (only without parentId)'),
+        parentId: idArg('page').optional().describe('Parent page id'),
+        private: z.boolean().optional().describe('Top level of the private (🔒) section (no parentId)'),
       },
     },
-    wrapWrite(ctx, async ({ workspaceId, title, fields, parentId, private: isPrivate }) => {
+    wrapWrite(ctx, async ({ workspaceId: wsRef, title, fields, parentId, private: isPrivate }) => {
       if (isPrivate && parentId) throw new ToolError('private can only be used without parentId (child pages follow their parent section)')
+      const workspaceId = await inferWorkspace(ctx, wsRef, parentId) // docs/adr/1943-*
       // Map and check everything before the first write.
       const targets = await loadTargets(ctx, fields, null)
       const mapped = fields.length ? validate(mapSpecs(fields, [], targets, null)) : null
@@ -347,18 +380,28 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         'rows but are no longer shown), order (names to put first). Applied together in one write; on any error nothing is ' +
         'written. Existing option names keep their ids, so row values survive renames of other options.',
       inputSchema: {
-        collectionId: uuid().describe('Collection page id'),
-        add: z.array(fieldSpecSchema).max(100).optional().describe('New properties'),
+        collectionId: idArg('page').describe('Collection page id'),
+        // the create_collection spec, checked in the handler (docs/adr/1945-*: one copy in the tool list)
+        add: z.array(z.record(z.string(), z.unknown())).max(100).optional().describe('New properties, each a create_collection fields spec'),
         change: z.array(changeSpec).max(100).optional().describe('Changes to existing properties'),
         remove: z.array(z.string().trim().min(1).max(60)).max(100).optional().describe('Property names (or #id) to remove'),
         order: z.array(z.string().trim().min(1).max(60)).max(200).optional().describe('Property names to put first, in this order'),
       },
       annotations: { destructiveHint: true },
     },
-    wrapWrite(ctx, async ({ collectionId, add, change, remove, order }) => {
-      if (!add?.length && !change?.length && !remove?.length && !order?.length) {
+    wrapWrite(ctx, async ({ collectionId, add: addRaw, change: changeRaw, remove, order }) => {
+      if (!addRaw?.length && !changeRaw?.length && !remove?.length && !order?.length) {
         throw new ToolError('Nothing to do: pass add, change, remove or order')
       }
+      const add = addRaw ? await parseSpecs(ctx, addRaw) : undefined
+      const change = changeRaw?.map((c, i): ChangeOp => {
+        const { options, addOptions, ...rest } = c
+        return {
+          ...rest,
+          ...(options ? { options: parseOptions(options, `change[${i}].options`) } : {}),
+          ...(addOptions ? { addOptions: parseOptions(addOptions, `change[${i}].addOptions`) } : {}),
+        }
+      })
       const def = await loadDef(ctx, collectionId)
       const targets = await loadTargets(ctx, add ?? [], collectionId)
       const { fields, summary } = applyChanges(def.fields, { add, change, remove, order }, targets, collectionId)

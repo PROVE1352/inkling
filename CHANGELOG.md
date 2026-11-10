@@ -82,7 +82,7 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   volumes (docs/adr/2341-*).
 - **Rename test**: `scripts/upgrade-test/rename.sh` and a `rename` job in `.github/workflows/upgrade.yml` (from
   v0.17.1 and v0.18.0, by commit): an old release installed like a server, the upgrade refused without the new
-  line, the new release on the old names with its migrations (59 → 60 rows from v0.18.0), the rename (also
+  line, the new release on the old names with its migrations (the journal may only grow), the rename (also
   killed after the copy and after the role rename, and rolled back) leaving the journal as it was, and a new
   install with no old name anywhere (docs/adr/2342-*).
 - **Public links: Wide view.** Pages follow their own "Full width" setting by default; a visitor's choice is

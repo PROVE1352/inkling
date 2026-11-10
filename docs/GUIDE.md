@@ -368,7 +368,8 @@ Mentions written by an AI agent arrive quietly (no badge or mail) and in the sum
 **Push notifications.** Settings → Notifications → **Push notifications** → This device → **Turn on**. Your browser
 asks once for permission; notifications then reach this device with the app closed. Choose what to push, pause it
 for all devices, or hide the content on the lock screen ("New notification" only). **Send a test** checks a device.
-On iPhone and iPad, add Inkling to the Home Screen first and open it from there (iOS 16.4 or later). Signing out of a
+On iPhone and iPad, add Inkling to the Home Screen first and open it from there (iOS 16.4 or later; not yet
+checked on a real iPhone or iPad). Signing out of a
 device stops its pushes. A database automation that notifies you arrives as a mention: "Alice via automation: Ping
 reviewer mentioned you in …". Push needs the server on HTTPS; if Settings says push is not available here, ask your
 server admin.
@@ -780,7 +781,8 @@ and where to save (the last place is remembered, and you can set a default), add
 **Article text** (the server fetches the page and keeps its main text), then **Save**. If you clipped the same address
 before, the window says so. Some sites block bookmarklets; then paste the address into `/clip` in the app.
 
-On an Android phone: install Inkling as an app, then share a link from any app to Inkling.
+On an Android phone: install Inkling as an app, then share a link from any app to Inkling (not yet checked on a
+real Android phone).
 
 ## Importing from Notion
 

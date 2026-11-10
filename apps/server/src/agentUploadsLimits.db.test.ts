@@ -87,7 +87,7 @@ describe('[db] uploads by AI agents: raised limits', { skip: !HAS_DB }, async ()
     // the same body size for any other tool is refused before it runs
     const other = await call('create_page', { workspaceId: wsId, title: 'Huge', markdown: 'x'.repeat(13 * MB) })
     assert.equal(other.statusCode, 413, other.body.slice(0, 300))
-    assert.match(other.body, /only upload_file calls may be larger/)
+    assert.match(other.body, /only upload_file and import_zip calls may be larger/)
     // over the per-file cap: the tool names the limit
     const big = toolText(await call('upload_file', { pageId, name: 'big.txt', text: 'x'.repeat(20 * MB + 10), attachOnly: true }))
     assert.equal(big.isError, true)

@@ -54,10 +54,14 @@ export function frontmatterId(text: string): string | null {
   return null
 }
 
-/** Recursively lists markdown notes, skipping dot-directories, the root assets/ dir and conflict copies. */
-export async function scanVault(root: string): Promise<{ notes: LocalFile[]; dirs: Set<string> }> {
+/**
+ * Recursively lists markdown notes, skipping dot-directories, the root assets/ dir and conflict copies.
+ * Obsidian canvases (`.canvas`) are listed separately: they are never synced, only reported.
+ */
+export async function scanVault(root: string): Promise<{ notes: LocalFile[]; dirs: Set<string>; canvases: string[] }> {
   const notes: LocalFile[] = []
   const dirs = new Set<string>()
+  const canvases: string[] = []
   const walk = async (absDir: string, rel: string): Promise<void> => {
     let entries
     try {
@@ -76,12 +80,72 @@ export async function scanVault(root: string): Promise<{ notes: LocalFile[]; dir
         const buf = await readFile(path.join(absDir, e.name))
         const text = buf.toString('utf8')
         notes.push({ rel: childRel, text, hash: sha256(buf), id: frontmatterId(text) })
+      } else if (e.isFile() && e.name.toLowerCase().endsWith('.canvas')) {
+        canvases.push(childRel)
       }
     }
   }
   await walk(root, '')
   notes.sort((a, b) => a.rel.localeCompare(b.rel))
-  return { notes, dirs }
+  canvases.sort()
+  return { notes, dirs, canvases }
+}
+
+/**
+ * Page id the server gives a create with this client key (docs/adr/2166-*). Must stay equal to
+ * `syncCreateId` in apps/server/src/routes/sync.ts (vaultSyncReadiness.db.test.ts compares them).
+ */
+export function syncCreateId(workspaceId: string, clientKey: string): string {
+  const h = createHash('sha256').update(`inkling-vault-sync-create\u0000${workspaceId.toLowerCase()}\u0000${clientKey.toLowerCase()}`).digest()
+  h[6] = (h[6] & 0x0f) | 0x40
+  h[8] = (h[8] & 0x3f) | 0x80
+  const x = h.subarray(0, 16).toString('hex')
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`
+}
+
+// ---------------------------------------------------------------------------
+// frontmatter the server does not store (docs/adr/2168-*)
+// ---------------------------------------------------------------------------
+
+interface FmEntry {
+  key: string
+  lines: string[]
+}
+
+/** The leading frontmatter block split into top-level entries (key line + indented lines), or null. */
+export function frontmatterEntries(text: string): { entries: FmEntry[]; start: number; end: number } | null {
+  const t = text.replace(/\r\n?/g, '\n')
+  if (!t.startsWith('---\n')) return null
+  const close = t.indexOf('\n---', 3)
+  if (close < 0) return null
+  const after = t.indexOf('\n', close + 4)
+  if (t.slice(close + 1, after < 0 ? undefined : after).trim() !== '---') return null
+  const entries: FmEntry[] = []
+  for (const line of t.slice(4, close).split('\n')) {
+    const m = /^(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([^\s#'"][^:]*?))\s*:(?:\s|$)/.exec(line)
+    if (m && !/^\s/.test(line) && !line.startsWith('- ')) entries.push({ key: (m[1] ?? m[2] ?? m[3]).trim(), lines: [line] })
+    else if (entries.length) entries[entries.length - 1].lines.push(line)
+  }
+  return { entries, start: 4, end: close }
+}
+
+/**
+ * `serverText` with the frontmatter entries of `localText` named in `keys` added back (those the
+ * server reported it does not store), unless the server text has the key itself. Other keys and the
+ * body come from `serverText` unchanged.
+ */
+export function keepFrontmatterKeys(serverText: string, localText: string, keys: string[] | undefined): string {
+  if (!keys?.length) return serverText
+  const local = frontmatterEntries(localText)
+  const server = frontmatterEntries(serverText)
+  if (!local || !server) return serverText
+  const want = new Set(keys.map((k) => k.trim().toLowerCase()))
+  const have = new Set(server.entries.map((e) => e.key.toLowerCase()))
+  const extra = local.entries.filter((e) => want.has(e.key.toLowerCase()) && !have.has(e.key.toLowerCase()))
+  if (!extra.length) return serverText
+  const t = serverText.replace(/\r\n?/g, '\n')
+  const lines = extra.flatMap((e) => e.lines)
+  return `${t.slice(0, server.end)}\n${lines.join('\n')}${t.slice(server.end)}`
 }
 
 /** Lists every non-markdown file (for resolving Obsidian `![[name.ext]]` embeds by basename). */

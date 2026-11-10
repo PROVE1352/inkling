@@ -126,7 +126,7 @@ export default {
   'agentUploads.group': '파일 업로드',
   'agentUploads.title': 'AI 에이전트의 파일 업로드',
   'agentUploads.desc':
-    '이 워크스페이스에 연결된 AI 에이전트가 페이지에 파일을 첨부할 수 있는지 정합니다(upload_file, API 토큰으로 파일 올리기). 사람이 브라우저에서 올리는 것과 에이전트가 첨부 파일을 읽는 것에는 영향이 없습니다.',
+    '이 워크스페이스에 연결된 AI 에이전트가 페이지에 파일을 첨부할 수 있는지 정합니다(upload_file, import_zip으로 가져오는 zip 안의 첨부 파일, API 토큰으로 파일 올리기). 사람이 브라우저에서 올리는 것과 에이전트가 첨부 파일을 읽는 것에는 영향이 없습니다.',
   'agentUploads.defaultOn': '서버 기본값 따름(켜짐)',
   'agentUploads.defaultOff': '서버 기본값 따름(꺼짐)',
   'agentUploads.on': '켬',

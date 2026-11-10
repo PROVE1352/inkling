@@ -16,7 +16,8 @@ import { idParam, requireMembership } from '../helpers'
 import { recordTokenRead } from '../agentTaint'
 import { recordAudit, roleMeets } from '../workspaceAdmin'
 import { exportPageCanvas, exportPageMd, exportZip } from '../md/exporter'
-import { importEntries, importMarkdown, importZip } from '../md/importer'
+import { importEntries, importMarkdown, importZip, loadZip } from '../md/importer'
+import { AGENT_IMPORT_MAX_ZIP_BYTES, agentImportRules } from '../agentImport'
 import type { ImportEntry, ImportStats } from '../md/importer'
 import { importLimits, mbLabel } from '../md/importLimits'
 import { importNotionZip } from '../md/notionImport'
@@ -302,7 +303,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
               part.file.resume()
               throw badRequest('Could not read the file path')
             }
-            const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x && x !== '.')
+            const segs = rel.normalize('NFC').replace(/\\/g, '/').split('/').filter((x) => x && x !== '.')
             if (segs.length === 0 || segs.includes('..')) {
               part.file.resume()
               throw badRequest(`Invalid file path: ${rel}`)
@@ -342,14 +343,31 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         const created = await heavyJobs.run(
           user.id,
           'import-folder',
-          () => importEntries({ entries, workspaceId: id, parentId, userId: user.id, scope, role }, stats),
+          () =>
+            importEntries(
+              {
+                entries,
+                workspaceId: id,
+                parentId,
+                userId: user.id,
+                scope,
+                role,
+                // attachments sent through a connection are uploads (docs/adr/2162-*)
+                agent: req.authVia === 'bearer' ? agentImportRules(id, user.id) : undefined,
+              },
+              stats,
+            ),
           clientGoneSignal(reply.raw),
         )
         if (created.length === 0) {
           throw badRequest('No .md files to import')
         }
         await markCreatedVia(created.map((p) => p.id), user)
-        return { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
+        return {
+          pages: created.map(toPageDTO),
+          duplicateAttachments: stats.duplicateAttachments,
+          ...(stats.skippedAttachments ? { skippedAttachments: stats.skippedAttachments } : {}),
+        }
       } finally {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
       }
@@ -389,6 +407,32 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } })
     if (!mp) throw badRequest('No files to upload')
 
+    const filename = mp.filename || 'import'
+    const mime = mp.mimetype
+    const lower = filename.toLowerCase()
+    const isZip =
+      lower.endsWith('.zip') ||
+      mime === 'application/zip' ||
+      mime === 'application/x-zip-compressed'
+    const isMd =
+      lower.endsWith('.md') ||
+      lower.endsWith('.markdown') ||
+      lower.endsWith('.txt') ||
+      mime === 'text/markdown' ||
+      mime === 'text/plain'
+    // A zip sent through a connection (MCP import_zip, an API token) is an upload: at most
+    // AGENT_UPLOAD_MAX_MB, and its attachments follow the upload rules (docs/adr/2162-*).
+    const viaConnection = req.authVia === 'bearer' && isZip
+    const maxBytes = viaConnection ? AGENT_IMPORT_MAX_ZIP_BYTES : MAX_FILE_BYTES
+    const tooLarge = () =>
+      new AppError(
+        413,
+        'PAYLOAD_TOO_LARGE',
+        viaConnection
+          ? `File is too large (max ${mbLabel(maxBytes)} for a zip through a connection; AGENT_UPLOAD_MAX_MB)`
+          : `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`,
+      )
+
     // The upload is spooled to a private temp file first and read into memory only inside a
     // heavy-job slot (docs/adr/1240-*): a slow or queued upload holds neither a slot nor a buffer.
     const tmpDir = path.join(env.dataDir, 'tmp', `import-${randomUUID()}`)
@@ -397,30 +441,12 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       const diskPath = path.join(tmpDir, 'upload')
       let size: number
       try {
-        size = await streamToFile(mp.file, diskPath, MAX_FILE_BYTES)
+        size = await streamToFile(mp.file, diskPath, maxBytes)
       } catch (err) {
-        if (isTooLargeError(err)) {
-          throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
-        }
+        if (isTooLargeError(err)) throw tooLarge()
         throw err
       }
-      if (mp.file.truncated || size < 0) {
-        throw new AppError(413, 'PAYLOAD_TOO_LARGE', `File is too large (max ${mbLabel(MAX_FILE_BYTES)})`)
-      }
-
-      const filename = mp.filename || 'import'
-      const mime = mp.mimetype
-      const lower = filename.toLowerCase()
-      const isZip =
-        lower.endsWith('.zip') ||
-        mime === 'application/zip' ||
-        mime === 'application/x-zip-compressed'
-      const isMd =
-        lower.endsWith('.md') ||
-        lower.endsWith('.markdown') ||
-        lower.endsWith('.txt') ||
-        mime === 'text/markdown' ||
-        mime === 'text/plain'
+      if (mp.file.truncated || size < 0) throw tooLarge()
 
       if (source === 'notion' && !isZip) {
         throw new AppError(415, 'UNSUPPORTED_TYPE', 'A Notion export is imported as its .zip file')
@@ -437,12 +463,22 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           if (isZip && source !== 'markdown') {
             let zip: JSZip
             try {
-              zip = await JSZip.loadAsync(buffer)
+              zip = await loadZip(buffer)
             } catch {
               throw badRequest('Not a readable zip archive')
             }
             const names = Object.values(zip.files).filter((e) => !e.dir).map((e) => e.name)
             if (source === 'notion' || looksLikeNotionExport(names)) {
+              // Notion exports through a connection are refused (docs/adr/2162-*): that importer builds
+              // databases and stores attachments on its own path, outside the upload rules above.
+              if (viaConnection) {
+                throw new AppError(
+                  415,
+                  'NOTION_IMPORT_IN_APP',
+                  'This looks like a Notion export. Notion exports are imported in the web app (Import › Notion); ' +
+                    'to import the zip as plain Markdown files instead, pass source=markdown',
+                )
+              }
               const locale = await requestLocale(req, user.id)
               const { pages, report } = await importNotionZip({
                 buffer,
@@ -455,13 +491,25 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
                 detected: source === 'notion' ? 'explicit' : 'auto',
                 tableViewName: locale === 'ko' ? '표' : 'Table',
               })
+              await markCreatedVia(pages.map((p) => p.id), user)
               return { pages: pages.map(toPageDTO), report }
             }
           }
 
           const stats: ImportStats = { duplicateAttachments: 0 }
           const created = isZip
-            ? await importZip({ buffer, workspaceId: id, parentId, userId: user.id, scope, role }, stats)
+            ? await importZip(
+                {
+                  buffer,
+                  workspaceId: id,
+                  parentId,
+                  userId: user.id,
+                  scope,
+                  role,
+                  agent: viaConnection ? agentImportRules(id, user.id) : undefined,
+                },
+                stats,
+              )
             : await importMarkdown({
                 buffer,
                 filename,
@@ -476,7 +524,11 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           // `report` stays reserved for the Notion importer's report (its presence tells the client which
           // importer ran); the zip/folder importers only add the de-duplication count (docs/adr/1122-*).
           return isZip
-            ? { pages: created.map(toPageDTO), duplicateAttachments: stats.duplicateAttachments }
+            ? {
+                pages: created.map(toPageDTO),
+                duplicateAttachments: stats.duplicateAttachments,
+                ...(stats.skippedAttachments ? { skippedAttachments: stats.skippedAttachments } : {}),
+              }
             : { pages: created.map(toPageDTO) }
         },
         clientGoneSignal(reply.raw),

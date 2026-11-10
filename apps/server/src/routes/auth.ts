@@ -23,7 +23,9 @@ import {
   promoteIfNoAdmin,
   setPassword,
   verificationEnforced,
+  withAdminLock,
 } from '../accounts'
+import { checkSetupCode, closeFirstAdminSetup, setupPending } from '../firstAdminSetup'
 import {
   clearSessionCookie,
   createSession,
@@ -154,6 +156,9 @@ function safeEqual(a: string, b: string): boolean {
 }
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex')
 
+const setupClosed = () =>
+  new AppError(403, 'SETUP_CLOSED', 'This server already has an account; the setup link no longer works. Sign in, or ask an admin for a signup key')
+
 const emailNotVerified = () =>
   new AppError(403, 'EMAIL_NOT_VERIFIED', 'Email verification required. Open the verification link in your inbox.')
 
@@ -210,6 +215,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // Extension field (shared DTO unchanged): only when the operator set DEFAULT_LOCALE, so an
     // unset server lets the browser language decide (docs/adr/0901-*).
     defaultLocale: env.defaultLocaleConfigured ? env.defaultLocale : null,
+    // No account yet: the sign-in screen points at the setup link in the server log (docs/adr/2160-*).
+    setupPending: await setupPending(),
   }))
 
   /** Send the verification mail (issues the token). Failure is AppError(502). */
@@ -231,9 +238,21 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(400, 'EMAIL_RESERVED', 'This email domain is not allowed')
     }
 
+    // First-admin setup (docs/adr/2160-*): the one-time code from the server log replaces the signup
+    // key for the first account only. A wrong code counts as a failed attempt (ban after repeats).
+    const setupCode = body.setupCode?.trim() || ''
+    if (setupCode) {
+      const check = checkSetupCode(setupCode)
+      if (check === 'closed') throw setupClosed()
+      if (check === 'wrong') {
+        await recordFailure(req, 'setup-code')
+        throw new AppError(403, 'INVALID_SETUP_CODE', 'The setup code does not match the one in the server log (a restart makes a new one)')
+      }
+    }
+
     // Signup key check (Inkling's own keys).
-    const signupKey = body.signupKey?.trim() || ''
-    if (env.signupRequireKey) {
+    const signupKey = setupCode ? '' : body.signupKey?.trim() || ''
+    if (env.signupRequireKey && !setupCode) {
       if (!signupKey) {
         throw new AppError(400, 'SIGNUP_KEY_REQUIRED', 'Signup key required')
       }
@@ -245,15 +264,24 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     const passwordHash = await hashPassword(body.password)
     // Only accounts created while verification is enforced are blocked before verifying (not retroactive).
-    const mustVerify = verificationEnforced()
+    // The first admin made with the setup code is not: the code already proves who runs the server,
+    // and a mail misconfiguration must not lock the only admin out (the mail still goes out).
+    const mustVerify = setupCode ? false : verificationEnforced()
 
     // Language of the default workspace name and the verification mail: the browser's
     // (Accept-Language from the web client) or DEFAULT_LOCALE, since the account has no saved one yet.
     const locale = await requestLocale(req)
 
     let user: UserDTO
+    // The setup account is inserted under the admin advisory lock, after checking in the same
+    // transaction that no account exists: two setups racing commit at most one (docs/adr/2160-*).
+    const inTx: typeof withAdminLock = setupCode ? withAdminLock : (fn) => db.transaction(fn)
     try {
-      user = await db.transaction(async (tx) => {
+      user = await inTx(async (tx) => {
+        if (setupCode) {
+          const any = await tx.select({ id: users.id }).from(users).limit(1)
+          if (any.length > 0) throw setupClosed()
+        }
         const [u] = await tx
           .insert(users)
           .values({
@@ -264,6 +292,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
             // Record only a key that was actually consumed and verified (key → signup tracing, basis for single-use-key resets).
             signupKey: env.signupRequireKey && signupKey ? hashSignupKey(signupKey) : null,
             mustVerifyEmail: mustVerify,
+            ...(setupCode ? { isAdmin: true } : {}),
           })
           .returning({
             id: users.id,
@@ -292,11 +321,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       // If signup failed, give the key back as unused.
       if (env.signupRequireKey && signupKey) await refundSignupKey(signupKey)
+      if (setupCode && err instanceof AppError && err.code === 'SETUP_CLOSED') closeFirstAdminSetup()
       if (isUniqueViolation(err)) {
         throw conflict('EMAIL_TAKEN', 'Email already in use')
       }
       throw err
     }
+    if (setupCode) closeFirstAdminSetup()
 
     // New-install bootstrap: with no admin yet, the first user to sign up becomes admin.
     if (await promoteIfNoAdmin(user.id)) user = { ...user, isAdmin: true }

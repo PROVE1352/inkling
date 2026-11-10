@@ -26,6 +26,7 @@ import { scanInjection, suspiciousNote } from '../context/injectionScan'
 import { extractPdfText, parsePageRange, PDF_LIMITS } from '../pdfText'
 import { AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from '../uploadCheck'
 import { agentUploadEnv, assertAgentUploadsAllowed, mbText } from '../agentUploads'
+import { AGENT_IMPORT_MAX_ZIP_BYTES } from '../agentImport'
 
 /**
  * MCP tools of 0.12 (docs/adr/1510-* .. 1514-*): handwriting as pictures (read_ink), version
@@ -631,4 +632,99 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
       return text(`${done}\nLinked at the end of page ${pageId}.`)
     }),
   )
+
+  // import_zip (docs/adr/2162-*): a zip of a folder (Markdown, assets/ attachments, .canvas) becomes a
+  // page tree through the web app's zip import route, with the upload rules for connections.
+  server.registerTool(
+    'import_zip',
+    {
+      title: 'Import zip',
+      description:
+        `Import a zip of a folder (max ${mbText(AGENT_IMPORT_MAX_ZIP_BYTES)}): folders become folder pages, .md documents, .canvas canvases; ` +
+        'files under assets/ become attachments (the upload rules apply). Structure is kept. Not for Notion exports (web app).',
+      inputSchema: {
+        base64: z.string().max(UPLOAD_ARG_MAX).describe('The .zip file, base64'),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        parentId: idArg('page').optional().describe('Import under this page'),
+        source: z.enum(['auto', 'markdown']).optional().describe('markdown = import even if it looks like a Notion export'),
+      },
+    },
+    wrapWrite(ctx, async ({ base64, workspaceId: wsRef, parentId, source }) => {
+      const workspaceId = await inferWorkspace(ctx, wsRef, parentId)
+      const b64 = base64.replace(/\s+/g, '')
+      const cap = AGENT_IMPORT_MAX_ZIP_BYTES
+      const tooBig = (n: number) =>
+        new ToolError(
+          `the zip is ${humanSize(n)}; import_zip takes at most ${humanSize(cap)} (set by the server admin). ` +
+            'Split the folder into several zips imported under the same parentId, or send the Markdown with import_folder',
+        )
+      if (Math.floor((b64.length * 3) / 4) > cap + 2) throw tooBig(Math.floor((b64.length * 3) / 4))
+      const bytes = Buffer.from(b64, 'base64')
+      if (bytes.length > cap) throw tooBig(bytes.length)
+      // PK\x03\x04 (local file header) or PK\x05\x06 (an empty archive)
+      if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || !((bytes[2] === 3 && bytes[3] === 4) || (bytes[2] === 5 && bytes[3] === 6))) {
+        throw new ToolError('base64 is not a .zip file; nothing was imported')
+      }
+      const boundary = `----inkling${randomUUID().replace(/-/g, '')}`
+      const payload = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="upload.zip"\r\nContent-Type: application/zip\r\n\r\n`,
+          'utf8',
+        ),
+        bytes,
+        Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+      ])
+      const query: Record<string, string> = {}
+      if (parentId) query.parentId = parentId
+      if (source === 'markdown') query.source = 'markdown'
+      const res = (
+        await call(ctx, 'POST', `/api/workspaces/${workspaceId}/import`, {
+          payload,
+          headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+          query,
+        })
+      ).json() as {
+        pages: PageMetaDTO[]
+        duplicateAttachments?: number
+        skippedAttachments?: { name: string; reason: string }[]
+      }
+      return text(importZipText(ctx, res, workspaceId, parentId ?? null))
+    }),
+  )
+}
+
+/** Pages listed in import_zip's answer; the rest are counted (read them with list_pages). */
+const IMPORT_ZIP_LIST_MAX = 60
+
+export function importZipText(
+  ctx: Pick<ToolCtx, 'origin'>,
+  res: { pages: PageMetaDTO[]; duplicateAttachments?: number; skippedAttachments?: { name: string; reason: string }[] },
+  workspaceId: string,
+  parentId: string | null,
+): string {
+  const pages = res.pages
+  if (pages.length === 0) return 'The zip had nothing to import (no .md or .canvas files).'
+  const tops = pages.filter((p) => p.parentId === parentId)
+  const lines = [
+    `Imported ${pages.length} page(s) ${parentId ? `under page ${parentId}` : `at the top level of workspace ${workspaceId}`}.`,
+  ]
+  const listed = pages.slice(0, IMPORT_ZIP_LIST_MAX)
+  const body = [
+    ...tops.slice(0, 10).map((p) => `top: ${titleOf(p.title)} (${p.id}) ${ctx.origin}/w/${p.workspaceId}/p/${p.id}`),
+    ...listed.map((p) => `${p.id}  ${p.kind ?? 'doc'}  parent=${p.parentId ?? '-'}  ${titleOf(p.title)}`),
+  ]
+  if (pages.length > listed.length) body.push(`… and ${pages.length - listed.length} more (list_pages(parentId) lists them)`)
+  lines.push(wrapUntrusted(body.join('\n'), { source: 'import_zip' }))
+  if (res.duplicateAttachments) lines.push(`${res.duplicateAttachments} attachment(s) with the same bytes as another were stored once.`)
+  const skipped = res.skippedAttachments ?? []
+  if (skipped.length) {
+    lines.push(
+      `Not stored (${skipped.length}): ` +
+        skipped.slice(0, 20).map((s) => `${cleanText(s.name)} — ${cleanText(s.reason)}`).join('; ') +
+        (skipped.length > 20 ? `; … ${skipped.length - 20} more` : '') +
+        '. Links to them stay as written in the pages; tell the user.',
+    )
+  }
+  lines.push('Undo: trashing the top page(s) removes the whole import (subpages go with them; restorable from the trash).')
+  return lines.join('\n')
 }

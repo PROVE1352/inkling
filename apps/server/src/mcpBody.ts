@@ -76,11 +76,11 @@ export function registerMcpJsonParser(scope: FastifyInstance): void {
       parse(req, body.toString('utf8'), done)
       return
     }
-    // Bodies past 12 MB exist only for upload_file with a raised AGENT_UPLOAD_MAX_MB (docs/adr/2065-*).
+    // Bodies past 12 MB exist only for upload_file / import_zip with a raised AGENT_UPLOAD_MAX_MB (docs/adr/2065-*, 2162-*).
     parse(req, body.toString('utf8'), (err: Error | null, value?: unknown) => {
       if (err) return done(err, undefined)
       if (!isUploadCall(value)) {
-        done(new AppError(413, 'PAYLOAD_TOO_LARGE', `Request body is larger than ${MCP_BASE_BODY_BYTES / 1048576} MB; only upload_file calls may be larger`), undefined)
+        done(new AppError(413, 'PAYLOAD_TOO_LARGE', `Request body is larger than ${MCP_BASE_BODY_BYTES / 1048576} MB; only upload_file and import_zip calls may be larger`), undefined)
         return
       }
       done(null, value)
@@ -88,10 +88,14 @@ export function registerMcpJsonParser(scope: FastifyInstance): void {
   })
 }
 
-/** A single tools/call of upload_file, directly or through more_tools (core profile). */
+/** Tools whose one argument carries a file as base64 (docs/adr/2065-*, 2162-*). */
+export const LARGE_BODY_TOOLS: ReadonlySet<string> = new Set(['upload_file', 'import_zip'])
+
+/** A single tools/call of upload_file or import_zip, directly or through more_tools (core profile). */
 export function isUploadCall(v: unknown): boolean {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
   const m = v as { method?: unknown; params?: { name?: unknown; arguments?: { tool?: unknown } } }
   if (m.method !== 'tools/call') return false
-  return m.params?.name === 'upload_file' || (m.params?.name === 'more_tools' && m.params?.arguments?.tool === 'upload_file')
+  const name = m.params?.name === 'more_tools' ? m.params?.arguments?.tool : m.params?.name
+  return typeof name === 'string' && LARGE_BODY_TOOLS.has(name)
 }

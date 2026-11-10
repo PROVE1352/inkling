@@ -280,6 +280,44 @@ function exportWikiLinks(blocks: AnyBlock[], titleById: Map<string, string>): An
   return copy
 }
 
+const IMAGE_MD = /!\[[^\]\n]*\]\([^()\s]+(?:\s+"[^"\n]*")?\)/g
+
+/**
+ * An image inside a line of text (`see ![chart](a.png) here`, in a paragraph, list item or quote) has
+ * no block of its own in the editor: the import dropped it, and the note was then rewritten without
+ * it. Such images move onto their own line right after their line (as a child of a list item, inside
+ * the quote), where they import as image blocks (docs/adr/2168-*). Code fences and table rows stay.
+ */
+export function hoistInlineImages(md: string): string {
+  const lines = md.split('\n')
+  const out: string[] = []
+  let fence: string | null = null
+  for (const line of lines) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line)
+    if (fence) {
+      out.push(line)
+      if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null
+      continue
+    }
+    if (f) {
+      fence = f[1]
+      out.push(line)
+      continue
+    }
+    const images = line.match(IMAGE_MD)
+    if (!images || /^\s*\|/.test(line) || /^(?:\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|\s*>\s?)*$/.test(line.replace(IMAGE_MD, ''))) {
+      out.push(line) // no image, a table row, or images alone on their line (already blocks)
+      continue
+    }
+    const prefix = /^(\s*(?:(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|>\s?)*)/.exec(line)?.[1] ?? ''
+    // the continuation of a list item is indented to its text; a quote keeps its `>` marks
+    const cont = prefix.replace(/[-*+]|\d+[.)]|\[[ xX]\]/g, (m) => ' '.repeat(m.length))
+    out.push(line.replace(new RegExp(`[ \\t]?${IMAGE_MD.source}`, 'g'), '').replace(/[ \t]+$/, ''))
+    for (const img of images) out.push(cont.trimEnd(), `${cont}${img}`)
+  }
+  return out.join('\n')
+}
+
 /** `[[Title|shown]]` / `[[Title#Heading]]` → resolve by the title part only. */
 export function wikiTitleResolver(base: (title: string) => string | null): (raw: string) => string | null {
   return (raw) => {
@@ -305,14 +343,59 @@ export function fixAliasedLinkText(blocks: AnyBlock[]): void {
   )
 }
 
+/**
+ * Blocks plain Markdown has no form for. The plain notation leaves them out, so a vault note that
+ * came back deleted them from the page (docs/adr/2169-*). Vault sync writes them as the
+ * one-line block tokens of the agent notation (`<!-- inkling:pageEmbed {…} -->`, md/notation.ts,
+ * docs/adr/1500-*), which every import reads back into the same block; Obsidian hides the comment.
+ */
+const TOKEN_ONLY_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart'])
+
+async function withBlockTokens(blocks: AnyBlock[]): Promise<{ blocks: AnyBlock[]; finish: (md: string) => string }> {
+  const tokens = new Map<string, string>()
+  const nonce = randomBytes(6).toString('hex')
+  const walk = async (list: AnyBlock[]): Promise<AnyBlock[]> => {
+    const out: AnyBlock[] = []
+    for (const b of list) {
+      let x = b
+      if (TOKEN_ONLY_BLOCKS.has(b.type ?? '')) {
+        const { markdown } = await blocksToMarkdown([{ ...b, children: [] }], { assetMode: 'absolute', notation: 'agent' })
+        const token = markdown.trim()
+        if (/^<!-- inkling:\w+ .*-->$/.test(token)) {
+          const key = `inklingsyncblock${nonce}n${tokens.size}`
+          tokens.set(key, token)
+          x = { type: 'paragraph', props: {}, content: [{ type: 'text', text: key, styles: {} }], children: b.children ?? [] } as AnyBlock
+        }
+      }
+      if (Array.isArray(x.children) && x.children.length) x = { ...x, children: await walk(x.children) }
+      out.push(x)
+    }
+    return out
+  }
+  const out = await walk(blocks)
+  return {
+    blocks: out,
+    finish: (md) => {
+      let s = md
+      for (const [key, token] of tokens) {
+        const own = new RegExp(`^([ \\t>]*)${key}[ \\t]*$`, 'm')
+        const m = own.exec(s)
+        s = m ? s.slice(0, m.index) + m[1] + token + s.slice(m.index + m[0].length) : s.replace(key, () => token)
+      }
+      return s
+    },
+  }
+}
+
 /** Canonical sync markdown for a doc page. */
 export async function renderSyncMarkdown(
   page: { id: string; properties: unknown; aliases: unknown },
   blocks: AnyBlock[],
   titleById: Map<string, string> = new Map(),
 ): Promise<string> {
-  const { markdown } = await blocksToMarkdown(exportWikiLinks(blocks, titleById), { assetMode: 'absolute' })
-  const body = markdown.trimEnd()
+  const tokened = await withBlockTokens(exportWikiLinks(blocks, titleById))
+  const { markdown } = await blocksToMarkdown(tokened.blocks, { assetMode: 'absolute' })
+  const body = tokened.finish(markdown).trimEnd()
   return normalizeMarkdown(`${renderFrontmatter(page.id, page.properties, page.aliases)}${body ? `\n${body}\n` : ''}`)
 }
 

@@ -1061,7 +1061,7 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
       if (!user) return handler(req, reply) // 401 without reading or parsing the body
     }
     // import_folder sends many files at once; the default 1 MB limit overflows even for small folders.
-    // Above 12 MB only upload_file calls get in (AGENT_UPLOAD_MAX_MB, mcpBody.ts, docs/adr/2065-*).
+    // Above 12 MB only upload_file / import_zip calls get in (AGENT_UPLOAD_MAX_MB, mcpBody.ts, docs/adr/2065-*, 2162-*).
     inner.post('/mcp', { bodyLimit: agentUploadEnv.mcpUploadBodyBytes, onRequest: authFirst }, handler)
     inner.get('/mcp', handler)
     inner.delete('/mcp', handler)

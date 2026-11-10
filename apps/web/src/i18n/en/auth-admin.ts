@@ -103,6 +103,17 @@ export default {
   'register.submit': 'Sign up',
   'register.haveAccount': 'Already have an account?',
 
+  // first-admin setup (docs/adr/2160-*)
+  'setup.title': 'Create the administrator account',
+  'setup.hint': 'This server has no account yet. The account you create here becomes its administrator.',
+  'setup.code': 'Setup code',
+  'setup.codeHint': 'From the setup link in the server log. It works once, and a restart makes a new one.',
+  'setup.codeRequired': 'Enter the setup code from the server log.',
+  'setup.invalidCode': 'This is not the setup code in the server log. After a restart, use the newest link.',
+  'setup.closed': 'Setup is already done on this server. Sign in, or ask an admin for a signup key.',
+  'setup.submit': 'Create administrator account',
+  'setup.loginHint': 'No account yet? Open the setup link the server printed to its log (docker compose logs app).',
+
   // reset password
   'reset.title': 'Reset password',
   'reset.tabCode': 'I have a code',

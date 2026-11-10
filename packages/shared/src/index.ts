@@ -19,6 +19,9 @@ export const registerSchema = z.object({
   // Inkling's own signup key. Required only when the server requires keys
   // (authMode.signupKeyRequired); unrelated to the external auth server used for delegated sign-in.
   signupKey: z.string().trim().min(1).max(200).optional(),
+  // One-time first-admin setup code from the server log (/setup?code=…, docs/adr/2160-*). Accepted
+  // only while the server has no account; takes the place of a signup key for that one account.
+  setupCode: z.string().trim().min(1).max(200).optional(),
 })
 export type RegisterInput = z.infer<typeof registerSchema>
 
@@ -220,6 +223,11 @@ export interface AuthModeDTO {
   experimental?: string[]
   /** OpenID Connect sign-in is configured: the button label (OIDC_NAME). Absent on older servers. */
   oidc?: { name: string } | null
+  /**
+   * The server has no account yet and printed a first-admin setup link to its log (docs/adr/2160-*).
+   * Absent on older servers.
+   */
+  setupPending?: boolean
 }
 
 export const createWorkspaceSchema = z.object({

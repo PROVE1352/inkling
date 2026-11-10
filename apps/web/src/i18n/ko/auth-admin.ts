@@ -105,6 +105,17 @@ export default {
   'register.submit': '가입하기',
   'register.haveAccount': '이미 계정이 있나요?',
 
+  // first-admin setup (docs/adr/2160-*)
+  'setup.title': '관리자 계정 만들기',
+  'setup.hint': '이 서버에는 아직 계정이 없습니다. 여기서 만드는 계정이 관리자가 됩니다.',
+  'setup.code': '설정 코드',
+  'setup.codeHint': '서버 로그에 찍힌 설정 링크에 들어 있습니다. 한 번만 쓸 수 있고, 서버를 다시 켜면 새 코드가 나옵니다.',
+  'setup.codeRequired': '서버 로그의 설정 코드를 입력해 주세요.',
+  'setup.invalidCode': '서버 로그의 설정 코드와 다릅니다. 서버를 다시 켰다면 가장 최근 링크를 쓰세요.',
+  'setup.closed': '이 서버는 이미 설정이 끝났습니다. 로그인하거나 관리자에게 가입 키를 받으세요.',
+  'setup.submit': '관리자 계정 만들기',
+  'setup.loginHint': '아직 계정이 없나요? 서버가 로그에 찍은 설정 링크를 여세요(docker compose logs app).',
+
   // reset password
   'reset.title': '비밀번호 재설정',
   'reset.tabCode': '코드가 있어요',

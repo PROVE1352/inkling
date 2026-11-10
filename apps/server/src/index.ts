@@ -13,9 +13,9 @@ import { assertOriginConfigured } from './origin'
 import { hashLegacySessionTokens } from './sessionTokens'
 import { migrateSecretsAtRest } from './secretsAtRest'
 import { assertSecretKeyConfig } from './secretBox'
+import { prepareFirstAdminSetup, setupLogLines } from './firstAdminSetup'
 import { registerOriginCheck } from './csrf'
 import { maskUrlSecrets } from './util'
-import { users } from './db/schema'
 import { startReminderScheduler } from './md/reminders'
 import { startReadFlusher } from './pageReads'
 import { backfillPageTags } from './md/tagIndex'
@@ -322,6 +322,14 @@ async function main(): Promise<void> {
   }
   if (!env.appSecretKey) {
     console.warn('[inkling] APP_SECRET_KEY is not set — two-step verification cannot be turned on and workspaces cannot require it (docs/adr/1061-*, 1112-*).')
+  }
+  //    First-admin setup (docs/adr/2160-*): with no account yet, a one-time code (memory only) whose
+  //    link is printed once the server listens. Before listen, so /auth/mode already knows.
+  let setupCode: string | null = null
+  try {
+    setupCode = await prepareFirstAdminSetup()
+  } catch (err) {
+    console.error('[inkling] could not check for existing accounts; the setup link is off for this run', err)
   }
 
   // 3) Fastify instance
@@ -653,14 +661,11 @@ async function main(): Promise<void> {
     `[inkling] signup key required: ${env.signupRequireKey ? 'yes' : 'no'}, mail: ${mailEnabled ? 'on' : 'off'}, ` +
       `public origin: ${env.publicUrl ?? env.appUrl ?? '(request host — set PUBLIC_URL)'}, secure cookies: ${env.cookieSecure ? 'yes' : 'no'}`,
   )
-  if (env.signupRequireKey) {
-    const any = await db.select({ id: users.id }).from(users).limit(1)
-    if (any.length === 0) {
-      app.log.warn(
-        '[inkling] no accounts yet and signups need a key: create the first admin key with ' +
-          '`deploy/signup-key.sh` (the first account to sign up becomes admin).',
-      )
-    }
+  // No account yet: the one-time first-admin link (docs/adr/2160-*). Plain lines on stdout so
+  // `docker compose logs app` shows them readably; deploy/local.sh reads the link from there.
+  // deploy/signup-key.sh keeps working as before for the first admin, too.
+  if (setupCode) {
+    for (const line of setupLogLines(setupCode, env.publicUrl ?? env.appUrl, env.port)) console.log(line)
   }
 }
 

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import './env'
 import { db } from './db'
 import { workspaces } from './db/schema'
@@ -155,4 +155,26 @@ export async function assertAgentUploadsAllowed(workspaceId: string): Promise<vo
   }
   const d = decideAgentUploads(mode, ws)
   if (!d.allowed) throw new AppError(403, AGENT_UPLOADS_OFF, agentUploadsOffMessage(d.by))
+}
+
+/**
+ * Daily budget of a person's uploads through connections (docs/adr/2045-*, 2065-*): the files their
+ * connections uploaded in the last 24 hours (files.uploaded_via; upload_file, a bearer POST /api/files,
+ * and since 0.17 the attachments of a zip imported through a connection, docs/adr/2162-*). Uploads in
+ * the browser do not count and have no budget. 429 past it; AGENT_UPLOAD_DAILY_MB=0 turns it off.
+ */
+export async function assertDailyUploadBudget(userId: string): Promise<void> {
+  const daily = agentUploadEnv.dailyBytes
+  if (daily === null) return
+  const [r] = (await db.execute(sql`
+    SELECT coalesce(sum(size), 0)::bigint AS bytes FROM files
+    WHERE created_by = ${userId} AND uploaded_via IS NOT NULL AND created_at > now() - interval '24 hours'
+  `)) as unknown as { bytes: string | number }[]
+  if (Number(r?.bytes ?? 0) >= daily) {
+    throw new AppError(
+      429,
+      'UPLOAD_BUDGET',
+      `This account's connections uploaded ${mbText(daily)} in the last 24 hours; uploads through connections wait until older ones fall out of that window`,
+    )
+  }
 }

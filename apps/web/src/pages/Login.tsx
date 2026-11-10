@@ -322,6 +322,10 @@ export function Login() {
           </Link>
         </p>
 
+        {mode.data?.setupPending && (
+          <p className="mt-2 text-center text-xs text-sub">{t('setup.loginHint')}</p>
+        )}
+
         {delegated && (
           <p className="mt-2 text-center text-xs text-sub">
             {t('login.delegatedHint', { name: delegatedName })}

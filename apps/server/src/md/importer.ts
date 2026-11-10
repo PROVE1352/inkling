@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { db } from '../db/index'
 import { env } from '../env'
-import { badRequest } from '../errors'
+import { AppError, badRequest } from '../errors'
 import { files, pageDocs, pages } from '../db/schema'
 import { pageColumns, visibleTo } from '../pageDto'
 import type { PageRow } from '../pageDto'
@@ -36,6 +36,13 @@ const MAX_ENTRIES = importLimits.maxFiles
 const MAX_UNCOMPRESSED = importLimits.maxUnpackedBytes
 /** Largest single entry once decompressed (same as a direct upload by default). */
 const MAX_ENTRY_BYTES = importLimits.maxEntryBytes
+/**
+ * Zip bomb guard on top of the real-byte caps (docs/adr/2163-*): an entry that inflates past
+ * MAX_ZIP_RATIO times its compressed size (and past ZIP_RATIO_FLOOR bytes, so small highly
+ * repetitive files pass) stops the import at that point instead of at the size cap.
+ */
+export const MAX_ZIP_RATIO = 200
+const ZIP_RATIO_FLOOR = 1024 * 1024
 /** Deepest folder nesting an import may create (C-H2b). */
 export const IMPORT_MAX_FOLDER_DEPTH = 32
 /** Most pages (folders + docs + canvases) one import may create; env IMPORT_MAX_PAGES. */
@@ -52,6 +59,23 @@ interface ImportArgs {
   scope: PageScope
   /** Importer's workspace role (public-folder rule of the placement check). */
   role: WorkspaceRole
+  /** Set for imports through a connection (MCP import_zip, a bearer API call): docs/adr/2162-*. */
+  agent?: AgentImportRules
+}
+
+/**
+ * The 0.16 upload rules for the attachments of an import made through a connection
+ * (docs/adr/2044-*, 2065-*, 2162-*). Its Markdown is like import_folder; its attachments are uploads.
+ */
+export interface AgentImportRules {
+  /** files.uploaded_via of the stored attachments, so they count toward the daily budget. */
+  via: string
+  /** Largest attachment (AGENT_UPLOAD_MAX_MB). Larger ones are skipped and reported. */
+  maxFileBytes: number
+  /** upload_file's type decision from the name and the bytes; refused types are skipped and reported. */
+  typeOf(name: string, bytes: Buffer): { mime: string } | { error: string }
+  /** Runs once before the first attachment is stored (the switch and the daily budget); throws to refuse. */
+  beforeAttachments(): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +191,66 @@ export async function importMarkdown(args: ImportArgs): Promise<PageRow[]> {
 // .zip (folder structure = parent relationships)
 // ---------------------------------------------------------------------------
 
+const utf8Strict = new TextDecoder('utf-8', { fatal: true })
+let cp949: InstanceType<typeof TextDecoder> | null = null
+try {
+  // WHATWG "euc-kr" is Windows code page 949 (needs Node's ICU data; official builds have it).
+  cp949 = new TextDecoder('euc-kr')
+} catch {
+  cp949 = null
+}
+
+/**
+ * Names of zip entries without the UTF-8 flag (docs/adr/2163-*): zips made by Windows Explorer on a
+ * Korean system store names in code page 949, which JSZip's default (UTF-8) turns into U+FFFD. Try
+ * strict UTF-8 first (most tools write UTF-8 even without the flag), then CP949, then Latin-1.
+ */
+export function decodeZipFileName(bytes: Uint8Array | number[] | string): string {
+  if (typeof bytes === 'string') return bytes
+  const u8 = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes)
+  try {
+    return utf8Strict.decode(u8)
+  } catch {
+    /* not UTF-8 */
+  }
+  if (cp949) {
+    const s = cp949.decode(u8)
+    if (!s.includes('\uFFFD')) return s
+  }
+  return Buffer.from(u8).toString('latin1')
+}
+
+/** JSZip.loadAsync with the file-name decoding above; every import path loads zips through it. */
+export function loadZip(buffer: Buffer): Promise<JSZip> {
+  return JSZip.loadAsync(buffer, { decodeFileName: decodeZipFileName as (b: string[] | Uint8Array | Buffer) => string })
+}
+
+/** A zip entry is a symbolic link (Unix mode S_IFLNK in the external attributes). */
+export function isZipSymlink(e: JSZip.JSZipObject): boolean {
+  const mode = e.unixPermissions
+  return typeof mode === 'number' && (mode & 0o170000) === 0o120000
+}
+
+/**
+ * One entry name as the import uses it (docs/adr/2163-*): NFC (macOS writes Hangul decomposed),
+ * `\` as `/`, no leading `/` or drive letter, no `.` or empty segments, control characters dropped.
+ * A `..` segment refuses the whole archive: nothing is written to disk by name, but such an archive
+ * is crafted, and silently skipping its entries would hide that.
+ */
+export function normalizeEntryName(raw: string): string {
+  const dir = /[\\/]$/.test(raw)
+  const segs = raw
+    .normalize('NFC')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^[A-Za-z]:\//, '')
+    .split('/')
+    .filter((x) => x && x !== '.')
+  if (segs.includes('..')) throw new AppError(400, 'ZIP_UNSAFE_PATH', `Unsafe path in the archive: ${raw.slice(0, 200)}`)
+  const name = segs.join('/')
+  return dir && name ? `${name}/` : name
+}
+
 function isIgnored(name: string): boolean {
   const segs = name.split('/').filter(Boolean)
   if (segs.length === 0) return true
@@ -210,22 +294,27 @@ export interface ImportEntry {
 export interface ImportStats {
   /** Attachments whose bytes equalled an earlier attachment of the same import: stored once. */
   duplicateAttachments: number
+  /** Imports through a connection: attachments not stored, and why (docs/adr/2162-*). */
+  skippedAttachments?: { name: string; reason: string }[]
 }
 
 export async function importZip(
   args: Omit<ImportArgs, 'filename'>,
   stats?: ImportStats,
 ): Promise<PageRow[]> {
-  const { buffer, workspaceId, parentId, userId, scope, role } = args
-  const zip = await JSZip.loadAsync(buffer)
+  const { buffer, workspaceId, parentId, userId, scope, role, agent } = args
+  const zip = await loadZip(buffer)
   // The zip header's uncompressedSize is attacker-controlled (C-M6): the declared size is only a
   // first filter; every entry is decompressed through a stream that counts the real bytes and
   // aborts at the per-entry cap or when the import's running total passes MAX_UNCOMPRESSED.
   const meter = { total: 0 }
   const entries: ImportEntry[] = Object.values(zip.files).map((e) => {
+    if (isZipSymlink(e)) throw new AppError(400, 'ZIP_SYMLINK', `The archive contains a symbolic link (${e.name.slice(0, 200)}); links are not imported`)
     const read = () => readZipEntryCapped(e, meter)
     return {
-      name: e.name,
+      // JSZip already collapses `..` in e.name (its zip-slip guard); the name as stored in the archive
+      // is checked so a crafted one is refused instead of landing somewhere else in the tree.
+      name: normalizeEntryName((e as { unsafeOriginalName?: string }).unsafeOriginalName ?? e.name),
       dir: e.dir,
       size:
         (e as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0,
@@ -233,15 +322,19 @@ export async function importZip(
       readText: async () => (await read()).toString('utf8'),
     }
   })
-  return importEntries({ entries, workspaceId, parentId, userId, scope, role }, stats)
+  return importEntries({ entries, workspaceId, parentId, userId, scope, role, agent }, stats)
 }
 
 /** Decompresses one zip entry while counting real output bytes (see importZip). */
 export function readZipEntryCapped(
   e: JSZip.JSZipObject,
   meter: { total: number },
-  limits: { entry: number; total: number } = { entry: MAX_ENTRY_BYTES, total: MAX_UNCOMPRESSED },
+  limits: { entry: number; total: number; ratio?: number } = { entry: MAX_ENTRY_BYTES, total: MAX_UNCOMPRESSED },
 ): Promise<Buffer> {
+  // `ratio` defaults to MAX_ZIP_RATIO for every caller; tests of the byte meter pass Infinity.
+  const ratio = limits.ratio ?? MAX_ZIP_RATIO
+  const compressed = (e as unknown as { _data?: { compressedSize?: number } })._data?.compressedSize
+  const ratioCap = typeof compressed === 'number' ? Math.max(ZIP_RATIO_FLOOR, compressed * ratio) : Infinity
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
@@ -264,6 +357,9 @@ export function readZipEntryCapped(
       if (meter.total > limits.total) {
         return fail(badRequest(`Archive is too large when unpacked (max ${mbLabel(limits.total)})`))
       }
+      if (size > ratioCap) {
+        return fail(new AppError(400, 'ZIP_RATIO', `A file in the archive inflates more than ${ratio} times its packed size; not imported`))
+      }
       chunks.push(chunk)
     })
     stream.on('error', (err: Error) => fail(err))
@@ -280,7 +376,7 @@ export async function importEntries(
   args: Omit<ImportArgs, 'filename' | 'buffer'> & { entries: ImportEntry[] },
   stats: ImportStats = { duplicateAttachments: 0 },
 ): Promise<PageRow[]> {
-  const { workspaceId, parentId, userId, role } = args
+  const { workspaceId, parentId, userId, role, agent } = args
   const allEntries = args.entries.filter((e) => !isIgnored(e.name))
   const fileEntries = allEntries.filter((e) => !e.dir)
 
@@ -304,11 +400,27 @@ export async function importEntries(
   const assetMap = new Map<string, string>()
   const assetIds: string[] = []
   const byHash = new Map<string, string>()
+  if (agent && fileEntries.some((e) => isAssetPath(e.name))) await agent.beforeAttachments()
   for (const e of fileEntries) {
     if (!isAssetPath(e.name)) continue
     const ext = path.extname(e.name)
-    // Zip entries are decompressed (and measured) before the row exists.
-    const data = e.moveTo ? null : await e.readBuffer()
+    // Zip entries are decompressed (and measured) before the row exists. Through a connection the
+    // bytes are always read: the type is decided from them (bounded by the per-entry cap).
+    const data = e.moveTo && !agent ? null : await e.readBuffer()
+    let mime = mimeForExt(ext)
+    if (agent) {
+      const skip = (reason: string) => (stats.skippedAttachments ??= []).push({ name: e.name, reason })
+      if (data!.length > agent.maxFileBytes) {
+        skip(`larger than ${mbLabel(agent.maxFileBytes)}, the per-file limit for uploads through a connection`)
+        continue
+      }
+      const typed = agent.typeOf(path.basename(e.name), data!)
+      if ('error' in typed) {
+        skip(typed.error)
+        continue
+      }
+      mime = typed.mime
+    }
     const hash = data ? sha256(data) : e.sha256 ? await e.sha256() : null
     const same = hash ? byHash.get(hash) : undefined
     if (same) {
@@ -321,13 +433,14 @@ export async function importEntries(
       .values({
         workspaceId,
         name: path.basename(e.name),
-        mime: mimeForExt(ext),
+        mime,
         size: data ? data.length : e.size,
         createdBy: userId,
+        uploadedVia: agent?.via ?? null,
       })
       .returning({ id: files.id })
     const dest = path.join(env.dataDir, 'uploads', row.id)
-    if (e.moveTo) await e.moveTo(dest)
+    if (e.moveTo && !data) await e.moveTo(dest)
     else await writeFile(dest, data!)
     assetMap.set(e.name, `/files/${row.id}`)
     if (hash) byHash.set(hash, `/files/${row.id}`)

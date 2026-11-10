@@ -3,6 +3,11 @@
 Every image is multi-arch (x86-64 and ARM64), so the same setup works on ARM cloud VMs (for example
 free-tier Ampere instances) and on ordinary x86 servers.
 
+> **Just trying it on your own computer?** `git clone <repo-url> && cd inkling && ./deploy/local.sh`
+> writes a `.env` with generated secrets, starts the stack on a free port bound to 127.0.0.1, and
+> prints a one-time link for the first administrator account (see "Local trial" at the end). The rest
+> of this guide is for a server other people reach.
+
 ## 1. Prepare the server (Ubuntu 22.04)
 
 ```bash
@@ -97,14 +102,28 @@ come in with an external account — see 3-D). With `NODE_ENV=production` (the c
 signup key is required even when `SIGNUP_REQUIRE_KEY` is empty. Open signup without a key is
 enabled only when `.env` explicitly sets `SIGNUP_REQUIRE_KEY=0`.
 
-**First admin.** While there is no admin at all, the first person to sign up or log in becomes an
-admin automatically (bootstrap of a fresh install). After that, admins grant and revoke the role to
-each other on the admin screen. The last admin cannot be demoted or removed. If signup keys are
-required, create the first key with the CLI:
+**First admin.** While the database has no account at all, the server prints a one-time setup link
+to its log when it starts (0.17, docs/adr/2160-*):
+
+```bash
+docker compose logs app | grep setup     # → https://notes.example.com/setup?code=XXXX-XXXX-…
+```
+
+Whoever opens it creates the first account, which is admin. The code lives only in the server's
+memory, works once, and stops working as soon as any account exists (however it was made); a restart
+with still no account prints a new one. It is not "requests from localhost": behind a proxy every
+request looks local. Anyone who can read the server log can already run the server, so the link
+proves the same thing a key from `signup-key.sh` (a psql INSERT) does. If your container logs are
+shipped somewhere other people read, create the first account right after the first start, or use
+the key instead:
 
 ```bash
 ./deploy/signup-key.sh new "me"     # the first person to sign up with this key becomes admin
 ```
+
+While there is no admin at all, the first person to sign up or log in becomes an admin automatically
+(bootstrap of a fresh install). After that, admins grant and revoke the role to each other on the
+admin screen. The last admin cannot be demoted or removed.
 
 **Web admin page (recommended).** When you log in with an admin account, "Admin" appears in the
 sidebar (`/w/<workspace>/admin`, with a number badge when password reset requests are pending).
@@ -397,6 +416,36 @@ On a stop signal (SIGTERM) the app saves collaborative documents being edited to
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't
 cut it short with `docker kill` / `docker compose kill`. A new container started while the old one is still
 saving waits for it (`SINGLE_INSTANCE_WAIT`, section 3-I).
+
+## Local trial (deploy/local.sh)
+
+For trying Inkling on your own computer, not for a server other people use.
+
+```bash
+git clone <repo-url> inkling && cd inkling
+./deploy/local.sh            # or ./deploy/local.sh --build to build this checkout instead of pulling
+```
+
+What it does, once: writes `.env` (marked "made by deploy/local.sh") with a hex `POSTGRES_PASSWORD`
+and an `APP_SECRET_KEY` from `openssl rand`, `PUBLIC_URL=http://localhost:<port>`, `COOKIE_SECURE=0`,
+`BACKUP_ENABLED=0`, `INKLING_PORT=127.0.0.1:<port>` (the first free of 3000, 3987, 3001–3010, or
+`INKLING_PORT=…` from the environment) and `COMPOSE_FILE=compose.yaml:compose.local.yaml` with
+`COMPOSE_PROJECT_NAME=inkling-local`. Then it starts the stack, waits for `/api/health` and prints the
+first-admin setup link and the MCP address. It never touches a `.env` it did not write.
+
+`compose.local.yaml` gives the trial its own compose project (its containers and volumes never mix
+with a `nodian` stack on the same machine), no host port for the database and no backup sidecar.
+Because `.env` names the files, plain `docker compose logs -f app` and `./deploy/signup-key.sh` act on
+the trial. `./deploy/local.sh stop` stops it; `./deploy/local.sh destroy` deletes its containers and
+volumes (the `.env` stays; delete it to start over with new secrets).
+
+Connecting an agent: open `http://localhost:<port>/settings/connections`, issue an agent connection
+token, and point the client at `http://localhost:<port>/mcp` with `Authorization: Bearer <token>`
+(for Claude Code: `claude mcp add --transport http inkling http://localhost:<port>/mcp --header
+"Authorization: Bearer <token>"`).
+
+Moving a trial to a real server is a fresh install plus an import: export the workspace as a zip and
+import it there (pages and attachments move; comments and version history stay behind).
 
 ## Notes
 

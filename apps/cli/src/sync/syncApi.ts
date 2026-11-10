@@ -55,6 +55,8 @@ export interface PageMarkdown {
   revision: string
   contentHash: string
   markdown: string
+  /** frontmatter keys of the written note that the page does not store (writes only) */
+  droppedFrontmatterKeys?: string[]
 }
 
 export class RevisionMismatch extends Error {
@@ -118,7 +120,9 @@ export class SyncApi {
     title: string
     kind: 'doc' | 'folder'
     markdown?: string
-  }): Promise<{ page: { id: string; parentId: string | null; title: string } } & Partial<PageMarkdown>> {
+    /** retry key (docs/adr/2166-*): the same key creates the page once; servers before 0.17 ignore it */
+    clientKey?: string
+  }): Promise<{ page: { id: string; parentId: string | null; title: string }; replayed?: boolean } & Partial<PageMarkdown>> {
     return apiJson(this.server, `/api/workspaces/${this.workspaceId}/sync/pages`, {
       method: 'POST',
       auth: this.auth,

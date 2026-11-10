@@ -1,0 +1,22 @@
+# Local trial overlay (deploy/local.sh, docs/adr/2161-*). Not for a server other people reach.
+#
+#   ./deploy/local.sh            # writes .env with generated secrets, starts, prints the setup link
+#
+# deploy/local.sh puts COMPOSE_FILE=compose.yaml:compose.local.yaml and COMPOSE_PROJECT_NAME into the
+# .env it writes, so later plain `docker compose …` commands and the deploy/*.sh scripts act on this
+# stack. Differences from compose.yaml alone:
+# - its own project name, so its containers and volumes never mix with a `nodian` stack on the same
+#   machine (compose.yaml keeps that name for existing installs);
+# - no host port for the database (nothing to clash with; deploy/*.sh reach it with `exec`);
+# - no backup sidecar (a trial needs no nightly dumps, and it saves pulling a second image).
+#   For a long-lived instance use compose.yaml (with deploy/compose.caddy.yaml) as in deploy/DEPLOY.md.
+# The app's host port and address come from INKLING_PORT in .env (deploy/local.sh writes
+# 127.0.0.1:<a free port>, so the app is reachable from this machine only).
+name: inkling-local
+
+services:
+  db:
+    ports: !override []
+
+  backup:
+    profiles: [backup]

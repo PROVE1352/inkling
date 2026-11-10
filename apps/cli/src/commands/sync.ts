@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, realpath, stat } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rmdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { boolFlag, strFlag } from '../args'
 import { listWorkspaces, selectWorkspace } from '../api'
 import { credentialOf, loadConfig } from '../config'
+import { ApiError } from '../http'
 import { joinLines, merge3 } from '../sync/diff3'
 import type { PageMarkdown, SyncPage } from '../sync/syncApi'
 import { RevisionMismatch, SyncApi } from '../sync/syncApi'
@@ -11,6 +13,7 @@ import {
   ASSET_DIR,
   baseTitle,
   extForMime,
+  keepFrontmatterKeys,
   localDateStamp,
   mimeForPath,
   moveFile,
@@ -24,6 +27,7 @@ import {
   scanVault,
   sha256,
   STATE_DIR,
+  syncCreateId,
   uniquePath,
   vaultPath,
   writeAtomic,
@@ -35,7 +39,8 @@ import type { LocalFile } from '../sync/vault'
  *
  * Two-way sync between an Obsidian vault folder and an Inkling workspace (experimental
  * `vault-sync`; the server must list it in EXPERIMENTAL_FEATURES). Design and edge cases:
- * docs/adr/0200-vault-sync-protocol.md, 0202-vault-sync-merge-and-deletes.md.
+ * docs/adr/0200-vault-sync-protocol.md, 0202-vault-sync-merge-and-deletes.md; retries, directories,
+ * kept frontmatter and refusals, block tokens: docs/adr/2166–2169.
  *
  * State lives in <vault>/.inkling/: sync-state.json (per page: path, last local file hash,
  * last server content hash, server revision) and base/<pageId>.md (last synced text, the
@@ -52,6 +57,8 @@ interface FileState {
   revision: string
   /** unresolved conflict copy (vault-relative); the page is skipped while it exists */
   conflict?: string
+  /** frontmatter keys the server does not store; kept in the note when it is rewritten (docs/adr/2168-*) */
+  keep?: string[]
 }
 
 interface SyncState {
@@ -62,8 +69,17 @@ interface SyncState {
   files: Record<string, FileState>
   /** folder pages (and doc pages with children) → vault directory */
   folders: Record<string, string>
-  /** attachment fileId → vault path + sha256 */
-  assets: Record<string, { path: string; hash: string }>
+  /** attachment fileId → vault path + sha256 (+ the page it was uploaded to by this CLI) */
+  assets: Record<string, { path: string; hash: string; page?: string }>
+  /**
+   * Retry keys of creates not yet answered (vault path, or `dir:<path>` for folders → client key),
+   * saved before the requests go out (docs/adr/2166-*).
+   */
+  pending?: Record<string, string>
+  /** every page shown as a directory (page id → dir) at the end of the last completed run (docs/adr/2167-*) */
+  dirs?: Record<string, string>
+  /** those of `dirs` that held at least one note then (only such a folder is trashed when its directory goes) */
+  filled?: string[]
 }
 
 type Action =
@@ -81,7 +97,8 @@ type Action =
   | 'keep'
 
 const FILES_URL_RE = /\]\(\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)/gi
-const LINK_TARGET_RE = /\]\(([^()\s]+)\)/g
+// `](target)` or `](<target with spaces>)` (CommonMark's angle-bracket form, which Obsidian writes)
+const LINK_TARGET_RE = /\]\((<[^<>\n]+>|[^()\s]+)\)/g
 const EMBED_RE = /!\[\[([^\]|#\n]+)(?:[|#][^\]\n]*)?\]\]/g
 
 export async function cmdSync(flags: Record<string, string | boolean>, positionals: string[]): Promise<void> {
@@ -107,6 +124,8 @@ class SyncRun {
   private state!: SyncState
   private log: { action: Action; path: string; detail?: string }[] = []
   private conflicts: string[] = []
+  /** things not synced on purpose or refused, reported after the summary (once per run) */
+  private notices: string[] = []
   private attachments: Map<string, string> | null = null
   /** vault paths taken by notes in this run (for collision checks) */
   private taken = new Set<string>()
@@ -164,6 +183,17 @@ class SyncRun {
     this.log.push({ action, path: p, detail })
   }
 
+  private notice(msg: string): void {
+    if (!this.notices.includes(msg)) this.notices.push(msg)
+  }
+
+  /** A write the server refused for this account (edit lock, read-only token, range): skip, report, go on. */
+  private refused(err: unknown, rel: string): boolean {
+    if (!(err instanceof ApiError) || err.status !== 403) return false
+    this.note('skip', rel, `refused by the server: ${err.message}`)
+    return true
+  }
+
   // ---------------------------------------------------------------------------
   // server-form ⇄ local-form (attachments)
   // ---------------------------------------------------------------------------
@@ -201,17 +231,33 @@ class SyncRun {
       const known = byPath.get(targetRel)
       if (known) return known
       const mime = mimeForPath(targetRel)
-      if (!mime) return null
+      if (!mime) {
+        if (path.posix.extname(targetRel) && (await stat(vaultPath(this.root, targetRel)).catch(() => null))?.isFile()) {
+          this.notice(`${targetRel}: this file type is not synced; the link in ${noteRel} stays as it is`)
+        }
+        return null
+      }
       const data = await readBytes(this.root, targetRel)
       if (!data) return null
       const hash = sha256(data)
-      // dedupe by content hash: identical bytes reuse the uploaded file
-      for (const [id, a] of Object.entries(this.state.assets)) if (a.hash === hash) return id
+      // Identical bytes reuse a file uploaded for the same page only: a file belongs to its page and
+      // goes with it when that page is purged from the trash.
+      for (const [id, a] of Object.entries(this.state.assets)) if (a.hash === hash && a.page === pageId) return id
       if (this.dry) return null
-      const id = await this.api.upload(pageId, path.posix.basename(targetRel), mime, data)
+      let id: string
+      try {
+        id = await this.api.upload(pageId, path.posix.basename(targetRel), mime, data)
+      } catch (err) {
+        // too large, type refused, uploads switched off for connections: the note still syncs
+        if (err instanceof ApiError && [400, 403, 413, 415, 422].includes(err.status)) {
+          this.notice(`${targetRel}: not uploaded (${err.message}); the link in ${noteRel} stays as it is`)
+          return null
+        }
+        throw err
+      }
       const rel = `${ASSET_DIR}/${id}${extForMime(mime)}`
       await writeAtomic(this.root, rel, data)
-      this.state.assets[id] = { path: rel, hash }
+      this.state.assets[id] = { path: rel, hash, page: pageId }
       byPath.set(targetRel, id)
       return id
     }
@@ -284,6 +330,7 @@ class SyncRun {
         used.add(name.toLowerCase())
         const childDir = dir ? `${dir}/${name}` : name
         if (p.kind === 'doc') filePaths.set(p.id, `${childDir}.md`)
+        if (p.kind === 'canvas') this.notice(`canvas "${childDir}" is not synced; open it in Inkling`)
         if (p.kind === 'folder' || p.kind === 'collection' || children.has(p.id)) {
           this.dirIndex.set(childDir, p.id)
           if (p.kind === 'folder') this.state.folders[p.id] = childDir
@@ -300,13 +347,27 @@ class SyncRun {
     if (!dir) return null
     const known = this.dirIndex.get(dir)
     if (known) return known
+    // `Page.md` next to `Page/`: the directory holds the note's sub-pages (the layout sync itself
+    // writes), not a folder page of the same name
+    const note = Object.entries(this.state.files).find(([, st]) => st.path === `${dir}.md`)
+    if (note) {
+      this.dirIndex.set(dir, note[0])
+      return note[0]
+    }
     const parentId = await this.ensureDir(posixDir(dir))
     const title = dir.slice(dir.lastIndexOf('/') + 1)
     if (this.dry) {
       this.dirIndex.set(dir, `dry:${dir}`)
       return `dry:${dir}`
     }
-    const r = await this.api.create({ parentId, title, kind: 'folder' })
+    const key = `dir:${dir}`
+    this.state.pending ??= {}
+    if (!this.state.pending[key]) {
+      this.state.pending[key] = randomUUID()
+      await this.saveState()
+    }
+    const r = await this.api.create({ parentId, title, kind: 'folder', clientKey: this.state.pending[key] })
+    delete this.state.pending[key]
     this.dirIndex.set(dir, r.page.id)
     this.state.folders[r.page.id] = dir
     this.note('create-server', `${dir}/`, 'folder')
@@ -317,21 +378,35 @@ class SyncRun {
   // page operations
   // ---------------------------------------------------------------------------
 
-  private async record(pid: string, rel: string, localText: string, server: PageMarkdown): Promise<void> {
+  private async record(pid: string, rel: string, localText: string, server: PageMarkdown, keep?: string[]): Promise<void> {
     this.state.files[pid] = {
       path: rel,
       localHash: sha256(Buffer.from(localText, 'utf8')),
       serverHash: server.contentHash,
       revision: server.revision,
+      ...(keep?.length ? { keep } : {}),
     }
     if (!this.dry) await writeAtomic(this.root, this.baseRel(pid), localText)
   }
 
-  /** Writes the server version to the vault and records it as the new base. */
+  /**
+   * Writes the server version to the vault and records it as the new base. Frontmatter the server
+   * does not store (docs/adr/2168-*) is carried over from the note on disk.
+   */
   private async download(pid: string, rel: string, server: PageMarkdown): Promise<void> {
-    const local = await this.toLocal(server.markdown, rel)
+    const keep = this.state.files[pid]?.keep
+    const onDisk = keep?.length ? await readText(this.root, rel) : null
+    const local = keepFrontmatterKeys(await this.toLocal(server.markdown, rel), onDisk ?? '', keep)
     if (!this.dry) await writeAtomic(this.root, rel, local)
-    await this.record(pid, rel, local, server)
+    await this.record(pid, rel, local, server, keep)
+  }
+
+  /** Reports frontmatter the server did not store; it stays in the note (docs/adr/2168-*). */
+  private keptKeys(rel: string, server: PageMarkdown): string[] | undefined {
+    const keys = server.droppedFrontmatterKeys?.filter(Boolean)
+    if (!keys?.length) return undefined
+    this.notice(`${rel}: frontmatter kept only in the vault (Inkling does not store it): ${keys.join(', ')}`)
+    return keys
   }
 
   /**
@@ -342,20 +417,21 @@ class SyncRun {
     const serverMd = await this.toServer(localText, rel, pid)
     if (this.dry) return { revision: expectedRevision, contentHash: '', markdown: serverMd }
     const result = await this.api.write(pid, serverMd, expectedRevision)
-    const canonical = await this.toLocal(result.markdown, rel)
+    const keep = this.keptKeys(rel, result)
+    const canonical = keepFrontmatterKeys(await this.toLocal(result.markdown, rel), localText, keep)
     const onDisk = await readText(this.root, rel)
     if (onDisk === localText || onDisk === null) {
       await writeAtomic(this.root, rel, canonical)
-      await this.record(pid, rel, canonical, result)
+      await this.record(pid, rel, canonical, result, keep)
     } else {
       // edited during sync: keep the user's bytes; next run sees them as a local change
-      await this.record(pid, rel, localText, result)
+      await this.record(pid, rel, localText, result, keep)
     }
     return result
   }
 
   private async mergeBoth(pid: string, rel: string, localText: string, server: PageMarkdown): Promise<void> {
-    const serverLocal = await this.toLocal(server.markdown, rel)
+    const serverLocal = keepFrontmatterKeys(await this.toLocal(server.markdown, rel), localText, this.state.files[pid]?.keep)
     if (serverLocal === localText) {
       await this.record(pid, rel, localText, server)
       this.note('keep', rel, 'identical on both sides')
@@ -404,6 +480,7 @@ class SyncRun {
       serverHash: server.contentHash,
       revision: server.revision,
       conflict: conflictRel,
+      ...(prev?.keep ? { keep: prev.keep } : {}),
     }
     this.taken.add(conflictRel)
     const where = m.conflicts.map((c) => (c.baseEnd > c.baseStart ? `${c.baseStart}-${c.baseEnd}` : `${c.baseStart}`))
@@ -431,9 +508,21 @@ class SyncRun {
   private async syncAll(): Promise<void> {
     const changes = await this.api.changes(this.state.cursor)
     const serverById = new Map(changes.pages.map((p) => [p.id, p]))
+    // Directories as the last completed run left them (docs/adr/2167-*); a state from before 0.17
+    // has only the folder pages. Kept as they are in saves made during this run.
+    const prevDirs: Record<string, string> = { ...(this.state.dirs ?? this.state.folders) }
+    // A state without `dirs` comes from a CLI that also saved `folders` from its error handler, before
+    // it made those directories: that first run trashes no folder page.
+    const dirsKnown = !!this.state.dirs
+    const prevFilled = new Set(this.state.filled ?? [])
+    this.state.dirs = { ...prevDirs }
     this.state.folders = {}
     const serverPaths = this.computeServerPaths(changes.pages)
-    const { notes } = await scanVault(this.root)
+    const { notes, dirs: localDirs, canvases } = await scanVault(this.root)
+    if (canvases.length) {
+      const more = canvases.length > 5 ? `, … (${canvases.length} in all)` : ''
+      this.notice(`canvas files are not synced: ${canvases.slice(0, 5).join(', ')}${more}`)
+    }
     const localByPath = new Map(notes.map((n) => [n.rel, n]))
     for (const n of notes) this.taken.add(n.rel)
 
@@ -475,6 +564,21 @@ class SyncRun {
       } else newLocal.push(n)
     }
 
+    // --- pages a cut-off run created but never recorded (docs/adr/2166-*) --------
+    // Their ids follow from the retry keys saved before the creates went out.
+    const resumed = new Map<string, LocalFile>()
+    const abandoned: string[] = []
+    for (const [key, clientKey] of Object.entries(this.state.pending ?? {})) {
+      if (key.startsWith('dir:')) continue
+      const pid = syncCreateId(this.workspaceId, clientKey)
+      if (serverById.get(pid)?.kind !== 'doc' || this.state.files[pid] || adopted.has(pid)) continue
+      const i = newLocal.findIndex((n) => n.rel === key)
+      if (i >= 0) {
+        resumed.set(pid, newLocal[i])
+        newLocal.splice(i, 1)
+      } else abandoned.push(pid) // the note is gone since: the page it made goes to the trash
+    }
+
     // --- decide which server versions to fetch ---------------------------------
     const need = new Set<string>()
     for (const pid of tracked) {
@@ -500,6 +604,50 @@ class SyncRun {
       return got
     }
 
+    // --- directories renamed or moved in the vault (docs/adr/2167-*) ------------
+    // A directory the last run left whose tracked notes all reappear under one new directory (same
+    // relative paths) was renamed or moved as a whole: a folder page follows it (same page, so its
+    // locks, grants and comments stay); a note's sub-page directory follows when the note moved the
+    // same way. Outer directories first; inner ones then already sit where they should.
+    const depth = (p: string) => p.split('/').length
+    const serverDirOf = () => new Map([...this.dirIndex].map(([d, id]) => [id, d]))
+    for (const [pid, oldDir] of Object.entries(prevDirs).sort((a, b) => depth(a[1]) - depth(b[1]))) {
+      const sp = serverById.get(pid)
+      if (!sp || localDirs.has(oldDir) || serverDirOf().get(pid) !== oldDir) continue
+      let newDir: string | undefined
+      let consistent = true
+      for (const fpid of tracked) {
+        const st = this.state.files[fpid]
+        const local = matched.get(fpid)
+        if (!local || !st.path.startsWith(`${oldDir}/`)) continue
+        const suffix = st.path.slice(oldDir.length)
+        const nd = local.rel.endsWith(suffix) ? local.rel.slice(0, local.rel.length - suffix.length) : ''
+        if (!nd || (newDir !== undefined && nd !== newDir)) {
+          consistent = false
+          break
+        }
+        newDir = nd
+      }
+      if (!consistent || newDir === undefined || this.dirIndex.has(newDir) || !localDirs.has(newDir)) continue
+      if (sp.kind === 'folder') {
+        const parentId = await this.ensureDir(posixDir(newDir))
+        const title = newDir.slice(newDir.lastIndexOf('/') + 1)
+        const body: { title?: string; parentId?: string | null } = {}
+        if (title !== oldDir.slice(oldDir.lastIndexOf('/') + 1)) body.title = title
+        if ((sp.parentId ?? null) !== parentId) body.parentId = parentId
+        if (!this.dry && !String(parentId).startsWith('dry:') && Object.keys(body).length) {
+          try {
+            await this.api.patch(pid, body)
+          } catch (err) {
+            if (this.refused(err, `${newDir}/`)) continue
+            throw err
+          }
+        }
+        this.note('rename-server', `${newDir}/`, `was ${oldDir}/`)
+      } else if (sp.kind !== 'doc' || matched.get(pid)?.rel !== `${newDir}.md`) continue
+      this.remapDir(oldDir, newDir, serverPaths)
+    }
+
     // --- pass 1: renames / moves (before content, so uploads of notes whose links Obsidian
     //     rewrote to a new title resolve against the already-renamed page) ----------------
     for (const pid of tracked) {
@@ -510,12 +658,20 @@ class SyncRun {
       if (st.conflict && (await readBytes(this.root, st.conflict))) continue
       const serverPath = serverPaths.get(pid) ?? st.path
       if (local.rel !== st.path) {
-        // moved/renamed in the vault → rename/move the page
+        // moved/renamed in the vault → rename/move the page. The title changes only when the file
+        // name did: a page whose title has characters a file name cannot hold keeps it on a move.
         const title = baseTitle(local.rel)
-        const parentId = await this.ensureDir(posixDir(local.rel))
-        const sameParent = (sp.parentId ?? null) === parentId
-        if (!this.dry && !String(parentId).startsWith('dry:')) {
-          await this.api.patch(pid, sameParent ? { title } : { title, parentId })
+        try {
+          const parentId = await this.ensureDir(posixDir(local.rel))
+          const body: { title?: string; parentId?: string | null } = {}
+          if (title !== baseTitle(st.path)) body.title = title
+          if ((sp.parentId ?? null) !== parentId) body.parentId = parentId
+          if (!this.dry && !String(parentId).startsWith('dry:') && Object.keys(body).length) {
+            await this.api.patch(pid, body)
+          }
+        } catch (err) {
+          if (this.refused(err, local.rel)) continue
+          throw err
         }
         this.note('rename-server', local.rel, `was ${st.path}`)
         st.path = local.rel
@@ -536,6 +692,7 @@ class SyncRun {
 
     // --- pass 2: content ---------------------------------------------------------
     const orphaned: LocalFile[] = []
+    const toTrash: string[] = []
     for (const pid of tracked.sort((a, b) => this.state.files[a].path.localeCompare(this.state.files[b].path))) {
       const st = this.state.files[pid]
       const local = matched.get(pid) ?? null
@@ -579,33 +736,59 @@ class SyncRun {
           this.note('download', st.path, 'deleted locally but changed on server — restored')
           continue
         }
-        const res = this.dry ? 'ok' : await this.api.trash(pid, st.revision)
-        if (res === 'ok' || res === 'gone') {
-          delete this.state.files[pid]
-          if (!this.dry) await removeFile(this.root, this.baseRel(pid))
-          this.note('trash-server', st.path)
-        } else {
-          const cur = (await this.api.read([pid])).get(pid)
-          if (cur) await this.download(pid, st.path, cur)
-          this.note('download', st.path, res === 'has-children' ? 'has sub-pages on server — restored' : 'changed on server — restored')
-        }
+        toTrash.push(pid) // below, sub-pages before their page
         continue
       }
 
       const localChanged = local.hash !== st.localHash
-      if (localChanged && remote) {
-        await this.mergeBoth(pid, rel, local.text, remote)
-      } else if (localChanged) {
-        try {
-          await this.upload(pid, rel, local.text, st.revision)
-          this.note('upload', rel)
-        } catch (err) {
-          if (!(err instanceof RevisionMismatch)) throw err
-          await this.mergeBoth(pid, rel, local.text, err.current)
+      try {
+        if (localChanged && remote) {
+          // Our own write whose answer was lost (a cut-off run) looks like this too. The server takes
+          // a write with a stale revision only when the page already holds exactly this note
+          // (docs/adr/2166-*); otherwise it answers 412 with its version, which is merged as before.
+          try {
+            await this.upload(pid, rel, local.text, st.revision)
+            this.note('upload', rel)
+          } catch (err) {
+            if (!(err instanceof RevisionMismatch)) throw err
+            await this.mergeBoth(pid, rel, local.text, err.current)
+          }
+        } else if (localChanged) {
+          try {
+            await this.upload(pid, rel, local.text, st.revision)
+            this.note('upload', rel)
+          } catch (err) {
+            if (!(err instanceof RevisionMismatch)) throw err
+            await this.mergeBoth(pid, rel, local.text, err.current)
+          }
+        } else if (remote) {
+          await this.download(pid, rel, remote)
+          this.note('download', rel)
         }
-      } else if (remote) {
-        await this.download(pid, rel, remote)
-        this.note('download', rel)
+      } catch (err) {
+        if (!this.refused(err, rel)) throw err
+      }
+    }
+
+    // --- deletes in the vault: deepest first, so a page deleted with its sub-pages folder is a leaf
+    //     by the time it goes to the trash -----------------------------------------------------
+    for (const pid of toTrash.sort((a, b) => depth(this.state.files[b].path) - depth(this.state.files[a].path))) {
+      const st = this.state.files[pid]
+      let res: Awaited<ReturnType<SyncApi['trash']>>
+      try {
+        res = this.dry ? 'ok' : await this.api.trash(pid, st.revision)
+      } catch (err) {
+        if (this.refused(err, st.path)) continue
+        throw err
+      }
+      if (res === 'ok' || res === 'gone') {
+        delete this.state.files[pid]
+        if (!this.dry) await removeFile(this.root, this.baseRel(pid))
+        this.note('trash-server', st.path)
+      } else {
+        const cur = (await this.api.read([pid])).get(pid)
+        if (cur) await this.download(pid, st.path, cur)
+        this.note('download', st.path, res === 'has-children' ? 'has sub-pages on server — restored' : 'changed on server — restored')
       }
     }
 
@@ -625,9 +808,15 @@ class SyncRun {
       }
     }
 
+    // --- pages a cut-off run created whose note is gone since ----------------------
+    for (const pid of abandoned) {
+      const res = this.dry ? 'ok' : await this.api.trash(pid, fetched.get(pid)?.revision ?? null).catch(() => 'changed' as const)
+      if (res === 'ok' || res === 'gone') this.note('trash-server', serverPaths.get(pid) ?? pid, 'created by an interrupted run; the note is gone')
+    }
+
     // --- new server pages -------------------------------------------------------
     for (const p of newServer) {
-      if (adopted.has(p.id) || this.state.files[p.id]) continue
+      if (adopted.has(p.id) || this.state.files[p.id] || resumed.has(p.id) || abandoned.includes(p.id)) continue
       const remote = fetched.get(p.id)
       if (!remote) continue
       let rel = serverPaths.get(p.id) ?? `${sanitizeName(p.title)}.md`
@@ -654,39 +843,122 @@ class SyncRun {
     // --- new local notes --------------------------------------------------------
     // Notes with attachments or [[links]] are created empty first and filled in a second
     // phase: uploads need the page id, and links must resolve to notes created in this run.
+    // Every create carries a retry key saved beforehand, so a run cut off after the server made
+    // the page finds that page again instead of making a second one (docs/adr/2166-*).
     const deferred: { f: LocalFile; pid: string; revision: string }[] = []
-    for (const f of [...newLocal, ...orphaned]) {
-      const parentId = await this.ensureDir(posixDir(f.rel))
-      const title = baseTitle(f.rel)
+    for (const [pid, f] of resumed) {
+      const revision = fetched.get(pid)?.revision ?? ''
+      this.state.files[pid] = { path: f.rel, localHash: '', serverHash: '', revision }
+      deferred.push({ f: { ...f, text: stripForeignId(f.text) }, pid, revision })
+      for (const [k, v] of Object.entries(this.state.pending ?? {})) if (syncCreateId(this.workspaceId, v) === pid) delete this.state.pending![k]
+    }
+    const creating = [...newLocal, ...orphaned]
+    if (!this.dry && creating.length) {
+      this.state.pending ??= {}
+      let added = false
+      for (const f of creating) {
+        if (this.state.pending[f.rel]) continue
+        this.state.pending[f.rel] = randomUUID()
+        added = true
+      }
+      if (added) await this.saveState()
+    }
+    for (const f of creating) {
       if (this.dry) {
+        await this.ensureDir(posixDir(f.rel))
         this.note('create-server', f.rel)
         continue
       }
-      const realParent = parentId && !parentId.startsWith('dry:') ? parentId : null
+      const title = baseTitle(f.rel)
       const text = stripForeignId(f.text)
-      const twoPhase = text.includes('[[') || /\]\((?!https?:|\/files\/)[^()\s]+\)/i.test(text)
-      if (!twoPhase) {
-        const r = await this.api.create({ parentId: realParent, title, kind: 'doc', markdown: text })
-        const result = r as unknown as PageMarkdown
-        const canonical = await this.toLocal(result.markdown, f.rel)
-        await writeAtomic(this.root, f.rel, canonical)
-        await this.record(r.page.id, f.rel, canonical, result)
-      } else {
-        const r = await this.api.create({ parentId: realParent, title, kind: 'doc' })
-        deferred.push({ f: { ...f, text }, pid: r.page.id, revision: r.revision ?? '' })
+      const twoPhase = text.includes('[[') || /\]\((?!<?(?:https?:|\/files\/))(?:<[^<>\n]+>|[^()\s]+)\)/i.test(text)
+      const clientKey = this.state.pending?.[f.rel]
+      try {
+        const parentId = await this.ensureDir(posixDir(f.rel))
+        const realParent = parentId && !parentId.startsWith('dry:') ? parentId : null
+        const r = await this.api.create({ parentId: realParent, title, kind: 'doc', clientKey, ...(twoPhase ? {} : { markdown: text }) })
+        if (twoPhase || r.replayed) {
+          // recorded now, filled below: a run cut off before the fill uploads the note next time
+          this.state.files[r.page.id] = { path: f.rel, localHash: '', serverHash: r.contentHash ?? '', revision: r.revision ?? '' }
+          deferred.push({ f: { ...f, text }, pid: r.page.id, revision: r.revision ?? '' })
+        } else {
+          const result = r as unknown as PageMarkdown
+          const keep = this.keptKeys(f.rel, result)
+          const canonical = keepFrontmatterKeys(await this.toLocal(result.markdown, f.rel), text, keep)
+          await writeAtomic(this.root, f.rel, canonical)
+          await this.record(r.page.id, f.rel, canonical, result, keep)
+        }
+      } catch (err) {
+        if (this.refused(err, f.rel)) continue
+        throw err
       }
+      if (clientKey) delete this.state.pending![f.rel]
       this.note('create-server', f.rel)
     }
-    for (const d of deferred) await this.upload(d.pid, d.f.rel, d.f.text, d.revision)
+    for (const d of deferred) {
+      try {
+        await this.upload(d.pid, d.f.rel, d.f.text, d.revision)
+      } catch (err) {
+        if (err instanceof RevisionMismatch) await this.mergeBoth(d.pid, d.f.rel, d.f.text, err.current)
+        else if (!this.refused(err, d.f.rel)) throw err
+      }
+    }
+
+    // --- folder pages whose directory is gone from the vault (docs/adr/2167-*) -------------------
+    // Deleted with its notes, or emptied by moves: the folder page goes to the trash too, deepest
+    // first. The server keeps it (409) while it still holds pages, then the directory comes back.
+    // Only a folder that held notes at the end of the last completed run: an empty directory can go
+    // missing without anyone deleting it (a copy of the vault made by git or a zip); it is re-made.
+    const serverDir = serverDirOf()
+    const goneFolders = Object.entries(prevDirs)
+      .filter(([pid, dir]) => dirsKnown && serverById.get(pid)?.kind === 'folder' && serverDir.get(pid) === dir)
+      .filter(([pid]) => prevFilled.has(pid))
+      .sort((a, b) => depth(b[1]) - depth(a[1]))
+    for (const [pid, dir] of goneFolders) {
+      if (await stat(vaultPath(this.root, dir)).catch(() => null)) continue
+      let res: Awaited<ReturnType<SyncApi['trash']>> = 'ok'
+      try {
+        if (!this.dry) res = await this.api.trash(pid, null)
+      } catch (err) {
+        if (this.refused(err, `${dir}/`)) continue
+        throw err
+      }
+      if (res === 'ok' || res === 'gone') {
+        delete this.state.folders[pid]
+        this.dirIndex.delete(dir)
+        this.note('trash-server', `${dir}/`, 'folder')
+      } else this.note('keep', `${dir}/`, 'folder still holds pages on the server — directory restored')
+    }
 
     // --- folders: make sure server folders exist as directories -----------------
     if (!this.dry) {
       for (const dir of Object.values(this.state.folders)) await mkdir(vaultPath(this.root, dir), { recursive: true })
     }
 
+    // --- directories this run left empty behind (moved, renamed or trashed pages) --------------
+    const nowDirs = new Map([...this.dirIndex].filter(([, id]) => !id.startsWith('dry:')).map(([d, id]) => [id, d]))
+    if (!this.dry) {
+      const keep = new Set(nowDirs.values())
+      const left = Object.values(prevDirs).filter((d) => !keep.has(d)).sort((a, b) => depth(b) - depth(a))
+      for (const d of left) await rmdir(vaultPath(this.root, d)).catch(() => undefined) // only if empty
+    }
+
+    this.state.dirs = Object.fromEntries(nowDirs)
+    const holding = new Set<string>()
+    for (const f of Object.values(this.state.files)) for (let d = posixDir(f.path); d && !holding.has(d); d = posixDir(d)) holding.add(d)
+    this.state.filled = [...nowDirs].filter(([, d]) => holding.has(d)).map(([id]) => id)
+    this.state.pending = {}
     this.state.cursor = changes.cursor
     await this.saveState()
     this.printSummary()
+  }
+
+  /** A vault directory renamed/moved as a whole: later lookups use the new path. */
+  private remapDir(from: string, to: string, serverPaths: Map<string, string>): void {
+    const move = (p: string) => (p === from ? to : p.startsWith(`${from}/`) ? `${to}${p.slice(from.length)}` : p)
+    this.dirIndex = new Map([...this.dirIndex].map(([d, id]) => [move(d), id]))
+    for (const [id, d] of Object.entries(this.state.folders)) this.state.folders[id] = move(d)
+    for (const [id, p] of serverPaths) serverPaths.set(id, move(p))
   }
 
   private printSummary(): void {
@@ -701,6 +973,7 @@ class SyncRun {
       process.stdout.write(`\n${this.conflicts.length} conflict(s) — your note was left untouched; resolve, then delete the conflict copy:\n`)
       for (const c of this.conflicts) process.stdout.write(`  ${c}\n`)
     }
+    for (const n of this.notices) process.stdout.write(`note: ${n}\n`)
   }
 }
 

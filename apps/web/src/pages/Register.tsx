@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { registerSchema } from '@inkling/shared'
 import { ApiError, useAuthMode, useMe, useRegister } from '../api'
 import { safeNext } from '../lib/nav'
@@ -15,6 +15,10 @@ export function Register() {
   const me = useMe()
   const register = useRegister()
   const mode = useAuthMode()
+  // First-admin setup (/setup?code=…, docs/adr/2160-*): the code from the server log replaces the
+  // signup key for the server's first account, which becomes its admin.
+  const setupMode = useLocation().pathname === '/setup'
+  const [setupCode, setSetupCode] = useState(params.get('code') ?? '')
 
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -34,7 +38,7 @@ export function Register() {
 
   // Sign-up only creates Inkling's own accounts — unrelated to external accounts used for delegated sign-in.
   if (mode.isLoading) return <FullScreenSpinner />
-  const keyRequired = mode.data?.signupKeyRequired ?? false
+  const keyRequired = !setupMode && (mode.data?.signupKeyRequired ?? false)
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,12 +49,18 @@ export function Register() {
       setErrors({ signupKey: t('register.signupKeyRequired') })
       return
     }
+    if (setupMode && !setupCode.trim()) {
+      setErrors({ signupKey: t('setup.codeRequired') })
+      return
+    }
 
     const parsed = registerSchema.safeParse({
       email,
       name,
       password,
-      signupKey: signupKey.trim() || undefined,
+      ...(setupMode
+        ? { setupCode: setupCode.trim() || undefined }
+        : { signupKey: signupKey.trim() || undefined }),
     })
     if (!parsed.success) {
       const next: {
@@ -65,8 +75,8 @@ export function Register() {
         if (field === 'name' && !next.name) next.name = t('register.nameInvalid')
         if (field === 'password' && !next.password)
           next.password = t('auth.passwordTooShort')
-        if (field === 'signupKey' && !next.signupKey)
-          next.signupKey = t('register.checkSignupKey')
+        if ((field === 'signupKey' || field === 'setupCode') && !next.signupKey)
+          next.signupKey = setupMode ? t('setup.invalidCode') : t('register.checkSignupKey')
       }
       setErrors(next)
       return
@@ -86,6 +96,10 @@ export function Register() {
           (err.code === 'INVALID_SIGNUP_KEY' || err.code === 'SIGNUP_KEY_REQUIRED')
         ) {
           setErrors({ signupKey: t('register.invalidKey') })
+        } else if (err instanceof ApiError && err.code === 'INVALID_SETUP_CODE') {
+          setErrors({ signupKey: t('setup.invalidCode') })
+        } else if (err instanceof ApiError && err.code === 'SETUP_CLOSED') {
+          setServerError(t('setup.closed'))
         } else if (err instanceof ApiError && err.code === 'EMAIL_RESERVED') {
           setErrors({ email: t('register.emailReserved') })
         } else {
@@ -123,6 +137,12 @@ export function Register() {
         <div className="mb-6 flex flex-col items-center gap-2">
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
+          {setupMode && (
+            <>
+              <h2 className="text-sm font-semibold text-ink">{t('setup.title')}</h2>
+              <p className="text-center text-xs text-sub">{t('setup.hint')}</p>
+            </>
+          )}
         </div>
 
         <form
@@ -186,6 +206,25 @@ export function Register() {
             </label>
           )}
 
+          {setupMode && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-sub">{t('setup.code')}</span>
+              <input
+                type="text"
+                value={setupCode}
+                onChange={(e) => setSetupCode(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                className="rounded-md border border-line bg-app px-3 py-2 font-mono text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+              {errors.signupKey ? (
+                <span className="text-xs text-red-600">{errors.signupKey}</span>
+              ) : (
+                <span className="text-xs text-sub">{t('setup.codeHint')}</span>
+              )}
+            </label>
+          )}
+
           {serverError && <p className="text-xs text-red-600">{serverError}</p>}
 
           <button
@@ -196,7 +235,7 @@ export function Register() {
             {register.isPending && (
               <Spinner size={16} className="border-white/40 border-t-white" />
             )}
-            {t('register.submit')}
+            {setupMode ? t('setup.submit') : t('register.submit')}
           </button>
         </form>
 

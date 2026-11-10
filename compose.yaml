@@ -54,7 +54,8 @@ services:
     ports:
       # Host exposure for development (55432 → 5432), on a non-standard port to avoid clashes.
       # Bound to loopback only so the DB port is never reachable from outside (H2).
-      - "127.0.0.1:55432:5432"
+      # INKLING_DB_PORT moves it when 55432 is taken (deploy/local.sh picks a free one).
+      - "127.0.0.1:${INKLING_DB_PORT:-55432}:5432"
     volumes:
       - nodian-db:/var/lib/postgresql/data
     healthcheck:
@@ -187,7 +188,9 @@ services:
       # the times shown in emails. Default UTC; set TZ in .env (e.g. Asia/Seoul) to match users.
       TZ: ${TZ:-UTC}
     ports:
-      - "3000:3000"
+      # Host side: INKLING_PORT (default 3000), a port or ip:port, e.g. 127.0.0.1:3987 to keep it
+      # on this machine. The container always listens on 3000.
+      - "${INKLING_PORT:-3000}:3000"
     volumes:
       - nodian-data:/data
       # Backups (docs/BACKUP.md): the app only reads backup sets/status and drops trigger files.

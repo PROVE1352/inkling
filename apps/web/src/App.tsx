@@ -90,6 +90,8 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Page><Register /></Page>} />
       <Route path="/signup" element={<Page><Register /></Page>} />
+      {/* first-admin setup link from the server log (docs/adr/2160-*) */}
+      <Route path="/setup" element={<Page><Register /></Page>} />
       <Route path="/reset" element={<Page><ResetPassword /></Page>} />
       <Route path="/verify" element={<Page><VerifyEmail /></Page>} />
       <Route path="/join/:code" element={<Page><JoinWorkspace /></Page>} />

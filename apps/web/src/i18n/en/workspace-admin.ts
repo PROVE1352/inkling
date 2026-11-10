@@ -133,7 +133,7 @@ export default {
   'agentUploads.group': 'File uploads',
   'agentUploads.title': 'Uploads by AI agents',
   'agentUploads.desc':
-    'Whether AI agents connected to this workspace may attach files to pages (upload_file, or an API token posting a file). Uploads by people in the browser and agents reading attachments are not affected.',
+    'Whether AI agents connected to this workspace may attach files to pages (upload_file, attachments in a zip imported with import_zip, or an API token posting a file). Uploads by people in the browser and agents reading attachments are not affected.',
   'agentUploads.defaultOn': 'Server default (on)',
   'agentUploads.defaultOff': 'Server default (off)',
   'agentUploads.on': 'On',

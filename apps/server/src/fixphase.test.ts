@@ -87,17 +87,18 @@ describe('withRetry / withTimeout (B-H1)', async () => {
 describe('zip import metering (C-M6)', async () => {
   const JSZip = (await import('jszip')).default
   const { readZipEntryCapped } = await import('./md/importer')
+  // ratio: Infinity isolates the real-byte meter from the inflate-ratio stop (docs/adr/2163-*, zipSafety.test.ts)
   it('stops a highly compressed entry at the cap by real bytes', async () => {
     const zip = new JSZip()
     zip.file('bomb.md', Buffer.alloc(3 * 1024 * 1024, 0x61))
     const loaded = await JSZip.loadAsync(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
     const e = loaded.file('bomb.md')!
-    await assert.rejects(readZipEntryCapped(e, { total: 0 }, { entry: 1024 * 1024, total: 10 * 1024 * 1024 }), /too large/)
+    await assert.rejects(readZipEntryCapped(e, { total: 0 }, { entry: 1024 * 1024, total: 10 * 1024 * 1024, ratio: Infinity }), /too large/)
     const meter = { total: 0 }
-    const ok = await readZipEntryCapped(e, meter, { entry: 4 * 1024 * 1024, total: 10 * 1024 * 1024 })
+    const ok = await readZipEntryCapped(e, meter, { entry: 4 * 1024 * 1024, total: 10 * 1024 * 1024, ratio: Infinity })
     assert.equal(ok.length, 3 * 1024 * 1024)
     assert.equal(meter.total, 3 * 1024 * 1024)
-    await assert.rejects(readZipEntryCapped(e, meter, { entry: 4 * 1024 * 1024, total: 5 * 1024 * 1024 }), /when unpacked/)
+    await assert.rejects(readZipEntryCapped(e, meter, { entry: 4 * 1024 * 1024, total: 5 * 1024 * 1024, ratio: Infinity }), /when unpacked/)
   })
 })
 

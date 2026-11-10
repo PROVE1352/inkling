@@ -37,7 +37,8 @@ export const HIDDEN_GROUPS: { group: string; tools: string[]; about: string }[] 
   // workspace or server (docs/adr/2065-*), and listing it would cost every core session ~210 tokens.
   // Against: more_tools flattens per-tool approval for this write tool (KNOWN-ISSUES MCP-PROF-4); use
   // the full profile for that.
-  { group: 'files', tools: ['import_folder', 'upload_file'], about: 'many Markdown files at once; upload an attachment' },
+  // import_zip (0.17, docs/adr/2162-*) joins them for the same reasons; core's fixed cost is unchanged.
+  { group: 'files', tools: ['import_folder', 'import_zip', 'upload_file'], about: 'many Markdown files at once; a zip of a folder; upload an attachment' },
   { group: 'ink', tools: ['read_ink'], about: 'handwriting as images' },
 ]
 

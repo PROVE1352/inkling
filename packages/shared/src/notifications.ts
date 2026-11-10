@@ -209,6 +209,12 @@ export const inboxAckSchema = z
   .object({
     ids: z.array(z.string().regex(/^\d{1,19}$/)).max(500).optional(),
     cursor: z.string().regex(/^\d{1,19}$/).optional(),
+    /**
+     * With `cursor`: the filters of the listing the cursor came from (docs/adr/1922-*). A cursor ack
+     * only reaches items that listing could show; without them, the unfiltered inbox.
+     */
+    workspaceId: z.uuid().optional(),
+    kinds: z.array(z.enum(INBOX_KINDS)).max(INBOX_KINDS.length).optional(),
   })
   .refine((d) => (d.ids && d.ids.length > 0) || d.cursor !== undefined, { message: 'ids or cursor is required' })
 

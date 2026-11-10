@@ -1,6 +1,6 @@
 import { assertPlacement, withTreeLock } from '../pageTree'
 import { assertPageEditable } from '../editLock'
-import { readBlocks } from '../context/sectionPatch'
+import { applyDocumentReplace, buildEchoIndex, readBlocks } from '../context/sectionPatch'
 import { and, eq, gt, inArray, isNull, isNotNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
@@ -22,12 +22,14 @@ import {
   contentHashOf,
   fixAliasedLinkText,
   frontmatterToMeta,
+  isLegacyRevision,
   linkTargets,
   metaHash,
   parseFrontmatter,
   renderSyncMarkdown,
   revisionFromDoc,
   revisionFromState,
+  revisionSvPart,
   splitRevision,
   wikiTitleResolver,
 } from '../md/syncMd'
@@ -396,6 +398,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       await assertPageEditable(id, user.id)
       if (page.kind !== 'doc') throw badRequest('Only document pages hold markdown')
 
+      // A token from before 0.15.1 (no deletion half, docs/adr/1920-*) never matches below: the
+      // client gets the current version with the 412 and merges, so a deletion it never saw survives.
       const expected = splitRevision(body.expectedRevision)
       // (1) metadata half of the token — properties/aliases
       if (expected.meta !== (await pageMetaHash(page))) {
@@ -412,6 +416,11 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       let mismatch = false
       const conn = await hocuspocus.openDirectConnection(id)
       try {
+        // Echo of the current blocks (async, before the synchronous section): lets the minimal
+        // replace recognise blocks the note left alone through the Markdown round trip.
+        const echo = conn.document
+          ? await buildEchoIndex(readBlocks(conn.document), wikiTitleResolver(await buildTitleResolver(page.workspaceId, new Map(), user.id)), {}, incoming).catch(() => null)
+          : null
         await conn.transact((doc) => {
           const current = splitRevision(revisionFromDoc(doc, expected.meta)).doc
           if (current !== expected.doc) {
@@ -419,6 +428,18 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
             return
           }
           const frag = doc.getXmlFragment('document')
+          // A minimal edit of the whole document (the update_page replace path, docs/adr/1500-*):
+          // blocks the note did not change keep their nodes, so typing still on its way from a
+          // browser into them survives instead of landing in deleted text (docs/adr/1920-*).
+          if (frag.length > 0) {
+            try {
+              applyDocumentReplace(doc, incoming, echo)
+              return
+            } catch (err) {
+              // validated on a copy first: nothing was written; rewrite as before
+              console.warn(`[vault-sync] minimal replace not applied (${err instanceof Error ? err.message : String(err)}); rewriting the document`)
+            }
+          }
           doc.transact(() => {
             frag.delete(0, frag.length)
             blocksToXmlFragment(incoming, frag)
@@ -568,7 +589,14 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       if (page.kind === 'doc') {
         if (!expectedRevision) throw badRequest('expectedRevision is required for documents')
         const { revision } = await snapshotPage(page)
-        if (revision !== expectedRevision) return preconditionFailed(reply, await renderPage(page, user.id))
+        // A token from before 0.15.1 has no deletion half (docs/adr/1920-*). Trashing is still safe
+        // when nothing was inserted or reformatted since (same state vector, same metadata): only
+        // deletions can have happened, and the whole page goes to the trash anyway.
+        const legacyOk =
+          isLegacyRevision(expectedRevision) &&
+          revisionSvPart(expectedRevision) === revisionSvPart(revision) &&
+          splitRevision(expectedRevision).meta === splitRevision(revision).meta
+        if (revision !== expectedRevision && !legacyOk) return preconditionFailed(reply, await renderPage(page, user.id))
       }
       // Leaf check and trash in one transaction under the tree lock, so a child created
       // concurrently is either seen here (409) or refused by its own placement check.

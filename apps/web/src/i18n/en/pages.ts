@@ -8,6 +8,8 @@ export default {
   'page.statusConnected': 'Connected',
   'page.statusConnecting': 'Connecting',
   'page.statusDisconnected': 'Disconnected',
+  'page.statusUnsaved': 'Not saved yet',
+  'page.statusUnsavedHint': 'Some edits have not reached the server yet. Keep this tab open until they are saved.',
   'page.themeLight': 'Light',
   'page.themeDark': 'Dark',
   'page.themeSystem': 'System',

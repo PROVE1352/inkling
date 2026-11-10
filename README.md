@@ -51,7 +51,7 @@ Using an Inkling server someone else runs? Start with the [user guide](docs/GUID
 - Query blocks: a Dataview subset (`TABLE` / `LIST` / `TASK`, `FROM`, `WHERE`, `SORT`, `LIMIT`) that stays live as pages change ([docs/QUERY.md](docs/QUERY.md))
 
 **Collaborate**
-- Real-time co-editing with Yjs: live cursors, presence, offline edits merge on reconnect
+- Real-time co-editing with Yjs: live cursors, presence; edits made while the connection drops merge on reconnect as long as the tab stays open (nothing is kept in the browser, so the tab warns before it closes with unsaved edits)
 - Workspaces with invite links and owner, admin and member roles. Read-only public share links for a page or a folder subtree, which an owner can switch off for the whole workspace
 - Edit lock for a page and everything under it: only its owner and chosen editors can edit, and agents can separately be limited to commenting or reading. It is checked on every write path, live editing included
 - Notifications for @mentions in pages and comments, replies, owner and person-cell assignments, and edits of pages you follow. Each page or subtree can be set to all activity, mentions (the default), nothing or mute. With SMTP, mentions and replies are mailed right away and the rest arrives in a daily or weekly digest

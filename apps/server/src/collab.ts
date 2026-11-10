@@ -20,7 +20,7 @@ import { isTwoFactorBlocked } from './twoFactorPolicy'
 import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
-import { liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
+import { liveDocChangedSinceStore, liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
 import { trustedClientIp } from './guard'
@@ -89,17 +89,162 @@ const persistence: Extension = {
   async onStoreDocument({ documentName, document, socketId }) {
     // Non-UUID documents such as inbox are never stored/snapshotted/indexed: skip every store hook.
     if (!isPageDocument(documentName)) return
-    // Stores of one document are serialised: Hocuspocus only debounces *timers*, so a
-    // DirectConnection store (debounce 0) can run while a client store is mid-flight, and the
-    // one holding the older state could finish last and overwrite page_docs. Inside the chain
-    // we encode from the live Y.Doc, so whichever store runs last writes the newest state.
-    return serialStore(documentName, () => {
-      // Update counter at encode time: the live doc equals what this store writes (docs/adr/1041-*).
-      const seq = liveDocSeq(document)
-      const state = Buffer.from(encodeStoredState(document))
-      return storeDocument(documentName, state, Buffer.from(Y.encodeStateVector(document)), document, socketId, document, seq)
-    })
+    try {
+      await storeLive(documentName, document, socketId)
+    } catch (err) {
+      // The write failed after its retries (docs/adr/1921-*). Hocuspocus would only store again on
+      // the next change, and once the last client leaves nothing comes: a retry timer stores it,
+      // and the unload guard below keeps the document in memory until one store succeeds.
+      console.error(`[inkling] collab store of ${documentName} failed; retrying in the background`, err)
+      scheduleStoreRetry(documentName, document)
+      // A DirectConnection write (REST/MCP) awaits this store: it must still see the failure.
+      if (socketId === 'server') throw err
+    }
   },
+  /**
+   * Unload guard (docs/adr/1921-*): a document that changed since its last successful store is
+   * stored before it leaves memory. If that fails too it stays (a pin counts as a connection, so
+   * Hocuspocus's own re-check after this hook keeps it) until the retry timer stores it.
+   */
+  async beforeUnloadDocument({ documentName }) {
+    if (!isPageDocument(documentName)) return
+    const document = hocuspocus.documents.get(documentName)
+    if (!document || !loadedDocs.has(document)) return // never loaded: nothing of ours to lose
+    if (!liveDocChangedSinceStore(document)) return
+    const prev = persisted.get(document)
+    if (prev && prev.digest === stateDigest(encodeStoredState(document))) return
+    try {
+      await storeLive(documentName, document, 'server')
+    } catch (err) {
+      if (collabDestroying) {
+        console.error(`[inkling] ${documentName}: unsaved changes lost at shutdown, the store failed`, err)
+        return
+      }
+      console.error(`[inkling] ${documentName} has unsaved changes and the store failed; keeping it in memory`, err)
+      pinUnsaved(documentName, document)
+    }
+  },
+}
+
+/** Set while destroyCollab runs: the unload guard stores but no longer keeps documents. */
+let collabDestroying = false
+
+/** Documents whose load finished (a failed load must never be stored: it would write an empty doc). */
+const loadedDocs = new WeakSet<Y.Doc>()
+
+/**
+ * Stores of one document are serialised: Hocuspocus only debounces *timers*, so a
+ * DirectConnection store (debounce 0) can run while a client store is mid-flight, and the
+ * one holding the older state could finish last and overwrite page_docs. Inside the chain
+ * we encode from the live Y.Doc, so whichever store runs last writes the newest state.
+ */
+function storeLive(documentName: string, document: Y.Doc & { getConnectionsCount?: () => number }, socketId: string | undefined): Promise<void> {
+  return serialStore(documentName, async () => {
+    // Update counter at encode time: the live doc equals what this store writes (docs/adr/1041-*).
+    const seq = liveDocSeq(document)
+    const state = Buffer.from(encodeStoredState(document))
+    await storeDocument(documentName, state, Buffer.from(Y.encodeStateVector(document)), document, socketId, document, seq)
+    clearStoreRetry(documentName, document)
+  })
+}
+
+interface StoreRetry {
+  doc: Y.Doc
+  attempt: number
+  timer: NodeJS.Timeout | null
+  /** The unload guard pinned the document (one direct-connection count) until a store succeeds. */
+  pinned: boolean
+}
+/** Pending store retries by document name (docs/adr/1921-*). */
+const storeRetries = new Map<string, StoreRetry>()
+
+function scheduleStoreRetry(documentName: string, document: Y.Doc): void {
+  let r = storeRetries.get(documentName)
+  if (r && r.doc !== document) {
+    clearStoreRetry(documentName, r.doc)
+    r = undefined
+  }
+  if (!r) {
+    r = { doc: document, attempt: 0, timer: null, pinned: false }
+    storeRetries.set(documentName, r)
+  }
+  if (r.timer) return
+  const wait = Math.min(collabStoreRetry.baseMs * 2 ** r.attempt, collabStoreRetry.maxMs)
+  const entry = r
+  entry.timer = setTimeout(() => {
+    entry.timer = null
+    void runStoreRetry(documentName, entry)
+  }, wait)
+  entry.timer.unref?.()
+}
+
+async function runStoreRetry(documentName: string, r: StoreRetry): Promise<void> {
+  if (storeRetries.get(documentName) !== r) return
+  const doc = r.doc as Y.Doc & { getConnectionsCount?: () => number; removeDirectConnection?: () => void }
+  if (hocuspocus.documents.get(documentName) !== doc) {
+    // unloaded (after a successful store) or replaced by a reload: nothing left to retry
+    storeRetries.delete(documentName)
+    return
+  }
+  try {
+    await storeLive(documentName, doc, r.pinned ? 'server' : undefined)
+  } catch (err) {
+    r.attempt++
+    console.error(`[inkling] collab store retry ${r.attempt} of ${documentName} failed`, err)
+    scheduleStoreRetry(documentName, doc)
+  }
+}
+
+/**
+ * A store succeeded: drop the retry. A pinned document is released, and a document nobody is on any
+ * more (pinned, or left behind when a failed DirectConnection store skipped Hocuspocus's own
+ * unload) is unloaded now that it is saved.
+ */
+function clearStoreRetry(documentName: string, document: Y.Doc): void {
+  const r = storeRetries.get(documentName)
+  if (!r || r.doc !== document) return
+  storeRetries.delete(documentName)
+  if (r.timer) clearTimeout(r.timer)
+  const doc = document as Y.Doc & { getConnectionsCount: () => number; removeDirectConnection: () => void }
+  if (r.pinned) doc.removeDirectConnection()
+  if (doc.getConnectionsCount() === 0 && hocuspocus.documents.get(documentName) === document) {
+    // after the store chain step that called us, so the guard's own store does not wait on itself
+    setImmediate(() => {
+      if (doc.getConnectionsCount() !== 0 || hocuspocus.documents.get(documentName) !== document) return
+      void hocuspocus.unloadDocument(document as Parameters<typeof hocuspocus.unloadDocument>[0]).catch((err: unknown) =>
+        console.error('[inkling] unload after a retried store failed', documentName, err),
+      )
+    })
+  }
+}
+
+function pinUnsaved(documentName: string, document: Y.Doc): void {
+  scheduleStoreRetry(documentName, document)
+  const r = storeRetries.get(documentName)!
+  if (!r.pinned) {
+    r.pinned = true
+    ;(document as Y.Doc & { addDirectConnection: () => void }).addDirectConnection()
+  }
+}
+
+/**
+ * Stores and indexes the open documents among `pageIds` now (docs/adr/1923-*), for copies made in
+ * Postgres (duplicate copies page_docs, page_texts and page_chunks row by row): without it the copy
+ * misses what was typed within the store debounce (2–10 s). Unchanged documents only finish their
+ * pending index pass. A store failure propagates: the caller must not copy a stale state silently.
+ */
+export async function flushLiveDocuments(pageIds: string[]): Promise<void> {
+  for (const id of pageIds) {
+    const doc = hocuspocus.documents.get(id)
+    if (!doc || !loadedDocs.has(doc)) continue
+    if (liveDocChangedSinceStore(doc)) await storeLive(id, doc, 'server')
+    else await flushDocIndex(id)
+  }
+}
+
+/** Documents kept in memory because their changes are not stored yet (shutdown log, tests). */
+export function unsavedPinnedDocuments(): string[] {
+  return [...storeRetries.entries()].filter(([, r]) => r.pinned).map(([name]) => name)
 }
 
 const storeChains = new Map<string, Promise<void>>()
@@ -151,9 +296,9 @@ async function storeDocument(
     await maybeAutoSnapshotStored(documentName)
 
     // Persist the state and bump pages.updated_at in one round trip. A short database outage
-    // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow so the
-    // failure is visible — Hocuspocus keeps the document and stores again on the next change,
-    // and the process-level unhandledRejection handler logs instead of crashing (B-H1).
+    // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow. The store
+    // hook then arms a retry timer and the unload guard keeps the document in memory until a store
+    // succeeds (B-H1, docs/adr/1921-*).
     const rows = (await withRetry(
       () =>
         db.execute(sql`
@@ -206,6 +351,9 @@ async function convertStoredState(documentName: string, state: Buffer, stateVect
   }
 }
 
+/** Retry timer of a failed store (docs/adr/1921-*): first wait, doubling up to the cap. Tests shorten it. */
+export const collabStoreRetry = { baseMs: 5_000, maxMs: 60_000 }
+
 /** Test/bench hook: stores written vs skipped as unchanged, V1 rows rewritten as V2 (docs/adr/1042-*, 1101-*). */
 export const storeStats = { written: 0, skipped: 0, converted: 0 }
 
@@ -227,6 +375,7 @@ export const hocuspocus = new Hocuspocus({
     const loaded = loadedStamps.get(documentName)
     loadedStamps.delete(documentName)
     trackLiveDoc(document, loaded?.stamp ?? null)
+    loadedDocs.add(document)
     if (loaded?.digest) persisted.set(document, { digest: loaded.digest, stamp: loaded.stamp, legacy: loaded.legacy })
     // A page never indexed (created without the indexer, or with no stored state yet) gets its
     // current state indexed before the first edit, so that edit is diffed against it in the change
@@ -504,7 +653,33 @@ export function attachCollab(httpServer: HttpServer): void {
 
 /** Clean up Hocuspocus on shutdown */
 export async function destroyCollab(): Promise<void> {
-  await hocuspocus.destroy()
+  // Documents waiting for a store retry (docs/adr/1921-*): one last attempt each, now.
+  for (const [name, r] of [...storeRetries]) {
+    if (r.timer) clearTimeout(r.timer)
+    r.timer = null
+    await runStoreRetry(name, r)
+  }
+  const unsaved = unsavedPinnedDocuments()
+  // From here the unload guard no longer pins: hocuspocus.destroy() waits for every document to
+  // unload, and the derived-index flush below must still run. What could not be stored is named.
+  collabDestroying = true
+  if (unsaved.length) {
+    console.error(`[inkling] shutting down with unsaved changes in ${unsaved.length} document(s): ${unsaved.join(', ')}`)
+    for (const name of unsaved) {
+      const r = storeRetries.get(name)
+      storeRetries.delete(name)
+      if (r?.timer) clearTimeout(r.timer)
+      const doc = r?.doc as (Y.Doc & { removeDirectConnection: () => void; getConnectionsCount: () => number }) | undefined
+      if (!doc) continue
+      doc.removeDirectConnection()
+      if (doc.getConnectionsCount() === 0) await hocuspocus.unloadDocument(doc as Parameters<typeof hocuspocus.unloadDocument>[0]).catch(() => {})
+    }
+  }
+  try {
+    await hocuspocus.destroy()
+  } finally {
+    collabDestroying = false
+  }
   // Debounced derived-index passes must not be lost on shutdown.
   await flushDocIndexes()
 }

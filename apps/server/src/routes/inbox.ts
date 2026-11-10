@@ -57,17 +57,23 @@ export function inboxConnectionSql(connection: string | null | undefined, col = 
   return connection ? sql`(${col} IS NULL OR ${col} = ${connection})` : sql`${col} IS NULL`
 }
 
-export async function readInbox(
+/**
+ * SQL over `notifications n LEFT JOIN pages p ON p.id = n.page_id`: the unacknowledged items an inbox
+ * listing with these filters shows (kind, workspace, visibility, range, membership, live workspace,
+ * agent access, two-step rule, connection). Null when the kinds map to no notification type. The
+ * listing and the cursor ack share it, so an ack never reaches an item its listing could not show
+ * (docs/adr/1922-*).
+ */
+export function inboxWhereSql(
   userId: string,
-  q: { workspaceId?: string; cursor?: string; kinds?: InboxKind[] },
-  /** The caller's connection key ('grant:<id>' / 'token:<id>'), null for a browser session. */
-  connection: string | null = null,
-): Promise<{ items: InboxItem[]; more: boolean; unacked: number; handoffs: number }> {
+  q: { workspaceId?: string; kinds?: InboxKind[] },
+  connection: string | null,
+): SQL | null {
   const kinds = q.kinds?.length ? q.kinds : [...INBOX_KINDS]
   const types = typesForInbox(kinds)
-  if (!types.length) return { items: [], more: false, unacked: 0, handoffs: 0 }
+  if (!types.length) return null
   const typeList = sql.join(types.map((t) => sql`${t}`), sql`, `)
-  const where = sql`
+  return sql`
     n.user_id = ${userId} AND n.acked_at IS NULL AND n.type IN (${typeList}) AND ${inboxConnectionSql(connection)}
     ${q.workspaceId ? sql`AND coalesce(n.workspace_id, p.workspace_id) = ${q.workspaceId}` : sql``}
     AND (n.page_id IS NULL OR (p.id IS NOT NULL AND p.deleted_at IS NULL AND (p.scope = 'shared' OR p.created_by = ${userId})))
@@ -76,6 +82,16 @@ export async function readInbox(
     AND ${liveWorkspace(sql`coalesce(n.workspace_id, p.workspace_id)`)}
     AND ${agentAllowedSql(sql`coalesce(n.workspace_id, p.workspace_id)`)}
     AND NOT ${twoFactorBlockedSql(sql`coalesce(n.workspace_id, p.workspace_id)`, userId)}`
+}
+
+export async function readInbox(
+  userId: string,
+  q: { workspaceId?: string; cursor?: string; kinds?: InboxKind[] },
+  /** The caller's connection key ('grant:<id>' / 'token:<id>'), null for a browser session. */
+  connection: string | null = null,
+): Promise<{ items: InboxItem[]; more: boolean; unacked: number; handoffs: number }> {
+  const where = inboxWhereSql(userId, q, connection)
+  if (!where) return { items: [], more: false, unacked: 0, handoffs: 0 }
   const rows = (await db.execute(sql`
     SELECT n.seq::text AS seq, n.type, coalesce(n.workspace_id, p.workspace_id) AS "workspaceId", n.page_id AS "pageId",
            p.title AS "pageTitle", n.anchor, a.name AS "actorName", n.via_client AS via, n.excerpt, n.count,
@@ -159,13 +175,21 @@ export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
     return readInbox(user.id, q, connectionKey(user) || null)
   })
 
-  // Acknowledge inbox items: by seq ids, or everything up to and including a cursor.
+  // Acknowledge inbox items: by seq ids, or everything up to and including a cursor that the
+  // listing with the same filters (workspaceId, kinds) shows (docs/adr/1922-*).
   app.post('/inbox/ack', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const b = inboxAckSchema.parse(req.body)
+    if (b.workspaceId) await requireMembership(b.workspaceId, user.id)
+    const connection = connectionKey(user) || null
     const types = sql.join(typesForInbox([...INBOX_KINDS]).map((t) => sql`${t}`), sql`, `)
     const byIds = b.ids?.length ? sql`seq = ANY(${`{${b.ids.join(',')}}`}::bigint[])` : sql`false`
-    const byCursor = b.cursor ? sql`seq <= ${b.cursor}::bigint` : sql`false`
+    // A cursor stands for "everything the listing showed up to here": the listing's own WHERE.
+    const listed = b.cursor ? inboxWhereSql(user.id, { workspaceId: b.workspaceId, kinds: b.kinds }, connection) : null
+    const byCursor = listed
+      ? sql`seq IN (SELECT n.seq FROM notifications n LEFT JOIN pages p ON p.id = n.page_id
+             WHERE ${listed} AND n.seq <= ${b.cursor}::bigint)`
+      : sql`false`
     // A range-limited connection acknowledges only items it could read (docs/adr/1200-*).
     const inRange = currentRange(user.id)
       ? sql`AND seq IN (SELECT n.seq FROM notifications n LEFT JOIN pages p ON p.id = n.page_id
@@ -176,7 +200,7 @@ export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
     const rows = (await db.execute(sql`
       UPDATE notifications SET acked_at = now()
        WHERE user_id = ${user.id} AND acked_at IS NULL AND type IN (${types}) AND (${byIds} OR ${byCursor}) ${inRange}
-         AND ${inboxConnectionSql(connectionKey(user) || null, sql`connection`)}
+         AND ${inboxConnectionSql(connection, sql`connection`)}
       RETURNING seq
     `)) as unknown as { seq: string }[]
     return { acked: rows.length }

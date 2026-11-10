@@ -116,6 +116,11 @@ services:
       UPDATE_MODE: ${UPDATE_MODE:-}
       UPDATE_CHECK: ${UPDATE_CHECK:-}
       UPDATE_CHECK_REPO: ${UPDATE_CHECK_REPO:-}
+      # One server process per database (docs/adr/1925-*): a second one waits SINGLE_INSTANCE_WAIT
+      # seconds (default 60) for the first to stop, then refuses to boot. SINGLE_INSTANCE=0 turns the
+      # guard off — only for a deliberate extra process, never a second web server.
+      SINGLE_INSTANCE: ${SINGLE_INSTANCE:-}
+      SINGLE_INSTANCE_WAIT: ${SINGLE_INSTANCE_WAIT:-}
       # Most pages one import may create (default 5000).
       IMPORT_MAX_PAGES: ${IMPORT_MAX_PAGES:-}
       IMPORT_MAX_UPLOAD_MB: ${IMPORT_MAX_UPLOAD_MB:-}

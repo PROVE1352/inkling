@@ -1,6 +1,7 @@
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
+import { bumpAcl } from './aclVersion'
 import { db, relaxStatementTimeout } from './db/index'
 import { files, notifications, users, workspaceMembers, workspaces } from './db/schema'
 import { env } from './env'
@@ -227,6 +228,8 @@ export async function transferOwnership(actor: AuditActor, workspaceId: string, 
   const actorId = actor.id
   await db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
+    // Two roles change, and owners pass every lock: an access change (docs/adr/1071-*, 1923-*).
+    await bumpAcl(tx, workspaceId)
     const myRole = await memberRoleTx(tx, workspaceId, actorId)
     if (!myRole) throw notFound()
     if (myRole !== 'owner') throw forbidden('Only owners can transfer ownership')

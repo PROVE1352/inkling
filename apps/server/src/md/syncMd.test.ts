@@ -5,12 +5,14 @@ import * as Y from 'yjs'
 import {
   contentHashOf,
   frontmatterToMeta,
+  isLegacyRevision,
   metaHash,
   normalizeMarkdown,
   parseFrontmatter,
   renderFrontmatter,
   revisionFromDoc,
   revisionFromState,
+  revisionSvPart,
 } from './syncMd'
 
 describe('frontmatter', () => {
@@ -129,6 +131,38 @@ describe('revision tokens', () => {
     doc.getText('t').insert(5, '!')
     assert.notEqual(revisionFromDoc(doc, meta), live)
     assert.equal(revisionFromState(null, meta), revisionFromDoc(new Y.Doc(), meta))
+  })
+
+  it('a pure deletion changes the revision, the same way from the live doc and the stored state (docs/adr/1920-*)', () => {
+    const doc = new Y.Doc()
+    const t = doc.getText('t')
+    t.insert(0, 'hello world, more text')
+    const meta = metaHash([], [])
+    const before = revisionFromDoc(doc, meta)
+    t.delete(5, 6)
+    const after = revisionFromDoc(doc, meta)
+    assert.notEqual(after, before)
+    assert.equal(revisionSvPart(after), revisionSvPart(before), 'the state vector did not move')
+    assert.equal(revisionFromState(Y.encodeStateAsUpdate(doc), meta), after)
+    assert.equal(revisionFromState(Y.encodeStateAsUpdateV2(doc), meta), after)
+    // two separate deletions that touch, written as one range after a reload, hash the same
+    t.delete(0, 2)
+    t.delete(0, 1)
+    const reloaded = new Y.Doc()
+    Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(doc))
+    assert.equal(revisionFromDoc(reloaded, meta), revisionFromDoc(doc, meta))
+  })
+
+  it('pre-0.15.1 tokens are told apart and never equal a current one', () => {
+    const doc = new Y.Doc()
+    doc.getText('t').insert(0, 'x')
+    const rev = revisionFromDoc(doc, 'abc')
+    assert.match(rev, /^[0-9a-f]{20}-[0-9a-f]{12}\.abc$/)
+    assert.equal(isLegacyRevision(rev), false)
+    const legacy = `${revisionSvPart(rev)}.abc`
+    assert.equal(isLegacyRevision(legacy), true)
+    assert.equal(revisionSvPart(legacy), revisionSvPart(rev))
+    assert.notEqual(legacy, rev)
   })
 
   it('metadata part reacts to properties, aliases and link-target titles', () => {

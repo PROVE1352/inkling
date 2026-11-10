@@ -712,6 +712,13 @@ export const pageChunkIndex = pgTable('page_chunk_index', {
     .references(() => pages.id, { onDelete: 'cascade' }),
   version: integer('version').notNull(),
   indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * page_docs.updated_at of the stored state the docIndexer's last complete pass reflected (all
+   * derived indexes, chunks last). Differs from page_docs.updated_at after a crash that dropped a
+   * queued pass: the boot pass re-indexes those pages (docs/adr/1924-*). Null = written by a path
+   * that does not know the stored state (out-of-band reindex, copies): indexed_at is used then.
+   */
+  docUpdatedAt: timestamp('doc_updated_at', { withTimezone: true }),
 })
 
 /**

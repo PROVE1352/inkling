@@ -10,6 +10,8 @@ export default {
   'page.statusConnected': '연결됨',
   'page.statusConnecting': '연결 중',
   'page.statusDisconnected': '연결 끊김',
+  'page.statusUnsaved': '아직 저장되지 않음',
+  'page.statusUnsavedHint': '서버에 아직 닿지 않은 편집이 있습니다. 저장될 때까지 이 탭을 닫지 마세요.',
   'page.themeLight': '라이트',
   'page.themeDark': '다크',
   'page.themeSystem': '시스템',

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { sql } from 'drizzle-orm'
+import { db } from './db/index'
 import { chunkBlocks } from './context/chunker'
 import { reindexPageChunks } from './context/chunkIndex'
 import { docToBlocks } from './md/convert'
@@ -165,6 +167,14 @@ async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | n
     if (oldest !== undefined) signatures.delete(oldest)
   }
   rememberStamp(pageId, chunksOk ? stamp : null)
+  // The pass is complete (chunks written last): record which stored state the indexes reflect, so
+  // a boot after a crash can tell the pages whose queued pass was lost (docs/adr/1924-*).
+  if (chunksOk && stamp !== null) {
+    await db
+      .execute(sql`UPDATE page_chunk_index SET doc_updated_at = ${stamp}::timestamptz
+                    WHERE page_id = ${pageId} AND (doc_updated_at IS NULL OR doc_updated_at < ${stamp}::timestamptz)`)
+      .catch((err: unknown) => console.error('[inkling] index stamp write failed', pageId, err))
+  }
 }
 
 /** Runs one index pass for the page, chained after any pass already in flight for it. */

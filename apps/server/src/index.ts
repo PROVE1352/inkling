@@ -23,6 +23,9 @@ import { backfillPageTasks } from './md/taskIndex'
 import { backfillPageTexts } from './md/textIndex'
 import { reconcileAclVersions } from './aclVersion'
 import { backfillPageChunks } from './context/chunkIndex'
+import { startStaleIndexPass } from './staleIndex'
+import { acquireInstanceLock, InstanceLockError, instanceLockSettings } from './instanceLock'
+import type { InstanceLock } from './instanceLock'
 import { env, mailEnabled } from './env'
 import { AppError } from './errors'
 import { registerApiCachePolicy, staticCacheControl } from './httpCache'
@@ -124,6 +127,8 @@ let stopReminders: (() => void) | null = null
 let stopLaterReminders: (() => void) | null = null
 let stopReadFlusher: (() => Promise<void>) | null = null
 let stopSemanticIndexer: (() => Promise<void>) | null = null
+let stopStaleIndexPass: (() => void) | null = null
+let instanceLock: InstanceLock | null = null
 let shutdownStarted = false
 
 /** Hard cap for the whole shutdown; compose gives the container 30 s (stop_grace_period). */
@@ -164,6 +169,7 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   }
   stopReminders?.()
   stopLaterReminders?.()
+  stopStaleIndexPass?.()
   // ERR_SERVER_NOT_RUNNING from the later app.close() is tolerated by Fastify.
   if (appRef?.server.listening) appRef.server.close()
   // changes_since calls waiting for changes answer now, so the HTTP close below is not held (docs/adr/1551-*)
@@ -181,6 +187,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   // outbox consumers (docs/adr/1080-*): rows still pending stay in the table for the next boot
   await step('outbox stop', () => stopOutboxWorker(), 3_000)
   await step('db close', () => closeDb(), 6_000)
+  // last: the next process may start only once the documents are flushed (docs/adr/1925-*)
+  if (instanceLock) await step('instance lock release', () => instanceLock!.release(), 3_000)
   // how this process ended, for the restart count of the admin status summary (docs/adr/1231-*)
   recordExit(exitCode)
   process.exit(exitCode)
@@ -236,6 +244,25 @@ async function main(): Promise<void> {
   await mkdir(path.join(env.dataDir, 'tmp'), { recursive: true })
   for (const f of await readdir(path.join(env.dataDir, 'uploads'))) {
     if (f.startsWith('.upload-')) await rm(path.join(env.dataDir, 'uploads', f), { force: true })
+  }
+
+  // 1.5) One process per database (docs/adr/1925-*): taken before migrations, held until exit.
+  //      Busy: wait SINGLE_INSTANCE_WAIT s (a replaced container still flushing), then refuse.
+  const lockSettings = instanceLockSettings()
+  if (lockSettings.enabled) {
+    try {
+      instanceLock = await acquireInstanceLock({
+        databaseUrl: env.databaseUrl,
+        waitMs: lockSettings.waitMs,
+        log: (level, msg) => log(level, msg),
+        onLost: (reason) => void shutdown(reason, 1),
+      })
+    } catch (err) {
+      console.error(err instanceof InstanceLockError ? err.message : '[inkling] could not take the instance lock; the server cannot start', err instanceof InstanceLockError ? '' : err)
+      process.exit(1)
+    }
+  } else {
+    console.warn('[inkling] SINGLE_INSTANCE=0: the single-instance guard is off — never run two web servers on one database')
   }
 
   // 2) Migrations (the server does not start without a DB)
@@ -582,6 +609,9 @@ async function main(): Promise<void> {
   //      + section index for agent retrieval (page_chunks, docs/adr/0926-*): pages without a current
   //        marker, 50 per batch with event-loop yields, at most 50k pages per boot
   void backfillPageChunks((msg) => app.log.info(msg))
+  //      + pages whose queued index pass a crash dropped (docs/adr/1924-*): stored state newer than
+  //        the state the indexes reflect; paced, in the background, from 10 s after listen
+  stopStaleIndexPass = startStaleIndexPass((msg) => app.log.info(msg))
   //      + optional chunk embeddings (docs/adr/1740-*, 1742-*): only with EMBEDDING_URL and
   //        EMBEDDING_MODEL set; otherwise the module is not even loaded
   if (semanticConfig()) {

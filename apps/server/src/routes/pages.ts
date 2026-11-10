@@ -12,6 +12,7 @@ import type {
   ShareStatusDTO,
 } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
+import { flushLiveDocuments } from '../collab'
 import { db, withSsdPlanCosts } from '../db/index'
 import {
   collectionViews,
@@ -1172,6 +1173,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // Collect descendants (BFS → topological order, parents always before children). Cycle/runaway guard.
       // Audit F1: visibleTo keeps others' private pages inside the subtree from leaking (inside collectSubtree).
       const ordered = await collectSubtree(rootRow, user.id)
+      // Open documents first store (and index) what was typed within the store debounce: the copy
+      // below reads page_docs / page_texts / page_chunks (docs/adr/1923-*).
+      await flushLiveDocuments(ordered.map((p) => p.id))
 
       // old id → new id map
       const idMap = new Map<string, string>()

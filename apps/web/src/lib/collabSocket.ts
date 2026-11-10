@@ -4,8 +4,10 @@ import {
   HocuspocusProviderWebsocket,
   type HocuspocusProviderConfiguration,
 } from '@hocuspocus/provider'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { CollabUser } from '../components/OnlineUsers'
 import { setCollabPendingCheck } from './update'
+import { createUnsavedTracker, showUnsaved, UNSAVED_SHOW_AFTER_MS } from './unsavedEdits'
 
 // One collab WebSocket per tab (docs/adr/0702-shared-collab-websocket.md).
 //
@@ -47,6 +49,81 @@ setCollabPendingCheck(() => {
   for (const p of live) if (p.unsyncedChanges > 0) return true
   return false
 })
+
+/**
+ * Local edits the server has not acknowledged (docs/adr/1926-*): the leave guard below, the
+ * deferred release in openCollab and the "not saved yet" indicator (useUnsavedEdits) read it.
+ */
+export const unsavedEdits = createUnsavedTracker()
+
+// Reload, tab close, navigation away from the app: the browser asks first while an edit is unsent.
+// Leaving a page inside the app never drops it either: its provider stays until acknowledged.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => {
+    if (!unsavedEdits.anyUnsaved()) return
+    e.preventDefault()
+    // older browsers still need returnValue set to show the prompt
+    e.returnValue = ''
+  })
+}
+
+/** Wires one provider into the tracker; returns the cleanup. */
+function trackUnsaved(provider: HocuspocusProvider, document: Y.Doc): () => void {
+  unsavedEdits.track(provider)
+  const onUpdate = (_u: Uint8Array, origin: unknown) => {
+    // the provider applies the server's updates with itself as origin; everything else is local
+    if (origin !== provider) unsavedEdits.localEdit(provider)
+  }
+  const onUnsynced = (n: number) => unsavedEdits.unsynced(provider, n)
+  const onAuthenticated = () => unsavedEdits.inert(provider, provider.authorizedScope === 'readonly')
+  const onDenied = () => unsavedEdits.inert(provider, true)
+  document.on('update', onUpdate)
+  provider.on('unsyncedChanges', onUnsynced)
+  provider.on('authenticated', onAuthenticated)
+  provider.on('authenticationFailed', onDenied)
+  return () => {
+    document.off('update', onUpdate)
+    provider.off('unsyncedChanges', onUnsynced)
+    provider.off('authenticated', onAuthenticated)
+    provider.off('authenticationFailed', onDenied)
+    unsavedEdits.untrack(provider)
+  }
+}
+
+/**
+ * Runs `destroy` once the provider holds no unacknowledged local edit (now, or when the server
+ * acknowledges them after a reconnect). Until then the provider stays attached and in `live`, so
+ * the edits are still sent and the leave guard still sees them (docs/adr/1926-*).
+ */
+function releaseWhenSaved(provider: HocuspocusProvider, destroy: () => void): void {
+  if (!unsavedEdits.isUnsaved(provider)) {
+    destroy()
+    return
+  }
+  const off = unsavedEdits.subscribe(() => {
+    if (unsavedEdits.isUnsaved(provider)) return
+    off()
+    destroy()
+  })
+}
+
+/**
+ * True once local edits have waited for the server longer than a normal round trip. Global (any
+ * open document, also one the user already left), for the connection indicator.
+ */
+export function useUnsavedEdits(): boolean {
+  const since = useSyncExternalStore(unsavedEdits.subscribe, unsavedEdits.unsavedSince, () => null)
+  // re-render once when the wait is over (the store does not change then)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (since === null) return
+    const wait = since + UNSAVED_SHOW_AFTER_MS - Date.now()
+    if (wait <= 0) return
+    const t = window.setTimeout(() => tick((n) => n + 1), wait)
+    return () => window.clearTimeout(t)
+  }, [since])
+  return showUnsaved(since, Date.now())
+}
 
 /**
  * Watchdog: a document on a connected shared socket that is still not synced after two checks
@@ -139,15 +216,19 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     })
     let released = false
     live.add(provider)
+    const untrack = trackUnsaved(provider, opts.document)
     return {
       provider,
       sharedSocket: false,
       release: () => {
         if (released) return
         released = true
-        live.delete(provider)
-        provider.destroy()
-        provider.configuration.websocketProvider?.destroy?.()
+        releaseWhenSaved(provider, () => {
+          untrack()
+          live.delete(provider)
+          provider.destroy()
+          provider.configuration.websocketProvider?.destroy?.()
+        })
       },
     }
   }
@@ -170,10 +251,12 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     },
   })
   let released = false
+  let destroyed = false
   live.add(provider)
+  const untrack = trackUnsaved(provider, opts.document)
   let strikes = 0
   const watchdog = window.setInterval(() => {
-    if (released || provider.isSynced || s.denied.has(opts.name) || s.ws.status !== 'connected') {
+    if (destroyed || provider.isSynced || s.denied.has(opts.name) || s.ws.status !== 'connected') {
       strikes = 0
       return
     }
@@ -189,14 +272,21 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     release: () => {
       if (released) return
       released = true
-      window.clearInterval(watchdog)
-      live.delete(provider)
-      // destroy(): sends a Close for this document only, detaches it and removes listeners.
-      provider.destroy()
-      s.names.delete(opts.name)
-      s.closedAt.set(opts.name, Date.now())
-      s.refs--
-      if (s.refs <= 0) closeShared(s)
+      // Unacknowledged local edits keep the provider (and its socket reference) until the server
+      // has them: leaving the page in the app must not drop them (docs/adr/1926-*). The watchdog
+      // keeps running meanwhile, so a stuck sync is still retried.
+      releaseWhenSaved(provider, () => {
+        destroyed = true
+        window.clearInterval(watchdog)
+        untrack()
+        live.delete(provider)
+        // destroy(): sends a Close for this document only, detaches it and removes listeners.
+        provider.destroy()
+        s.names.delete(opts.name)
+        s.closedAt.set(opts.name, Date.now())
+        s.refs--
+        if (s.refs <= 0) closeShared(s)
+      })
     },
   }
 }

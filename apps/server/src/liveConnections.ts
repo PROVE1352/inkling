@@ -211,6 +211,15 @@ export function noteLiveStored(doc: Y.Doc, seq: number | null, stamp: string | n
 }
 
 /**
+ * True when the document changed since it was loaded or last stored (docs/adr/1921-*). O(1): the
+ * unload guard in collab.ts asks it before deciding whether an encode and digest compare are needed.
+ */
+export function liveDocChangedSinceStore(doc: Y.Doc): boolean {
+  const meta = liveMeta.get(doc)
+  return !!meta && meta.seq !== meta.storedSeq
+}
+
+/**
  * Stamp of the stored state an open document still equals (no update since it was loaded or
  * stored), or null when it has changed since or is not tracked.
  */

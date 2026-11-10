@@ -26,6 +26,7 @@ import {
   useToggleBookmark,
   useUpdatePage,
 } from '../api'
+import { useUnsavedEdits } from '../lib/collabSocket'
 import { setActiveEditor } from '../lib/activeEditor'
 import { LINE_WIDTH_FULL, setLastPage, usePrefs } from '../lib/prefs'
 import { appendFilesToEditor, useFileDropZone } from '../lib/fileDrop'
@@ -122,6 +123,18 @@ const STATUS_STYLE: Record<ConnStatus, { dot: string; label: TKey }> = {
 
 function StatusDot({ status }: { status: ConnStatus }) {
   const t = useT()
+  // Local edits the server has not acknowledged for a while, on this page or one just left
+  // (docs/adr/1926-*): said in words, not only by the dot's colour.
+  const unsaved = useUnsavedEdits()
+  if (unsaved) {
+    const hint = `${t('page.statusUnsaved')} · ${t(STATUS_STYLE[status].label)}. ${t('page.statusUnsavedHint')}`
+    return (
+      <span role="status" title={hint} aria-label={hint} className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+        <span className="whitespace-nowrap">{t('page.statusUnsaved')}</span>
+      </span>
+    )
+  }
   const s = STATUS_STYLE[status]
   const label = t(s.label)
   return (

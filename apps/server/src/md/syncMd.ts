@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
-import { stateVectorOfStored } from '../yState'
+import { STATE_V2, wholeStateFormat } from '../yState'
 import type { PageProperty, PagePropertyType } from '@inkling/shared'
 import { blocksToMarkdown } from './convert'
 import type { AnyBlock } from './convert'
@@ -14,8 +14,9 @@ import type { AnyBlock } from './convert'
  * maps them to vault paths). `contentHash` is SHA-256 of the normalized canonical text.
  *
  * `revision` is an opaque optimistic-concurrency token:
- *   <sha256(Yjs state vector)[0..20]>.<sha256(properties+aliases)[0..12]>
- * The state vector changes on every applied Yjs update (live editor or REST write) and is
+ *   <sha256(Yjs state vector)[0..20]>-<sha256(delete set)[0..12]>.<sha256(properties+aliases)[0..12]>
+ * The state vector changes on every insertion and format change, the delete set on every deletion
+ * (a pure deletion leaves the state vector alone, docs/adr/1920-*). Both are
  * readable synchronously from the in-memory Hocuspocus document, so the compare-and-write in the
  * PUT route is atomic with respect to concurrent browser edits — even edits not yet persisted
  * to page_docs by the debounced store. It never changes because of the debounced store itself.
@@ -70,18 +71,72 @@ export function metaHash(properties: unknown, aliases: unknown, linkSig = ''): s
     .slice(0, 12)
 }
 
+/**
+ * Hash of a delete set in canonical form: clients ascending, each client's ranges sorted by clock and
+ * merged when they touch or overlap. The live document (built from its struct store) and a stored
+ * state (read from the update's delete-set section, V1 or V2, before or after GC and struct merging)
+ * give the same ranges, so they give the same hash (docs/adr/1920-*).
+ */
+function dsHash(ds: { clients: Map<number, { clock: number; len: number }[]> }): string {
+  const h = createHash('sha256')
+  for (const client of [...ds.clients.keys()].sort((a, b) => a - b)) {
+    const items = [...(ds.clients.get(client) ?? [])].filter((d) => d.len > 0).sort((a, b) => a.clock - b.clock)
+    if (!items.length) continue
+    h.update(`${client}:`)
+    let start = items[0].clock
+    let end = start + items[0].len
+    for (let i = 1; i < items.length; i++) {
+      const d = items[i]
+      if (d.clock <= end) end = Math.max(end, d.clock + d.len)
+      else {
+        h.update(`${start}+${end - start},`)
+        start = d.clock
+        end = d.clock + d.len
+      }
+    }
+    h.update(`${start}+${end - start};`)
+  }
+  return h.digest('hex').slice(0, 12)
+}
+
+/**
+ * The document half of a revision: `<state vector hash>-<delete set hash>`. The state vector moves
+ * on every insertion and format change but not on a deletion; the delete set catches those. Before
+ * 0.15.1 the half was the state vector hash alone (20 hex characters, no `-`): such a "legacy" token
+ * never matches a current one (isLegacyRevision), so a client holding one re-reads or merges once.
+ */
 export function revisionFromDoc(doc: Y.Doc, meta: string): string {
-  return `${svHash(Y.encodeStateVector(doc))}.${meta}`
+  return `${svHash(Y.encodeStateVector(doc))}-${dsHash(Y.createDeleteSetFromStructStore(doc.store))}.${meta}`
 }
 
 export function revisionFromState(state: Uint8Array | null, meta: string): string {
-  const sv = state && state.length ? stateVectorOfStored(state) : Y.encodeStateVector(new Y.Doc())
-  return `${svHash(sv)}.${meta}`
+  if (!state || !state.length) return revisionFromDoc(new Y.Doc(), meta)
+  // One decode gives both halves: the state vector from the structs' clock ranges (a whole-document
+  // state holds every client from clock 0), the delete set from the update's last section.
+  const { structs, ds } = wholeStateFormat(state) === STATE_V2 ? Y.decodeUpdateV2(state) : Y.decodeUpdate(state)
+  const sv = new Map<number, number>()
+  for (const s of structs) {
+    const end = s.id.clock + s.length
+    if (end > (sv.get(s.id.client) ?? 0)) sv.set(s.id.client, end)
+  }
+  return `${svHash(Y.encodeStateVector(sv))}-${dsHash(ds)}.${meta}`
 }
 
 export function splitRevision(rev: string): { doc: string; meta: string } {
   const i = rev.indexOf('.')
   return i < 0 ? { doc: rev, meta: '' } : { doc: rev.slice(0, i), meta: rev.slice(i + 1) }
+}
+
+/** A revision issued before 0.15.1: its document half is the state vector hash only. */
+export function isLegacyRevision(rev: string): boolean {
+  return !splitRevision(rev).doc.includes('-')
+}
+
+/** State vector half of a revision's document part (the whole part for a legacy token). */
+export function revisionSvPart(rev: string): string {
+  const doc = splitRevision(rev).doc
+  const i = doc.indexOf('-')
+  return i < 0 ? doc : doc.slice(0, i)
 }
 
 // ---------------------------------------------------------------------------

@@ -938,6 +938,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2381](2381-sample-page-first-admin-auto-members-by-button.md) | The sample page: made for the first admin once, for members by button, private, labelled as a sample | Accepted |
 | [2382](2382-intro-motion-drawn-in-code-as-a-function-of-time.md) | The intro motion is SVG drawn in code as a pure function of time, in a lazy chunk | Accepted |
 | [2383](2383-operators-can-show-the-intro-to-existing-accounts-once.md) | Operators can show the intro to existing accounts once (ONBOARDING_EXISTING_USERS=once) | Accepted |
+| [2384](2384-getting-started-card-inside-the-sidebar-height-budget.md) | The Getting started card is part of the sidebar's height budget; it scrolls inside, the footer stays reachable | Accepted |
 
 ## 099x Client updates
 

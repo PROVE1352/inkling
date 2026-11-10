@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-11-10
 - Amends: ADR 1640 (what "More" shows when opened)
+- Amended by: ADR 2384 (the Getting started card in the same budget, placed after the menus)
 
 ## Context
 ADR 1640 folds the menus that do not fit above the page tree under one row, "More (k)". Opening it listed

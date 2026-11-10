@@ -128,7 +128,9 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   from the card. Settings › About: "Watch the intro again" and a switch for the checklist. `ONBOARDING=off` turns it
   all off; `ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before the upgrade
   (docs/adr/2383-*). While a sample page is being made, its own pages do not tick "first page", "database" or
-  "link".
+  "link". In the sidebar the card opens only within the sidebar's height and scrolls inside when its list is
+  longer, so the menus, the page tree and the footer stay reachable (docs/adr/2384-*). The intro does not open by
+  itself over the "could not show this screen" notice; it waits for the next screen.
 
 ### Changed
 - **The data plumbing is called `inkling`, from one required setting.** Up to 0.18 the compose project, the

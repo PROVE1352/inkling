@@ -48,7 +48,9 @@ The **Getting started** card on the empty workspace screen (and folded at the bo
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
 where it is done; a short bubble points at the button. **Make a sample page to try things on** creates a page in
 your private pages (only you see it); delete it when you are done, it does not come back.
-**Don't show again** hides the card.
+**Don't show again** hides the card. Opened in the sidebar, the card takes only the room the menus and the
+page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
+with **More** open), it stays folded until there is room.
 
 Settings → About → Getting started: **Watch the intro again**, and a switch to show the checklist again.
 Accounts that existed before the upgrade start with the checklist off, and see the intro only if the

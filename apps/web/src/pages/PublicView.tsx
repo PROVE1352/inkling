@@ -10,6 +10,8 @@ import { KindIcon } from '../components/PageIconGlyph'
 import { findTreePath, usePublicChildPage } from '../lib/publicShare'
 import { safeUrl, sanitizeHtml } from '../lib/sanitizeHtml'
 import { renderMathIn } from '../lib/katex'
+import { renderMermaidIn } from '../lib/mermaidPublic'
+import { useTheme } from '../lib/theme'
 import { topLevelBlocks } from '../lib/present'
 import { PresentIcon, Presentation } from '../components/Presentation'
 import { t } from '../i18n'
@@ -226,6 +228,12 @@ function PublicArticle({
   useEffect(() => {
     return body.current ? renderMathIn(body.current) : undefined // on failure the source text stays
   }, [html])
+  // ```mermaid blocks arrive as code; drawn with the editor's strict renderer, the code kept on an
+  // error (docs/adr/2191-*). Mermaid loads only when the page has a diagram.
+  const { resolved: theme } = useTheme()
+  useEffect(() => {
+    return body.current ? renderMermaidIn(body.current, theme) : undefined
+  }, [html, theme])
   // Presentation mode on a shared page (docs/adr/1843-*): slides from the same sanitized HTML.
   const [slides, setSlides] = useState<Element[] | null>(null)
   useEffect(() => setSlides(null), [html])

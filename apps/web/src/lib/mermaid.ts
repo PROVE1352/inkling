@@ -22,6 +22,10 @@ import { cleanMermaidSvg, svgDataUrl } from './mermaidSvg'
 
 export type MermaidTheme = 'light' | 'dark'
 
+/** Code block languages drawn as a diagram (docs/adr/2104-*), compared lowercased. */
+export const MERMAID_LANGUAGES: ReadonlySet<string> = new Set(['mermaid', 'mmd'])
+export const isMermaidLanguage = (lang: unknown) => typeof lang === 'string' && MERMAID_LANGUAGES.has(lang.toLowerCase())
+
 export type MermaidResult =
   | { ok: true; src: string; width: number; height: number }
   | { ok: false; message: string }

@@ -162,6 +162,14 @@ describe('section links: indexes and other writers', () => {
     assert.equal(parseInternalHref(ls[0].href)?.section?.heading, 'Setup')
     assert.deepEqual(ls[1].content.map((c) => c.text), ['go'])
     assert.equal(await toMd(back), '[[Handbook#Setup]] [[Notes#Setup|go]]')
+    // a title with `#` resolves as itself in sync too (integration, wave 16): never re-pointed to "C"
+    const C = '55555555-5555-4555-8555-555555555555'
+    const hash = await markdownToBlocks('[[C# notes]] [[C# notes#Setup|go]] [[C#Intro]]', wikiTitleResolver(resolver({ 'C# notes': CSHARP, C })))
+    fixAliasedLinkText(hash)
+    assert.deepEqual(
+      links(hash).map((l) => l.href),
+      [pageUrl(CSHARP), `${pageUrl(CSHARP)}#h=Setup&p=C%23%20notes`, `${pageUrl(C)}#h=Intro&p=C`],
+    )
   })
   it('public folder share: the link goes to the public page, the fragment is dropped', () => {
     const copy = structuredClone(doc)

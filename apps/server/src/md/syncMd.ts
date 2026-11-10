@@ -318,10 +318,21 @@ export function hoistInlineImages(md: string): string {
   return out.join('\n')
 }
 
-/** `[[Title|shown]]` / `[[Title#Heading]]` → resolve by the title part only. */
+/**
+ * `[[Title|shown]]` / `[[Title#Heading]]` → a page by its title. The whole target is a title first,
+ * so a page whose title has a `#` ("C# notes") is found as itself; only when it is not does the part
+ * before the first `#` count (the 0.16 reading of `[[Page#Heading]]`; section links are told apart
+ * by md/convert.ts resolveSectionLink, which checks the whole title against this fallback). Before
+ * 0.17 every target was cut at its first `#`, so a vault edit next to `[[C# notes]]` re-pointed the
+ * link to a page "C" or turned it into text.
+ */
 export function wikiTitleResolver(base: (title: string) => string | null): (raw: string) => string | null {
   return (raw) => {
-    const title = raw.split('|')[0].split('#')[0].trim()
+    const target = raw.split('|')[0].trim()
+    if (!target) return null
+    const whole = base(target)
+    if (whole || !target.includes('#')) return whole
+    const title = target.slice(0, target.indexOf('#')).trim()
     return title ? base(title) : null
   }
 }

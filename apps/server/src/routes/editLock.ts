@@ -117,7 +117,12 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
   const rows = (await db.execute(sql`
     SELECT pages.id, pages.workspace_id AS "workspaceId", m.role,
            cu.name AS "createdBy", lc.seq IS NOT NULL AS "hasChange",
-           au.name AS "editorName", lc.via_client AS "via",
+           au.name AS "editorName",
+           -- a page an agent created through an import (create_page with Markdown): its page_added row
+           -- gets the client name from a queued relabel that the change-log consumer may apply a pass
+           -- later (docs/adr/1005-*); pages.created_via commits with that entry, so the creator's row
+           -- never reads as a person's in between. Someone else's row keeps its own (empty) via.
+           coalesce(lc.via_client, CASE WHEN lc.kind = 'page_added' AND lc.actor_id = pages.created_by THEN pages.created_via END) AS "via",
            (SELECT ${stateBytesV1Sql()} FROM page_docs d WHERE d.page_id = pages.id) AS "stateBytes",
            (SELECT sum(c.token_estimate) FROM page_chunks c WHERE c.page_id = pages.id) AS "tokens",
            ${acl.version} AS "aclVersion", ${acl.hasLocks} AS "hasLocks"
@@ -126,7 +131,7 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
       LEFT JOIN workspace_acl_versions a ON a.workspace_id = pages.workspace_id
       LEFT JOIN users cu ON cu.id = pages.created_by
       LEFT JOIN LATERAL (
-        SELECT c.seq, c.actor_id, c.via_client FROM page_changes c WHERE c.page_id = pages.id ORDER BY c.seq DESC LIMIT 1
+        SELECT c.seq, c.actor_id, c.via_client, c.kind FROM page_changes c WHERE c.page_id = pages.id ORDER BY c.seq DESC LIMIT 1
       ) lc ON true
       LEFT JOIN users au ON au.id = lc.actor_id
      WHERE pages.id = ANY(${`{${ids.join(',')}}`}::uuid[])

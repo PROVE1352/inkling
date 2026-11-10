@@ -51,11 +51,19 @@ describe('extractHeadMeta', () => {
       ('<a ' + 'b '.repeat(65)).repeat(1900) + '>',
       ('<a b="' + 'x'.repeat(100)).repeat(2000) + '>',
     ]
-    for (const s of inputs) {
-      const t0 = performance.now()
+    // CPU time of this process (not wall time: a busy machine running the other test files in
+    // parallel deschedules it), best of three (a GC pause or a page fault hits one run). A ReDoS is
+    // seconds on every run; linear parsing of these inputs is a few ms. Wall time under load was
+    // flaky (reported several times at integration, wave 16).
+    const cpuMs = (s: string) => {
+      const c0 = process.cpuUsage()
       extractHeadMeta(s, 'https://a.com/')
-      const ms = performance.now() - t0
-      assert.ok(ms < 500, `took ${ms.toFixed(0)}ms`)
+      const c = process.cpuUsage(c0)
+      return (c.user + c.system) / 1000
+    }
+    for (const s of inputs) {
+      const ms = Math.min(cpuMs(s), cpuMs(s), cpuMs(s))
+      assert.ok(ms < 500, `took ${ms.toFixed(0)}ms of CPU (input ${s.slice(0, 20)}…, ${s.length} chars)`)
     }
   })
 })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { BlockNoteEditor } from '@blocknote/core'
-import { cachedMermaid, renderMermaid, type MermaidResult } from '../../lib/mermaid'
+import { cachedMermaid, isMermaidLanguage, renderMermaid, type MermaidResult } from '../../lib/mermaid'
 import { useTheme } from '../../lib/theme'
 import { useT } from '../../i18n'
 import { queryCodeBlockSpec } from './QueryBlock'
@@ -21,8 +21,7 @@ import { queryCodeBlockSpec } from './QueryBlock'
  * Errors are one short line in the block; the page never breaks on a bad diagram.
  */
 
-export const MERMAID_LANGUAGES: ReadonlySet<string> = new Set(['mermaid', 'mmd'])
-export const isMermaidLanguage = (lang: unknown) => typeof lang === 'string' && MERMAID_LANGUAGES.has(lang.toLowerCase())
+export { MERMAID_LANGUAGES, isMermaidLanguage } from '../../lib/mermaid'
 
 type RenderFn = (typeof queryCodeBlockSpec)['implementation']['render']
 const baseRender: RenderFn = queryCodeBlockSpec.implementation.render

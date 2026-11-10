@@ -103,10 +103,18 @@ describe('tools/list (docs/adr/1945-*)', () => {
     assert.doesNotMatch(a, /"format":"uuid"|\[0-9a-fA-F\]\{8\}-/)
     assert.doesNotMatch(a, /"\$schema"/)
     assert.doesNotMatch(a, /"execution"/)
-    // the fixed cost this release set out to cut (16,504 estimated tokens in 0.15.0)
+    // the fixed cost 0.15.1 set out to cut (16,504 estimated tokens in 0.15.0). The full profile grows
+    // with hidden-group tools (0.17: import_zip ~181 tok, docs/adr/2162-*); core is pinned in
+    // toolProfiles.test.ts and scripts/mcp-tools-list-cost.ts --profile core.
     const tokens = estimateTokens(a)
     console.log(`[surface] tools/list ${a.length} chars, ~${tokens} tok`)
-    assert.ok(tokens < 12_900, `tools/list ~${tokens} tok`)
+    // 0.17 (measured at integration against a `git archive` of v0.16.0, scripts/mcp-tools-list-cost.ts
+    // --by-tool): 12,370 → 12,777 tok, +407: import_zip +181 (docs/adr/2162-*), collections' new field
+    // types, prefix / subItems, query_rows under / depth and create_row parent +181 (docs/adr/2140-*,
+    // 2144-*, 2147-*), list_versions all=true +36 (docs/adr/2182-*), search limit +4 (docs/adr/2183-*),
+    // workspace names +6 (docs/adr/2186-*), restore_version −3. Core: 7,437 → 7,533 (+96). The cap is
+    // the measured value plus a small margin: a new tool or a longer description must move it on purpose.
+    assert.ok(tokens < 12_850, `tools/list ~${tokens} tok`)
   })
 
   it('only dialect-neutral JSON Schema keywords are used, so dropping $schema changes no meaning', async () => {

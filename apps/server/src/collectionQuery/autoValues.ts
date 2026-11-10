@@ -47,6 +47,17 @@ export function fillAutoInto(fields: CollectionField[], dtos: { props: Record<st
 const isoSql = (col: SQL) => sql`to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
 
 /**
+ * Raw-SQL select list of the page columns fillAutoProps reads, named as AutoSource (timestamps as the
+ * same ISO UTC text autoPropsSql writes), for a statement whose rows are filled in JS afterwards.
+ */
+export function autoSourceSelectSql(): SQL {
+  const c = autoSourceColumns
+  return sql`${isoSql(sql`${c.createdAt}`)} AS "createdAt", ${isoSql(sql`${c.updatedAt}`)} AS "updatedAt",
+    ${c.createdBy} AS "createdBy", ${c.createdVia} AS "createdVia", ${c.editedBy} AS "editedBy",
+    ${c.editedVia} AS "editedVia", ${c.rowNumber} AS "rowNumber"`
+}
+
+/**
  * jsonb object of the automatic values of `fields` for the unaliased `pages` row (or a derived table
  * named pages), the same values fillAutoProps serves (an empty one as JSON null); `'{}'` when there
  * are none. Use as `props || <this>`.

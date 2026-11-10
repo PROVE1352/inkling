@@ -15,8 +15,8 @@ import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { fillAutoProps, formatUniqueId, formulaResultType, isAutoFieldType, isPersonLikeType, parseUniqueId, SUB_ITEMS_MAX_DEPTH, subItemsField } from '@inkling/shared'
-import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
-import { autoPropsSql, autoSourceColumns } from '../collectionQuery/autoValues'
+import type { AutoSource, CollectionField, FormulaErrorCode } from '@inkling/shared'
+import { autoPropsSql, autoSourceColumns, autoSourceSelectSql } from '../collectionQuery/autoValues'
 import { descendantsSql } from '../collectionQuery/rowFields'
 import { getUser, requireUser } from '../auth'
 import { computeFormulas, formulasNeedLinks, isWorkspaceMember, resolveRelations } from '../collectionRelations'
@@ -34,7 +34,7 @@ import {
 } from '../collectionQuery/compile'
 import { fieldResolver, FilterError, formulaKind, parseFilter, parseSort } from '../collectionQuery/filter'
 import { precomputeFormulaQuery } from '../collectionQuery/formulaQuery'
-import type { ResolvedField } from '../collectionQuery/filter'
+import type { Expr, ResolvedField, SortKey } from '../collectionQuery/filter'
 import { formatCell } from '../collectionQuery/values'
 import type { FieldSummary } from '../collectionQuery/values'
 import { db } from '../db/index'
@@ -254,6 +254,15 @@ const queryParams = z.object({
   depth: z.coerce.number().int().min(1).max(SUB_ITEMS_MAX_DEPTH).optional(),
 })
 
+/**
+ * The rows of one collection as the filter compiler sees them: `pages` itself, or, when the filter or
+ * the sort reads automatic values (docs/adr/2140-*), a derived table named pages whose props carry
+ * those (so conditions and sort keys on them compile like on stored values) and whose stored_props
+ * keeps the stored ones for the row version. Only the automatic fields the query reads are computed
+ * there, and only then: building them for every row of a large collection on every call cost up to
+ * 7x (query_rows on 20,000 rows, 28 → 200 ms p50; docs/adr/2192-*). The rows a call returns get all
+ * their automatic values from a second read of those rows only (fillAutoProps).
+ */
 function rowSource(collectionId: string, used: CollectionField[]): { from: ReturnType<typeof sql>; stored: ReturnType<typeof sql> } {
   if (!used.length) return { from: sql`${pages}`, stored: sql`${pages.props}` }
   const cols = Object.values(getTableColumns(pages)).map((c) =>
@@ -263,6 +272,23 @@ function rowSource(collectionId: string, used: CollectionField[]): { from: Retur
     from: sql`(SELECT ${sql.join(cols, sql`, `)}, ${pages.props} AS "stored_props" FROM ${pages} WHERE ${pages.parentId} = ${collectionId}::uuid) AS "pages"`,
     stored: sql`"pages"."stored_props"`,
   }
+}
+
+/** Automatic fields a filter or a sort reads (formula conditions are decided in memory, ADR 1826). */
+export function autoFieldsRead(ast: Expr | null, sort: SortKey[]): CollectionField[] {
+  const out = new Map<string, CollectionField>()
+  const add = (f: ResolvedField) => {
+    if (f.kind === 'field' && isAutoFieldType(f.field.type)) out.set(f.field.id, f.field)
+  }
+  const walk = (e: Expr | null) => {
+    if (!e) return
+    if (e.k === 'cond') add(e.field)
+    else if (e.k === 'not') walk(e.e)
+    else e.items.forEach(walk)
+  }
+  walk(ast)
+  for (const k of sort) add(k.field)
+  return [...out.values()]
 }
 
 const invalidUnder = (m: string) => new AppError(400, 'INVALID_QUERY', m)
@@ -320,6 +346,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     let columns: ResolvedField[]
     let parts: ReturnType<typeof orderKeys>
     let after: SQL = sql`true`
+    let autoRead: CollectionField[] = []
     // one instant for every formula of this request (deterministic output, docs/adr/0937-*)
     const now = new Date()
     try {
@@ -337,6 +364,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
         now,
       })
       filterSql = compileFilter(ast, { workspaceId: page.workspaceId, userId: user.id, formulaMatches: pre?.matches })
+      autoRead = autoFieldsRead(ast, sort)
       parts = orderKeys(sort, pre?.ranks)
       columns = parseColumns(q.fields, fields, sort.map((s) => s.field))
       if (q.cursor) {
@@ -349,12 +377,13 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     }
 
     let raw: RawRow[]
-    const src = rowSource(id, fields.filter((f) => isAutoFieldType(f.type)))
+    const src = rowSource(id, autoRead)
+    const hasAuto = fields.some((f) => isAutoFieldType(f.type))
     try {
       raw = await db.transaction(async (tx) => {
         await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`))
         await tx.execute(sql.raw('SET LOCAL jit = off'))
-        return (await tx.execute(sql`
+        const found = (await tx.execute(sql`
           SELECT ${pages.id} AS id, ${pages.title} AS title, ${pages.props} AS props,
                  ${rowVersionSql(src.stored)} AS version, ${keySelect(parts)}
             FROM ${src.from}
@@ -367,6 +396,23 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
            ORDER BY ${orderBySql(parts)}
            LIMIT ${limit + 1}
         `)) as unknown as RawRow[]
+        // the automatic values of the rows shown, read for those rows only (in the sorted statement
+        // above the formatting ran for every row that passed the filter); the version stays the hash
+        // of the stored props
+        const shown = found.slice(0, limit)
+        if (hasAuto && shown.length) {
+          const srcRows = (await tx.execute(sql`
+            SELECT ${pages.id} AS id, ${autoSourceSelectSql()} FROM ${pages}
+             WHERE ${pages.id} IN (${sql.join(shown.map((r) => sql`${r.id}::uuid`), sql`, `)})
+          `)) as unknown as (AutoSource & { id: string })[]
+          const byId = new Map(srcRows.map((r) => [r.id, r]))
+          for (const r of shown) {
+            r.props = { ...(r.props ?? {}) }
+            const a = byId.get(r.id)
+            if (a) fillAutoProps(fields, r.props, a)
+          }
+        }
+        return found
       })
     } catch (err) {
       if ((err as { code?: string }).code === '57014') {

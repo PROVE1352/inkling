@@ -29,6 +29,7 @@ import { inlineMathSpec, mathBlockSpec } from './Math'
 import { calloutSpec } from './Callout'
 import { linkEmbedSpec } from './LinkEmbed'
 import { chartBlockSpec } from './ChartBlock'
+import { buttonBlockSpec } from './ButtonBlock'
 import { mentionSpec } from './Mention'
 import { pluginBlockSpec } from '../../plugins/PluginBlock'
 import { DbViewEmbed, DbViewSetup, DbViewUnavailable } from './DbViewEmbed'
@@ -281,6 +282,8 @@ export function editorSchemaSpecs(renders: {
     math: mathBlockSpec,
     // Chart from a collection or a query (docs/adr/1600-*); data fetched per viewer, never stored.
     chart: chartBlockSpec,
+    // Button: actions run by whoever presses it, through their own REST rights (docs/adr/2244-*).
+    button: buttonBlockSpec,
   } satisfies Record<CustomBlockType, unknown>
   const customInlineContentSpecs = {
     // @mention chip (M13).

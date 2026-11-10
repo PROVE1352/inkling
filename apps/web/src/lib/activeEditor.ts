@@ -15,3 +15,19 @@ export function setActiveEditor(entry: ActiveEditorEntry | null): void {
 export function getActiveEditor(): ActiveEditorEntry | null {
   return current
 }
+
+// Every page editor PageView mounts, with the page it edits (button blocks, docs/adr/2244-*). Unlike
+// the active editor above, this includes locked (read-only) bodies and every page kind; an editor
+// not in here (page embeds, row template bodies) has no page a button may act on.
+const pageEditors = new WeakMap<object, string>()
+
+export function registerPageEditor(editor: object, pageId: string): () => void {
+  pageEditors.set(editor, pageId)
+  return () => {
+    if (pageEditors.get(editor) === pageId) pageEditors.delete(editor)
+  }
+}
+
+export function pageOfEditor(editor: object): string | null {
+  return pageEditors.get(editor) ?? null
+}

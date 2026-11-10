@@ -9,6 +9,7 @@ import type { CalloutType } from './blocks/Callout'
 import { usePluginSlashItems } from '../plugins/integration'
 import { linkEmbedSlashItems } from './blocks/LinkEmbed'
 import { chartSlashItems } from './blocks/ChartBlock'
+import { buttonSlashItems } from './blocks/ButtonBlock'
 import { dbViewSlashItems } from './blocks/DbViewEmbed'
 import { querySlashItem } from './blocks/QueryBlock'
 import { mathSlashItems } from './blocks/Math'
@@ -72,6 +73,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
         ...linkEmbedSlashItems(editor),
         querySlashItem(editor),
         ...chartSlashItems(editor),
+        ...buttonSlashItems(editor),
         ...dbViewSlashItems(editor),
         ...mathSlashItems(editor, t),
         ...tableSizeSlashItems(editor, query, t),

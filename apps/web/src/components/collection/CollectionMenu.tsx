@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { CheckIcon, DownloadIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, TemplateIcon, UploadIcon } from '../Icons'
+import { SettingsIcon } from '../Icons'
 import { useT } from '../../i18n'
 import { S } from './strings'
 
 /** Collection toolbar "⋯" menu: row templates / import / export / copy / sheets sync (experimental). */
 export function CollectionMenu({
   onRowTemplates,
+  onAutomations,
   onImport,
   onExportCsv,
   onExportXlsx,
@@ -16,6 +18,8 @@ export function CollectionMenu({
 }: {
   /** row templates (docs/adr/1180-*) */
   onRowTemplates?: () => void
+  /** automations (docs/adr/2240-*); omitted for page guests */
+  onAutomations?: () => void
   /** omitted when the collection is read-only (edit lock) */
   onImport?: () => void
   onExportCsv: () => void
@@ -71,6 +75,11 @@ export function CollectionMenu({
           {onRowTemplates && (
             <button type="button" className={`${item} border-b border-line`} onClick={run(onRowTemplates)}>
               <TemplateIcon size={14} /> {t('rowTpl.manage')}
+            </button>
+          )}
+          {onAutomations && (
+            <button type="button" className={`${item} border-b border-line`} onClick={run(onAutomations)} data-open-automations>
+              <SettingsIcon size={14} /> {t('automation.menu')}
             </button>
           )}
           {onToggleSubItems && (

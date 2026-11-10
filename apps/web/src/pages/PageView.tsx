@@ -28,6 +28,7 @@ import {
 } from '../api'
 import { useUnsavedEdits } from '../lib/collabSocket'
 import { setActiveEditor } from '../lib/activeEditor'
+import { registerPageEditor } from '../lib/activeEditor'
 import { LINE_WIDTH_FULL, setLastPage, usePrefs } from '../lib/prefs'
 import { appendFilesToEditor, useFileDropZone } from '../lib/fileDrop'
 import { InkLayer } from '../components/ink/InkLayer'
@@ -703,6 +704,8 @@ export function PageView() {
     }
     return
   }, [isDoc, editor, pageId, lockReadOnly])
+  // Button blocks run only in an editor whose page is known (docs/adr/2244-*), locked or not.
+  useEffect(() => (editor && pageId ? registerPageEditor(editor, pageId) : undefined), [editor, pageId])
 
   // Setting "Spell check" — sets the spellcheck attribute directly on the editor's contenteditable.
   // (Applied to the DOM to avoid touching CollabEditor options. ProseMirror only manages attributes it set itself.)

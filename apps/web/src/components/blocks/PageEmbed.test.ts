@@ -14,6 +14,7 @@ import '@blocknote/mantine'
 import {
   CUSTOM_BLOCK_TYPES,
   CUSTOM_INLINE_CONTENT_TYPES,
+  buttonBlockConfig,
   calloutConfig,
   chartBlockConfig,
   inlineMathConfig,
@@ -43,7 +44,7 @@ delete g.window
 delete g.document
 
 // Every custom node config of @inkling/shared (the configs the server schema registers too).
-const CUSTOM_BLOCKS = [calloutConfig, pageEmbedConfig, linkEmbedConfig, pluginBlockConfig, mathBlockConfig, chartBlockConfig]
+const CUSTOM_BLOCKS = [calloutConfig, pageEmbedConfig, linkEmbedConfig, pluginBlockConfig, mathBlockConfig, chartBlockConfig, buttonBlockConfig]
 const CUSTOM_INLINES = [mentionConfig, inlineMathConfig]
 
 // The main editor schema, built the way CollabEditor builds it (CollabEditor itself imports CSS
@@ -75,6 +76,7 @@ const page = [
   { type: 'pluginBlock', props: { pluginId: 'kanban', blockType: 'board', data: '{"cols":2}' } },
   { type: 'math', props: { latex: '\\frac{a}{b}' } },
   { type: 'pageEmbed', props: { pageId: 'p2' } },
+  { type: 'button', props: { label: 'Start', color: 'blue', actions: '[{"pageId":"p3","type":"open"}]' } },
   { type: 'codeBlock', props: { language: 'dataview' }, content: 'LIST' },
   { type: 'paragraph', content: 'after' },
 ]
@@ -133,7 +135,7 @@ describe('page-embed viewer schema (1539)', () => {
     yXmlFragmentToBlocks(BlockNoteEditor.create({ schema: BlockNoteSchema.create() }), fragment)
     const after = fragment.toString()
     assert.notEqual(after, before)
-    for (const tag of ['<callout', '<mention', '<linkembed', '<pluginblock', '<math', '<inlinemath', '<pageembed']) {
+    for (const tag of ['<callout', '<mention', '<linkembed', '<pluginblock', '<math', '<inlinemath', '<pageembed', '<button']) {
       assert.ok(before.toLowerCase().includes(tag), `fixture writes ${tag}`)
       assert.ok(!after.toLowerCase().includes(tag), `default schema keeps ${tag}?`)
     }

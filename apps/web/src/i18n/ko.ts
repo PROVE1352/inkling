@@ -33,6 +33,7 @@ import diagramsLinks from './ko/diagrams-links'
 import oauthCimd from './ko/oauth-cimd'
 import clip from './ko/clip'
 import push from './ko/push'
+import automations from './ko/automations'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -70,4 +71,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...oauthCimd,
   ...clip,
   ...push,
+  ...automations,
 }

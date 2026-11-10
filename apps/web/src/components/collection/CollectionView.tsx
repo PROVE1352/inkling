@@ -37,6 +37,7 @@ import { BoardView } from './BoardView'
 import { CalendarView } from './CalendarView'
 import { CollectionMenu } from './CollectionMenu'
 import { FieldsModal } from './FieldsModal'
+import { AutomationsModal } from './AutomationsModal'
 import { GalleryView } from './GalleryView'
 import { ImportModal } from './ImportModal'
 import { NewRowButton, RowInputsModal, RowTemplatesModal } from './RowTemplateMenus'
@@ -102,6 +103,7 @@ export function CollectionView({
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [syncOpen, setSyncOpen] = useState(false)
+  const [automationsOpen, setAutomationsOpen] = useState(false)
   const sheetsSync = useExperimental('sheets-sync')
   const pages = usePages(wsId)
   const pageMeta = useMemo(() => pages.data?.find((p) => p.id === pageId), [pages.data, pageId])
@@ -408,6 +410,7 @@ export function CollectionView({
             )}
             <CollectionMenu
               onRowTemplates={() => setManageOpen(true)}
+              onAutomations={guest ? undefined : () => setAutomationsOpen(true)}
               onImport={
                 schemaLocked
                   ? undefined
@@ -565,6 +568,14 @@ export function CollectionView({
         }}
         onSetDefault={(id, isDefault) => updateTemplate.mutate({ id, input: { isDefault } })}
         onDelete={(id) => deleteTemplate.mutate(id)}
+      />
+      <AutomationsModal
+        open={automationsOpen}
+        onClose={() => setAutomationsOpen(false)}
+        wsId={wsId}
+        collectionId={pageId}
+        fields={fields}
+        members={members.data}
       />
       <RowInputsModal
         template={askInputs?.template ?? null}

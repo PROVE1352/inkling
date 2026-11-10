@@ -51,9 +51,10 @@ with its usual compose files (`compose.override.yaml`, `COMPOSE_FILE`, or `COMPO
 6. **Switch** `.env` to `INKLING_DATA_NAME=inkling` (and `COMPOSE_PROJECT_NAME` when it was `nodian`),
    keeping a copy of the old `.env`. Override lines that name the old name are listed, not edited.
 7. **Start and check**: `up -d --no-build --pull never` (the same image as before; the rename never
-   changes the version), `/api/health/ready`, migrations, accounts, pages, collection rows, share links
-   and files equal to step 3, the data volume's file count, and one backup through the sidecar under the
-   new names. It ends with the `docker volume rm` line for the old volumes, which it never runs.
+   changes the version), `/api/health/ready`; migrations equal to step 3 and accounts, pages, collection
+   rows, share links and files not fewer (the exact every-table check was step 5; the app is live now and
+   people may already be writing), the data volume's file count, and one backup through the sidecar under
+   the new names. It ends with the `docker volume rm` line for the old volumes, which it never runs.
 
 **Resumable and reversible.** Each step is recorded in `./backups/rename-<from>-to-<to>/state` and
 checks its own result again: a copy without its record is made again (only into a volume carrying this

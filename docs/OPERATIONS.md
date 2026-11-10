@@ -184,7 +184,7 @@ Two ways on, both supported:
 
 ```bash
 ./deploy/backup.sh
-echo 'INKLING_DATA_NAME=nodian' >> .env           # 1. keep the old names for the upgrade
+printf '\nINKLING_DATA_NAME=nodian\n' >> .env       # 1. keep the old names for the upgrade
 git pull                                         #    (or copy the new release's files)
 docker compose pull app && docker compose up -d  #    or `up -d --build` for source builds
 ./deploy/rename-from-nodian.sh --dry-run         # 2. plan: volumes, sizes, free disk, downtime

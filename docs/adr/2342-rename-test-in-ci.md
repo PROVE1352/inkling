@@ -30,10 +30,11 @@ anything never comes up empty — can only be shown with the old release's own `
      interrupted run;
   7. a new install from `.env.example`: no old name anywhere; `signup-key.sh`, `reset-password.sh`,
      `cli-token.sh`, `backup.sh` and `restore.sh --dry-run` work.
-- **CI**: a `rename` job in `.github/workflows/upgrade.yml`, one leg per old-name release worth
-  covering (the newest of each minor that changed `compose.yaml`: v0.16.0 and v0.17.1), separate from
-  the per-release `upgrade` matrix that 0.18 extends. Its paths include `compose.yaml`, `deploy/**` and
-  `.env.example`.
+- **CI**: a `rename` job in `.github/workflows/upgrade.yml` from v0.17.1, the last release with the old
+  names (earlier releases had the same names; their schemas are the `upgrade` matrix's job), separate
+  from that per-release matrix, which 0.18 extends. Its paths include `compose.yaml`, `deploy/**` and
+  `.env.example`. The renamed install is removed before step 7, because with the real names both
+  installs are project `inkling`.
 - **Locally** the same script runs with `FROM`/`TO` set to other names, because a developer machine
   may already run a real `nodian` project (the development database). The old tree's files are
   rewritten to `FROM`; `docker compose config` shows separately that the new file with

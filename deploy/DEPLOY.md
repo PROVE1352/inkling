@@ -435,7 +435,7 @@ so an upgraded server never comes up on new, empty volumes. On a server that ran
 
 ```bash
 ./deploy/backup.sh
-echo 'INKLING_DATA_NAME=nodian' >> .env     # keep the old names: the upgrade changes nothing else
+printf '\nINKLING_DATA_NAME=nodian\n' >> .env   # keep the old names: the upgrade changes nothing else
 git pull && docker compose pull app && docker compose up -d
 # later, if you want the new names (copies the volumes; the old ones stay until you delete them):
 ./deploy/rename-from-nodian.sh --dry-run   # sizes, free disk, expected downtime

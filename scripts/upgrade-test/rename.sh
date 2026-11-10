@@ -250,6 +250,9 @@ pass
 
 # ==================================================================================================
 step 7 "new install from .env.example"
+# The renamed install goes first: with the default names both are project `inkling` (CI).
+(cd "$INST" && docker compose down -v >/dev/null 2>&1 && INKLING_DATA_NAME=$FROM docker compose down -v >/dev/null 2>&1) ||
+  fail "removing the renamed install"
 mkdir -p "$FRESH"
 rsync -a --exclude .git --exclude node_modules --exclude .env --exclude compose.override.yaml --exclude backups/ "$NEW_TREE/" "$FRESH/"
 cp "$FRESH/.env.example" "$FRESH/.env"

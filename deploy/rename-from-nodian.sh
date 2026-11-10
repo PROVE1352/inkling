@@ -127,6 +127,7 @@ check_owner() {
   local p=$1 d
   for d in $(dirs_of_project "$p"); do
     [ "$d" = "$HERE" ] && continue
+    [ -d "$d" ] && [ "$(cd "$d" && pwd -P)" = "$HERE" ] && continue # same folder through a symlink
     [ "${INKLING_RENAME_ANY_DIR:-0}" = 1 ] && { warn "project $p was started from $d (INKLING_RENAME_ANY_DIR=1)"; continue; }
     die "compose project '$p' on this machine was started from $d, not from $HERE. Run this script from that directory (or set INKLING_RENAME_ANY_DIR=1 if the install was moved)."
   done
@@ -517,11 +518,13 @@ dc_new "${UP[@]}"
 r=$(wait_ready dc_new) || die "the app did not become ready: ${DC[*]} logs app. Back to the old names: $0 --rollback"
 info "health/ready: $r"
 dc_psql dc_new -c "$HEADLINE_SQL" >"$STATE_DIR/headline.after"
-if ! diff "$STATE_DIR/headline.before" "$STATE_DIR/headline.after" >/dev/null; then
-  diff "$STATE_DIR/headline.before" "$STATE_DIR/headline.after" >&2 || true
-  die "the numbers differ after the start (above). Back to the old names: $0 --rollback"
-fi
-info "same as before: $(tr '\n' ' ' <"$STATE_DIR/headline.after")"
+# The exact check (every table) was made on the copy before the start. Now the app is live: people may
+# add pages while this runs, so numbers may grow; fewer of anything, or other migrations, is a failure.
+bad=$(awk 'NR == FNR { b[$1] = $2; next }
+  ($1 == "migrations" && $2 != b[$1]) || $2 < b[$1] { printf "%s %s -> %s; ", $1, b[$1], $2 }' \
+  "$STATE_DIR/headline.before" "$STATE_DIR/headline.after")
+[ -z "$bad" ] || die "after the start: $bad Back to the old names: $0 --rollback"
+info "before -> now: $(paste -d' ' "$STATE_DIR/headline.before" "$STATE_DIR/headline.after" | awk '{ printf "%s %s%s  ", $1, $2, ($4 == $2 ? "" : " -> " $4) }')"
 DATA_OLD=$(printf '%s\n' "$PAIRS" | awk -F'\t' '$1 == "data" { print $2 }')
 DATA_NEW=$(printf '%s\n' "$PAIRS" | awk -F'\t' '$1 == "data" { print $3 }')
 if [ -n "$DATA_OLD" ] && vol_exists "$DATA_OLD"; then

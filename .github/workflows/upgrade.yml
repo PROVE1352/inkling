@@ -122,10 +122,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The newest release of each compose.yaml shape with the old names.
+        # The last release with the old names. Older ones had the same names (name: nodian, nodian-* volumes,
+        # role nodian); the upgrade job above covers their schemas. By commit: d775b5d is v0.17.1.
         from:
-          - { name: v0.16.0, ref: v0.16.0 }
-          - { name: v0.17.1, ref: v0.17.1 }
+          - { name: v0.17.1, ref: d775b5d817116ef68c649f2bc914c11767c71f8f }
     steps:
       - uses: actions/checkout@v4
         with:

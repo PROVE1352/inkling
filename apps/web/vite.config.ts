@@ -80,8 +80,19 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
+        // "Share to Inkling" from the OS share sheet (installed PWA). GET on purpose: the /clip
+        // page only prefills a form and saves on a click, so no service worker fetch handler and
+        // no cross-site write.
+        share_target: {
+          action: '/clip',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' },
+        },
       },
       workbox: {
+        // Push and notification-click handlers live in public/push-sw.js; the generated worker
+        // imports it, so the precache and update policy above stay Workbox's.
+        importScripts: ['/push-sw.js'],
         // SPA fallback must never answer a server route (docs/adr/0706-*). Server routes outside
         // /api (apps/server/src/index.ts isReservedPath + root-registered routes):
         //   /api/*, /files/* (downloads), /collab (WebSocket), /mcp, /.well-known/*,

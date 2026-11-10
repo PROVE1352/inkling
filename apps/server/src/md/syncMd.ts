@@ -360,7 +360,7 @@ export function fixAliasedLinkText(blocks: AnyBlock[]): void {
  * one-line block tokens of the agent notation (`<!-- inkling:pageEmbed {…} -->`, md/notation.ts,
  * docs/adr/1500-*), which every import reads back into the same block; Obsidian hides the comment.
  */
-const TOKEN_ONLY_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart'])
+const TOKEN_ONLY_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'button'])
 
 async function withBlockTokens(blocks: AnyBlock[]): Promise<{ blocks: AnyBlock[]; finish: (md: string) => string }> {
   const tokens = new Map<string, string>()

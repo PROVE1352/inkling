@@ -12,12 +12,21 @@ export interface EditActor {
   userId: string
   /** OAuth client name for MCP writes, null for a browser session. */
   via: string | null
+  /** Set for writes a database automation made (docs/adr/2242-*): the loop marker the change log carries. */
+  auto?: AutomationMarker
+}
+
+/** Which rule run made a write: depth and the rules already run in this chain (docs/adr/2242-*). */
+export interface AutomationMarker {
+  ruleId: string
+  depth: number
+  chain: string[]
 }
 
 const active = new Map<string, { actor: EditActor; depth: number }>()
 
-export function actorOf(user: AuthUser): EditActor {
-  return { userId: user.id, via: user.via ?? null }
+export function actorOf(user: Pick<AuthUser, 'id' | 'via' | 'automation'>): EditActor {
+  return user.automation ? { userId: user.id, via: user.via ?? null, auto: user.automation } : { userId: user.id, via: user.via ?? null }
 }
 
 export async function withEditActor<T>(pageIds: string[], actor: EditActor, fn: () => Promise<T>): Promise<T> {

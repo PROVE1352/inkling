@@ -154,6 +154,9 @@ function blockLines(b: AnyBlock, indent: string, out: string[]): void {
     case 'pluginBlock':
       out.push(`${indent}[plugin block: ${String(props.pluginId ?? '')}]`)
       break
+    case 'button':
+      out.push(`${indent}[button: ${String(props.label ?? '').replace(/[\r\n]+/g, ' ')}]`)
+      break
     case 'codeBlock': {
       const lang = typeof props.language === 'string' && props.language !== 'text' ? props.language : ''
       out.push(`${indent}\`\`\`${lang}`)

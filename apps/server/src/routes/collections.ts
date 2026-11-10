@@ -46,6 +46,7 @@ import { changedPropKeys, propsEventText, recordPageEvents } from '../context/ch
 import type { PageRow } from '../pageDto'
 import { registerCollectionExtRoutes } from './collectionsExt'
 import { registerFormRoutes } from './forms'
+import { registerAutomationRoutes } from './automations'
 import { nonMemberPersonIds } from '../collectionRelations'
 import { connectionKey } from '../leases'
 import { normalizeAgentProps } from '../teamAgents'
@@ -158,6 +159,8 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
   await registerCollectionExtRoutes(app)
   // form views: public links and public answers (docs/adr/1820-*)
   await registerFormRoutes(app)
+  // database automations and the server side of button blocks (docs/adr/2240-*, 2244-*)
+  await registerAutomationRoutes(app)
 
   // Collection definition + rows
   app.get('/pages/:id/collection', { preHandler: requireUser }, async (req, reply) => {
@@ -484,7 +487,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         // an agent next to a person cell is a change of that cell (docs/adr/1861-*)
         const changedKeys = [...new Set(changedPropKeys(oldProps, (updated?.props ?? {}) as Record<string, unknown>).map((k) => (k.startsWith('agent:') ? k.slice(6) : k)))]
         if (changedKeys.length) {
-          await recordPageEvents([{ pageId: id, kind: 'page_props', after: propsEventText(parentFields, changedKeys) }], actorOf(user), tx)
+          await recordPageEvents([{ pageId: id, kind: 'page_props', after: propsEventText(parentFields, changedKeys), keys: changedKeys }], actorOf(user), tx)
           queued.push('change')
         }
         return {

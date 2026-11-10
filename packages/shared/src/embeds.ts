@@ -422,7 +422,8 @@ export interface WebhookPayloadV1 {
   version: 1
   /** Delivery id, equal to the X-Inkling-Delivery header; stable across retries and resends. */
   id: string
-  type: WebhookEvent | 'test'
+  /** 'automation': a button or a database automation sent to this hook by name, whatever its subscriptions (docs/adr/2243-*). */
+  type: WebhookEvent | 'test' | 'automation'
   /** When the event was queued (ISO 8601). */
   occurredAt: string
   workspace: { id: string; name: string }
@@ -433,8 +434,10 @@ export interface WebhookPayloadV1 {
   comment?: { id: string }
   /** mention: the mentioned members; assigned: the assigned members. */
   users?: { id: string; name: string }[]
-  /** assigned: the person field's name, or 'owner'. */
+  /** assigned: the person field's name, or 'owner'; automation: the rule's name or the button's label. */
   field?: string | null
+  /** automation: the message the rule or button was set up with (plain text), or null. */
+  message?: string | null
   /** review_due / agent_digest: the shared pages of the digest (at most 50) and their total. */
   pages?: { id: string; title: string; url: string | null; owner?: { id: string; name: string } | null }[]
   total?: number

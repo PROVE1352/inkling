@@ -44,6 +44,8 @@ const RESERVED_FOLDED = new Set(RESERVED.map(foldName))
 export function reservedClientName(name: string): string | null {
   const f = foldName(name)
   if (!f) return null
+  // the via of database automations is "automation: <rule>" (agentVia.ts, docs/adr/2242-*): no client starts so
+  if (f.startsWith('automation')) return 'automation'
   for (const r of RESERVED) if (foldName(r) === f) return r
   return RESERVED_FOLDED.has(f) ? f : null
 }

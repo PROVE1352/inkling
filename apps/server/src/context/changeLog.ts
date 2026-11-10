@@ -139,7 +139,7 @@ type ChangeOp =
       op: 'events'
       workspaceId: string
       actor: EditActor | null
-      events: { pageId: string; kind: PageEventKind; before: string | null; after: string | null; scope: string; ownerId: string | null }[]
+      events: { pageId: string; kind: PageEventKind; before: string | null; after: string | null; scope: string; ownerId: string | null; keys?: string[] | null; noAuto?: boolean | null }[]
     }
   | { op: 'relabel'; pageIds: string[]; via: string; userId: string }
 
@@ -181,7 +181,8 @@ function mentionLines(s: string | null): string {
   return out.length > MAX_MENTION_TEXT ? out.slice(0, MAX_MENTION_TEXT) : out
 }
 
-const actorJson = (a: EditActor | null | undefined): EditActor | null => (a ? { userId: a.userId, via: capVia(a.via) } : null)
+const actorJson = (a: EditActor | null | undefined): EditActor | null =>
+  a ? (a.auto ? { userId: a.userId, via: capVia(a.via), auto: a.auto } : { userId: a.userId, via: capVia(a.via) }) : null
 
 type NewRow = typeof pageChanges.$inferInsert
 
@@ -304,6 +305,10 @@ export interface PageEvent {
   /** page_renamed: old/new title; page_moved: old/new parent id ('' = top level); page_visibility: old/new scope; page_props: after = field names. */
   before?: string | null
   after?: string | null
+  /** page_props: the changed field ids (database automations' "field changed" trigger, docs/adr/2240-*). */
+  keys?: string[]
+  /** page_added of a bulk write that starts no database automation (docs/adr/2240-*). */
+  noAuto?: boolean
 }
 
 /**
@@ -315,15 +320,15 @@ export async function recordPageEvents(events: PageEvent[], actor: EditActor | n
   if (events.length === 0) return
   const data = events.map((e, i) => {
     const small = e.kind === 'page_renamed' || e.kind === 'page_props' ? capTitle : (s: string | null | undefined) => s ?? null
-    return { ord: i, page_id: e.pageId, kind: e.kind, before: small(e.before), after: small(e.after) }
+    return { ord: i, page_id: e.pageId, kind: e.kind, before: small(e.before), after: small(e.after), keys: e.keys?.slice(0, 100) ?? null, no_auto: e.noAuto || null }
   })
   const x = exec ?? db
   // A visibility change is stored with the union of both sides, so everyone who could see the
   // page before OR after gets the row (made-shared: new readers; made-private: "removed").
   const out = (await x.execute(sql`
     WITH ev AS (
-      SELECT x.ord, x.page_id, x.kind, x.before, x.after
-        FROM jsonb_to_recordset(${JSON.stringify(data)}::jsonb) AS x(ord int, page_id uuid, kind text, before text, after text)
+      SELECT x.ord, x.page_id, x.kind, x.before, x.after, x.keys, x.no_auto
+        FROM jsonb_to_recordset(${JSON.stringify(data)}::jsonb) AS x(ord int, page_id uuid, kind text, before text, after text, keys jsonb, no_auto boolean)
     ), ins AS (
       INSERT INTO outbox (topic, origin, workspace_id, payload)
       SELECT 'change', ${OUTBOX_ORIGIN}, p.workspace_id, jsonb_build_object(
@@ -335,7 +340,7 @@ export async function recordPageEvents(events: PageEvent[], actor: EditActor | n
                   'scope', CASE WHEN ev.kind = 'page_visibility'
                                 THEN CASE WHEN ev.before = 'shared' OR ev.after = 'shared' THEN 'shared' ELSE 'private' END
                                 ELSE p.scope END,
-                  'ownerId', p.created_by) ORDER BY ev.ord))
+                  'ownerId', p.created_by, 'keys', ev.keys, 'noAuto', ev.no_auto) ORDER BY ev.ord))
         FROM ev JOIN pages p ON p.id = ev.page_id
        GROUP BY p.workspace_id
       RETURNING id
@@ -479,6 +484,8 @@ function workspaceOf(op: ChangeOp): string | null {
 }
 
 async function changePass(isolate: boolean): Promise<number> {
+  automationQueued = false
+  automationForeign = false
   let notified = false
   let notifiedForeign = false
   const logged = new Set<string>()
@@ -534,6 +541,7 @@ async function changePass(isolate: boolean): Promise<number> {
   })
   // Follower events carry the origin of their change row: another process is told (docs/adr/1150-*).
   if (notified) outboxCommitted(['notify'], { foreign: notifiedForeign })
+  if (automationQueued) outboxCommitted(['automation'], { foreign: automationForeign })
   // Committed: changes_since calls waiting on these workspaces read again (docs/adr/1551-*).
   if (n > 0 && logged.size) notifyChangesCommitted(logged, passEpoch)
   return n
@@ -544,6 +552,25 @@ registerOutboxHandler('change', runChangeBatch, CHANGE_BATCH)
 /** Process every committed change-log row (tests, shutdown, readers that need their own writes). */
 export function drainChangeLog(maxPasses = 50): Promise<number> {
   return drainOutbox('change', maxPasses)
+}
+
+/**
+ * Queues database automation runs for logged page events; returns true when it queued any
+ * (automations/queue.ts registers it, so this module does not import the automation code).
+ */
+export type AutomationEventHook = (
+  tx: Tx,
+  workspaceId: string,
+  actor: EditActor | null,
+  events: Extract<ChangeOp, { op: 'events' }>['events'],
+  /** The writer's process: the runs belong to it like notification followers (docs/adr/1150-*). */
+  origin: string | null,
+) => Promise<boolean>
+let automationHook: AutomationEventHook | null = null
+let automationQueued = false
+let automationForeign = false
+export function setAutomationEventHook(fn: AutomationEventHook | null): void {
+  automationHook = fn
 }
 
 /** Returns true when it queued notification events. */
@@ -579,6 +606,12 @@ async function applyOp(tx: Tx, op: ChangeOp, hwm: number, at: Date, origin: stri
         changedAt: at,
       }))
       if (rows.length) await insertRows(tx, rows)
+      // Database automations (docs/adr/2240-*): rows added or changed in a collection with enabled
+      // rules queue their runs here, in the transaction that logs the change: once, after the write committed.
+      if (automationHook && (await automationHook(tx, op.workspaceId, op.actor, op.events, origin))) {
+        automationQueued = true
+        if (origin !== OUTBOX_ORIGIN) automationForeign = true
+      }
       return false
     }
     case 'relabel': {

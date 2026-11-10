@@ -7,6 +7,8 @@
 // A different name, prop or default makes the schemas disagree and a server read would drop the node.
 
 import { inlineMathConfig, mathBlockConfig } from './math'
+import { BUTTON_COLORS } from './automations'
+import type { ButtonColor } from './automations'
 
 /** Callout types (the `type` prop); also the `> [!type]` words of the Markdown notation. */
 export type CalloutType = 'note' | 'tip' | 'warning' | 'danger' | 'info'
@@ -68,6 +70,21 @@ export const chartBlockConfig = {
   content: 'none' as const,
 } as const
 
+/**
+ * Button block (docs/adr/2244-*): `label`, `color` (BlockNote's color names) and `actions`, the
+ * canonical JSON of ButtonAction[] (automations.ts), '' while the button is being set up. Actions run
+ * in the browser of the person who presses it, through the REST routes that person may use.
+ */
+export const buttonBlockConfig = {
+  type: 'button' as const,
+  propSchema: {
+    label: { default: '' },
+    color: { default: 'default' as const, values: BUTTON_COLORS as unknown as ButtonColor[] },
+    actions: { default: '' },
+  },
+  content: 'none' as const,
+} as const
+
 /** @mention chip (inline atom): kind 'user' | 'page', the target id and the label shown. */
 export const mentionConfig = {
   type: 'mention' as const,
@@ -93,6 +110,7 @@ export const CUSTOM_BLOCK_TYPES = [
   pluginBlockConfig.type,
   mathBlockConfig.type,
   chartBlockConfig.type,
+  buttonBlockConfig.type,
 ] as const
 export type CustomBlockType = (typeof CUSTOM_BLOCK_TYPES)[number]
 

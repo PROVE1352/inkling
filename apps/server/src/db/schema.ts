@@ -990,3 +990,5 @@ export * from './schema-forms'
 export * from './schema-taint'
 // Web push subscriptions, VAPID key and per-person push settings (docs/adr/2220-*)
 export * from './schema-push'
+// Database automations and their recent runs (docs/adr/2240-*)
+export * from './schema-automations'

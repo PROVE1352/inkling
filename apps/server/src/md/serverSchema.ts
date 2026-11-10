@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   calloutConfig,
+  buttonBlockConfig,
   chartBlockConfig,
   inlineMathConfig,
   linkEmbedConfig,
@@ -123,6 +124,20 @@ const pageEmbedSpec = core.createBlockSpec(pageEmbedConfig, { render: placeholde
 const linkEmbedSpec = core.createBlockSpec(linkEmbedConfig, { render: placeholder('nd-link-embed') })
 const pluginBlockSpec = core.createBlockSpec(pluginBlockConfig, { render: placeholder('nd-plugin-block') })
 const chartBlockSpec = core.createBlockSpec(chartBlockConfig, { render: placeholder('nd-chart') })
+// Button (docs/adr/2244-*): server HTML (public pages, HTML export) is an inert button with the label;
+// public pages get no actions (publicBlocks in convert.ts drops them before rendering).
+const buttonBlockSpec = core.createBlockSpec(buttonBlockConfig, {
+  render: (block: { props: { label: string; color: string } }) => {
+    const dom = element('div', 'nd-button')
+    const btn = element('button', '')
+    btn.setAttribute('type', 'button')
+    btn.setAttribute('aria-disabled', 'true')
+    btn.setAttribute('data-color', block.props.color)
+    btn.textContent = block.props.label || 'Button'
+    dom.appendChild(btn)
+    return { dom }
+  },
+})
 
 const mentionSpec = core.createInlineContentSpec(mentionConfig, {
   render: (inline: { props: { label: string } }) => {
@@ -142,6 +157,7 @@ export const serverSchema = core.BlockNoteSchema.create({
     [linkEmbedConfig.type]: linkEmbedSpec(),
     [pluginBlockConfig.type]: pluginBlockSpec(),
     [chartBlockConfig.type]: chartBlockSpec(),
+    [buttonBlockConfig.type]: buttonBlockSpec(),
   },
   inlineContentSpecs: {
     ...core.defaultInlineContentSpecs,

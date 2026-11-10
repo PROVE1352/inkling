@@ -188,6 +188,18 @@ const ELEMENTS: Element[] = [
     token: /^<!-- inkling:chart \{.*\} -->$/m,
   },
   {
+    // 0.18 (docs/adr/2244-*): actions as JSON in the token, the label in brackets in plain Markdown
+    name: 'button block',
+    place: 'block',
+    add: webBlock('button', {
+      label: 'Log -- bug',
+      color: 'blue',
+      actions: JSON.stringify([{ collectionId: PAGE_ID, props: { f1: 'today' }, type: 'addRow' }]),
+    }),
+    sig: /<button actions="[^\n]*addRow[^\n]*" color="blue" label="Log -- bug">/i,
+    token: /^<!-- inkling:button \{"actions":\[\{.*"label":"Log -\\u002d bug"\} -->$/m,
+  },
+  {
     name: 'math block',
     place: 'block',
     add: knownBlock({ type: 'math', props: { latex: 'E = mc^2' } }),

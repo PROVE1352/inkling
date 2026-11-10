@@ -55,6 +55,8 @@ function collectBlockText(blocks: AnyBlock[], out: string[]): void {
   for (const b of blocks) {
     const c = b.content
     if (b.type === MATH_BLOCK_TYPE && typeof b.props?.latex === 'string' && b.props.latex) out.push(b.props.latex)
+    // a button's label is searchable text; its actions are not (docs/adr/2244-*)
+    if (b.type === 'button' && typeof b.props?.label === 'string' && b.props.label.trim()) out.push(b.props.label.trim())
     if (Array.isArray(c)) {
       const t = inlinesText(c)
       if (t) out.push(t)

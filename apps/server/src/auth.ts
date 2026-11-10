@@ -22,6 +22,8 @@ import { hasGrantsSql, peopleScopeFor, runAsGuest } from './pageGrants'
 import { assertBearerRouteAllowed } from './tokenPolicy'
 import type { RangeScope } from './tokenRange'
 import { newSessionToken } from './util'
+import { AUTOMATION_RUN_HEADER, automationRunUser } from './automations/context'
+import type { AutomationMarker } from './context/attribution'
 
 export const SESSION_COOKIE = 'inkling_sid'
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -57,6 +59,11 @@ export interface AuthUser {
    * requireUser then loads the guest scope (pageGrants.ts); false/absent = no extra statement.
    */
   hasGrants?: boolean
+  /**
+   * Set only for the requests a database automation run makes as its rule's author
+   * (automations/context.ts, docs/adr/2241-*): the loop marker its writes carry into the change log.
+   */
+  automation?: AutomationMarker
 }
 
 // Add the authenticated user to FastifyRequest (declaration merging)
@@ -266,6 +273,16 @@ export function requireUser(
 }
 
 async function authenticate(req: FastifyRequest): Promise<void> {
+  // A database automation run (docs/adr/2241-*): an in-process inject carrying a one-run token that
+  // only this process knows; the run is its rule's author, as a non-browser client.
+  const autoRun = req.headers[AUTOMATION_RUN_HEADER]
+  if (autoRun !== undefined) {
+    const user = typeof autoRun === 'string' ? automationRunUser(autoRun) : null
+    if (!user) throw unauthorized()
+    req.user = user
+    req.authVia = 'bearer'
+    return
+  }
   const bearer = readBearer(req.headers.authorization)
   if (bearer !== null && isApiTokenShaped(bearer)) {
     // Personal API token (docs/adr/1201-*): the REST API from outside, as its owner, within its

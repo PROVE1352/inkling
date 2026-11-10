@@ -386,6 +386,13 @@
       "when": 1794296700000,
       "tag": "0054_w18_web_push",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794305487825,
+      "tag": "0055_w18_automations",
+      "breakpoints": true
     }
   ]
 }

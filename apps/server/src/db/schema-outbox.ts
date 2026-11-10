@@ -20,6 +20,8 @@ import { workspaces } from './schema'
  *              like a webhook delivery.
  *  - 'push'    one web push delivery: a notification row × one browser subscription (docs/adr/2222-*),
  *              leased like a webhook delivery; the payload holds ids only.
+ *  - 'automation' one run of a database automation for one row (docs/adr/2240-*), leased like a
+ *              webhook delivery; queued by the 'change' consumer, never by a write route.
  *
  * state: 'pending' → (deleted) | 'done' | 'dead' (gave up after OUTBOX_MAX_ATTEMPTS, kept for
  * inspection until purged).
@@ -28,7 +30,7 @@ export const outbox = pgTable(
   'outbox',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    topic: text('topic', { enum: ['change', 'notify', 'webhook', 'slack', 'push'] }).notNull(),
+    topic: text('topic', { enum: ['change', 'notify', 'webhook', 'slack', 'push', 'automation'] }).notNull(),
     /** Idempotency key (webhook deliveries: event key + hook id). Unique while the row exists. */
     dedupeKey: text('dedupe_key'),
     /**

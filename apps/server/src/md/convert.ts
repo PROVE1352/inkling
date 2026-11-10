@@ -470,6 +470,12 @@ function publicBlocks(blocks: AnyBlock[]): AnyBlock[] {
       out.push(...publicBlocks(b.children ?? []))
       continue
     }
+    // button (docs/adr/2244-*): shown as an inert button with its label; its actions (ids of
+    // databases, pages and webhooks) never reach public HTML
+    if (b.type === 'button') {
+      out.push({ ...b, props: { label: String(b.props?.label ?? ''), color: String(b.props?.color ?? 'default'), actions: '' }, children: publicBlocks(b.children ?? []) })
+      continue
+    }
     out.push({ ...b, children: publicBlocks(b.children ?? []) })
   }
   mapBlockInlines(out, (inlines) =>

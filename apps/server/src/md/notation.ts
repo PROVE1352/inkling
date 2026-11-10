@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
-import { CALLOUT_TYPES, canonicalChartConfig, canonicalChartJson, chartBlockConfigSchema, parseChartBlockConfig, parseHttpUrl } from '@inkling/shared'
+import { BUTTON_COLORS, buttonActionsJson, CALLOUT_TYPES, canonicalChartConfig, canonicalChartJson, chartBlockConfigSchema, parseButtonActions, parseChartBlockConfig, parseHttpUrl } from '@inkling/shared'
 import type { AnyBlock, Inline, LinkInline, StyledText } from './convert'
 import { getServerEditor } from './editor'
 
@@ -45,7 +45,7 @@ const SNAPSHOT_OPEN_RE = /^[ \t>]*<!--[ \t]*inkling:snapshot[ \t]*-->[ \t]*$/
 const SNAPSHOT_CLOSE_RE = /^[ \t>]*<!--[ \t]*\/inkling:snapshot[ \t]*-->[ \t]*$/
 
 /** Block types written as `<!-- inkling:<type> {props} -->` in agent mode. */
-const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'file', 'audio'])
+const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'file', 'audio', 'button'])
 /** Block types a token may create (images and videos read back from Markdown already). */
 const PARSE_TOKEN_BLOCKS = new Set([...TOKEN_BLOCKS, 'image', 'video'])
 /** Left out of plain Markdown (nothing to show without the app), as before this notation. */
@@ -54,7 +54,9 @@ const PLAIN_DROPPED = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart']
  * Written as tokens in `file` mode too: the exporter leaves only charts and database views
  * (page embeds of a collection) in the blocks by then; page and link embeds became links.
  */
-const FILE_TOKEN_BLOCKS = new Set(['chart', 'pageEmbed'])
+const FILE_TOKEN_BLOCKS = new Set(['chart', 'pageEmbed', 'button'])
+/** Plain Markdown shows a button as its label in brackets (docs/adr/2244-*): readable, never its actions. */
+const PLAIN_LABELLED = new Set(['button'])
 
 const CALLOUT_SET = new Set<string>(CALLOUT_TYPES)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -133,6 +135,15 @@ function tokenProps(type: string, props: Record<string, unknown>): Record<string
     const c = parseChartBlockConfig(props.config)
     return c ? (canonicalChartConfig(c) as Record<string, unknown>) : {}
   }
+  // button (docs/adr/2244-*): the actions as JSON, not a JSON string inside JSON
+  if (type === 'button') {
+    const out: Record<string, unknown> = {}
+    const actions = parseButtonActions(String(props.actions ?? ''))
+    if (actions.length) out.actions = JSON.parse(buttonActionsJson(actions))
+    if (props.color && props.color !== 'default') out.color = props.color
+    if (props.label) out.label = props.label
+    return out
+  }
   const schema = propSchemaOf(type) ?? {}
   const out: Record<string, unknown> = {}
   for (const k of Object.keys(props).sort()) {
@@ -196,6 +207,10 @@ export function prepareNotationExport(blocks: AnyBlock[], mode: NotationMode): (
           const key = sentinel(s, 'B')
           blockTokens.set(key, `<!-- inkling:${type} ${commentJson(tokenProps(type, b.props ?? {}))} -->`)
           b = { ...b, type: 'paragraph', props: {}, content: [{ type: 'text', text: key, styles: {} }] }
+        } else if (PLAIN_LABELLED.has(type)) {
+          const label = String(b.props?.label ?? '').replace(/[[\]\r\n]+/g, ' ').trim()
+          out.push({ type: 'paragraph', props: {}, content: [{ type: 'text', text: `[${label || 'Button'}]`, styles: { bold: true } }], children: [] }, ...replaceBlocks(b.children ?? []))
+          continue
         } else if (PLAIN_DROPPED.has(type)) {
           // nothing to show outside the app; the children (if any) stay
           out.push(...replaceBlocks(b.children ?? []))
@@ -267,6 +282,7 @@ const CODE_SPAN_RE = /(`+)[\s\S]*?\1/g
 function tokenBlock(type: string, json: string): AnyBlock | null {
   if (!PARSE_TOKEN_BLOCKS.has(type)) return null
   if (type === 'chart') return chartTokenBlock(json)
+  if (type === 'button') return buttonTokenBlock(json)
   const schema = propSchemaOf(type)
   if (!schema) return null
   let raw: unknown
@@ -297,6 +313,26 @@ function tokenBlock(type: string, json: string): AnyBlock | null {
   if ((type === 'file' || type === 'audio' || type === 'image' || type === 'video') && !(FILE_URL_RE.test(url) || parseHttpUrl(url))) return null
   if (type === 'pluginBlock' && (typeof props.pluginId !== 'string' || !props.pluginId || String(props.data ?? '').length > PLUGIN_DATA_MAX)) return null
   return { type, props, children: [] }
+}
+
+/** A button token (docs/adr/2244-*): label, color and the actions the shared schema accepts (others dropped). */
+function buttonTokenBlock(json: string): AnyBlock | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(json)
+  } catch {
+    return null
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as { label?: unknown; color?: unknown; actions?: unknown }
+  const props: Record<string, unknown> = {}
+  if (typeof r.label === 'string') props.label = r.label.slice(0, 200)
+  if (typeof r.color === 'string' && (BUTTON_COLORS as readonly string[]).includes(r.color)) props.color = r.color
+  if (Array.isArray(r.actions)) {
+    const actions = parseButtonActions(JSON.stringify(r.actions))
+    if (actions.length) props.actions = buttonActionsJson(actions)
+  }
+  return { type: 'button', props, children: [] }
 }
 
 /** A chart token: `{}` (being set up) or a config the shared schema accepts; else not a block. */

@@ -229,7 +229,8 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           ),
         )
         // Change feed (docs/adr/1650-*): the new rows are logged as added with them.
-        await recordPageEvents(rows.map((r) => ({ pageId: r.id, kind: 'page_added' as const })), actorOf(user), tx)
+        // a pasted or imported batch starts no database automation (docs/adr/2240-*)
+        await recordPageEvents(rows.map((r) => ({ pageId: r.id, kind: 'page_added' as const, noAuto: true })), actorOf(user), tx)
         queued = [...queued, 'change']
         return rows
       })
@@ -293,7 +294,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           const out: PageEvent[] = []
           if (r.oldTitle !== r.title) out.push({ pageId: r.id, kind: 'page_renamed', before: r.oldTitle, after: r.title })
           const keys = changedPropKeys(r.oldProps ?? {}, r.props ?? {})
-          if (keys.length) out.push({ pageId: r.id, kind: 'page_props', after: propsEventText(fieldList, keys) })
+          if (keys.length) out.push({ pageId: r.id, kind: 'page_props', after: propsEventText(fieldList, keys), keys })
           return out
         })
       if (!personTouched) {

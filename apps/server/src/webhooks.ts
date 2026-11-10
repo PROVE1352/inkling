@@ -242,8 +242,12 @@ export function toWebhookDTO(r: HookRow): WebhookDTO {
 // Events → messages
 // ---------------------------------------------------------------------------
 
+/**
+ * 'automation' (docs/adr/2243-*) is not a subscription: a button or a database automation names the
+ * hook, whatever its events.
+ */
 export interface WebhookEventInput {
-  type: WebhookEvent
+  type: WebhookEvent | 'automation'
   workspaceId: string
   pageId: string
   actorId?: string | null
@@ -256,6 +260,8 @@ export interface WebhookEventInput {
   field?: string | null
   /** OAuth client name when an agent caused the event; shown as "Alice via X". */
   via?: string | null
+  /** For 'automation' (docs/adr/2243-*): the rule's or button's message (plain, capped). */
+  message?: string | null
   /** Idempotency key of the event (default: derived for comment / mention / page_created). */
   key?: string
 }
@@ -275,7 +281,7 @@ interface Message {
  * (JSON) only choose from it.
  */
 interface ResolvedEvent {
-  type: WebhookEvent
+  type: WebhookEvent | 'automation'
   workspaceId: string
   actor: { id: string; name: string } | null
   /** OAuth client name when an agent caused the event (capped). */
@@ -284,6 +290,7 @@ interface ResolvedEvent {
   comment?: { id: string; excerpt: string | null }
   users?: { id: string; name: string }[]
   field?: string | null
+  message?: string | null
   /** Digests: the deliverable pages in event order, and the digest's link. */
   pages?: { id: string; title: string; url: string | null; owner: { id: string; name: string } | null }[]
   url?: string | null
@@ -343,7 +350,11 @@ async function resolveEvent(ev: WebhookEventInput, hookWorkspaceId: string): Pro
     out.users = (ev.mentionedUserIds ?? []).filter((id) => names.has(id)).map((id) => ({ id, name: names.get(id)! }))
   }
   if (ev.type === 'assigned') out.field = ev.field ? plainExcerpt(ev.field, 60) : null
-  if (!['comment', 'mention', 'reminder', 'page_created', 'assigned'].includes(ev.type)) return null
+  if (ev.type === 'automation') {
+    out.field = ev.field ? plainExcerpt(ev.field, 80) : null
+    out.message = ev.message ? plainExcerpt(ev.message, 500) : null
+  }
+  if (!['comment', 'mention', 'reminder', 'page_created', 'assigned', 'automation'].includes(ev.type)) return null
   return out
 }
 
@@ -421,6 +432,10 @@ function toMessage(e: ResolvedEvent): Message {
     case 'page_created':
       summary = `${actor} created "${title}"`
       break
+    case 'automation':
+      // "via automation: X" already names the rule; a button names itself
+      summary = e.via && e.field && e.via.endsWith(e.field) ? `${actor} on "${title}"` : `${actor} ran "${e.field ?? ''}" on "${title}"`
+      return { summary, excerpt: e.message ?? null, link: e.page!.url, title }
     default: {
       const what = e.field ? ` (${e.field})` : ''
       summary = who.length > 0 ? `${actor} assigned ${who.join(', ')} to "${title}"${what}` : `${actor} assigned someone to "${title}"${what}`
@@ -446,6 +461,10 @@ function toGenericPayload(e: ResolvedEvent, id: string, occurredAt: string, work
   if (e.comment) out.comment = { id: e.comment.id }
   if (e.users) out.users = e.users
   if (e.type === 'assigned') out.field = e.field ?? null
+  if (e.type === 'automation') {
+    out.field = e.field ?? null
+    out.message = e.message ?? null
+  }
   if (e.pages) {
     out.pages = e.pages.slice(0, GENERIC_DIGEST_LISTED).map((p) => ({ ...p }))
     out.total = e.pages.length

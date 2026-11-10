@@ -1047,3 +1047,5 @@ export * from './agentTokens'
 export * from './clip'
 // Web push: settings, devices, subscribe input, payload (docs/adr/2220-*)
 export * from './push'
+// Buttons and database automations (docs/adr/2240-*)
+export * from './automations'

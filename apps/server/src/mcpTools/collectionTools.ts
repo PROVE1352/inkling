@@ -20,6 +20,7 @@ import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
 import { agentPropKey, parseUniqueId, subItemsField } from '@inkling/shared'
+import type { AutomationDTO } from '@inkling/shared'
 import { peopleStatusLine } from '../memberStatus'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -169,6 +170,18 @@ async function loadRowTemplates(ctx: ToolCtx, collectionId: string): Promise<Row
   return (await call(ctx, 'GET', `/api/pages/${collectionId}/collection/row-templates`)).json() as RowTemplateListDTO
 }
 
+/**
+ * Enabled database automations, one line each (docs/adr/2245-*): what a write here starts. Nothing
+ * is printed for a collection without any, nor when the caller may not list them (a guest).
+ */
+async function loadAutomationLines(ctx: ToolCtx, collectionId: string): Promise<string[]> {
+  const res = await call(ctx, 'GET', `/api/collections/${collectionId}/automations`, { passStatuses: [403] })
+  if (res.statusCode >= 400) return []
+  const on = (res.json() as { automations: AutomationDTO[] }).automations.filter((a) => a.enabled)
+  if (!on.length) return []
+  return ['Automations (run after your writes, as the rule\'s author):', ...on.map((a) => `- ${cleanText(a.name)}: ${cleanText(a.summary)}`)]
+}
+
 /** `template` argument → template id (null = empty row, undefined = the collection's default). */
 function pickRowTemplate(list: RowTemplateListDTO, ref: string | undefined): string | null | undefined {
   if (ref === undefined) return undefined
@@ -239,6 +252,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const head = `Collection "${r.collection.title || 'Untitled'}" (${r.collection.id})`
       if (describe) {
         const tpls = await loadRowTemplates(ctx, r.collection.id)
+        const autos = await loadAutomationLines(ctx, r.collection.id)
         // Title, field names, option labels and template names are member-written: one data block
         // like the rows (docs/adr/0976-*, 1656-*); the fixed operator help stays outside it.
         return text(
@@ -251,6 +265,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
                 ...r.fields.map((f) => `- ${describeField(f)}`),
                 'Duplicate or reserved names: use #fieldId (ids: ' + r.fields.map((f) => `${f.name}=#${f.id}`).join(', ') + ')',
                 ...templateLines(tpls),
+                ...autos,
               ].join('\n'),
               { source: 'rows', id: r.collection.id },
             ),

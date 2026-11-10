@@ -72,6 +72,7 @@ import { registerAgentTaintRoutes } from './routes/agentTaint'
 import { registerAgentUploadRoutes } from './routes/agentUploads'
 import { agentUploadEnv, agentUploadLimitsLine } from './agentUploads'
 import { startAutoAcceptTimer } from './autoAccept'
+import { startAutomationScheduler } from './automations/runner'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
@@ -661,6 +662,7 @@ async function main(): Promise<void> {
   void startOutboxWorker((msg) => app.log.warn(msg))
   // grace periods of auto-accept rules (docs/adr/1545-*)
   startAutoAcceptTimer((msg) => app.log.warn(msg))
+  startAutomationScheduler() // "date reached" database automations (docs/adr/2240-*)
 
   // 10) Boot summary (B-M6, C-M10)
   const flags = enabledExperimentalFeatures()

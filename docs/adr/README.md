@@ -598,6 +598,34 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1655](1655-not-found-hints-name-the-target.md) | Not-found hints name what was not found | Accepted |
 | [1656](1656-query-rows-describe-is-data.md) | query_rows describe=true is data | Accepted |
 
+## 1700–1709 Search: Korean partial match and field weights
+
+| ADR | Title | Status |
+|---|---|---|
+| [1700](1700-korean-partial-match-at-query-time.md) | Korean partial match at query time: split compounds, one-syllable nouns with particles | Accepted (amends the word groups of 1210) |
+| [1701](1701-aliases-count-as-title-heading-weight.md) | find_context: page aliases count as the title; heading weight 0.2 → 0.3 | Accepted (amends the weights of 1210) |
+| [1702](1702-evaluation-korean-partial-match-questions.md) | Retrieval evaluation: Korean partial-match questions, per-family metrics, 0.14 numbers | Accepted (extends 1213) |
+
+## 1720–1729 find_context with several queries
+
+| ADR | Title | Status |
+|---|---|---|
+| [1720](1720-find-context-several-queries-merged-by-rrf.md) | find_context queries=[…]: several phrasings merged by RRF under one budget, each section once | Accepted |
+| [1721](1721-several-queries-share-the-find-context-cache.md) | Several queries share the find_context cache: per-query entries plus a bundle entry | Accepted |
+| [1722](1722-extra-ranked-lists-join-the-rrf-merge.md) | Extra ranked lists join the RRF merge (the join point for semantic candidates) | Accepted |
+| [1723](1723-semantic-candidates-wired-into-find-context.md) | Semantic candidates wired into find_context: one extra list per query, off path untouched | Accepted |
+
+## 1740–1749 Optional semantic search
+
+| ADR | Title | Status |
+|---|---|---|
+| [1740](1740-optional-semantic-search-off-by-default.md) | Optional semantic search: an operator's embedding endpoint, off by default | Accepted |
+| [1741](1741-vectors-in-real-arrays-brute-force-cosine.md) | Vectors in `real[]`, brute-force cosine from a per-workspace cache | Accepted |
+| [1742](1742-background-indexer-content-addressed-chunks.md) | Background indexer: content-addressed chunk vectors, rate limit and backoff | Accepted |
+| [1743](1743-semantic-candidates-at-the-permission-boundary.md) | Semantic candidates pass the same permission boundary as find_context | Accepted |
+| [1744](1744-semantic-index-state-in-the-admin-status.md) | Semantic index state in the admin status, never the key | Accepted |
+| [1745](1745-testing-semantic-search-with-a-fake-endpoint.md) | Testing semantic search: a local fake endpoint, and "off" proven by counters | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

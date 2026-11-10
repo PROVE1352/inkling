@@ -7,6 +7,82 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-10
+
+One database migration, `0042_v014_semantic_vectors`: the table `page_chunk_vectors` (one `real[]` vector per section
+chunk, no pgvector, no new database extension or image). Nothing writes to it unless an operator sets up semantic
+search: it is **off by default** and only turns on when both `EMBEDDING_URL` and `EMBEDDING_MODEL` are set. With the
+variables unset nothing of it runs (no request, no timer, no query) and a single find_context query answers byte for
+byte as without it. No new dependency. Upgrade matrix adds v0.13.0: CI also tests the upgrade from it with data
+(`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- **find_context takes several phrasings at once.** `queries: [...]` (up to 5, next to or instead of `query`) searches
+  synonyms, translations and other wordings in one call and merges the answers by Reciprocal Rank Fusion (k = 60)
+  under one token budget. Each section is shown once with the queries that found it (`matched: 1,3`); header, footer
+  and hints appear once. In the benchmark, 5 bundles of 3–5 phrasings: 18 calls → 5, returned tokens −24% (default
+  budget) / −38% (budget 1,200), every answer section still shown (docs/adr/1720-*).
+- `GET /api/context` accepts `q` repeated (`?q=a&q=b`, up to 5 different values): the merged result adds `queries` and
+  a `matched` list per fragment. A single `q` answers exactly as before while semantic search is off
+  (docs/adr/1720-*).
+- **Optional semantic search** (off by default, docs/adr/1740-* to 1745-*). Set `EMBEDDING_URL` (any
+  OpenAI-compatible `/embeddings` API, including a local Ollama at `http://host:11434/v1`) and `EMBEDDING_MODEL`,
+  optionally `EMBEDDING_API_KEY`, and the server embeds the section index in the background (only changed chunks,
+  rate limited, backing off when the endpoint fails) and can rank sections by meaning, so a Korean question can find
+  an English section. Vectors are a plain `real[]` column (migration 0042, no pgvector, no new dependency); search
+  compares them in memory within the pages you may see. The admin status shows indexed and waiting sections and the
+  last error, never the key. Without the variables nothing of it runs and every output is unchanged. When on,
+  find_context and `GET /api/context` merge each query's semantic candidates into the answer (Reciprocal Rank Fusion
+  with the word search; candidates below 0.6 × the best match are left out), so a section that shares no word with
+  the question is shown with its text (docs/adr/1723-*).
+- `fuseContextResults(…, { extra })` / `cachedFindContextMulti(…, { extraLists })`: extra ranked lists join the same
+  RRF merge; semantic candidates use it (docs/adr/1722-*, 1723-*).
+
+### Changed
+- find_context finds Korean words written differently in the question and the note (docs/adr/1700-*): a compound in
+  the question also matches its spaced form ("팀구성" finds "팀 구성은 다섯 명으로", "회의주기" finds the heading
+  "회의 주기"); a one-syllable noun with a particle counts as the noun ("팀을", "팀으로" find 팀, 팀에, 팀의, but not
+  팀장); more verb endings are stripped ("결석했을" → 결석). Particles are only split off when they fit the noun's
+  last sound, so 가을, 마을, 아이, 평가 stay whole. All at query time: no migration and no re-index.
+- Page aliases count as the page's title in find_context: a query with only "PayFix" finds the page whose alias it
+  is (docs/adr/1701-*).
+- A section whose heading names the question weighs more (heading weight 0.2 → 0.3, set on the dev questions only,
+  docs/adr/1701-*).
+- `find_context`: `query` is optional when `queries` is given; one of the two is required. A call with one query (or
+  with `queries` whose entries are all the same query) returns exactly the answer of `query` alone.
+- The find_context cache (docs/adr/1550-*) also stores merged answers, and a bundle reuses the entries of its queries
+  asked alone or in other bundles (docs/adr/1721-*).
+- With semantic search on, every find_context call is merged (one query too): the header stays
+  `N result(s) for "q"` and no `matched:` is printed for one query; the REST answer of one `q` gains `queries` and
+  `fragments[].matched`. Off (the default), one query answers exactly as before (docs/adr/1723-*).
+- `GET /api/admin/status` adds `semantic` while semantic search is on (docs/adr/1744-*).
+- New routes and fields are in [docs/API.md](docs/API.md), "v0.14.0 additions".
+
+### Fixed
+- The changes_since long-poll tests run alone (`run-tests: db-exclusive`): with other test files on the same
+  database another process's change consumer could apply the test's row and the wait missed it; the timing checks
+  wait on the waiter registry instead of a sleep.
+
+### Performance
+- Retrieval evaluation: 4 more fictional pages and 15 more questions (8 dev, 7 test) in four failure families
+  (compound in the query, particle on the query word, compound in the note, page alias) with per-family metrics; 62
+  questions, dev 37 / test 25 (docs/adr/1702-*). `context-bench.ts` prints the family table and the workspace ids for
+  `context-tune.ts` / `context-explain.ts`.
+- find_context ranking on the large set: dev MRR 0.874 → 0.901, recall@5 0.910 → 0.937; test MRR 0.920 → 0.940,
+  recall@5 0.927 → 0.947. Cost: p50 about +4–6 ms (+11–15%) on the 15,732-chunk benchmark, and a common
+  one-syllable noun with a particle ("팀을 나눈 방식") 11 → 40 ms.
+- Several phrasings in one call: 18 calls → 5, −24% tokens at the default budget, −38% at 1,200.
+- Semantic search (when on): candidates from the per-workspace cache in a median 10.7 ms (1,000 sections, 2,667
+  chunks × 768 dims); indexer overhead 25.6 ms per request of 32 chunks.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Security
+- Semantic candidates pass the same permission boundary as find_context (member workspaces, connection range, guest
+  scope, agent blocks, two-step requirement), checked again in the request; guests get none (docs/adr/1743-*). The
+  embedding API key is never logged or shown; a redirecting endpoint is refused.
+- With semantic search on, the server sends chunk text (page title, heading path, chunk text) to the configured
+  endpoint. With a hosted provider that is a third party; docs/OPERATIONS.md says so next to the variables.
+
 ## [0.13.0] - 2026-11-10
 
 No database migration. The `chart` view type and the `accepted_partial` suggestion status are new values of existing

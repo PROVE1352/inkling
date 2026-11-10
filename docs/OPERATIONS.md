@@ -14,6 +14,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Cookies: when `PUBLIC_URL` is `https`, session cookies are `Secure` automatically. `COOKIE_SECURE` is passed through from `.env` (default `0`); the Caddy overlay sets it to `1`.
 - [ ] Signup keys: with `NODE_ENV=production`, signups require a signup key unless `SIGNUP_REQUIRE_KEY=0` is set explicitly. Create the first admin's key with `./deploy/signup-key.sh new "<name>"` (the server logs this hint at boot).
 - [ ] OpenID Connect sign-in (optional, deploy/DEPLOY.md "3-G"): register `<PUBLIC_URL>/api/auth/oidc/callback` at the provider and set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`. A half-filled set or a missing `PUBLIC_URL` stops the boot. Signup keys do not apply to it: with `OIDC_AUTO_CREATE=1` also set `OIDC_ALLOWED_DOMAINS`. Keep `OIDC_LINK_EXISTING=0` unless the provider verifies email addresses (docs/adr/1161-*), and decide whether workspace two-step verification may trust the provider (`OIDC_REQUIRE_MFA`, docs/adr/1162-*). Sign in once as the first admin with a password before turning on `OIDC_AUTO_CREATE` on an empty instance.
+- [ ] Semantic search (optional, off by default, section 5): set `EMBEDDING_URL` and `EMBEDDING_MODEL` only if you want find_context to also rank by meaning. Chunk text is sent to that endpoint; with a hosted provider that is a third party, so prefer a local model server when notes must not leave the machine. A half-filled set stays off with one boot warning (docs/adr/1740-*).
 - [ ] Set `TZ` to the users' timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to `UTC`; a Korean deployment sets `TZ=Asia/Seoul`.
 - [ ] Set `DEFAULT_LOCALE` (`en` | `ko`, default `en`): language of emails and built-in templates for users who have not chosen one, and the web UI default before the browser language (docs/adr/0901-*, 0903-*). A Korean deployment sets `DEFAULT_LOCALE=ko`.
 - [ ] All server environment variables are passed through `compose.yaml` as `${X:-}`, so setting them in `.env` is enough (`.env` itself is not copied into the image). If you use a `compose.override.yaml`, check that it does not replace the `environment:` entries you need.
@@ -36,7 +37,7 @@ The app sets these on every pool connection: `statement_timeout` 15 s, `idle_in_
 
 ### Shutdown and crashes
 
-- `stop_grace_period: 30s` is set on `app` in `compose.yaml`. On SIGTERM the app stops accepting collaboration upgrades, flushes open documents (10 s cap), closes HTTP (bounded), then closes the database pool. A 25 s watchdog forces exit.
+- `stop_grace_period: 30s` is set on `app` in `compose.yaml`. On SIGTERM the app stops accepting collaboration upgrades, flushes open documents (10 s cap), closes HTTP (bounded), stops the optional semantic indexer (2 s; an embedding request in flight is abandoned), then closes the database pool. A 25 s watchdog forces exit.
 - `unhandledRejection` is logged and the process keeps running. `uncaughtException` is logged and triggers the graceful shutdown above; the container restart policy brings the app back.
 
 ### Monitoring
@@ -241,7 +242,9 @@ Push diffs the live database against `schema.ts` and drops anything not declared
 | `guard.ts` | login failure counters / IP bans | 20,000 per map / bans until expiry | swept every 5 min; reset on restart |
 | `collab.ts` | per-IP socket counts and upgrade timestamps | swept above 1,024 IPs | 10 s window |
 | `hocuspocus.documents` | open Yjs documents | open documents | unloaded when the last client leaves |
-| `context/contextCache.ts` | find_context results per person (ADR 1550) | 1,000 LRU + 32 MB | 5 min; key includes access version, page marker and section index epoch of every searched workspace |
+| `context/contextCache.ts` | find_context results per person (ADR 1550), single queries and merged bundles (ADR 1721) | 1,000 LRU + 32 MB (shared) | 5 min; key includes access version, page marker and section index epoch of every searched workspace; a bundle key also the query list, a digest of the extra ranked lists and, with semantic search on, each workspace's vector epoch (ADR 1723) |
+| `context/semantic.ts` | semantic search only (off by default): chunk vectors per workspace, query vectors (ADR 1741) | `EMBEDDING_CACHE_MB` (128 MB) for all workspaces; a workspace that does not fit is scored in SQL / 256 query vectors | loaded on the first query, updated after indexer writes / 10 min |
+| `context/embeddings.ts`, `semanticIndexer.ts` | endpoint health and backoff, refused chunks (ADR 1742) | one state / 10,000 refused chunk hashes | backoff 5 s → 10 min; refused chunks until restart |
 | `connectionUsage.ts` | usage numbers per connection and per (workspace, connection) (ADR 1552) | 5,000 + 20,000 LRU | lost on restart (by design) |
 | `context/changeWait.ts` | changes_since calls waiting (ADR 1551) | 256 per process, 4 per connection | 25 s each; released at shutdown |
 
@@ -257,3 +260,55 @@ No cache holds sessions, memberships or page visibility; those are read from the
 curl -sI --compressed -H "cookie: inkling_sid=…" https://<host>/api/workspaces/<id>/pages | grep -i 'etag\|cache-control\|content-encoding'
 curl -s -o /dev/null -w '%{http_code}\n' -H 'If-None-Match: <etag from above>' -H "cookie: inkling_sid=…" https://<host>/api/workspaces/<id>/pages   # 304
 ```
+
+## 5. Semantic search (optional)
+
+Off unless both `EMBEDDING_URL` and `EMBEDDING_MODEL` are set (docs/adr/1740-*). When on, the server sends the text of
+every section chunk (page title, heading path, chunk text) to that endpoint, once per change, and find_context also
+ranks sections by meaning. With a hosted provider that is a third party: use a local model server if notes must not
+leave the machine. Turned off, nothing of it runs: no request, no timer, no query.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EMBEDDING_URL` | — | Base URL of an OpenAI-compatible API (`https://api.openai.com/v1`, Ollama `http://host:11434/v1`, text-embeddings-inference `http://tei:8080/v1`) or the full `…/embeddings` URL |
+| `EMBEDDING_MODEL` | — | Model name; stored with every vector, so changing it re-embeds everything |
+| `EMBEDDING_API_KEY` | none | Sent as `Authorization: Bearer …`; never logged or shown |
+| `EMBEDDING_DIMENSIONS` | model default | Sent as `dimensions` (models that can shorten vectors, e.g. text-embedding-3-*) |
+| `EMBEDDING_BATCH_SIZE` | 32 | Chunks per request (1–256) |
+| `EMBEDDING_REQUESTS_PER_MINUTE` | 60 | Indexer request rate; one request in flight |
+| `EMBEDDING_TIMEOUT_MS` | 30000 | Indexer request timeout |
+| `EMBEDDING_QUERY_TIMEOUT_MS` | 3000 | Timeout of the one query embedding per search; on timeout search answers lexically |
+| `EMBEDDING_MAX_CHARS` | 4000 | Characters of one chunk sent to the model |
+| `EMBEDDING_CACHE_MB` | 128 | In-process vector cache for queries; a workspace that does not fit is scored in SQL (slower) |
+
+`compose.yaml` passes all ten through, so setting them in `.env` is enough (examples in `.env.example`). A half-filled
+set (URL without model or the reverse) stays off and logs one warning at boot. Multilingual models work best for mixed
+Korean/English notes (e.g. `bge-m3`, `multilingual-e5-large`, `text-embedding-3-small`).
+
+Docker: inside the container `localhost` is the container. For Ollama on the Docker host use
+`http://host.docker.internal:11434/v1` (Docker Desktop) or the host's LAN address, and make Ollama listen on it
+(`OLLAMA_HOST=0.0.0.0`). A redirecting `EMBEDDING_URL` (e.g. http → https) is refused and reported as "connection
+failed"; configure the final URL.
+
+- **Boot log when on:** `[inkling] semantic search: on — model <model> at <scheme://host/path>, 32 chunks/request, 60 requests/min`.
+- **Backfill:** migration 0042 creates `page_chunk_vectors`. The first time it is on, the indexer embeds every live
+  chunk in the background (only changed chunks afterwards); search answers from what is already embedded meanwhile.
+- **Endpoint failures:** one line `[inkling] semantic index: <host/path>: <reason>; retrying later` per new error;
+  requests back off from 5 s to 10 minutes. Searches answer lexically meanwhile; saves are never affected. Chunks the
+  endpoint refuses on their own (400/413/422) are skipped until restart; lower `EMBEDDING_MAX_CHARS` if a model has a
+  small context.
+- **Progress:** Admin › Server status shows "Semantic search" (sections indexed / waiting, chunks refused, last
+  error, pause end). `GET /api/admin/status` → `semantic` (docs/API.md, counts cached 30 s).
+- **find_context:** each query takes up to 8 semantic candidates, those with a cosine of at least 0.6 × the best one
+  (`context/semanticFind.ts`), merged with the word search by RRF (docs/adr/1723-*).
+- **Memory:** plan for `EMBEDDING_CACHE_MB` (default 128 MB) on top of the usual process memory (section 2).
+- **Health:** `/api/health` and `/api/health/ready` do not depend on the embedding endpoint.
+- **Backups:** `page_chunk_vectors` is in the database dump. It is derived data; truncate it before a dump to save
+  space (it is rebuilt in the background).
+- **Turning it off:** remove the variables and restart. The table stays (nothing reads it);
+  `TRUNCATE page_chunk_vectors;` frees the space. Turning it on again embeds only what changed.
+- **Switching models:** change `EMBEDDING_MODEL` and restart; every chunk is embedded again in the background, and the
+  10-minute clean-up deletes the old model's rows.
+- **Size:** query time grows with the chunks of the searched workspaces (about 10 ms per 2,700 cached 768-dim
+  vectors, docs/PERFORMANCE.md). Past ~50k chunks per workspace pgvector (docs/adr/1214-*) would be the fix
+  (docs/KNOWN-ISSUES.md).

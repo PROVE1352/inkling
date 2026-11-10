@@ -70,6 +70,16 @@ Token counts are `estimateTokens` (ADR 0926) of the tool output an agent receive
 | list_pages, dated/numbered folders (0.12) | Same, one folder | Meeting notes (100 weekly): lines 1,564 (json 4,830); daily log (365): 4,577 (json 16,547); 실험 일지 (96, Korean): 1,484 (json 4,620) | 543; 970; 395 | −65.3% (−88.8% vs json); −78.8%; −73.4% | Same as above | `scripts/mcp-token-bench.ts`: one 2,000-page workspace (padded evaluation wiki + synthetic folders, every page indexed), sequential in-memory MCP calls, warm; Node 22.23.4, Postgres 16.13 (Docker, arm64), Apple M4 24 GB, other test runs on the same machine at the time | [ADR 1541](adr/1541-compact-lists-and-short-page-ids.md) |
 | search, compact (0.12) | `format: "compact"` (8-character ids) | lines 324 tokens | 247 | −23.8% | Same as above | `scripts/mcp-token-bench.ts`: one 2,000-page workspace (padded evaluation wiki + synthetic folders, every page indexed), sequential in-memory MCP calls, warm; Node 22.23.4, Postgres 16.13 (Docker, arm64), Apple M4 24 GB, other test runs on the same machine at the time; query "sync" in the bench workspace | [ADR 1541](adr/1541-compact-lists-and-short-page-ids.md) |
 | patch_sections vs 3 × patch_section (0.12) | Several section edits in one call under one write gate, all or nothing | 3 calls, 40 output tokens, wall p50 76–155 ms (p95 113–245) | 1 call, 26 tokens, p50 34–66 ms (p95 37–97) | 3 → 1 round trips, −35% output tokens, 2.2–2.3× (p50) | The batch runs twice on the server (copy, then live) | `scripts/mcp-token-bench.ts`: one 2,000-page workspace (padded evaluation wiki + synthetic folders, every page indexed), sequential in-memory MCP calls, warm; Node 22.23.4, Postgres 16.13 (Docker, arm64), Apple M4 24 GB, other test runs on the same machine at the time; 3 appends to the padded "Deploy runbook", 10 runs per bench run, 3 runs | [ADR 1542](adr/1542-patch-sections-all-or-nothing.md) |
+| find_context ranking accuracy (0.14) | Korean partial match at query time (compound splits, one-syllable nouns with particles as whole words, more endings), aliases as title, heading weight 0.2 → 0.3 | Large set: dev MRR 0.874, recall@5 0.910, nDCG@5 0.881; test MRR 0.920, recall@5 0.927, nDCG@5 0.908 | dev 0.901 / 0.937 / 0.909; test 0.940 / 0.947 / 0.931 | dev +3.1% / +3.0% / +3.2%, test +2.2% / +2.2% / +2.5% (table below) | p50 +4–6 ms (see Regressions) | `apps/server/scripts/context-bench.ts --pages 5000`: evaluation wiki padded to 1–2k tokens per page + contest pages + Korean partial-match pages + 5,000 distractors (15,732 chunks), local Postgres 16.13 (Docker, aarch64), Apple Silicon laptop; 0.13 = HEAD a2f5d41 ranking code (`git archive`) with the new evaluation files, 0.14 = the same tree with only rank.ts and retrieve.ts replaced; each run on a freshly created and migrated database; one `--final` run each, weights tuned on dev only | [ADR 1702](adr/1702-evaluation-korean-partial-match-questions.md) |
+| find_context output, budget 1,500 (0.14) | Same | 250.6 tokens per question | 233.1 | −7.0% | — | Same runs as the row above, mean over the 62 questions | [ADR 1702](adr/1702-evaluation-korean-partial-match-questions.md) |
+| find_context, several phrasings (default budget 3,500) | `queries=[…]`: per-query retrieval (cached), RRF merge (k = 60), one budget, each section once, header/footer once | 18 calls, 15,172 tokens returned, 10/10 answer sections shown | 5 calls, 11,487 tokens, 10/10 | −13 round trips (3.6× fewer calls), −24% tokens, no answer lost | A bundle runs up to 5 retrievals in parallel; RRF favours sections every phrasing finds (KNOWN-ISSUES MQ-1) | 5 bundles of 3–5 phrasings (English/Korean synonyms and translations, `mcpTools/multiQueryCorpus.ts`), 10 topic pages + 60 filler pages (one word in five a query word). Before = each phrasing as its own `find_context` call (sum of tool-text `estimateTokens`); after = one call with `queries`. Postgres 16 in Docker on a laptop; `multi-query-bench.ts 0.2 3500` | [ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md) |
+| find_context, several phrasings (budget 1,200) | Same | 18 calls, 10,299 tokens, 10/10 | 5 calls, 6,369 tokens, 10/10 | −38% tokens, 3.6× fewer calls | Same | Same, `multi-query-bench.ts 0.2 1200` | [ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md) |
+| find_context, several phrasings, worst-case corpus | Same | 18 calls, 31,701–31,706 tokens, 10/10 | 5 calls, 17,534–17,638 tokens, 9–10/10 | −44% tokens; one answer section (restore bundle) sometimes only a pointer | Consensus effect of RRF | Filler made only of query words: `multi-query-bench.ts 1 3500`, two runs | [ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md) |
+| find_context bundle latency | Per-query cache entries reused by bundles (one marker statement per bundle) | Bundle with nothing cached: mean 12–18 ms | Per-query entries warm (asked alone before): mean 6–8 ms | ~2× faster when phrasings repeat | Bundle entries share the same 32 MB LRU | Mean over the 5 bundles, three runs of `multi-query-bench.ts` | [ADR 1721](adr/1721-several-queries-share-the-find-context-cache.md) |
+| Semantic candidates (new, 0.14, optional) | Brute-force cosine over `Float32Array` vectors from a per-workspace in-process cache (`real[]` column, no pgvector) | None (new) | Warm median 10.7 ms, p95 11.8 ms; first query after a change (cache load + query embedding) 182 ms | None claimed (new) | Cache up to `EMBEDDING_CACHE_MB` (128 MB); grows linearly with chunks | Fake local endpoint (ADR 1745, no model time), 1,000 sections = 2,667 chunks × 768 dims, one workspace, Postgres 16 (compose database, OrbStack on the Mac), 40 queries, limit 20 | [ADR 1741](adr/1741-vectors-in-real-arrays-brute-force-cosine.md) |
+| Semantic candidates, SQL fallback (`EMBEDDING_CACHE_MB=0` or a workspace that does not fit) | Same scoring in SQL | None (new) | Median 148 ms, p95 169 ms | None claimed | ~14× the cached path | Same data, 20 queries | [ADR 1741](adr/1741-vectors-in-real-arrays-brute-force-cosine.md) |
+| Semantic indexer (new, 0.14, optional) | Content-addressed chunk vectors: only chunks whose text hash has no vector are sent, 32 per request | None (new) | 25.6 ms overhead per request (scan, write, cache bump); 2,667 chunks in 84 requests, 2.15 s at an unlimited rate; idle pending scan 51 ms | None claimed (new) | The pending scan reads every live chunk (md5 of its text): ~2 s at 100k chunks, once per ~8 requests during a backfill and once per 5 min idle | Fake local endpoint (ADR 1745, no model time), 1,000 sections = 2,667 chunks × 768 dims, one workspace, Postgres 16 (compose database, OrbStack on the Mac); rate limit off | [ADR 1742](adr/1742-background-indexer-content-addressed-chunks.md) |
+| Semantic search off (default) | Nothing loaded or started unless `EMBEDDING_URL` and `EMBEDDING_MODEL` are set | — | 0 queries, 0 requests, no timer; find_context byte-identical (100 answers compared with and without the wiring) | No cost when off | — | `semantic.test.ts`, `semantic.db.test.ts` counters; 25 queries × 3 variants through MCP + REST on one seeded database, four code trees compared | [ADR 1745](adr/1745-testing-semantic-search-with-a-fake-endpoint.md), [1723](adr/1723-semantic-candidates-wired-into-find-context.md) |
 
 ### find_context ranking accuracy (ADR 1213)
 
@@ -88,6 +98,68 @@ data, machine and script as the location row above; before = the code before ADR
 dev − test after the change is negative on every metric (test is higher), so no sign of over-fitting to dev; one
 test question moves MRR by up to 0.056. Field query on the production copy (budget 1,500): answer sections at
 ranks –/– (not shown) → –/5, sections of the most frequent page 3 → 1.
+
+### find_context ranking accuracy, 0.14 (ADR 1702)
+
+Same metrics as above, 62 questions (dev 37, test 25: the ADR 1213 questions plus 15 Korean partial-match questions
+in four families). Large = padded wiki + contest + partial-match pages + 5,000 distractors (15,732 chunks); small =
+the 66 unpadded pages. Before = 0.13 ranking code with the new questions, after = 0.14; one `--final` run each.
+
+| corpus | split | n | MRR before → after | recall@5 | nDCG@5 | precision@5 |
+|---|---|---|---|---|---|---|
+| large | dev | 37 | 0.874 → 0.901 | 0.910 → 0.937 | 0.881 → 0.909 | 0.765 → 0.823 |
+| large | test | 25 | 0.920 → 0.940 | 0.927 → 0.947 | 0.908 → 0.931 | 0.865 → 0.871 |
+| small | dev | 37 | 0.914 → 0.941 | 0.937 → 0.991 | 0.918 → 0.954 | — |
+| small | test | 25 | 0.960 → 0.980 | 0.987 → 0.987 | 0.959 → 0.971 | — |
+
+Per family (large set; n is 1–3 per split, so one question moves MRR by 0.33–1.0):
+
+| family | split | n | MRR before → after | recall@5 | nDCG@5 |
+|---|---|---|---|---|---|
+| ko-compound-query | dev | 2 | 0.25 → 0.75 | 0.5 → 1 | 0.315 → 0.847 |
+| ko-compound-query | test | 2 | 0.75 → 1 | 1 → 1 | 0.847 → 1 |
+| ko-particle | dev | 3 | 1 → 1 | 1 → 1 | 1 → 1 |
+| ko-particle | test | 2 | 0.75 → 0.75 | 1 → 1 | 0.815 → 0.815 |
+| ko-doc-compound | dev / test | 2 / 2 | 1 → 1 | 1 → 1 | 1 → 1 |
+| alias | dev / test | 1 / 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+
+The gain is the compound-query family (and the heading weight on the small set); the other families already passed
+on their other words and guard against regressions. Test ≥ dev on every metric before and after. pg_trgm was checked
+and not used for the Korean forms: similarity('팀구성', '팀 구성') 0.29 (threshold 0.3), word_similarity 0.25, while an
+unrelated pair, word_similarity('팀을', '팀 구성'), is 0.33 (ADR 1700).
+
+### find_context with several queries, per bundle (ADR 1720)
+
+Default budget, `multi-query-bench.ts 0.2 3500`. Gold = answer sections whose header line is in the text (pointers
+do not count); "separate" counts a gold section when any of the N answers shows it.
+
+| bundle | queries | separate: calls / tokens / gold | bundled: calls / tokens / gold | tokens saved |
+|---|---:|---|---|---:|
+| rollback | 3 | 3 / 3,862 / 2/2 | 1 / 3,507 / 2/2 | 9% |
+| escalation | 3 | 3 / 1,796 / 2/2 | 1 / 1,671 / 2/2 | 7% |
+| restore | 4 | 4 / 6,196 / 2/2 | 1 / 3,482 / 2/2 | 44% |
+| two-factor | 5 | 5 / 1,851 / 2/2 | 1 / 1,490 / 2/2 | 20% |
+| cache | 3 | 3 / 1,468 / 2/2 | 1 / 1,337 / 2/2 | 9% |
+| total | 18 | 18 / 15,173 / 10 | 5 / 11,487 / 10 | 24% |
+
+The savings depend on how much each phrasing finds alone. When one phrasing fills its budget and the others find
+little (rollback, cache), the bundle is about one full answer (−7…9%); when several phrasings each fill a budget
+(restore), it is −44%. The round trips always go from N to 1. Tokens = `estimateTokens` of the tool text the agent
+receives (including `can:` lines, wrapper and footer). To repeat:
+
+```
+docker exec nodian-db-1 psql -U nodian -d nodian -c "create database inkling_bench"
+cd apps/server
+DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench pnpm db:migrate
+DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench npx tsx scripts/multi-query-bench.ts 0.2 3500 1200
+DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench npx tsx scripts/multi-query-bench.ts 1 3500
+```
+
+The `[db]` test `src/mcpTools/multiQuery.db.test.ts` runs the same measurement (prints both tables) and asserts
+bundle tokens < separate tokens, one call, and no answer section lost at the default budget.
+
+Not measured yet: the per-call cost of the semantic merge in find_context with semantic search on (query vector
+cached, scoring, one fragment statement; a bundle-key hit still pays it).
 
 ## Editor & web
 
@@ -229,6 +301,9 @@ variant, "After" the variant that was tried.
 | POST /mcp body in a worker thread (B-L10) | Rejected: parse in one `Worker` (buffer transferred, object structured-cloned back) instead of `JSON.parse` on the main thread | Main thread `JSON.parse`: value-heavy 1 / 4.1 / 8.2 / 12.4 MB 4.0 / 17.9 / 39.2 / 59.2 ms; string-heavy 1 / 3.8 / 7.6 / 11.4 MB 0.7 / 2.7 / 5.1 / 9.3 ms | Longest main-thread block: value-heavy 5.2 / 23.8 / 52.4 / 81.9 ms (the clone back is slower than parsing); string-heavy 0.1 / 0.3 / 0.8 / 3.1 ms | Worse for value-heavy bodies; better for strings but a thread, a parser without Fastify's prototype checks and a second error path; the value cap (ADR 1526) handles the expensive case | — | `apps/server/scripts/mcp-body-worker-bench.mjs`: same bodies as `mcp-body-bench.ts`, median of 7, `setImmediate` gap during the worker round trip; Node 22.23.4 | [ADR 1526](adr/1526-mcp-request-body-before-and-during-parse.md) |
 | POST /mcp body limit 4 MB (B-L10) | Rejected: lower `bodyLimit` from 12 MB to 4 MB | String-heavy 11.4 MB: stall 29.7 ms | ≤ 9.7 ms (3.8 MB) | Caps the string case | Breaks folder imports between 4 and 12 MB that work today | Same runs as the POST /mcp body row | [ADR 1526](adr/1526-mcp-request-body-before-and-during-parse.md) |
 | find_context with 8-character page ids (0.12) | Print the first 8 hex characters of each page id instead of the full id | 1,863 tokens (8 questions) | 1,758 | −5.6% | Ids feed patch_section/read_page, which would all need short-id support; bodies dominate the output | `scripts/mcp-token-bench.ts`: one 2,000-page workspace (padded evaluation wiki + synthetic folders, every page indexed), sequential in-memory MCP calls, warm; Node 22.23.4, Postgres 16.13 (Docker, arm64), Apple M4 24 GB, other test runs on the same machine at the time; same 8 dev questions | [ADR 1541](adr/1541-compact-lists-and-short-page-ids.md) |
+| Semantic scoring (0.14) | Dot products in SQL: `sum(a*b) FROM unnest(v.embedding, q)` over the rows, instead of vectors cached in process memory | In memory (kept): ~5 ms for the dot products | 360–420 ms per query | 72–84× slower; not adopted as the main path | — | 5,000 × 768-dim `real[]` rows, Postgres 16 (compose database container, OrbStack on the Mac), psql `\timing`, 2 runs | [ADR 1741](adr/1741-vectors-in-real-arrays-brute-force-cosine.md) |
+| Semantic scoring (0.14) | Fetch the `real[]` rows into Node per query, then dot products | In memory (kept): ~5 ms | ~350 ms per query (wire + parse; the dot products 5 ms) | ~70× slower; not adopted | — | Same data, postgres.js, 3 runs | [ADR 1741](adr/1741-vectors-in-real-arrays-brute-force-cosine.md) |
+| Korean compound splits (0.14) | Split readings for every query word with a prefix head, instead of only for compounds | Kept variant | Same quality on dev, +10 to +20 ms on queries with three-syllable words | Worse latency, no gain | — | `context-bench.ts`, same data as the 0.14 accuracy row | [ADR 1700](adr/1700-korean-partial-match-at-query-time.md) |
 
 ## Regressions
 
@@ -253,6 +328,8 @@ Measured slowdowns that were accepted on purpose.
 | Query block WHERE / SORT on a relation field | Titles of the visible linked rows as the comparison key (ADR 1352): one pages PK probe per link, for every candidate row before LIMIT | Stored ids: `LIST FROM "Perf" SORT Depends LIMIT 50` median 11.3 ms (p90 12.0); `WHERE Depends = "Perf row 700"` 10.8 (13.2), matched nothing | Titles: 48.7 (50.3); 59.2 (63.8), 3 rows | Accepted: the filter means what the block shows | About +19 to +24 µs per candidate row with a relation key (6,000 probes for 2,000 rows) | 2,000-row collection `Perf` (select, person over 4 members whose id order is the reverse of their name order, 3 relation links per row) + 3,000 plain docs, `FROM "Perf"`; compiled statement only, in-process (`SET LOCAL jit = off` like the route), 0.9.0 compiler and the new one interleaved, 33 runs each, first 3 dropped; Node 22.23.4, Postgres 16.13 in Docker, Apple M4 | [ADR 1352](adr/1352-query-block-compares-people-by-name-and-relations-by-title.md) |
 | Query block WHERE / SORT on other collection fields | The same key path (one field-definition lookup shared by value and key, a CASE on its type) for every property WHERE / SORT use, since the type is only known per row | `WHERE Status = "Open" SORT file.name LIMIT 50` (select) median 11.7 ms (p90 12.2) | 13.5 (14.0) | Accepted | +1.8 ms per 2,000 candidate rows | Same runs as the relation row | [ADR 1352](adr/1352-query-block-compares-people-by-name-and-relations-by-title.md) |
 | Comment POST at 1 client (v0.11.0) | Author's `thread_follows` row written in the comment statement (ADR 1412) | p50 3.47–3.91 / p95 6.43–8.87 ms, 214–235 req/s | p50 4.07–4.36 / p95 6.93–10.93 ms, 192–208 req/s | Accepted: replies reach the thread's followers, Threads view | +0.4–0.9 ms p50 per comment (+11–26 %, paired by round), ranges do not overlap; 16 clients within the spread (p50 16.07–22.83 → 16.21–17.37 ms), commits per request unchanged | Same runs as the "Comment POST, author auto-follows the thread" row under Server & database (`comment-post-bench.ts`, 4 interleaved rounds) | [ADR 1412](adr/1412-followed-threads-and-the-inbox.md) |
+| find_context latency, Korean partial match (0.14) | Group tsqueries with whole-word particle families and split phrases, alias-aware title flags (ADR 1700, 1701) | Interleaved A/B: p50 36.5–36.8 ms, p95 90.5–108.7 ms | p50 40.4–42.3 ms, p95 98.4–98.6 ms | p50 +4–6 ms (+11–15%); p95 within the spread | Accepted for the accuracy gain above | `apps/server/scripts/context-bench.ts --pages 5000`: evaluation wiki padded to 1–2k tokens per page + contest pages + Korean partial-match pages + 5,000 distractors (15,732 chunks), local Postgres 16.13 (Docker, aarch64), Apple Silicon laptop; 0.13 = HEAD a2f5d41 ranking code (`git archive`) with the new evaluation files, 0.14 = the same tree with only rank.ts and retrieve.ts replaced; each run on a freshly created and migrated database; `findContext` called directly, 62 questions × 3 rounds after one warm-up round, the two code trees alternated on the same data (3 pairs, the first disturbed by other load and left out) | [ADR 1700](adr/1700-korean-partial-match-at-query-time.md) |
+| find_context, common one-syllable noun with a particle (0.14) | "팀을" searches 팀 as a whole word (팀, 팀에, 팀의 …) instead of only the form "팀을" | "팀을 나눈 방식" 11 ms | 40 ms, the same as "팀 나눈 방식" | 3.6× slower for that query | More candidates for a common noun | Same benchmark, median of 7 | [ADR 1700](adr/1700-korean-partial-match-at-query-time.md) |
 
 Under investigation: v0.2.0 vs v0.1.0 comparison.
 
@@ -289,6 +366,10 @@ MCP `search` / `list_pages` (v0.1.0 → v0.2.0): re-measured interleaved on one 
   - `apps/server/src/unionFind.test.ts` (union-find hop counts on worst-case inputs)
   - `apps/server/scripts/mcp-token-bench.ts` (tokens an agent receives: 3 agents re-reading with and without
     `known`, list_pages json/lines/compact on 2,000 pages, dated folders, search, patch_sections vs patch_section)
+  - `apps/server/scripts/multi-query-bench.ts` and `apps/server/src/mcpTools/multiQuery.db.test.ts` (find_context
+    with several phrasings vs one call per phrasing: calls, tokens, answer sections)
+  - `apps/server/src/context/semantic.db.test.ts` with the fake endpoint of `semanticTestServer.ts` (semantic
+    search on and off; off must stay at 0 queries and 0 requests)
 - Browser measurements in the existing entries (React commits, long tasks, editor repros) were made
   with out-of-tree Playwright scripts. Describe the script in the ADR precisely enough to repeat it.
 - Do not round or restate a number differently here than in its source. If the source does not

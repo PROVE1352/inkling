@@ -480,6 +480,16 @@ pages it edited show the last AI edit. Before an AI replaces a whole page, a **B
 
 More: [MCP.md](MCP.md).
 
+### Search by meaning (server admins)
+
+By default the AI finds sections by the words in them. A server admin can also let it search by meaning: then a
+question finds a section written in other words, and a Korean question can find an English page. Set
+`EMBEDDING_URL` (an OpenAI-compatible embeddings API, for example a local Ollama at `http://host:11434/v1`) and
+`EMBEDDING_MODEL` in the server's `.env` and restart. The server then sends the text of the notes to that service in
+the background, so pick one on your own network if notes must not leave it. Admin → **Server status** shows how
+many sections are indexed and the last error. To turn it off, remove the two variables and restart. Details:
+[OPERATIONS.md](OPERATIONS.md), section 5.
+
 ### Reviewing what agents suggest
 
 Agents can leave a change for you to review instead of writing it: when you ask them to, when the workspace is set to

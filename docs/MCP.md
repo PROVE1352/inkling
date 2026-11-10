@@ -25,7 +25,7 @@ Sign in in the window that opens and click **Allow**. (Leave the OAuth Client ID
 
 | Tool | Kind | Description |
 |---|---|---|
-| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant". The same question from the same person within a few minutes is answered from a server-side cache that any edit, permission change or reindex in the searched workspaces invalidates; never shared between people ([ADR 1550](adr/1550-find-context-result-cache.md)) |
+| `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant". The same question from the same person within a few minutes is answered from a server-side cache that any edit, permission change or reindex in the searched workspaces invalidates; never shared between people ([ADR 1550](adr/1550-find-context-result-cache.md)). Unsure of the wording? `queries=[…]` (up to 5 phrasings: synonyms, the other language) are searched together and merged into one ranked answer under one budget, each section once with `matched: 1,3` naming the queries that found it ([ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md)). With semantic search on ([ADR 1740](adr/1740-optional-semantic-search-off-by-default.md)), each query also searches by meaning; a section found only that way is shown with its text ([ADR 1723](adr/1723-semantic-candidates-wired-into-find-context.md)) |
 | `read_page` | read | A page as Markdown. `outline=true` lists sections (`§anchor`, ~tokens, `v=`), `section=<anchor or heading>` reads one, `maxChars` caps the body. The header has the page `version`; `known=<version>` answers an unchanged page (or section, with `section=`) with one `unchanged` line, `knownSections={anchor: v}` returns only changed, new and removed sections ([ADR 1540](adr/1540-known-versions-and-unchanged-reads.md)). Live section claims: the last header line `- claims: §a claimed by <client> until <time>Z`, the outline line of the section, and a line after `unchanged` (a claim is not part of the version, [ADR 1654](adr/1654-claims-on-every-read-page-form.md)). Charts read as `<!-- inkling:chart {…} -->` followed by `<!-- inkling:chart-data … -->` with the numbers for you; keep the chart line as it is when editing (the data line is ignored when you write the page back), delete it to remove the chart, edit its JSON to change it ([ADR 1604](adr/1604-chart-token-carries-its-config.md)). `pageId` may be an 8-character short id |
 | `read_pages` | read | Up to 20 pages in one call within a budget (default 8,000); each page line has `v=`; `known={pageId: v}` turns unchanged pages into one line each that uses no budget |
 | `list_workspaces` | read | Your workspaces |
@@ -84,9 +84,22 @@ Spend calls and tokens in this order (the server instructions say the same):
    "Also relevant (not shown)", one line per page (`page of [n]: §a ~N tok` for a page already shown).
    Ranking weighs rare words above common ones and query words that stand next to each other ("팀 구성") above the
    same words apart, so put the specific word in the query; a query of only very common words returns little.
-   Korean and English both work, but a question in one language does not find a page written only in the other.
+   Korean and English both work, but a question in one language does not find a page written only in the other
+   unless the server has semantic search on (below). Korean: a query word also matches its forms with particles and
+   endings ("백업을" → 백업, "팀을" → 팀/팀에/팀의 as whole words), and a compound written without a space also
+   matches the spaced words ("팀구성" → "팀 구성"). Page aliases count as the page title
+   ([ADR 1700](adr/1700-korean-partial-match-at-query-time.md), [1701](adr/1701-aliases-count-as-title-heading-weight.md)).
    Ranking and output: [ADR 1210](adr/1210-find-context-idf-weighted-ranking.md),
    [1211](adr/1211-find-context-per-page-diversification.md), [1212](adr/1212-find-context-short-section-locations.md).
+   Several phrasings in one call: `find_context(queries=["roll back deployment", "배포 되돌리기", "revert release"])`.
+   The header names them by number (`6 result(s) for 3 queries (1 "roll back deployment", 2 "배포 되돌리기",
+   3 "revert release"), ~659/700 tokens`) and each fragment's paren line ends its ids with `; matched: 1,3`. One budget
+   for all of them, filled in fused (RRF) order; repeats of the same query count once; more than 5 different
+   queries are refused ([ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md)).
+   When the operator has turned on semantic search ([ADR 1740](adr/1740-optional-semantic-search-off-by-default.md)),
+   every query is also matched by meaning and merged in the same way; a section that shares no word with the
+   question is shown with its text, and one query keeps the single-query header without `matched:`
+   ([ADR 1723](adr/1723-semantic-candidates-wired-into-find-context.md)).
 2. Not enough? **`read_page(pageId, outline=true)`** then **`read_page(pageId, section=anchor)`**; several pages at
    once with **`read_pages(ids)`**. Full `read_page` and `list_pages` are for when you really need everything.
 3. **Edit** with `patch_section(pageId, section, markdown, mode, baseVersion)` using the `v=` you read. On
@@ -343,3 +356,9 @@ do not work at `/mcp`.
   suggestion is gone ([ADR 1621](adr/1621-suggestion-hunks-with-a-stored-base.md)). `create_chart` checks the data once
   through `POST /api/workspaces/:id/charts/aggregate` (rate limit 240 a minute) and `read_page` runs one
   aggregate per chart, at most 20 per read ([ADR 1606](adr/1606-create-chart-and-create-view-tools.md)).
+- **0.14**: migration `0042_v014_semantic_vectors` adds `page_chunk_vectors`, written only while semantic search is
+  on (`EMBEDDING_URL` and `EMBEDDING_MODEL`, docs/OPERATIONS.md). Off (the default), `find_context(query)` answers as
+  before. A `queries=[…]` call runs up to 5 retrievals in parallel on a cold cache and reuses the cached answers of
+  single calls ([ADR 1721](adr/1721-several-queries-share-the-find-context-cache.md)). With semantic search on, each
+  query costs one embedding request (cached per text for 10 minutes) and a scoring pass over the searched
+  workspaces' vectors ([ADR 1741](adr/1741-vectors-in-real-arrays-brute-force-cosine.md)).

@@ -332,7 +332,7 @@ allows it on the browser consent screen, notes are read and written **with that 
 
 ## Tools
 
-Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?, section?, maxChars?)`, `read_pages(pageIds[], budget?)`,
+Read: `find_context(query?, queries?, workspaceId?, budget?)` (one of `query` / `queries`), `read_page(pageId, outline?, section?, maxChars?)`, `read_pages(pageIds[], budget?)`,
 `list_workspaces`, `list_pages(workspaceId, parentId?|'root', depth?, format?)`, `search(query, workspaceId?, format?)`,
 `changes_since(cursor?, workspaceId?, budget?, detail?)`, `query_rows(collectionId, filter?, sort?, fields?, limit?, cursor?, describe?)`, `list_templates`,
 `get_instructions(workspaceId, forPageId?)` (docs/adr/0975-*). Text outputs wrap member-written content in `<untrusted_content …>` and print
@@ -340,7 +340,7 @@ Read: `find_context(query, workspaceId?, budget?)`, `read_page(pageId, outline?,
 Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
 `create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
 `rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
-`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions" and "v0.13.0 additions" below and [MCP.md](MCP.md).
+`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions", "v0.13.0 additions" and "v0.14.0 additions" below and [MCP.md](MCP.md).
 
 - `/.well-known/oauth-*`: `scopes_supported` is `["read","write"]` (`notes` still accepted as full access).
 - `GET /api/oauth/authorize/info?…&scope=`: adds `requestedAccess: "read" | "write"`.
@@ -360,7 +360,7 @@ Session cookie or MCP bearer (internal inject). Token numbers are estimates (ADR
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/context` | `q` (1–300 chars), `workspaceId?` (else every live workspace I belong to), `budget?` (≤ 12,000, default 3,500) | `{ fragments: [{pageId, workspaceId, title, anchor, headingPath, sections: [{anchor, headingPath, version}], ords, text, tokens, score, truncated}], more: [{pageId, title, anchor, headingPath, tokens}], titleOnly: [{pageId, title, kind}], budget, usedTokens, candidates }`. Only live, visible pages of live workspaces |
+| GET | `/api/context` | `q` (1–300 chars; may repeat: up to 5 different values after normalising, ADR 1720), `workspaceId?` (else every live workspace I belong to), `budget?` (≤ 12,000, default 3,500) | `{ fragments: [{pageId, workspaceId, title, anchor, headingPath, sections: [{anchor, headingPath, version}], ords, text, tokens, score, truncated}], more: [{pageId, title, anchor, headingPath, tokens}], titleOnly: [{pageId, title, kind}], budget, usedTokens, candidates }`. Only live, visible pages of live workspaces. With 2+ different `q`: also `queries: string[]` and `fragments[].matched: string[]` (query numbers "1".."5"); one budget for all; each section once. While semantic search is on, one `q` is merged too (v0.14.0 additions) |
 | GET | `/api/pages/:id/outline` | – | `{ page: {id, title, kind, workspaceId, updatedAt}, sections: [{anchor, headingPath, level, tokens, version}], tokens }` (non-doc pages: empty `sections`; `tokens` is the sum of the section's index parts; answered from the section index while it is current, docs/adr/1041-*) |
 | GET | `/api/pages/:id/section` | `ref` (anchor, heading text, heading path or heading block id), `maxChars?` | `{ page, section: {anchor, headingPath, level, version}, markdown, truncated, totalChars }`; unknown ref → 404 `SECTION_NOT_FOUND` listing valid anchors |
 | GET | `/api/pages/read` | `ids` (comma-separated, ≤ 20), `budget?` (≤ 30,000, default 8,000) | `{ pages: [{id, title, workspaceId, kind, updatedAt, markdown, tokens, truncated}], omitted: [{id, title, reason}], missing: [id], budget, usedTokens }`; invisible ids are only listed in `missing` |
@@ -1066,3 +1066,50 @@ measureField?, sort?, limit?, title?, options?, suggest?)` and `create_view(coll
 refused for read-only connections). New arguments: `list_suggestions(…, status?)`. Changed output: `read_page` shows
 chart tokens with a data line and section claims on every read form; `changes_since` and `catch_up` list collections,
 rows and row properties; `query_rows describe=true` is wrapped in `<untrusted_content>`. Details: [MCP.md](MCP.md).
+
+## v0.14.0 additions
+
+One migration, `0042_v014_semantic_vectors`: table `page_chunk_vectors` (`page_id`, `text_hash`, `workspace_id`,
+`model`, `dims`, `embedding real[]`), written only while semantic search is on (docs/adr/1741-*). No other schema
+change.
+
+### find_context with several queries (docs/adr/1720–1723)
+- `GET /api/context`: `q` may repeat (`?q=a&q=b`, at most 5 different values after NFKC / lower case / space
+  normalisation, else 400). One distinct value: unchanged contract and output. Two or more: the merged result adds
+  `queries` and a `matched` array per fragment; `fragments[].score` is the RRF score; `more` and `titleOnly` keep
+  their shape (a `more` item from an extra ranked list may have `anchor: ""` (whole page) and `tokens: 0`)
+  (docs/adr/1720-*, 1722-*).
+- While semantic search is on (docs/adr/1740-*), one `q` also returns `queries` and `fragments[].matched`; fragments
+  may come from semantic candidates (`matched` names the query number) (docs/adr/1723-*).
+- Ranking (no shape change): Korean query words also match their forms with particles and endings ("백업을" → 백업,
+  "팀을" → 팀/팀에/팀의 as whole words), and a compound written without a space also matches the spaced words
+  ("팀구성" → "팀 구성"). Page aliases count as the page title; heading weight is 0.3 (docs/adr/1700-*, 1701-*).
+
+### Admin: semantic search state (docs/adr/1744)
+`GET /api/admin/status` gains an optional field, present only while semantic search is on (`EMBEDDING_URL` and
+`EMBEDDING_MODEL` set); off, the response is unchanged:
+
+```json
+"semantic": {
+  "enabled": true,
+  "model": "bge-m3",
+  "endpoint": "http://192.168.0.10:11434/v1/embeddings",
+  "dims": 1024,
+  "sections": { "indexed": 980, "pending": 20 },
+  "chunks": { "indexed": 1210, "pending": 30, "rejected": 0 },
+  "lastError": { "at": "2026-11-10T03:00:00.000Z", "message": "http://…/embeddings: timeout after 30000 ms" },
+  "lastSuccessAt": "2026-11-10T03:01:00.000Z",
+  "backoffUntil": null,
+  "cache": { "workspaces": 2, "bytes": 5242880 }
+}
+```
+
+`endpoint` is scheme, host and path only; the API key never appears. Counts are cached 30 s. When the counts cannot be
+read the field is `{ "enabled": true, "error": "status query failed" }` (or `"unavailable"`), and the rest of the
+status answers as usual.
+
+### MCP tools
+New arguments: `find_context(…, queries?)` (up to 5 phrasings; `query` becomes optional, one of the two is required).
+Changed output: with several queries the header names them by number and each fragment's paren line ends with
+`; matched: 1,3`; with semantic search on, a section found only by meaning is shown with its text. Details:
+[MCP.md](MCP.md).

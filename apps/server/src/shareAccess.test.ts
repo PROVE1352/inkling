@@ -5,9 +5,9 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 describe('share link gate', async () => {
-  const { publicFileCacheControl, shareExpired, unlockCookieValue, verifyUnlockCookie, SHARE_UNLOCK_TTL_MS } =
+  const { publicFileCacheControl, shareExpired, shareGated, shareNotStarted, unlockCookieValue, verifyUnlockCookie, SHARE_UNLOCK_TTL_MS } =
     await import('./shareAccess')
-  const { resolveShareExpiry, shareLinkFields } = await import('./shareSettings')
+  const { assertShareWindow, resolveShareExpiry, resolveShareStart, shareLinkFields } = await import('./shareSettings')
 
   const now = Date.UTC(2026, 10, 7, 12, 0, 0)
   const gate = { tokenHash: 'a'.repeat(64), expiresAt: null as Date | null, passwordHash: '$argon2id$v=19$m=19456,t=2,p=1$x$y' }
@@ -58,6 +58,30 @@ describe('share link gate', async () => {
       expiresAt: new Date(now - 1).toISOString(),
       expired: true,
       hasPassword: true,
+      startsAt: null,
+      notStarted: false,
     })
+  })
+
+  it('scheduled start (docs/adr/1844-*): future only matters, before the expiry, gated until then', () => {
+    assert.equal(resolveShareStart({}, now), undefined)
+    assert.equal(resolveShareStart({ startsAt: null }, now), null)
+    // a start already past is "at once"
+    assert.equal(resolveShareStart({ startsAt: new Date(now - 1000).toISOString() }, now), null)
+    const at = new Date(now + 3_600_000)
+    assert.equal(resolveShareStart({ startsAt: at.toISOString() }, now)?.getTime(), at.getTime())
+    assert.throws(() => resolveShareStart({ startsAt: new Date(now + 3651 * 86_400_000).toISOString() }, now), /ten years/)
+    assert.throws(() => assertShareWindow(at, new Date(at.getTime())), /before the expiry/)
+    assert.doesNotThrow(() => assertShareWindow(at, null))
+    assert.doesNotThrow(() => assertShareWindow(null, new Date(now)))
+    const open = { ...gate, passwordHash: null }
+    assert.equal(shareNotStarted({ startsAt: at }, now), true)
+    assert.equal(shareNotStarted({ startsAt: new Date(now) }, now), false)
+    assert.equal(shareNotStarted({ startsAt: null }, now), false)
+    assert.equal(shareGated({ ...open, startsAt: at }, now), true)
+    assert.equal(shareGated({ ...open, startsAt: null }, now), false)
+    const f = shareLinkFields({ shareExpiresAt: null, sharePasswordHash: null, shareStartsAt: at }, now)
+    assert.equal(f.notStarted, true)
+    assert.equal(f.startsAt, at.toISOString())
   })
 })

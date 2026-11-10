@@ -326,6 +326,8 @@ export const pages = pgTable('pages', {
   shareTokenEnc: text('share_token_enc'),
   /** The public link stops working at this instant (server clock); null = never (docs/adr/1170-*). Cleared on unpublish. */
   shareExpiresAt: timestamp('share_expires_at', { withTimezone: true }),
+  /** The public link opens at this instant (server clock); null = at once (docs/adr/1844-*). Cleared on unpublish. */
+  shareStartsAt: timestamp('share_starts_at', { withTimezone: true }),
   /**
    * argon2 hash of the link password; null = no password (docs/adr/1171-*). Unlock cookies are bound
    * to this string, so setting, changing or removing it ends every visitor's unlock. Cleared on unpublish.
@@ -901,6 +903,10 @@ export * from './schema-later'
 export * from './schema-collab'
 // Optional semantic search: chunk embeddings, written only when an embedding endpoint is set (docs/adr/1740-*)
 export * from './schema-semantic'
+// Page verification with an expiry (docs/adr/1840-*)
+export * from './schema-verify'
+// Member status with an automatic clear time (docs/adr/1845-*)
+export * from './schema-memberStatus'
 // Slack app per workspace: secrets, account links, link codes, replay guard (docs/adr/1800-*)
 export * from './schema-slack'
 // Public links of form views (docs/adr/1821-*)

@@ -37,6 +37,12 @@ function editorDictionary() {
 // Loose type so parents (PageView etc.) can share the editor instance
 export type InklingEditor = BlockNoteEditor<any, any, any>
 
+/** The awareness `user` field: BlockNote's name + colour, plus the account id (docs/adr/1846-*). */
+function awarenessUser(me: UserDTO): { name: string; color: string } {
+  const user = { name: me.name, color: userColor(me.id), id: me.id }
+  return user
+}
+
 export type ConnStatus = 'connected' | 'connecting' | 'disconnected'
 
 export type CollabState = {
@@ -213,7 +219,8 @@ function CollabEditorBody({
       schema,
       collaboration: {
         fragment: doc.getXmlFragment('document'),
-        user: { name: me.name, color: userColor(me.id) },
+        // `id` rides along in the awareness state so presence can show the member's status (docs/adr/1846-*)
+        user: awarenessUser(me),
         provider: { awareness: provider.awareness ?? undefined },
         showCursorLabels: 'activity',
       },

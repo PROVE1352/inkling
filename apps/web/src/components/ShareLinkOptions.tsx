@@ -4,6 +4,8 @@ import { SHARE_EXPIRY_PRESET_DAYS, SHARE_PASSWORD_LENGTH } from '@inkling/shared
 import { ApiError, useUpdateShare } from '../api'
 import { fmtDate, useT } from '../i18n'
 import { todayISODate } from '../lib/time'
+import { fromLocalInput, toLocalInput } from '../lib/laterPresets'
+import { deviceTimeZone } from '../laterApi'
 import { SELECT_CLASS } from './SettingsRows'
 import { Spinner } from './Spinner'
 
@@ -92,6 +94,35 @@ function ExpirySelect({
 const inputClass =
   'w-full rounded-md border border-line bg-app px-2.5 py-1.5 text-sm text-ink placeholder:text-sub/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
 
+const dateTimeClass =
+  'rounded-md border border-line bg-app px-2 py-1 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+
+/**
+ * Start of a scheduled link (docs/adr/1844-*): a local date and time in the device's time zone,
+ * sent as an instant. Before it, visitors get the same page as for a link that does not exist.
+ */
+function StartInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const t = useT()
+  return (
+    <input
+      type="datetime-local"
+      value={value}
+      min={toLocalInput(new Date())}
+      aria-label={t('shareLink.startsLabel')}
+      title={t('shareLink.startsLabel')}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={dateTimeClass}
+    />
+  )
+}
+
+function ZoneNote() {
+  const t = useT()
+  const zone = deviceTimeZone()
+  return zone ? <p className="text-xs text-sub">{t('shareLink.timeZone', { zone })}</p> : null
+}
+
 function PolicyNote({ policy }: { policy: SharePolicyDTO | undefined }) {
   const t = useT()
   if (!policy || (!policy.passwordRequired && !policy.defaultExpiryDays)) return null
@@ -114,11 +145,19 @@ export function usePublishOptions(policy: SharePolicyDTO | undefined) {
   const [date, setDate] = useState('')
   const [withPassword, setWithPassword] = useState(false)
   const [password, setPassword] = useState('')
+  // scheduled start (docs/adr/1844-*): off = the link opens at once
+  const [scheduled, setScheduled] = useState(false)
+  const [start, setStart] = useState('')
   const value = expiry ?? (def ? String(def) : 'never')
   const needPassword = withPassword || !!policy?.passwordRequired
   const exp = expiryBody(value, date)
   const passwordOk = !needPassword || password.length >= SHARE_PASSWORD_LENGTH.min
-  const body: CreateShareInput | null = exp && passwordOk ? { ...exp, ...(needPassword ? { password } : {}) } : null
+  const startAt = scheduled ? fromLocalInput(start) : null
+  const startOk = !scheduled || !!startAt
+  const body: CreateShareInput | null =
+    exp && passwordOk && startOk
+      ? { ...exp, ...(needPassword ? { password } : {}), ...(startAt ? { startsAt: startAt.toISOString() } : {}) }
+      : null
   return {
     body,
     reset: () => {
@@ -126,6 +165,8 @@ export function usePublishOptions(policy: SharePolicyDTO | undefined) {
       setDate('')
       setWithPassword(false)
       setPassword('')
+      setScheduled(false)
+      setStart('')
     },
     view: (
       <PublishOptionsView
@@ -138,6 +179,10 @@ export function usePublishOptions(policy: SharePolicyDTO | undefined) {
         onWithPassword={setWithPassword}
         password={password}
         onPassword={setPassword}
+        scheduled={scheduled}
+        onScheduled={setScheduled}
+        start={start}
+        onStart={setStart}
       />
     ),
   }
@@ -153,6 +198,10 @@ function PublishOptionsView({
   onWithPassword,
   password,
   onPassword,
+  scheduled,
+  onScheduled,
+  start,
+  onStart,
 }: {
   policy: SharePolicyDTO | undefined
   value: ExpiryValue
@@ -163,10 +212,28 @@ function PublishOptionsView({
   onWithPassword: (v: boolean) => void
   password: string
   onPassword: (v: string) => void
+  scheduled: boolean
+  onScheduled: (v: boolean) => void
+  start: string
+  onStart: (v: string) => void
 }) {
   const t = useT()
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-line px-3 py-2.5">
+      <label className="flex items-center gap-2 text-sm text-ink">
+        <input type="checkbox" checked={scheduled} onChange={(e) => onScheduled(e.target.checked)} data-testid="share-schedule" />
+        {t('shareLink.schedule')}
+      </label>
+      {scheduled && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="w-20 shrink-0 text-xs text-sub">{t('shareLink.starts')}</span>
+            <StartInput value={start} onChange={onStart} />
+          </div>
+          <p className="text-xs text-sub">{t('shareLink.scheduleHint')}</p>
+          <ZoneNote />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="w-20 shrink-0 text-xs text-sub">{t('shareLink.expires')}</span>
         <ExpirySelect
@@ -222,6 +289,8 @@ export function LinkSettings({
   const [date, setDate] = useState('')
   const [editingPassword, setEditingPassword] = useState(false)
   const [password, setPassword] = useState('')
+  const [editingStart, setEditingStart] = useState(false)
+  const [start, setStart] = useState('')
   const policy = status.policy
 
   const send = (body: UpdateShareInput, done?: () => void) => {
@@ -271,6 +340,60 @@ export function LinkSettings({
           </div>
         )}
       </div>
+
+      {(status.startsAt || canManage) && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-3">
+            <span className="w-20 shrink-0 text-xs text-sub">{t('shareLink.starts')}</span>
+            <span className={`min-w-0 flex-1 text-sm ${status.notStarted ? 'text-amber-600' : 'text-ink'}`} data-testid="share-starts">
+              {status.startsAt && status.notStarted
+                ? t('shareLink.startsOn', { date: fmtDate(status.startsAt, { dateStyle: 'medium', timeStyle: 'short' }) })
+                : t('shareLink.openNow')}
+            </span>
+            {canManage && !editingStart && (
+              <>
+                <button
+                  type="button"
+                  className={btn}
+                  onClick={() => {
+                    setStart(status.startsAt ? toLocalInput(new Date(status.startsAt)) : '')
+                    setEditingStart(true)
+                  }}
+                >
+                  {status.notStarted ? t('shareLink.changeStart') : t('shareLink.schedule')}
+                </button>
+                {status.notStarted && (
+                  <button type="button" className={btn} disabled={update.isPending} onClick={() => send({ startsAt: null })}>
+                    {t('shareLink.openNowAction')}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          {canManage && editingStart && (
+            <div className="flex flex-col gap-1.5 pl-[92px] max-sm:pl-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <StartInput value={start} onChange={setStart} disabled={update.isPending} />
+                <button
+                  type="button"
+                  disabled={!fromLocalInput(start) || update.isPending}
+                  onClick={() => {
+                    const at = fromLocalInput(start)
+                    if (at) send({ startsAt: at.toISOString() }, () => setEditingStart(false))
+                  }}
+                  className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+                >
+                  {t('shareLink.apply')}
+                </button>
+                <button type="button" className={btn} onClick={() => setEditingStart(false)}>
+                  {t('common.cancel')}
+                </button>
+              </div>
+              <ZoneNote />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-3">

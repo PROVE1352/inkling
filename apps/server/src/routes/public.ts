@@ -20,6 +20,7 @@ import {
   setUnlockCookie,
   shareExpired,
   shareExpiredError,
+  shareNotStarted,
   sharePasswordInvalidError,
 } from '../shareAccess'
 import type { ShareGate } from '../shareAccess'
@@ -260,6 +261,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
         // The gate is read from the same row; expiry is compared on the server clock by the caller,
         // so an expired link answers 410 instead of looking like an unknown token.
         expiresAt: pages.shareExpiresAt,
+        // a scheduled link's start, compared the same way (docs/adr/1844-*)
+        startsAt: pages.shareStartsAt,
         passwordHash: pages.sharePasswordHash,
       })
       .from(pages)
@@ -276,8 +279,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
       .limit(1)
   )[0]
   if (!row) return null
-  const { expiresAt, passwordHash, ...page } = row
-  return { ...page, gate: { tokenHash, expiresAt, passwordHash } }
+  const { expiresAt, startsAt, passwordHash, ...page } = row
+  return { ...page, gate: { tokenHash, expiresAt, startsAt, passwordHash } }
 }
 
 /**
@@ -567,10 +570,14 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
 
     const page = await findSharedPageByToken(token)
     const expired = !!page && shareExpired(page.gate)
-    const ok = await checkSharePassword(page && !expired ? page.gate.passwordHash : null, password)
+    // before a scheduled start: the unknown-link answer, not counted (docs/adr/1844-*)
+    const notStarted = !!page && shareNotStarted(page.gate)
+    const ok = await checkSharePassword(page && !expired && !notStarted ? page.gate.passwordHash : null, password)
     let failure: Error | null = null
     if (!page) {
       await recordFailure(req, 'share-token')
+      failure = notFound()
+    } else if (notStarted) {
       failure = notFound()
     } else if (expired) {
       failure = shareExpiredError()

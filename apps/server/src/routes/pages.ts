@@ -40,7 +40,9 @@ import {
   CLEARED_SHARE_LINK,
   lockSharePolicy,
   readSharePolicy,
+  assertShareWindow,
   resolveShareExpiry,
+  resolveShareStart,
   sharePasswordPolicyError,
   shareLinkFields,
 } from '../shareSettings'
@@ -643,6 +645,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (!isManagerRole(role)) throw forbidden('Only owners and admins can publish pages')
     if (page.scope === 'private') throw badRequest("Private pages can't be shared")
     const requestedExpiry = resolveShareExpiry(body)
+    const requestedStart = resolveShareStart(body) ?? null
     // argon2 outside the transaction: no row lock is held for its ~50 ms.
     const passwordHash = body.password !== undefined ? await hashSharePassword(body.password) : null
 
@@ -654,6 +657,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareToken: pages.shareToken,
           enc: pages.shareTokenEnc,
           shareExpiresAt: pages.shareExpiresAt,
+          shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
         })
         .from(pages)
@@ -675,6 +679,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           : policy.defaultExpiryDays
             ? new Date(Date.now() + policy.defaultExpiryDays * 86_400_000)
             : null
+      // A scheduled link opens before it expires (docs/adr/1844-*).
+      assertShareWindow(requestedStart, shareExpiresAt)
       const token = await generateUniqueShareToken()
       await tx
         .update(pages)
@@ -682,6 +688,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareToken: hashShareToken(token),
           shareTokenEnc: protectSecret('share-token', token, id),
           shareExpiresAt,
+          shareStartsAt: requestedStart,
           sharePasswordHash: passwordHash,
         })
         .where(eq(pages.id, id))
@@ -692,11 +699,19 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         target: { type: 'page', id, label: page.title },
         // Whether a password was set, never the password or its hash.
         after:
-          shareExpiresAt || passwordHash
-            ? { expiresAt: shareExpiresAt ? shareExpiresAt.toISOString() : null, password: passwordHash !== null }
+          shareExpiresAt || passwordHash || requestedStart
+            ? {
+                expiresAt: shareExpiresAt ? shareExpiresAt.toISOString() : null,
+                password: passwordHash !== null,
+                ...(requestedStart ? { startsAt: requestedStart.toISOString() } : {}),
+              }
             : null,
       })
-      return { token, link: shareLinkFields({ shareExpiresAt, sharePasswordHash: passwordHash }), policy }
+      return {
+        token,
+        link: shareLinkFields({ shareExpiresAt, shareStartsAt: requestedStart, sharePasswordHash: passwordHash }),
+        policy,
+      }
     })
 
     const { publicSharingDisabled: _off, ...policy } = result.policy
@@ -718,6 +733,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const role = await requireMembership(page.workspaceId, user.id)
     if (!isManagerRole(role)) throw forbidden('Only owners and admins can change public links')
     const nextExpiry = resolveShareExpiry(body)
+    const nextStart = resolveShareStart(body)
     const nextHash =
       body.password === undefined ? undefined : body.password === null ? null : await hashSharePassword(body.password)
 
@@ -728,6 +744,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareToken: pages.shareToken,
           enc: pages.shareTokenEnc,
           shareExpiresAt: pages.shareExpiresAt,
+          shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
         })
         .from(pages)
@@ -737,8 +754,26 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (!cur?.shareToken) throw new AppError(409, 'NOT_SHARED', 'This page has no public link')
       if (nextHash === null && policy.passwordRequired) throw sharePasswordPolicyError()
 
-      const set: { shareExpiresAt?: Date | null; sharePasswordHash?: string | null } = {}
+      const set: { shareExpiresAt?: Date | null; shareStartsAt?: Date | null; sharePasswordHash?: string | null } = {}
       const target = { type: 'page', id, label: page.title }
+      // The window after this change: a start must stay before the expiry (docs/adr/1844-*).
+      assertShareWindow(
+        nextStart !== undefined ? nextStart : cur.shareStartsAt,
+        nextExpiry !== undefined ? nextExpiry : cur.shareExpiresAt,
+      )
+      const startBefore = cur.shareStartsAt ? cur.shareStartsAt.toISOString() : null
+      const startAfter = nextStart === undefined ? startBefore : nextStart ? nextStart.toISOString() : null
+      if (nextStart !== undefined && startAfter !== startBefore) {
+        set.shareStartsAt = nextStart
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: 'share.start_changed',
+          target,
+          before: { startsAt: startBefore },
+          after: { startsAt: startAfter },
+        })
+      }
       const before = cur.shareExpiresAt ? cur.shareExpiresAt.toISOString() : null
       const after = nextExpiry === undefined ? before : nextExpiry ? nextExpiry.toISOString() : null
       if (nextExpiry !== undefined && after !== before) {
@@ -765,6 +800,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (Object.keys(set).length > 0) await tx.update(pages).set(set).where(eq(pages.id, id))
       const link = shareLinkFields({
         shareExpiresAt: set.shareExpiresAt !== undefined ? set.shareExpiresAt : cur.shareExpiresAt,
+        shareStartsAt: set.shareStartsAt !== undefined ? set.shareStartsAt : cur.shareStartsAt,
         sharePasswordHash: set.sharePasswordHash !== undefined ? set.sharePasswordHash : cur.sharePasswordHash,
       })
       return { token: revealShareToken(id, cur.enc), link, policy }
@@ -822,6 +858,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareToken: pages.shareToken,
           enc: pages.shareTokenEnc,
           shareExpiresAt: pages.shareExpiresAt,
+          shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
         })
         .from(pages)
@@ -836,7 +873,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       token,
       ...(token && current
         ? shareLinkFields(current)
-        : { expiresAt: null, expired: false, hasPassword: false }),
+        : { expiresAt: null, expired: false, hasPassword: false, startsAt: null, notStarted: false }),
       // The rules a new link would get (the dialog pre-selects the default expiry).
       policy: await readSharePolicy(db, page.workspaceId),
     }
@@ -862,6 +899,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         parentId: pages.parentId,
         shareTokenEnc: pages.shareTokenEnc,
         shareExpiresAt: pages.shareExpiresAt,
+        shareStartsAt: pages.shareStartsAt,
         sharePasswordHash: pages.sharePasswordHash,
         updatedAt: pages.updatedAt,
       })

@@ -47,6 +47,8 @@ import { registerRevertRoutes } from './routes/revert'
 import { registerInboxRoutes } from './routes/inbox'
 import { registerLaterRoutes } from './routes/later'
 import { registerThreadRoutes } from './routes/threads'
+import { registerVerificationRoutes } from './routes/verification'
+import { registerMemberStatusRoutes } from './routes/memberStatus'
 import { startLaterReminders } from './later'
 import { registerNotionRoutes } from './routes/notion'
 import { registerOAuthApiRoutes, registerOAuthRoutes } from './routes/oauth'
@@ -522,6 +524,9 @@ async function main(): Promise<void> {
       // Later list with reminders, followed comment threads (docs/adr/1410-* .. 1413-*)
       await registerLaterRoutes(api)
       await registerThreadRoutes(api)
+      // Page verification and member status (docs/adr/1840-*, 1845-*)
+      await registerVerificationRoutes(api)
+      await registerMemberStatusRoutes(api)
       await registerFileRoutes(api)
       // Public web sharing (M15): unauthenticated. No session/membership preHandler, only the token + scope gate.
       await registerPublicRoutes(api)

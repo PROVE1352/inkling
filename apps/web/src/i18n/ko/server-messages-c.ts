@@ -71,4 +71,18 @@ export default {
     '이 페이지에 권한이 없어 편집할 수 없습니다. 권한을 받으려면 전체 권한이 있는 사람에게 요청하세요.',
   'You have no access to this page, so you cannot comment on it. Ask someone with full access to change your access.':
     '이 페이지에 권한이 없어 코멘트를 달 수 없습니다. 권한을 받으려면 전체 권한이 있는 사람에게 요청하세요.',
+  // scheduled links, page verification, member status (docs/adr/1840-*, 1844-*, 1845-*)
+  'Pick a start before the expiry': '만료 시각보다 앞선 시작 시각을 고르세요',
+  'Pick a start within ten years': '10년 안의 시작 시각을 고르세요',
+  'startsAt is not a valid date': '시작 시각 형식이 올바르지 않습니다',
+  'Pages are verified in the web app': '페이지 확인 표시는 웹 앱에서만 할 수 있습니다',
+  'Folders are not verified': '폴더는 확인 표시를 할 수 없습니다',
+  "Only the page's owner or a workspace admin can verify this page": '이 페이지는 문서 담당자나 워크스페이스 관리자만 확인 표시를 할 수 있습니다',
+  'Pick an expiry within a year': '1년 안의 만료일을 고르세요',
+  'Send expiresInDays or expiresAt': 'expiresInDays와 expiresAt 중 하나를 보내 주세요',
+  'Your status is set in the web app': '상태는 웹 앱에서만 바꿀 수 있습니다',
+  'Pick a clear time in the future': '앞으로 올 해제 시각을 고르세요',
+  'Pick a clear time within a year': '1년 안의 해제 시각을 고르세요',
+  'clearAt is not a valid date': '해제 시각 형식이 올바르지 않습니다',
+  'Write a status or pick an emoji': '상태 문구를 쓰거나 이모지를 고르세요',
 } satisfies Record<string, string>

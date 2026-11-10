@@ -19,6 +19,9 @@ import type { SuggestionDTO } from '@inkling/shared'
 import { suggestionMadeText } from './collabTools'
 import { pageRef } from './shortIds'
 import { readPagesArgs } from './tokenSaving'
+import { verificationFactsFor, verificationNote } from '../verification'
+import type { VerificationFacts } from '../verification'
+import { mentionStatusLineForPage } from '../memberStatus'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -53,6 +56,7 @@ export function renderFindContext(
   review?: Map<string, ReviewFacts>,
   ac?: AgentContextDTO,
   ink?: Map<string, number>,
+  verifications?: Map<string, VerificationFacts>,
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
   // Several queries (docs/adr/1720-*): one header naming them by number, `matched:` per fragment.
@@ -93,7 +97,9 @@ export function renderFindContext(
     // handwriting marker (docs/adr/1512-*): only where agents may read ink
     const inkNote = ink?.get(f.pageId) ? `; ${inkMarker(ink.get(f.pageId)!)}` : ''
     const matched = multi ? `; matched: ${multi.fragments[i].matched.join(',')}` : ''
-    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${matched}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
+    // verified / stale (docs/adr/1842-*)
+    const verified = verificationNote(verifications?.get(f.pageId))
+    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${matched}${who}${reviewNote(review?.get(f.pageId))}${verified}${inkNote})`, f.text)
   })
   if (r.more.length) {
     // One line per page; a page already shown is referred to by its result number.
@@ -197,7 +203,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const review = await reviewFactsFor(shown)
       countReads(shown) // read counters, page totals only (docs/adr/0953-*)
       const ac = await loadAgentContext(ctx, shown, { read: true })
-      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown)))
+      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown), await verificationFactsFor(shown)))
     }),
   )
 
@@ -286,7 +292,9 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null; movedFrom?: string }
       const ac = await loadAgentContext(ctx, [pageId])
       const large = largeLine(ac, pageId)
-      const tail = large ? `\n${large}` : ''
+      // statuses of the people the Markdown mentions (docs/adr/1846-*)
+      const mentioned = mode === 'delete' ? null : await mentionStatusLineForPage(pageId, markdown)
+      const tail = (large ? `\n${large}` : '') + (mentioned ? `\n${mentioned}` : '')
       // An old anchor after a heading rename was followed to the section's new anchor (docs/adr/1501-*).
       const moved = r.movedFrom && r.section ? `\nmoved_to: §${r.section.anchor} (the heading was renamed; "${r.movedFrom}" no longer exists)` : ''
       if (!r.section) {

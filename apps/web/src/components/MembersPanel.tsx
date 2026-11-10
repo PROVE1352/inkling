@@ -14,6 +14,7 @@ import {
 import { copyText, inviteLink } from '../lib/clipboard'
 import { t, useT } from '../i18n'
 import { ConfirmPopover } from './ConfirmPopover'
+import { StatusChip } from './MemberStatus'
 import {
   CopyIcon,
   LogOutIcon,
@@ -149,6 +150,8 @@ export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: Wor
             {isSelf && <span className="text-sub"> {t('members.you')}</span>}
           </div>
           <div className="truncate text-xs text-sub">{m.email}</div>
+          {/* status message (docs/adr/1845-*) */}
+          {m.status && <StatusChip status={m.status} className="mt-0.5" />}
         </div>
 
         {isOwner ? (

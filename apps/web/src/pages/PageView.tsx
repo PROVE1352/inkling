@@ -19,6 +19,7 @@ import {
   recordPageView,
   useBookmarks,
   useMe,
+  useMembers,
   usePageLock,
   usePages,
   useShareStatus,
@@ -73,6 +74,10 @@ import { LinkPreview } from '../components/LinkPreview'
 import { PrinterIcon, exportPdfLabel } from '../components/ExportPdfButton'
 import { printElement } from '../lib/printPage'
 import { LaterModal } from '../components/LaterPanel'
+import { VerifiedIcon, VerifiedListModal, VerifyBadge, VerifyModal } from '../components/PageVerify'
+import { PresentIcon, Presentation } from '../components/Presentation'
+import { cloneForSlides, topLevelBlocks } from '../lib/present'
+import { statusByUser } from '../memberStatusApi'
 import {
   BellIcon,
   CheckIcon,
@@ -518,6 +523,18 @@ export function PageView() {
   // Save for later / reminder (docs/adr/1410-*), in the ⋯ menu.
   const [laterOpen, setLaterOpen] = useState(false)
   useEffect(() => setLaterOpen(false), [pageId])
+  // Verification (docs/adr/1840-*) and presentation mode (docs/adr/1843-*), in the ⋯ menu.
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [verifiedListOpen, setVerifiedListOpen] = useState(false)
+  const [slides, setSlides] = useState<Element[] | null>(null)
+  useEffect(() => {
+    setVerifyOpen(false)
+    setVerifiedListOpen(false)
+    setSlides(null)
+  }, [pageId])
+  // Members' status messages for the presence avatars (docs/adr/1846-*); guests have no members list.
+  const members = useMembers(guest ? '' : (wsId ?? ''))
+  const memberStatuses = statusByUser(members.data)
   // Split into subpages (docs/adr/1140-*); `?split=1` (the "large page" notification) opens it.
   const [splitOpen, setSplitOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -771,7 +788,7 @@ export function PageView() {
               </span>
             </button>
           )}
-          {(isDoc || isCanvas) && <OnlineUsers users={collab.users} />}
+          {(isDoc || isCanvas) && <OnlineUsers users={collab.users} statuses={memberStatuses} />}
         </div>
         {(isDoc || isCanvas) && (
           <span className="flex shrink-0 px-1">
@@ -862,6 +879,29 @@ export function PageView() {
                   },
                 ]
               : []),
+            ...(isDoc && page && editor
+              ? [
+                  {
+                    // read-only slides from the editor's blocks (docs/adr/1843-*)
+                    label: tr('present.menu'),
+                    icon: <PresentIcon size={16} />,
+                    onSelect: () => {
+                      if (editor.domElement) setSlides(cloneForSlides(topLevelBlocks(editor.domElement)))
+                    },
+                    testId: 'page-present-button',
+                  },
+                ]
+              : []),
+            ...(page && !guest && page.kind !== 'folder'
+              ? [
+                  {
+                    label: tr('pageVerify.menu'),
+                    icon: <VerifiedIcon size={16} />,
+                    onSelect: () => setVerifyOpen(true),
+                    testId: 'page-verify-button',
+                  },
+                ]
+              : []),
             ...(page && page.kind !== 'canvas' && page.kind !== 'folder'
               ? [
                   {
@@ -881,7 +921,7 @@ export function PageView() {
           footer={
             isPhone && (isDoc || isCanvas) && collab.users.length > 0 ? (
               <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-sub">
-                <OnlineUsers users={collab.users} />
+                <OnlineUsers users={collab.users} statuses={memberStatuses} />
                 <span>{tr('page.onlineCount', { count: collab.users.length })}</span>
               </div>
             ) : null
@@ -939,6 +979,7 @@ export function PageView() {
                   readOnly={lockReadOnly}
                   banner={lockBanner}
                 />
+                {!guest && <VerifyBadge pageId={page.id} onOpen={() => setVerifyOpen(true)} />}
                 <Suspense fallback={viewFallback}>
                   {guest ? (
                     // The collection routes are member-only for now (docs/adr/1252-*).
@@ -998,6 +1039,7 @@ export function PageView() {
                   readOnly={lockReadOnly}
                   banner={lockBanner}
                 />
+                {!guest && <VerifyBadge pageId={page.id} onOpen={() => setVerifyOpen(true)} />}
                 <PageProvenanceBadge pageId={page.id} />
                 <SuspiciousNotice pageId={page.id} />
                 <LargePageNotice pageId={page.id} />
@@ -1080,6 +1122,31 @@ export function PageView() {
       )}
       {page && laterOpen && !guest && (
         <LaterModal open={laterOpen} onClose={() => setLaterOpen(false)} target={{ kind: 'page', pageId: page.id }} />
+      )}
+      {page && wsId && verifyOpen && !guest && (
+        <VerifyModal
+          key={`verify:${page.id}`}
+          open={verifyOpen}
+          onClose={() => setVerifyOpen(false)}
+          pageId={page.id}
+          onOpenList={() => {
+            setVerifyOpen(false)
+            setVerifiedListOpen(true)
+          }}
+        />
+      )}
+      {wsId && verifiedListOpen && !guest && (
+        <VerifiedListModal key="verified-list" open={verifiedListOpen} onClose={() => setVerifiedListOpen(false)} wsId={wsId} />
+      )}
+      {page && slides && (
+        // own key namespace, like the ink layer (docs/adr/1340-*): slides of one page never outlive it
+        <Presentation
+          key={`pres:${page.id}`}
+          title={page.title}
+          icon={page.icon && !page.icon.startsWith('/') ? page.icon : undefined}
+          blocks={slides}
+          onClose={() => setSlides(null)}
+        />
       )}
       {page && followOpen && !guest && (
         <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>

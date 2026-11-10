@@ -28,6 +28,7 @@ import type {
 } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { db, withSsdPlanCosts } from '../db/index'
+import { statusesFor } from '../memberStatus'
 import { closeUserWorkspaceConnections, closeWorkspaceConnections } from '../liveConnections'
 import { precheckEtag } from '../httpCache'
 import { indexEpoch, workspaceVersion } from '../versions'
@@ -363,11 +364,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       .where(eq(workspaceMembers.workspaceId, id))
       .orderBy(asc(workspaceMembers.createdAt))
 
+    // status message of each member, null when none or cleared (docs/adr/1845-*)
+    const statuses = await statusesFor(rows.map((r) => r.id))
     const members: MemberDTO[] = rows.map((r) => ({
       id: r.id,
       name: r.name,
       email: r.email,
       role: r.role,
+      status: statuses.get(r.id) ?? null,
     }))
     return { members }
   })

@@ -87,7 +87,8 @@ export function useCanvasDoc(pageId: string, me: UserDTO): CanvasDoc {
   // used by OnlineUsers / the top-bar avatars). Separate effect: a rename updates the field in place.
   useEffect(() => {
     const awareness = provider?.awareness as AwarenessLike | null | undefined
-    awareness?.setLocalStateField('user', { name: me.name, color: userColor(me.id) })
+    // `id`: presence shows the member's status (docs/adr/1846-*)
+    awareness?.setLocalStateField('user', { name: me.name, color: userColor(me.id), id: me.id })
   }, [provider, me.name, me.id])
 
   return { doc, provider, cnodes, cedges, status, synced, users }

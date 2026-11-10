@@ -2037,6 +2037,9 @@ export interface SharedItemDTO {
   expiresAt?: string | null
   expired?: boolean
   hasPassword?: boolean
+  /** Scheduled link: opens at this instant (docs/adr/1844-*). */
+  startsAt?: string | null
+  notStarted?: boolean
 }
 
 export function useSharedList(wsId: string | undefined) {

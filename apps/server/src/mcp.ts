@@ -44,6 +44,8 @@ import { pageRef, resolvePageRef } from './mcpTools/shortIds'
 import { readChangedSections, unchangedText } from './mcpTools/tokenSaving'
 import { registerPatchSectionsTool } from './mcpTools/patchSections'
 import { agentProperties, pageVersion } from './context/pageVersion'
+import { verificationFactsFor, verificationLine } from './verification'
+import { memberStatuses, mentionStatusLine, mentionStatusLineForPage, statusPhrase } from './memberStatus'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -57,14 +59,22 @@ import { agentProperties, pageVersion } from './context/pageVersion'
  */
 
 /** Owner / review lines for read_page (docs/adr/0951-*, 0953-*): document dates and the daily batch only. */
-function reviewLines(f: ReviewFacts | undefined): string[] {
+function reviewLines(f: ReviewFacts | undefined, ownerStatus?: string | null): string[] {
   if (!f) return []
   const out: string[] = []
-  if (f.owner) out.push(`- owner: ${f.owner}`)
+  if (f.owner) out.push(`- owner: ${f.owner}${ownerStatus ? ` (status ${ownerStatus})` : ''}`)
   if (f.reviewedOn) out.push(`- reviewedAt: ${f.reviewedOn}`)
   if (f.living) out.push('- living: yes (changes too often for review dates)')
   else if (f.dueOn) out.push(`- reviewDue: ${f.dueOn}${f.stale && f.p !== null ? ` (stale, p=${f.p.toFixed(2)})` : ''}`)
   return out
+}
+
+/** Live status of the page's document owner as `"🎓 Exam week" until 2026-11-14`, else null (docs/adr/1846-*). */
+async function ownerStatusPhrase(workspaceId: string, pageId: string): Promise<string | null> {
+  const [row] = await db.select({ ownerId: pages.ownerId }).from(pages).where(eq(pages.id, pageId)).limit(1)
+  if (!row?.ownerId) return null
+  const s = (await memberStatuses(workspaceId, [row.ownerId])).get(row.ownerId)
+  return s ? statusPhrase(s.status) : null
 }
 
 const sectionOf = (p: PageMetaDTO) => (p.scope === 'private' ? 'private' : 'shared')
@@ -359,11 +369,13 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           claims?: SectionClaimDTO[]
         }
         const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
+        const verified = verificationLine((await verificationFactsFor([r.page.id])).get(r.page.id)) // docs/adr/1842-*
         const lines = [
           `# ${cleanText(titleOf(r.page))}`,
           `(page ${r.page.id}, ${r.page.kind}${r.page.updatedAt ? `, updated ${r.page.updatedAt.slice(0, 10)}` : ''}, ~${r.tokens} tok)`,
           `can: ${pageFacts(ac, r.page.id).can}`,
           ...(largeLine(ac, r.page.id) ? [largeLine(ac, r.page.id)!] : []),
+          ...(verified ? [verified] : []),
         ]
         if (r.page.kind !== 'doc') lines.push('Not a document: read it without outline.')
         else if (r.sections.length === 0) lines.push('Empty page.')
@@ -401,7 +413,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const large = largeLine(ac, r.page.id)
         // A heading rename moved the section (docs/adr/1501-*): say so, so the agent uses the new anchor.
         const moved = r.movedFrom ? `moved_to: §${r.section.anchor} (the heading was renamed; "${cleanText(r.movedFrom)}" no longer exists)\n` : ''
-        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}${r.claim ? `${claimLine({ ...r.claim, by: cleanText(r.claim.by) })}\n` : ''}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
+        const verified = verificationLine((await verificationFactsFor([r.page.id])).get(r.page.id)) // docs/adr/1842-*
+        const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${r.page.id}; §${r.section.anchor} v=${r.section.version})\n${moved}${r.claim ? `${claimLine({ ...r.claim, by: cleanText(r.claim.by) })}\n` : ''}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}${verified ? `${verified}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         // a data line under each chart token, for this reader (docs/adr/1606-*)
         const sectionMd = r.markdown.includes('inkling:chart')
@@ -439,6 +452,9 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       const facts = pageFacts(ac, meta.id)
       const flagLine = pageSuspiciousLine(ac, meta.id)
       const inkStrokes = (await inkStrokeCounts([meta.id])).get(meta.id) // docs/adr/1512-*
+      const verifiedLine = verificationLine((await verificationFactsFor([meta.id])).get(meta.id))
+      // the document owner's status, for an agent about to mention or assign them (docs/adr/1846-*)
+      const ownerStatus = await ownerStatusPhrase(meta.workspaceId, meta.id)
       const header = [
         `# ${cleanText(titleOf(meta))}`,
         '',
@@ -455,7 +471,9 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         ...(largeLine(ac, meta.id) ? [`- ${largeLine(ac, meta.id)}`] : []),
         ...(inkStrokes ? [`- ${inkMarker(inkStrokes)}`] : []),
         ...(properties.length ? [`- properties: ${cleanText(JSON.stringify(properties))}`] : []),
-        ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id)),
+        ...reviewLines((await reviewFactsFor([meta.id])).get(meta.id), ownerStatus),
+        // verified / stale (docs/adr/1842-*): changes with the clock at day granularity, so after the page's own lines
+        ...(verifiedLine ? [`- ${verifiedLine}`] : []),
         // last header line: it changes with the clock, the lines above with the page (ADR 0937, 1543)
         ...(claimsLine ? [`- ${claimsLine}`] : []),
         '',
@@ -504,8 +522,18 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const r = await call(ctx, 'PATCH', `/api/pages/${created.id}`, { json: patch })
         page = (r.json() as { page: PageMetaDTO }).page
       }
+      // statuses of the people the body mentions (docs/adr/1846-*); absent when none has one
+      const status = await mentionStatusLine(page.workspaceId, markdown)
       return jsonUntrusted(
-        { id: page.id, workspaceId: page.workspaceId, title: page.title, parentId: page.parentId, section: sectionOf(page), url: pageUrl(ctx, page) },
+        {
+          id: page.id,
+          workspaceId: page.workspaceId,
+          title: page.title,
+          parentId: page.parentId,
+          section: sectionOf(page),
+          url: pageUrl(ctx, page),
+          ...(status ? { status: status.replace(/^status: /, '') } : {}),
+        },
         appliesLine(await loadAgentContext(ctx, [page.id])),
       )
     }),
@@ -606,6 +634,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       if (written.statusCode === 202) return text(suggestionMadeText((written.json() as { suggestion: SuggestionDTO }).suggestion))
       const ac = await loadAgentContext(ctx, [writeId])
       const large = largeLine(ac, writeId)
+      const mentioned = await mentionStatusLineForPage(writeId, markdown)
       const where =
         target?.rotated
           ? `Appended to the end of subpage "${cleanText(titleOf(target))}" (pageId=${target.pageId}), not to the page you addressed: ` +
@@ -619,7 +648,10 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           ac,
           (mode === 'append'
             ? (where ?? 'Appended to the end of the body.')
-            : 'Replaced the body (the previous content is saved as a version-history snapshot).') + (large ? `\n${large}` : ''),
+            : 'Replaced the body (the previous content is saved as a version-history snapshot).') +
+            (large ? `\n${large}` : '') +
+            // statuses of the people the Markdown mentions (docs/adr/1846-*)
+            (mentioned ? `\n${mentioned}` : ''),
         ),
       )
     }),

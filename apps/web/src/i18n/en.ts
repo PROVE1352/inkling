@@ -23,6 +23,7 @@ import later from './en/later'
 import suggestions from './en/suggestions'
 import revert from './en/revert'
 import charts from './en/charts'
+import pageWorkspace from './en/page-workspace'
 import forms from './en/forms'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
@@ -53,6 +54,7 @@ export const en = {
   ...suggestions,
   ...revert,
   ...charts,
+  ...pageWorkspace,
   ...forms,
 }
 

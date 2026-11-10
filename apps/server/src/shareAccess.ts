@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { SHARE_EXPIRED_CODE, SHARE_PASSWORD_REQUIRED_CODE } from '@inkling/shared'
 import { hashPassword, verifyPassword } from './auth'
 import { env } from './env'
-import { AppError } from './errors'
+import { AppError, notFound } from './errors'
 
 /**
  * Visitor side of public link expiry and passwords (docs/adr/1170-*, 1171-*).
@@ -26,6 +26,8 @@ export interface ShareGate {
   /** SHA-256 of the link token (pages.share_token). */
   tokenHash: string
   expiresAt: Date | null
+  /** Scheduled link: closed before this instant (docs/adr/1844-*); null = open at once. */
+  startsAt?: Date | null
   passwordHash: string | null
 }
 
@@ -46,9 +48,14 @@ export function shareExpired(gate: Pick<ShareGate, 'expiresAt'>, now = Date.now(
   return gate.expiresAt !== null && gate.expiresAt.getTime() <= now
 }
 
-/** Gated links (expired or with a password) are kept out of search engines. */
+/** Server clock: a scheduled link whose start has not come yet (docs/adr/1844-*). */
+export function shareNotStarted(gate: Pick<ShareGate, 'startsAt'>, now = Date.now()): boolean {
+  return gate.startsAt != null && gate.startsAt.getTime() > now
+}
+
+/** Gated links (expired, not started yet or with a password) are kept out of search engines. */
 export function shareGated(gate: ShareGate, now = Date.now()): boolean {
-  return gate.passwordHash !== null || shareExpired(gate, now)
+  return gate.passwordHash !== null || shareExpired(gate, now) || shareNotStarted(gate, now)
 }
 
 export function shareCookiePath(token: string): string {
@@ -111,14 +118,19 @@ export function setUnlockCookie(reply: FastifyReply, token: string, gate: ShareG
 }
 
 /**
- * The gate every public route runs on the link's root page: expired → 410 SHARE_EXPIRED (not a
- * token guess, never counted as a failure); password without a valid unlock cookie → 401
- * SHARE_PASSWORD_REQUIRED. Neither answer carries anything about the page. Links without a
- * password never look at cookies.
+ * The gate every public route runs on the link's root page: not started yet → the same 404
+ * NOT_FOUND an unshared token gets (docs/adr/1844-*; not counted as a guess either); expired → 410
+ * SHARE_EXPIRED (not a token guess, never counted as a failure); password without a valid unlock
+ * cookie → 401 SHARE_PASSWORD_REQUIRED. No answer carries anything about the page. Links without
+ * a password never look at cookies.
  */
 export function assertShareOpen(req: FastifyRequest, reply: FastifyReply, gate: ShareGate): void {
   const now = Date.now()
   if (shareGated(gate, now)) reply.header('X-Robots-Tag', 'noindex, nofollow')
+  if (shareNotStarted(gate, now)) {
+    reply.header('Cache-Control', 'no-store')
+    throw notFound()
+  }
   if (shareExpired(gate, now)) {
     reply.header('Cache-Control', 'no-store')
     throw shareExpiredError()

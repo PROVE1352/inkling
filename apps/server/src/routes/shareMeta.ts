@@ -27,7 +27,7 @@ import { pageTexts } from '../db/schema'
 import { env } from '../env'
 import { configuredPublicOrigin } from '../origin'
 import { parseFileUrl } from '../md/convert'
-import { shareGated } from '../shareAccess'
+import { shareGated, shareNotStarted } from '../shareAccess'
 import { buildFolderShare, findSharedPageByToken } from './public'
 import type { SharedPage } from './public'
 
@@ -163,7 +163,8 @@ export async function registerShareMetaRoutes(app: FastifyInstance): Promise<voi
       let childCount: number | undefined
       // The gate is the root's: a folder's expiry and password cover every page below it.
       const root = await findSharedPageByToken(token)
-      if (!root) return send(reply, base)
+      // A scheduled link before its start is the plain shell, like a token that is not shared (docs/adr/1844-*).
+      if (!root || shareNotStarted(root.gate)) return send(reply, base)
       if (shareGated(root.gate)) {
         reply.header('X-Robots-Tag', 'noindex, nofollow')
         return send(reply, injectNoindex(base))

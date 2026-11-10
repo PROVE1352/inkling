@@ -386,6 +386,8 @@ export interface MemberDTO {
   name: string
   email: string
   role: WorkspaceRole
+  /** Current status message, null when none or cleared (docs/adr/1845-*). */
+  status?: import('./memberStatus').MemberStatusDTO | null
 }
 
 /** Member search result (users who are not members yet) */
@@ -771,6 +773,10 @@ export interface ShareStatusDTO {
   expiresAt?: string | null
   /** The link has expired: it answers "expired" until the expiry is extended or removed. */
   expired?: boolean
+  /** When a scheduled link opens (ISO, server clock), null = at once (docs/adr/1844-*). */
+  startsAt?: string | null
+  /** Before `startsAt`: visitors get the same answer as for a link that does not exist. */
+  notStarted?: boolean
   /** Visitors must enter a password (docs/adr/1171-*). The password itself is never returned. */
   hasPassword?: boolean
   /** Workspace rules for new links (docs/adr/1172-*). */
@@ -974,5 +980,9 @@ export * from './revert'
 export * from './charts'
 export * from './formula'
 export * from './forms'
+// Page verification with an expiry (docs/adr/1840-*)
+export * from './verification'
+// Member status with an automatic clear time (docs/adr/1845-*)
+export * from './memberStatus'
 // Slack app per workspace: channel notifications, /inkling search, link unfurls (docs/adr/1800-*)
 export * from './slack'

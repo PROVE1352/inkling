@@ -4,6 +4,7 @@ import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { useMembers, usePages } from '../api'
 import { pageIcon } from '../lib/pageIcon'
 import { useT } from '../i18n'
+import { liveStatus, statusLabel } from '../memberStatusApi'
 
 // `@` autocomplete → inserts an inline mention (M13).
 // Shows members (people) and pages in one list. People = kind 'user' blue chip, pages = kind 'page' link.
@@ -34,9 +35,11 @@ export function MentionMenu({
       if (q && !m.name.toLowerCase().includes(q) && !m.email.toLowerCase().includes(q)) {
         continue
       }
+      // a status in force shows before the email (docs/adr/1846-*)
+      const status = liveStatus(m.status)
       items.push({
         title: m.name,
-        subtext: m.email,
+        subtext: status ? `${statusLabel(status)} · ${m.email}` : m.email,
         onItemClick: () => insertMention('user', m.id, m.name),
       })
     }

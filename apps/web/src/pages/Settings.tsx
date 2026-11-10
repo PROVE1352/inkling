@@ -48,6 +48,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { getLocale, useT, type TKey } from '../i18n'
 import { delegatedDisplayName, oidcErrorText } from './Login'
 import { Group, Row, Select, SettingsFlat, Toggle } from '../components/SettingsRows'
+import { StatusRow } from '../components/MemberStatus'
 
 // Settings (/w/:wsId/settings): Obsidian-style, a list of sections on the left and the chosen section on
 // the right (on a phone the list is its own screen and a section opens over it). The section lives in the
@@ -182,6 +183,8 @@ function AccountGroup() {
           </button>
         )}
       </Row>
+      {/* status message for the people in my workspaces (docs/adr/1845-*) */}
+      <StatusRow />
       {delegated ? (
         // The password belongs to the external service: nothing to fill in here, just where to go.
         <Row title={t('settings.changePassword')} desc={t('settings.delegatedPassword', { name: delegatedName })} />

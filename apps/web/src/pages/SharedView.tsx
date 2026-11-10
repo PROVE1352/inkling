@@ -107,6 +107,11 @@ function LinkBadges({ item }: { item: SharedItemDTO }) {
           {t('shareLink.expiresBadge', { date: fmtDate(item.expiresAt) })}
         </span>
       ) : null}
+      {item.notStarted && item.startsAt && (
+        <span className={`${badge} border-amber-600/40 text-amber-600`} title={item.startsAt}>
+          {t('shareLink.startsBadge', { date: fmtDate(item.startsAt, { dateStyle: 'medium', timeStyle: 'short' }) })}
+        </span>
+      )}
       {item.hasPassword && <span className={`${badge} border-line text-sub`}>{t('shareLink.passwordBadge')}</span>}
     </>
   )

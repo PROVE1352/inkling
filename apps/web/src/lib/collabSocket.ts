@@ -213,7 +213,7 @@ export function readStatus(provider: HocuspocusProvider): 'connected' | 'connect
 
 type AwarenessLike = {
   clientID: number
-  getStates: () => Map<number, { user?: { name?: string; color?: string } }>
+  getStates: () => Map<number, { user?: { name?: string; color?: string; id?: unknown } }>
 }
 
 export function readUsers(provider: HocuspocusProvider): CollabUser[] {
@@ -225,7 +225,9 @@ export function readUsers(provider: HocuspocusProvider): CollabUser[] {
     if (clientId === selfId) return
     const user = state?.user
     if (user?.name) {
-      out.push({ clientId, name: user.name, color: user.color ?? '#888888' })
+      // the account id (docs/adr/1846-*); awareness is client-written, so it only picks a status to show
+      const userId = typeof user.id === 'string' ? user.id : undefined
+      out.push({ clientId, name: user.name, color: user.color ?? '#888888', ...(userId ? { userId } : {}) })
     }
   })
   return out
@@ -242,7 +244,7 @@ export function sameUsers(a: readonly CollabUser[], b: readonly CollabUser[]): b
   for (let i = 0; i < a.length; i++) {
     const x = a[i]
     const y = b[i]
-    if (x.clientId !== y.clientId || x.name !== y.name || x.color !== y.color) return false
+    if (x.clientId !== y.clientId || x.name !== y.name || x.color !== y.color || x.userId !== y.userId) return false
   }
   return true
 }

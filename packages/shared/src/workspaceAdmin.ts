@@ -127,6 +127,8 @@ export const AUDIT_ACTIONS = [
   'share.published',
   'share.unpublished',
   'share.expiry_changed',
+  /** A scheduled link's start was set, moved or removed (docs/adr/1844-*). */
+  'share.start_changed',
   'share.password_set',
   'share.password_changed',
   'share.password_removed',
@@ -158,6 +160,9 @@ export const AUDIT_ACTIONS = [
   'agent_policy.changed',
   /** A person reverted logged changes on a page (docs/adr/1623-*): before.seqs reverted, after.seqs the revert's own edits. */
   'page.changes_reverted',
+  /** A page was marked verified (after.expiresAt) or its verification removed (docs/adr/1840-*). */
+  'page.verified',
+  'page.unverified',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

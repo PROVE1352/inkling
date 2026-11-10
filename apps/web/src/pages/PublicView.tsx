@@ -10,6 +10,8 @@ import { KindIcon } from '../components/PageIconGlyph'
 import { findTreePath, usePublicChildPage } from '../lib/publicShare'
 import { safeUrl, sanitizeHtml } from '../lib/sanitizeHtml'
 import { renderMathIn } from '../lib/katex'
+import { topLevelBlocks } from '../lib/present'
+import { PresentIcon, Presentation } from '../components/Presentation'
 import { t } from '../i18n'
 
 // Public (unauthenticated) read-only viewer — /s/:token (+ /s/:token/p/:ref for folder shares). Standalone page without sidebar/app shell.
@@ -224,6 +226,15 @@ function PublicArticle({
   useEffect(() => {
     return body.current ? renderMathIn(body.current) : undefined // on failure the source text stays
   }, [html])
+  // Presentation mode on a shared page (docs/adr/1843-*): slides from the same sanitized HTML.
+  const [slides, setSlides] = useState<Element[] | null>(null)
+  useEffect(() => setSlides(null), [html])
+  const present = () => {
+    const tpl = document.createElement('template')
+    tpl.innerHTML = html // inert until the slides clone it into the page
+    setSlides(topLevelBlocks(tpl.content))
+  }
+  const iconText = data.icon && !data.icon.startsWith('/') ? data.icon : undefined
   return (
     <article className="nd-enter flex-1">
       {coverUrl && (
@@ -239,6 +250,18 @@ function PublicArticle({
           </div>
         )}
         <h1 className="mb-6 text-4xl font-bold text-ink">{data.title || t('common.untitled')}</h1>
+        <button
+          type="button"
+          onClick={present}
+          data-testid="public-present"
+          className="-mt-3 mb-5 flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+        >
+          <PresentIcon size={14} />
+          {t('present.menu')}
+        </button>
+        {slides && (
+          <Presentation key="pres:public" title={data.title} icon={iconText} blocks={slides} renderMath onClose={() => setSlides(null)} />
+        )}
 
         {/* Server-rendered HTML. .bn-container keeps a look similar to the editor. */}
         <div

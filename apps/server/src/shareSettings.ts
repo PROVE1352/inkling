@@ -63,18 +63,43 @@ export function resolveShareExpiry(
   return at
 }
 
+/**
+ * Requested start of a scheduled link (docs/adr/1844-*) → instant on the server clock.
+ * undefined = not asked (keep), null = open at once. A start that is already past is the same as
+ * "at once" (stored as null), so a link never shows a start that no longer matters.
+ */
+export function resolveShareStart(input: { startsAt?: string | null }, now = Date.now()): Date | null | undefined {
+  if (input.startsAt === undefined) return undefined
+  if (input.startsAt === null) return null
+  const at = new Date(input.startsAt)
+  if (Number.isNaN(at.getTime())) throw badRequest('startsAt is not a valid date')
+  if (at.getTime() > now + SHARE_EXPIRY_MAX_DAYS * DAY_MS) throw badRequest('Pick a start within ten years')
+  return at.getTime() <= now ? null : at
+}
+
+/** A link must open before it expires (400 otherwise). */
+export function assertShareWindow(startsAt: Date | null, expiresAt: Date | null): void {
+  if (startsAt && expiresAt && startsAt.getTime() >= expiresAt.getTime()) {
+    throw badRequest('Pick a start before the expiry')
+  }
+}
+
 export const sharePasswordPolicyError = () =>
   new AppError(403, 'SHARE_PASSWORD_POLICY', 'This workspace requires a password on public links')
 
 /** The status fields of a link (the password itself never leaves the server). */
 export function shareLinkFields(
-  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null },
+  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null; shareStartsAt?: Date | null },
   now = Date.now(),
-): { expiresAt: string | null; expired: boolean; hasPassword: boolean } {
+): { expiresAt: string | null; expired: boolean; hasPassword: boolean; startsAt: string | null; notStarted: boolean } {
+  const startsAt = row.shareStartsAt ?? null
   return {
     expiresAt: row.shareExpiresAt ? row.shareExpiresAt.toISOString() : null,
     expired: row.shareExpiresAt !== null && row.shareExpiresAt.getTime() <= now,
     hasPassword: row.sharePasswordHash !== null,
+    // scheduled links (docs/adr/1844-*)
+    startsAt: startsAt ? startsAt.toISOString() : null,
+    notStarted: startsAt !== null && startsAt.getTime() > now,
   }
 }
 
@@ -83,5 +108,6 @@ export const CLEARED_SHARE_LINK = {
   shareToken: null,
   shareTokenEnc: null,
   shareExpiresAt: null,
+  shareStartsAt: null,
   sharePasswordHash: null,
 } as const

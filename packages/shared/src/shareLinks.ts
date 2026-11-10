@@ -15,6 +15,8 @@ export const SHARE_PASSWORD_LENGTH = { min: 4, max: 128 } as const
 const passwordSchema = z.string().min(SHARE_PASSWORD_LENGTH.min).max(SHARE_PASSWORD_LENGTH.max)
 const expiresAtSchema = z.iso.datetime({ offset: true })
 const expiresInDaysSchema = z.number().int().min(1).max(SHARE_EXPIRY_MAX_DAYS)
+/** When the link opens (docs/adr/1844-*): an exact instant; null = at once. Always before the expiry. */
+const startsAtSchema = z.iso.datetime({ offset: true })
 
 /**
  * POST /pages/:id/share (body optional). Only used when a new link is made; an existing link is
@@ -26,6 +28,7 @@ export const createShareSchema = z
   .object({
     expiresAt: expiresAtSchema.nullable().optional(),
     expiresInDays: expiresInDaysSchema.optional(),
+    startsAt: startsAtSchema.nullable().optional(),
     password: passwordSchema.optional(),
   })
   .strict()
@@ -36,12 +39,14 @@ export type CreateShareInput = z.infer<typeof createShareSchema>
 
 /**
  * PATCH /pages/:id/share: change an existing link. Omitted fields stay as they are.
- * `expiresAt: null` removes the expiry; `password: null` removes the password.
+ * `expiresAt: null` removes the expiry; `password: null` removes the password; `startsAt: null`
+ * opens a scheduled link at once (docs/adr/1844-*).
  */
 export const updateShareSchema = z
   .object({
     expiresAt: expiresAtSchema.nullable().optional(),
     expiresInDays: expiresInDaysSchema.optional(),
+    startsAt: startsAtSchema.nullable().optional(),
     password: passwordSchema.nullable().optional(),
   })
   .strict()

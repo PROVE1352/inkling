@@ -444,7 +444,7 @@ export async function importTemplateFile(args: {
       const props: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(n.props)) {
         const f = fields.get(k)
-        if (!f || f.type === 'person' || f.type === 'rollup') continue
+        if (!f || f.type === 'person' || f.type === 'rollup' || f.type === 'formula') continue
         if (f.type === 'relation') {
           if (Array.isArray(v)) props[k] = v.map((x) => (typeof x === 'string' ? ids.get(x) : undefined)).filter(Boolean)
           continue

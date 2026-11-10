@@ -19,7 +19,7 @@ import { toast } from '../../lib/toast'
 import { UploadIcon, XIcon } from '../Icons'
 import { FIELD_TYPE_LABEL, S } from './strings'
 
-type ColType = Exclude<FieldType, 'person' | 'relation' | 'rollup'>
+type ColType = Exclude<FieldType, 'person' | 'relation' | 'rollup' | 'formula'>
 const COL_TYPES: ColType[] = ['text', 'number', 'date', 'select', 'multiSelect', 'checkbox', 'url']
 const TYPE_LABEL: Record<ColType, string> = FIELD_TYPE_LABEL
 const MAX_OPTIONS = 50
@@ -64,7 +64,7 @@ function buildFields(
   for (const c of plan) {
     if (!c.include) continue
     let f = fields.find(
-      (x) => x.name.trim().toLowerCase() === c.name.trim().toLowerCase() && x.type !== 'relation' && x.type !== 'rollup',
+      (x) => x.name.trim().toLowerCase() === c.name.trim().toLowerCase() && x.type !== 'relation' && x.type !== 'rollup' && x.type !== 'formula',
     )
     if (!f) {
       let type: FieldType = c.type

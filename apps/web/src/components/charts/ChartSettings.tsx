@@ -4,8 +4,8 @@ import { useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   CHART_BASIC_KINDS,
-  CHART_GROUP_TYPES,
-  CHART_MEASURE_TYPES,
+  chartCanGroup,
+  chartCanMeasure,
   CHART_MORE_KINDS,
   CHART_SERIES_KINDS,
   CHART_TITLE_FIELD,
@@ -120,8 +120,9 @@ export function ChartSettingsForm({
   )
   const def = useCollectionDef(d.sourceType === 'collection' && d.collectionId ? d.collectionId : null)
   const fields: CollectionField[] = def.data?.fields ?? []
-  const groupFields = fields.filter((f) => CHART_GROUP_TYPES.has(f.type))
-  const numberFields = fields.filter((f) => CHART_MEASURE_TYPES.has(f.type))
+  // formulas group and measure by what they yield (docs/adr/1827-*)
+  const groupFields = fields.filter((f) => chartCanGroup(f))
+  const numberFields = fields.filter((f) => chartCanMeasure(fields, f))
   const fieldOf = (fid: string) => fields.find((f) => f.id === fid)
   const isDate = (fid: string) => d.sourceType === 'query' || fieldOf(fid)?.type === 'date'
   const seriesAllowed = CHART_SERIES_KINDS.includes(d.kind)

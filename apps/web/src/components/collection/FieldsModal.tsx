@@ -9,7 +9,7 @@ import {
 import type { OptionColor } from '../../lib/optionColors'
 import { ConfirmPopover } from '../ConfirmPopover'
 import { PlusIcon, TrashIcon, XIcon } from '../Icons'
-import { RelationEditor, RollupEditor } from './FieldConfigEditors'
+import { FormulaEditor, RelationEditor, RollupEditor } from './FieldConfigEditors'
 import { FIELD_TYPE_LABEL as TYPE_LABEL } from './strings'
 
 const TYPE_ORDER: FieldType[] = [
@@ -23,6 +23,7 @@ const TYPE_ORDER: FieldType[] = [
   'url',
   'relation',
   'rollup',
+  'formula',
 ]
 
 function newId(): string {
@@ -155,6 +156,7 @@ export function FieldsModal({
               type,
               options: needsOptions ? f.options ?? [] : undefined,
               relation: type === 'relation' ? f.relation : undefined,
+              formula: type === 'formula' ? f.formula ?? { expression: '' } : undefined,
               rollup:
                 type === 'rollup'
                   ? f.rollup ??
@@ -188,7 +190,10 @@ export function FieldsModal({
 
   // relation needs a target, rollup needs a configuration — otherwise the server rejects it
   const incomplete = draft.some(
-    (f) => (f.type === 'relation' && !f.relation?.targetPageId) || (f.type === 'rollup' && !f.rollup),
+    (f) =>
+      (f.type === 'relation' && !f.relation?.targetPageId) ||
+      (f.type === 'rollup' && !f.rollup) ||
+      (f.type === 'formula' && !f.formula?.expression.trim()),
   )
 
   const save = () => {
@@ -291,6 +296,9 @@ export function FieldsModal({
                       field={f}
                       onChange={(p) => update(f.id, p)}
                     />
+                  )}
+                  {f.type === 'formula' && (
+                    <FormulaEditor field={f} draft={draft} onChange={(p) => update(f.id, p)} />
                   )}
                   {f.type === 'rollup' && (
                     <RollupEditor

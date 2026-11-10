@@ -161,7 +161,7 @@ export async function exportXlsx(ctx: ExportContext, title: string): Promise<voi
     const typed: unknown[] = [escapeFormula(r.title)]
     ctx.fields.forEach((f, j) => {
       const v = r.props[f.id]
-      if ((f.type === 'number' || f.type === 'rollup') && typeof v === 'number') typed.push(v)
+      if ((f.type === 'number' || f.type === 'rollup' || f.type === 'formula') && typeof v === 'number') typed.push(v)
       else if (f.type === 'checkbox') typed.push(!!v)
       else if (f.type === 'date' && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v))
         typed.push(new Date(`${v}T00:00:00Z`))

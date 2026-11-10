@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { CollectionField, MemberDTO } from '@inkling/shared'
 import { useT } from '../../../i18n'
 import { CheckIcon } from '../../Icons'
-import { FieldValue, OptionBadge } from './FieldValue'
+import { FieldValue, FormulaValue, OptionBadge } from './FieldValue'
 import { useCollectionReadOnly } from '../readOnlyContext'
 import { useCellTabIndex } from '../gridContext'
 import { RelationCell, RollupValue } from './RelationCell'
@@ -450,6 +450,13 @@ export function FieldCell(props: FieldCellProps) {
       return <DateCell {...props} />
     case 'relation':
       return <RelationCell field={props.field} value={props.value} onCommit={props.onCommit} />
+    case 'formula':
+      // computed (server and web, docs/adr/1823-*) — read-only
+      return (
+        <div className="flex min-h-[30px] w-full items-center px-2 py-1">
+          <FormulaValue value={props.value} />
+        </div>
+      )
     case 'rollup':
       // computed on the server — read-only
       return (

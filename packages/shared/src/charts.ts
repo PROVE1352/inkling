@@ -10,6 +10,7 @@
 //
 // This file must not import values from './index' (index re-exports it); type imports are fine.
 
+import { formulaResultType, isFormulaErrorCell } from './formula'
 import { z } from 'zod'
 import type { CollectionField, FilterOp } from './index'
 
@@ -287,6 +288,16 @@ export const CHART_GROUP_TYPES = new Set<CollectionField['type']>(['select', 'mu
 /** Fields a chart can sum / average. */
 export const CHART_MEASURE_TYPES = new Set<CollectionField['type']>(['number', 'rollup'])
 
+/** A property can group a chart: the group types, and formulas (by what they yield, docs/adr/1827-*). */
+export function chartCanGroup(f: CollectionField): boolean {
+  return CHART_GROUP_TYPES.has(f.type) || f.type === 'formula'
+}
+
+/** A property can be summed / averaged: numbers, rollups, and formulas that yield a number. */
+export function chartCanMeasure(fields: CollectionField[], f: CollectionField): boolean {
+  return CHART_MEASURE_TYPES.has(f.type) || (f.type === 'formula' && formulaResultType(fields, f.id) === 'number')
+}
+
 function textKey(s: string, order?: number | string): ChartKey {
   const label = s.length > 100 ? `${s.slice(0, 99)}…` : s
   return { key: label, label, order: order ?? label.toLowerCase() }
@@ -553,6 +564,8 @@ export function matchesFilter(
   op: FilterOp,
   target: string | number | boolean | undefined,
 ): boolean {
+  // a formula error (web marker) reads as an empty value
+  if (isFormulaErrorCell(value)) value = null
   const isEmpty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
   switch (op) {
     case 'empty':
@@ -574,7 +587,7 @@ export function matchesFilter(
         .includes(String(target ?? '').toLowerCase())
     case 'gt':
     case 'lt': {
-      if (field.type === 'number' || (field.type === 'rollup' && typeof value === 'number')) {
+      if (field.type === 'number' || ((field.type === 'rollup' || field.type === 'formula') && typeof value === 'number')) {
         const a = Number(value)
         const b = Number(target)
         if (Number.isNaN(a) || Number.isNaN(b)) return false

@@ -43,6 +43,7 @@ import type { OutboxTopic } from '../outbox'
 import { changedPropKeys, propsEventText, recordPageEvents } from '../context/changeLog'
 import type { PageRow } from '../pageDto'
 import { registerCollectionExtRoutes } from './collectionsExt'
+import { registerFormRoutes } from './forms'
 import { nonMemberPersonIds } from '../collectionRelations'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -144,6 +145,8 @@ async function collectionEtag(
 export async function registerCollectionRoutes(app: FastifyInstance): Promise<void> {
   // relations/rollups helpers, batch rows, covers, sheets sync (experimental) — collectionsExt.ts
   await registerCollectionExtRoutes(app)
+  // form views: public links and public answers (docs/adr/1820-*)
+  await registerFormRoutes(app)
 
   // Collection definition + rows
   app.get('/pages/:id/collection', { preHandler: requireUser }, async (req, reply) => {
@@ -390,7 +393,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
         const pairSyncs: { field: CollectionField; oldIds: string[]; newIds: string[] }[] = []
         for (const [key, value] of Object.entries(body.props)) {
           const field = fieldById.get(key)
-          if (field?.type === 'rollup') continue
+          if (field?.type === 'rollup' || field?.type === 'formula') continue
           if (field?.type === 'relation' && field.relation?.targetPageId) {
             const next = await normalizeRelationWrite(tx, field, oldProps[key], value, user.id)
             if (next.length === 0) del.push(key)

@@ -10,6 +10,7 @@
  * field type, and values are converted to what the props store holds (option names → option ids,
  * `today` → a date). The SQL compiler (./compile.ts) only ever sees a fully resolved tree.
  */
+import { formulaResultType } from '@inkling/shared'
 import type { CollectionField, FieldType } from '@inkling/shared'
 
 export class FilterError extends Error {
@@ -54,6 +55,16 @@ export interface Cond {
   op: Op
   value?: Value
   pos: number
+  /** formula fields: the kind of what the formula yields (operators and values follow it) */
+  fkind?: FormulaKind
+}
+
+/** How a formula field is filtered and sorted: by the type of its result (docs/adr/1826-*). */
+export type FormulaKind = 'text' | 'number' | 'checkbox' | 'date'
+
+export function formulaKind(field: CollectionField, fields: CollectionField[]): FormulaKind {
+  const t = formulaResultType(fields, field.id)
+  return t === 'boolean' ? 'checkbox' : t
 }
 export type Expr = Cond | { k: 'and' | 'or'; items: Expr[] } | { k: 'not'; e: Expr }
 
@@ -78,6 +89,8 @@ export const OPS_BY_KIND: Record<FieldKind, Op[]> = {
   person: ['=', '!=', 'empty', 'notEmpty'],
   relation: ['has', '!has', 'empty', 'notEmpty'],
   rollup: [],
+  /** never used as such: a formula takes the operators of its result's kind (formulaKind) */
+  formula: [],
 }
 
 const OP_LABEL: Record<Op, string> = {
@@ -349,7 +362,8 @@ export function parseFilter(src: string, ctx: ParseContext): Expr | null {
       name = words.join(' ')
     }
     const field = resolver.resolve(name, start.pos)
-    const kind = kindOf(field)
+    const fkind = field.kind === 'field' && field.field.type === 'formula' ? formulaKind(field.field, ctx.fields) : undefined
+    const kind: FieldKind = fkind ?? kindOf(field)
     if (kind === 'rollup') {
       fail(`"${field.name}" is a rollup (computed, read-only) and cannot be filtered; filter on the related rows instead`, start)
     }
@@ -384,7 +398,7 @@ export function parseFilter(src: string, ctx: ParseContext): Expr | null {
     if (!OPS_BY_KIND[kind].includes(op)) {
       fail(`Operator ${OP_LABEL[op]} is not valid for ${kind} field "${field.name}". Valid: ${opsHelp(kind)}`, ot)
     }
-    if (op === 'empty' || op === 'notEmpty') return { k: 'cond', field, op, pos: start.pos }
+    if (op === 'empty' || op === 'notEmpty') return { k: 'cond', field, op, pos: start.pos, ...(fkind ? { fkind } : {}) }
     // ---- value: one quoted token, or bare words up to AND / OR / ) / end
     const vt = peek()
     let raw: string
@@ -402,7 +416,7 @@ export function parseFilter(src: string, ctx: ParseContext): Expr | null {
       if (!words.length) fail(`Expected a value after "${field.name} ${OP_LABEL[op]}"`, vt)
       raw = words.join(' ')
     }
-    return { k: 'cond', field, op, value: bindValue(field, kind, raw, quoted, vt?.pos ?? start.pos, ctx), pos: start.pos }
+    return { k: 'cond', field, op, value: bindValue(field, kind, raw, quoted, vt?.pos ?? start.pos, ctx), pos: start.pos, ...(fkind ? { fkind } : {}) }
   }
 
   const expr = parseOr()
@@ -464,7 +478,7 @@ function bindValue(field: ResolvedField, kind: FieldKind, raw: string, quoted: b
 // sort
 // ---------------------------------------------------------------------------
 
-export const SORTABLE: FieldKind[] = ['title', 'text', 'url', 'number', 'date', 'select', 'checkbox']
+export const SORTABLE: FieldKind[] = ['title', 'text', 'url', 'number', 'date', 'select', 'checkbox', 'formula']
 
 export interface SortKey {
   field: ResolvedField

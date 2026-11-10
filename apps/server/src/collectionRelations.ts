@@ -15,8 +15,10 @@
  */
 import { actorFor, assertAllEditable, roleForPage } from './editLock'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { applyFormulas, compileFormulas, FORMULA_LIMITS, renameFormulaProps } from '@inkling/shared'
 import type {
   CollectionField,
+  FormulaErrorCode,
   RollupConfig,
   RowRefDTO,
 } from '@inkling/shared'
@@ -36,7 +38,7 @@ export function relationFields(fields: CollectionField[]): CollectionField[] {
 }
 
 export function isComputedField(f: CollectionField | undefined): boolean {
-  return f?.type === 'rollup'
+  return f?.type === 'rollup' || f?.type === 'formula'
 }
 
 /** Normalize an arbitrary prop value to a deduplicated list of uuid strings. */
@@ -92,18 +94,54 @@ async function loadLinkedRows(
 export interface ResolvedRelations {
   /** visible linked rows referenced by any relation cell in the response */
   refs: Record<string, RowRefDTO>
+  /** formula errors by row id, then field id (rows without errors are absent; docs/adr/1825-*) */
+  formulaErrors: Map<string, Record<string, FormulaErrorCode>>
 }
 
 /**
- * Sanitize relation cells and compute rollups for the rows of one collection, in place.
- * `rows[i].props` is mutated: relation arrays are filtered to visible links, rollup values set.
+ * Sanitize relation cells, compute rollups and then formulas for the rows of one collection, in
+ * place. `rows[i].props` is mutated: relation arrays are filtered to visible links, rollup and
+ * formula values set (formulas last: they may read rollups). Stored values under a formula's id are
+ * always replaced (a formula is never stored).
  */
 export async function resolveRelations(
   workspaceId: string,
   fields: CollectionField[],
+  rows: { id: string; title?: string; props: Record<string, unknown> }[],
+  userId: string,
+  opts: { now?: Date } = {},
+): Promise<ResolvedRelations> {
+  const { refs } = await resolveLinks(workspaceId, fields, rows, userId)
+  return { refs, formulaErrors: computeFormulas(fields, rows, opts.now) }
+}
+
+/** Formula values into `rows[i].props` (after relations and rollups); errors by row id. */
+export function computeFormulas(
+  fields: CollectionField[],
+  rows: { id: string; title?: string; props: Record<string, unknown> }[],
+  now: Date = new Date(),
+): Map<string, Record<string, FormulaErrorCode>> {
+  if (!fields.some((f) => f.type === 'formula')) return new Map()
+  const compiled = compileFormulas(fields)
+  // RowDTO-like rows carry a title; the rest read prop("Title") as empty
+  const view = rows.map((r) => ({ id: r.id, title: r.title ?? '', props: r.props }))
+  return applyFormulas(fields, view, { now }, compiled)
+}
+
+/** Whether a formula of this list reads a relation or a rollup (then rollups must be computed first). */
+export function formulasNeedLinks(fields: CollectionField[]): boolean {
+  if (!fields.some((f) => f.type === 'formula')) return false
+  const compiled = compileFormulas(fields)
+  const byId = new Map(fields.map((f) => [f.id, f]))
+  return compiled.list.some((c) => c.deps.some((d) => byId.get(d)?.type === 'rollup'))
+}
+
+async function resolveLinks(
+  workspaceId: string,
+  fields: CollectionField[],
   rows: { id: string; props: Record<string, unknown> }[],
   userId: string,
-): Promise<ResolvedRelations> {
+): Promise<{ refs: Record<string, RowRefDTO> }> {
   const rels = relationFields(fields)
   const rollups = fields.filter((f) => f.type === 'rollup' && f.rollup)
   // Rollups whose relation is missing → null value; still strip any stale stored value.
@@ -221,8 +259,9 @@ export function computeRollup(
   personNames: Map<string, string> | null = null,
 ): number | string | string[] | null {
   if (cfg.fn === 'count') return targets.length
-  // depth-1 rule: never aggregate another computed/relation field (cycle-free by construction)
-  if (!tf || tf.type === 'rollup' || tf.type === 'relation') return null
+  // depth-1 rule: never aggregate another computed/relation field (cycle-free by construction);
+  // a formula of the target is not computed for linked rows either (docs/adr/1824-*)
+  if (!tf || tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula') return null
   const raw = targets.map((t) => (tf.id === 'title' ? t.title : t.props[tf.id]))
   switch (cfg.fn) {
     case 'sum':
@@ -385,6 +424,7 @@ export async function applyFieldsUpdate(
     const out: CollectionField = { ...f }
     if (f.type !== 'relation') delete out.relation
     if (f.type !== 'rollup') delete out.rollup
+    if (f.type !== 'formula') delete out.formula
     if (f.type !== 'select' && f.type !== 'multiSelect') delete out.options
     return out
   })
@@ -451,10 +491,13 @@ export async function applyFieldsUpdate(
     if (cfg.targetFieldId !== 'title') {
       const tf = defsOf(rel.relation!.targetPageId).find((x) => x.id === cfg.targetFieldId)
       if (!tf) throw new FieldConfigError(`Rollup "${f.name}": target property not found`)
-      if ((tf.type === 'rollup' || tf.type === 'relation') && cfg.fn !== 'count')
-        throw new FieldConfigError(`Rollup "${f.name}" cannot aggregate a relation or rollup property`)
+      if ((tf.type === 'rollup' || tf.type === 'relation' || tf.type === 'formula') && cfg.fn !== 'count')
+        throw new FieldConfigError(`Rollup "${f.name}" cannot aggregate a relation, rollup or formula property`)
     }
   }
+
+  // ---- formulas (docs/adr/1823-*) ----
+  checkFormulaFields(oldFields, fields)
 
   // ---- two-way pairing ----
   const newById = new Map(fields.map((f) => [f.id, f]))
@@ -541,6 +584,39 @@ export async function applyFieldsUpdate(
       .where(eq(collections.pageId, target))
   }
   return fields
+}
+
+/**
+ * Formula fields of a fields PUT, in place: a formula whose text the editor did not touch follows
+ * renamed properties (prop("Old") → prop("New"), same field id); a new or edited formula must parse,
+ * name existing properties and not refer to itself through other formulas. A formula broken by some
+ * other change (a property it reads was deleted) is kept and shows its error in the cells, so it
+ * never blocks an unrelated schema edit.
+ */
+export function checkFormulaFields(oldFields: CollectionField[], fields: CollectionField[]): void {
+  const oldById = new Map(oldFields.map((f) => [f.id, f]))
+  const touched: CollectionField[] = []
+  for (const f of fields) {
+    if (f.type !== 'formula') continue
+    if (!f.formula) throw new FieldConfigError(`Formula "${f.name}" needs an expression`)
+    const old = oldById.get(f.id)
+    const same = old?.type === 'formula' && old.formula?.expression === f.formula.expression
+    if (same) {
+      const renamed = renameFormulaProps(f.formula.expression, oldFields, fields)
+      if (renamed !== f.formula.expression) {
+        if (renamed.length > FORMULA_LIMITS.expression) throw new FieldConfigError(`Formula "${f.name}" would be too long after the rename`)
+        f.formula = { ...f.formula, expression: renamed }
+      }
+    } else {
+      touched.push(f)
+    }
+  }
+  if (!touched.length) return
+  const compiled = compileFormulas(fields)
+  for (const f of touched) {
+    const err = compiled.byId.get(f.id)?.error
+    if (err) throw new FieldConfigError(`Formula "${f.name}": ${err.message}`)
+  }
 }
 
 /** SQL: `users` row is a member of `workspaceId` (use with FROM users). */

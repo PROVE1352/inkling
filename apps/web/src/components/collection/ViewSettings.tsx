@@ -37,6 +37,7 @@ function opsForType(type: FieldType): FilterOp[] {
     case 'relation':
       return ['empty', 'notEmpty']
     case 'rollup':
+    case 'formula':
       return ['eq', 'ne', 'gt', 'lt', 'contains', 'empty', 'notEmpty']
     default:
       return ['contains', 'eq', 'ne', 'empty', 'notEmpty']

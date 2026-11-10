@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { WorkspaceCapabilities, WorkspaceTwoFactorStatus } from './workspaceAdmin'
 import type { WorkspaceAccessRole } from './pageAccess'
 import { chartSettingsSchema } from './charts'
+import { formSettingsSchema } from './forms'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -500,6 +501,8 @@ export const fieldTypeSchema = z.enum([
   'url',
   'relation',
   'rollup',
+  /** computed from other properties of the same row (docs/adr/1823-*); never stored in props */
+  'formula',
 ])
 export type FieldType = z.infer<typeof fieldTypeSchema>
 
@@ -535,6 +538,12 @@ export const rollupFnSchema = z.enum([
 ])
 export type RollupFn = z.infer<typeof rollupFnSchema>
 
+/** formula field config — computed (server and web, packages/shared/src/formula.ts), never stored. */
+export const formulaConfigSchema = z.object({
+  expression: z.string().max(2000),
+})
+export type FormulaConfig = z.infer<typeof formulaConfigSchema>
+
 /** rollup field config — computed on the server, never stored in props. */
 export const rollupConfigSchema = z.object({
   /** relation field (in this collection) to follow */
@@ -554,6 +563,8 @@ export const collectionFieldSchema = z.object({
   relation: relationConfigSchema.optional(),
   /** rollup: aggregate a property of the rows linked through a relation field */
   rollup: rollupConfigSchema.optional(),
+  /** formula: the expression, as typed (prop("Name") reads a property; docs/adr/1823-*) */
+  formula: formulaConfigSchema.optional(),
 })
 export type CollectionField = z.infer<typeof collectionFieldSchema>
 
@@ -617,10 +628,12 @@ export const viewConfigSchema = z.object({
   zoom: z.enum(['day', 'week', 'month']).optional(),
   /** chart view: what to draw (docs/adr/1603-*); the view's own filters choose the rows */
   chart: chartSettingsSchema.optional(),
+  /** form view: which properties the form asks for, in order (docs/adr/1820-*) */
+  form: formSettingsSchema.optional(),
 })
 export type ViewConfig = z.infer<typeof viewConfigSchema>
 
-export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline', 'chart'])
+export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form'])
 export type ViewType = z.infer<typeof viewTypeSchema>
 
 export const createViewSchema = z.object({
@@ -959,5 +972,7 @@ export * from './suggestions'
 export * from './revert'
 // Chart blocks and chart views: stored format, aggregate shapes, view filters (docs/adr/1600-*)
 export * from './charts'
+export * from './formula'
+export * from './forms'
 // Slack app per workspace: channel notifications, /inkling search, link unfurls (docs/adr/1800-*)
 export * from './slack'

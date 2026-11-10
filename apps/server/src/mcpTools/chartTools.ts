@@ -23,6 +23,9 @@ import {
   chartOptionsSchema,
   chartSettingsSchema,
   chartSummaryLine,
+  defaultFormSettings,
+  FORM_FIELD_TYPES,
+  formSettingsSchema,
   viewConfigSchema,
   viewTypeSchema,
 } from '@inkling/shared'
@@ -95,6 +98,32 @@ interface CollectionDef {
   pageId: string
   fields: CollectionField[]
   views: CollectionViewDTO[]
+}
+
+type FormArgs = {
+  title?: string
+  description?: string
+  fields: { property: string; required?: boolean; description?: string }[]
+  submitLabel?: string
+  successMessage?: string
+}
+
+/** Form settings from names (docs/adr/1820-*): properties by name or id, 'title' for the row title. */
+function toFormSettings(fields: CollectionField[], a: FormArgs) {
+  const seen = new Set<string>()
+  const out = a.fields.map((q) => {
+    const id = fieldId(fields, q.property, 'form.fields')
+    const f = fields.find((x) => x.id === id)
+    if (f && !FORM_FIELD_TYPES.has(f.type)) {
+      throw new ToolError(`form.fields: "${cleanText(f.name)}" is a ${f.type} property; a form asks for text, number, select, multiSelect, date, checkbox, url or person. Nothing was written.`)
+    }
+    if (seen.has(id)) throw new ToolError(`form.fields: "${cleanText(q.property)}" is listed twice. Nothing was written.`)
+    seen.add(id)
+    return { fieldId: id, ...(q.required ? { required: true } : {}), ...(q.description ? { description: q.description } : {}) }
+  })
+  const r = formSettingsSchema.safeParse({ ...a, fields: out })
+  if (!r.success) throw new ToolError(`Invalid form settings: ${r.error.issues[0]?.message ?? 'bad settings'}. Nothing was written.`)
+  return r.data
 }
 
 async function loadCollection(ctx: ToolCtx, collectionId: string): Promise<CollectionDef> {
@@ -243,21 +272,42 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Create view',
       description:
-        'Add a view to a collection: table, board, calendar, gallery, timeline or chart. config is optional; property names are ' +
+        'Add a view to a collection: table, board, calendar, gallery, timeline, chart or form. config is optional; property names are ' +
         'accepted wherever a field id goes (groupByFieldId, dateFieldId, startFieldId, endFieldId, sorts/filters fieldId). ' +
         'For type=chart give chart settings (kind, groupBy, bucket, series, measure, measureField, sort, limit, title); the ' +
-        "chart draws the rows the view's filters keep.",
+        "chart draws the rows the view's filters keep. For type=form give form settings (fields in order, each with " +
+        'required and description; title, description, submitLabel, successMessage); without them the form asks for the title ' +
+        'and the first properties. A form adds rows; its public link is turned on by an owner or admin in the app.',
       inputSchema: {
         collectionId: uuid().describe('Collection id'),
-        type: viewTypeSchema.describe('table, board, calendar, gallery, timeline or chart'),
+        type: viewTypeSchema.describe('table, board, calendar, gallery, timeline, chart or form'),
         name: z.string().trim().min(1).max(60).describe('View name'),
         config: z.record(z.string(), z.unknown()).optional().describe('View config (sorts, filters, groupByFieldId, dateFieldId, …)'),
         chart: z.object(settingsInput).optional().describe('type=chart: what to draw'),
+        form: z
+          .object({
+            title: z.string().max(200).optional(),
+            description: z.string().max(2000).optional(),
+            fields: z
+              .array(
+                z.object({
+                  property: z.string().min(1).max(60).describe('Property name or id, or "title" for the row title'),
+                  required: z.boolean().optional(),
+                  description: z.string().max(500).optional().describe('Help text under the question'),
+                }),
+              )
+              .max(50),
+            submitLabel: z.string().max(60).optional(),
+            successMessage: z.string().max(500).optional(),
+          })
+          .optional()
+          .describe('type=form: the questions, in order (text, number, select, multiSelect, date, checkbox, url, person)'),
       },
       annotations: { destructiveHint: false },
     },
-    wrapWrite(ctx, async ({ collectionId, type, name, config, chart }: { collectionId: string; type: z.infer<typeof viewTypeSchema>; name: string; config?: Record<string, unknown>; chart?: SettingsArgs }) => {
+    wrapWrite(ctx, async ({ collectionId, type, name, config, chart, form }: { collectionId: string; type: z.infer<typeof viewTypeSchema>; name: string; config?: Record<string, unknown>; chart?: SettingsArgs; form?: FormArgs }) => {
       if (chart && type !== 'chart') throw new ToolError('chart settings are for type="chart". Nothing was written.')
+      if (form && type !== 'form') throw new ToolError('form settings are for type="form". Nothing was written.')
       if (type === 'chart' && !chart) throw new ToolError('type="chart" needs chart settings (at least kind and groupBy). Nothing was written.')
       const def = await loadCollection(ctx, collectionId)
       const id = (ref: unknown, what: string) => (typeof ref === 'string' ? fieldId(def.fields, ref, what) : ref)
@@ -267,6 +317,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
         if (Array.isArray(c[k])) c[k] = (c[k] as Record<string, unknown>[]).map((x) => (x && typeof x === 'object' ? { ...x, fieldId: id(x.fieldId, `${k}.fieldId`) } : x))
       }
       if (chart) c.chart = canonicalChartConfig(toSettings(chart, (ref, what) => fieldId(def.fields, ref, what)))
+      if (type === 'form') c.form = form ? toFormSettings(def.fields, form) : defaultFormSettings(def.fields)
       const parsed = viewConfigSchema.safeParse(c)
       if (!parsed.success) {
         const i = parsed.error.issues[0]
@@ -282,6 +333,13 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
           ...view.config.chart,
         })
         tail = r.data ? `\ndata: ${wrapUntrusted(chartSummaryLine(r.data), { source: 'page', id: collectionId })}` : `\ndata: unavailable (${r.error})`
+      }
+      if (view.type === 'form') {
+        const asked = (view.config.form?.fields ?? []).map((q) => {
+          const f = def.fields.find((x) => x.id === q.fieldId)
+          return `${f ? cleanText(f.name) : 'Title'}${q.required ? '*' : ''}`
+        })
+        tail = `\nasks: ${asked.join(', ') || '(nothing)'} (* = required). Members fill it in the app; an owner or admin can turn on its public link.`
       }
       return text(withApplies(ac, `View "${cleanText(view.name)}" (${view.type}) created: id ${view.id}.${tail}`))
     }),

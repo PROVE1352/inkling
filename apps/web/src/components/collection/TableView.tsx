@@ -522,7 +522,7 @@ export function TableView({
           continue
         }
         const f = cols[col - 1]
-        if (!f || f.type === 'rollup') continue
+        if (!f || f.type === 'rollup' || f.type === 'formula') continue
         const empty = f.type === 'checkbox' ? false : null
         if ((row.props[f.id] ?? null) !== empty && row.props[f.id] !== undefined) patch[f.id] = empty
       }

@@ -254,7 +254,7 @@ export function coerceCellValue(
   opts: CoerceOptions = {},
 ): unknown {
   const t = raw.trim()
-  if (field.type === 'relation' || field.type === 'rollup') return undefined
+  if (field.type === 'relation' || field.type === 'rollup' || field.type === 'formula') return undefined
   if (t === '') return field.type === 'checkbox' ? false : null
   switch (field.type) {
     case 'number':

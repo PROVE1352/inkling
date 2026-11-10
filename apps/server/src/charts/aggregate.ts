@@ -23,6 +23,7 @@ import {
   chartMeasureOf,
   chartNumber,
   collectionKeys,
+  formulaResultType,
   matchesViewFilters,
   naturalOrder,
   queryCellKeys,
@@ -31,7 +32,7 @@ import type { ChartAggregateInput, ChartAxisDTO, ChartDataDTO, ChartDimension, C
 import { db } from '../db/index'
 import { collections, pages, users } from '../db/schema'
 import { AppError } from '../errors'
-import { isWorkspaceMember, resolveRelations } from '../collectionRelations'
+import { computeFormulas, isWorkspaceMember, resolveRelations } from '../collectionRelations'
 import { visibleTo } from '../pageDto'
 import { runWorkspaceQuery } from '../routes/query'
 import { rangeCacheKey } from '../tokenRange'
@@ -80,9 +81,20 @@ export function clearChartCache(): void {
 
 type Dim = { field: CollectionField | typeof CHART_TITLE_FIELD; bucket?: ChartDimension['bucket'] }
 
+/**
+ * A formula groups and measures like a property of the type it yields (docs/adr/1827-*): number,
+ * text, checkbox or date. The returned copy keeps the formula's id, so its computed value is read.
+ */
+export function asResultField(fields: CollectionField[], f: CollectionField): CollectionField {
+  if (f.type !== 'formula') return f
+  const t = formulaResultType(fields, f.id)
+  return { id: f.id, name: f.name, type: t === 'boolean' ? 'checkbox' : t }
+}
+
 function resolveDimension(fields: CollectionField[], d: ChartDimension, what: string): Dim {
   if (d.field === CHART_TITLE_FIELD && !fields.some((f) => f.id === CHART_TITLE_FIELD)) return { field: CHART_TITLE_FIELD }
-  const f = fields.find((x) => x.id === d.field)
+  const found = fields.find((x) => x.id === d.field)
+  const f = found ? asResultField(fields, found) : undefined
   if (!f) throw invalidChart(`${what}: no property with id "${d.field}" in this collection`)
   if (!CHART_GROUP_TYPES.has(f.type)) throw invalidChart(`${what}: a ${f.type} property cannot group a chart`)
   if (d.bucket && f.type !== 'date') throw invalidChart(`${what}: day / week / month grouping needs a date property`)
@@ -111,7 +123,8 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
   const measure = chartMeasureOf(input)
   let measureField: CollectionField | null = null
   if (measure.fn !== 'count') {
-    measureField = fields.find((f) => f.id === measure.field) ?? null
+    const m = fields.find((f) => f.id === measure.field)
+    measureField = m ? asResultField(fields, m) : null
     if (!measureField) throw invalidChart(`measure: no property with id "${measure.field}" in this collection`)
     if (!CHART_MEASURE_TYPES.has(measureField.type)) throw invalidChart(`measure: ${measure.fn} needs a number property, "${measureField.name}" is ${measureField.type}`)
   }
@@ -140,9 +153,16 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
   want(series?.field)
   want(measureField)
   for (const flt of filters) want(fields.find((x) => x.id === flt.fieldId))
+  // a formula may read any property of the row (and rollups): read the whole row then
+  const formulaIds = new Set([group.field, series?.field, measureField].filter((f): f is CollectionField => !!f && f !== CHART_TITLE_FIELD).map((f) => f.id))
+  for (const flt of filters) formulaIds.add(flt.fieldId)
+  const withFormulas = fields.some((f) => f.type === 'formula' && formulaIds.has(f.id))
+  if (withFormulas) for (const f of fields) need.set(f.id, f)
   const needed = [...need.values()]
 
-  const propsSql: SQL = needed.length
+  const propsSql: SQL = withFormulas
+    ? sql`${pages.props}`
+    : needed.length
     ? sql`jsonb_build_object(${sql.join(
         needed.map((f) => sql`${f.id}::text, ${pages.props} -> ${f.id}::text`),
         sql`, `,
@@ -178,14 +198,19 @@ export async function aggregateCollection(target: CollectionChartTarget, input: 
 
   const refTitles = new Map<string, string>()
   const relFields = needed.filter((f) => f.type === 'relation' || f.type === 'rollup')
+  const now = new Date()
   if (relFields.length) {
     if (viewer.kind === 'user') {
-      const { refs } = await resolveRelations(target.workspaceId, needed, rows, viewer.userId)
+      // formulas are computed after the rollups they may read (docs/adr/1827-*)
+      const { refs } = await resolveRelations(target.workspaceId, needed, rows, viewer.userId, { now })
       for (const [id, ref] of Object.entries(refs)) refTitles.set(id, ref.title)
     } else {
       // public: no linked titles; rollups are not computed (as the public table)
       for (const r of rows) for (const f of needed) if (f.type === 'rollup') delete r.props[f.id]
+      if (withFormulas) computeFormulas(needed, rows, now)
     }
+  } else if (withFormulas) {
+    computeFormulas(needed, rows, now)
   }
 
   const kept = filters.length ? rows.filter((r) => matchesViewFilters(r.props, fields, filters)) : rows

@@ -25,6 +25,11 @@ import type { Cond, Expr, SortKey, Value } from './filter'
 export interface CompileCtx {
   workspaceId: string
   userId: string
+  /**
+   * Formula conditions, decided beforehand in memory (./formulaQuery.ts, docs/adr/1826-*): the ids
+   * of the visible rows each formula condition keeps, as a jsonb object { id: 1 } (keyed lookup).
+   */
+  formulaMatches?: Map<Cond, string>
 }
 
 /**
@@ -77,6 +82,11 @@ function memberIdsByName(v: string, ctx: CompileCtx): SQL {
 }
 
 function compileCond(c: Cond, ctx: CompileCtx): SQL {
+  if (c.fkind) {
+    const ids = ctx.formulaMatches?.get(c)
+    if (ids === undefined) throw new FilterError(`"${c.field.name}" cannot be filtered here`, c.pos)
+    return sql`jsonb_exists(${ids}::jsonb, ${pages.id}::text)`
+  }
   const kind = kindOf(c.field)
   const f = c.field.kind === 'field' ? c.field.field : null
   const fid = f?.id ?? ''
@@ -181,11 +191,19 @@ export interface KeyPart {
   dir: 'asc' | 'desc'
 }
 
-function sortExpr(k: SortKey): { expr: SQL; cast: Cast; fallback: SQL } {
+/** Formula sort keys: rank of each visible row's value by field id, as jsonb { id: rank } (empty = absent). */
+export type FormulaRanks = Map<string, string>
+
+function sortExpr(k: SortKey, ranks?: FormulaRanks): { expr: SQL; cast: Cast; fallback: SQL } {
   const kind = kindOf(k.field)
   const f = k.field.kind === 'field' ? k.field.field : null
   const fid = f?.id ?? ''
   switch (kind) {
+    case 'formula': {
+      const map = ranks?.get(fid)
+      if (map === undefined) break
+      return { expr: sql`((${map}::jsonb ->> ${pages.id}::text)::int)`, cast: 'int', fallback: sql`0` }
+    }
     case 'title':
       return { expr: sql`lower(nullif(${pages.title}, ''))`, cast: 'text', fallback: sql`''` }
     case 'text':
@@ -214,10 +232,10 @@ function sortExpr(k: SortKey): { expr: SQL; cast: Cast; fallback: SQL } {
  * values last in both directions), then the collection's manual order (sort_order, created_at) and
  * the id as the unique tie-breaker the keyset needs.
  */
-export function orderKeys(sort: SortKey[]): KeyPart[] {
+export function orderKeys(sort: SortKey[], ranks?: FormulaRanks): KeyPart[] {
   const parts: KeyPart[] = []
   for (const k of sort) {
-    const { expr, cast, fallback } = sortExpr(k)
+    const { expr, cast, fallback } = sortExpr(k, ranks)
     parts.push({ expr: sql`(CASE WHEN ${expr} IS NULL THEN 1 ELSE 0 END)`, cast: 'int', dir: 'asc' })
     parts.push({ expr: sql`coalesce(${expr}, ${fallback})`, cast, dir: k.dir })
   }

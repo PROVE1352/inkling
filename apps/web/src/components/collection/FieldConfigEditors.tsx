@@ -1,5 +1,7 @@
 import type { CollectionField, RollupFn } from '@inkling/shared'
-import { rollupFnSchema } from '@inkling/shared'
+import { compileFormulas, formulaResultType, rollupFnSchema } from '@inkling/shared'
+import { useT } from '../../i18n'
+import type { MessageKey } from '../../i18n/en'
 import { usePages } from '../../api'
 import { useCollectionDef } from '../../lib/collectionApi'
 import { ROLLUP_LABEL, S } from './strings'
@@ -160,6 +162,49 @@ export function RollupEditor({
           ))}
         </select>
       </label>
+    </div>
+  )
+}
+
+/**
+ * Formula expression with a live check against the fields being edited (docs/adr/1823-*): the same
+ * parser the server runs when the fields are saved, so a message here is the one the save would give.
+ */
+export function FormulaEditor({
+  field,
+  draft,
+  onChange,
+}: {
+  field: CollectionField
+  draft: CollectionField[]
+  onChange: (patch: Partial<CollectionField>) => void
+}) {
+  const t = useT()
+  const expression = field.formula?.expression ?? ''
+  const compiled = expression.trim() ? compileFormulas(draft) : null
+  const error = compiled?.byId.get(field.id)?.error ?? null
+  const type = compiled && !error ? formulaResultType(draft, field.id, compiled) : null
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 rounded-md border border-line p-2">
+      <label className="flex flex-col gap-1 text-xs text-sub">
+        <span>{t('formula.expression')}</span>
+        <textarea
+          value={expression}
+          onChange={(e) => onChange({ formula: { expression: e.target.value.slice(0, 2000) } })}
+          placeholder={t('formula.placeholder')}
+          rows={2}
+          spellCheck={false}
+          className="min-w-0 resize-y rounded border border-line bg-app px-1.5 py-1 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+        />
+      </label>
+      {error ? (
+        <p className="text-xs text-red-600">
+          {t(`formula.err.${error.code}` as MessageKey)}: {error.message}
+        </p>
+      ) : type ? (
+        <p className="text-xs text-sub">{t('formula.result', { type: t(`formula.type.${type}` as MessageKey) })}</p>
+      ) : null}
+      <p className="text-[11px] leading-snug text-sub">{t('formula.help')}</p>
     </div>
   )
 }

@@ -7,7 +7,9 @@ import type { ReadStream } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
+import { formatFormulaNumber, formulaErrorText } from '@inkling/shared'
 import type { CollectionField } from '@inkling/shared'
+import { computeFormulas } from '../collectionRelations'
 import { db } from '../db/index'
 import { env } from '../env'
 import { AppError } from '../errors'
@@ -91,6 +93,9 @@ function cellString(
     // rollups are computed per viewer and never stored
     case 'rollup':
       return ''
+    // formulas: computed below from the same row (docs/adr/1823-*); errors as #error(code)
+    case 'formula':
+      return typeof value === 'number' ? formatFormulaNumber(value) : String(value)
     case 'checkbox':
       return value ? '✅' : '⬜'
     case 'select': {
@@ -210,6 +215,17 @@ async function collectionTableMdCore(
       for (const t of found) relTitles.set(t.id, t.title || 'Untitled')
     }
   }
+
+  // Formulas read the row's own stored properties (rollups are not computed here, so a formula over
+  // a rollup is empty in an export); person and relation cells are never read by a formula.
+  const formulaErrors = computeFormulas(
+    fields,
+    rows.map((r, i) => ({ id: String(i), title: r.title ?? '', props: (r.props = { ...(r.props ?? {}) }) })),
+  )
+  rows.forEach((r, i) => {
+    const errs = formulaErrors.get(String(i))
+    if (errs) for (const [k, code] of Object.entries(errs)) r.props[k] = formulaErrorText(code)
+  })
 
   const header = ['Title', ...fields.map((f) => escapeCell(f.name))]
   const sep = header.map(() => '---')

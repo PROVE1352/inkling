@@ -131,6 +131,7 @@ export const FIELD_TYPE_LABEL = {
   get url() { return t('field.typeUrl') },
   get relation() { return t('field.typeRelation') },
   get rollup() { return t('field.typeRollup') },
+  get formula() { return t('field.typeFormula') },
 } satisfies Record<FieldType, string>
 
 /** View type names, translated on access. Also the default name of a new view. */
@@ -141,4 +142,5 @@ export const VIEW_TYPE_LABEL = {
   get gallery() { return t('view.typeGallery') },
   get timeline() { return t('view.typeTimeline') },
   get chart() { return t('chart.viewType') },
+  get form() { return t('view.typeForm') },
 } satisfies Record<ViewType, string>

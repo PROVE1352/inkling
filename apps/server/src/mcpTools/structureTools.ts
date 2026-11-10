@@ -28,13 +28,18 @@ const optionSpec = z.union([
 
 export const fieldSpecSchema = z.object({
   name: z.string().trim().min(1).max(60).describe('Property name (unique in the collection)'),
-  type: fieldTypeSchema.describe('text, number, select, multiSelect, date, checkbox, person, url, relation, rollup'),
+  type: fieldTypeSchema.describe('text, number, select, multiSelect, date, checkbox, person, url, relation, rollup, formula'),
   options: z.array(optionSpec).max(50).optional().describe('select/multiSelect: option names (or { name, color })'),
   target: uuid().optional().describe('relation: id of the collection whose rows can be linked'),
   twoWay: z.boolean().optional().describe('relation: also add a mirrored relation on the target collection'),
   relation: z.string().trim().min(1).max(60).optional().describe('rollup: name of a relation property of this collection'),
   property: z.string().trim().min(1).max(60).optional().describe('rollup: property of the linked rows to aggregate ("title" for the row title)'),
   fn: rollupFnSchema.optional().describe('rollup: count, sum, avg, min, max, earliest, latest, percentChecked, showUnique'),
+  expression: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe('formula: e.g. if(prop("Done"), 0, prop("Price") * prop("Qty")); functions: if, and, or, not, concat, length, round, min, max, abs, now, dateAdd, dateBetween, prop'),
 })
 export type FieldSpec = z.infer<typeof fieldSpecSchema>
 
@@ -104,6 +109,10 @@ export function mapSpecs(
       if (!s.target) throw new ToolError(`Relation "${cleanText(s.name)}" needs target (a collection id). Nothing was written.`)
       f.relation = { targetPageId: s.target, ...(s.twoWay ? { twoWay: true } : {}) }
     }
+    if (s.type === 'formula') {
+      if (!s.expression?.trim()) throw new ToolError(`Formula "${cleanText(s.name)}" needs expression, e.g. prop("Price") * 2. Nothing was written.`)
+      f.formula = { expression: s.expression }
+    } else if (s.expression !== undefined) throw new ToolError(`"${cleanText(s.name)}": expression is only for type formula. Nothing was written.`)
     out.push(f)
   }
   // rollups after relations, so they may use a relation added in the same call
@@ -136,6 +145,7 @@ export function fieldLines(fields: CollectionField[]): string[] {
       const rel = fields.find((x) => x.id === f.rollup?.relationFieldId)
       return `- ${f.name} (rollup ${f.rollup?.fn ?? '?'} of ${rel?.name ?? '?'}.${f.rollup?.targetFieldId ?? '?'}, read-only) #${f.id}`
     }
+    if (f.type === 'formula') return `- ${f.name} (formula: ${f.formula?.expression ?? ''}, read-only) #${f.id}`
     return `- ${f.name} (${f.type}) #${f.id}`
   })
 }

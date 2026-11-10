@@ -660,7 +660,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
       const fieldsById = new Map((parent.fields ?? []).map((f) => [f.id, f]))
       for (const [k, v] of Object.entries(node.props)) {
         const f = fieldsById.get(k)
-        if (!f || f.type === 'rollup' || f.type === 'person') continue
+        if (!f || f.type === 'rollup' || f.type === 'formula' || f.type === 'person') continue
         if (f.type === 'relation') {
           if (!Array.isArray(v)) continue
           const internal = f.relation ? idMap.has(f.relation.targetPageId) : false

@@ -130,6 +130,9 @@ export const AUDIT_ACTIONS = [
   'share.password_set',
   'share.password_changed',
   'share.password_removed',
+  /** A form view's public link was turned on / off (docs/adr/1821-*). */
+  'form.published',
+  'form.unpublished',
   'export.downloaded',
   'workspace.updated',
   'workspace.deleted',

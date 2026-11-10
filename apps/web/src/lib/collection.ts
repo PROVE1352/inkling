@@ -1,4 +1,5 @@
-import { matchesFilter } from '@inkling/shared'
+import { isFormulaErrorCell, matchesFilter } from '@inkling/shared'
+import { formulaText } from './formulas'
 import type { CollectionField, RowDTO, ViewConfig } from '@inkling/shared'
 
 // Builds the displayed field order by applying the view's columnOrder/hiddenFields.
@@ -40,6 +41,8 @@ export function formatValue(
 ): string {
   if (value === undefined || value === null || value === '') return ''
   switch (field.type) {
+    case 'formula':
+      return formulaText(value)
     case 'relation':
       if (!Array.isArray(value)) return ''
       return value
@@ -80,6 +83,12 @@ export function formatNumber(n: number): string {
 
 function sortKey(field: CollectionField, value: unknown): number | string {
   switch (field.type) {
+    case 'formula':
+      // numbers by value, checkboxes as 0/1, text and dates by text; empty and errors first (as numbers do)
+      if (typeof value === 'number') return value
+      if (typeof value === 'boolean') return value ? 1 : 0
+      if (value === null || value === undefined || isFormulaErrorCell(value)) return Number.NEGATIVE_INFINITY
+      return String(value).toLowerCase()
     case 'number':
       return typeof value === 'number' ? value : Number.NEGATIVE_INFINITY
     case 'checkbox':

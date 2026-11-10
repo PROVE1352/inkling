@@ -24,6 +24,7 @@ import later from './ko/later'
 import suggestions from './ko/suggestions'
 import revert from './ko/revert'
 import charts from './ko/charts'
+import forms from './ko/forms'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -52,4 +53,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...suggestions,
   ...revert,
   ...charts,
+  ...forms,
 }

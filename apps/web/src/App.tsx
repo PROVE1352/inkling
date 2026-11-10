@@ -41,6 +41,7 @@ const ResetPassword = lazyNamed(() => import('./pages/ResetPassword'), 'ResetPas
 const VerifyEmail = lazyNamed(() => import('./pages/VerifyEmail'), 'VerifyEmail')
 const Settings = lazyNamed(() => import('./pages/Settings'), 'Settings')
 const PublicView = lazyNamed(() => import('./pages/PublicView'), 'PublicView')
+const PublicForm = lazyNamed(() => import('./pages/PublicForm'), 'PublicForm')
 const TagsView = lazyNamed(() => import('./pages/TagsView'), 'TagsView')
 const SharedView = lazyNamed(() => import('./pages/SharedView'), 'SharedView')
 const WorkspaceHome = lazyNamed(() => import('./pages/WorkspaceHome'), 'WorkspaceHome')
@@ -95,6 +96,8 @@ export function App() {
       {/* Public read-only viewer — outside RequireAuth/AppLayout (no sign-in needed) */}
       <Route path="/s/:token" element={<Page><PublicView /></Page>} />
       <Route path="/s/:token/p/:ref" element={<Page><PublicView /></Page>} />
+      {/* public form view (docs/adr/1821-*) */}
+      <Route path="/f/:token" element={<Page><PublicForm /></Page>} />
       {/* MCP connector OAuth consent screen — redirects to /login?next= itself when signed out */}
       <Route path="/oauth/authorize" element={<Page><OAuthAuthorize /></Page>} />
       {/* Slack account link (#code=… fragment); sends signed-out visitors to /login?next= itself */}

@@ -3,6 +3,31 @@ import { t } from '../../../i18n'
 import { OPTION_BADGE_CLASS } from '../../../lib/optionColors'
 import { CheckIcon } from '../../Icons'
 import { RelationChips, RollupValue } from './RelationCell'
+import { formulaErrorOf, formulaText } from '../../../lib/formulas'
+import type { MessageKey } from '../../../i18n/en'
+
+/** A formula cell: its value, or a short error in place (docs/adr/1825-*). */
+export function FormulaValue({ value }: { value: unknown }) {
+  const err = formulaErrorOf(value)
+  if (err) {
+    return (
+      <span className="truncate text-xs text-red-600" title={t(`formula.err.${err}` as MessageKey)}>
+        #{t(`formula.err.${err}` as MessageKey)}
+      </span>
+    )
+  }
+  if (typeof value === 'boolean') {
+    return value ? (
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-accent text-white">
+        <CheckIcon size={12} />
+      </span>
+    ) : (
+      <span className="inline-flex h-4 w-4 rounded border border-line" />
+    )
+  }
+  const text = formulaText(value)
+  return text ? <span className="truncate text-sm text-ink">{text}</span> : null
+}
 
 export function OptionBadge({
   field,
@@ -104,6 +129,9 @@ export function FieldValue({
 
     case 'rollup':
       return <RollupValue value={value} />
+
+    case 'formula':
+      return <FormulaValue value={value} />
 
     default:
       return value ? (

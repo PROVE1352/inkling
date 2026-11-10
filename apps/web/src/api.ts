@@ -1359,7 +1359,7 @@ export function useUpdateFields(pageId: string) {
   })
 }
 
-type CreateViewInput = { name: string; type: ViewType }
+type CreateViewInput = { name: string; type: ViewType; config?: ViewConfig }
 
 export function useCreateView(pageId: string) {
   const qc = useQueryClient()

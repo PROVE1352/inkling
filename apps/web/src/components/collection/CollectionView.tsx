@@ -47,6 +47,9 @@ import { S } from './strings'
 import { TableView } from './TableView'
 import { TimelineView } from './TimelineView'
 import { ChartView } from './ChartView'
+import { FormView } from './FormView'
+import { withFormulas } from '../../lib/formulas'
+import { defaultFormSettings } from '@inkling/shared'
 import { ViewSettings } from './ViewSettings'
 import { ViewTabs } from './ViewTabs'
 
@@ -97,9 +100,13 @@ export function CollectionView({
   const pages = usePages(wsId)
   const pageMeta = useMemo(() => pages.data?.find((p) => p.id === pageId), [pages.data, pageId])
 
-  const data = collection.data
-  const views = data?.collection.views ?? []
-  const fields = data?.collection.fields ?? []
+  const raw = collection.data
+  const views = raw?.collection.views ?? []
+  const fields = raw?.collection.fields ?? []
+  // Formulas recomputed from the rows' current props (after optimistic edits too), with the same
+  // engine as the server (docs/adr/1825-*).
+  const rowsWithFormulas = useMemo(() => (raw ? withFormulas(raw.rows, raw.collection.fields) : []), [raw])
+  const data = raw ? { ...raw, rows: rowsWithFormulas } : raw
 
   // Keep the active view valid: fall back to the first view when missing or deleted
   useEffect(() => {
@@ -277,7 +284,8 @@ export function CollectionView({
 
   const onCreateView = (name: string, type: ViewType) =>
     createView.mutate(
-      { name, type },
+      // a new form asks for the title and the first properties (docs/adr/1820-*)
+      { name, type, ...(type === 'form' ? { config: { form: defaultFormSettings(fields) } } : {}) },
       { onSuccess: (v) => setActiveViewId(v.id) },
     )
   const onRenameView = (id: string, name: string) =>
@@ -368,7 +376,16 @@ export function CollectionView({
         )}
       </div>
 
-      {view?.type === 'chart' ? (
+      {view?.type === 'form' ? (
+        <FormView
+          view={view}
+          fields={fields}
+          members={members.data}
+          wsId={wsId}
+          pageId={pageId}
+          onUpdateConfig={onUpdateConfig}
+        />
+      ) : view?.type === 'chart' ? (
         <ChartView view={view} wsId={wsId} collectionId={pageId} onUpdateConfig={onUpdateConfig} />
       ) : view?.type === 'gallery' ? (
         <GalleryView

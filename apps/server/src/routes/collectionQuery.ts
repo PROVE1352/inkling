@@ -14,9 +14,10 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { CollectionField } from '@inkling/shared'
+import { formulaResultType } from '@inkling/shared'
+import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
-import { isWorkspaceMember, resolveRelations } from '../collectionRelations'
+import { computeFormulas, formulasNeedLinks, isWorkspaceMember, resolveRelations } from '../collectionRelations'
 import {
   afterCursor,
   compileFilter,
@@ -29,7 +30,8 @@ import {
   querySignature,
   rowVersionSql,
 } from '../collectionQuery/compile'
-import { fieldResolver, FilterError, parseFilter, parseSort } from '../collectionQuery/filter'
+import { fieldResolver, FilterError, formulaKind, parseFilter, parseSort } from '../collectionQuery/filter'
+import { precomputeFormulaQuery } from '../collectionQuery/formulaQuery'
 import type { ResolvedField } from '../collectionQuery/filter'
 import { formatCell } from '../collectionQuery/values'
 import type { FieldSummary } from '../collectionQuery/values'
@@ -96,6 +98,7 @@ async function summarizeFields(fields: CollectionField[], userId: string): Promi
     if (f.type === 'select' || f.type === 'multiSelect') s.options = (f.options ?? []).map((o) => o.name)
     if (f.type === 'relation' && f.relation) s.target = titles.get(f.relation.targetPageId) ?? '(hidden collection)'
     if (f.type === 'rollup' && f.rollup) s.rollup = f.rollup.fn
+    if (f.type === 'formula') s.formula = { expression: f.formula?.expression ?? '', result: formulaResultType(fields, f.id) }
     return s
   })
 }
@@ -118,13 +121,19 @@ async function formatRows(
   columns: ResolvedField[],
   raw: RawRow[],
   userId: string,
+  now: Date,
 ): Promise<{ id: string; title: string; version: string; cells: string[] }[]> {
   const rows = raw.map((r) => ({ id: r.id, title: r.title ?? '', version: r.version, props: { ...((r.props ?? {}) as Record<string, unknown>) } }))
   const shown = columns.filter((c): c is Extract<ResolvedField, { kind: 'field' }> => c.kind === 'field').map((c) => c.field)
   const refTitles = new Map<string, string>()
-  if (shown.some((f) => f.type === 'relation' || f.type === 'rollup')) {
-    const { refs } = await resolveRelations(workspaceId, fields, rows, userId)
-    for (const [id, ref] of Object.entries(refs)) refTitles.set(id, ref.title)
+  let formulaErrors = new Map<string, Record<string, FormulaErrorCode>>()
+  const formulas = shown.some((f) => f.type === 'formula')
+  if (shown.some((f) => f.type === 'relation' || f.type === 'rollup') || (formulas && formulasNeedLinks(fields))) {
+    const res = await resolveRelations(workspaceId, fields, rows, userId, { now })
+    for (const [id, ref] of Object.entries(res.refs)) refTitles.set(id, ref.title)
+    formulaErrors = res.formulaErrors
+  } else if (formulas) {
+    formulaErrors = computeFormulas(fields, rows, now)
   }
   const personNames = new Map<string, string>()
   const personFields = shown.filter((f) => f.type === 'person')
@@ -145,7 +154,7 @@ async function formatRows(
     id: r.id,
     title: r.title,
     version: r.version,
-    cells: columns.map((c) => formatCell(c, r.title, r.props, { refTitles, personNames })),
+    cells: columns.map((c) => formatCell(c, r.title, r.props, { refTitles, personNames, formulaErrors: formulaErrors.get(r.id) })),
   }))
 }
 
@@ -216,11 +225,24 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     let columns: ResolvedField[]
     let parts: ReturnType<typeof orderKeys>
     let after: SQL = sql`true`
+    // one instant for every formula of this request (deterministic output, docs/adr/0937-*)
+    const now = new Date()
     try {
       const ast = parseFilter(filterSrc, { fields, userId: user.id, today: today() })
-      filterSql = compileFilter(ast, { workspaceId: page.workspaceId, userId: user.id })
       const sort = parseSort(sortSrc, fields)
-      parts = orderKeys(sort)
+      // formula conditions and sort keys are decided in memory first (docs/adr/1826-*)
+      const pre = await precomputeFormulaQuery({
+        workspaceId: page.workspaceId,
+        collectionId: id,
+        fields,
+        userId: user.id,
+        ast,
+        sort,
+        kindOf: (f) => formulaKind(f, fields),
+        now,
+      })
+      filterSql = compileFilter(ast, { workspaceId: page.workspaceId, userId: user.id, formulaMatches: pre?.matches })
+      parts = orderKeys(sort, pre?.ranks)
       columns = parseColumns(q.fields, fields, sort.map((s) => s.field))
       if (q.cursor) {
         const values = decodeCursor(q.cursor, querySignature(id, filterSrc, sortSrc), parts)
@@ -264,7 +286,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
             parts.map((_, i) => String(last[`k${i}`])),
           )
         : null
-    const rows = await formatRows(page.workspaceId, fields, columns, pageRows, user.id)
+    const rows = await formatRows(page.workspaceId, fields, columns, pageRows, user.id, now)
     return {
       collection,
       workspaceId: page.workspaceId,
@@ -294,7 +316,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
       { kind: 'title', name: 'Title' },
       ...fields.map((f) => ({ kind: 'field' as const, name: f.name, field: f })),
     ]
-    const [row] = await formatRows(page.workspaceId, fields, columns, raw, user.id)
+    const [row] = await formatRows(page.workspaceId, fields, columns, raw, user.id, new Date())
     return {
       collection: { id: parent.id, title: parent.title },
       workspaceId: page.workspaceId,

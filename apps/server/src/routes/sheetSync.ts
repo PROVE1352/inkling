@@ -129,7 +129,7 @@ export function planSync(
   const colField: (CollectionField | null)[] = header.map((name, ci) => {
     if (ci === titleIdx || name === '') return null
     const found = next.find((f) => f.name.trim().toLowerCase() === name.toLowerCase())
-    if (found) return found.type === 'relation' || found.type === 'rollup' ? null : found
+    if (found) return found.type === 'relation' || found.type === 'rollup' || found.type === 'formula' ? null : found
     if (next.length >= 200) return null
     const type = inferColumnType(body.map((r) => r[ci] ?? ''))
     const f: CollectionField = {

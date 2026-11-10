@@ -69,7 +69,7 @@ export function sanitizeBatchProps(
   if (!props) return { set, del }
   for (const [key, value] of Object.entries(props)) {
     const f = fields.get(key)
-    if (!f || f.type === 'rollup' || f.type === 'relation') continue
+    if (!f || f.type === 'rollup' || f.type === 'relation' || f.type === 'formula') continue
     if (value === null) {
       del.push(key)
       continue

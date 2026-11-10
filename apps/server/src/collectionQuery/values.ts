@@ -7,7 +7,8 @@
  * route's sanitizer, but strict: an invalid value is an error that names the valid ones instead of
  * being dropped silently.
  */
-import type { CollectionField } from '@inkling/shared'
+import { formatFormulaNumber, formulaErrorText } from '@inkling/shared'
+import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
 import { fieldResolver, findOption, optionNames, parseBool, parseDateValue } from './filter'
 import type { ResolvedField } from './filter'
 
@@ -37,6 +38,8 @@ export interface DisplayCtx {
   refTitles: Map<string, string>
   /** workspace member names */
   personNames: Map<string, string>
+  /** formula errors of this row by field id (docs/adr/1825-*) */
+  formulaErrors?: Record<string, FormulaErrorCode>
 }
 
 /**
@@ -47,6 +50,13 @@ export function formatCell(f: ResolvedField, title: string, props: Record<string
   if (f.kind === 'title') return cleanCell(title)
   const field = f.field
   const v = props[field.id]
+  if (field.type === 'formula') {
+    const err = ctx.formulaErrors?.[field.id]
+    if (err) return formulaErrorText(err)
+    if (typeof v === 'number') return formatFormulaNumber(v)
+    if (typeof v === 'boolean') return v ? 'true' : 'false'
+    return v === undefined || v === null ? '' : cleanCell(String(v))
+  }
   // unchecked is a value (filters treat a missing checkbox as false), never an empty cell
   if (field.type === 'checkbox') return v === true ? 'true' : 'false'
   if (v === undefined || v === null || v === '') return ''
@@ -93,6 +103,8 @@ export interface FieldSummary {
   target?: string
   /** rollup: aggregate function (read-only) */
   rollup?: string
+  /** formula: expression and result type (read-only) */
+  formula?: { expression: string; result: string }
 }
 
 /** `Status (select: Todo, Doing, Done)` */
@@ -109,6 +121,8 @@ export function describeField(f: FieldSummary, maxOptions = Infinity): string {
       return `${f.name} (relation → ${f.target ?? '?'})`
     case 'rollup':
       return `${f.name} (rollup ${f.rollup ?? ''}, read-only)`
+    case 'formula':
+      return `${f.name} (formula → ${f.formula?.result ?? 'text'}, read-only)`
     default:
       return `${f.name} (${f.type})`
   }
@@ -187,6 +201,10 @@ export function mapWrite(fields: CollectionField[], input: Record<string, unknow
     seen.add(field.id)
     if (field.type === 'rollup') {
       errors.push(`"${field.name}" is a rollup (computed, read-only); change the related rows instead`)
+      continue
+    }
+    if (field.type === 'formula') {
+      errors.push(`"${field.name}" is a formula (computed, read-only); change the properties it reads instead`)
       continue
     }
     if (value === null || value === '' || (Array.isArray(value) && value.length === 0)) {

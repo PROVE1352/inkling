@@ -23,6 +23,7 @@ import later from './en/later'
 import suggestions from './en/suggestions'
 import revert from './en/revert'
 import charts from './en/charts'
+import forms from './en/forms'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -52,6 +53,7 @@ export const en = {
   ...suggestions,
   ...revert,
   ...charts,
+  ...forms,
 }
 
 export type MessageKey = keyof typeof en

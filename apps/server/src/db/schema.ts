@@ -436,7 +436,7 @@ export const collectionViews = pgTable('collection_views', {
     .references(() => pages.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   // TS-only enum (no CHECK in the database): 'chart' (0.13, docs/adr/1603-*) needed no migration
-  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart'] }).notNull(),
+  type: text('type', { enum: ['table', 'board', 'calendar', 'gallery', 'timeline', 'chart', 'form'] }).notNull(),
   /** ViewConfig — sorts/filters/groupByFieldId/columnOrder/hiddenFields */
   config: jsonb('config').notNull().default(sql`'{}'::jsonb`),
   sortOrder: doublePrecision('sort_order').notNull().default(0),
@@ -903,3 +903,5 @@ export * from './schema-collab'
 export * from './schema-semantic'
 // Slack app per workspace: secrets, account links, link codes, replay guard (docs/adr/1800-*)
 export * from './schema-slack'
+// Public links of form views (docs/adr/1821-*)
+export * from './schema-forms'

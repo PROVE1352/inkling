@@ -149,7 +149,7 @@ export function RowTemplateEditor({
     return () => window.removeEventListener('keydown', onKey)
   }, [close, iconOpen])
 
-  const editable = fields.filter((f) => f.type !== 'rollup')
+  const editable = fields.filter((f) => f.type !== 'rollup' && f.type !== 'formula')
   const setProp = (fieldId: string, value: unknown) => {
     if (!tpl) return
     const next = { ...tpl.props }

@@ -39,6 +39,7 @@ import {
 import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { ApiError, useAuthMode, useChangePassword, useMe, useOidcLink, useResendVerification } from '../api'
 import { IcalSettings } from '../components/IcalSettings'
+import { WebClipperSettings } from '../components/WebClipperSettings'
 import { TwoFactorSettings } from '../components/TwoFactorSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
 import { SidebarSettings } from '../components/SidebarSettings'
@@ -529,6 +530,7 @@ function ConnectionsSection() {
         </div>
       </Group>
       <IcalSettings />
+      <WebClipperSettings />
     </>
   )
 }

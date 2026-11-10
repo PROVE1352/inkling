@@ -3,14 +3,14 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import {
-  CLIP_DATE_PROPERTY,
+  CLIP_SAVED_PROPERTY,
   CLIP_SOURCE_PROPERTY,
   clipRequestSchema,
   parseHttpUrl,
 } from '@inkling/shared'
 import type { ClipFallback, ClipLookupDTO, ClipMode, ClipResultDTO, PageProperty } from '@inkling/shared'
 import { getUser, requireUser, SESSION_COOKIE } from '../auth'
-import { articleBlocks, clipBodyBlocks, clipDate, clipSourceUrl } from '../clip/blocks'
+import { articleBlocks, clipBodyBlocks, clipSourceUrl, clipStamp } from '../clip/blocks'
 import { extractArticle } from '../clip/extract'
 import { fetchArticleHtml } from '../clip/fetchArticle'
 import { acquireClipFetch } from '../clip/limits'
@@ -152,8 +152,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const title = oneLine(body.title ?? '').slice(0, 300) || pageTitle?.slice(0, 300) || (url ? new URL(url).host : '') || names.untitled
-      const now = new Date()
-      const when = `${now.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+      const when = clipStamp()
       const blocks = clipBodyBlocks({
         url,
         selection: selection || null,
@@ -164,7 +163,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
       })
       const properties: PageProperty[] = [
         ...(url ? [{ id: CLIP_SOURCE_PROPERTY, name: names.source, type: 'url' as const, value: url }] : []),
-        { id: CLIP_DATE_PROPERTY, name: names.clipped, type: 'date', value: clipDate(body.localDate, now) },
+        { id: CLIP_SAVED_PROPERTY, name: names.clipped, type: 'text', value: when },
       ]
 
       const { queued, ...row } = await withTreeLock(body.workspaceId, async (tx) => {

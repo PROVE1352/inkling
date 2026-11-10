@@ -30,6 +30,7 @@ import mcpSetup from './en/mcp-setup'
 import dbView from './en/db-view'
 import diagramsLinks from './en/diagrams-links'
 import oauthCimd from './en/oauth-cimd'
+import clip from './en/clip'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -66,6 +67,7 @@ export const en = {
   ...dbView,
   ...diagramsLinks,
   ...oauthCimd,
+  ...clip,
 }
 
 export type MessageKey = keyof typeof en

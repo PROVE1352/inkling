@@ -138,7 +138,6 @@ describe('[db] web clipper', { skip: !HAS_DB }, async () => {
       text: 'A line I selected\n\nand a second paragraph',
       mode: 'article',
       tags: ['#news', '예산'],
-      localDate: new Date().toISOString().slice(0, 10),
     })
     assert.equal(res.statusCode, 200, res.body)
     const body = res.json() as { page: { id: string; title: string; parentId: string | null }; mode: string; fallback?: string }
@@ -163,7 +162,10 @@ describe('[db] web clipper', { skip: !HAS_DB }, async () => {
     const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, body.page.id))
     const props = page.properties as { id: string; type: string; value: unknown }[]
     assert.deepEqual(props.find((p) => p.id === 'source'), { id: 'source', name: 'Source', type: 'url', value: `${base}/article#top` })
-    assert.equal(props.find((p) => p.id === 'clipped')?.type, 'date')
+    // the time saved is a text property: a date property would put every clip in the due list and calendar
+    const clipped = props.find((p) => p.id === 'clipped')
+    assert.equal(clipped?.type, 'text')
+    assert.match(String(clipped?.value), /^\d{4}-\d\d-\d\d \d\d:\d\d UTC$/)
     assert.equal(page.createdBy, M.id)
     assert.equal(page.scope, 'shared')
     // tags are indexed from the body

@@ -36,11 +36,6 @@ export const clipRequestSchema = z.object({
     )
     .max(CLIP_MAX_TAGS)
     .optional(),
-  /** The saver's local date (YYYY-MM-DD) for the "Clipped" property; the server's UTC date when absent or off by more than a day. */
-  localDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
 })
 export type ClipRequest = z.input<typeof clipRequestSchema>
 
@@ -64,6 +59,10 @@ export interface ClipLookupDTO {
   pages: { id: string; title: string; workspaceId: string; createdAt: string }[]
 }
 
-/** Property ids the clipper writes (ordinary page properties, editable afterwards). */
+/**
+ * Property ids the clipper writes (ordinary page properties, editable afterwards): the source URL
+ * (type url) and when it was saved (type text, "YYYY-MM-DD HH:MM UTC" — not a date property, which
+ * would put every clip on the calendar and in the due list).
+ */
 export const CLIP_SOURCE_PROPERTY = 'source'
-export const CLIP_DATE_PROPERTY = 'clipped'
+export const CLIP_SAVED_PROPERTY = 'clipped'

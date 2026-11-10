@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { CLIP_ARTICLE_MIN_CHARS, CLIP_MAX_NESTING, CLIP_MAX_TAGS, clipImageSrc, clipLinkHref, extractArticle, prepareHtml } from './extract'
-import { articleBlocks, clipBodyBlocks, clipDate, clipSourceUrl, quoteBlocks } from './blocks'
+import { articleBlocks, clipBodyBlocks, clipSourceUrl, clipStamp, quoteBlocks } from './blocks'
 import { decodeHtml } from '../linkPreview'
 
 const LOREM =
@@ -229,11 +229,7 @@ describe('clip: the clip body', () => {
     assert.deepEqual(quoteBlocks('\n\n  \n'), [])
   })
 
-  it('dates: the local date within a day of the server, else UTC', () => {
-    const now = new Date('2026-11-10T23:30:00Z')
-    assert.equal(clipDate(undefined, now), '2026-11-10')
-    assert.equal(clipDate('2026-11-11', now), '2026-11-11')
-    assert.equal(clipDate('2026-11-09', now), '2026-11-09')
-    assert.equal(clipDate('2020-01-01', now), '2026-11-10')
+  it('saved stamp: minutes in UTC', () => {
+    assert.equal(clipStamp(new Date('2026-11-10T23:30:59.999Z')), '2026-11-10 23:30 UTC')
   })
 })

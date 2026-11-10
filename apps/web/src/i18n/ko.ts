@@ -31,6 +31,7 @@ import mcpSetup from './ko/mcp-setup'
 import dbView from './ko/db-view'
 import diagramsLinks from './ko/diagrams-links'
 import oauthCimd from './ko/oauth-cimd'
+import clip from './ko/clip'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -66,4 +67,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...dbView,
   ...diagramsLinks,
   ...oauthCimd,
+  ...clip,
 }

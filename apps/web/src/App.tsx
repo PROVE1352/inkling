@@ -49,6 +49,7 @@ const SharedView = lazyNamed(() => import('./pages/SharedView'), 'SharedView')
 const WorkspaceHome = lazyNamed(() => import('./pages/WorkspaceHome'), 'WorkspaceHome')
 const WorkspaceSettings = lazyNamed(() => import('./pages/WorkspaceSettings'), 'WorkspaceSettings')
 const SlackLink = lazyNamed(() => import('./pages/SlackLink'), 'SlackLink')
+const Clip = lazyNamed(() => import('./pages/Clip'), 'Clip')
 
 /** Full-screen fallback for top-level routes. */
 function Page({ children }: { children: ReactNode }) {
@@ -106,6 +107,8 @@ export function App() {
       <Route path="/oauth/authorize" element={<Page><OAuthAuthorize /></Page>} />
       {/* Slack account link (#code=… fragment); sends signed-out visitors to /login?next= itself */}
       <Route path="/slack/link" element={<Page><SlackLink /></Page>} />
+      {/* Web clipper and share target (docs/adr/2263-*); sends signed-out visitors to /login?next= itself */}
+      <Route path="/clip" element={<Page><Clip /></Page>} />
       <Route
         path="/settings/connections"
         element={

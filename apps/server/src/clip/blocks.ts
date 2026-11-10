@@ -159,11 +159,7 @@ export function clipSourceUrl(raw: string | undefined | null): string | null {
   return parseHttpUrl(raw.trim())?.href ?? null
 }
 
-/** The date the "Clipped" property gets: the saver's local date when it is within a day of the server's. */
-export function clipDate(localDate: string | undefined, now = new Date()): string {
-  const utc = now.toISOString().slice(0, 10)
-  if (!localDate) return utc
-  const t = Date.parse(`${localDate}T00:00:00Z`)
-  if (!Number.isFinite(t)) return utc
-  return Math.abs(t - Date.parse(`${utc}T00:00:00Z`)) <= 86_400_000 ? localDate : utc
+/** When a clip was saved, as its "Clipped" property and saved line show it: "YYYY-MM-DD HH:MM UTC". */
+export function clipStamp(now = new Date()): string {
+  return `${now.toISOString().slice(0, 16).replace('T', ' ')} UTC`
 }

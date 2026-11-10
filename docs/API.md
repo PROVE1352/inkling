@@ -120,7 +120,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 
 | Method | Path | Input | Response |
 |---|---|---|---|
-| POST | `/api/files?workspaceId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>` |
+| POST | `/api/files?workspaceId=<uuid>&pageId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>`. `pageId` is required for bearer tokens since 0.16 (see "v0.16.0 additions") |
 | GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401; not a member or guest of the file's workspace, or a page file you cannot see: 404, the same as an unknown id (docs/adr/1301-*). |
 
 - Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above).
@@ -1354,3 +1354,98 @@ after the page text; `find_context` prints `can:` once when all results share it
 cut fragment and a last `Verification:` line; an `inbox` cursor of a filtered listing carries the filter
 (`<seq>;ws=<id>;kinds=a,b`). The tool list no longer carries a UUID pattern per id field or the SDK's `execution` and
 `$schema` defaults (docs/adr/1940–1948). Details: [MCP.md](MCP.md).
+
+## v0.16.0 additions
+
+Three migrations, all additive: `0048_wave16_taint` (table `connection_taints`, column
+`workspaces.agent_taint_demote boolean not null default true`), `0049_wave16_agent_tokens` (`oauth_grants.kind text
+not null default 'oauth'`, `oauth_grants.token_prefix`), `0050_wave16_agent_uploads` (`workspaces.agent_uploads`,
+`files.uploaded_via` and a partial index on `files`). This release is about MCP and working with AI agents.
+
+### MCP endpoint (docs/adr/2000-*, 2060-*, 2065-*)
+- `POST /mcp?profile=core|full`: no profile = full. Any other value, or the parameter twice, is HTTP 400
+  `{"jsonrpc":"2.0","error":{"code":-32602,"message":"Unknown profile: use /mcp?profile=core or /mcp?profile=full (no profile = full)."},"id":null}`.
+  The OAuth `resource` indicator may be `<origin>/mcp?profile=core|full` (treated as `/mcp`).
+- `/mcp` accepts `Authorization: Bearer ink_agt_…` (agent connection tokens) as well as OAuth access tokens; both are
+  agent connections. `ink_pat_` (personal API tokens) stays 401. An `ink_agt_` token from a banned IP gets 429
+  `{ error: { code: 'RATE_LIMITED' } }` with `Retry-After` before any lookup; an unknown one counts towards the IP ban.
+  An agent connection token on any `/api` route is 401.
+- Body limit 12 MB as before. When `AGENT_UPLOAD_MAX_MB` makes a larger upload possible, only a `tools/call` of
+  `upload_file` (direct or through `more_tools`) is accepted above 12 MB, up to base64(`AGENT_UPLOAD_MAX_MB`) + 1 MB;
+  other large bodies are 413 `PAYLOAD_TOO_LARGE`.
+- New capabilities `resources` (template `inkling://page/{id}`, a list of at most 50 pages) and `prompts`
+  (`catch-up`, `meeting-notes`, `memory-review`) (docs/adr/2001-*, 2002-*).
+
+### Agent connection tokens (docs/adr/2060–2063)
+Browser session only; a bearer token gets 403 (API tokens) or 401 (MCP tokens).
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| GET | `/api/agent-tokens` | – | `{ tokens: AgentTokenDTO[] }` newest first: `{ id, name, prefix ('ink_agt_' + 4), access: 'read'\|'write', range, createdAt, expiresAt, lastUsedAt, suggestOnly: { until, sources } \| null }`. Never the token. `id` is the grant id (connection key `grant:<id>`) |
+| POST | `/api/agent-tokens` | `{ name (1–60), expiresInDays: 7\|30\|90\|365, access: 'read'\|'write', range }` (strict) | `201 { token: AgentTokenDTO, secret: 'ink_agt_…' }`, `Cache-Control: no-store`; the only time the secret is returned. 400 `CLIENT_NAME_RESERVED`, `CLIENT_NAME_CLASH`, `VALIDATION`, `INVALID_RANGE`; 409 `TOO_MANY_TOKENS` (20 live per account). Rate limit 20/min. Audits `agent.token_created` in each workspace in range |
+| DELETE | `/api/agent-tokens/:id` | – | 204; 404 when not the caller's agent token. Revokes at once, hands back hand-offs, audits `agent.token_revoked` |
+| PATCH | `/api/oauth/grants/:id` | `{ range }` | (changed) also changes an agent token's range; audits `agent.token_range_changed` in every workspace the old or new range reaches |
+| DELETE | `/api/oauth/grants/:id` | – | (changed) also revokes an agent token, with the same effects |
+| GET | `/api/oauth/grants` | – | (changed) only connections made by OAuth (`kind = 'oauth'`); agent tokens are in `/api/agent-tokens` |
+
+Audit actions `agent.token_created` (target `connection` `grant:<id>`, label = name; `after: { access, range,
+expiresAt }`), `agent.token_revoked`, `agent.token_range_changed` (`before.range`, `after.range`: kinds). Never the
+token.
+
+### Suggest-only connections (docs/adr/2040–2043)
+- A bearer connection (OAuth, agent token, API token) handed flagged content is suggest-only for 60 minutes after the
+  last such read, in every workspace with `agentTaintDemote` on (the default). Content is "handed" by the MCP read
+  tools and resources and, for API tokens, by `GET /pages/:id/section` (the returned section only), `GET /pages/read`,
+  `GET /context` (the returned sections only) and `GET /pages/:id/export`.
+- While suggest-only: `POST /pages/:id/section`, `/sections`, `/content` answer `202 { suggestion }` with
+  `origin: 'taint'` and a `reviewReason`; comments, threads (follow/read), claims, `POST /suggestions/:id/withdraw`,
+  `POST /inbox/ack`, Later and `POST /notifications/read` work (a comment with `mentionConnections` is refused with the
+  same code: no hand-offs while suggest-only); every other write answers
+  `403 { error: { code: 'CONNECTION_SUGGEST_ONLY', message, suggestOnlyUntil } }`.
+- `PUT /api/workspaces/:id/settings/agent-taint` `{ enabled }` — owners/admins, browser only → `{ settings, role, can }`.
+  `WorkspaceSettingsDTO.agentTaintDemote` (additive).
+- `POST /api/workspaces/:id/agent-connections/release` `{ connection: 'grant:<id>' | 'token:<id>' }` — workspace
+  owners/admins, or the connection's owner; browser only; lifts the connection's sources in this workspace →
+  `{ released: n, suggestOnly: SuggestOnlyDTO | null }`. 403 for other members; 404 unknown connection.
+- `POST /api/connections/release` `{ connection }` — the connection's owner, browser only; lifts every source →
+  `{ released: n, suggestOnly: null }`. 404 when it is not the caller's.
+- `GET /api/connections/suggest-only` — browser only: `{ connections: [{ key, until, sources }] }` of the caller's own
+  connections that are suggest-only now.
+- Additive fields: `suggestOnly: { until, sources } | null` on `GET /oauth/grants`, `GET /agent-tokens` and
+  `GET /tokens` items; `suggestOnly: { until, sources, sourcesHere } | null` on `GET /workspaces/:id/agent-connections`
+  items (null when the workspace has the switch off); `suggestOnly: { [connectionKey]: { until, sources, sourcesHere } }`
+  on `GET /workspaces/:id/team-agents`. `SuggestionDTO.origin` adds `'taint'`.
+- Audit actions `agent.tainted` (target `connection`, `after: { source, rules, until }`, never text) and
+  `agent.taint_released` (`before: { sources }`, `after: { scope: 'workspace' | 'all' }`).
+
+### Files and uploads by agents (docs/adr/2044–2046, 2065)
+- `POST /api/files` with a bearer token (MCP, agent token, API token): `pageId` required (400 otherwise); the
+  connection must be allowed to edit or suggest on the page (`PAGE_LOCKED` / `PAGE_ACCESS` otherwise); at most
+  `AGENT_UPLOAD_MAX_MB` (default 5 MB; 413 `PAYLOAD_TOO_LARGE` naming the limit); the type comes from the file name and
+  must match the bytes (png, jpg/jpeg, gif, webp, pdf by magic number; txt, log, tsv, csv, md, markdown, json as UTF-8
+  without NUL), else 415 `UNSUPPORTED_TYPE` with the reason; 429 `UPLOAD_BUDGET` once the account's connections
+  uploaded `AGENT_UPLOAD_DAILY_MB` (default 200 MB) in 24 hours (browser uploads do not count; 0 = no budget); 403
+  `AGENT_UPLOADS_OFF` when the server or the workspace turns agent uploads off; 403 `CONNECTION_SUGGEST_ONLY` while
+  suggest-only. The file row records `uploaded_via`.
+- Browser uploads: unchanged (25 MB, no budget) except that `text/csv`, `text/markdown` and `application/json` are
+  accepted.
+- `PUT /api/workspaces/:id/settings/agent-uploads` `{ value: 'default' | 'on' | 'off' }` — owners/admins, browser
+  only → `{ settings, role, can }`; 409 `AGENT_UPLOADS_NEVER` for `on` under `AGENT_UPLOADS=never`; audited
+  `settings.updated` (`before/after: { agentUploads }`). `WorkspaceSettingsDTO` adds `agentUploads: 'on' | 'off' | null`
+  and `agentUploadsServer: 'on' | 'off' | 'never'`.
+- `GET /api/admin/status`: new item `security.agentUploads` with `data: { mode, maxMb, dailyMb (null = no budget),
+  mcpBodyMb, warnings }`.
+
+### Memory check and instruction length (docs/adr/2003-*, 2004-*)
+
+| Method | Path | Who | Answer |
+|---|---|---|---|
+| GET | `/api/workspaces/:id/notes-check?parentId=&limit=1..50` | members (tokens too) | `NotesCheckDTO { workspaceId, rootId, checked, broken { total, pages, items[{ pageId, title, count, links[{ text, state: missing\|exists\|trashed, targetId?, trashedOn? }] }] }, duplicates { total, items[{ title, pageIds }] }, unlinked { total, items[{ pageId, title, updatedOn }] }, verification { total, items[{ pageId, title, state: lapsed\|changed, until, changedSections }] }, quietLarge { total, minTokens, before, items[{ pageId, title, tokens, updatedOn }] } }`; visible pages only; `parentId` not visible → 404 |
+| GET | `/api/workspaces/:id/agent-instructions/length` | members | `{ limits: { lines: 200, bytes: 25000 }, always: { lines, bytes, tokens, long, pages }, pages: [{ pageId, mode, lines, bytes, tokens, long, truncated }] }`; measured on the Markdown get_instructions sends (cut at 12,000 characters, `truncated`); sizes only |
+
+### MCP tools
+New tools: `upload_file(pageId, name, text | base64, section?, attachOnly?)`, `check_notes(workspaceId?, parentId?,
+limit?, budget?)`, `more_tools(tool?, arguments?)` (core profile only). `read_file` takes `pages` (`"2-5"`) for PDFs and
+reads more text files by extension; returned text is scanned for injection-like content. `get_instructions` ends with
+a `note:` line when the instructions are over 200 lines or 25 KB. `can:` lines say `suggest` while the connection is
+suggest-only. Tool lists: full 47 tools (~12,370 tokens), core 32 (~7,437). Details: [MCP.md](MCP.md).

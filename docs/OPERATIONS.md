@@ -121,6 +121,13 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   `SINGLE_INSTANCE_WAIT` (section 9). Vaults synced with an older server need no action: the first `inklingctl sync`
   after the upgrade re-reads pages changed since the last sync and merges notes edited locally once, without
   overwriting anything or marking a conflict (docs/adr/1920-*).
+- 0.15.1 → 0.16 applies 3 migrations (48 → 51 rows): `0048_wave16_taint` (table `connection_taints`, column
+  `workspaces.agent_taint_demote` with the constant default `true`), `0049_wave16_agent_tokens` (`oauth_grants.kind`
+  with the constant default `'oauth'`, nullable `oauth_grants.token_prefix`) and `0050_wave16_agent_uploads` (nullable
+  `workspaces.agent_uploads` and `files.uploaded_via`, and a partial index on `files` over rows where `uploaded_via`
+  is set, which is none at upgrade time). No backfill. New dependency `unpdf` 1.9.1 in the image (pure JavaScript, no
+  system package). New, optional: `AGENT_UPLOADS`, `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB` (section 10). After
+  the upgrade, agents that read suspicious text only suggest for an hour in every workspace (section 10).
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
@@ -447,3 +454,64 @@ only route where a visitor without an account writes data.
   server.
 - A vault write is applied as a minimal edit; when that does not validate the server rewrites the whole document
   and logs `[vault-sync] minimal replace not applied`.
+
+## 10. MCP and AI agents (0.16)
+
+### Tool profiles and the `/mcp` query string (docs/adr/2000-*)
+
+- `/mcp` takes a query string (`?profile=core`). A proxy that drops or rewrites the query turns every connection into
+  the full profile (Caddy and nginx pass it through by default). An unknown value is HTTP 400.
+
+### Uploads by AI agents (docs/adr/2044-*, 2045-*, 2065-*)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AGENT_UPLOADS` | `on` | `on`: agents may upload unless a workspace turns it off. `off`: only workspaces that turn it on. `never`: off everywhere; the workspace setting is shown disabled with the reason. Any other value boots with a warning and counts as `off` |
+| `AGENT_UPLOAD_MAX_MB` | `5` | Largest file an MCP connection, agent token or API token may upload, at most 64 (a larger value is cut to 64 with a warning; 0 or a non-number keeps 5 with a warning) |
+| `AGENT_UPLOAD_DAILY_MB` | `200` | Per account per rolling 24 hours, over the files its connections uploaded (`files.uploaded_via`); `0` = no budget. People's uploads in the browser have no budget and are never counted |
+
+- Workspace owners and admins choose "Uploads by AI agents" (server default, on, off) in Workspace settings ›
+  Connected agents › File uploads. People's uploads are not affected.
+- **Memory.** One upload_file call holds the JSON body, the parsed base64 string and the decoded bytes, about four
+  times the file, for each upload in flight; with a 64 MB cap that is ~256 MB per concurrent upload. Above 8 MB the
+  `/mcp` body limit grows to base64 of the cap + 1 MB, for upload_file calls only; every other MCP request keeps
+  12 MB. API-token uploads (multipart) stream to disk. Raise the cap only with memory to spare.
+- The boot log prints the limits in use when they differ from the defaults (per-file cap, MCP body limit for
+  upload_file calls, budget); a value that was cut or ignored is a boot warning and a warning in Admin › Status
+  (`security.agentUploads`).
+- There is still no storage quota for people, and files are never garbage-collected: reverting an agent's upload
+  removes the link, not the file.
+
+### Suggest-only after suspicious content (docs/adr/2040-* .. 2043-*)
+
+- A connection (OAuth, agent connection token or personal API token) that is handed text the injection heuristics
+  flag writes only suggestions for 60 minutes after the last such read; its other writes answer
+  `403 CONNECTION_SUGGEST_ONLY`. On in every workspace after the upgrade.
+- Turn it off per workspace: Workspace settings › Connected agents › Suspicious content (owners and admins). Lift it
+  early for one connection: its owner in Settings › Connections (**Allow edits again**), or a workspace owner/admin on
+  the team agents board (**Allow edits here**, for content that was in that workspace).
+- The audit log shows `agent.tainted` (the source page or file and the rules, never the text) and
+  `agent.taint_released`. Refused writes are not audited one by one.
+- The hourly housekeeping deletes `connection_taints` rows older than 30 days.
+- The heuristics are short, English/Korean phrase lists; expect misses and some false alarms (a CSV of long hex ids
+  can trip `encoded-blob`). If one workspace's content trips it all the time, switch the rule off there rather than
+  for the server.
+
+### Agent connection tokens (docs/adr/2060-* .. 2063-*)
+
+- Agent connection tokens are `oauth_grants` rows with `kind = 'token'` and an `oauth_clients` row `ink_tc_…` each;
+  the hourly housekeeping deletes expired ones (by `refresh_expires_at`, which equals the expiry) and client rows left
+  without a grant. At most 20 live tokens per account; expiry 7, 30, 90 or 365 days, no "never".
+- Secret scanning: `ink_agt_[A-Za-z0-9_-]{43}` (agent connection token, works at `/mcp` only) next to
+  `ink_pat_[A-Za-z0-9_-]{43}` (API token). A leaked agent token is revoked by its owner in Settings › Connections or,
+  for the whole account, by a password reset (deletes every grant).
+- The IP ban (`AUTH_GUARD_*`) also counts unknown `ink_agt_` tokens at `/mcp`; an expired token that exists and OAuth
+  access tokens are not counted.
+
+### PDF text (docs/adr/2047-*, 2048-*)
+
+- `read_file` reads the text layer of PDFs with `unpdf` 1.9.1 (bundles pdf.js; Node 22 or newer). In the built image
+  the package is about 2.5 MB.
+- Each call parses in a short-lived worker thread: 256 MB heap cap, 10 s wall time, at most two PDFs at once per
+  process (more wait for a slot); files over 20 MB are not parsed (metadata only), at most 50 pages per call. Nothing
+  to configure. No OCR: scanned PDFs have no text.

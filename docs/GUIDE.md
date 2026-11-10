@@ -465,7 +465,9 @@ Private pages can't be locked. Locked pages show **Locked** and are read-only fo
 database cells, canvas cards and properties.
 
 The same dialog has **Agent instructions**: a locked page whose text AI agents read as the workspace's rules for
-them (always, for matching pages, or only when asked by name).
+them (always, for matching pages, or only when asked by name). If an instruction page gets long (over 200 lines or
+25 KB), the dialog says so and the page's lock line shows **long**. Agents read it in full every session; keep it to
+rules and links to where things are.
 
 ## Slack
 
@@ -490,7 +492,11 @@ Inkling has a built-in MCP server. An AI app such as Claude Code or claude.ai ca
 ### Connect
 
 Find your server's address in Settings → Connections → **MCP server** (**Copy URL**). It looks like
-`https://notes.example.com/mcp`.
+`https://notes.example.com/mcp`. **Manage connections** opens **Connect an AI app**: pick your app (Claude Code,
+claude.ai / Claude Desktop, Cursor, VS Code or another app) and copy what it shows (a command, a JSON file or the
+URL). Under **Tools**, **Core tools** gives the agent the tools it uses most (a shorter tool list costs fewer tokens
+in every session; the rest stay one call away) and **All tools** gives it everything, for an agent that builds
+databases, charts or templates. Core tools add `?profile=core` to the URL.
 
 **Claude Code**
 
@@ -506,8 +512,20 @@ If Claude Code runs on another machine over SSH, the "return to the app" button 
 
 **claude.ai**
 
-Settings → Connectors → **Add custom connector** → URL `https://notes.example.com/mcp` → Connect. Sign in in the
-window that opens and click **Allow**. Leave the OAuth client ID and secret empty.
+Customize → Connectors → **+ Add** → **Add custom connector** → URL `https://notes.example.com/mcp` → Connect. Sign in
+in the window that opens and click **Allow**. Leave the OAuth client ID and secret empty. The server must be reachable
+from the internet: claude.ai connects from Anthropic's servers.
+
+**Apps that cannot sign in**
+
+If your app cannot sign in here (it does not support sign-in for MCP servers, or your server is on a plain `http://`
+address or uses a certificate the app does not trust), make an **agent connection token** on the same screen
+(**Agent connection tokens** → **New token**): a name, which is shown as "via …" next to its edits, read only or read
+and write, what it may see, and an expiry (7, 30, 90 or 365 days; there is no "never"). Then pick **Agent connection
+token** under **Sign-in** in **Connect an AI app**: the command or file it shows has the token filled in while it is on
+screen. Copy it then; it is not shown again. The token works only for the AI connection, and it counts as an agent
+like a signed-in app: agent locks, workspace rules for agents and review of agent edits all apply. **Revoke** stops it
+at once.
 
 ### Read only or read and write
 
@@ -542,7 +560,9 @@ It can:
 - look through a page's version history, compare two versions and bring an older one back (the version it replaces is
   kept, so you can undo it),
 - move pages to the trash, look in the trash and restore a page from it,
-- open attachments: images and text files, and the name and size of other files such as PDFs,
+- open attachments: images, text files and the text of PDFs (not scanned ones), and the name and size of other files,
+- attach a file it made (an image, a PDF or a text file, up to 5 MB by default) to a page it may edit, where the
+  workspace allows it,
 - see your handwriting, only where the workspace allows it.
 
 It can't:
@@ -571,7 +591,12 @@ pages it edited show the last AI edit. Before an AI replaces a whole page, a **B
 - If an agent follows your notes as they change, tell it to call `changes_since` with `wait`: it then waits for the
   next change instead of asking again every few seconds.
 - AI agents receive page text marked as data, not as instructions. Pages with suspicious text show
-  **Possible prompt-injection text**. This is a warning only and may be a false positive.
+  **Possible prompt-injection text**. The warning may be a false positive.
+- An agent that reads such text (in a page or an attachment) only suggests for an hour: its edits wait for review and
+  its other changes are refused. Its connection shows **Suggestions only until HH:MM**; **Allow edits again** lifts it.
+  Workspace owners and admins can turn this off in Workspace settings → **Connected agents** → **Suspicious content**.
+- Workspace settings → **Connected agents** → **File uploads** sets whether AI agents may attach files in the
+  workspace (server default, on, off). People's uploads are not affected.
 
 More: [MCP.md](MCP.md).
 
@@ -643,6 +668,9 @@ You can hand work to one person's agent instead of the person:
 
 If an agent connection is disconnected or expires, what was handed to it goes back to its person. Being handed work
 gives an agent no extra rights: it still acts as its person.
+
+An agent that read suspicious text shows **Suggestions only until HH:MM** here. Workspace owners and admins (and the
+agent's person) can click **Allow edits here** when that text was in this workspace.
 
 ### API tokens for scripts
 

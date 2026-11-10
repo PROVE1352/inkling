@@ -730,6 +730,48 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1960](1960-a-section-name-another-section-answered-to-needs-the-version.md) | A section name that passed to another section needs the version read | Accepted |
 | [1961](1961-patch-section-keeps-its-baseversion-rule.md) | patch_section keeps its baseVersion rule (not ADR 1947's) | Accepted |
 
+## 2000–2009 MCP profiles, resources, prompts, memory check
+
+| ADR | Title | Status |
+|---|---|---|
+| [2000](2000-tool-profiles-core-and-full-in-the-mcp-url.md) | Tool profiles: core and full, chosen in the MCP URL; more_tools reaches the rest | Accepted |
+| [2001](2001-pages-as-mcp-resources.md) | Pages as MCP resources: a template, a short list, the read_page answer | Accepted |
+| [2002](2002-fixed-mcp-prompts-with-id-arguments.md) | Three MCP prompts: fixed server text, id arguments only | Accepted |
+| [2003](2003-check-notes-memory-check.md) | check_notes: a read-only memory check of a workspace or subtree | Accepted |
+| [2004](2004-long-instructions-note-and-length-route.md) | Long agent instructions: a note at the end of get_instructions and a length route | Accepted |
+
+## 2020–2029 Connecting apps and team memory
+
+| ADR | Title | Status |
+|---|---|---|
+| [2020](2020-connection-settings-generator.md) | Connection settings generator: per-client formats from their own docs, token mode behind a switch | Accepted |
+| [2021](2021-instruction-page-length-warning.md) | A long instruction page shows a warning; the server measures, the web only shows | Accepted |
+| [2022](2022-claude-code-skill-and-team-memory-recipe.md) | An Inkling skill for Claude Code and a "team memory" recipe, instead of longer tool descriptions | Accepted |
+
+## 2040–2049 Suspicious content, agent uploads and PDF text
+
+| ADR | Title | Status |
+|---|---|---|
+| [2040](2040-suggest-only-after-flagged-content.md) | Suggest only after flagged content | Accepted |
+| [2041](2041-taint-suggestions-are-never-auto-accepted.md) | Suggestions of a suggest-only connection are never auto-accepted | Accepted |
+| [2042](2042-suggest-only-window-and-releases.md) | Suggest-only for 60 minutes; the owner or an admin lifts it; no "new session" | Accepted |
+| [2043](2043-suggest-only-switch-on-by-default.md) | The workspace switch for suggest-only is on by default | Accepted |
+| [2044](2044-upload-file-for-agents.md) | upload_file: an agent's file goes through the web upload and the page's write path | Accepted |
+| [2045](2045-agent-upload-limits-and-types.md) | Uploads through a connection: 5 MB, typed by the server, a daily budget | Accepted (limits and budget amended by [2065](2065-agent-uploads-switch-and-limits.md)) |
+| [2046](2046-read-file-text-by-extension-and-read-time-scan.md) | read_file: text by extension, and attachment text is scanned when read | Accepted |
+| [2047](2047-pdf-text-with-unpdf.md) | PDF text for read_file with unpdf 1.9.1 | Accepted |
+| [2048](2048-pdf-limits-in-a-worker-thread.md) | PDF limits: a worker thread with a time limit, pages and characters per call | Accepted |
+
+## 2060–2069 Agent connection tokens and agent uploads
+
+| ADR | Title | Status |
+|---|---|---|
+| [2060](2060-agent-connection-tokens-are-hand-made-grants.md) | Agent connection tokens: hand-made agent connections, stored as OAuth grants | Accepted |
+| [2061](2061-agent-token-format-storage-and-expiry.md) | Agent connection tokens: format, storage and expiry | Accepted |
+| [2062](2062-guessing-agent-tokens-at-mcp.md) | Guessing agent connection tokens at /mcp counts towards the IP ban | Accepted |
+| [2063](2063-issuing-agent-tokens-names-audit-and-the-connections-screen.md) | Issuing agent connection tokens: browser only, names, audit, and the Connections screen | Accepted |
+| [2065](2065-agent-uploads-switch-and-limits.md) | Uploads by AI agents: a server default, a workspace switch, limits from the environment | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

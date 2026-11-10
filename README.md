@@ -152,16 +152,18 @@ read-only Google Sheets sync.
 ## AI agents (MCP)
 
 The MCP server is part of the app, at `https://<your domain>/mcp`. Each person connects their own client
-with OAuth 2.1 and sees only what they can see in the web app. A connection is read-only or read-write and can
-be limited to some workspaces or one page tree. There is no permanent-delete tool.
+with OAuth 2.1 (or an agent connection token, for clients that cannot sign in) and sees only what they can
+see in the web app. A connection is read-only or read-write and can be limited to some workspaces or one page
+tree. There is no permanent-delete tool.
 
 ```bash
 claude mcp add --transport http inkling https://notes.example.com/mcp
 # then in Claude Code: /mcp → inkling → Authenticate
 ```
 
-In claude.ai: Settings → Connectors → Add custom connector, same URL. The 45 tools and a guide for agents
-are in [docs/MCP.md](docs/MCP.md). The usual flow:
+In claude.ai: Settings → Connectors → Add custom connector, same URL. The 47 tools (32 with `?profile=core`,
+which reaches the rest through `more_tools`) and a guide for agents are in [docs/MCP.md](docs/MCP.md). The
+usual flow:
 
 1. `find_context(query)` returns the sections that answer, ranked and packed into a token budget, each with its page id (8 characters, which every tool accepts), `§anchor` and version. `queries=[…]` searches several phrasings at once, such as a question and its translation.
 2. If that is not enough, `read_page(pageId, outline=true)` and then `read_page(pageId, section=…)`. `known=<version>` turns an unchanged re-read into one line.
@@ -170,7 +172,8 @@ are in [docs/MCP.md](docs/MCP.md). The usual flow:
 Around that flow, `claim_section` holds a section for up to 30 minutes, during which other agents' direct
 edits to it are refused (people are never blocked). `suggest=true`, or a workspace or lock setting, turns
 agent edits into suggestions. `inbox`, `catch_up` and the `changes_since` cursor tell an agent what happened,
-and `get_instructions` returns the workspace's rules from locked pages. Accepting suggestions and reverting
+and `get_instructions` returns the workspace's rules from locked pages. `read_file` reads attachments, PDF text
+included, and `upload_file` attaches a file the agent made. Accepting suggestions and reverting
 agent edits are for people only. Agent changes are labelled "<person> (via <client>)". Page text reaches
 agents marked as untrusted data; that is a mitigation, and the actual limits are edit locks, connection
 scopes and per-workspace agent blocks.

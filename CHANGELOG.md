@@ -7,6 +7,153 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-10
+
+A minor release about MCP and working with AI agents: a smaller tool list on request, pages as MCP resources and
+three prompts, a memory check, agents that only suggest after reading suspicious text, file uploads and PDF text for
+agents, agent connection tokens for apps that cannot sign in, and a connection settings generator. Three database
+migrations, all additive: `0048_wave16_taint` (table `connection_taints` and the workspace setting
+`agent_taint_demote`), `0049_wave16_agent_tokens` (columns `oauth_grants.kind` and `token_prefix` for agent
+connection tokens) and `0050_wave16_agent_uploads` (`workspaces.agent_uploads`, `files.uploaded_via` and a partial
+index on `files`). A 0.15.1 database goes from 48 to 51 applied migrations. New dependency `unpdf` 1.9.1 (pure
+JavaScript, no native build; about 2.5 MB in the image). Three new environment variables, all optional:
+`AGENT_UPLOADS`, `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB`. Upgrade matrix adds v0.15.1
+(`.github/workflows/upgrade.yml`).
+
+### Upgrade notes
+- **Agents that read suspicious text only suggest for an hour, on by default.** When an MCP connection, an agent
+  connection token or a personal API token is handed content the injection heuristics flag, its section and body
+  edits become suggestions for a person and its other writes (new pages, renames, moves, trash, rows, uploads) are
+  refused with `403 CONNECTION_SUGGEST_ONLY` for 60 minutes after the last such read. Comments, claims and withdrawing
+  its own suggestions still work. Owners and admins can switch it off per workspace in Workspace settings › Connected
+  agents › Suspicious content; the connection's owner (Settings › Connections) or a workspace admin (for that
+  workspace's pages) can lift it early (docs/adr/2040-* .. 2043-*).
+- **`GET /api/oauth/grants` returns OAuth connections only** (`kind = 'oauth'`). Agent connection tokens are stored
+  as grants too and have their own list, `GET /api/agent-tokens`. `DELETE` and `PATCH /api/oauth/grants/:id` work for
+  both (docs/adr/2060-*).
+- **read_file scans the text it returns.** Attachment text and PDF text are checked for injection-like content when
+  read_file returns them; a hit prints `suspicious: injection-like (…)` and makes the connection suggest-only, as a
+  flagged page does (docs/adr/2046-*).
+- `POST /api/files` with a bearer token (MCP, agent connection tokens, API tokens) now needs `pageId`, checks the
+  page's edit lock for the connection, takes at most `AGENT_UPLOAD_MAX_MB` (default 5 MB) and types the file from its
+  name and bytes (the Content-Type sent is ignored). Browser uploads are unchanged and have no budget, except that
+  `text/csv`, `text/markdown` and `application/json` are now accepted (docs/adr/2044-*, 2045-*).
+- **Uploads by AI agents can be turned off** (docs/adr/2065-*). `AGENT_UPLOADS=on` (default) / `off` / `never`, and
+  each workspace can follow the server or turn them on or off (Workspace settings › Connected agents › File uploads).
+  Nothing changes unless you set it: agent uploads are on with 5 MB per file and 200 MB per account per 24 hours,
+  counted over uploads through connections only (`AGENT_UPLOAD_DAILY_MB=0` removes the budget).
+- `AGENT_UPLOAD_MAX_MB` (default 5, at most 64) raises the per-file cap for agents. Above 8 MB the `/mcp` body limit
+  grows for upload_file calls only (base64 of the file + 1 MB); every other MCP request keeps 12 MB. An upload in
+  flight holds about four times the file in memory (docs/OPERATIONS.md section 10).
+- `/mcp` now reads its query string (`?profile=core`). Connections without `profile` get the full list, as before;
+  an unknown value is HTTP 400. A reverse proxy that drops the query string gives every connection the full list
+  (docs/adr/2000-*).
+- Personal API tokens still do not work at `/mcp` (docs/adr/1201-*); use an agent connection token there.
+
+### Added
+- **MCP tool profiles** (docs/adr/2000-*). The MCP URL takes `?profile=core` or `?profile=full`; without it a
+  connection is `full`, as before. `core` lists 32 tools (the everyday flows: find and read, section writes,
+  comments, inbox, catch_up, changes_since, section claims, suggestions, rows, read_file) including `more_tools`,
+  which lists the other 16 tools, prints one tool's arguments and runs it with the tool's own checks. core's tool list
+  is ~7,437 tokens against ~12,370 for full (0.15.1: ~11,923). The OAuth resource indicator
+  `https://<host>/mcp?profile=core|full` is accepted as `/mcp`.
+- **MCP resources**: pages as `inkling://page/<id>` (a resource template), and a short list for clients' `@` menus —
+  your favorites, then the most recently changed pages, at most 50, with every access rule of the tools. Reading one
+  returns the read_page answer (docs/adr/2001-*).
+- **MCP prompts** `catch-up`, `meeting-notes` and `memory-review` (fixed server text, id arguments only)
+  (docs/adr/2002-*).
+- **MCP `check_notes`**: a read-only memory check of a workspace or subtree — broken `[[links]]` (and links to
+  trashed pages), duplicate titles, pages with no links in or out, lapsed or much-changed verifications, large pages
+  unchanged for 180 days; totals and top items within a token budget. REST: `GET /api/workspaces/:id/notes-check`
+  (docs/adr/2003-*).
+- **MCP `upload_file(pageId, name, text | base64, section?, attachOnly?)`**: attach a PNG, JPEG, GIF, WebP, PDF,
+  txt/log/tsv, csv, md or json file to a page the connection may edit, linked at the end of the page or of a section
+  through the page's own write path — so it is in the change feed, catch_up and revert, and becomes a suggestion where
+  agent edits are reviewed. SVG, HTML, scripts and unknown types are refused (docs/adr/2044-*, 2045-*).
+- **`read_file` reads PDFs**: the text layer by page range (`pages: "1-5"`, default 1–20, at most 50 per call, files
+  up to 20 MB), wrapped as untrusted, with "pages A–B of N" and where to continue; scanned PDFs answer "no text" (no
+  OCR), password-protected and damaged PDFs say so. Parsed in a worker thread with a 10 s limit (docs/adr/2047-*,
+  2048-*).
+- `read_file` reads more text files by extension (yaml, yml, xml, html, htm, svg as source, ini, toml, cfg, conf,
+  sql, rst, tex, md, csv, tsv, log), also when an import stored them as `application/octet-stream` (docs/adr/2046-*).
+- **Agent connection tokens** (Settings › Connections › Agent connection tokens, docs/adr/2060-* .. 2063-*): for AI
+  apps that cannot sign in with OAuth — no dynamic client registration, a server on plain `http://` at a LAN
+  address, a self-signed certificate. Name it (the name is its "via" label), pick read or read and write and a range
+  as on the consent screen, and an expiry (7, 30, 90 by default, or 365 days; no "never"). The token (`ink_agt_…`) is
+  shown once and works only at `/mcp`, as `Authorization: Bearer …`. It is an agent connection like a signed-in app:
+  agent edit locks and instructions, the workspace's edit policy and suggestions, claims, usage, agent blocks and the
+  two-step requirement, the Connected agents list, the team agents board, hand-offs and assignments, suggest-only
+  after flagged content, tool profiles, resources and prompts all apply. At most 20 live tokens per account.
+- **Connection settings generator** (Settings › Connections › Connect an AI app, docs/adr/2020-*): pick Claude Code,
+  Claude Desktop / claude.ai, Cursor, VS Code or another app, and copy the command, the JSON for the app's file, or
+  the URL. Choose all tools or the core tools (`/mcp?profile=core`), and sign-in or an agent connection token: while a
+  token you just made is shown it is filled into the command or file; it is never stored. A short help covers local
+  servers and certificates. Windsurf is not listed; its documentation no longer describes its format, so use the
+  generic JSON.
+- **Suggest-only connections in the app** (docs/adr/2040-* .. 2043-*): connection lists and the team agents board say
+  "Suggestions only until HH:MM"; the owner can **Allow edits again**, workspace owners and admins can **Allow edits
+  here** when the flagged content was in their workspace. Suggestions with origin `taint` show why they wait and are
+  never auto-accepted. Release routes, the workspace switch, `suggestOnly` on the connection lists, audit events
+  `agent.tainted` and `agent.taint_released`.
+- **Long agent instructions** (docs/adr/2004-*, 2021-*): get_instructions ends with one note when the instructions it
+  returned are longer than 200 lines or 25 KB; `GET /api/workspaces/:id/agent-instructions/length` gives the sizes,
+  and the edit lock dialog and the page's lock line show a warning for a long instruction page.
+- Workspace setting "Uploads by AI agents" (server default / on / off), owners and admins, audited as
+  `settings.updated`; refusals are 403 `AGENT_UPLOADS_OFF` naming who can change it; under `AGENT_UPLOADS=never` the
+  setting is shown disabled with the reason (docs/adr/2065-*).
+- Admin › Status shows the agent upload mode, the per-file cap, the daily budget ("no daily budget" for 0) and the MCP
+  body limit for upload_file calls; a mistyped value shows as a warning.
+- An Inkling skill for Claude Code, `examples/claude-skill/inkling/SKILL.md`: the order to use the tools in
+  (find_context first, outline then section, baseVersion, claims, suggestions, inbox and ack, catch_up, hand-offs,
+  splitting logs, the memory check). Copy it to `~/.claude/skills/inkling/` (docs/adr/2022-*).
+- docs/RECIPES: "Team memory: keeping it usable" (one page per item, short instructions as an index, periodic
+  checks with check_notes, the source next to the fact).
+- Audit actions `agent.token_created`, `agent.token_revoked` and `agent.token_range_changed`, written in each
+  workspace the token's range reaches.
+
+### Changed
+- The claude.ai connector steps follow Claude's current menu: Customize › Connectors › + Add › Add custom connector
+  (Team and Enterprise: Organization settings › Connectors).
+- `can:` lines say `suggest` while the connection is suggest-only in that workspace.
+- `oauth_grants.tainted_at` is still written but no longer the record of taint; `connection_taints` is.
+- The `/mcp` 401 for an `ink_agt_` token reads "Invalid, expired or revoked agent connection token".
+- Routes and fields: [docs/API.md](docs/API.md), "v0.16.0 additions".
+
+### Fixed
+- `agentVia.db.test.ts` "the daily AI summary names the agent page, never the form row" could find no
+  `agent_digest` item when the database clock ran ahead of the test host (Docker's VM clock drifts after a laptop
+  sleeps); the test now closes the window on the database clock. No product change.
+
+### Security
+- An agent that was handed injection-like content can no longer write unreviewed for an hour (see above). The
+  heuristics are mitigations, not a boundary: they are evaded by paraphrase, other languages and split text
+  (docs/KNOWN-ISSUES.md).
+- Uploads through connections are typed by the server; SVG, HTML, scripts and other active or unknown types are
+  refused.
+- Guessing agent connection tokens at `/mcp` counts towards the IP ban (10 in 15 minutes); a banned IP gets 429 for
+  `ink_agt_` tokens before any lookup. An expired token that exists is not counted, and OAuth access tokens are not
+  counted (clients present expired ones before refreshing) (docs/adr/2062-*).
+- Agent connection tokens are made, listed and revoked in a browser session only; a token never makes another.
+
+### Performance
+- MCP fixed cost per session (tools/list + server instructions): ~12,390 tokens in 0.15.1; 0.16 full ~12,837
+  (+3.6%: upload_file 207, check_notes 201, read_file +38), core ~7,904 (−36.2%). The initialize result grew by 16
+  tokens (resources and prompts capabilities).
+- check_notes on 2,000 pages: p50 18.0 ms, p95 26.8 ms; default answer 552 tokens.
+- PDF text (worker thread per call): a 3-page PDF in a median 73 ms, a 200-page one in 129 ms; the main thread's
+  longest timer gap 2.6 ms.
+- A write by a bearer connection runs one indexed statement per workspace for the suggest-only check; browser
+  requests run none.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Database
+- Migration 0048: table `connection_taints` (one row per connection and flagged source, pruned after 30 days),
+  `workspaces.agent_taint_demote boolean not null default true` (docs/adr/2040-*, 2043-*).
+- Migration 0049: `oauth_grants.kind text not null default 'oauth'` (existing rows become `oauth`),
+  `oauth_grants.token_prefix text` (docs/adr/2061-*).
+- Migration 0050: `workspaces.agent_uploads text` (NULL = server default), `files.uploaded_via text` and the partial
+  index `files_agent_uploads_idx (created_by, created_at) WHERE uploaded_via IS NOT NULL` (docs/adr/2065-*).
+
 ## [0.15.1] - 2026-11-10
 
 A patch release that follows an outside evaluation of the agent tools and reports from a production server. One

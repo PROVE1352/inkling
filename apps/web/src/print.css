@@ -279,3 +279,110 @@
     color: #000;
   }
 }
+
+/*
+ * The app's own "Export as PDF" of a page (docs/adr/0307-*, 0308-*): the BlockNote editor's DOM.
+ * The public page section above styles the server's HTML; these rules reach the editor's node views,
+ * whose screen styles (BlockNote's editor.css / Block.css, prosemirror-tables) otherwise win over the
+ * generic table rule at the top of this file.
+ */
+@media print {
+  /* dark theme: BlockNote's root carries the `dark` class too, which redefines the palette below the
+     html element, and the editor sets its own light body text colour; paper takes the light palette */
+  html.nd-printing .dark {
+    --color-app: #ffffff;
+    --color-side: #f7f7f5;
+    --color-line: #e3e3e0;
+    --color-ink: #1f1f1d;
+    --color-sub: #6b6b68;
+    --color-accent: #4f46e5;
+    --color-accent-soft: #eef0ff;
+    --color-hover: transparent;
+    --color-active: transparent;
+    color-scheme: light;
+  }
+  html.nd-printing .bn-container .bn-editor {
+    color: var(--color-ink) !important;
+  }
+  /* the block-handle gutter is screen-only (phones drop it too); the header follows the body */
+  html.nd-printing .bn-container .bn-editor,
+  html.nd-printing .nd-doc-head {
+    padding-inline: 0 !important;
+  }
+  html.nd-printing.dark .bn-editor .bn-block-content[data-content-type='codeBlock'] .shiki {
+    color: var(--shiki-light) !important;
+    font-style: var(--shiki-light-font-style, inherit) !important;
+    font-weight: var(--shiki-light-font-weight, inherit) !important;
+  }
+  html.nd-printing.dark .bn-editor [data-content-type='divider'] hr {
+    border-top-color: rgba(28, 19, 1, 0.11) !important;
+  }
+
+  /* tables: on screen a table keeps its column widths (prosemirror-tables puts the sum on the table as an
+     inline min-width, 120 px per column without a width) and scrolls in .tableWrapper; BlockNote's
+     `width: auto !important` outranks the generic table rule. On paper the columns share the page width,
+     cells wrap, and wide tables (7+ columns) take a smaller type. */
+  html.nd-printing .bn-editor [data-content-type='table'] .tableWrapper,
+  html.nd-printing .bn-editor [data-content-type='table'] .tableWrapper-inner {
+    overflow: visible !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  html.nd-printing .bn-editor [data-content-type='table'] table {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
+  }
+  html.nd-printing .bn-editor [data-content-type='table'] col {
+    width: auto !important;
+  }
+  /* break-word, not anywhere: a column is at least as wide as its longest word, which wraps only when a
+     single word is wider than the whole page share */
+  html.nd-printing .bn-editor [data-content-type='table'] :is(th, td) {
+    min-width: 0 !important;
+    overflow-wrap: break-word;
+    word-break: normal !important;
+  }
+  html.nd-printing .bn-editor [data-content-type='table'] table:has(tr > :nth-child(7)) {
+    font-size: 8pt;
+  }
+  html.nd-printing .bn-editor [data-content-type='table'] table:has(tr > :nth-child(7)) :is(th, td) {
+    padding: 2px 4px !important;
+  }
+
+  /* toggles (toggle lists and toggle headings) print open: BlockNote hides a closed toggle's children
+     with display:none on its block group; the arrow is screen-only */
+  html.nd-printing .bn-block:has(> .bn-block-content > div > .bn-toggle-wrapper[data-show-children='false']) > .bn-block-group,
+  html.nd-printing
+    .bn-block:has(> .react-renderer > .bn-block-content > div > .bn-toggle-wrapper[data-show-children='false'])
+    > .bn-block-group {
+    display: block !important;
+  }
+  html.nd-printing .bn-editor .bn-toggle-button {
+    display: none !important;
+  }
+
+  /* headings: the block of a heading stays with the next block (a tall block that cannot split, such as a
+     code block, would otherwise move on alone and leave the heading at the bottom of the page), and a toggle
+     heading reserves the same room as a plain one. Chrome ignores break-after: avoid on a block inside
+     BlockNote's flex column (.bn-block), so on paper that column is a plain block; its two children
+     (content, nested blocks) stack the same way. */
+  html.nd-printing .bn-editor .bn-block {
+    display: block !important;
+  }
+  html.nd-printing .bn-editor .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type='heading']) {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  html.nd-printing [data-content-type='heading'] > div > .bn-toggle-wrapper > :is(h1, h2, h3, h4, h5, h6) {
+    break-inside: avoid;
+  }
+  html.nd-printing [data-content-type='heading'] > div > .bn-toggle-wrapper > :is(h1, h2, h3, h4, h5, h6)::after {
+    content: '';
+    display: block;
+    height: 4.5em;
+    margin-bottom: -4.5em;
+  }
+}

@@ -5,6 +5,7 @@ import { prefersReducedMotion } from '../lib/motion'
 import { useTheme } from '../lib/theme'
 import { slideKey, splitSlides, swipeDirection } from '../lib/present'
 import { renderMathIn } from '../lib/katex'
+import { renderMermaidIn } from '../lib/mermaidPublic'
 import { useT } from '../i18n'
 
 // Presentation mode (docs/adr/1843-*): a page's blocks as full-screen slides, split at its
@@ -52,14 +53,22 @@ export function Presentation({
   closeRef.current = onClose
   const go = useCallback((i: number) => setIndex(Math.max(0, Math.min(count - 1, i))), [count])
 
-  // Fill the slide with fresh copies (the same block may be shown again after going back).
+  // Fill the slide with fresh copies (the same block may be shown again after going back). Mermaid
+  // code blocks are drawn here as on public pages (docs/adr/2191-*): a public link's HTML carries
+  // only the source, and an editor copy whose diagram had not been drawn yet would show its code.
+  // A copy that already holds the editor's drawn diagram is left as it is.
   useLayoutEffect(() => {
     const el = bodyRef.current
     if (!el) return
     el.replaceChildren(...(slides[index] ?? []).map((b) => b.cloneNode(true)))
     el.scrollTop = 0
-    return renderMath ? renderMathIn(el) : undefined
-  }, [slides, index, renderMath])
+    const undoMath = renderMath ? renderMathIn(el) : undefined
+    const undoMermaid = renderMermaidIn(el, resolved)
+    return () => {
+      undoMath?.()
+      undoMermaid()
+    }
+  }, [slides, index, renderMath, resolved])
 
   // Full screen where the browser allows it (iOS Safari: the fixed overlay is the fallback). Leaving
   // full screen from the browser (its own Esc) ends the presentation too.

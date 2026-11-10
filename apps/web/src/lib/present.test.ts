@@ -6,6 +6,8 @@ import path from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { cloneForSlides, slideKey, splitSlides, swipeDirection, topLevelBlocks } from './present'
+import { renderMermaidIn } from './mermaidPublic'
+import { setLocaleChoice } from '../i18n'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const serverRequire = createRequire(path.resolve(here, '../../../server/package.json'))
@@ -48,6 +50,40 @@ describe('presentation slides (1843)', () => {
     assert.equal(copy.querySelector('[data-id]'), null)
     assert.equal(copy.getAttribute('data-id'), null)
     assert.equal(copy.querySelector('[contenteditable]'), null)
+  })
+
+  it('Mermaid slides: server HTML code is drawn on the slide; an editor copy with its diagram is kept', async () => {
+    setLocaleChoice('en')
+    // public link: BlockNote's code block HTML with the source only
+    const serverCode = (src: string) =>
+      block('codeBlock', `<pre><code class="bn-inline-content language-mermaid" data-language="mermaid">${src}</code></pre>`, ' data-language="mermaid"')
+    // in-app: a copy of the editor's block whose diagram is drawn (MermaidBlock.tsx)
+    const editorCopy = (src: string) =>
+      block(
+        'codeBlock',
+        `<div><select><option>Mermaid</option></select></div><pre><code>${src}</code></pre><div class="nd-mermaid-host"><img class="nd-mermaid-img" src="data:image/svg+xml;base64,PHN2Zy8+"></div>`,
+        ' data-language="mermaid"',
+      ).replace('class="bn-block-content"', 'class="bn-block-content nd-mermaid nd-mermaid-ok"')
+    const d = doc(h(1, 'One'), serverCode('flowchart LR\n A--&gt;B'), h(1, 'Two'), editorCopy('flowchart LR\n C--&gt;D'))
+    const slides = splitSlides(topLevelBlocks(d))
+    assert.deepEqual(texts(slides).map((t) => t.split('|')[0]), ['', 'One', 'Two'])
+    const calls: string[] = []
+    const render = async (source: string) => {
+      calls.push(source)
+      return { ok: true, src: 'data:image/svg+xml;base64,PHN2Zy8+', width: 10, height: 10 }
+    }
+    for (const [i, slide] of [slides[1], slides[2]].entries()) {
+      const body = d.createElement('div')
+      d.body.appendChild(body) // drawn only while on the page (the presenter's slide is)
+      body.replaceChildren(...slide.map((b) => b.cloneNode(true)))
+      const stop = renderMermaidIn(body, 'light', render)
+      await new Promise((r) => setTimeout(r, 0))
+      const shown = [...body.querySelectorAll('img[src^="data:image/svg"]')].filter((img) => img.closest('[style*="display: none"]') === null)
+      assert.equal(shown.length, 1, `slide ${i + 1} shows one diagram`)
+      stop()
+      body.remove()
+    }
+    assert.deepEqual(calls, ['flowchart LR\n A-->B'])
   })
 
   it('keys and swipes', () => {

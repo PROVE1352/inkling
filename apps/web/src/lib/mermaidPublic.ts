@@ -11,11 +11,16 @@ import { t } from '../i18n'
 
 type Render = (source: string, theme: MermaidTheme) => Promise<MermaidResult>
 
-/** The code blocks of `root` whose language is a Mermaid one, with their source. */
+/**
+ * The code blocks of `root` whose language is a Mermaid one, with their source. A copy of an editor
+ * block whose diagram is already drawn (`nd-mermaid-ok`, components/blocks/MermaidBlock.tsx — the
+ * presentation's slides) is skipped: it shows its own image.
+ */
 export function mermaidCodeBlocks(root: ParentNode): { block: Element; pre: HTMLElement; source: string }[] {
   const out: { block: Element; pre: HTMLElement; source: string }[] = []
   for (const block of root.querySelectorAll('[data-content-type="codeBlock"][data-language]')) {
     if (!isMermaidLanguage(block.getAttribute('data-language'))) continue
+    if (block.classList.contains('nd-mermaid-ok')) continue
     const pre = block.querySelector<HTMLElement>(':scope > pre')
     const source = (pre?.textContent ?? '').trim()
     if (pre && source) out.push({ block, pre, source })

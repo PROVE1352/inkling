@@ -847,6 +847,12 @@ html[data-resizing] .nd-sidebar-shell {
   outline-offset: 2px;
   border-radius: var(--radius-md);
 }
+/* presentation: a code block keeps BlockNote's dark box (bn-default-styles on the slide); the public body's
+   light <pre> under BlockNote's white code text left the code unreadable on slides */
+.nd-present-body .bn-block-content[data-content-type='codeBlock'] > pre {
+  background: transparent;
+  border: 0;
+}
 /* presentation (copies of the editor's blocks): the diagram only */
 .nd-present-body .nd-mermaid.nd-mermaid-ok > pre,
 .nd-present-body .nd-mermaid.nd-mermaid-ok > div:first-child,

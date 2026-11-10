@@ -19,6 +19,7 @@ function el(tag: string, attrs: Record<string, string> = {}, children: any[] = [
     isConnected: true,
     textContent: text,
     getAttribute: (k: string) => attrs[k] ?? null,
+    classList: { contains: (c: string) => (attrs.class ?? '').split(' ').includes(c) },
     querySelector: (sel: string) => (sel === ':scope > pre' ? children.find((c) => c.tag === 'pre') ?? null : null),
     after: (x: any) => node.siblings.push(x),
     siblings: [] as any[],
@@ -44,6 +45,12 @@ describe('Mermaid on public pages', () => {
   it('picks mermaid and mmd code blocks (any case), not other languages or empty ones', () => {
     const blocks = [block('mermaid', 'graph TD\n A-->B'), block('MMD', 'pie\n "a": 1'), block('js', 'x()'), block('mermaid', '   '), block('dataview', 'LIST')]
     assert.deepEqual(mermaidCodeBlocks(root(blocks)).map((b) => b.source), ['graph TD\n A-->B', 'pie\n "a": 1'])
+  })
+
+  it('skips a copy of an editor block whose diagram is already drawn (presentation slides)', () => {
+    const drawn = el('div', { 'data-content-type': 'codeBlock', 'data-language': 'mermaid', class: 'bn-block-content nd-mermaid nd-mermaid-ok' }, [el('pre', {}, [], 'graph TD\n A-->B')])
+    const pending = el('div', { 'data-content-type': 'codeBlock', 'data-language': 'mermaid', class: 'bn-block-content nd-mermaid' }, [el('pre', {}, [], 'graph LR\n C-->D')])
+    assert.deepEqual(mermaidCodeBlocks(root([drawn, pending])).map((b) => b.source), ['graph LR\n C-->D'])
   })
 
   it('puts the image after the code and hides the code; an error keeps the code; cleanup restores', async () => {

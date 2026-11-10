@@ -23,7 +23,7 @@ export const INTRO_WORDS = [
   'pageA', 'pageB', 'peer1', 'peer2', 'goal', 'todo1', 'todo2', 'todo3', 'backlink', 'db', 'viewTable', 'viewBoard',
   'colName', 'colStatus', 'colOwner', 'todo', 'doing', 'done', 'row1', 'row2', 'row3', 'row4', 'agent', 'question',
   'secGoal', 'secDecision', 'secOverview', 'secSchedule', 'secOwner', 'schedule', 'decision', 'answer', 'clients',
-  'notice', 'review', 'sugBadge', 'mode', 'by', 'added', 'accept', 'reject', 'undo', 'server', 'offline', 'synced',
+  'notice', 'review', 'sugBadge', 'mode', 'beforeAi', 'by', 'added', 'accept', 'reject', 'undo', 'server', 'offline', 'synced',
 ] as const
 export type IntroWord = (typeof INTRO_WORDS)[number]
 
@@ -290,8 +290,8 @@ const SCENE_DROP: DropKey[][] = [
     { t: 1.3, x: 974, y: 206 },
     { t: 1.65, x: 180, y: 384 },
     { t: 2.75, x: 180, y: 384 },
-    { t: 3.1, x: 520, y: 604 },
-    { t: 4.0, x: 520, y: 604 },
+    { t: 3.1, x: 460, y: 604 },
+    { t: 4.0, x: 460, y: 604 },
     { t: 4.45, x: 140, y: 826 },
     { t: 4.85, x: 140, y: 826 },
     { t: 5.55, x: 402, y: 910, e: 'ride' },
@@ -769,15 +769,18 @@ function scene3(L: number, t: number, c: IntroCopy): string {
     pg += op(acc, op(glow, box(128, 384, Math.min(756, tw(w.added, 26) + 24), 46, 8, `fill:${C.soft}`)) + text(140, 416, w.added, 26, C.ink))
   }
   pg += box(140, 470, 380, 13, 6.5, `fill:${C.line}`) + box(140, 500, 300, 13, 6.5, `fill:${C.line}`)
-  // versions: v1, v2, then v3 when the suggestion is accepted, and Revert for a moment
+  // versions: v1, v2, then the "Before AI edit" point that accepting a section replacement saves
+  // (docs/adr/0930-*), and Revert for a moment
   pg += box(140, 638, 680, 3, 1.5, `fill:${C.line}`)
-  ;[200, 360, 520].forEach((x, i) => {
+  ;[200, 330, 460].forEach((x, i) => {
     const p = i < 2 ? 1 : popAt(L, 3.0, 0.3)
-    pg += sc(x, 639, p, dot(x, 639, 12, i === 2 ? `fill:${C.accent}` : `fill:${C.app};stroke:${C.sub};stroke-width:3`) + text(x, 676, `v${i + 1}`, 22, C.sub, { a: 'middle' }))
+    const label = i < 2 ? `v${i + 1}` : w.beforeAi
+    pg += sc(x, 639, p, dot(x, 639, 12, i === 2 ? `fill:${C.accent}` : `fill:${C.app};stroke:${C.sub};stroke-width:3`) + text(i < 2 ? x : x - 14, 676, label, 20, i < 2 ? C.sub : C.accent, { a: i < 2 ? 'middle' : 'start', w: i < 2 ? 400 : 600 }))
   })
   const uw = tw(w.undo, 22) + 58
+  const ux = 640
   const up = Math.min(popAt(L, 3.15, 0.3), 1 - seg(L, 4.5, 4.7))
-  pg += sc(580 + uw / 2, 639, up, box(580, 619, uw, 40, 20, `fill:${C.soft}`) + `<path d="M603,646 a10,10 0 1 0 -2,-12 M597,630 l4,5 l5,-4" style="fill:none;stroke:${C.accent};stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"/>` + text(622, 647, w.undo, 22, C.accent, { w: 700 }))
+  pg += sc(ux + uw / 2, 639, up, box(ux, 619, uw, 40, 20, `fill:${C.soft}`) + `<path d="M${ux + 23},646 a10,10 0 1 0 -2,-12 M${ux + 17},630 l4,5 l5,-4" style="fill:none;stroke:${C.accent};stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"/>` + text(ux + 42, 647, w.undo, 22, C.accent, { w: 700 }))
   s += pg
 
   // the review (a dialog over the page): the suggested sentence, Reject and Accept

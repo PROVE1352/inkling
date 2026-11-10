@@ -1,6 +1,6 @@
 # 2382. The intro motion is SVG drawn in code as a pure function of time, in a lazy chunk
 
-- Status: Accepted
+- Status: Accepted (extended by [ADR 2385](2385-intro-end-screen-camera-and-ink-wipe.md) in 0.19.1: new scenes, a camera, ink wipes, the end screen; the viewBox and size figures below are 0.19.0's)
 - Date: 2026-11-11
 
 ## Context

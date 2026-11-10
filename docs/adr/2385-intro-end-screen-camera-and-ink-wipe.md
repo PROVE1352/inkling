@@ -14,11 +14,13 @@ a lazy chunk.
 ## Decision
 - **Scenes** (still 4 × 6.5 s): notes written together, with the database view inside the page turning
   from a table into a board; an agent reading (find_context picks two sections, not pages, and the answer
-  cites them as `Page › Heading`); the agent editing while a person decides (a suggestion reviewed and
-  accepted, a new version with Revert, then update_row moving a board card); your own server (sync,
+  cites them as `Page › Heading`); the agent editing while a person decides (a section replacement
+  suggested, reviewed and accepted, the "Before AI edit" point that accepting it saves (ADR 0930) with
+  Revert, then update_row moving a board card); your own server (sync,
   offline, synced, the logo). Words come from i18n, colours from the theme tokens and the select option
   colours. Things the app does not show are not drawn (no "AI" badge on rows; update_row gets no
-  version dot, it is not an AI step).
+  version dot, it is not an AI step; the suggestion is a replacement because accepting an append saves no
+  undo point).
 - **Camera**: each scene is drawn in its own 1920×1080 world; `CAMS` holds 4–6 keys per scene (a
   rectangle to fit and a focus point), eased in and out. The player measures the picture's box and passes
   `aspect`; a frame narrower than 1.3 shows at most 700 world units across, centred on the focus point, so
@@ -55,7 +57,7 @@ a lazy chunk.
   database now lives inside the notes scene and comes back as something an agent changes.
 
 ## Trade-offs
-- The chunk grew from 20.6 kB (7.6 kB gzip) to 34.6 kB (13.4 kB gzip); the longer copy also sits in the
+- The chunk grew from 20.6 kB (7.5 kB gzip) to 34.7 kB (13.5 kB gzip); the longer copy also sits in the
   i18n chunk that the entry preloads.
 - On a phone the camera shows part of a scene at a time; the words drawn in the picture are about 12–16 px.
 - The 0.8 s reading rule is tested on the markup (every completed string present for 0.8 s at 0.05 s

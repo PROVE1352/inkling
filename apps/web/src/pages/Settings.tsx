@@ -44,6 +44,7 @@ import { TwoFactorSettings } from '../components/TwoFactorSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
 import { PushSettings } from '../components/PushSettings'
 import { SidebarSettings } from '../components/SidebarSettings'
+import { WorkspaceListSettings } from '../components/WorkspaceOrganizer'
 import { VersionInfo } from '../components/VersionInfo'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
@@ -610,6 +611,7 @@ function SectionBody({ id, label }: { id: SectionId; label: string }) {
       return (
         <SettingsFlat omitTitle>
           <SidebarSettings />
+          <WorkspaceListSettings />
         </SettingsFlat>
       )
     case 'files':

@@ -16,16 +16,18 @@ import {
 } from '../api'
 import {
   ChevronDownIcon,
-  CheckIcon,
   DownloadIcon,
   PlusIcon,
   SettingsIcon,
+  SlidersIcon,
   UploadIcon,
   UsersIcon,
 } from './Icons'
 import { Modal } from './Modal'
 import { GuestBadge } from './GuestBadge'
 import { NotionImportModal } from './NotionImportModal'
+import { WorkspaceSwitcherList } from './WorkspaceSwitcherList'
+import { WorkspaceOrganizer } from './WorkspaceOrganizer'
 import { Spinner } from './Spinner'
 import { toast } from '../lib/toast'
 import { t, useT } from '../i18n'
@@ -44,6 +46,7 @@ export function WorkspaceSwitcher({
   const [showJoin, setShowJoin] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [showNotion, setShowNotion] = useState(false)
+  const [showOrganize, setShowOrganize] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const importWs = useImportWorkspace(wsId)
@@ -139,24 +142,15 @@ export function WorkspaceSwitcher({
 
       {open && (
         <div className="nd-pop absolute left-0 right-0 top-full z-40 mt-1 max-h-[calc(100dvh-4.5rem)] origin-top overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl">
-          <div className="max-h-64 overflow-y-auto">
-            {workspaces.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  if (w.id !== wsId) navigate(`/w/${w.id}`)
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-hover"
-              >
-                <WorkspaceAvatar name={w.name} icon={w.icon} size={18} />
-                <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                {w.role === 'guest' && <GuestBadge />}
-                {w.id === wsId && <CheckIcon size={15} className="text-accent" />}
-              </button>
-            ))}
-          </div>
+          {/* groups and "Archived" once the person has any; the plain list otherwise (docs/adr/2300-*) */}
+          <WorkspaceSwitcherList
+            wsId={wsId}
+            workspaces={workspaces}
+            onPick={(w) => {
+              setOpen(false)
+              if (w.id !== wsId) navigate(`/w/${w.id}`)
+            }}
+          />
           {/* A guest has no workspace menu: members, settings, export and import all answer 403 (docs/adr/1252-*). */}
           {!guest && (
           <>
@@ -205,6 +199,17 @@ export function WorkspaceSwitcher({
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
           >
             <span className="w-[15px] text-center">＃</span> {t('workspace.joinWithCode')}
+          </button>
+          <button
+            type="button"
+            data-testid="ws-organize"
+            onClick={() => {
+              setOpen(false)
+              setShowOrganize(true)
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink"
+          >
+            <SlidersIcon size={15} /> {t('wsGroups.organize')}
           </button>
 
           {!guest && (
@@ -279,6 +284,9 @@ export function WorkspaceSwitcher({
       />
 
       <NotionImportModal open={showNotion} onClose={() => setShowNotion(false)} wsId={wsId} />
+      <Modal open={showOrganize} onClose={() => setShowOrganize(false)} title={t('wsGroups.title')} size="md">
+        <WorkspaceOrganizer />
+      </Modal>
       <CreateWorkspaceModal
         open={showCreate}
         onClose={() => setShowCreate(false)}

@@ -1,5 +1,7 @@
 import { Navigate } from 'react-router'
 import { useMe, useWorkspaces } from '../api'
+import { landingWorkspace } from '../lib/workspaceListing'
+import { useWorkspaceGroups } from '../workspaceListingApi'
 import { FullScreenSpinner } from '../components/Spinner'
 import { Onboarding } from './Onboarding'
 
@@ -7,6 +9,7 @@ import { Onboarding } from './Onboarding'
 export function Home() {
   const me = useMe()
   const workspaces = useWorkspaces()
+  const groups = useWorkspaceGroups()
 
   if (me.isLoading) return <FullScreenSpinner />
   if (me.isError || !me.data) return <Navigate to="/login" replace />
@@ -21,6 +24,7 @@ export function Home() {
   } catch {
     last = null
   }
-  const target = list.find((w) => w.id === last)?.id ?? list[0].id
+  // the last one used, else the first one not archived in switcher order (docs/adr/2300-*)
+  const target = landingWorkspace(list, groups, last)?.id ?? list[0].id
   return <Navigate to={`/w/${target}`} replace />
 }

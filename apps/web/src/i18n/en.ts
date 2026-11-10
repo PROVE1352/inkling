@@ -34,6 +34,7 @@ import clip from './en/clip'
 import push from './en/push'
 import automations from './en/automations'
 import offline from './en/offline'
+import workspaceGroups from './en/workspace-groups'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -74,6 +75,7 @@ export const en = {
   ...push,
   ...automations,
   ...offline,
+  ...workspaceGroups,
 }
 
 export type MessageKey = keyof typeof en

@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { usePages, useWorkspaces } from '../api'
 import { PageIconGlyph } from './PageIconGlyph'
+import { switcherOrder } from '../lib/workspaceListing'
+import { useWorkspaceGroups } from '../workspaceListingApi'
 import { getActiveEditor } from '../lib/activeEditor'
 import { SHORTCUTS, isAvailable, onCommandsChanged, runCommand, shortcutLabel, useShortcutKeys } from '../lib/shortcuts'
 import { PLATFORM } from '../lib/shortcuts'
@@ -119,6 +121,7 @@ export function CommandPalette({ open, onClose, wsId }: { open: boolean; onClose
   const navigate = useNavigate()
   const pages = usePages(wsId)
   const workspaces = useWorkspaces()
+  const wsGroups = useWorkspaceGroups()
   const listId = useId()
   // the user's keys (Settings › Shortcuts) changed: the hints and the key search follow
   const keysVersion = useShortcutKeys()
@@ -177,7 +180,8 @@ export function CommandPalette({ open, onClose, wsId }: { open: boolean; onClose
 
   const wsItems = useMemo<Item[]>(
     () =>
-      (workspaces.data ?? [])
+      // switcher order: groups, archived last (docs/adr/2300-*)
+      switcherOrder(workspaces.data ?? [], wsGroups)
         .filter((w) => w.id !== wsId)
         .map((w) => {
           const label = t('palette.switchWorkspace', { name: w.name })
@@ -189,7 +193,7 @@ export function CommandPalette({ open, onClose, wsId }: { open: boolean; onClose
             run: () => navigate(`/w/${w.id}`),
           }
         }),
-    [workspaces.data, wsId, navigate, t],
+    [workspaces.data, wsGroups, wsId, navigate, t],
   )
 
   // Plugin commands (experimental `plugins`; [] when off) are appended to the built-in actions.

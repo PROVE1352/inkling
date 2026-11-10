@@ -89,6 +89,7 @@ import { registerChartRoutes } from './routes/charts'
 import { registerSyncRoutes } from './routes/sync'
 import { registerEmbedCsp } from './embedCsp'
 import { registerLinkPreviewRoutes } from './routes/linkPreview'
+import { registerClipRoutes } from './routes/clip'
 import { registerShareMetaRoutes } from './routes/shareMeta'
 import { registerWebhookRoutes } from './routes/webhooks'
 import { initWebhooks } from './webhooks'
@@ -597,6 +598,8 @@ async function main(): Promise<void> {
       if (isExperimentalEnabled('vault-sync')) await registerSyncRoutes(api)
       // Link preview cards + workspace Slack/Discord webhooks (stable) — docs/adr/0502-*, 0504-*
       await registerLinkPreviewRoutes(api)
+      // Web clipper: POST /api/clip, GET /api/clip/lookup (docs/adr/2260-*)
+      await registerClipRoutes(api)
       await registerWebhookRoutes(api)
       // Slack app per workspace: settings, account links, /inkling and Events API (docs/adr/1800-*)
       await registerSlackRoutes(api)

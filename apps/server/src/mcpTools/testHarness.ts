@@ -89,6 +89,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       // memory check and instruction length (docs/adr/2003-*, 2004-*)
       await (await import('../routes/notesCheck')).registerNotesCheckRoutes(api)
       await (await import('../routes/instructionLength')).registerInstructionLengthRoutes(api)
+      await (await import('../routes/clip')).registerClipRoutes(api) // web clipper (docs/adr/2260-*)
     },
     { prefix: '/api' },
   )

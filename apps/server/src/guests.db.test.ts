@@ -112,6 +112,7 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
         await r(import('./routes/largePages'), 'registerLargePageRoutes')
         await r(import('./routes/files'), 'registerFileRoutes')
         await r(import('./routes/splitPage'), 'registerSplitPageRoutes')
+        await r(import('./routes/clip'), 'registerClipRoutes')
       },
       { prefix: '/api' },
     )
@@ -399,6 +400,30 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
       const view = await as(G, 'POST', '/api/pages', { workspaceId: ws1.id, parentId: id.viewRoot, title: 'x' })
       assert.equal(view.statusCode, 403)
       assert.equal(view.json().error.code, 'PAGE_ACCESS')
+    })
+
+    it('web clipper (docs/adr/2260-*): clips under an editable shared page only; lookup sees only the shared trees', async () => {
+      const url = `https://example.com/guest-clip-${W}`
+      const ok = await as(G, 'POST', '/api/clip', { workspaceId: ws1.id, parentId: id.inner, url, text: 'quote' })
+      assert.equal(ok.statusCode, 200, ok.body)
+      assert.equal(ok.json().page.parentId, id.inner)
+      const top = await as(G, 'POST', '/api/clip', { workspaceId: ws1.id, url })
+      assert.equal(top.statusCode, 403)
+      const outside = await as(G, 'POST', '/api/clip', { workspaceId: ws1.id, parentId: id.outside, url })
+      assert.equal(outside.statusCode, 400)
+      const view = await as(G, 'POST', '/api/clip', { workspaceId: ws1.id, parentId: id.viewRoot, url })
+      assert.equal(view.statusCode, 403)
+      assert.equal(view.json().error.code, 'PAGE_ACCESS')
+      // the same URL clipped by the owner outside the shared trees stays invisible to the guest
+      const mine = await as(O, 'POST', '/api/clip', { workspaceId: ws1.id, parentId: id.outside, url })
+      assert.equal(mine.statusCode, 200, mine.body)
+      const lu = await as(G, 'GET', `/api/clip/lookup?workspaceId=${ws1.id}&url=${encodeURIComponent(url)}`)
+      assert.equal(lu.statusCode, 200, lu.body)
+      assert.deepEqual(lu.json().pages.map((p: { id: string }) => p.id), [ok.json().page.id])
+      assert.ok(!lu.body.includes(mine.json().page.id))
+      assertNoOutside(lu.body, 'clip lookup')
+      // no lookup in a workspace the guest has nothing in
+      assert.equal((await as(G, 'GET', `/api/clip/lookup?workspaceId=${ws2.id}&url=${encodeURIComponent(url)}`)).statusCode, 403)
     })
 
     it('renames where it can edit; no moves, no scope changes; view pages refuse', async () => {

@@ -1043,3 +1043,5 @@ export * from './teamAgents'
 export * from './taint'
 // Agent connection tokens: hand-made agent connections for /mcp (docs/adr/2060-*)
 export * from './agentTokens'
+// Web clipper: POST /api/clip and the /clip screen (docs/adr/2260-*)
+export * from './clip'

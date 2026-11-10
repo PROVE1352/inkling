@@ -215,6 +215,8 @@ export function decodeHtml(body: Buffer, contentTypeHeader: string | string[] | 
     const sniff = body.subarray(0, 2048).toString('latin1')
     charset = /<meta[^>]{0,200}?charset\s*=\s*["']?([A-Za-z0-9_.:-]{1,40})/i.exec(sniff)?.[1]
   }
+  // Labels Korean sites send that WHATWG encoding names do not list (its "euc-kr" is code page 949).
+  if (charset && /^(cp949|ms949|x-windows-949|uhc|x-euc-kr)$/i.test(charset)) charset = 'euc-kr'
   try {
     return new TextDecoder(charset || 'utf-8').decode(body)
   } catch {

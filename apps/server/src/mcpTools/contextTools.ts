@@ -12,6 +12,7 @@ import type { ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
 import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
 import { LARGE_PAGE_HINT } from '../context/largePage'
+import { groupSpans, queryGroups, searchText } from '../context/rank'
 import { suspiciousNote } from '../context/injectionScan'
 import { wrapUntrusted } from './trust'
 import { inkMarker, inkStrokeCounts } from '../agentInk'
@@ -45,6 +46,50 @@ export function reviewNote(f: ReviewFacts | undefined): string {
 }
 
 /**
+ * Printed page ids (docs/adr/1906-*): the 8-character prefix every page-id argument accepts; ids that
+ * share it within one answer get longer prefixes (cut at the UUID's dashes) until they differ.
+ */
+export function printedIds(ids: Iterable<string>): Map<string, string> {
+  const all = [...new Set(ids)]
+  const out = new Map<string, string>()
+  for (const id of all) {
+    let n = 8
+    for (const len of [8, 13, 18, 23, 36]) {
+      n = len
+      const p = id.slice(0, len)
+      if (!all.some((o) => o !== id && o.startsWith(p))) break
+    }
+    out.set(id, id.slice(0, n))
+  }
+  return out
+}
+
+/**
+ * Query words that none of the shown sections contains (title, heading path or text, URLs not
+ * counted), in query order. Used for the "other language?" hint (docs/adr/1904-*).
+ */
+export function wordsInNoResult(query: string, r: Pick<FindContextResult, 'fragments'>): string[] {
+  const groups = queryGroups(query)
+  const hay = r.fragments
+    .map((f) => `${f.title}\n${f.sections.map((s) => s.headingPath).join('\n')}\n${searchText(f.text)}`)
+    .join('\n')
+    .toLowerCase()
+  return groups.filter((g) => groupSpans(hay, g).length === 0).map((g) => g.word)
+}
+
+/**
+ * One line at the end when a single query's answer is weak: more than half of its words, and at least
+ * two, are in no result (half was too eager: a two-word query with one alias or one common word missing
+ * fired; a one-word query that matched only an alias, "PayFix", would always fire).
+ */
+export function otherLanguageHint(query: string, r: Pick<FindContextResult, 'fragments'>): string | null {
+  const groups = queryGroups(query)
+  const missing = wordsInNoResult(query, r)
+  if (missing.length < 2 || missing.length * 2 <= groups.length) return null
+  return `Not in any result: ${missing.join(', ')}. If the notes may be in another language, ask again with queries=[${JSON.stringify(query)}, "<translation>"].`
+}
+
+/**
  * Render find_context results (exported for the evaluation, which measures exactly this text).
  * Everything members wrote (titles, headings, section text) sits inside one <untrusted_content>
  * block (docs/adr/0976-*); each fragment line says what this agent may do (`can:`) and who last
@@ -65,21 +110,29 @@ export function renderFindContext(
   const fused = isMultiResult(r) ? r : null
   const multi = fused && fused.queries.length > 1 ? fused : null
   const queryList = multi ? multi.queries.map((q, i) => `${i + 1} "${q}"`).join(', ') : ''
+  // 8-character page ids, longer only where two printed ids share a prefix (docs/adr/1906-*)
+  const ids = printedIds([...r.fragments.map((f) => f.pageId), ...r.more.map((m) => m.pageId), ...r.titleOnly.map((t) => t.pageId)])
+  const idOf = (id: string) => ids.get(id) ?? id
   if (r.fragments.length === 0) {
     const lines = [
       multi
         ? `No sections match any of ${multi.queries.length} queries (${queryList}). Try other or fewer words, or list_pages.`
-        : `No sections match "${query}". Try other or fewer words (synonyms, the other language), or list_pages.`,
+        : `No sections match "${query}". Try other or fewer words (synonyms), queries=[${JSON.stringify(query)}, "<translation>"] if the notes may be in another language, or list_pages.`,
     ]
     if (r.titleOnly.length) {
       lines.push('Pages whose title matches (no text):')
-      lines.push(wrapData(r.titleOnly.map((t) => `- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)))
+      lines.push(wrapData(r.titleOnly.map((t) => `- ${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)))
     }
     return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
   }
-  const head = multi
-    ? `${r.fragments.length} result(s) for ${multi.queries.length} queries (${queryList}), ~${r.usedTokens}/${r.budget} tokens`
-    : `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`
+  // `can:` once in the header when two or more results all have the same (docs/adr/1906-*); with one
+  // result the fragment line is as short
+  const cans = ac ? [...new Set(r.fragments.map((f) => pageFacts(ac, f.pageId).can))] : []
+  const sharedCan = cans.length === 1 && r.fragments.length > 1 ? cans[0] : null
+  const head =
+    (multi
+      ? `${r.fragments.length} result(s) for ${multi.queries.length} queries (${queryList}), ~${r.usedTokens}/${r.budget} tokens`
+      : `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`) + (sharedCan ? `; can: ${sharedCan} (all results)` : '')
   const data: string[] = []
   // Location = last heading + short anchor (docs/adr/1212-*); the full path only where a short one
   // would be ambiguous on the page. Older result objects without short/heading print the full form.
@@ -92,14 +145,15 @@ export function renderFindContext(
     const versions = f.sections.map((s) => `§${shortOf(s)} v=${s.version}`).join(', ')
     const facts = ac ? pageFacts(ac, f.pageId) : null
     const flag = ac ? suspiciousNote(flaggedRules(ac, f.pageId, f.sections.map((s) => s.anchor))) : ''
-    const who = facts ? `; can: ${facts.can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}${facts.large ? '; large page' : ''}` : ''
+    const can = facts && !sharedCan ? `; can: ${facts.can}` : ''
+    const who = facts ? `${can}${facts.lastEdit ? `; edited by ${facts.lastEdit}` : ''}${flag ? `; ${flag}` : ''}${facts.large ? '; large page' : ''}` : ''
     if (i > 0) data.push('')
     // handwriting marker (docs/adr/1512-*): only where agents may read ink
     const inkNote = ink?.get(f.pageId) ? `; ${inkMarker(ink.get(f.pageId)!)}` : ''
     const matched = multi ? `; matched: ${multi.fragments[i].matched.join(',')}` : ''
-    // verified / stale (docs/adr/1842-*)
-    const verified = verificationNote(verifications?.get(f.pageId))
-    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${matched}${who}${reviewNote(review?.get(f.pageId))}${verified}${inkNote})`, f.text)
+    // a cut section says how long the whole is (read_page(section=…) returns it), docs/adr/1902-*
+    const cut = f.truncated ? `; truncated${f.fullTokens ? `, section ~${f.fullTokens} tok` : ''}` : ''
+    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${idOf(f.pageId)}; ${versions}${cut}${matched}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
   })
   if (r.more.length) {
     // One line per page; a page already shown is referred to by its result number.
@@ -107,7 +161,7 @@ export function renderFindContext(
     const byPage = new Map<string, typeof r.more>()
     for (const m of r.more) byPage.set(m.pageId, [...(byPage.get(m.pageId) ?? []), m])
     for (const [pageId, list] of byPage) {
-      const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${pageId})`
+      const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${idOf(pageId)})`
       // a pointer from an extra ranked list may name a whole page (no anchor) or have no size
       const one = (m: (typeof list)[number]) =>
         fused && !m.anchor ? 'whole page' : fused && !m.tokens ? `§${shortOf(m)}` : `§${shortOf(m)} ~${m.tokens} tok`
@@ -116,11 +170,23 @@ export function renderFindContext(
   }
   if (r.titleOnly.length) {
     data.push('', 'Title matches without text:')
-    for (const t of r.titleOnly) data.push(`- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)
+    for (const t of r.titleOnly) data.push(`- ${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)
   }
   const out = [head, wrapData(data), '', 'Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.']
   // One hint for all large pages shown (docs/adr/1043-*).
   if (ac && r.fragments.some((f) => pageFacts(ac, f.pageId).large)) out.push(`Pages marked "large page": ${LARGE_PAGE_HINT.replace(/^large page: /, '')}.`)
+  // A weak answer to one lexical query: words no result contains, and the bundle to try (docs/adr/1904-*).
+  // Not for a merged answer (several queries, or semantic search on: a section found by meaning shares
+  // no word with the query by design).
+  const hint = fused ? null : otherLanguageHint(query, r)
+  if (hint) out.push(hint)
+  // Verified / stale marks (docs/adr/1842-*) are dated and flip with the clock: one line, last
+  // (docs/adr/1907-*), so the fragments above stay byte-stable when a verification lapses.
+  const marks = r.fragments.flatMap((f, i) => {
+    const note = fragmentNo.get(f.pageId) === i + 1 ? verificationNote(verifications?.get(f.pageId)).replace(/^; /, '') : ''
+    return note ? [`[${i + 1}] ${note}`] : []
+  })
+  if (marks.length) out.push(`Verification: ${marks.join('; ')}`)
   return ac ? withApplies(ac, out.join('\n')) : out.join('\n')
 }
 
@@ -170,8 +236,8 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       description:
         'Start here. Searches all your notes (or one workspace) and returns the most relevant sections, ranked and packed ' +
         `into a token budget (default ${DEFAULT_BUDGET}, max ${MAX_BUDGET}; tokens are estimated). Each result has pageId, §anchor and ` +
-        'version for read_page(section=…) or patch_section. Use specific words; Korean and English both work. ' +
-        `Unsure of the wording? Pass queries=[…] (up to ${MAX_QUERIES} synonyms/translations): one merged answer, one budget.`,
+        'version for read_page(section=…) or patch_section. Use specific words. ' +
+        `Unsure of the wording, or notes may be in another language? Pass queries=[original, translation, …] (up to ${MAX_QUERIES}): one merged answer, one budget.`,
       inputSchema: {
         query: z.string().trim().min(1).max(300).optional().describe('What you are looking for (keywords or a question)'),
         queries: z

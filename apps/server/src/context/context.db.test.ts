@@ -79,7 +79,7 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
   })
 
   it('rank metrics (dev/test) and the field case: common words + a rare key phrase (docs/adr/1210-1213)', async () => {
-    const { runRankEval, rankedSections, sameSection } = await import('./evalRun')
+    const { runRankEval, rankedSections, samePage, sameSection } = await import('./evalRun')
     const r = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle)
     console.log('[rank] dev ', JSON.stringify(r.dev))
     console.log('[rank] test', JSON.stringify(r.test))
@@ -90,23 +90,24 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     const out = (await mcp.tool('find_context', { query: '서울 AI 해커톤 팀 구성', budget: 1500 })).text
     const shown = rankedSections(out)
     const req = idByTitle.get('00 대회요강')!
-    const at = shown.findIndex((x) => x.pageId === req && sameSection('요강-요약/준비-사항/우리-팀-체크리스트', x.anchor)) + 1
+    const at = shown.findIndex((x) => samePage(req, x.pageId) && sameSection('요강-요약/준비-사항/우리-팀-체크리스트', x.anchor)) + 1
     assert.ok(at >= 1 && at <= 3, `checklist at ${at}:\n${out}`)
     const memo = idByTitle.get('03 방향 메모')!
-    assert.ok(out.includes(memo), 'the decisions section is shown or listed under Also relevant')
+    // page ids are printed as their 8-character prefix (docs/adr/1906-*)
+    assert.ok(out.includes(memo.slice(0, 8)), 'the decisions section is shown or listed under Also relevant')
     // no page fills the results: at most two sections of one page
     const perPage = new Map<string, number>()
     for (const x of shown) perPage.set(x.pageId, (perPage.get(x.pageId) ?? 0) + 1)
     assert.ok(Math.max(...perPage.values()) <= 2, out)
     // the location is the last heading and a short anchor, not the whole path
-    assert.match(out, /\[\d\] 00 대회요강 › 우리 팀 체크리스트\n\(page [0-9a-f-]{36}; §우리-팀-체크리스트 v=/)
+    assert.match(out, /\[\d\] 00 대회요강 › 우리 팀 체크리스트\n\(page [0-9a-f]{8}; §우리-팀-체크리스트 v=/)
   })
 
   it('Korean partial match: a compound query finds the spaced form, an alias finds its page (docs/adr/1700-1701)', async () => {
-    const { rankedSections, sameSection } = await import('./evalRun')
+    const { rankedSections, samePage, sameSection } = await import('./evalRun')
     const rankOf = async (query: string, title: string, anchor: string) => {
       const shown = rankedSections((await mcp.tool('find_context', { query })).text)
-      return shown.findIndex((x) => x.pageId === idByTitle.get(title) && sameSection(anchor, x.anchor)) + 1
+      return shown.findIndex((x) => samePage(idByTitle.get(title)!, x.pageId) && sameSection(anchor, x.anchor)) + 1
     }
     // "회의주기" is written "회의 주기" on the page; before 0.14 the three TF sections tied on "TF"
     assert.equal(await rankOf('TF 회의주기', '사내 TF 킥오프', '결제-개편-tf/회의-주기'), 1)
@@ -115,7 +116,7 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.ok(at >= 1 && at <= 3, `decided at ${at}`)
     // "PayFix" is only an alias of the page: before 0.14 find_context returned nothing
     const alias = (await mcp.tool('find_context', { query: 'PayFix' })).text
-    assert.ok(alias.includes(idByTitle.get('사내 TF 킥오프')!), alias)
+    assert.ok(alias.includes(idByTitle.get('사내 TF 킥오프')!.slice(0, 8)), alias)
   })
 
   it('short anchors from find_context round-trip through read_page and patch_section; full paths still work', async () => {
@@ -123,14 +124,16 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     const refs: [string, string][] = []
     for (const q of ['해커톤 예선 서류 마감', '본선 장소와 시간', '참가 자격 연령', '서울 AI 해커톤 팀 구성']) {
       const out = (await mcp.tool('find_context', { query: q })).text
-      for (const m of out.matchAll(new RegExp(`\\(page ${req}; ([^)]*)\\)`, 'g'))) {
+      for (const m of out.matchAll(new RegExp(`\\(page ${req.slice(0, 8)}; ([^)]*)\\)`, 'g'))) {
         for (const x of m[1].matchAll(/§(\S+) v=([0-9a-f]+)/g)) refs.push([x[1], x[2]])
       }
     }
     assert.ok(refs.length >= 3, JSON.stringify(refs))
     assert.ok(refs.every(([a]) => !a.includes('/')), 'unique leaf headings print one segment')
+    // the page id as find_context prints it (8 characters, docs/adr/1906-*) is what the agent passes on
+    const printed = req.slice(0, 8)
     for (const [short, v] of refs) {
-      const sec = await mcp.tool('read_page', { pageId: req, section: short })
+      const sec = await mcp.tool('read_page', { pageId: printed, section: short })
       assert.equal(sec.isError, false, sec.text)
       assert.match(sec.text, new RegExp(`v=${v}`), `${short}: ${sec.text}`)
     }
@@ -147,15 +150,16 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     })
     const dupId = (JSON.parse(dup.text) as { id: string }).id
     const out = (await mcp.tool('find_context', { query: 'zorblat' })).text
-    const m = new RegExp(`\\[1\\] Twin headings › Beta › Decided\\n\\(page ${dupId}; §beta/decided v=([0-9a-f]+)`).exec(out)
+    const m = new RegExp(`\\[1\\] Twin headings › Beta › Decided\\n\\(page ${dupId.slice(0, 8)}; §beta/decided v=([0-9a-f]+)`).exec(out)
     assert.ok(m, out)
-    const sec = await mcp.tool('read_page', { pageId: dupId, section: 'beta/decided' })
+    const sec = await mcp.tool('read_page', { pageId: dupId.slice(0, 8), section: 'beta/decided' })
     assert.match(sec.text, /zorblat/)
     // patch_section with a short anchor and its version
     const [short, v] = refs[0]
-    const p = await mcp.tool('patch_section', { pageId: req, section: short, mode: 'append', markdown: '확인 완료.', baseVersion: v })
+    const p = await mcp.tool('patch_section', { pageId: printed, section: short, mode: 'append', markdown: '확인 완료.', baseVersion: v })
     assert.equal(p.isError, false, p.text)
-    const p2 = await mcp.tool('patch_section', { pageId: dupId, section: 'beta/decided', mode: 'replace', markdown: 'zorblat lost', baseVersion: m[1] })
+    // the longer, dashed form printed when two ids in one answer share 8 characters (printedIds)
+    const p2 = await mcp.tool('patch_section', { pageId: dupId.slice(0, 13), section: 'beta/decided', mode: 'replace', markdown: 'zorblat lost', baseVersion: m[1] })
     assert.equal(p2.isError, false, p2.text)
     assert.match((await mcp.tool('read_page', { pageId: dupId, section: 'alpha/decided' })).text, /nothing yet/)
   })
@@ -215,12 +219,13 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     await reindexPageChunks(visible.id, [{ type: 'paragraph', content: [{ type: 'text', text: `${secret} visible`, styles: {} }] }] as never, { log: false })
 
     const r = await mcp.tool('find_context', { query: secret })
-    assert.match(r.text, new RegExp(visible.id))
-    for (const bad of [priv.id, trashed.id, gone.id]) assert.doesNotMatch(r.text, new RegExp(bad))
+    // find_context prints 8-character page ids (docs/adr/1906-*)
+    assert.match(r.text, new RegExp(visible.id.slice(0, 8)))
+    for (const bad of [priv.id, trashed.id, gone.id]) assert.doesNotMatch(r.text, new RegExp(bad.slice(0, 8)))
     assert.doesNotMatch(r.text, /private|trashed|gone/)
     // the private page's own author does see it
     const asOther = await h.connectMcp(app, other, await h.mintToken(other))
-    assert.match((await asOther.tool('find_context', { query: secret })).text, new RegExp(priv.id))
+    assert.match((await asOther.tool('find_context', { query: secret })).text, new RegExp(priv.id.slice(0, 8)))
     // a workspace the caller is not a member of / that was deleted
     const err = await mcp.tool('find_context', { query: secret, workspaceId: ws2.id })
     assert.equal(err.isError, true)

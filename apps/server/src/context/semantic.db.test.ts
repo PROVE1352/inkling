@@ -363,15 +363,15 @@ describe('[db] optional semantic search', { skip: !HAS_DB }, async () => {
     const calls = sem.semanticStats.calls
     const one = (await mcp.tool('find_context', { query: '체크리스트', workspaceId: A })).text
     assert.ok(sem.semanticStats.calls > calls, 'semantic candidates were asked')
-    assert.match(one, /^\d+ result\(s\) for "체크리스트", ~\d+\/3500 tokens$/m, 'the single-query header')
-    assert.match(one, new RegExp(`\\(page ${pubA}; §team-checklist v=`), 'the checklist section, found by meaning only')
+    assert.match(one, /^\d+ result\(s\) for "체크리스트", ~\d+\/3500 tokens(; can: [a-z,]+ \(all results\))?$/m, 'the single-query header')
+    assert.match(one, new RegExp(`\\(page ${pubA.slice(0, 8)}; §team-checklist v=`), 'the checklist section, found by meaning only')
     assert.match(one, /Who brings the laptop/, 'with its text')
     assert.doesNotMatch(one, /matched:/, 'one query: no matched: column')
     // two phrasings: the semantic list of each query carries that query's number
     const two = (await mcp.tool('find_context', { queries: ['체크리스트', 'rollback zebra'], workspaceId: A })).text
     assert.match(two, /result\(s\) for 2 queries \(1 "체크리스트", 2 "rollback zebra"\)/)
-    assert.match(two, new RegExp(`\\(page ${pubA}; §team-checklist v=[^;)]+; matched: 1(,2)?[;)]`), 'found by query 1 (by meaning only)')
-    assert.match(two, new RegExp(`\\(page ${pubA}; §rollback v=[^;)]+; matched: 2[;)]`), 'found by query 2 only')
+    assert.match(two, new RegExp(`\\(page ${pubA.slice(0, 8)}; §team-checklist v=[^;)]+; matched: 1(,2)?[;)]`), 'found by query 1 (by meaning only)')
+    assert.match(two, new RegExp(`\\(page ${pubA.slice(0, 8)}; §rollback v=[^;)]+; matched: 2[;)]`), 'found by query 2 only')
     // REST: the merged answer of one query, fragments from the permission-checked route
     const res = await restContext(member, `q=${encodeURIComponent('체크리스트')}&workspaceId=${A}`)
     assert.equal(res.statusCode, 200, res.body)
@@ -424,20 +424,21 @@ describe('[db] optional semantic search', { skip: !HAS_DB }, async () => {
       }
       // unranged: both checklists of A are found by meaning
       const all = (await mcp.tool('find_context', { query: '체크리스트' })).text
-      assert.ok(all.includes(pubA) && all.includes(trip), all)
+      // find_context prints 8-character page ids (docs/adr/1906-*)
+      assert.ok(all.includes(pubA.slice(0, 8)) && all.includes(trip.slice(0, 8)), all)
       // a subtree range: only the Trip plan page, never the runbook next to it
       const sub = await ranged({ rangeKind: 'subtree', rangePageId: trip })
       const calls = sem.semanticStats.calls
       const t1 = (await sub.tool('find_context', { query: '체크리스트' })).text
       assert.ok(sem.semanticStats.calls > calls, 'semantic candidates were asked')
-      assert.match(t1, new RegExp(`\\(page ${trip}; §packing-checklist v=`))
-      assert.ok(!t1.includes(pubA), `outside the subtree:\n${t1}`)
-      assert.ok(!t1.includes(elsewhere), `outside the subtree:\n${t1}`)
+      assert.match(t1, new RegExp(`\\(page ${trip.slice(0, 8)}; §packing-checklist v=`))
+      assert.ok(!t1.includes(pubA.slice(0, 8)), `outside the subtree:\n${t1}`)
+      assert.ok(!t1.includes(elsewhere.slice(0, 8)), `outside the subtree:\n${t1}`)
       // a workspaces range: nothing of A
       const wsr = await ranged({ rangeKind: 'workspaces', rangeWorkspaceIds: [D] })
       const t2 = (await wsr.tool('find_context', { queries: ['체크리스트', 'packing'] })).text
-      assert.ok(t2.includes(elsewhere), t2)
-      assert.ok(!t2.includes(pubA) && !t2.includes(trip), `outside the workspaces range:\n${t2}`)
+      assert.ok(t2.includes(elsewhere.slice(0, 8)), t2)
+      assert.ok(!t2.includes(pubA.slice(0, 8)) && !t2.includes(trip.slice(0, 8)), `outside the workspaces range:\n${t2}`)
     } finally {
       for (const c of closers) await c()
       await db.delete(schema.pages).where(eq(schema.pages.id, trip))
@@ -469,8 +470,8 @@ describe('[db] optional semantic search', { skip: !HAS_DB }, async () => {
       const g = await h.connectMcp(app, guest, await h.mintToken(guest))
       try {
         const t = (await g.tool('find_context', { queries: ['체크리스트', 'team checklist'] })).text
-        assert.ok(t.includes(own), t)
-        assert.ok(!t.includes(pubA), `a semantic candidate from the guest workspace:\n${t}`)
+        assert.ok(t.includes(own.slice(0, 8)), t)
+        assert.ok(!t.includes(pubA.slice(0, 8)), `a semantic candidate from the guest workspace:\n${t}`)
       } finally {
         await g.close()
       }

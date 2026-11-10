@@ -1,7 +1,7 @@
 import type { Fragment } from './rank'
-import { HEADER_FACTS_TOKENS } from './rank'
+import { cutAroundHit, HEADER_FACTS_TOKENS, PACKING, queryGroups } from './rank'
 import type { FindContextResult } from './retrieve'
-import { estimateTokens, truncateToTokens } from './tokens'
+import { estimateTokens } from './tokens'
 
 /**
  * find_context with several queries (docs/adr/1720-* .. 1722-*). Pure functions, no database: the
@@ -10,7 +10,7 @@ import { estimateTokens, truncateToTokens } from './tokens'
  *
  *   - Unit of ranking: a section (`pageId#anchor`). A query's ranked list is its fragments in order,
  *     then its "more" pointers; a fragment with several sections gives all of them its rank.
- *   - RRF: score(s) = Σ over lists 1 / (k + rank), k = 60. Ties: first appearance (list, rank), then key.
+ *   - RRF: score(s) = Σ over lists 1 / (k + rank), k = RRF_K (10). Ties: first appearance (list, rank), then key.
  *   - Extra ranked lists (semantic candidates, docs/adr/1722-*) join the same sum. They carry no text;
  *     an item with a `fragment` attached becomes a text piece like a lexical fragment.
  *   - Output: each section at most once. Pieces (fragments) are taken in fused order while the shared
@@ -20,13 +20,18 @@ import { estimateTokens, truncateToTokens } from './tokens'
  * Same inputs → same output: no clock, no randomness, a total order everywhere.
  */
 
-export const RRF_K = 60
+/**
+ * RRF constant. 60 (Cormack et al.) was chosen for many long lists; the lists merged here are a few
+ * queries' fragments and pointers (≤ 15 entries each), where k = 60 makes rank 1 and rank 10 nearly
+ * equal (1/61 vs 1/70) and a section every phrasing finds weakly beats one phrasing's clear first.
+ * 10 since 0.15.1 (docs/adr/1905-*): same answers on the normal bundles, the worst-case bundles'
+ * first answer at rank 1 (MRR 0.85 → 1.0).
+ */
+export const RRF_K = 10
 /** Different queries per find_context call (after normalising and removing duplicates). */
 export const MAX_QUERIES = 5
 /** Pointer lines in "Also relevant", as for one query. */
 const MAX_MORE = 5
-/** A piece that does not fit is cut only when at least this many tokens are left for its text. */
-const MIN_TAIL = 80
 
 /** One item of an extra ranked list; `anchor: null` means the page as a whole. */
 export interface ExtraItem {
@@ -122,7 +127,7 @@ const PAGE = '\u0000page'
 export function multiHeaderTokens(f: Fragment, matched: string[]): number {
   const versions = f.sections.map((s) => `§${s.short ?? s.anchor} v=${s.version}`).join(', ')
   const heading = f.sections[0]?.heading ?? f.headingPath
-  const head = `[10] ${f.title || 'Untitled'}${heading ? ` › ${heading}` : ''}\n(page ${f.pageId}; ${versions}; matched: ${matched.join(',')})`
+  const head = `[10] ${f.title || 'Untitled'}${heading ? ` › ${heading}` : ''}\n(page ${f.pageId.slice(0, 8)}; ${versions}; matched: ${matched.join(',')})`
   return estimateTokens(head) + HEADER_FACTS_TOKENS
 }
 
@@ -189,15 +194,21 @@ export function fuseContextResults(perQuery: FindContextResult[], opts: FuseOpti
     score: number
     first: [number, number]
     key: string
+    /** The query whose words the text is cut around (its own list's query). */
+    q: string
+    /** From an extra list (a raw section chunk): not packed by `pack`, so the large-chunk cap applies here. */
+    raw: boolean
   }
   const pieces: Piece[] = []
-  const addPiece = (f: Fragment, li: number, rank: number) => {
+  const addPiece = (f: Fragment, li: number, rank: number, q: string, raw: boolean) => {
     const keys = f.sections.map((s) => sectionKey(f.pageId, s.anchor))
     const score = Math.max(...keys.map((x) => byKey.get(x)?.score ?? 0))
-    pieces.push({ f, keys, score, first: [li, rank], key: keys[0] })
+    pieces.push({ f, keys, score, first: [li, rank], key: keys[0], q, raw })
   }
-  perQuery.forEach((r, li) => r.fragments.forEach((f, i) => addPiece(f, li, i + 1)))
-  extra.forEach((e, ei) => e.items.forEach((it, i) => it.fragment && addPiece(it.fragment, perQuery.length + ei, i + 1)))
+  perQuery.forEach((r, li) => r.fragments.forEach((f, i) => addPiece(f, li, i + 1, opts.queries[li] ?? '', false)))
+  // an extra list labelled with a query number cuts around that query's words
+  const queryOf = (label: string) => opts.queries[Number(label) - 1] ?? opts.queries[0] ?? ''
+  extra.forEach((e, ei) => e.items.forEach((it, i) => it.fragment && addPiece(it.fragment, perQuery.length + ei, i + 1, queryOf(e.label), true)))
   pieces.sort(byFused)
 
   const labelsOf = (keys: string[]) => orderLabels(keys.flatMap((x) => byKey.get(x)?.labels ?? []), listOrder)
@@ -230,7 +241,12 @@ export function fuseContextResults(perQuery: FindContextResult[], opts: FuseOpti
     }
   }
 
-  // One budget, fused order, each section once.
+  // One budget, fused order, each section once. Packing as for one query (docs/adr/1902-*): a piece
+  // that does not fit is cut around its query's best lines to the rest when at least minTail tokens
+  // are left, else it becomes a pointer and smaller pieces may follow. The largeShare cap applies per
+  // chunk, as in `pack`: per-query fragments were already packed with this budget (a fragment of two
+  // merged neighbours may exceed it and is not cut), extra-list fragments are raw chunks and are.
+  const large = Math.max(PACKING.minTail, Math.floor(budget * PACKING.largeShare))
   let left = budget
   const shown = new Set<string>()
   const fragments: MultiFragment[] = []
@@ -241,15 +257,22 @@ export function fuseContextResults(perQuery: FindContextResult[], opts: FuseOpti
     const head = multiHeaderTokens(p.f, matched)
     let text = p.f.text
     let truncated = p.f.truncated
-    if (p.f.tokens + head > left) {
-      if (left - head < MIN_TAIL) continue
-      text = `${truncateToTokens(p.f.text, left - head - 2).text} …`
+    const cut = (max: number) => {
+      text = cutAroundHit(p.f.text, { groups: queryGroups(p.q) }, max - 2)
       truncated = true
     }
-    const tokens = text === p.f.text ? p.f.tokens : estimateTokens(text)
+    if (p.raw && p.f.tokens > large) cut(large)
+    let tokens = text === p.f.text ? p.f.tokens : estimateTokens(text)
+    if (tokens + head > left) {
+      if (left - head < PACKING.minTail) continue
+      cut(left - head)
+      tokens = estimateTokens(text)
+    }
     left -= tokens + head
     for (const x of p.keys) shown.add(x)
-    fragments.push({ ...p.f, sections: p.f.sections.map((s) => ({ ...s })), ords: [...p.f.ords], text, tokens, truncated, score: p.score, matched })
+    // the size of the whole section, when the piece is one section (a merged piece has no single size)
+    const full = truncated && !p.f.truncated && p.f.sections.length === 1 ? { fullTokens: p.f.tokens } : {}
+    fragments.push({ ...p.f, sections: p.f.sections.map((s) => ({ ...s })), ords: [...p.f.ords], text, tokens, truncated, score: p.score, matched, ...full })
   }
 
   // Pointers: every section some list found that is not shown, best fused first.

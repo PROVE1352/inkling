@@ -10,6 +10,7 @@
  */
 import { queryTerms } from './rank'
 import { estimateTokens } from './tokens'
+import { answerEvidence } from './evalSet'
 import type { EvalQuestion } from './evalSet'
 
 type ToolFn = (name: string, args?: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>
@@ -38,15 +39,23 @@ export interface EvalSummary {
   rows: QuestionResult[]
 }
 
-/** Fragment headers of find_context output: [(pageId, anchors[])] in rank order. */
+/**
+ * Fragment headers of find_context output: [(pageId, anchors[])] in rank order. The page id is the
+ * full id or the prefix find_context prints (8+ characters, docs/adr/1906-*); compare with samePage.
+ */
 export function parseFragments(out: string): { pageId: string; anchors: string[] }[] {
   const res: { pageId: string; anchors: string[] }[] = []
-  const re = /^\(page ([0-9a-f-]{36}); (.+)\)$/gm
+  const re = /^\(page ([0-9a-f-]{8,36}); (.+)\)$/gm
   for (let m = re.exec(out); m; m = re.exec(out)) {
     const anchors = [...m[2].matchAll(/§(\S+) v=/g)].map((x) => x[1])
     res.push({ pageId: m[1], anchors })
   }
   return res
+}
+
+/** Does a printed page id (full, or a prefix of 8+ characters) refer to `full`? */
+export function samePage(full: string, printed: string): boolean {
+  return printed.length >= 8 && full.startsWith(printed)
 }
 
 /**
@@ -67,6 +76,10 @@ export function rankedSections(out: string): { pageId: string; anchor: string }[
 
 export interface RankMetrics {
   n: number
+  /** Mean estimateTokens of the tool output. */
+  tokens: number
+  /** Share of questions whose answer evidence is in the returned text. */
+  inBody: number
   mrr: number
   recallAt5: number
   ndcgAt5: number
@@ -82,6 +95,10 @@ export interface RankRow {
   tag?: string
   /** 1-based position of the first relevant section among the shown sections, 0 = not shown. */
   firstRank: number
+  /** estimateTokens of the whole tool output. */
+  tokens: number
+  /** The answer's evidence text is in the output (shown as text, not only named in a header or pointer). */
+  inBody: boolean
   mrr: number
   recallAt5: number
   ndcgAt5: number
@@ -98,16 +115,16 @@ export interface RankRow {
  * may show fewer than five, and showing less noise is the point), 0 when nothing is shown; pAt5 = the
  * textbook relevant-in-top-5 / 5.
  */
-export function scoreRanking(out: string, relevant: { pageId: string; anchor: string }[]): Omit<RankRow, 'q' | 'split' | 'tag'> {
+export function scoreRanking(out: string, relevant: { pageId: string; anchor: string }[]): Omit<RankRow, 'q' | 'split' | 'tag' | 'tokens' | 'inBody'> {
   const shown = rankedSections(out)
-  const isRel = (s: { pageId: string; anchor: string }) => relevant.some((r) => r.pageId === s.pageId && sameSection(r.anchor, s.anchor))
+  const isRel = (s: { pageId: string; anchor: string }) => relevant.some((r) => samePage(r.pageId, s.pageId) && sameSection(r.anchor, s.anchor))
   const hits = shown.map(isRel)
   const first = hits.indexOf(true) + 1
   const top = hits.slice(0, 5)
   const found = new Set<number>()
   shown.slice(0, 5).forEach((s, i) => {
     if (!hits[i]) return
-    const j = relevant.findIndex((r) => r.pageId === s.pageId && sameSection(r.anchor, s.anchor))
+    const j = relevant.findIndex((r) => samePage(r.pageId, s.pageId) && sameSection(r.anchor, s.anchor))
     found.add(j)
   })
   let dcg = 0
@@ -141,17 +158,56 @@ export async function runRankEval(
       return v
     }
     const relevant = [{ pageId: id(qq.page), anchor: qq.anchor }, ...(qq.also ?? []).map((a) => ({ pageId: id(a.page), anchor: a.anchor }))]
-    const fc = await tool('find_context', { query: qq.q, ...findArgs })
-    rows.push({ q: qq.q, split: qq.split, ...(qq.tag ? { tag: qq.tag } : {}), ...scoreRanking(fc.text, relevant) })
+    const fc = await tool('find_context', findContextArgs(qq, findArgs))
+    rows.push({
+      q: qq.q,
+      split: qq.split,
+      ...(qq.tag ? { tag: qq.tag } : {}),
+      ...scoreRanking(fc.text, relevant),
+      tokens: estimateTokens(fc.text),
+      inBody: answerInBody(fc.text, qq),
+    })
   }
   return { rows, ...summarizeRanks(rows) }
+}
+
+/** find_context arguments of a question: one query or queries=[q, …], its budget, then `findArgs` (budget there wins). */
+export function findContextArgs(qq: EvalQuestion, findArgs: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...(qq.queries?.length ? { queries: [qq.q, ...qq.queries] } : { query: qq.q }),
+    ...(qq.budget ? { budget: qq.budget } : {}),
+    ...findArgs,
+  }
+}
+
+/**
+ * Is the answer in the returned text? Its evidence (evalSet.ts answerEvidence) must appear inside the
+ * data block, before the "Also relevant" pointers, so a header or pointer naming it does not count.
+ */
+export function answerInBody(out: string, qq: EvalQuestion): boolean {
+  const start = out.indexOf('<untrusted_content')
+  if (start < 0) return false
+  const endData = out.indexOf('</untrusted_content>', start)
+  let body = out.slice(start, endData < 0 ? undefined : endData)
+  const more = body.indexOf('\nAlso relevant (not shown):')
+  if (more >= 0) body = body.slice(0, more)
+  return body.includes(answerEvidence(qq))
 }
 
 /** Mean rank metrics per split, overall and per question tag (docs/adr/1702-*). */
 export function summarizeRanks(rows: RankRow[]): { dev: RankMetrics; test: RankMetrics; tags: Record<string, { dev: RankMetrics; test: RankMetrics }> } {
   const summary = (xs: RankRow[]): RankMetrics => {
     const m = (k: keyof RankMetrics & keyof RankRow) => Number(mean(xs.map((r) => r[k] as number)).toFixed(3))
-    return { n: xs.length, mrr: m('mrr'), recallAt5: m('recallAt5'), ndcgAt5: m('ndcgAt5'), precisionAt5: m('precisionAt5'), pAt5: m('pAt5') }
+    return {
+      n: xs.length,
+      tokens: Number(mean(xs.map((r) => r.tokens ?? 0)).toFixed(1)),
+      inBody: Number(rate(xs.map((r) => !!r.inBody)).toFixed(3)),
+      mrr: m('mrr'),
+      recallAt5: m('recallAt5'),
+      ndcgAt5: m('ndcgAt5'),
+      precisionAt5: m('precisionAt5'),
+      pAt5: m('pAt5'),
+    }
   }
   const split = (xs: RankRow[]) => ({ dev: summary(xs.filter((r) => r.split === 'dev')), test: summary(xs.filter((r) => r.split === 'test')) })
   const tags: Record<string, { dev: RankMetrics; test: RankMetrics }> = {}
@@ -211,12 +267,12 @@ export async function runEval(
     // ---- after
     const fc = await tool('find_context', { query: qq.q, ...findArgs })
     const frags = parseFragments(fc.text)
-    const sectionRank = frags.findIndex((f) => f.pageId === expected && f.anchors.some((a) => sameSection(qq.anchor, a))) + 1
-    const pageRankAfter = frags.findIndex((f) => f.pageId === expected) + 1
+    const sectionRank = frags.findIndex((f) => samePage(expected, f.pageId) && f.anchors.some((a) => sameSection(qq.anchor, a))) + 1
+    const pageRankAfter = frags.findIndex((f) => samePage(expected, f.pageId)) + 1
     let aCalls = 1
     let aTokens = estimateTokens(fc.text)
     let aFound = sectionRank > 0
-    if (!aFound && fc.text.includes(expected)) {
+    if (!aFound && fc.text.includes(expected.slice(0, 8))) {
       const sec = await tool('read_page', { pageId: expected, section: qq.anchor })
       aCalls++
       aTokens += estimateTokens(sec.text)

@@ -126,7 +126,8 @@ export function fillerPages(queryShare = 0.2): { title: string; blocks: Blocks }
 /** A gold section is "included" when a fragment header names its page and anchor (not a pointer). */
 export function includesSection(text: string, pageId: string, anchor: string): boolean {
   const esc = anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`\\(page ${pageId}; [^\\n]*§${esc} v=`).test(text)
+  // find_context prints the 8-character prefix of the page id, longer only on a clash (docs/adr/1906-*)
+  return new RegExp(`\\(page ${pageId.slice(0, 8)}[0-9a-f-]*; [^\\n]*§${esc} v=`).test(text)
 }
 
 export interface BundleMeasure {

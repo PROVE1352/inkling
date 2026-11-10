@@ -114,6 +114,8 @@ async function main() {
   const big = await runEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
   const rankSmall = await runRankEval(mcp.tool, EVAL_QUESTIONS, unpaddedIds, { workspaceId: wsSmall.id })
   const rankBig = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
+  // every question at a small budget (the field cases of 0.15.1 were seen at 600–1,000 tokens)
+  const rankBig1000 = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id, budget: 1000 })
 
   // 3b) location overhead: the same budget (1,500, as in the field report), body vs everything else
   const bodyStats = { body: 0, total: 0, fragments: 0, more: 0 }
@@ -212,18 +214,20 @@ async function main() {
     `| padded + ${argPages} distractors | before | ${big.before.meanTokens} | ${big.before.medianTokens} | ${big.before.meanCalls} | ${f(big.before.success)} | – | – | ${f(big.before.pageAt1)} | ${f(big.before.pageAt3)} |`,
     `| padded + ${argPages} distractors | after | ${big.after.meanTokens} | ${big.after.medianTokens} | ${big.after.meanCalls} | ${f(big.after.success)} | ${f(big.after.sectionAt1)} | ${f(big.after.sectionAt3)} | ${f(big.after.pageAt1)} | ${f(big.after.pageAt3)} |`,
     '',
-    'rank metrics (shown sections, default budget):',
-    '| set | split | n | MRR | recall@5 | nDCG@5 | precision@5 (of shown) | P@5 (÷5) |',
-    '|---|---|---|---|---|---|---|---|',
-    ...([['unpadded wiki', rankSmall], [`padded + ${argPages} distractors`, rankBig]] as const).flatMap(([name, r]) =>
-      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} |`),
+    'rank metrics (shown sections; each question at its own budget, default 3500, or all at 1000):',
+    '| set | split | n | MRR | recall@5 | nDCG@5 | precision@5 (of shown) | P@5 (÷5) | answer in body | tokens/question |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    ...([['unpadded wiki', rankSmall], [`padded + ${argPages} distractors`, rankBig], [`padded, budget 1000`, rankBig1000]] as const).flatMap(([name, r]) =>
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map(
+        (sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} | ${r[sp].inBody ?? '–'} | ${r[sp].tokens ?? '–'} |`,
+      ),
     ),
     '',
     'rank metrics per question family (padded set):',
-    '| tag | split | n | MRR | recall@5 | nDCG@5 |',
-    '|---|---|---|---|---|---|',
+    '| tag | split | n | MRR | recall@5 | nDCG@5 | answer in body | tokens |',
+    '|---|---|---|---|---|---|---|---|',
     ...Object.entries(rankBig.tags ?? {}).flatMap(([tag, r]) =>
-      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${tag} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} |`),
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${tag} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].inBody ?? '–'} | ${r[sp].tokens ?? '–'} |`),
     ),
     '',
     ...(hasFormats ? [fmtLine('with the relevance floor', fmtRuns.floor), fmtLine('floor off, budget filled', fmtRuns.fill)] : []),
@@ -232,9 +236,12 @@ async function main() {
     `find_context latency (direct): p50 ${f(pct(lat, 0.5))} ms, p95 ${f(pct(lat, 0.95))} ms; old search route (1 term): p50 ${f(pct(latOld, 0.5))} ms, p95 ${f(pct(latOld, 0.95))} ms`,
     `reindex after a one-section edit (padded page): p50 ${f(pct(editMs, 0.5))} ms, p95 ${f(pct(editMs, 0.95))} ms`,
     '',
-    'dev questions not at rank 1 (large set):',
-    ...rankBig.rows.filter((r) => r.split === 'dev' && r.firstRank !== 1).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)}: ${r.q}`),
-    ...(FINAL ? ['', 'test questions not at rank 1 (large set):', ...rankBig.rows.filter((r) => r.split === 'test' && r.firstRank !== 1).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)}: ${r.q}`)] : []),
+    'dev questions not at rank 1 or answer not in body (large set):',
+    ...rankBig.rows.filter((r) => r.split === 'dev' && (r.firstRank !== 1 || r.inBody === false)).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)} body ${r.inBody} tok ${r.tokens}: ${r.q}`),
+    ...(FINAL ? ['', 'test questions not at rank 1 or answer not in body (large set):', ...rankBig.rows.filter((r) => r.split === 'test' && (r.firstRank !== 1 || r.inBody === false)).map((r) => `- first ${r.firstRank} shown ${r.shown} R@5 ${r.recallAt5.toFixed(2)} body ${r.inBody} tok ${r.tokens}: ${r.q}`)] : []),
+    '',
+    'answer not in body at budget 1000 (dev' + (FINAL ? ', test' : '') + '):',
+    ...rankBig1000.rows.filter((r) => (FINAL || r.split === 'dev') && r.inBody === false).map((r) => `- [${r.split}] first ${r.firstRank} tok ${r.tokens}: ${r.q}`),
     '',
     'candidate probe plan:',
     ...plan.map((p) => `  ${p['QUERY PLAN']}`),

@@ -25,6 +25,12 @@ export interface Candidate {
 
 export interface Scored extends Candidate {
   score: number
+  /**
+   * The chunk says nothing of its own about the query: no query word in its heading path or prose
+   * (only in the page title), or almost no prose at all (a line of links). It never takes its page's
+   * slot from a sibling that does (docs/adr/1900-*).
+   */
+  weak?: boolean
 }
 
 /** How a section is shown: the shortest anchor suffix unique on its page and the matching heading tail (docs/adr/1212-*). */
@@ -57,6 +63,8 @@ export interface Fragment {
   tokens: number
   score: number
   truncated: boolean
+  /** Estimated tokens of the whole section whose text was cut (only when `truncated`; docs/adr/1902-*). */
+  fullTokens?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +150,33 @@ export function compoundSplits(word: string): [string, string][] {
   return out
 }
 
+/**
+ * Light query-side normalisation (docs/adr/1905-*). Each adds a variant to the word's group, so a
+ * chunk with either form counts once and the group's df is that of either form.
+ *   - enInflection: plural / -ed / -ing of an English query word also searches its stem as a prefix
+ *     ("deploys" → deploy:*, "approved" → approv:*, "answering" → answer:*). The note side needs
+ *     nothing: the prefix query already finds "deploys" for "deploy".
+ *   - koDoubleParticle: a Korean word with two particles is stripped twice ("회의에서는" → 회의에서
+ *     → 회의), each time only when two characters remain.
+ * Exported (not frozen) so scripts/context-tune.ts can switch them for a dev comparison.
+ */
+export const QUERY_FORMS = { enInflection: true, koDoubleParticle: true }
+
+/** Stem of an English plural / -ed / -ing form, or null. The stem is searched as a prefix. */
+export function englishStem(w: string): string | null {
+  if (!/^[a-z]+$/.test(w)) return null
+  let stem: string | null = null
+  if (w.length >= 5 && w.endsWith('ies')) stem = `${w.slice(0, -3)}y`
+  else if (w.length >= 6 && /(?:sses|shes|ches|xes|zes)$/.test(w)) stem = w.slice(0, -2)
+  else if (w.length >= 4 && w.endsWith('s') && !/(?:ss|us|is)$/.test(w)) stem = w.slice(0, -1)
+  else if (w.length >= 6 && w.endsWith('ed') && !w.endsWith('eed')) stem = w.slice(0, -2)
+  else if (w.length >= 7 && w.endsWith('ing')) stem = w.slice(0, -3)
+  if (!stem) return null
+  // "planned" → plann → plan, "running" → runn → run; "rolled" keeps its ll
+  if (/([b-df-hj-np-tv-z])\1$/.test(stem) && !/(?:ll|ss|ff|zz)$/.test(stem)) stem = stem.slice(0, -1)
+  return stem.length >= 3 && stem !== w ? stem : null
+}
+
 /** English function words: dropped when the query has other terms (they match nearly everything). */
 const STOPWORDS = new Set(
   'a an and are as at be by can do does for from how i if in is it its my of on or our should so that the their there this to was we what when where which who why will with you your'.split(' '),
@@ -185,14 +220,26 @@ export function queryGroups(q: string): TermGroup[] {
     const one = isCjkWord(t) ? oneSyllableStem(t) : null
     // "팀으로" is 팀 + 으로, not 팀으 + 로: a one-syllable stem takes the whole-word path below
     if (!one && isCjkWord(t) && t.length >= 3) {
-      const p = KO_SUFFIXES.find((x) => t.endsWith(x) && t.length - x.length >= 2)
-      if (p) {
-        const stem = t.slice(0, t.length - p.length)
-        if (!seen.has(stem)) {
-          g.variants.push(stem)
-          seen.add(stem)
-        }
+      const strip = (w: string) => {
+        const p = KO_SUFFIXES.find((x) => w.endsWith(x) && w.length - x.length >= 2)
+        return p ? w.slice(0, w.length - p.length) : null
       }
+      const stem = strip(t)
+      if (stem && !seen.has(stem)) {
+        g.variants.push(stem)
+        seen.add(stem)
+      }
+      // a second particle ("회의에서는" → 회의에서 → 회의), docs/adr/1905-*
+      const again = stem && QUERY_FORMS.koDoubleParticle && stem.length >= 3 ? strip(stem) : null
+      if (again && !seen.has(again)) {
+        g.variants.push(again)
+        seen.add(again)
+      }
+    }
+    const en = QUERY_FORMS.enInflection && !isCjkWord(t) ? englishStem(t) : null
+    if (en && !seen.has(en)) {
+      g.variants.push(en)
+      seen.add(en)
     }
     if (isCjkWord(t)) {
       if (one) g.exact = one.family.filter((f) => f !== t)
@@ -362,6 +409,53 @@ function matchers(g: TermGroup) {
   return m
 }
 
+// ---------------------------------------------------------------------------
+// what a chunk says itself (docs/adr/1900-*, 1901-*)
+// ---------------------------------------------------------------------------
+
+/** `](target)` of a Markdown link: the target is an address, not words of the note. */
+const MD_LINK_TARGET = /\]\((?:[^()\s]|\([^()\s]*\))+\)/g
+/** A bare address (also inside `[embed: …]` and `<…>`). */
+const BARE_URL = /\b(?:https?:\/\/|www\.)[^\s<>()[\]|]+/gi
+/** Wiki links and whole Markdown links (label included): references to other pages, not prose. */
+const LINKS = /\[\[[^\]\n]*\]\]|\[[^\]\n]*\]\((?:[^()\s]|\([^()\s]*\))+\)/g
+
+/**
+ * Switches of 0.15.1 (docs/adr/1900-*, 1901-*), exported so scripts/context-tune.ts can compare them
+ * on the dev questions:
+ *   - stripUrls: the words of link targets and bare URLs do not count for a query word
+ *     ("solar-forecast" in a link no longer makes a table about something else match "forecast").
+ *   - thinLetters: a chunk whose prose (links removed) has fewer letters/digits than this is scored
+ *     like a heading-only chunk (×0.7) and is `weak`.
+ *   - representative: a page's slot goes to a section that matches the query in its own heading or
+ *     prose before a `weak` one (diversify).
+ */
+export const SECTION_RULES = { stripUrls: true, thinLetters: 8, representative: true }
+
+/** Chunk text as matched against query words: Markdown link targets and bare URLs removed. */
+export function searchText(text: string): string {
+  if (!SECTION_RULES.stripUrls || (!text.includes('](') && !/https?:|www\./i.test(text))) return text
+  return text.replace(MD_LINK_TARGET, ']').replace(BARE_URL, ' ')
+}
+
+const LETTER = /[\p{L}\p{N}]/u
+
+/** The chunk's own prose: text without wiki links, Markdown links (label included) and addresses. */
+export function proseText(text: string): string {
+  return text.includes('[') || /https?:|www\./i.test(text) ? text.replace(LINKS, ' ').replace(BARE_URL, ' ') : text
+}
+
+/**
+ * Letters and digits of the chunk's own prose (text without links, link labels and addresses),
+ * counted up to `cap` (scoring only asks "fewer than thinLetters?", so it stops early).
+ */
+export function proseLetters(text: string, cap = Infinity): number {
+  const prose = proseText(text)
+  let n = 0
+  for (const ch of prose) if (LETTER.test(ch) && ++n >= cap) break
+  return n
+}
+
 /**
  * Score ≈ [0, 1.4]: idf-weighted coverage, BM25, title/heading hits, adjacency of consecutive query
  * words, phrase and a small recency bonus. Common words ("서울", "해커톤") weigh little, a rare one
@@ -375,14 +469,23 @@ export function scoreCandidate(c: Candidate, input: ScoreInput): number {
 export function scoreParts(
   c: Candidate,
   input: ScoreInput,
-): { score: number; coverage: number; bm25: number; title: number; heading: number; adjacent: number; phrase: boolean } {
+): { score: number; coverage: number; bm25: number; title: number; heading: number; adjacent: number; phrase: boolean; own: number; weak: boolean } {
   const { groups } = input
-  if (groups.length === 0) return { score: 0, coverage: 0, bm25: 0, title: 0, heading: 0, adjacent: 0, phrase: false }
+  if (groups.length === 0) return { score: 0, coverage: 0, bm25: 0, title: 0, heading: 0, adjacent: 0, phrase: false, own: 0, weak: true }
   // Aliases are other names of the page: they count as title (docs/adr/1701-*).
   const title = (c.aliases ? `${c.title}\n${c.aliases}` : c.title).toLowerCase()
   const heading = c.headingPath.toLowerCase()
+  // Link targets and bare URLs are not words of the note (docs/adr/1901-*).
+  const body = searchText(c.text).toLowerCase()
   // The page title is part of every chunk's text for tf (BM25F with all field weights 1).
-  const hay = `${title}\n${heading}\n${c.text.toLowerCase()}`
+  const hay = `${title}\n${heading}\n${body}`
+  /**
+   * What the chunk says itself (docs/adr/1900-*): its heading path and prose. Without links in the
+   * text that is `hay` after the title (offset ownFrom); with links, a separate text without them,
+   * so "← [[빗물 센서 2심 판결]]" is not evidence of 빗물 센서.
+   */
+  const ownFrom = title.length + 1
+  const ownHay = c.text.includes('[') ? `${heading}\n${proseText(c.text).toLowerCase()}` : null
   const w = groups.map((_, i) => input.idf[i] ?? 1)
   const wSum = w.reduce((a, b) => a + b, 0) || 1
   const { k1, b, pivot } = BM25
@@ -391,6 +494,7 @@ export function scoreParts(
   let bm25 = 0
   let inTitle = 0
   let inHeading = 0
+  let own = 0
   /** Per group: [start, end) of every occurrence (a stem inside a longer variant's hit is the same one). */
   const spans: [number, number][][] = []
   groups.forEach((g, i) => {
@@ -402,6 +506,7 @@ export function scoreParts(
     if (tf > 0 || ti) cover += w[i]
     if (ti) inTitle += w[i]
     if (he) inHeading += w[i]
+    if (ownHay === null ? hits.some(([a]) => a >= ownFrom) : groupSpans(ownHay, g).length > 0) own += w[i]
     if (tf > 0) bm25 += (w[i] * (tf * (k1 + 1))) / (tf + k1 * norm) / (k1 + 1)
   })
   let adj = 0
@@ -420,7 +525,9 @@ export function scoreParts(
   if (phrase) s += W.phrase
   const ageDays = Math.max(0, (input.now - c.updatedAt.getTime()) / 86_400_000)
   s += W.recency * Math.exp(-ageDays / 180)
-  if (c.text.trim().length < 20) s *= 0.7 // heading-only chunk: little to read
+  // heading-only chunk, or a line of links (docs/adr/1900-*): little to read
+  const thin = c.text.trim().length < 20 || (SECTION_RULES.thinLetters > 0 && proseLetters(c.text, SECTION_RULES.thinLetters) < SECTION_RULES.thinLetters)
+  if (thin) s *= 0.7
   return {
     score: Math.round(s * 1e6) / 1e6,
     coverage: cover / wSum,
@@ -429,6 +536,8 @@ export function scoreParts(
     heading: inHeading / wSum,
     adjacent: adjShare,
     phrase,
+    own: own / wSum,
+    weak: thin || own === 0,
   }
 }
 
@@ -498,15 +607,28 @@ export class TopK<T extends { score: number; pageId: string; ord: number }> {
 export const TOP_K = 40
 /** Fragments below `relative` × the best score, or below `absolute`, are noise. */
 export const FLOOR = { relative: 0.6, absolute: 0.2 }
-/** Tiny chunks would win any value/weight ratio; weigh them as at least this many tokens. */
-const MIN_WEIGHT = 60
 /**
  * Header cost not visible to pack: `; can: read,comment,edit`, `; edited by … via …`, review notes
  * (added by the MCP layer). The rest of the header is estimated from the actual title, heading,
  * anchor and version (docs/adr/1212-*).
  */
 export const HEADER_FACTS_TOKENS = 15
-const MIN_TAIL = 80
+/**
+ * Packing (docs/adr/1902-*): a chunk larger than `largeShare` × budget is cut around its best
+ * matching lines to that size even when it would fit, so one long table or log cannot take the
+ * whole budget from the shorter sections after it; `minTail` = the least text worth showing for a
+ * piece cut to the remaining budget (below it the piece becomes a pointer).
+ */
+export const PACKING = {
+  largeShare: 0.4,
+  minTail: 80,
+  /**
+   * Tiny chunks would win any value/weight ratio; weigh them as at least this many tokens. 60 → 80 in
+   * 0.15.1 (docs/adr/1902-*): with 60, fourteen 54-token near-floor notes (ratio 0.508/60) outran the
+   * 72-token answer (0.594/72) at a 1,500 budget.
+   */
+  minWeight: 80,
+}
 /**
  * Per-page rule (docs/adr/1211-*): a page's first `pageCap` sections keep their score, each further
  * one is multiplied by `pageDecay` once more (0 would be a hard cap). With the 0.6 relative floor,
@@ -519,23 +641,68 @@ function textKey(t: string): string {
   return createHash('sha1').update(t.replace(/\s+/g, ' ').trim()).digest('base64')
 }
 
-/** Cut `text` to `maxTokens`, starting near the first term hit so the evidence survives. */
-function cutAroundHit(text: string, terms: string[], maxTokens: number): string {
-  const lower = text.toLowerCase()
-  let hit = -1
-  for (const t of terms) {
-    const i = lower.indexOf(t)
-    if (i >= 0 && (hit < 0 || i < hit)) hit = i
+/** Query words for cutting: the groups and their weights (idf), or plain forms of weight 1. */
+export interface CutTerms {
+  groups: TermGroup[]
+  weights?: number[]
+}
+
+/** Weighted number of different query words on one line (URLs removed, as in scoring). */
+function lineWeight(line: string, cut: CutTerms): number {
+  const hay = searchText(line).toLowerCase()
+  let w = 0
+  cut.groups.forEach((g, i) => {
+    if (groupSpans(hay, g).length) w += cut.weights?.[i] ?? 1
+  })
+  return w
+}
+
+/**
+ * Cut `text` to `maxTokens` around its best matching line (docs/adr/1902-*): the line with the most
+ * (idf-weighted) different query words, URLs not counted, first such line on a tie; then up to two
+ * lines of context before it and as many lines after it as fit, then earlier lines if room is left.
+ * A table keeps its first row (the column names) when the window starts below it. '… ' / ' …' mark
+ * the cut ends. Deterministic: a function of the text, the words and the size only.
+ */
+export function cutAroundHit(text: string, terms: CutTerms | string[], maxTokens: number): string {
+  const cut: CutTerms = Array.isArray(terms) ? { groups: terms.map((t) => ({ word: t, variants: [t] })) } : terms
+  const lines = text.split('\n')
+  let best = 0
+  let bestW = 0
+  lines.forEach((l, i) => {
+    const w = lineWeight(l, cut)
+    if (w > bestW) {
+      bestW = w
+      best = i
+    }
+  })
+  const cost = lines.map((l) => estimateTokens(l) + 1)
+  if (cost[best] > maxTokens) {
+    // one line longer than the room (a long paragraph): start a little before its first hit
+    const line = lines[best]
+    const lower = line.toLowerCase()
+    const at = Math.min(...cut.groups.map((g) => groupSpans(lower, g)[0]?.[0] ?? Infinity))
+    // about a sentence of context before the hit, from a word boundary
+    let from = Number.isFinite(at) ? Math.max(0, at - 120) : 0
+    if (from > 0) from = Math.max(0, line.lastIndexOf(' ', from) + 1)
+    const piece = truncateToTokens(line.slice(from), maxTokens).text
+    return `${best > 0 || from > 0 ? '… ' : ''}${piece} …`
   }
-  let start = 0
-  if (hit > 0 && estimateTokens(text.slice(0, hit)) > maxTokens / 3) {
-    // start a couple of lines before the hit
-    let s = text.lastIndexOf('\n', hit)
-    for (let i = 0; i < 2 && s > 0; i++) s = text.lastIndexOf('\n', s - 1)
-    start = Math.max(0, s + 1)
-  }
-  const { text: cut } = truncateToTokens(text.slice(start), maxTokens)
-  return `${start > 0 ? '… ' : ''}${cut} …`
+  // a table row far below the column names: keep room for them (and the '…' line after them)
+  const reserve = best > 2 && lines[0].startsWith('|') && lines[best].startsWith('|') && cost[best] + cost[0] + 2 <= maxTokens ? cost[0] + 2 : 0
+  const room = maxTokens - reserve
+  let start = best
+  let end = best + 1
+  let used = cost[best]
+  // two lines of context before the hit when they fit, then forward, then backward
+  for (let k = 0; k < 2 && start > 0 && used + cost[start - 1] <= room; k++) used += cost[--start]
+  while (end < lines.length && used + cost[end] <= room) used += cost[end++]
+  while (start > 0 && used + cost[start - 1] <= room) used += cost[--start]
+  let window = lines.slice(start, end)
+  const tableHead = reserve > 0 && start > 0
+  if (tableHead) window = [lines[0], '…', ...window]
+  const body = truncateToTokens(window.join('\n'), maxTokens).text
+  return `${start > 0 && !tableHead ? '… ' : ''}${body} …`
 }
 
 /** The label of a chunk without page context: the full anchor and heading path (pre-1212 output). */
@@ -545,7 +712,8 @@ export function fullLabel(c: Pick<Candidate, 'anchor' | 'headingPath'>): Section
 
 /** Estimated tokens of a fragment's two header lines as renderFindContext prints them. */
 export function headerTokens(c: Pick<Candidate, 'title' | 'pageId' | 'version'>, label: SectionLabel): number {
-  const head = `[10] ${c.title || 'Untitled'}${label.heading ? ` › ${label.heading}` : ''}\n(page ${c.pageId}; §${label.short} v=${c.version})`
+  // the page id is printed as its 8-character prefix (docs/adr/1906-*)
+  const head = `[10] ${c.title || 'Untitled'}${label.heading ? ` › ${label.heading}` : ''}\n(page ${c.pageId.slice(0, 8)}; §${label.short} v=${c.version})`
   return estimateTokens(head) + HEADER_FACTS_TOKENS
 }
 
@@ -559,6 +727,10 @@ export interface PackOptions {
   label?: (c: Candidate) => SectionLabel
   pageCap?: number
   pageDecay?: number
+  /** Query words with their weights, for cutting around the best line (else the plain `terms`). */
+  cut?: CutTerms
+  /** Estimated tokens of a whole section (all its parts), for the `truncated` note; default the chunk's. */
+  sectionTokens?: (c: Candidate) => number
 }
 
 export interface PackResult {
@@ -575,16 +747,19 @@ export interface PackResult {
  * Returns the adjusted copies, re-sorted.
  */
 export function diversify(pool: Scored[], cap = DIVERSITY.pageCap, decay = DIVERSITY.pageDecay): Scored[] {
-  const seen = new Map<string, string[]>()
+  // A page's sections in slot order: those that match the query themselves (heading or prose) first,
+  // then `weak` ones (title-only or a line of links), each group best first (docs/adr/1900-*). A
+  // section is weak only when every part of it in the pool is.
+  const strong = new Set(pool.filter((c) => !c.weak).map((c) => `${c.pageId}#${c.anchor}`))
+  const slots = new Map<string, string[]>()
+  const order = SECTION_RULES.representative ? [...pool.filter((c) => strong.has(`${c.pageId}#${c.anchor}`)), ...pool.filter((c) => !strong.has(`${c.pageId}#${c.anchor}`))] : pool
+  for (const c of order) {
+    const list = slots.get(c.pageId) ?? []
+    if (!list.includes(c.anchor)) list.push(c.anchor)
+    slots.set(c.pageId, list)
+  }
   const out = pool.map((c) => {
-    const list = seen.get(c.pageId) ?? []
-    let k = list.indexOf(c.anchor)
-    if (k < 0) {
-      list.push(c.anchor)
-      seen.set(c.pageId, list)
-      k = list.length - 1
-    }
-    const extra = k + 1 - cap
+    const extra = slots.get(c.pageId)!.indexOf(c.anchor) + 1 - cap
     return extra > 0 ? { ...c, score: Math.round(c.score * decay ** extra * 1e6) / 1e6 } : c
   })
   return out.sort(byScore)
@@ -617,22 +792,32 @@ export function pack(ranked: Scored[], terms: string[], budget: number, opts: Pa
   const pool = adjusted.filter((c) => c.score >= floor)
   const heldBack = adjusted.filter((c) => c.score < floor).map((c) => original.get(`${c.pageId}#${c.ord}`)!)
 
-  const ratio = (c: Scored) => c.score / Math.max(MIN_WEIGHT, c.tokens)
+  const ratio = (c: Scored) => c.score / Math.max(PACKING.minWeight, c.tokens)
   const order = [pool[0], ...pool.slice(1).sort((a, b) => ratio(b) - ratio(a) || byScore(a, b))]
 
+  const cutTerms: CutTerms | string[] = opts.cut ?? terms
+  // A chunk above this many tokens is cut around its best lines even when it fits (docs/adr/1902-*).
+  const large = Math.max(PACKING.minTail, Math.floor(budget * PACKING.largeShare))
   let left = budget
   const taken: { c: Scored; text: string; truncated: boolean }[] = []
   const overflow: Scored[] = []
   for (const c of order) {
     const head = headerTokens(c, label(c))
-    const cost = c.tokens + head
-    if (cost <= left) {
-      taken.push({ c, text: c.text, truncated: false })
-      left -= cost
-    } else if (left - head >= MIN_TAIL) {
-      const text = cutAroundHit(c.text, terms, left - head - 2) // 2 = the '… ' markers
-      taken.push({ c, text, truncated: true })
-      left -= estimateTokens(text) + head
+    let text = c.text
+    let tokens = c.tokens
+    let truncated = false
+    if (tokens > large) {
+      text = cutAroundHit(c.text, cutTerms, large - 2) // 2 = the '… ' markers
+      tokens = estimateTokens(text)
+      truncated = true
+    }
+    if (tokens + head <= left) {
+      taken.push({ c, text, truncated })
+      left -= tokens + head
+    } else if (left - head >= PACKING.minTail) {
+      const cutText = cutAroundHit(c.text, cutTerms, left - head - 2)
+      taken.push({ c, text: cutText, truncated: true })
+      left -= estimateTokens(cutText) + head
     } else {
       overflow.push(original.get(`${c.pageId}#${c.ord}`)!)
     }
@@ -663,6 +848,7 @@ export function pack(ranked: Scored[], terms: string[], budget: number, opts: Pa
         cur.tokens += estimateTokens(sep + t.text)
         cur.score = Math.max(cur.score, c.score)
         cur.truncated = t.truncated
+        if (t.truncated) cur.fullTokens = opts.sectionTokens?.(c) ?? c.tokens
       } else {
         cur = {
           pageId: c.pageId,
@@ -676,6 +862,7 @@ export function pack(ranked: Scored[], terms: string[], budget: number, opts: Pa
           tokens: estimateTokens(t.text),
           score: c.score,
           truncated: t.truncated,
+          ...(t.truncated ? { fullTokens: opts.sectionTokens?.(c) ?? c.tokens } : {}),
         }
         fragments.push(cur)
       }

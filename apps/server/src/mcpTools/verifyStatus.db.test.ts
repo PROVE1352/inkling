@@ -106,7 +106,9 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
     const verifiedRead = await a.tool('read_page', { pageId: s.page.id })
     assert.match(verifiedRead.text, /\n- verified: until \d{4}-\d\d-\d\d\n/)
     const fc = await a.tool('find_context', { query: 'zanzibar refunds' })
-    assert.match(fc.text, /; verified[;)]/)
+    // find_context: one line at the end since 0.15.1, the fragment header unchanged (docs/adr/1907-*)
+    assert.match(fc.text, /\nVerification: \[1\] verified$/)
+    assert.doesNotMatch(fc.text, /; verified/)
     // token cost of the marks (reported in docs/adr/1842-*)
     console.log(
       `[verify] read_page +${estimateTokens(verifiedRead.text) - estimateTokens(before.text)} tok, ` +
@@ -131,7 +133,7 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
     await log(s.admin.id, 'faq', 'added', true)
     v = (await req(s.member, 'GET', `/pages/${s.page.id}/verification`)).json().verification
     assert.equal(v.changedMuch, true)
-    assert.match((await a.tool('find_context', { query: 'zanzibar refunds' })).text, /; verified, changed since/)
+    assert.match((await a.tool('find_context', { query: 'zanzibar refunds' })).text, /\nVerification: \[1\] verified, changed since$/)
 
     // Lists: expiring within the window, expired; another member's private page never shows.
     const priv = await h.makeDocPage(s.ws.id, s.owner.id, 'Owner private', [para('x')] as never, { scope: 'private' })
@@ -148,7 +150,7 @@ describe('[db] page verification and member status', { skip: !HAS_DB }, async ()
     assert.equal(list.expired[0].verification.state, 'expired')
     const stale = await a.tool('read_page', { pageId: s.page.id })
     assert.match(stale.text, /\n- stale: verification lapsed \d{4}-\d\d-\d\d, 3 sections changed since\n/)
-    assert.match((await a.tool('find_context', { query: 'zanzibar refunds' })).text, /; stale: verification lapsed/)
+    assert.match((await a.tool('find_context', { query: 'zanzibar refunds' })).text, /\nVerification: \[1\] stale: verification lapsed$/)
     assert.equal((await req(s.outsider, 'GET', `/workspaces/${s.ws.id}/verified`)).statusCode, 403)
   })
 

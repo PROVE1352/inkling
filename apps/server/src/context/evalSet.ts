@@ -25,6 +25,18 @@ export interface EvalQuestion {
   split: 'dev' | 'test'
   /** Failure family the question reproduces (per-tag metrics in evalRun.ts, docs/adr/1702-*). */
   tag?: string
+  /**
+   * Asked as find_context(queries=[q, ...queries]) instead of one query: an agent that knows the
+   * notes may be in another language passes the original and a translation (docs/adr/1904-*).
+   */
+  queries?: string[]
+  /** Token budget of the call (default: the tool's default). The field cases were seen at small budgets. */
+  budget?: number
+  /**
+   * Text that proves the answer is in the returned body (not only its header). Default: the start
+   * of the expected section's first line (`answerEvidence`).
+   */
+  evidence?: string
 }
 
 export const EVAL_PAGES: EvalPage[] = [
@@ -663,14 +675,160 @@ const KO_PARTIAL_QUESTIONS: EvalQuestion[] = [
 ]
 
 /**
+ * Field cases of 0.15.1 (docs/adr/1900-*, 1901-*, 1902-*), fictional and built with the same shape:
+ *
+ *   - Three "court" pages per idea (1심, 2심, 3심). Each starts with a one-line `_intro` that is only
+ *     links (the previous ruling and the record), then the ruling (`# 판결문`). The 3심 title says
+ *     폐기; its ruling explains why without the words 폐기 or 이유, while the 1심 ruling mentions both
+ *     ("폐기 의견도 나왔지만 이유가 약하다"). Asked "<idea> 폐기 이유" at a small budget, the 3심
+ *     page's link line won its page slot on the title alone and the ruling became a pointer.
+ *   - A contest log in Korean: a ~600-token table of submissions whose links contain
+ *     "solar-forecast/submissions", and a short "최고 기록" section that says best submission and
+ *     public score. Asked in English, the URLs made the table the top result and the short answer
+ *     did not fit the rest of the budget.
+ */
+function courtPages(idea: string, slug: string): EvalPage[] {
+  const link = (n: number) => `[기록](https://court.example.com/${slug}/${n})`
+  return [
+    {
+      title: `${idea} 1심 판결`,
+      markdown: `← [[${idea} 아이디어]] · ${link(1)}
+
+# 판결문
+1심 재판부는 ${idea} 안을 조건부로 진행하라고 판단했다. 폐기 의견도 나왔지만 이유가 약하다고 봤다. 설치 장소를 세 곳으로 줄이면 비용 문제는 풀린다.
+
+# 보완 과제
+현장 데이터를 구청에서 받을 수 있는지 먼저 확인한다.`,
+    },
+    {
+      title: `${idea} 2심 판결`,
+      markdown: `← [[${idea} 1심 판결]] · ${link(2)}
+
+# 판결문
+2심은 1심 판단을 그대로 유지했다. 비용 추정이 낙관적이라는 지적은 기록으로 남긴다.
+
+# 보완 과제
+시범 구역의 유지비를 다시 계산한다.`,
+    },
+    {
+      title: `${idea} 3심 폐기`,
+      markdown: `← [[${idea} 2심 판결]] · ${link(3)}
+
+# 판결문
+3심 재판부는 ${idea} 안을 접는다. 첫째, 구청 데이터가 공개되지 않아 효과를 검증할 수 없다. 둘째, 한 대 유지비가 연 40만 원으로 예산을 넘는다. 시범 운영도 하지 않는다.
+
+# 소수 의견
+한 판사는 시범 구역 한 곳이라도 운영해 보자고 했다.`,
+    },
+  ]
+}
+
+/**
+ * A contest log: the contest's English name in the intro, a long submissions table with links and a
+ * `score` column, then a short best-result section. Postgres's parser keeps a URL path as one lexeme
+ * ("/solar-forecast/submissions/1001"), so the table is a candidate through `score` only; the URL words
+ * then counted in the Node score.
+ */
+function contestLogPage(title: string, name: string, host: string, path: string, model: string, best: string): EvalPage {
+  const rows = Array.from({ length: 22 }, (_, i) => {
+    const n = i + 1
+    const score = (7_900 - i * 61.3).toFixed(2)
+    return `| ${n} | 11/${String(2 + Math.floor(i / 3)).padStart(2, '0')} | ${model}${1 + (i % 10)}_s${i % 7} | [열기](https://${host}/${path}/${1000 + n}) | ${score} |`
+  })
+  return {
+    title,
+    markdown: `${name}. 대회 기간은 11월 2일부터 13일까지이고 하루 다섯 번까지 낼 수 있다.
+
+# 제출 목록
+| 회차 | 날짜 | 모델 | 링크 | score |
+|---|---|---|---|---|
+${rows.join('\n')}
+
+# 최고 기록
+${best}
+
+# 다음 할 일
+남은 다섯 번은 앙상블 실험에 쓴다.`,
+  }
+}
+
+export const FIELD_PAGES: EvalPage[] = [
+  ...courtPages('빗물 센서', 'rain-sensor'),
+  ...courtPages('공유 우산', 'shared-umbrella'),
+  contestLogPage(
+    '태양광 예측 대회 기록',
+    'Solar Forecast Challenge 2026',
+    'contest.example.com',
+    'solar-forecast/submissions',
+    'G',
+    'best submission은 15회차 G10_seed9다. public score 6,465.75로 지금까지 제일 좋은 점수다.',
+  ),
+  contestLogPage(
+    '수요 예측 리그 기록',
+    'Demand Prediction League',
+    'league.example.com',
+    'demand-prediction/entries',
+    'L',
+    'top entry는 12회차 L7_s3이다. leaderboard score 5,120.30으로 리그 3위다.',
+  ),
+]
+
+/**
+ * Questions of 0.15.1 (docs/adr/1909-*), each family in both splits:
+ *   thin-intro    the link-only `_intro` takes the page slot (field case 1), small budget
+ *   url-table     URLs in a long table outrank a short answer (field case 2), small budget
+ *   cross-lang    English question, Korean notes: asked as queries=[English, Korean]
+ *   en-inflection plural / -ed / -ing in the query, the base form in the note
+ *   ko-double     two particles on one word ("회의에서는")
+ */
+const FIELD_QUESTIONS: EvalQuestion[] = [
+  { q: '빗물 센서 폐기 이유', page: '빗물 센서 3심 폐기', anchor: '판결문', evidence: '구청 데이터가 공개되지 않아', budget: 800, split: 'dev', tag: 'thin-intro' },
+  { q: '공유 우산 폐기 이유', page: '공유 우산 3심 폐기', anchor: '판결문', evidence: '구청 데이터가 공개되지 않아', budget: 800, split: 'test', tag: 'thin-intro' },
+  { q: 'solar forecast best submission score', page: '태양광 예측 대회 기록', anchor: '최고-기록', evidence: 'public score 6,465.75', budget: 700, split: 'dev', tag: 'url-table' },
+  { q: 'demand prediction top entry leaderboard score', page: '수요 예측 리그 기록', anchor: '최고-기록', evidence: 'leaderboard score 5,120.30', budget: 700, split: 'test', tag: 'url-table' },
+  { q: 'team dinner budget per person', queries: ['팀 회식 예산'], page: '팀 운영 메모', anchor: '팀-운영/회식', evidence: '1인 3만 원', split: 'dev', tag: 'cross-lang' },
+  { q: 'solar forecast best score', queries: ['태양광 예측 최고 점수'], page: '태양광 예측 대회 기록', anchor: '최고-기록', evidence: 'public score 6,465.75', budget: 1000, split: 'dev', tag: 'cross-lang' },
+  { q: 'how are newcomers assigned to teams', queries: ['신입 팀 배정'], page: '동아리 신입 안내', anchor: '신입-안내/팀-배정', evidence: '관심 분야를 적어 내고', split: 'test', tag: 'cross-lang' },
+  { q: 'study group fine for absence', queries: ['스터디 결석 벌금'], page: '알고리즘 스터디 운영', anchor: '스터디-운영/벌금', evidence: '결석하면 오천 원', split: 'test', tag: 'cross-lang' },
+  { q: 'flags expiry dates owners', page: 'Feature flags', anchor: 'creating-a-flag', split: 'dev', tag: 'en-inflection' },
+  { q: 'reviewers answering pull requests', page: 'Code review guidelines', anchor: 'turnaround', split: 'dev', tag: 'en-inflection' },
+  { q: 'approved authentication changes', page: 'Code review guidelines', anchor: 'approvals', split: 'test', tag: 'en-inflection' },
+  { q: 'rolled back deploys announcing', page: 'Deploy runbook', anchor: 'rollback', split: 'test', tag: 'en-inflection' },
+  { q: '주간회의에서는 출시일을 언제로', page: '주간회의록 2026-10-12', anchor: '결정-사항', split: 'dev', tag: 'ko-double' },
+  { q: '동아리에서도 활동비는', page: '동아리 신입 안내', anchor: '신입-안내/활동비', split: 'dev', tag: 'ko-double' },
+  { q: '스터디에서는 벌금을 얼마', page: '알고리즘 스터디 운영', anchor: '스터디-운영/벌금', split: 'test', tag: 'ko-double' },
+  { q: '디자인팀에서는 누구를 지원', page: '사내 TF 킥오프', anchor: '결제-개편-tf/구성원', split: 'test', tag: 'ko-double' },
+]
+
+/**
  * Every question. The 28 wiki questions of ADR 0927 are split by position (every third one is
- * held out as test); the contest and Korean partial-match questions carry their split explicitly.
+ * held out as test); the contest, Korean partial-match and 0.15.1 questions carry their split
+ * explicitly (new questions are appended after them, never into BASE_QUESTIONS).
  */
 export const EVAL_QUESTIONS: EvalQuestion[] = [
   ...BASE_QUESTIONS.map((q, i): EvalQuestion => ({ ...q, split: i % 3 === 2 ? 'test' : 'dev' })),
   ...CONTEST_QUESTIONS,
   ...KO_PARTIAL_QUESTIONS,
+  ...FIELD_QUESTIONS,
 ]
+
+/**
+ * Text that shows the answer of `q` is in a returned body: `q.evidence`, else the first 16
+ * characters of the first non-empty line of the expected section (the fixtures' sections are one
+ * or two sentences; their first line is the answer).
+ */
+export function answerEvidence(q: EvalQuestion, pages: EvalPage[] = ALL_EVAL_PAGES): string {
+  if (q.evidence) return q.evidence
+  const page = pages.find((p) => p.title === q.page)
+  if (!page) throw new Error(`eval page missing: ${q.page}`)
+  const leaf = q.anchor.split('/').pop()!
+  const slug = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')
+  const lines = page.markdown.split('\n')
+  const at = lines.findIndex((l) => /^#{1,6} /.test(l) && slug(l.replace(/^#+ /, '')) === leaf)
+  const body = at >= 0 ? lines.slice(at + 1).find((l) => l.trim() && !/^#{1,6} /.test(l)) : lines.find((l) => l.trim())
+  if (!body) throw new Error(`no body for ${q.page} §${q.anchor}`)
+  return [...body.trim()].slice(0, 16).join('')
+}
 
 /**
  * Other contest notes (another team's workspace in the field report): 30 short pages that repeat
@@ -701,8 +859,8 @@ export function contestNoisePages(n = 30): EvalPage[] {
   })
 }
 
-/** Wiki + contest pages + Korean partial-match pages + other contest notes: the corpus the questions above are asked against. */
-export const ALL_EVAL_PAGES: EvalPage[] = [...EVAL_PAGES, ...CONTEST_PAGES, ...KO_PARTIAL_PAGES, ...contestNoisePages()]
+/** Wiki + contest pages + Korean partial-match pages + 0.15.1 field pages + other contest notes: the corpus the questions above are asked against. */
+export const ALL_EVAL_PAGES: EvalPage[] = [...EVAL_PAGES, ...CONTEST_PAGES, ...KO_PARTIAL_PAGES, ...FIELD_PAGES, ...contestNoisePages()]
 
 // ---------------------------------------------------------------------------
 // padding: real pages are longer than the fixture sections above

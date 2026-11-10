@@ -502,7 +502,9 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
     it('find_context and read_pages wrap and flag per fragment', async () => {
       const f = (await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text
       assert.match(f, /<untrusted_content source="find_context" hidden_chars="1">/)
-      assert.match(f, /; can: read,comment,edit; edited by Member via Test Agent; suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\)/)
+      // can: is printed once in the header when every result has the same (docs/adr/1906-*)
+      assert.match(f, /can: read,comment,edit/)
+      assert.match(f, /; edited by Member via Test Agent; suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\)/)
       assert.equal((await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text, f)
       const rp = (await mcpM.tool('read_pages', { pageIds: [P, X] })).text
       assert.equal((rp.match(/<untrusted_content source="page"/g) ?? []).length, 2)

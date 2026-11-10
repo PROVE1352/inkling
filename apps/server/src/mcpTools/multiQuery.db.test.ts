@@ -66,10 +66,11 @@ describe('[db] find_context queries=[…] (docs/adr/1720-*)', { skip: !HAS_DB },
   it('a bundle: one header naming the queries, each section once with matched, one footer, one budget', async () => {
     const r = await A.tool('find_context', { queries: ROLLBACK.queries })
     assert.equal(r.isError, false, r.text)
-    assert.match(r.text, /^\d+ result\(s\) for 3 queries \(1 "roll back deployment", 2 "배포 되돌리기", 3 "revert release"\), ~(\d+)\/3500 tokens\n/)
+    assert.match(r.text, /^\d+ result\(s\) for 3 queries \(1 "roll back deployment", 2 "배포 되돌리기", 3 "revert release"\), ~(\d+)\/3500 tokens(; can: [a-z,]+ \(all results\))?\n/)
     const used = Number(/~(\d+)\/3500/.exec(r.text)![1])
     assert.ok(used <= 3500)
-    const headers = [...r.text.matchAll(/\(page ([0-9a-f-]{36}); ([^\n]*?)(?:; truncated)?; matched: ([\d,s]+)/g)]
+    // 8-character page ids (docs/adr/1906-*); a cut piece says its section size (docs/adr/1902-*)
+    const headers = [...r.text.matchAll(/\(page ([0-9a-f-]{8,36}); ([^\n]*?)(?:; truncated[^;]*)?; matched: ([\d,s]+)/g)]
     assert.ok(headers.length > 3)
     const sections = headers.flatMap((m) => [...m[2].matchAll(/§([^ ,]+) v=/g)].map((s) => `${m[1]}#${s[1]}`))
     assert.equal(new Set(sections).size, sections.length, 'a section printed twice')
@@ -78,7 +79,7 @@ describe('[db] find_context queries=[…] (docs/adr/1720-*)', { skip: !HAS_DB },
     // both answers (English and Korean pages) are in the one answer
     for (const g of ROLLBACK.gold) assert.ok(C.includesSection(r.text, pageIdOf(g.title), g.anchor), `${g.title} §${g.anchor} missing`)
     // the English answer section was found by queries 1 and 3, the Korean one by query 2
-    assert.match(r.text, new RegExp(`\\(page ${pageIdOf('Release runbook')}; §rollback v=\\w+; matched: 1(,2)?,3;`))
+    assert.match(r.text, new RegExp(`\\(page ${pageIdOf('Release runbook').slice(0, 8)}; §rollback v=\\w+; matched: 1(,2)?,3[;)]`))
   })
 
   it('the same bundle gives the same bytes, also when recomputed', async () => {

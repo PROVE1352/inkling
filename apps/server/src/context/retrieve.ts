@@ -4,7 +4,7 @@ import { db } from '../db/index'
 import { agentAllowedSql } from '../agentAccess'
 import { escapeLike } from '../util'
 import type { Candidate, Fragment, Scored, SectionLabel, TermGroup } from './rank'
-import { fullLabel, groupTsquery, idf, pack, queryGroups, scoreCandidate, TOP_K, TopK, UNSEEN_WEIGHT } from './rank'
+import { fullLabel, groupTsquery, idf, pack, queryGroups, scoreParts, TOP_K, TopK, UNSEEN_WEIGHT } from './rank'
 import { headingTail, shortAnchors } from './chunker'
 import { isCjkCode } from './tokens'
 import { pageInRangeSql } from '../tokenRange'
@@ -213,20 +213,27 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
       updatedAt: r.updatedAt instanceof Date ? r.updatedAt : new Date(r.updatedAt),
       aliases: aliasText(r.aliases),
     }
-    top.push({ ...c, score: scoreCandidate(c, { groups, idf: weights, phrase, now }) })
+    const parts = scoreParts(c, { groups, idf: weights, phrase, now })
+    // `weak`: says nothing of its own about the query (title only, or a line of links), docs/adr/1900-*
+    top.push({ ...c, score: parts.score, ...(parts.weak ? { weak: true } : {}) })
   }
   const ranked = top.sorted()
   opts.explain?.({ groups, df: groups.map((_, i) => Number(dfRow[`d${i}`]) || 0), n, idf: weights, ranked, candidates: rows.length })
 
   // Short anchors need every anchor of the pages that may be shown (docs/adr/1212-*). These page
   // ids passed the permission filter above.
-  const labels = await sectionLabels([...new Set(ranked.map((c) => c.pageId))])
+  const { labels, totals } = await sectionLabels([...new Set(ranked.map((c) => c.pageId))])
   const label = (c: { pageId: string; anchor: string; headingPath: string }): SectionLabel => {
     if (opts.location === 'full') return fullLabel(c)
     const short = labels.get(c.pageId)?.get(c.anchor) ?? c.anchor
     return { short, heading: headingTail(c.headingPath, short.split('/').length) }
   }
-  const { fragments, usedTokens, overflow } = pack(ranked, terms, budget, { label })
+  const { fragments, usedTokens, overflow } = pack(ranked, terms, budget, {
+    label,
+    // cut a long chunk around its line with the most (idf-weighted) query words, docs/adr/1902-*
+    cut: { groups, weights },
+    sectionTokens: (c) => totals.get(`${c.pageId}#${c.anchor}`) ?? c.tokens,
+  })
 
   // Title-only pages (no indexed text) and the best overflow sections as pointers.
   const titleRows = (await db.execute(sql`
@@ -258,21 +265,27 @@ function aliasText(v: unknown): string {
   return Array.isArray(arr) ? arr.filter((a): a is string => typeof a === 'string').join('\n') : ''
 }
 
-/** Per page: anchor → short anchor (shortest suffix unique on that page). */
-async function sectionLabels(pageIds: string[]): Promise<Map<string, Map<string, string>>> {
-  const out = new Map<string, Map<string, string>>()
-  if (pageIds.length === 0) return out
+/**
+ * Per page: anchor → short anchor (shortest suffix unique on that page), and per `pageId#anchor` the
+ * estimated tokens of the whole section (all parts), printed when its text was cut (docs/adr/1902-*).
+ */
+async function sectionLabels(pageIds: string[]): Promise<{ labels: Map<string, Map<string, string>>; totals: Map<string, number> }> {
+  const labels = new Map<string, Map<string, string>>()
+  const totals = new Map<string, number>()
+  if (pageIds.length === 0) return { labels, totals }
   const rows = (await db.execute(sql`
-    SELECT page_id AS "pageId", anchor FROM page_chunks
-     WHERE page_id = ANY(${uuidArray(pageIds)}::uuid[]) AND part = 0
-     ORDER BY page_id, ord
-  `)) as unknown as { pageId: string; anchor: string }[]
+    SELECT page_id AS "pageId", anchor, sum(token_estimate)::int AS tokens FROM page_chunks
+     WHERE page_id = ANY(${uuidArray(pageIds)}::uuid[])
+     GROUP BY page_id, anchor
+     ORDER BY page_id, min(ord)
+  `)) as unknown as { pageId: string; anchor: string; tokens: number }[]
   const byPage = new Map<string, string[]>()
   for (const r of rows) {
     const list = byPage.get(r.pageId) ?? []
     list.push(r.anchor)
     byPage.set(r.pageId, list)
+    totals.set(`${r.pageId}#${r.anchor}`, Number(r.tokens))
   }
-  for (const [id, anchors] of byPage) out.set(id, shortAnchors(anchors))
-  return out
+  for (const [id, anchors] of byPage) labels.set(id, shortAnchors(anchors))
+  return { labels, totals }
 }

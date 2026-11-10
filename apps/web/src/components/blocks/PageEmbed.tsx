@@ -257,8 +257,9 @@ const pageEmbedShallowSpec = createReactBlockSpec(pageEmbedConfig, {
  * editor (CollabEditor) and the read-only embed viewer below. The viewer is bound to the embedded
  * page's LIVE Yjs doc and y-prosemirror deletes the nodes its schema does not know, so it must know
  * every node the editor writes (docs/adr/1539-*, 0995-*). The callers differ only in renders of the
- * same node types: pageEmbed (full card + body vs. card only, the recursion guard) and codeBlock
- * (with or without live query results, which need the editor's QueryBlockPortals).
+ * same node types: pageEmbed (full card + body vs. card only, the recursion guard), codeBlock
+ * (with or without live query results, which need the editor's QueryBlockPortals) and image (the
+ * editor's adds a "View larger" button, docs/adr/2386-*; same config and parsing as BlockNote's).
  *
  * The custom maps `satisfies` the shared type lists in @inkling/shared (CUSTOM_BLOCK_TYPES,
  * CUSTOM_INLINE_CONTENT_TYPES), so a node added there and not registered here fails typecheck.
@@ -267,6 +268,7 @@ const pageEmbedShallowSpec = createReactBlockSpec(pageEmbedConfig, {
 export function editorSchemaSpecs(renders: {
   pageEmbed: typeof pageEmbedShallowSpec
   codeBlock: ReturnType<typeof createCodeBlockSpec>
+  image?: typeof defaultBlockSpecs.image
 }) {
   const customBlockSpecs = {
     // Page embed `![[...]]` (M12).
@@ -293,7 +295,7 @@ export function editorSchemaSpecs(renders: {
   } satisfies Record<CustomInlineContentType, unknown>
   return {
     // Code block highlighting is injected via the schema, not an editor option (Appendix A).
-    blockSpecs: { ...defaultBlockSpecs, codeBlock: renders.codeBlock, ...customBlockSpecs },
+    blockSpecs: { ...defaultBlockSpecs, codeBlock: renders.codeBlock, image: renders.image ?? defaultBlockSpecs.image, ...customBlockSpecs },
     inlineContentSpecs: { ...defaultInlineContentSpecs, ...customInlineContentSpecs },
   }
 }

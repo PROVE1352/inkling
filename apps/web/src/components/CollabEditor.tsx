@@ -34,6 +34,8 @@ import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
 import { MentionMenu } from './MentionMenu'
 import { SlashMenu } from './SlashMenu'
+import { createZoomableImageSpec } from './imageViewer/zoomableImage'
+import { imageTarget, openFromImage } from './imageViewer/openImageViewer'
 import { getLocale, t, useT } from '../i18n'
 
 /** BlockNote's dictionary for the app locale, with our own empty-block hint (BlockNote's Korean one
@@ -69,9 +71,10 @@ export type CollabState = {
 // One spec list for this schema and the page-embed viewer's (editorSchemaSpecs, docs/adr/1539-*):
 // the custom nodes share their configs with the server schema (@inkling/shared, docs/adr/1500-*),
 // so server reads keep them. Here pageEmbed renders the target body and code blocks in language
-// `dataview` render live query results (docs/QUERY.md), in language `mermaid` a diagram (docs/adr/2104-*).
+// `dataview` render live query results (docs/QUERY.md), in language `mermaid` a diagram (docs/adr/2104-*),
+// and images carry a "View larger" button (docs/adr/2386-*).
 const schema = BlockNoteSchema.create(
-  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec }),
+  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec, image: createZoomableImageSpec() }),
 )
 
 /** Why the device copy was not merged (docs/adr/2201-*): shown above the editor that reopened from the server. */
@@ -538,9 +541,25 @@ function CollabEditorBody({
   const onClickCapture = (e: React.MouseEvent) => {
     internalLinkClick(e, navigate)
   }
+  // Image viewer (docs/adr/2386-*): a click on an editable image selects the block, so a double-click
+  // opens it there; a read-only body (lock, read-only link) opens it with one click. The corner
+  // button (zoomableImage.ts) opens it in both.
+  const onImageOpen = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.type === 'click') !== readOnly) return
+    const img = imageTarget(e.target)
+    if (!img || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    openFromImage(e.currentTarget, img)
+  }
 
   return (
-    <div className="relative" onClickCapture={onClickCapture} onAuxClick={editableLinkAuxClick}>
+    <div
+      className="relative"
+      onClickCapture={onClickCapture}
+      onAuxClick={editableLinkAuxClick}
+      onClick={onImageOpen}
+      onDoubleClick={onImageOpen}
+    >
       {!synced && (
         <div
           data-testid={deviceCopy ? 'offline-device-copy' : undefined}

@@ -10,6 +10,7 @@
 //   tree       the sidebar tree's own onKeyDown matches the key through matchCommand()
 //   table      the database table's own onKeyDown matches the key through matchCommand() (1407)
 //   browser    a browser event does the work (copy/paste in the table); listed only
+//   viewer     the image viewer's own keydown while it is open (components/imageViewer, 2386); fixed keys, listed only
 //
 // Keys come from currentKeys(): the defaults below, or the user's own keys from Settings ›
 // Shortcuts (setKeyOverrides, docs/adr/1404-*). The overrides are plain module state here; reading
@@ -17,8 +18,8 @@
 import type { TKey } from '../../i18n'
 import { canonicalKey, formatKey, type InInputs, type Platform } from './keys'
 
-export type Scope = 'global' | 'page' | 'editor' | 'tree' | 'table' | 'ink'
-export type Via = 'app' | 'editor' | 'blocknote' | 'tree' | 'table' | 'browser'
+export type Scope = 'global' | 'page' | 'editor' | 'tree' | 'table' | 'ink' | 'viewer'
+export type Via = 'app' | 'editor' | 'blocknote' | 'tree' | 'table' | 'browser' | 'viewer'
 export type KeySpecs = { mac: string[]; other: string[] }
 
 export type ShortcutDef = {
@@ -242,6 +243,14 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
 
   // --- pen mode ---------------------------------------------------------------------------------
   { id: 'ink.undo', scope: 'ink', via: 'app', label: 'cmd.inkUndo', keys: both('Mod-z'), inInputs: 'deny', palette: false },
+
+  // --- image viewer (docs/adr/2386-*): its own keydown while it is open; listed for the help window --
+  { id: 'viewer.zoomIn', scope: 'viewer', via: 'viewer', label: 'imageViewer.zoomIn', keys: both('+'), palette: false, remap: false },
+  { id: 'viewer.zoomOut', scope: 'viewer', via: 'viewer', label: 'imageViewer.zoomOut', keys: both('-'), palette: false, remap: false },
+  { id: 'viewer.fit', scope: 'viewer', via: 'viewer', label: 'imageViewer.fit', hint: 'imageViewer.fitHint', keys: both('0'), palette: false, remap: false },
+  { id: 'viewer.prev', scope: 'viewer', via: 'viewer', label: 'imageViewer.prev', keys: both('ArrowLeft'), palette: false, remap: false },
+  { id: 'viewer.next', scope: 'viewer', via: 'viewer', label: 'imageViewer.next', keys: both('ArrowRight'), palette: false, remap: false },
+  { id: 'viewer.close', scope: 'viewer', via: 'viewer', label: 'imageViewer.close', hint: 'imageViewer.closeHint', keys: both('Escape'), palette: false, remap: false },
 ]
 
 const BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]))
@@ -341,9 +350,11 @@ export const RESERVED_KEYS: Record<Platform, Set<string>> = {
 }
 
 // Scopes that are live at the same moment. global and page always are; editor, tree, table and pen
-// mode never have focus together (pen mode makes the body read-only and takes no focus there).
+// mode never have focus together (pen mode makes the body read-only and takes no focus there). The
+// image viewer is modal: while it is open it takes every key first and nothing else runs (2386).
 export function liveTogether(a: Scope, b: Scope): boolean {
   if (a === b) return true
+  if (a === 'viewer' || b === 'viewer') return false
   const always = (s: Scope) => s === 'global' || s === 'page'
   return always(a) || always(b)
 }
@@ -370,7 +381,7 @@ export function findConflicts(defs: readonly ShortcutDef[], platform: Platform):
 }
 
 /** Display order of the scope groups in the help window and settings. */
-export const SCOPE_ORDER: readonly Scope[] = ['global', 'page', 'editor', 'tree', 'table', 'ink']
+export const SCOPE_ORDER: readonly Scope[] = ['global', 'page', 'editor', 'tree', 'table', 'ink', 'viewer']
 export const SCOPE_LABEL: Record<Scope, TKey> = {
   global: 'shortcuts.groupGlobal',
   page: 'common.page',
@@ -378,4 +389,5 @@ export const SCOPE_LABEL: Record<Scope, TKey> = {
   tree: 'shortcuts.groupTree',
   table: 'cmd.groupTable',
   ink: 'cmd.groupInk',
+  viewer: 'imageViewer.group',
 }

@@ -647,6 +647,81 @@ html[data-resizing] .nd-sidebar-shell {
 .bn-container [data-file-block] .bn-visual-media {
   border-radius: var(--radius-md);
 }
+/* Image viewer (docs/adr/2386-*): the "View larger" button in an image block's corner — on hover, on a
+   selected image, on focus, and always where there is no hover (touch). Read-only bodies and the public
+   page open the viewer with a click on the image itself. */
+.bn-container .nd-img-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgb(255 255 255 / 0.35);
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  cursor: zoom-in;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.bn-container .bn-visual-media-wrapper:hover > .nd-img-zoom,
+.bn-container .ProseMirror-selectednode .nd-img-zoom,
+.bn-container .nd-img-zoom:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .bn-container .nd-img-zoom {
+    opacity: 1;
+  }
+}
+.bn-container .bn-editor[contenteditable='false'] [data-content-type='image'] img.bn-visual-media,
+.nd-public-body [data-content-type='image'] img.bn-visual-media {
+  cursor: zoom-in;
+}
+@media print {
+  .nd-img-zoom {
+    display: none !important;
+  }
+}
+.nd-iv {
+  background: rgb(10 10 12 / 0.95);
+  animation: nd-iv-in var(--dur-base) var(--ease-out);
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.nd-iv-bar {
+  background: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0));
+}
+.nd-iv-stage {
+  cursor: default;
+}
+.nd-iv-stage[data-zoomed] {
+  cursor: grab;
+}
+.nd-iv-stage[data-zoomed]:active {
+  cursor: grabbing;
+}
+.nd-iv-img {
+  will-change: transform;
+  -webkit-user-drag: none;
+}
+@keyframes nd-iv-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd-iv {
+    animation: none;
+  }
+  .bn-container .nd-img-zoom {
+    transition: none;
+  }
+}
 /* Slash menu and BlockNote dropdowns (drag-handle menu, colours) open like the app's menus: scale + fade
    from their top-left corner. CSS only — components/SlashMenu.tsx is untouched. Not the formatting
    toolbar: it follows the selection and would replay on every selection change. */

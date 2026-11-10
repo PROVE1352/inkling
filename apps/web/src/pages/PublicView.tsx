@@ -16,6 +16,7 @@ import { topLevelBlocks } from '../lib/present'
 import { Presentation } from '../components/Presentation'
 import { PublicToolbar, usePublicPrint, usePublicWide } from '../components/PublicToolbar'
 import { t } from '../i18n'
+import { imageTarget, openFromImage } from '../components/imageViewer/openImageViewer'
 
 // Public (unauthenticated) read-only viewer — /s/:token (+ /s/:token/p/:ref for folder shares). Standalone page without sidebar/app shell.
 // The server renders blocks→HTML and rewrites image URLs to public file paths.
@@ -259,6 +260,15 @@ function PublicArticle({
   const [wide, setWide] = usePublicWide(!!data.fullWidth)
   const articleRef = useRef<HTMLElement>(null)
   const print = usePublicPrint(articleRef, data.title || t('common.untitled'))
+  // A click on an image block opens the image viewer (docs/adr/2386-*); a link around it wins.
+  const onClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    onBodyClick?.(e)
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    const img = imageTarget(e.target)
+    if (!img || img.closest('a[href]')) return
+    e.preventDefault()
+    openFromImage(e.currentTarget, img)
+  }
   return (
     <article ref={articleRef} className="nd-enter nd-public-article flex-1">
       {coverUrl && (
@@ -290,7 +300,7 @@ function PublicArticle({
         <div
           ref={body}
           className="bn-container nd-public-body"
-          onClick={onBodyClick}
+          onClick={onClick}
           dangerouslySetInnerHTML={bodyHtml}
         />
       </div>

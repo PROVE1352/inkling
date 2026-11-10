@@ -38,6 +38,7 @@ import workspaceGroups from './en/workspace-groups'
 import integration018 from './en/integration-018'
 import publicView from './en/public-view'
 import onboarding from './en/onboarding'
+import imageViewer from './en/image-viewer'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -82,6 +83,7 @@ export const en = {
   ...integration018,
   ...publicView,
   ...onboarding,
+  ...imageViewer,
 }
 
 export type MessageKey = keyof typeof en

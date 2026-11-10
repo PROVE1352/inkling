@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { en } from '../../i18n/en'
 import { ko } from '../../i18n/ko'
-import { RESERVED_KEYS, SHORTCUTS, currentKeys, findConflicts, keyLabels, normalizeKey, shortcutById } from './registry'
+import { RESERVED_KEYS, SHORTCUTS, currentKeys, findConflicts, isRemappable, keyLabels, normalizeKey, shortcutById } from './registry'
 
 describe('registry', () => {
   it('ids are unique', () => {
@@ -101,6 +101,22 @@ describe('registry', () => {
     assert.equal(def.via, 'editor')
     assert.equal(def.keys, undefined)
     assert.notEqual(def.palette, false)
+  })
+
+  it('the image viewer keys are listed, fixed, not in the palette and never live with other scopes (docs/adr/2386-*)', () => {
+    const ids = SHORTCUTS.filter((s) => s.scope === 'viewer').map((s) => s.id)
+    assert.deepEqual(ids, ['viewer.zoomIn', 'viewer.zoomOut', 'viewer.fit', 'viewer.prev', 'viewer.next', 'viewer.close'])
+    for (const id of ids) {
+      const def = shortcutById(id)
+      assert.equal(def.via, 'viewer', id)
+      assert.equal(def.palette, false, id)
+      assert.equal(isRemappable(def), false, id)
+    }
+    // Escape / arrows also belong to other scopes; the modal viewer takes them first
+    const base = { label: 'common.search', via: 'app', keys: { mac: ['Escape'], other: ['Escape'] } }
+    assert.deepEqual(findConflicts([{ ...base, id: 'a', scope: 'global' }, { ...base, id: 'b', scope: 'viewer' }], 'mac'), [])
+    assert.deepEqual(keyLabels('viewer.zoomOut', 'mac'), ['-'])
+    assert.deepEqual(keyLabels('viewer.zoomIn', 'other'), ['+'])
   })
 
   it('labels follow the platform', () => {

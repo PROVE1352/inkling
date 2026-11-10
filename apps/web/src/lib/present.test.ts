@@ -52,6 +52,20 @@ describe('presentation slides (1843)', () => {
     assert.equal(copy.querySelector('[contenteditable]'), null)
   })
 
+  it('button block copies (0.18): the button is disabled and its settings control is left out', () => {
+    const btn = block(
+      'button',
+      '<div contenteditable="false" data-inkling-button><div><button type="button" data-button-run>Add task</button><button type="button" data-button-settings>⚙</button></div></div>',
+    )
+    const d = doc(h(2, 'A'), btn)
+    const [copy] = cloneForSlides([splitSlides(topLevelBlocks(d))[1][1]])
+    const run = copy.querySelector('[data-button-run]')
+    assert.ok(run)
+    assert.equal(run.hasAttribute('disabled'), true)
+    assert.equal(copy.querySelector('[data-button-settings]'), null)
+    assert.equal(copy.textContent, 'Add task')
+  })
+
   it('Mermaid slides: server HTML code is drawn on the slide; an editor copy with its diagram is kept', async () => {
     setLocaleChoice('en')
     // public link: BlockNote's code block HTML with the source only

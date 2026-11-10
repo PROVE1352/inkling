@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { PUSH_KIND_GROUPS, type PushDeviceDTO, type PushKindGroup } from '@inkling/shared'
-import { ApiError, useMe } from '../api'
+import { ApiError, OfflineError, useMe } from '../api'
 import { fmtRelative, useT } from '../i18n'
 import { deviceState, disablePush, enablePush, type PushDeviceState } from '../lib/push'
 import { useQueryClient } from '@tanstack/react-query'
@@ -17,6 +17,7 @@ const STATE_KEY: Record<PushDeviceState, Parameters<ReturnType<typeof useT>>[0]>
   'no-worker': 'push.state.noWorker',
   'server-off': 'push.state.serverOff',
   denied: 'push.state.denied',
+  offline: 'offline.noConnection',
   off: 'push.state.off',
   on: 'push.state.on',
 }
@@ -152,7 +153,7 @@ function PushSection() {
           <Spinner size={16} />
         </div>
       ) : !data ? (
-        <p className="px-4 py-3 text-xs text-red-600">{t('push.loadFailed')}</p>
+        <p className="px-4 py-3 text-xs text-red-600">{settings.error instanceof OfflineError ? settings.error.message : t('push.loadFailed')}</p>
       ) : data.available ? (
         <>
           <Row id="pushEnabled" title={t('push.enabled')} desc={t('push.enabledDesc')}>

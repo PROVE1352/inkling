@@ -89,6 +89,9 @@ export function itemValue(it: StatusItem): string {
     case 'app.push':
       // web push (docs/adr/2222-*): subscriptions and deliveries that gave up, counts only
       return tk(`${k}.${String(d.state)}`, { count: num(d.subscriptions), failing: num(d.failing), dead: num(d.dead24h), problem: String(d.problem ?? '') })
+    case 'app.automations':
+      // database automations (docs/adr/2240-*): enabled rules, queued runs, failures in 24 h
+      return tk(`${k}.${String(d.state)}`, { rules: num(d.rules), queued: num(d.queued), failed: num(d.failed24h), minutes: num(d.oldestQueuedMin) })
     case 'security.mode':
       return tk(`${k}.${it.level === 'off' ? 'off' : 'ok'}`)
     case 'security.secretKey':

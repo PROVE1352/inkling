@@ -1,5 +1,5 @@
 import type { PushKeyDTO } from '@inkling/shared'
-import { api } from '../api'
+import { api, OfflineError } from '../api'
 
 // Web push on this device (docs/adr/2220-* .. 2223-*). The service worker handlers live in
 // public/push-sw.js; this module asks for permission (only from a click in Settings), subscribes,
@@ -16,6 +16,8 @@ export type PushDeviceState =
   | 'server-off'
   /** The person blocked notifications for this site in the browser. */
   | 'denied'
+  /** No connection to the server right now (0.18 integration): nothing can be checked or changed. */
+  | 'offline'
   | 'off'
   | 'on'
 
@@ -87,7 +89,12 @@ function serverKey(): Promise<PushKeyDTO> {
 export async function deviceState(): Promise<{ state: PushDeviceState; endpoint: string | null }> {
   if (!pushSupported()) return { state: isIos() && !isStandalone() ? 'ios-home' : 'unsupported', endpoint: null }
   if (isIos() && !isStandalone()) return { state: 'ios-home', endpoint: null }
-  const key = await serverKey().catch(() => null)
+  let offlineNow = false
+  const key = await serverKey().catch((err: unknown) => {
+    offlineNow = err instanceof OfflineError
+    return null
+  })
+  if (offlineNow) return { state: 'offline', endpoint: null }
   if (!key?.available) return { state: 'server-off', endpoint: null }
   if (Notification.permission === 'denied') return { state: 'denied', endpoint: null }
   const reg = await registration()
@@ -129,6 +136,23 @@ export async function enablePush(userId: string): Promise<PushDeviceState> {
   await register(sub)
   writeFlag(userId)
   return 'on'
+}
+
+/**
+ * Logging out without reaching the server (offline, a failed request): the session and its push rows
+ * stay on the server, so this device would keep receiving pushes. Drop the browser's subscription
+ * here; the server removes its row at the next delivery (404/410). The per-browser marker stays, so
+ * the same person's next sign-in subscribes again by itself (`syncPush`, docs/adr/2221-*). Never throws,
+ * and gives up after two seconds so logging out cannot hang on it.
+ */
+export async function dropPushSubscriptionHere(): Promise<void> {
+  if (!pushSupported()) return
+  const work = (async () => {
+    const reg = await registration()
+    const sub = await reg?.pushManager.getSubscription().catch(() => null)
+    if (sub) await sub.unsubscribe().catch(() => false)
+  })().catch(() => undefined)
+  await Promise.race([work, new Promise<void>((r) => setTimeout(r, 2000))])
 }
 
 /** Turn push off for this browser (the server forgets it too). */

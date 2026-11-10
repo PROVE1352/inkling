@@ -425,6 +425,12 @@ describe('[db] OAuth clients identified by a metadata document (CIMD)', { skip: 
       assert.equal((errCode(ri) as { code: string }).code, 'CLIENT_NAME_RESERVED')
       const rp = await authorize(alice, { client_id: reserved.id, redirect_uri: WEB_CB, code_challenge: pkce().challenge })
       assert.equal((errCode(rp) as { code: string }).code, 'CLIENT_NAME_RESERVED')
+      // the vias of database automations and public form answers (0.18 integration: same rule as DCR)
+      for (const name of ['Automation: weekly report', 'automation', 'Public Form']) {
+        const doc = serveDoc(webDoc(name))
+        const r = await info(alice, doc.id, WEB_CB)
+        assert.equal((errCode(r) as { code: string }).code, 'CLIENT_NAME_RESERVED', name)
+      }
 
       const liar = serveDoc(() => webDoc()('https://claude.ai/oauth/claude-code-client-metadata'))
       const li = await info(alice, liar.id, WEB_CB)

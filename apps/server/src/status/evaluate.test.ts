@@ -84,6 +84,17 @@ describe('admin status: evaluator', () => {
     assert.ok(s.groups.every((g) => g.summary === null))
   })
 
+  it('database automations (0.18 integration): absent without facts, off without rules, warn when due runs wait', () => {
+    assert.equal(evaluateStatus(healthy()).groups.flatMap((g) => g.items).find((i) => i.key === 'app.automations'), undefined)
+    const automations = { enabledRules: 2, queued: 1, oldestQueuedMin: 0, failed24h: 3 }
+    assert.equal(item({ ...healthy(), automations }, 'app.automations').level, 'ok')
+    assert.equal(item({ ...healthy(), automations: { ...automations, enabledRules: 0, queued: 0 } }, 'app.automations').level, 'off')
+    const late = item({ ...healthy(), automations: { ...automations, queued: 40, oldestQueuedMin: 15 } }, 'app.automations')
+    assert.equal(late.level, 'warn')
+    assert.equal(late.data.state, 'backlog')
+    assert.deepEqual(Object.keys(late.data).sort(), ['failed24h', 'oldestQueuedMin', 'queued', 'rules', 'state'])
+  })
+
   it('web push (docs/adr/2222-*): absent without facts, off when switched off, warn on a key problem or many given-up deliveries', () => {
     assert.equal(evaluateStatus(healthy()).groups.flatMap((g) => g.items).find((i) => i.key === 'app.push'), undefined)
     const push = { enabled: true, problem: null, subscriptions: 3, failing: 1, dead24h: 0, lastFailureAt: null }

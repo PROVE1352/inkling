@@ -173,6 +173,20 @@ export function securityEnvFacts(): Omit<StatusFacts['security'], 'plaintextSecr
   }
 }
 
+/** Database automation counts (docs/adr/2240-*): enabled rules, the 'automation' outbox queue (the
+ *  admin's view of that topic next to web push's), failed runs. */
+async function automationFacts(): Promise<NonNullable<StatusFacts['automations']>> {
+  const [r] = (await db.execute(sql`
+    SELECT (SELECT count(*)::int FROM collection_automations WHERE enabled) AS rules,
+           (SELECT count(*)::int FROM outbox WHERE topic = 'automation' AND state = 'pending') AS queued,
+           -- how long the oldest run that is due (not waiting for a retry) has waited
+           coalesce((SELECT floor(extract(epoch FROM now() - min(available_at)) / 60)::int FROM outbox
+                      WHERE topic = 'automation' AND state = 'pending' AND available_at <= now()), 0) AS oldest,
+           (SELECT count(*)::int FROM automation_runs WHERE status = 'failed' AND created_at > now() - interval '24 hours') AS failed
+  `)) as unknown as { rules: number; queued: number; oldest: number; failed: number }[]
+  return { enabledRules: Number(r?.rules ?? 0), queued: Number(r?.queued ?? 0), oldestQueuedMin: Number(r?.oldest ?? 0), failed24h: Number(r?.failed ?? 0) }
+}
+
 /** Web push counts (docs/adr/2222-*): one small query each, no endpoints. */
 async function pushFacts(): Promise<NonNullable<StatusFacts['push']>> {
   const { pushEnv } = await import('../push/config')
@@ -212,6 +226,7 @@ export async function gatherFacts(opts: { refresh?: boolean } = {}): Promise<{ f
     errors: errorStats(now),
     migrations: h.facts.migrations,
     push: await safe(pushFacts),
+    automations: await safe(automationFacts),
     security: { ...securityEnvFacts(), plaintextSecrets: h.facts.plaintextSecrets, sealedSecrets: h.facts.sealedSecrets },
     update: {
       enabled: updateEnv.check === 'github',

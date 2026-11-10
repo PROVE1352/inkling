@@ -88,6 +88,17 @@ export interface StatusFacts {
     dead24h: number
     lastFailureAt: string | null
   } | null
+  /**
+   * Database automations (docs/adr/2240-*, 0.18 integration): counts only. `queued` / `oldestQueuedMin`
+   * are the pending rows of outbox topic 'automation'. Absent = not gathered.
+   */
+  automations?: {
+    enabledRules: number
+    queued: number
+    /** Age of the oldest pending run in minutes (0 when none). */
+    oldestQueuedMin: number
+    failed24h: number
+  } | null
   update: {
     enabled: boolean
     current: string
@@ -108,6 +119,8 @@ const MB = 1024 * 1024
 export const THRESHOLDS = {
   /** Web push deliveries that gave up in the last 24 h → warn (docs/adr/2222-*). */
   pushDeadWarn24h: 20,
+  /** An automation run waiting this long means the queue is not keeping up → warn (docs/adr/2240-*). */
+  automationBacklogWarnMin: 15,
   /** Last successful backup older than 2 × schedule interval + 1 h → warn (one run missed). */
   backupMissedFactor: 2,
   backupSlackMs: HOUR,
@@ -397,6 +410,17 @@ function appItems(f: StatusFacts): StatusItem[] {
       group: g,
       level: pl,
       data: { state, problem: p.problem, subscriptions: p.subscriptions, failing: p.failing, dead24h: p.dead24h, lastFailureAt: p.lastFailureAt },
+    })
+  }
+  const a = f.automations
+  if (a) {
+    const backlog = a.queued > 0 && a.oldestQueuedMin >= THRESHOLDS.automationBacklogWarnMin
+    const state = backlog ? 'backlog' : a.enabledRules === 0 && a.queued === 0 ? 'off' : 'ok'
+    out.push({
+      key: 'app.automations',
+      group: g,
+      level: backlog ? 'warn' : state === 'off' ? 'off' : 'ok',
+      data: { state, rules: a.enabledRules, queued: a.queued, oldestQueuedMin: a.oldestQueuedMin, failed24h: a.failed24h },
     })
   }
   return out

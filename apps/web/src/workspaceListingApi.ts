@@ -3,6 +3,7 @@ import type { WorkspaceDTO, WorkspaceGroupDTO, WorkspaceListingDTO } from '@inkl
 import { api, qk, useMe } from './api'
 import { t } from './i18n'
 import { toast } from './lib/toast'
+import * as offline from './lib/offline/runtime'
 
 // A person's own workspace list: groups, order, archive (docs/adr/2300-*). Kept out of api.ts like
 // sidebarApi.ts. The per-workspace part rides on GET /workspaces (`listing`), so every change
@@ -17,7 +18,21 @@ export function useWorkspaceGroups(): WorkspaceGroupDTO[] {
   const userId = useMe().data?.id ?? ''
   const q = useQuery({
     queryKey: qkWorkspaceGroups(userId),
-    queryFn: () => api<{ groups: WorkspaceGroupDTO[] }>('/api/me/workspace-groups').then((r) => r.groups),
+    // kept with the workspace list for an offline start, so the switcher keeps its groups (docs/adr/2202-*)
+    queryFn: () =>
+      api<{ groups: WorkspaceGroupDTO[] }>('/api/me/workspace-groups').then(
+        (r) => {
+          void offline.saveSnapshot('workspaceGroups', r.groups)
+          return r.groups
+        },
+        async (err: unknown) => {
+          if (offline.isNetworkError(err)) {
+            const kept = await offline.deviceSnapshot<WorkspaceGroupDTO[]>('workspaceGroups')
+            if (kept) return kept
+          }
+          throw err
+        },
+      ),
     staleTime: 30_000,
     enabled: !!userId,
   })

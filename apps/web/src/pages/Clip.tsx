@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { ClipLookupDTO, ClipMode, ClipRequest, ClipResultDTO, PageMetaDTO } from '@inkling/shared'
+import type { ClipLookupDTO, ClipMode, ClipRequest, ClipResultDTO, PageMetaDTO, WorkspaceDTO } from '@inkling/shared'
 import { api, ApiError, useMe, usePages, useWorkspaces } from '../api'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
 import { useT } from '../i18n'
@@ -15,6 +15,8 @@ import {
   writeLastClipLocation,
 } from '../lib/clipPrefs'
 import { normalizeClipQuery, parseClipTags, type ClipQuery } from '../lib/clipQuery'
+import { arrangeWorkspaces } from '../lib/workspaceListing'
+import { useWorkspaceGroups } from '../workspaceListingApi'
 
 // /clip?title&text&url — "Save to Inkling" (docs/adr/2260-*, 2263-*). Opened by the bookmarklet in a
 // small window, by the installed app's share target, or by hand. Opening it never saves anything:
@@ -126,6 +128,15 @@ export function Clip() {
   )
 }
 
+function wsOption(w: WorkspaceDTO) {
+  return (
+    <option key={w.id} value={w.id}>
+      {w.icon ? `${w.icon} ` : ''}
+      {w.name}
+    </option>
+  )
+}
+
 function ClipForm({ initial }: { initial: ClipQuery }) {
   const t = useT()
   const navigate = useNavigate()
@@ -143,14 +154,19 @@ function ClipForm({ initial }: { initial: ClipQuery }) {
   const [result, setResult] = useState<ClipResultDTO | null>(null)
   const [closeFailed, setCloseFailed] = useState(false)
 
-  // First workspace list: the remembered one when it still exists, else the first.
+  // The person's own order of the switcher (docs/adr/2300-*): ungrouped, then each group, archived last.
+  const wsGroups = useWorkspaceGroups()
+  const arranged = useMemo(() => arrangeWorkspaces(workspaces.data ?? [], wsGroups), [workspaces.data, wsGroups])
+
+  // First workspace list: the remembered one when it still exists, else the first one not archived.
   useEffect(() => {
     const list = workspaces.data
     if (!list?.length || wsId) return
     const remembered = start && list.find((w) => w.id === start.workspaceId)
-    setWsId(remembered ? remembered.id : list[0].id)
+    const first = arranged.ungrouped[0] ?? arranged.groups.find((g) => g.items.length)?.items[0] ?? arranged.archived[0] ?? list[0]
+    setWsId(remembered ? remembered.id : first.id)
     if (remembered && start?.parentId) setParentId(start.parentId)
-  }, [workspaces.data, wsId, start])
+  }, [workspaces.data, wsId, start, arranged])
 
   const ws = workspaces.data?.find((w) => w.id === wsId)
   const pages = usePages(wsId)
@@ -172,6 +188,7 @@ function ClipForm({ initial }: { initial: ClipQuery }) {
   const trimmedUrl = url.trim()
 
   const lookup = useQuery({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     queryKey: ['clip-lookup', wsId, trimmedUrl],
     queryFn: () => api<ClipLookupDTO>(`/api/clip/lookup?workspaceId=${wsId}&url=${encodeURIComponent(trimmedUrl)}`),
     enabled: !!wsId && /^https?:\/\//i.test(trimmedUrl),
@@ -180,6 +197,7 @@ function ClipForm({ initial }: { initial: ClipQuery }) {
   const previous = lookup.data?.pages ?? []
 
   const save = useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (body: ClipRequest) => api<ClipResultDTO>('/api/clip', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: (r) => {
       const loc = { workspaceId: wsId, parentId: parentId || null }
@@ -267,12 +285,16 @@ function ClipForm({ initial }: { initial: ClipQuery }) {
             }}
             name="workspace"
           >
-            {workspaces.data.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.icon ? `${w.icon} ` : ''}
-                {w.name}
-              </option>
-            ))}
+            {arranged.ungrouped.map(wsOption)}
+            {arranged.groups.map(
+              (g) =>
+                g.items.length > 0 && (
+                  <optgroup key={g.group.id} label={g.group.name}>
+                    {g.items.map(wsOption)}
+                  </optgroup>
+                ),
+            )}
+            {arranged.archived.length > 0 && <optgroup label={t('wsGroups.archived')}>{arranged.archived.map(wsOption)}</optgroup>}
           </select>
         </label>
         <label className="block">

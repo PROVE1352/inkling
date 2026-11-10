@@ -18,6 +18,7 @@ import { adoptUserLocale, getLocale, setServerDefaultLocale, t, type Locale } fr
 import { localizeApiError } from './i18n/errors'
 import { noteServerBuild } from './lib/update'
 import * as offline from './lib/offline/runtime'
+import { dropPushSubscriptionHere } from './lib/push'
 import type {
   AdminUserDTO,
   ApiErrorBody,
@@ -166,17 +167,40 @@ export async function parseError(res: Response): Promise<ApiError> {
 /** Fired on window when any API call answers 403 TWO_FACTOR_REQUIRED (detail: { workspaceId }). */
 export const TWO_FACTOR_REQUIRED_EVENT = 'inkling:two-factor-required'
 
+/**
+ * A request that got no answer at all (offline, server unreachable). Still a TypeError like fetch's own
+ * failure, so `offline.isNetworkError` and the offline fallbacks keep working, but its message is the
+ * localized "no connection" text every screen shows as is (docs/adr/2202-*, 0.18 integration).
+ */
+export class OfflineError extends TypeError {
+  constructor(cause?: unknown) {
+    super(t('offline.noConnection'), { cause })
+    this.name = 'OfflineError'
+  }
+  /** `String(err)` is the message alone, for screens that print unknown errors that way. */
+  override toString(): string {
+    return this.message
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      // The UI language, so server-generated content (templates, default titles) matches it.
-      'Accept-Language': getLocale(),
-      ...((init?.headers as Record<string, string> | undefined) ?? {}),
-    },
-  })
+  let res: Response
+  try {
+    res = await fetch(path, {
+      credentials: 'same-origin',
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        // The UI language, so server-generated content (templates, default titles) matches it.
+        'Accept-Language': getLocale(),
+        ...((init?.headers as Record<string, string> | undefined) ?? {}),
+      },
+    })
+  } catch (err) {
+    // fetch rejects with a TypeError only when there is no answer; an abort stays an AbortError
+    if (err instanceof TypeError) throw new OfflineError(err)
+    throw err
+  }
   noteServerBuild(res.headers) // X-Inkling-Build vs this bundle (lib/update.ts, docs/adr/0991-*)
   if (!res.ok) {
     const err = await parseError(res)
@@ -827,11 +851,15 @@ export function useLogout() {
   return useMutation({
     // This device's offline copies go even when the server cannot be told (offline): logging out
     // means leaving this device (docs/adr/2203-*).
+    // A logout that did not reach the server leaves the session (and its push rows) there: this
+    // browser's push subscription goes too, so the device stops receiving pushes (0.18 integration).
     mutationFn: async () => {
+      let reached = false
       try {
         await api<void>('/api/auth/logout', { method: 'POST' })
+        reached = true
       } finally {
-        await offline.wipeOffline()
+        await Promise.allSettled([offline.wipeOffline(), reached ? Promise.resolve() : dropPushSubscriptionHere()])
       }
     },
     onSettled: () => {

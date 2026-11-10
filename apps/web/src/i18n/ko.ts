@@ -36,6 +36,7 @@ import push from './ko/push'
 import automations from './ko/automations'
 import offline from './ko/offline'
 import workspaceGroups from './ko/workspace-groups'
+import integration018 from './ko/integration-018'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -76,4 +77,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...automations,
   ...offline,
   ...workspaceGroups,
+  ...integration018,
 }

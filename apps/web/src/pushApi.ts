@@ -10,6 +10,7 @@ export const qkPush = {
 
 export function usePushSettings() {
   return useQuery({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     queryKey: qkPush.settings,
     queryFn: () => api<PushSettingsDTO>('/api/push/settings'),
   })
@@ -18,6 +19,7 @@ export function usePushSettings() {
 export function useUpdatePushSettings() {
   const qc = useQueryClient()
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (input: UpdatePushSettingsInput) =>
       api<PushSettingsDTO>('/api/push/settings', { method: 'PATCH', body: JSON.stringify(input) }),
     // Optimistic: the switch flips at once; a failure refetches the server state.
@@ -32,6 +34,7 @@ export function useUpdatePushSettings() {
 export function useRemovePushDevice() {
   const qc = useQueryClient()
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (id: string) => api<void>(`/api/push/devices/${id}`, { method: 'DELETE' }),
     onSettled: () => qc.invalidateQueries({ queryKey: qkPush.settings }),
   })
@@ -39,6 +42,7 @@ export function useRemovePushDevice() {
 
 export function useTestPush() {
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (deviceId?: string) =>
       api<{ queued: number }>('/api/push/test', { method: 'POST', body: JSON.stringify(deviceId ? { deviceId } : {}) }),
   })

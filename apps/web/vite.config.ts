@@ -86,6 +86,8 @@ export default defineConfig({
         share_target: {
           action: '/clip',
           method: 'GET',
+          // Chrome warns about a share target without enctype even for GET (the default value)
+          enctype: 'application/x-www-form-urlencoded',
           params: { title: 'title', text: 'text', url: 'url' },
         },
       },

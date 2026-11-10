@@ -8,6 +8,7 @@ import {
   BellIcon,
   ChevronRightIcon,
   ContrastIcon,
+  DownloadIcon,
   EditIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -88,7 +89,7 @@ const SECTIONS: Record<SectionId, { label: TKey; icon: (size: number) => ReactNo
   appearance: { label: 'settings.appearance', icon: (s) => <ContrastIcon size={s} /> },
   connections: { label: 'settings.connections', icon: (s) => <PlugIcon size={s} /> },
   shortcuts: { label: 'settings.shortcuts', icon: (s) => <KeyboardIcon size={s} /> },
-  offline: { label: 'settings.offline', icon: (s) => <PlugIcon size={s} /> },
+  offline: { label: 'settings.offline', icon: (s) => <DownloadIcon size={s} /> },
   about: { label: 'settings.about', icon: (s) => <InfoIcon size={s} /> },
 }
 

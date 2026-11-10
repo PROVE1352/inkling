@@ -15,6 +15,7 @@ export type AutomationListDTO = { automations: AutomationDTO[]; canEdit: boolean
 export function useAutomations(collectionId: string, enabled = true) {
   const member = useMemberScope()
   return useQuery({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     queryKey: qkAutomations.list(collectionId),
     queryFn: () => api<AutomationListDTO>(`/api/collections/${collectionId}/automations`),
     enabled: enabled && member && !!collectionId,
@@ -25,6 +26,7 @@ export function useAutomations(collectionId: string, enabled = true) {
 export function useCreateAutomation(collectionId: string) {
   const qc = useQueryClient()
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (input: AutomationInput) =>
       api<{ automation: AutomationDTO }>(`/api/collections/${collectionId}/automations`, {
         method: 'POST',
@@ -37,6 +39,7 @@ export function useCreateAutomation(collectionId: string) {
 export function useUpdateAutomation(collectionId: string) {
   const qc = useQueryClient()
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: ({ id, patch }: { id: string; patch: Partial<AutomationInput> }) =>
       api<{ automation: AutomationDTO }>(`/api/collections/${collectionId}/automations/${id}`, {
         method: 'PATCH',
@@ -54,6 +57,7 @@ export function useUpdateAutomation(collectionId: string) {
 export function useDeleteAutomation(collectionId: string) {
   const qc = useQueryClient()
   return useMutation({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     mutationFn: (id: string) => api<void>(`/api/collections/${collectionId}/automations/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qkAutomations.list(collectionId) }),
   })
@@ -62,6 +66,7 @@ export function useDeleteAutomation(collectionId: string) {
 /** Recent runs of one rule (newest first, as the server keeps them). */
 export function useAutomationRuns(collectionId: string, automationId: string | null) {
   return useQuery({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     queryKey: qkAutomations.runs(collectionId, automationId ?? ''),
     queryFn: () =>
       api<{ runs: AutomationRunDTO[] }>(
@@ -76,6 +81,7 @@ export function useAutomationRuns(collectionId: string, automationId: string | n
 export function useWebhookTargets(wsId: string, enabled = true) {
   const member = useMemberScope(wsId)
   return useQuery({
+    networkMode: 'always', // offline: fail at once with OfflineError's "No connection" instead of waiting paused
     queryKey: qkAutomations.webhookTargets(wsId),
     queryFn: () => api<{ targets: WebhookTargetDTO[] }>(`/api/workspaces/${wsId}/webhook-targets`).then((r) => r.targets),
     enabled: enabled && member && !!wsId,

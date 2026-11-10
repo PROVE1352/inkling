@@ -91,8 +91,11 @@ export function cloneForSlides(blocks: Element[]): Element[] {
       el.removeAttribute('contenteditable')
       el.removeAttribute('draggable')
       el.removeAttribute('data-is-empty-and-focused')
-      if (el.tagName === 'INPUT') el.setAttribute('disabled', '')
+      // copies carry no handlers: controls that look pressable are disabled (a button block's button,
+      // the pickers of a database view block), and a button block's settings are left out
+      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') el.setAttribute('disabled', '')
     }
+    for (const el of Array.from(c.querySelectorAll('[data-button-settings]'))) el.remove()
     return c
   })
 }

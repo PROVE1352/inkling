@@ -139,6 +139,10 @@
   html.nd-printing .overflow-auto {
     overflow: visible !important;
   }
+  /* a scroll box printed whole must not keep its screen height (query results, docs/adr/2122-*) */
+  html.nd-printing .overflow-auto {
+    max-height: none !important;
+  }
   html.nd-printing .min-w-max {
     min-width: 0 !important;
   }
@@ -146,6 +150,13 @@
   /* collection timeline viewport becomes a plain block */
   html.nd-printing .nd-timeline {
     height: auto !important;
+  }
+
+  /* inline database views and page embeds print whole, not their scroll box (docs/adr/2122-*) */
+  html.nd-printing .nd-dbview-body,
+  html.nd-printing .nd-embed-body {
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   html.nd-printing a {

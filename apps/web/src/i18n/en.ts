@@ -27,6 +27,7 @@ import pageWorkspace from './en/page-workspace'
 import forms from './en/forms'
 import teamAgents from './en/team-agents'
 import mcpSetup from './en/mcp-setup'
+import dbView from './en/db-view'
 import diagramsLinks from './en/diagrams-links'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
@@ -61,6 +62,7 @@ export const en = {
   ...forms,
   ...teamAgents,
   ...mcpSetup,
+  ...dbView,
   ...diagramsLinks,
 }
 

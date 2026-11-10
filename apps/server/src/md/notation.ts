@@ -16,10 +16,14 @@ import { getServerEditor } from './editor'
  *                    A chart token carries its config object itself (`<!-- inkling:chart {"groupBy":…} -->`,
  *                    docs/adr/1604-*), not the JSON string the block stores.
  *
- * Two modes. `agent` (read_page, read_pages, section reads, patch_section's echo, conflict bodies)
+ * Three modes. `agent` (read_page, read_pages, section reads, patch_section's echo, conflict bodies)
  * writes every form above so that what an agent sends back can be turned into the same nodes.
- * `plain` (file export, vault sync, templates, history previews) writes callouts and `@Label`, and
- * leaves embeds and plugin blocks out as before, so human-facing Markdown carries no tokens.
+ * `plain` (vault sync, templates, history previews, `notation=plain` exports) writes callouts and
+ * `@Label`, and leaves embeds and plugin blocks out as before, so it carries no tokens.
+ * `file` (the Markdown download, docs/adr/2122-*) is `plain` plus the tokens of charts and inline
+ * database views, each followed by a snapshot of its numbers between `<!-- inkling:snapshot -->`
+ * and `<!-- /inkling:snapshot -->` (md/fileExport.ts builds those); an import restores the block
+ * and drops the snapshot that follows a token or a code fence, so export → import → export is stable.
  * Parsing understands every form in both modes: an agent copying a token into create_page gets the
  * node; a mention chip is only recreated when the caller allows that chip (see `ParseNotationOptions`).
  *
@@ -28,7 +32,17 @@ import { getServerEditor } from './editor'
  * sentinel replaced afterwards, on import the tokens are cut out before parsing and restored after.
  */
 
-export type NotationMode = 'plain' | 'agent'
+export type NotationMode = 'plain' | 'agent' | 'file'
+
+/**
+ * Synthetic block of the file export (md/fileExport.ts): its children are written between the two
+ * snapshot markers. Never stored; prepareNotationExport turns it into ordinary blocks.
+ */
+export const SNAPSHOT_BLOCK = 'inklingSnapshot'
+export const SNAPSHOT_OPEN = '<!-- inkling:snapshot -->'
+export const SNAPSHOT_CLOSE = '<!-- /inkling:snapshot -->'
+const SNAPSHOT_OPEN_RE = /^[ \t>]*<!--[ \t]*inkling:snapshot[ \t]*-->[ \t]*$/
+const SNAPSHOT_CLOSE_RE = /^[ \t>]*<!--[ \t]*\/inkling:snapshot[ \t]*-->[ \t]*$/
 
 /** Block types written as `<!-- inkling:<type> {props} -->` in agent mode. */
 const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'file', 'audio'])
@@ -36,6 +50,11 @@ const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 
 const PARSE_TOKEN_BLOCKS = new Set([...TOKEN_BLOCKS, 'image', 'video'])
 /** Left out of plain Markdown (nothing to show without the app), as before this notation. */
 const PLAIN_DROPPED = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart'])
+/**
+ * Written as tokens in `file` mode too: the exporter leaves only charts and database views
+ * (page embeds of a collection) in the blocks by then; page and link embeds became links.
+ */
+const FILE_TOKEN_BLOCKS = new Set(['chart', 'pageEmbed'])
 
 const CALLOUT_SET = new Set<string>(CALLOUT_TYPES)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -149,11 +168,23 @@ export function prepareNotationExport(blocks: AnyBlock[], mode: NotationMode): (
   const blockTokens = new Map<string, string>()
   const inlineTokens = new Map<string, string>()
 
+  /** A paragraph holding only a sentinel that becomes `text` on a line of its own. */
+  const lineBlock = (text: string): AnyBlock => {
+    const key = sentinel(s, 'B')
+    blockTokens.set(key, text)
+    return { type: 'paragraph', props: {}, content: [{ type: 'text', text: key, styles: {} }], children: [] }
+  }
+
   const replaceBlocks = (list: AnyBlock[]): AnyBlock[] => {
     const out: AnyBlock[] = []
     for (const b0 of list) {
       let b = b0
       const type = b.type ?? ''
+      if (type === SNAPSHOT_BLOCK) {
+        // numbers next to the block they were computed from (file export, docs/adr/2122-*)
+        out.push(lineBlock(SNAPSHOT_OPEN), ...replaceBlocks(b.children ?? []), lineBlock(SNAPSHOT_CLOSE))
+        continue
+      }
       if (type === 'callout') {
         // `> [!type] text`: the quote's first text run carries the marker
         const content = Array.isArray(b.content) ? b.content : []
@@ -161,7 +192,7 @@ export function prepareNotationExport(blocks: AnyBlock[], mode: NotationMode): (
         const marker: StyledText = { type: 'text', text: `[!${CALLOUT_SET.has(ct) ? ct : 'note'}]${content.length ? ' ' : ''}`, styles: {} }
         b = { ...b, type: 'quote', props: {}, content: [marker, ...content] }
       } else if (TOKEN_BLOCKS.has(type)) {
-        if (mode === 'agent') {
+        if (mode === 'agent' || (mode === 'file' && FILE_TOKEN_BLOCKS.has(type))) {
           const key = sentinel(s, 'B')
           blockTokens.set(key, `<!-- inkling:${type} ${commentJson(tokenProps(type, b.props ?? {}))} -->`)
           b = { ...b, type: 'paragraph', props: {}, content: [{ type: 'text', text: key, styles: {} }] }
@@ -260,6 +291,8 @@ function tokenBlock(type: string, json: string): AnyBlock | null {
   // links an agent writes must be ones the app would create itself
   const url = typeof props.url === 'string' ? props.url : ''
   if (type === 'pageEmbed' && !UUID_RE.test(String(props.pageId ?? ''))) return null
+  // a database view's view (docs/adr/2120-*): an id, or left out (the collection's first view)
+  if (type === 'pageEmbed' && typeof props.viewId === 'string' && props.viewId && !UUID_RE.test(props.viewId)) delete props.viewId
   if (type === 'linkEmbed' && !parseHttpUrl(url)) return null
   if ((type === 'file' || type === 'audio' || type === 'image' || type === 'video') && !(FILE_URL_RE.test(url) || parseHttpUrl(url))) return null
   if (type === 'pluginBlock' && (typeof props.pluginId !== 'string' || !props.pluginId || String(props.data ?? '').length > PLUGIN_DATA_MAX)) return null
@@ -295,17 +328,39 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
     const lines = md.split('\n')
     const next: string[] = []
     let fence: string | null = null
-    for (const line of lines) {
+    // what the last non-blank line was: a snapshot right after a block token or a code fence is
+    // that block's numbers (file export, docs/adr/2122-*) and is dropped; anywhere else it stays
+    let prevLine: 'token' | 'fence' | 'other' = 'other'
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
       const f = FENCE_RE.exec(line)
       if (fence) {
         next.push(line)
-        if (f && f[1][0] === fence[0] && f[1].length >= fence.length && line.trim().replace(/^[>\s]*/, '') === f[1]) fence = null
+        if (f && f[1][0] === fence[0] && f[1].length >= fence.length && line.trim().replace(/^[>\s]*/, '') === f[1]) {
+          fence = null
+          prevLine = 'fence'
+        }
         continue
       }
       if (f) {
         fence = f[1]
         next.push(line)
+        prevLine = 'other'
         continue
+      }
+      if (prevLine !== 'other' && SNAPSHOT_OPEN_RE.test(line)) {
+        let end = -1
+        for (let j = i + 1; j < lines.length; j++) {
+          if (SNAPSHOT_CLOSE_RE.test(lines[j])) {
+            end = j
+            break
+          }
+        }
+        if (end >= 0) {
+          i = end
+          prevLine = 'other'
+          continue
+        }
       }
       const bt = line.includes('<!--') ? BLOCK_TOKEN_RE.exec(line) : null
       if (bt) {
@@ -315,9 +370,11 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
           blockSources.set(key, block)
           // a blank line on both sides: the sentinel is a paragraph of its own
           next.push(bt[1].trimEnd(), bt[1] + key, bt[1].trimEnd())
+          prevLine = 'token'
           continue
         }
       }
+      if (line.trim()) prevLine = 'other'
       if (!line.includes('@[')) {
         next.push(line)
         continue

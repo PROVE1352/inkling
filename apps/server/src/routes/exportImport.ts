@@ -37,7 +37,11 @@ const MAX_FOLDER_FILES = importLimits.maxFiles
 const MAX_FOLDER_BYTES = importLimits.maxUnpackedBytes
 const MAX_FOLDER_FILE_BYTES = importLimits.maxEntryBytes
 // notation=agent: the round-trip Markdown notation MCP read_page uses (docs/adr/1500-*); md only.
-const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional(), notation: z.enum(['plain', 'agent']).optional() })
+// notation=file: the download (docs/adr/2122-*): chart / database-view tokens with a snapshot of their
+// numbers, query results after the query, embeds as links. Default: plain for md (link previews read
+// it), file for zip; notation=plain gives a zip the 0.16 output.
+const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional(), notation: z.enum(['plain', 'agent', 'file']).optional() })
+const zipNotationSchema = z.object({ notation: z.enum(['plain', 'file']).optional() })
 const importQuerySchema = z.object({
   parentId: z.uuid().optional(),
   /** zip only: 'notion' = Notion "Markdown & CSV" export, 'markdown' = plain folder zip, default = detect */
@@ -164,6 +168,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         rootPageId: id,
         zipBaseName: page.title,
         userId: user.id,
+        notation: notation === 'plain' ? 'plain' : 'file',
         onFinish: release,
       })
       destroyWithResponse(reply.raw, stream)
@@ -236,6 +241,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       rootPageId: null,
       zipBaseName: ws.name,
       userId: user.id,
+      notation: zipNotationSchema.parse(req.query ?? {}).notation ?? 'file',
       onFinish: release,
     })
     destroyWithResponse(reply.raw, stream)

@@ -309,6 +309,19 @@ export async function getLinkPreview(rawUrl: string): Promise<LinkPreviewDTO | n
   return p
 }
 
+/**
+ * The cached preview of `rawUrl`, without fetching (null when none is cached or the URL is not
+ * http(s)). Public pages and exports name a link embed with it and never fetch on a reader's behalf
+ * (docs/adr/2121-*).
+ */
+export function peekLinkPreview(rawUrl: string): LinkPreviewDTO | null {
+  try {
+    return cacheGet(normalizePreviewUrl(rawUrl))?.value ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Test hook. */
 export function _clearLinkPreviewCache(): void {
   cache.clear()

@@ -274,7 +274,8 @@ export const PageTreeItem = memo(function PageTreeItem({
     onToggleFullWidth: () =>
       updatePage.mutate({ id: page.id, input: { fullWidth: !page.fullWidth } }),
     onExport: (format: 'md' | 'canvas' | 'zip') =>
-      triggerDownload(`/api/pages/${page.id}/export?format=${format}`),
+      // the Markdown download keeps charts, database views and query results (docs/adr/2122-*)
+      triggerDownload(`/api/pages/${page.id}/export?format=${format}${format === 'md' ? '&notation=file' : ''}`),
     onNotion: () => setNotionOpen(true),
     onShare: guest ? undefined : () => setShareOpen(true),
     onLock: guest ? undefined : () => setLockOpen(true),

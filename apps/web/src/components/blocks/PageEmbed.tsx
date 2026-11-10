@@ -30,6 +30,7 @@ import { linkEmbedSpec } from './LinkEmbed'
 import { chartBlockSpec } from './ChartBlock'
 import { mentionSpec } from './Mention'
 import { pluginBlockSpec } from '../../plugins/PluginBlock'
+import { DbViewEmbed, DbViewSetup, DbViewUnavailable } from './DbViewEmbed'
 
 // pageEmbed custom block (`![[transclusion]]`).
 // - prop: pageId. content 'none' (no inline content) → not a PM cursor/edit target.
@@ -187,12 +188,38 @@ function PageEmbedViewer({
   )
 }
 
-// Full variant — card + read-only body (when accessible).
-function PageEmbedFull({ pageId }: { pageId: string }) {
+type EmbedEditor = { isEditable: boolean; updateBlock: (id: string, update: { props: Record<string, string> }) => unknown }
+
+// Full variant — card + read-only body (when accessible). A collection target is an inline database
+// view (DbViewEmbed.tsx, docs/adr/2120-*); an empty block from the slash menu asks for one.
+function PageEmbedFull({ pageId, viewId, blockId, editor }: { pageId: string; viewId: string; blockId: string; editor: EmbedEditor }) {
   const { wsId } = useParams()
   const pages = usePages(wsId ?? '')
   const target = (pages.data ?? []).find((p) => p.id === pageId)
   const loaded = !!pages.data
+
+  if (!pageId && editor.isEditable && wsId) {
+    return <DbViewSetup wsId={wsId} onPick={(collectionId, view) => editor.updateBlock(blockId, { props: { pageId: collectionId, viewId: view } })} />
+  }
+  if (target?.kind === 'collection' && wsId) {
+    return (
+      <DbViewEmbed
+        wsId={wsId}
+        target={target}
+        viewId={viewId}
+        editable={editor.isEditable}
+        onSetView={(id) => editor.updateBlock(blockId, { props: { viewId: id } })}
+      />
+    )
+  }
+  // a database view whose database this reader cannot see (or that is in the trash)
+  if (loaded && !target && pageId && viewId) {
+    return (
+      <div contentEditable={false} className="my-1.5 overflow-hidden rounded-lg border border-line">
+        <DbViewUnavailable />
+      </div>
+    )
+  }
 
   return (
     <div
@@ -282,5 +309,12 @@ export const embedSchema = BlockNoteSchema.create(
 
 // Full-variant BlockSpec that joins the main editor schema.
 export const pageEmbedSpec = createReactBlockSpec(pageEmbedConfig, {
-  render: ({ block }) => <PageEmbedFull pageId={block.props.pageId} />,
+  render: ({ block, editor }) => (
+    <PageEmbedFull
+      pageId={block.props.pageId}
+      viewId={block.props.viewId}
+      blockId={block.id}
+      editor={editor as unknown as EmbedEditor}
+    />
+  ),
 })()

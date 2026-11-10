@@ -28,6 +28,7 @@ import pageWorkspace from './ko/page-workspace'
 import forms from './ko/forms'
 import teamAgents from './ko/team-agents'
 import mcpSetup from './ko/mcp-setup'
+import dbView from './ko/db-view'
 import diagramsLinks from './ko/diagrams-links'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
@@ -61,5 +62,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...forms,
   ...teamAgents,
   ...mcpSetup,
+  ...dbView,
   ...diagramsLinks,
 }

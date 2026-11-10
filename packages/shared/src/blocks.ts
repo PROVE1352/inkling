@@ -20,10 +20,16 @@ export const calloutConfig = {
   content: 'inline' as const,
 } as const
 
-/** Page embed (`pageId` of the embedded page; content none). */
+/**
+ * Page embed (`pageId` of the embedded page; content none). When `pageId` is a collection the block
+ * is an inline database view (docs/adr/2120-*): `viewId` names one of its views ('' = the first),
+ * and the rows are read for each viewer, never stored. `viewId` is a prop of the node every client
+ * since 0.1 knows, so an older client keeps the block (it shows a page card) instead of dropping an
+ * unknown node (CHART-2).
+ */
 export const pageEmbedConfig = {
   type: 'pageEmbed' as const,
-  propSchema: { pageId: { default: '' } },
+  propSchema: { pageId: { default: '' }, viewId: { default: '' } },
   content: 'none' as const,
 }
 

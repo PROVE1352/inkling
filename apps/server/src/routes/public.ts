@@ -40,6 +40,7 @@ import {
   stateToBlocks,
 } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
+import { publicCustomBlocks } from './publicBlocks'
 
 // Public route rate limit: a gentle 60/min per route, separate from the global 300/min.
 const PUBLIC_RATE_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
@@ -430,7 +431,17 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
 
     const rk = revKey(page)
     const html = await cachedHtml(rk && `p|${rk}|${token}`, async () => {
-      const blocks = await loadPublicBlocks(page)
+      let blocks = await loadPublicBlocks(page)
+      // embeds, database views and query blocks: only this page is inside the link (docs/adr/2121-*)
+      if (page.kind === 'doc') {
+        blocks = await publicCustomBlocks(blocks, {
+          workspaceId: page.workspaceId,
+          inShare: new Map([[page.id, page]]),
+          rootId: page.id,
+          hostId: page.id,
+          fileUrl: (pageId, fileId) => (pageId === page.id ? publicFileUrl(token, fileId) : null),
+        })
+      }
       // Security: turn internal-path links such as wikilinks (/w/...) into text (no workspace/page id leaks).
       neutralizeInternalLinksForPublic(blocks)
       // Rewrite image/attachment URLs (/files/<id>) to the token-scoped public path (avoids auth 404s + access gate).
@@ -504,7 +515,22 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     const html = await cachedHtml(rk && `c|${rk}|${token}|${ref}|${members}`, async () => {
       // charts may show collections inside this folder share (the root excluded: a folder has no rows)
       const inShare = new Map(share.pages.map((p) => [p.id, p]))
-      const blocks = await loadPublicBlocks(page, publicFor(share.root.workspaceId, (id) => inShare.get(id)))
+      const charts = publicFor(share.root.workspaceId, (id) => inShare.get(id))
+      let blocks = await loadPublicBlocks(page, charts)
+      // embeds, database views and query blocks: data of pages inside this link only (docs/adr/2121-*)
+      if (page.kind === 'doc') {
+        blocks = await publicCustomBlocks(blocks, {
+          workspaceId: share.root.workspaceId,
+          inShare: new Map<string, SharedPage>([[share.root.id, share.root], ...inShare]),
+          rootId: share.root.id,
+          hostId: page.id,
+          fileUrl: (pageId, fileId) => {
+            const r = share.refById.get(pageId)
+            return r ? publicChildFileUrl(token, r, fileId) : null
+          },
+          charts,
+        })
+      }
       // Keep only wikilinks pointing inside the subtree as public paths; turn the rest into text (no id leaks).
       rewriteInternalLinksForPublic(blocks, (pageId) => {
         if (pageId === share.root.id) return `/s/${token}`

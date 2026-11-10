@@ -156,7 +156,7 @@ const ELEMENTS: Element[] = [
     name: 'page embed',
     place: 'block',
     add: webBlock('pageEmbed', { pageId: PAGE_ID }),
-    sig: new RegExp(`<pageEmbed pageId="${PAGE_ID}">`, 'i'),
+    sig: new RegExp(`<pageEmbed pageId="${PAGE_ID}"( viewId="")?>`, 'i'),
     token: /^<!-- inkling:pageEmbed .* -->$/m,
   },
   {
@@ -485,12 +485,12 @@ describe('notation round trip (read_page Markdown ↔ patch_section / update_pag
     const c2 = containerByText(doc, 'really')
     assert.equal(c2.getAttribute('id'), calloutId)
     assert.match(x, /<callout type="tip">Careful <bold>here<\/bold>, really<\/callout>/i)
-    assert.match(x, new RegExp(`<pageEmbed pageId="${OTHER_PAGE}">`, 'i'))
+    assert.match(x, new RegExp(`<pageEmbed pageId="${OTHER_PAGE}"( viewId="")?>`, 'i'))
     assert.match(x, /<linkEmbed display="embed" url=/i)
     assert.match(x, /<file [^>]*caption="Q4 report"/i)
     // created
     assert.match(x, /<callout type="danger">Brand new callout<\/callout>/i)
-    assert.match(x, new RegExp(`<pageEmbed pageId="${PAGE_ID}">`, 'i'))
+    assert.match(x, new RegExp(`<pageEmbed pageId="${PAGE_ID}"( viewId="")?>`, 'i'))
     // a chip already in the page may be written again; an unknown person stays text
     assert.equal((x.match(new RegExp(`<mention id="${USER_ID}"`, 'gi')) ?? []).length, 2)
     assert.doesNotMatch(x, new RegExp(STRANGER))
@@ -522,7 +522,7 @@ describe('notation round trip (read_page Markdown ↔ patch_section / update_pag
     assert.match(md, /^<!-- inkling:file .* -->$/m)
     await patch(doc, 's', md.replace(/^## S\n\n/, ''))
     const x = xml(doc)
-    assert.match(x, new RegExp(`<pageEmbed pageId="${PAGE_ID}">`, 'i'))
+    assert.match(x, new RegExp(`<pageEmbed pageId="${PAGE_ID}"( viewId="")?>`, 'i'))
     assert.match(x, /<callout type="tip">nested callout<\/callout>/i)
     assert.match(x, /<file [^>]*name="r.pdf"/i)
     assert.equal(await sectionMd(doc, 's'), md, 'reads back the same')

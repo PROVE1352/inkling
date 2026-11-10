@@ -7,9 +7,10 @@ import type { ReadStream } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { formatFormulaNumber, formulaErrorText } from '@inkling/shared'
-import type { CollectionField } from '@inkling/shared'
+import { formatFormulaNumber, formatUniqueId, formulaErrorText, isPersonLikeType, subItemsField, treeRows, viaPropKey } from '@inkling/shared'
+import type { CollectionField, ViewConfig, ViewType } from '@inkling/shared'
 import { computeFormulas } from '../collectionRelations'
+import { autoSourceColumns, fillRowsAuto } from '../collectionQuery/autoValues'
 import { db } from '../db/index'
 import { env } from '../env'
 import { AppError } from '../errors'
@@ -22,6 +23,8 @@ import { chartsToTables, exportFor, hasChartBlocks } from '../charts/render'
 import type { NotationMode } from './notation'
 import type { AnyBlock } from './convert'
 import { extForMime, sanitizeName } from './mime'
+import { applyViewRows, viewFields } from './viewRows'
+import { fileExportBlocks } from './fileExport'
 
 interface TreePage {
   id: string
@@ -79,6 +82,8 @@ function cellString(
   value: unknown,
   userNames: Map<string, string>,
   relTitles?: Map<string, string>,
+  /** created by / last edited by: the agent connection the change came through ("via:<fieldId>") */
+  via?: unknown,
 ): string {
   if (value === undefined || value === null) return ''
   switch (field.type) {
@@ -111,6 +116,14 @@ function cellString(
     }
     case 'person':
       return userNames.get(String(value)) ?? '-'
+    // automatic values (docs/adr/2140-*, 2141-*): filled in from the row's page columns
+    case 'createdBy':
+    case 'editedBy': {
+      const name = userNames.get(String(value)) ?? '-'
+      return typeof via === 'string' && via ? `${name} (via ${via})` : name
+    }
+    case 'uniqueId':
+      return formatUniqueId(field, value)
     case 'number':
     case 'date':
     case 'text':
@@ -141,10 +154,37 @@ export async function collectionTableMdShared(pageId: string): Promise<string> {
   return collectionTableMdCore(pageId, eq(pages.scope, 'shared'), false)
 }
 
+/** Options of a collection table that stands for an inline database view (docs/adr/2121-*, 2122-*). */
+export interface CollectionTableOptions {
+  /** the view's filters, sorts and columns */
+  view?: ViewConfig
+  /** rows kept besides the SQL gate (public pages: rows inside the link) */
+  keep?: (rowId: string) => boolean
+  /** at most this many rows, then a line saying how many more there are */
+  maxRows?: number
+  /** the view's type: table and list views show sub-items as a tree, like the web (docs/adr/2144-*) */
+  viewType?: ViewType
+}
+
+/** An inline database view as a table for a member's export: rows they can see, in the view. */
+export async function collectionViewTableMd(collectionId: string, userId: string, opts: CollectionTableOptions): Promise<string> {
+  return collectionTableMdCore(collectionId, visibleTo(userId), true, opts)
+}
+
+/**
+ * An inline database view on a public page: shared rows that are also inside the link (`keep`),
+ * no relation titles (as collectionTableMdShared).
+ */
+export async function collectionViewTableMdPublic(collectionId: string, opts: CollectionTableOptions): Promise<string> {
+  return collectionTableMdCore(collectionId, eq(pages.scope, 'shared'), false, opts)
+}
+
 async function collectionTableMdCore(
   pageId: string,
   rowFilter: SQL,
+  /** false on public pages: no relation titles, no "(via client)" after created / edited by */
   resolveRelationTitles = true,
+  opts: CollectionTableOptions = {},
 ): Promise<string> {
   const col = (
     await db
@@ -158,17 +198,21 @@ async function collectionTableMdCore(
   // The caller decides the child-row visibility gate via rowFilter:
   //  - authenticated export: visibleTo(userId) (H4 defense-in-depth)
   //  - public share:         scope='shared' (unauthenticated)
-  const rows = (await db
-    .select({ title: pages.title, props: pages.props })
+  const fetched = await db
+    .select({ id: pages.id, title: pages.title, props: pages.props, ...autoSourceColumns })
     .from(pages)
     .where(and(eq(pages.parentId, pageId), isNull(pages.deletedAt), rowFilter))
-    .orderBy(asc(pages.sortOrder), asc(pages.createdAt))) as {
-    title: string
-    props: Record<string, unknown>
-  }[]
+    .orderBy(asc(pages.sortOrder), asc(pages.createdAt))
+  const rows = (opts.keep ? fetched.filter((r) => opts.keep!(r.id)) : fetched).map((r) => ({
+    ...r,
+    props: { ...((r.props ?? {}) as Record<string, unknown>) },
+  }))
+  // automatic values (created / edited time and by, ID) come from the page row, never from props
+  // (docs/adr/2140-*); filled before formulas and filters, which read them like stored values
+  fillRowsAuto(fields, rows)
 
-  // Look up names of userIds referenced by person field values
-  const personFieldIds = fields.filter((f) => f.type === 'person').map((f) => f.id)
+  // Look up names of userIds referenced by person field values (created / edited by included)
+  const personFieldIds = fields.filter((f) => isPersonLikeType(f.type)).map((f) => f.id)
   const userNames = new Map<string, string>()
   if (personFieldIds.length > 0) {
     const userIds = new Set<string>()
@@ -220,23 +264,36 @@ async function collectionTableMdCore(
   // a rollup is empty in an export); person and relation cells are never read by a formula.
   const formulaErrors = computeFormulas(
     fields,
-    rows.map((r, i) => ({ id: String(i), title: r.title ?? '', props: (r.props = { ...(r.props ?? {}) }) })),
+    rows.map((r, i) => ({ id: String(i), title: r.title ?? '', props: r.props })),
   )
   rows.forEach((r, i) => {
     const errs = formulaErrors.get(String(i))
     if (errs) for (const [k, code] of Object.entries(errs)) r.props[k] = formulaErrorText(code)
   })
 
-  const header = ['Title', ...fields.map((f) => escapeCell(f.name))]
+  // an inline database view: its filters, order and columns (md/viewRows.ts)
+  const columns = opts.view ? viewFields(fields, opts.view) : fields
+  const filtered = opts.view ? applyViewRows(rows, fields, opts.view) : rows
+  // table and list views show sub-items under their parent (a row whose parent is filtered out or
+  // gone is a top-level row), as the web's viewTree does; other views and 'flat' stay flat
+  const parentField = opts.view && (opts.viewType === 'table' || opts.viewType === 'list') && opts.view.subItems !== 'flat' ? subItemsField(fields, pageId) : null
+  let shown = treeRows(filtered, parentField)
+  const more = opts.maxRows !== undefined && shown.length > opts.maxRows ? shown.length - opts.maxRows : 0
+  if (more) shown = shown.slice(0, opts.maxRows)
+
+  const header = ['Title', ...columns.map((f) => escapeCell(f.name))]
   const sep = header.map(() => '---')
   const lines = [`| ${header.join(' | ')} |`, `| ${sep.join(' | ')} |`]
-  for (const r of rows) {
+  for (const { row: r, depth } of shown) {
     const cells = [
-      escapeCell(r.title ?? ''),
-      ...fields.map((f) => escapeCell(cellString(f, r.props?.[f.id], userNames, relTitles))),
+      escapeCell(`${depth ? `${'↳'.repeat(depth)} ` : ''}${r.title ?? ''}`),
+      ...columns.map((f) =>
+        escapeCell(cellString(f, r.props?.[f.id], userNames, relTitles, resolveRelationTitles ? r.props?.[viaPropKey(f.id)] : undefined)),
+      ),
     ]
     lines.push(`| ${cells.join(' | ')} |`)
   }
+  if (more) lines.push('', `_… ${more} more row${more === 1 ? '' : 's'}_`)
   return lines.join('\n') + '\n'
 }
 
@@ -251,12 +308,16 @@ export interface ExportedMd {
 
 /**
  * Blocks of a page for an export. Plain Markdown shows each chart as a table of its data for the
- * exporting member (docs/adr/1605-*); agent notation keeps the chart token.
+ * exporting member (docs/adr/1605-*); agent notation keeps the chart token. The file export
+ * (docs/adr/2122-*) keeps chart and database-view tokens with a snapshot of their numbers, a query
+ * block's results after its code, and page / link embeds as links (md/fileExport.ts).
  */
 async function exportBlocks(pageId: string, userId: string, notation: NotationMode): Promise<AnyBlock[]> {
   const blocks = await loadBlocks(pageId)
+  if (notation === 'agent') return blocks
+  if (notation === 'file') return fileExportBlocks(blocks, pageId, userId)
   // no chart, no extra statement (zip exports call this for every page)
-  if (notation === 'agent' || !hasChartBlocks(blocks)) return blocks
+  if (!hasChartBlocks(blocks)) return blocks
   const [p] = await db.select({ workspaceId: pages.workspaceId }).from(pages).where(eq(pages.id, pageId)).limit(1)
   return p ? chartsToTables(blocks, exportFor(userId, p.workspaceId)) : blocks
 }
@@ -391,6 +452,8 @@ interface ZipContext {
   canvasOpts: StateToCanvasOptions
   /** The exporting user — used for the visibleTo gate on collection child rows (H4). */
   userId: string
+  /** 'file' (default): tokens + snapshots for charts, database views and queries (docs/adr/2122-*) */
+  notation: 'plain' | 'file'
 }
 
 export async function exportZip(opts: {
@@ -399,6 +462,8 @@ export async function exportZip(opts: {
   zipBaseName: string
   /** The exporting user — private pages are included in the tree only for their owner. */
   userId: string
+  /** 'file' (default) or 'plain' (charts as tables, no tokens; the 0.16 output) */
+  notation?: 'plain' | 'file'
   /**
    * Called once when the export is over: the stream ended, failed or was destroyed, or exportZip
    * threw. The heavy-job slot is released here (docs/adr/1240-*).
@@ -420,7 +485,7 @@ export async function exportZip(opts: {
 }
 
 async function buildZip(
-  opts: { workspaceId: string; rootPageId: string | null; zipBaseName: string; userId: string },
+  opts: { workspaceId: string; rootPageId: string | null; zipBaseName: string; userId: string; notation?: 'plain' | 'file' },
   finish: () => void,
 ): Promise<ExportedZip> {
   const { workspaceId, rootPageId, userId } = opts
@@ -557,6 +622,7 @@ async function buildZip(
     usedAssets: new Set(),
     canvasOpts,
     userId,
+    notation: opts.notation ?? 'file',
   }
 
   try {
@@ -641,8 +707,9 @@ async function walk(
   const children = childrenMap.get(page.id) ?? []
 
   if (page.kind === 'doc') {
-    const blocks = await exportBlocks(page.id, ctx.userId, 'plain')
+    const blocks = await exportBlocks(page.id, ctx.userId, ctx.notation)
     const { markdown, assetIds } = await blocksToMarkdown(blocks, {
+      notation: ctx.notation,
       assetMode: 'relative',
       resolveAssetPath: (fileId) =>
         `assets/${fileId}${extForMime(ctx.fileMimeMap.get(fileId) ?? '')}`,

@@ -35,6 +35,7 @@ import { claimLine, pageClaims } from './leases'
 import type { SectionClaimDTO, SuggestionDTO } from '@inkling/shared'
 import { registerStructureTools } from './mcpTools/structureTools'
 import { annotateCharts, registerChartTools } from './mcpTools/chartTools'
+import { annotateDbViews } from './mcpTools/dbViewTools'
 import { appliesLine, flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './mcpTools/agentContext'
 import { suspiciousNote } from './context/injectionScan'
 import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, wrapUntrusted } from './mcpTools/trust'
@@ -539,9 +540,13 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         const head = `# ${cleanText(titleOf(r.page))}${r.section.headingPath ? ` › ${cleanText(r.section.headingPath)}` : ''}\n(page ${shortId(r.page.id)}; §${r.section.anchor} v=${r.section.version})\n${moved}can: ${f.can}\n${flag ? `${flag}\n` : ''}${large ? `${large}\n` : ''}\n`
         const tail = r.truncated ? `\n\n[truncated: ${maxChars} of ${r.totalChars} chars]` : ''
         // a data line under each chart token, for this reader (docs/adr/1606-*)
-        const sectionMd = r.markdown.includes('inkling:chart')
-          ? await annotateCharts(ctx, (await findVisiblePage(r.page.id, ctx.user.id))?.workspaceId ?? '', r.markdown)
-          : r.markdown
+        // and a name line under each database view (docs/adr/2123-*)
+        const sectionMd = await annotateDbViews(
+          ctx,
+          r.markdown.includes('inkling:chart')
+            ? await annotateCharts(ctx, (await findVisiblePage(r.page.id, ctx.user.id))?.workspaceId ?? '', r.markdown)
+            : r.markdown,
+        )
         // claim and verified change without the text: after it (docs/adr/1946-*)
         const after = trailer([claim, verified])
         return withLinks(
@@ -558,7 +563,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       }
       countReads([meta.id]) // read counters (docs/adr/0953-*)
       // a data line under each chart token, for this reader; not part of the version (docs/adr/1606-*)
-      if (meta.kind === 'doc') body = await annotateCharts(ctx, meta.workspaceId, body)
+      if (meta.kind === 'doc') body = await annotateDbViews(ctx, await annotateCharts(ctx, meta.workspaceId, body))
       if (maxChars && body.length > maxChars) {
         body = `${body.slice(0, maxChars)}\n\n[truncated: ${maxChars} of ${body.length} chars; use outline=true and section=… for the rest]`
       }

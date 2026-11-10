@@ -178,6 +178,23 @@ The panel button at the top right of a page opens the right panel: **Properties*
   what you search for, so every fold on the page opens, not only the ones with a match. Pen mode and printing
   show the whole page. Headings nested inside other blocks don't fold.
 
+### Looking at images
+
+Double-click a picture in a page, or point at it and press the magnifier in its top right corner, to see it
+large. On a phone or tablet the magnifier is always there. On a page you can only read (locked for you) and on a
+public link, one click on the picture opens it; a picture that is itself a link on a public page follows the link.
+A single click in a page you can edit still selects the image block, so its toolbar, resize handles and drag work
+as before.
+
+In the viewer, zoom with the mouse wheel, a trackpad pinch or two fingers on a touch screen; the point under the
+pointer stays put. `+` and `-` zoom in steps, `0` fits the picture to the screen, and a double-click switches
+between fitted and actual size (100%); a picture smaller than the screen is shown at 100% and is not enlarged to
+fit. When it is larger than the screen, drag to move around. If the page has several pictures, ← and → (or the
+arrows at the sides) go to the previous and next one; the top bar shows which one ("2 / 5"), its caption or file
+name, the zoom and **Open original**, which opens the picture in a new tab. Esc, a click outside the picture, the
+close button or the browser's Back button closes it and puts you back where you were. While it is open, keys go
+to the viewer only, never to the page behind it. The `?` window lists these keys under **Image viewer**.
+
 ### Verifying a page
 
 Mark a page as checked and correct until a date: **⋯** → **Verify page…** → choose 30, 90 or 180 days or **Until a
@@ -993,6 +1010,11 @@ that have a key show it at the right (page ⋯ menu, the tree's row menu, the si
 | Paste cells | ⌘V | Ctrl+V |
 | **Pen mode** | | |
 | Undo the last stroke | ⌘Z | Ctrl+Z |
+| **Image viewer** (while it is open) | | |
+| Zoom in / zoom out | + / - | + / - |
+| Fit to screen (double-click: 100%) | 0 | 0 |
+| Previous / next image | ← / → | ← / → |
+| Close (or click outside the image) | Esc | Esc |
 
 
 Editor keys work while the cursor is in a document. ⌘D deletes the block (as in Obsidian); ⌘⇧D duplicates it

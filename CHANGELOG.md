@@ -9,8 +9,24 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [0.19.1] - 2026-11-11
 
-A patch release that redoes the onboarding intro after it was seen in production. Web app only: no database
-migration, no new dependency, no API or configuration change.
+A patch release in two parts. The onboarding intro, redone after it was seen in production, is drawn with real
+content, a camera and ink wipes, ends on a screen of next steps (sample page, New page, Connect an AI agent) instead
+of closing, and no longer says "open source". Pictures in a page and on public links open large in a new image
+viewer. Web app only: no database migration, no new environment variable, no new dependency, no API change. The
+stored image block is unchanged, so tabs still on 0.19.0 and reloaded ones edit the same pages safely.
+
+### Added
+- **Image viewer** (docs/adr/2386-*). Pictures in a page open large over a dark backdrop: double-click an image in
+  the editor or press the magnifier button in its corner (always shown on touch screens); on a page that is
+  read-only for you and on public links one click opens it (on a public link an image inside a link follows the
+  link). Zoom with the wheel, a trackpad or a two-finger pinch (about the pointer), `+`/`-`, `0` to fit and a
+  double-click for 100% (a small image is never enlarged past 100% to fit); drag to move. ←/→ and the side buttons
+  go through the page's images ("2 / 5"); the top bar shows the caption or file name, the zoom and "Open original"
+  (new tab). Esc, a click on the backdrop, the close button or the browser's Back returns to where you were. Keys
+  typed while it is open never reach the page (⌘/Ctrl/Alt combinations stay the browser's). A one-click open in the
+  editor was left out on purpose: a click still selects the image block for its toolbar, resize handles and drag.
+  The shortcut help (`?`) lists the viewer's keys in a new group, Image viewer. There is no keyboard way to open it
+  (KNOWN-ISSUES ZOOM-3).
 
 ### Changed
 - **The intro shows the real thing and moves like it** (docs/adr/2385-*). The four scenes are now drawn with real
@@ -36,6 +52,9 @@ migration, no new dependency, no API or configuration change.
   plays and not precached. Entry `index-*.js` 447,094 → 447,032 B (122,916 → 122,962 B gzip); entry plus modulepreload
   1,368,719 → 1,371,693 B (403,057 → 403,152 B gzip, the longer intro copy in the i18n chunk); precache 104 entries,
   +2,295 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- The image viewer is a separate chunk loaded on its first open, 9,655 B (3,550 B gzip) plus 448 B of CSS; the entry
+  script is unchanged in size (447,123 → 447,131 B against 958a9b4), the strings and shortcut rows add about 0.5 kB
+  gzip to the preloaded i18n chunk. No new dependency ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 
 ## [0.19.0] - 2026-11-11
 

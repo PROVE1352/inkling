@@ -940,6 +940,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2383](2383-operators-can-show-the-intro-to-existing-accounts-once.md) | Operators can show the intro to existing accounts once (ONBOARDING_EXISTING_USERS=once) | Accepted |
 | [2384](2384-getting-started-card-inside-the-sidebar-height-budget.md) | The Getting started card is part of the sidebar's height budget; it scrolls inside, the footer stays reachable | Accepted |
 | [2385](2385-intro-end-screen-camera-and-ink-wipe.md) | The intro ends on a screen of next steps; a camera and ink wipes inside the same pure function | Accepted |
+| [2386](2386-image-viewer-double-click-in-the-editor-click-elsewhere.md) | Image viewer: double-click or the corner button in the editor, one click where nothing can be edited | Accepted |
 
 ## 099x Client updates
 

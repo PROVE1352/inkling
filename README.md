@@ -124,7 +124,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 ## Features
 
 **Writing**
-- Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, Mermaid diagrams from a `mermaid` code block, images, file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`
+- Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, Mermaid diagrams from a `mermaid` code block, images (double-click one to see it large), file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`
 - `[[wikilinks]]` (`[[Page#Heading]]` for a section), `#tags`, `@mentions`, daily notes, and templates for a page or a whole structure ([docs/TEMPLATES.md](docs/TEMPLATES.md)); pen and highlighter on documents
 - Nested pages and folders with drag-and-drop, ⌘K search over titles and bodies, version history with named versions, trash, PDF export
 - Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides

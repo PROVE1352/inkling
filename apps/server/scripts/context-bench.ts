@@ -24,7 +24,8 @@ async function main() {
   const h = await import('../src/mcpTools/testHarness')
   const { db, closeDb } = await import('../src/db/index')
   const schema = await import('../src/db/schema')
-  const { ALL_EVAL_PAGES: EVAL_PAGES, EVAL_QUESTIONS, padPages, fillerText } = await import('../src/context/evalSet')
+  const { ALL_EVAL_PAGES: EVAL_PAGES, EVAL_QUESTIONS, padPages, fillerText, evalPageKey } = await import('../src/context/evalSet')
+  const { RECALL_PAGES, RECALL_QUESTIONS } = await import('../src/context/evalRecallSet')
   const { runEval, runRankEval } = await import('../src/context/evalRun')
   const { renderFindContext } = await import('../src/mcpTools/contextTools')
   const { estimateTokens } = await import('../src/context/tokens')
@@ -109,6 +110,26 @@ async function main() {
   })
   const [{ n: chunkCount }] = (await db.execute(sql`SELECT count(*)::int AS n FROM page_chunks WHERE workspace_id = ${ws.id}`)) as unknown as { n: number }[]
 
+  // 2b) recall set (docs/adr/2400-*): one workspace per label (H, P, L), asked without a workspace by
+  // two more people: one who has only these three workspaces ("small"), one who also has the padded
+  // wiki + distractors workspace above ("large": the common words of a question fill another
+  // workspace, as in the field report)
+  const recallSmall = await h.makeUser('recall-small')
+  const recallLarge = await h.makeUser('recall-large')
+  await db.insert(schema.workspaceMembers).values({ workspaceId: ws.id, userId: recallLarge.id, role: 'member' })
+  const mcpSmall = await h.connectMcp(app, recallSmall, await h.mintToken(recallSmall))
+  const mcpLarge = await h.connectMcp(app, recallLarge, await h.mintToken(recallLarge))
+  const recallWs = new Map<string, string>()
+  const recallIds = new Map<string, string>()
+  const recallNames: Record<string, string> = { H: 'Spring hackathon team', P: 'Lumen product wiki', L: 'Research archive' }
+  for (const p of RECALL_PAGES) {
+    const label = p.workspace!
+    if (!recallWs.has(label)) recallWs.set(label, (await h.makeWorkspace(recallSmall, [recallLarge], recallNames[label] ?? label)).id)
+    const r = await mcpSmall.tool('create_page', { workspaceId: recallWs.get(label)!, title: p.title, markdown: p.markdown })
+    if (r.isError) throw new Error(r.text)
+    recallIds.set(evalPageKey(p), JSON.parse(r.text).id)
+  }
+
   // 3) quality and cost
   const small = await runEval(mcp.tool, EVAL_QUESTIONS, unpaddedIds, { workspaceId: wsSmall.id })
   const big = await runEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
@@ -116,6 +137,9 @@ async function main() {
   const rankBig = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
   // every question at a small budget (the field cases of 0.15.1 were seen at 600–1,000 tokens)
   const rankBig1000 = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id, budget: 1000 })
+  // the recall set, every question without a workspace (all of the person's workspaces)
+  const recallRunSmall = await runRankEval(mcpSmall.tool, RECALL_QUESTIONS, recallIds)
+  const recallRunLarge = await runRankEval(mcpLarge.tool, RECALL_QUESTIONS, recallIds)
 
   // 3b) location overhead: the same budget (1,500, as in the field report), body vs everything else
   const bodyStats = { body: 0, total: 0, fragments: 0, more: 0 }
@@ -215,11 +239,11 @@ async function main() {
     `| padded + ${argPages} distractors | after | ${big.after.meanTokens} | ${big.after.medianTokens} | ${big.after.meanCalls} | ${f(big.after.success)} | ${f(big.after.sectionAt1)} | ${f(big.after.sectionAt3)} | ${f(big.after.pageAt1)} | ${f(big.after.pageAt3)} |`,
     '',
     'rank metrics (shown sections; each question at its own budget, default 3500, or all at 1000):',
-    '| set | split | n | MRR | recall@5 | nDCG@5 | precision@5 (of shown) | P@5 (÷5) | answer in body | tokens/question |',
-    '|---|---|---|---|---|---|---|---|---|---|',
+    '| set | split | n | MRR | recall@5 | nDCG@5 | precision@5 (of shown) | P@5 (÷5) | answer in body | tokens/question | page@1 | page@3 | page MRR |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...([['unpadded wiki', rankSmall], [`padded + ${argPages} distractors`, rankBig], [`padded, budget 1000`, rankBig1000]] as const).flatMap(([name, r]) =>
       (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map(
-        (sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} | ${r[sp].inBody ?? '–'} | ${r[sp].tokens ?? '–'} |`,
+        (sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} | ${r[sp].inBody ?? '–'} | ${r[sp].tokens ?? '–'} | ${r[sp].pageAt1} | ${r[sp].pageAt3} | ${r[sp].pageMrr} |`,
       ),
     ),
     '',
@@ -232,6 +256,24 @@ async function main() {
     '',
     ...(hasFormats ? [fmtLine('with the relevance floor', fmtRuns.floor), fmtLine('floor off, budget filled', fmtRuns.fill)] : []),
     `budget 1500, per question (all ${EVAL_QUESTIONS.length}): output ${perQ(bodyStats.total)} tok, section text ${perQ(bodyStats.body)} tok, other ${perQ(bodyStats.total - bodyStats.body)} tok, fragments ${perQ(bodyStats.fragments)}, also-relevant ${perQ(bodyStats.more)}`,
+    '',
+    `recall set (docs/adr/2400-*), ${RECALL_QUESTIONS.length} questions, asked without a workspace (page@k = answer page among the first k shown pages):`,
+    '| set | split | n | page@1 | page@3 | page MRR | section MRR | recall@5 | answer in body | tokens/question |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    ...([['recall, own 3 workspaces', recallRunSmall], [`recall + padded/${argPages} workspace`, recallRunLarge]] as const).flatMap(([name, r]) =>
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].pageAt1} | ${r[sp].pageAt3} | ${r[sp].pageMrr} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].inBody} | ${r[sp].tokens} |`),
+    ),
+    '',
+    'recall set per family (large set):',
+    '| tag | split | n | page@1 | page@3 | page MRR | section MRR | tokens |',
+    '|---|---|---|---|---|---|---|---|',
+    ...Object.entries(recallRunLarge.tags).flatMap(([tag, r]) =>
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${tag} | ${sp} | ${r[sp].n} | ${r[sp].pageAt1} | ${r[sp].pageAt3} | ${r[sp].pageMrr} | ${r[sp].mrr} | ${r[sp].tokens} |`),
+    ),
+    'recall questions whose answer page is not first (small / large):',
+    ...RECALL_QUESTIONS.map((q, i) => [q, recallRunSmall.rows[i], recallRunLarge.rows[i]] as const)
+      .filter(([q, a, b]) => (FINAL || q.split === 'dev') && (a.pageRank !== 1 || b.pageRank !== 1))
+      .map(([q, a, b]) => `- [${q.split} ${q.tag}] page ${a.pageRank}/${b.pageRank} section ${a.firstRank}/${b.firstRank}: ${q.q}`),
     '',
     `find_context latency (direct): p50 ${f(pct(lat, 0.5))} ms, p95 ${f(pct(lat, 0.95))} ms; old search route (1 term): p50 ${f(pct(latOld, 0.5))} ms, p95 ${f(pct(latOld, 0.95))} ms`,
     `reindex after a one-section edit (padded page): p50 ${f(pct(editMs, 0.5))} ms, p95 ${f(pct(editMs, 0.95))} ms`,
@@ -248,7 +290,10 @@ async function main() {
   ]
   console.log(lines.join('\n'))
   console.log(`workspaces: big ${ws.id} small ${wsSmall.id} user ${owner.id}`)
+  console.log(`recall: RECALL_WS=${[...recallWs].map(([l, id]) => `${l}=${id}`).join(',')}`)
   await mcp.close()
+  await mcpSmall.close()
+  await mcpLarge.close()
   await collab.destroyCollab()
   await app.close()
   await closeDb()

@@ -5,6 +5,8 @@
  * not mere matching, decides the result. Used by context.db.test.ts and scripts/context-bench.ts.
  */
 
+import { RECALL_PAGES } from './evalRecallSet'
+
 export interface EvalPage {
   title: string
   markdown: string
@@ -933,7 +935,7 @@ export const EVAL_QUESTIONS: EvalQuestion[] = [
  * characters of the first non-empty line of the expected section (the fixtures' sections are one
  * or two sentences; their first line is the answer).
  */
-export function answerEvidence(q: EvalQuestion, pages: EvalPage[] = [...ALL_EVAL_PAGES, ...MULTI_WS_PAGES]): string {
+export function answerEvidence(q: EvalQuestion, pages: EvalPage[] = [...ALL_EVAL_PAGES, ...MULTI_WS_PAGES, ...RECALL_PAGES]): string {
   if (q.evidence) return q.evidence
   const page = pages.find((p) => evalPageKey(p) === q.page)
   if (!page) throw new Error(`eval page missing: ${q.page}`)

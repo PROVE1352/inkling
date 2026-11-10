@@ -86,6 +86,11 @@ export interface RankMetrics {
   precisionAt5: number
   /** Textbook precision@5: relevant among the first five / 5. */
   pAt5: number
+  /** Share of questions whose answer page is the first / among the first three shown pages (docs/adr/2400-*). */
+  pageAt1: number
+  pageAt3: number
+  /** Mean 1/rank of the answer page among the shown pages (fragments in order, a page counted once). */
+  pageMrr: number
 }
 
 export interface RankRow {
@@ -105,6 +110,8 @@ export interface RankRow {
   precisionAt5: number
   pAt5: number
   shown: number
+  /** 1-based position of the first answer page among the shown pages (each page once), 0 = not shown. */
+  pageRank: number
 }
 
 /**
@@ -120,6 +127,9 @@ export function scoreRanking(out: string, relevant: { pageId: string; anchor: st
   const isRel = (s: { pageId: string; anchor: string }) => relevant.some((r) => samePage(r.pageId, s.pageId) && sameSection(r.anchor, s.anchor))
   const hits = shown.map(isRel)
   const first = hits.indexOf(true) + 1
+  const pages: string[] = []
+  for (const f of parseFragments(out)) if (!pages.includes(f.pageId)) pages.push(f.pageId)
+  const pageRank = pages.findIndex((p) => relevant.some((r) => samePage(r.pageId, p))) + 1
   const top = hits.slice(0, 5)
   const found = new Set<number>()
   shown.slice(0, 5).forEach((s, i) => {
@@ -141,6 +151,7 @@ export function scoreRanking(out: string, relevant: { pageId: string; anchor: st
     precisionAt5: top.length ? top.filter(Boolean).length / top.length : 0,
     pAt5: top.filter(Boolean).length / 5,
     shown: shown.length,
+    pageRank,
   }
 }
 
@@ -207,6 +218,9 @@ export function summarizeRanks(rows: RankRow[]): { dev: RankMetrics; test: RankM
       ndcgAt5: m('ndcgAt5'),
       precisionAt5: m('precisionAt5'),
       pAt5: m('pAt5'),
+      pageAt1: Number(rate(xs.map((r) => r.pageRank === 1)).toFixed(3)),
+      pageAt3: Number(rate(xs.map((r) => r.pageRank >= 1 && r.pageRank <= 3)).toFixed(3)),
+      pageMrr: Number(mean(xs.map((r) => (r.pageRank ? 1 / r.pageRank : 0))).toFixed(3)),
     }
   }
   const split = (xs: RankRow[]) => ({ dev: summary(xs.filter((r) => r.split === 'dev')), test: summary(xs.filter((r) => r.split === 'test')) })

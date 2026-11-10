@@ -1,5 +1,6 @@
 import type { BlockNoteEditor } from '@blocknote/core'
 import { SuggestionMenuController } from '@blocknote/react'
+import { CARET_MENU_FLOATING } from '../lib/caretMenu'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import type { PageMetaDTO } from '@inkling/shared'
 import { internalHref } from '@inkling/shared/sectionLink'
@@ -164,8 +165,8 @@ export function WikilinkMenu({
   return (
     <>
       {/* Register "![[" first so it wins over the overlapping suffix "[[". */}
-      <SuggestionMenuController triggerCharacter="![[" getItems={getEmbedItems} />
-      <SuggestionMenuController triggerCharacter="[[" getItems={getLinkItems} />
+      <SuggestionMenuController triggerCharacter="![[" getItems={getEmbedItems} floatingUIOptions={CARET_MENU_FLOATING} />
+      <SuggestionMenuController triggerCharacter="[[" getItems={getLinkItems} floatingUIOptions={CARET_MENU_FLOATING} />
     </>
   )
 }

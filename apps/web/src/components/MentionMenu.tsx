@@ -1,5 +1,6 @@
 import type { BlockNoteEditor } from '@blocknote/core'
 import { SuggestionMenuController } from '@blocknote/react'
+import { CARET_MENU_FLOATING } from '../lib/caretMenu'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { useMembers, usePages } from '../api'
 import { AGENT_MENTION_KIND } from '@inkling/shared'
@@ -77,5 +78,5 @@ export function MentionMenu({
     return items
   }
 
-  return <SuggestionMenuController triggerCharacter="@" getItems={getItems} />
+  return <SuggestionMenuController triggerCharacter="@" getItems={getItems} floatingUIOptions={CARET_MENU_FLOATING} />
 }

@@ -5,6 +5,7 @@ import {
   SuggestionMenuController,
 } from '@blocknote/react'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
+import { CARET_MENU_FLOATING } from '../lib/caretMenu'
 import type { CalloutType } from './blocks/Callout'
 import { usePluginSlashItems } from '../plugins/integration'
 import { linkEmbedSlashItems } from './blocks/LinkEmbed'
@@ -82,7 +83,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
     )
   }
 
-  return <SuggestionMenuController triggerCharacter="/" getItems={getItems} />
+  return <SuggestionMenuController triggerCharacter="/" getItems={getItems} floatingUIOptions={CARET_MENU_FLOATING} />
 }
 
 /**

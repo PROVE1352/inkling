@@ -20,7 +20,7 @@ import { collectInputs } from './variables'
  * tables, quotes, code): anything else would not survive markdown → blocks.
  */
 
-interface SpecNode {
+export interface SpecNode {
   kind: NodeKind
   title: string
   icon?: string
@@ -1196,7 +1196,13 @@ async function compile(spec: SpecNode): Promise<TNode> {
     const node: TNode = { id: ids.get(n)!, kind: n.kind, title: n.title, icon: n.icon ?? null, children: [] }
     if (n.props) node.props = structuredClone(n.props)
     if (n.kind === 'doc') {
-      let blocks = stripPlaceholder(await markdownToBlocks(withEmptyItems(n.md ?? ''), resolve))
+      // A page embed (inline database view) of a page of the same spec names it by title:
+      // `<!-- inkling:pageEmbed {"pageId":"@Title","viewId":""} -->` (instantiation remaps the id).
+      const md = (n.md ?? '').replace(EMBED_REF_RE, (whole, title: string) => {
+        const id = byTitle.get(title.toLowerCase())
+        return id ? `"pageId":"${id}"` : whole
+      })
+      let blocks = stripPlaceholder(await markdownToBlocks(withEmptyItems(md), resolve))
       if (blocks.length === 0) blocks = [{ type: 'paragraph', content: [] }]
       node.state = blocksToStateBuffer(blocks).toString('base64')
     }
@@ -1219,6 +1225,16 @@ async function compile(spec: SpecNode): Promise<TNode> {
     return node
   }
   return build(spec)
+}
+
+const EMBED_REF_RE = /"pageId":"@([^"]+)"/g
+
+/**
+ * Compile a spec that is not one of the listed built-ins (the onboarding sample page,
+ * docs/adr/2381-*): same tree model and instantiation, never in the gallery or list_templates.
+ */
+export function compileSpec(spec: SpecNode): Promise<TNode> {
+  return compile(spec)
 }
 
 const treeCache = new Map<string, Promise<TNode>>()

@@ -215,6 +215,11 @@ interface DocTransform {
   remapHref: (href: string) => string | null
   /** Look for {{cursor}} in this document. */
   wantCursor: boolean
+  /**
+   * New id for a page of the same template named by a page embed (inline database view), or null
+   * to keep it (docs/adr/2381-*). Without it embeds are kept as they are.
+   */
+  remapPageId?: (id: string) => string | null
 }
 
 /**
@@ -281,6 +286,11 @@ export function transformDocState(
       if (c instanceof Y.XmlText) {
         inline += visitText(c, blockId, inline)
       } else if (c instanceof Y.XmlElement) {
+        if (c.nodeName === 'pageEmbed' && t.remapPageId) {
+          const old = c.getAttribute('pageId')
+          const next = typeof old === 'string' && old ? t.remapPageId(old) : null
+          if (next) c.setAttribute('pageId', next)
+        }
         const id = c.nodeName === 'blockContainer' ? (c.getAttribute('id') as string | undefined) ?? blockId : blockId
         visit(c, id)
         inline += 1
@@ -682,6 +692,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
         render: (s, allowCursor) => renderString(s, a.ctx, allowCursor),
         remapHref,
         wantCursor: !cursor,
+        remapPageId: remapId,
       })
       p.state = r.state
       if (r.cursor && !cursor) cursor = { pageId: id, ...r.cursor }

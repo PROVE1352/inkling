@@ -421,6 +421,13 @@
       "when": 1794315981038,
       "tag": "0059_share_allow_download",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794321599496,
+      "tag": "0060_onboarding",
+      "breakpoints": true
     }
   ]
 }

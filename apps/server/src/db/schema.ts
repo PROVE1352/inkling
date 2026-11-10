@@ -1002,3 +1002,5 @@ export * from './schema-push'
 export * from './schema-automations'
 // A person's own workspace list: groups and archived workspaces (docs/adr/2300-*)
 export * from './schema-workspaceListing'
+// Onboarding state per person: intro, checklist, sample pages (docs/adr/2380-*)
+export * from './schema-onboarding'

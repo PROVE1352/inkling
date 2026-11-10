@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Save to Inkling (example)",
+  "version": "0.1.0",
+  "description": "Opens your Inkling server's “Save to Inkling” window for the current tab. Unpacked example, not published in any store.",
+  "action": { "default_title": "Save to Inkling" },
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "permissions": ["activeTab", "scripting", "storage"]
+}

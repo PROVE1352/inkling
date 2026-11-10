@@ -6,6 +6,7 @@ import { describe, it } from 'node:test'
 import { CLIP_ARTICLE_MIN_CHARS, CLIP_MAX_NESTING, CLIP_MAX_TAGS, clipImageSrc, clipLinkHref, extractArticle, prepareHtml } from './extract'
 import { articleBlocks, clipBodyBlocks, clipSourceUrl, clipStamp, quoteBlocks } from './blocks'
 import { decodeHtml } from '../linkPreview'
+import { blocksToStateBuffer, stateToBlocks } from '../md/convert'
 
 const LOREM =
   'The council approved the new budget on Tuesday, after a long debate about schools, roads and parks. ' +
@@ -147,6 +148,33 @@ describe('clip: article extraction', () => {
     assert.ok(a)
     assert.equal(a.truncated, true)
     assert.match(a.html, /…/)
+  })
+})
+
+describe('clip: rich markup round trip', () => {
+  it('tables with spans and headers, nested lists, code, deep headings, linked images, figures in lists: blocks that store and read back', async () => {
+    const html = `<html><head><title>Rich</title></head><body><article>
+      <p>${LOREM}</p>
+      <h4>Fourth level</h4><h5>Fifth</h5><h6>Sixth</h6>
+      <table><caption>Results</caption><thead><tr><th colspan="2">Team</th><th>Score</th></tr></thead>
+        <tbody><tr><td rowspan="2">A</td><td>x</td><td>1</td></tr><tr><td>y</td><td>2</td></tr></tbody></table>
+      <ul><li>one<ul><li>one-a<ol><li>deep</li></ol></li></ul></li><li><figure><img src="https://cdn.example/f.png" alt="fig"><figcaption>cap</figcaption></figure></li></ul>
+      <pre><code class="language-js">const a = 1 < 2 && "x"\nconsole.log(a)</code></pre>
+      <p><a href="/full"><img src="https://cdn.example/thumb.png" alt="thumb"></a> <a href="/t"><strong>bold link</strong></a></p>
+      <blockquote><p>quoted <em>words</em></p><p>second</p></blockquote>
+      <p>${LOREM}</p></article></body></html>`
+    const a = extractArticle(html, 'https://rich.example/a')
+    assert.ok(a)
+    const { blocks } = await articleBlocks(a.html)
+    assert.ok(blocks.length > 5)
+    const back = stateToBlocks(blocksToStateBuffer(blocks))
+    const json = JSON.stringify(back)
+    for (const want of ['Fourth level', 'Sixth', 'Team', 'Score', 'one-a', 'deep', 'console.log', 'bold link', 'quoted', 'https://cdn.example/f.png']) {
+      assert.ok(json.includes(want), want)
+    }
+    assert.ok(back.some((b) => b.type === 'table'))
+    assert.ok(back.some((b) => b.type === 'codeBlock'))
+    assert.ok(back.filter((b) => b.type === 'heading').every((b) => Number(b.props?.level) <= 3))
   })
 })
 

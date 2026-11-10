@@ -20,7 +20,7 @@
  * `null` means no article body was found (the clip is then saved as a link).
  */
 import { getServerEditor } from '../md/editor'
-import { decodeEntities, extractHeadMeta } from '../linkPreview'
+import { extractHeadMeta } from '../linkPreview'
 
 /** Most characters of article text kept (the rest is cut, `truncated`). */
 export const CLIP_ARTICLE_MAX_CHARS = 100_000
@@ -149,7 +149,8 @@ const arr = <T>(list: ArrayLike<T>): T[] => Array.from(list)
 /** A link target kept in a clip: absolute http(s) or mailto, else null (javascript:, data:, …). */
 export function clipLinkHref(raw: string | null | undefined, base: string): string | null {
   if (!raw) return null
-  const t = decodeEntities(raw.trim())
+  // getAttribute values are already entity-decoded by the parser
+  const t = raw.trim()
   if (!t || t.startsWith('#')) return null
   try {
     const u = new URL(t, base)

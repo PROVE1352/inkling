@@ -133,17 +133,20 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
           const fetched = await fetchArticleHtml(url, { acceptLanguage: locale === 'ko' ? 'ko,en;q=0.8' : 'en' })
           if (!fetched.ok) fallback = fetched.reason
           else {
-            const extracted = extractArticle(fetched.html, fetched.url)
-            pageTitle = extracted?.title ?? null
-            if (!extracted) fallback = 'no_content'
-            else {
-              const built = await articleBlocks(extracted.html)
-              if (built.blocks.length === 0) fallback = 'no_content'
+            // Any failure past the fetch (markup the parsers choke on) is "no article": the link is saved.
+            try {
+              const extracted = extractArticle(fetched.html, fetched.url)
+              pageTitle = extracted?.title ?? null
+              const built = extracted ? await articleBlocks(extracted.html) : null
+              if (!extracted || !built || built.blocks.length === 0) fallback = 'no_content'
               else {
                 article = built.blocks
                 mode = 'article'
                 truncated = extracted.truncated || fetched.truncatedBytes || built.cut
               }
+            } catch (err) {
+              req.log.warn({ err }, 'clip: article extraction failed')
+              fallback = 'no_content'
             }
           }
         } finally {
@@ -153,14 +156,30 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
 
       const title = oneLine(body.title ?? '').slice(0, 300) || pageTitle?.slice(0, 300) || (url ? new URL(url).host : '') || names.untitled
       const when = clipStamp()
-      const blocks = clipBodyBlocks({
-        url,
-        selection: selection || null,
-        tags: body.tags ?? [],
-        savedLine: url ? names.saved(when) : names.savedNoUrl(when),
-        article,
-        truncatedNote: truncated ? names.truncated : null,
-      })
+      const bodyOf = (withArticle: boolean) =>
+        clipBodyBlocks({
+          url,
+          selection: selection || null,
+          tags: body.tags ?? [],
+          savedLine: url ? names.saved(when) : names.savedNoUrl(when),
+          article: withArticle ? article : null,
+          truncatedNote: withArticle && truncated ? names.truncated : null,
+        })
+      // The document is built before the page row exists, so a conversion failure leaves no empty page:
+      // an article the editor schema cannot store falls back to the link clip.
+      let state: Buffer
+      try {
+        state = blocksToStateBuffer(bodyOf(true))
+      } catch (err) {
+        if (!article) throw err
+        req.log.warn({ err }, 'clip: article blocks could not be stored')
+        state = blocksToStateBuffer(bodyOf(false))
+        article = null
+        mode = 'link'
+        fallback = 'no_content'
+        truncated = false
+      }
+      const stored = stateToBlocks(state)
       const properties: PageProperty[] = [
         ...(url ? [{ id: CLIP_SOURCE_PROPERTY, name: names.source, type: 'url' as const, value: url }] : []),
         { id: CLIP_SAVED_PROPERTY, name: names.clipped, type: 'text', value: when },
@@ -191,6 +210,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
             properties,
           })
           .returning(pageColumns)
+        await tx.insert(pageDocs).values({ pageId: page.id, state })
         const queued =
           page.scope === 'shared'
             ? await enqueueWebhookEvent(tx, { type: 'page_created', workspaceId: body.workspaceId, pageId: page.id, actorId: user.id })
@@ -199,11 +219,8 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
       })
       if (queued > 0) outboxCommitted(['webhook'])
 
-      // The body, then the derived indexes (as an imported Markdown file). Indexing the chunks for the
-      // first time logs page_added (with this request's actor) and computes the injection flags.
-      const state = blocksToStateBuffer(blocks)
-      await db.insert(pageDocs).values({ pageId: row.id, state })
-      const stored = stateToBlocks(state)
+      // The derived indexes (as for an imported Markdown file). Indexing the chunks for the first time
+      // logs page_added (with this request's actor) and computes the injection flags.
       await withEditActor([row.id], actorOf(user), async () => {
         await reindexPageLinks(row.id, stored)
         await reindexPageText(row.id, stored)

@@ -49,7 +49,8 @@ App side (only if you change the mount points): `BACKUP_DIR` (default `/backups`
 
 ## What a backup set contains
 
-Sets live in the `nodian-backups` volume under `sets/<id>/`, where `<id>` is the UTC start time
+Sets live in the backups volume (`inkling_inkling-backups`, in general
+`<project>_<INKLING_DATA_NAME>-backups`) under `sets/<id>/`, where `<id>` is the UTC start time
 `YYYYMMDD-HHMMSS`:
 
 | File | Content |
@@ -108,7 +109,7 @@ mistakes (deleted pages, a bad upgrade) but not against losing the server or its
 
 - `BACKUP_RCLONE_REMOTE` (object storage, another server over SFTP, a mounted drive), or
 - a host cron job that runs `./deploy/backup.sh copy-out <latest> /some/other/disk`, or
-- your provider's volume snapshots of the `nodian-backups` volume.
+- your provider's volume snapshots of the backups volume.
 
 ## Off-site copies with rclone
 

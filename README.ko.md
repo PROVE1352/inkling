@@ -68,7 +68,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 ```
 
-Compose 프로젝트, 볼륨, DB 역할 이름은 예전 이름인 `nodian`을 쓰고 있습니다. 이걸 바꾸면 업그레이드 후 기존 데이터 볼륨을 찾지 못하니 그대로 두시기 바랍니다.
+0.18 이하를 쓰던 서버를 0.19로 올리실 때는 `.env`에 `INKLING_DATA_NAME=nodian` 한 줄을 먼저 넣어 주세요. 그 버전들의 볼륨과 DB는 프로젝트의 예전 이름(nodian)으로 만들어져 있어서, 이 줄이 없으면 compose가 아예 시작하지 않습니다. 새 이름(inkling)으로 옮기는 건 선택이고 `./deploy/rename-from-nodian.sh`로 하시면 됩니다. 자세한 내용은 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)에 있습니다.
 
 ### 설정
 
@@ -78,6 +78,7 @@ Compose 프로젝트, 볼륨, DB 역할 이름은 예전 이름인 `nodian`을 �
 |---|---|---|
 | `PUBLIC_URL` | 비어 있음 | 공개 주소입니다. 예: `https://notes.example.com`. 메일 링크, OAuth 발급자, 공유 미리보기에 쓰고 `Host` 헤더는 믿지 않습니다. `https://`로 시작하면 Secure 쿠키도 켜집니다. |
 | `POSTGRES_PASSWORD` | 없음(필수) | DB 비밀번호입니다. 처음 띄우기 전에 넣어 주셔야 합니다. Postgres는 데이터 볼륨을 만들 때만 이 값을 읽고, 비어 있으면 compose가 아예 시작하지 않습니다. |
+| `INKLING_DATA_NAME` | 없음(필수, `.env.example`에는 `inkling`) | compose 프로젝트, 볼륨, DB 역할과 DB의 이름입니다. 새로 설치하시면 `inkling`, 0.18 이하에서 올라온 서버라면 `nodian`입니다(위의 업그레이드 설명 참고). |
 | `APP_SECRET_KEY` | 비어 있음 | 32자 이상. 2단계 인증과 Slack 비밀값을 암호화하는 키라서, 비어 있으면 아무도 2단계 인증을 켤 수 없습니다. 백업과는 따로 보관해 주세요. |
 | `SIGNUP_REQUIRE_KEY` | 프로덕션에서 필수 | 비워 두면 가입에 키가 필요합니다. `0`이면 누구나 가입할 수 있습니다. |
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |

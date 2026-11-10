@@ -24,6 +24,7 @@ sudo usermod -aG docker $USER   # log in again afterwards
 git clone <repo-url> /opt/inkling && cd /opt/inkling
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD to a strong value! (used inside the Docker network)
+# Leave INKLING_DATA_NAME=inkling as it is (the compose project, volume and database names)
 ```
 
 The clone is still needed for `compose.yaml`, the Caddy overlay and the `deploy/*.sh` scripts, but the
@@ -134,7 +135,7 @@ Lists show the newest 5 at a time and are searchable.
 When you need to make someone admin directly with SQL:
 
 ```bash
-docker compose exec -T db psql -U nodian -d nodian \
+docker compose exec -T db psql \
   -c "UPDATE users SET is_admin=true WHERE email='someone@example.com'"
 ```
 
@@ -250,7 +251,7 @@ minutes. A success resets the counters.
   "Banned IPs" (manual bans work too, except for the IP you're connected from). To lift them quickly with SQL:
 
 ```bash
-docker compose exec -T db psql -U nodian -d nodian \
+docker compose exec -T db psql \
   -c "UPDATE ip_bans SET banned_until = now() WHERE banned_until > now()"
 docker compose restart app   # to clear the in-memory ban list as well
 ```
@@ -394,7 +395,7 @@ downloads: Admin › Backups. Off-site copies (rclone), encryption, and restorin
 ```
 
 Older `./backups/nodian-db-*.dump` files from the previous script can still be restored with
-`docker compose exec -T -e PGOPTIONS="-c statement_timeout=0" db pg_restore -U nodian -d nodian --clean < <file>`
+`docker compose exec -T -e PGOPTIONS="-c statement_timeout=0" db sh -c 'pg_restore -d "$POSTGRES_DB" --clean --no-owner' < <file>`
 (PGOPTIONS keeps a role- or database-level statement_timeout from cutting a long restore; the backup
 scripts set the same for every psql / pg_dump / pg_restore they run).
 
@@ -425,6 +426,26 @@ from each earlier release (`.github/workflows/upgrade.yml`). Downgrading is not 
 back, restore the backup taken before the upgrade (docs/BACKUP.md) and set `INKLING_VERSION` to
 the old release.
 
+### Upgrading to 0.19: the nodian → inkling names
+
+Up to 0.18 the compose project, the volumes and the database role were named `nodian`. From 0.19 they follow
+`INKLING_DATA_NAME` in `.env`, which has no default: with the new `compose.yaml` and no such line, every compose
+command stops with "required variable INKLING_DATA_NAME is missing a value" before it creates or stops anything,
+so an upgraded server never comes up on new, empty volumes. On a server that ran 0.18 or older:
+
+```bash
+./deploy/backup.sh
+echo 'INKLING_DATA_NAME=nodian' >> .env     # keep the old names: the upgrade changes nothing else
+git pull && docker compose pull app && docker compose up -d
+# later, if you want the new names (copies the volumes; the old ones stay until you delete them):
+./deploy/rename-from-nodian.sh --dry-run   # sizes, free disk, expected downtime
+./deploy/rename-from-nodian.sh             # back at any point: ./deploy/rename-from-nodian.sh --rollback
+```
+
+Keeping `nodian` is supported. What the script does, the downtime, the way back and the special cases (local
+trials, `COMPOSE_PROJECT_NAME`, overrides, cron lines that name containers): docs/OPERATIONS.md "Upgrading to
+0.19", docs/adr/2340-*, 2341-*.
+
 On a stop signal (SIGTERM) the app saves collaborative documents being edited to the DB before
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't
 cut it short with `docker kill` / `docker compose kill`. A new container started while the old one is still
@@ -442,8 +463,8 @@ git clone <repo-url> inkling && cd inkling
 What it does, once: writes `.env` (marked "made by deploy/local.sh") with a hex `POSTGRES_PASSWORD`
 and an `APP_SECRET_KEY` from `openssl rand`, `PUBLIC_URL=http://localhost:<port>`, `COOKIE_SECURE=0`,
 `BACKUP_ENABLED=0`, `INKLING_PORT=127.0.0.1:<port>` (the first free of 3000, 3987, 3001–3010, or
-`INKLING_PORT=…` from the environment) and `COMPOSE_FILE=compose.yaml:compose.local.yaml` with
-`COMPOSE_PROJECT_NAME=inkling-local`. Then it starts the stack, waits for `/api/health` and prints the
+`INKLING_PORT=…` from the environment), `INKLING_DATA_NAME=inkling` and
+`COMPOSE_FILE=compose.yaml:compose.local.yaml` with `COMPOSE_PROJECT_NAME=inkling-local`. Then it starts the stack, waits for `/api/health` and prints the
 first-admin setup link and the MCP address. It never touches a `.env` it did not write.
 
 Without `--build` the script pulls the published image (`ghcr.io/prove1352/inkling`, the `INKLING_VERSION` tag,
@@ -457,7 +478,7 @@ Needs bash, curl and Docker Compose v2.24 or newer (`compose.local.yaml` uses `!
 WSL or Git Bash.
 
 `compose.local.yaml` gives the trial its own compose project (its containers and volumes never mix
-with a `nodian` stack on the same machine), no host port for the database and no backup sidecar.
+with the main stack on the same machine), no host port for the database and no backup sidecar.
 Because `.env` names the files, plain `docker compose logs -f app` and `./deploy/signup-key.sh` act on
 the trial. `./deploy/local.sh stop` stops it; `./deploy/local.sh destroy` deletes its containers and
 volumes (the `.env` stays; delete it to start over with new secrets).

@@ -68,4 +68,4 @@ flowchart LR
 
 - A single `docker compose up -d`: `db` (postgres:16-alpine) + `app` (the published multi-arch image `ghcr.io/prove1352/inkling`, or a multi-stage build from source with `compose.build.yaml`; docs/adr/1050-*, 1051-*).
 - All images are multi-arch (x86-64 and ARM64) → they run as-is on Apple Silicon Macs and ARM cloud VMs.
-- Data lives in two volumes: `nodian-db` (Postgres) and `nodian-data` (uploads).
+- Data lives in two volumes: `inkling_inkling-db` (Postgres) and `inkling_inkling-data` (uploads), named after `INKLING_DATA_NAME` (an install from 0.18 or older may keep the old name, docs/adr/2340-*).

@@ -4,6 +4,11 @@
 #             the old one create and fill a Postgres 16 database through its API, then boot the new
 #             one on the same database and data volume (migrations run in its boot transaction) and
 #             compare health, migration journal, row counts and the data read back through the API.
+#   rename  - an install of a release that used the old data names (nodian), set up like a server
+#             (copied folder, .env, compose.override.yaml with a source-built image): the new files
+#             must refuse to start until INKLING_DATA_NAME is set, then run on the old data, and
+#             deploy/rename-from-nodian.sh must move it to the new names (also interrupted and rolled
+#             back). Rationale: docs/adr/2342-rename-test-in-ci.md
 #
 # Also called by release-image.yml before an image is published (workflow_call).
 # Reproduce locally: see "Running CI locally" in CONTRIBUTING.md and scripts/upgrade-test/run.sh.
@@ -20,6 +25,9 @@ on:
       - 'pnpm-lock.yaml'
       - 'scripts/upgrade-test/**'
       - '.github/workflows/upgrade.yml'
+      - 'compose.yaml'
+      - 'deploy/**'
+      - '.env.example'
   workflow_dispatch:
   workflow_call:
 
@@ -106,3 +114,55 @@ jobs:
 
       - name: Upgrade ${{ matrix.from.name }} -> this commit
         run: bash new/scripts/upgrade-test/run.sh inkling-upg:old inkling-upg:new
+
+  rename:
+    name: Rename from ${{ matrix.from.name }} (old data names)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # The newest release of each compose.yaml shape with the old names.
+        from:
+          - { name: v0.16.0, ref: v0.16.0 }
+          - { name: v0.17.1, ref: v0.17.1 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: new
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.from.ref }}
+          path: old
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.from.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: old
+          file: old/Dockerfile
+          load: true
+          push: false
+          tags: inkling-upg:old
+          cache-from: type=gha,scope=upgrade-${{ matrix.from.name }}
+
+      - name: Build image from this commit
+        uses: docker/build-push-action@v6
+        with:
+          context: new
+          file: new/Dockerfile
+          load: true
+          push: false
+          tags: inkling-upg:new
+          cache-from: type=gha
+
+      # Real names on a clean runner: project nodian -> inkling, role nodian -> inkling.
+      - name: Rename ${{ matrix.from.name }} install -> this commit
+        run: bash new/scripts/upgrade-test/rename.sh old new inkling-upg:old inkling-upg:new

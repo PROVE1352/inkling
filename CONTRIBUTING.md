@@ -15,6 +15,10 @@ pnpm db:up          # Postgres 16 in Docker, listening on localhost:55432
 pnpm dev            # server on :3001 (tsx watch) + web on :5173 (Vite)
 ```
 
+Since 0.19 the development database is `inkling-db-1` (role, password and database `inkling`); an older
+`nodian-db-1` also wants port 55432, so `docker stop nodian-db-1` first (its data stays) and drop a `nodian`
+`DATABASE_URL` line from your `.env`.
+
 Open http://localhost:5173 and sign up; the first account becomes the admin. Migrations run
 automatically when the server boots; `pnpm db:migrate` applies them without starting the server.
 Defaults work without a `.env`; copy `.env.example` to `.env` to change them.
@@ -85,7 +89,12 @@ docker rmi inkling-upg:old inkling-upg:new
 
 v0.1.0 has no tag; use its commit `9dc9a9bf1bb9823ead79e65d9bd79d6ca5f05d3c`. The script creates its
 own `postgres:16` container, network and volume (named `inkling-upg-*`) and removes them on exit; it
-never touches the `nodian` compose project.
+never touches a compose project.
+
+The rename test (`rename` job, docs/adr/2342-*) runs compose with the old release's own files:
+`scripts/upgrade-test/rename.sh <old tree> <new tree> inkling-upg:old inkling-upg:new` (trees from
+`git archive`). It uses the projects `nodian` and `inkling`; on a machine where those exist, pass other names,
+e.g. `FROM=t-old TO=t-new FRESH_PROJECT=t-fresh LOCAL_TAG=t:local`.
 
 ## Commits and pull requests
 

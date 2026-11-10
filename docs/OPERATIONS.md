@@ -151,12 +151,83 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   services and makes its VAPID key on first use; `/push-sw.js` is served `no-cache` (section 4); the web clipper's
   "Article text" makes outbound HTTP(S) requests; a 15-minute automation timer runs per process. Nothing else changes
   for people until they turn something on.
+- 0.18 → 0.19 needs one line in `.env` before compose starts again: `INKLING_DATA_NAME=nodian` on an existing
+  install (see "Upgrading to 0.19" below), then optionally `deploy/rename-from-nodian.sh`.
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
 - [ ] Never run `drizzle-kit push` against production (see section 1).
 - [ ] Single app instance only: reminders, sheet sync, the webhook queue, Hocuspocus state and the hourly cap of public form answers are per process. Since 0.15.1 the server refuses to start while another Inkling process uses the same database (section 9).
 - [ ] After an upgrade, check the boot log for migration success and the list of enabled experimental features.
+
+### Upgrading to 0.19: the nodian → inkling names
+
+Up to 0.18 the compose project, the volumes, the database role and the database were all named `nodian`, the
+project's old name. From 0.19 they come from `INKLING_DATA_NAME` in `.env` (docs/adr/2340-*): `inkling` gives
+project `inkling`, volumes `inkling_inkling-db`, `-data`, `-backups`, `-backup-ctl`, role and database `inkling`;
+`nodian` gives exactly the names of 0.18. The variable has no default, so an install that upgrades without
+reading this does not come up on new, empty volumes: every compose command refuses before it creates or stops
+anything, and the running stack keeps running:
+
+```
+error while interpolating name: required variable INKLING_DATA_NAME is missing a value: set INKLING_DATA_NAME
+in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. ...
+```
+
+Two ways on, both supported:
+
+1. **Keep the old names** (no data moves): add `INKLING_DATA_NAME=nodian` to `.env` and upgrade as usual.
+   Containers, volumes and backups stay what they were. Supported at least until 1.0; dropping it would be
+   announced in the CHANGELOG one minor release ahead.
+2. **Move to the new names**, any time after step 1 (recommended order: the upgrade first, checked, then the
+   rename, so a migration and a rename never happen in one go):
+
+```bash
+./deploy/backup.sh
+echo 'INKLING_DATA_NAME=nodian' >> .env           # 1. keep the old names for the upgrade
+git pull                                         #    (or copy the new release's files)
+docker compose pull app && docker compose up -d  #    or `up -d --build` for source builds
+./deploy/rename-from-nodian.sh --dry-run         # 2. plan: volumes, sizes, free disk, downtime
+./deploy/rename-from-nodian.sh                   #    the rename (asks once)
+```
+
+What `deploy/rename-from-nodian.sh` does (docs/adr/2341-*), with the compose files you use (an override is read
+as usual; otherwise `COMPOSE="docker compose -f compose.yaml -f deploy/compose.caddy.yaml" ./deploy/…`):
+
+- Stops the app (it saves open documents), takes a pre-rename backup through the backup sidecar (or a `pg_dump`
+  into `./backups/rename-nodian-to-inkling/` when no sidecar runs), records every table's row count, and stops
+  the stack (`down`, never `-v`).
+- **Copies** every volume whose name changes (database, data, backups, backup control, the rclone binary,
+  Caddy's certificates) into a volume with the new name. The old volumes are only read; it never changes or
+  deletes them.
+- Renames the role and the database inside the copy, on a temporary server with no network, and sets the role's
+  password again from `POSTGRES_PASSWORD` in `.env` (renaming clears an MD5 password; a SCRAM one would survive).
+  Ownership, grants, sequences and the `pg_trgm` extension follow the role. Row counts must match.
+- Sets `INKLING_DATA_NAME=inkling` in `.env` (a copy of the old `.env` stays in
+  `./backups/rename-nodian-to-inkling/env.before`), starts the stack with the same image, and checks
+  `/api/health/ready`, migrations, accounts, pages, collection rows, share links, files and one backup under the
+  new role.
+
+Downtime is the app stop, the dump, the copy and a boot: about a minute for a server with a 65 MB dump;
+`--dry-run` prints the estimate for yours. It needs free space for a copy of the volumes plus a dump, and
+warns below twice the volumes' size. Interrupted, or failed halfway: run it again and it continues. Back to the
+old names at any point, also after it finished: `./deploy/rename-from-nodian.sh --rollback` (what was written
+under the new names since then is not in the old volumes). When all is well for a few days, delete the old
+volumes with the `docker volume rm …` line it printed.
+
+Notes:
+- A local trial (`deploy/local.sh`) needs nothing: the new `local.sh` adds `INKLING_DATA_NAME=nodian` to the
+  `.env` it wrote. Plain `docker compose` there before running `local.sh` once asks for the line like anywhere.
+- `COMPOSE_PROJECT_NAME` or `-p` keep working: the project stays yours, only the volume, role and database names
+  change.
+- An override that names old volume keys (`nodian-data:/…`) must use the new ones (`data`, `db`, `backups`,
+  `backup-ctl`, `rclone-bin`); compose says "undefined volume" until then. The script lists such lines.
+- `POSTGRES_USER`/`POSTGRES_DB` in `.env` were never read by compose and still are not; delete them.
+- Cron lines or other stacks that call containers by name (`nodian-backup-1`, `nodian-app-1`) need the new
+  names (`inkling-backup-1`, …). The rclone remote path (`BACKUP_RCLONE_REMOTE`) does not change.
+- Set `inkling` on an old server by mistake: compose starts an empty `inkling` project next to the untouched old
+  volumes. Put `INKLING_DATA_NAME=nodian` back, `docker compose -p inkling down`, `docker compose up -d`, and
+  delete the empty `inkling_inkling-*` volumes.
 
 ### Client updates
 
@@ -219,7 +290,7 @@ Notes
 # .env
 PG_PRELOAD_LIBRARIES=pg_stat_statements
 docker compose up -d db
-docker compose exec db psql -U nodian -d nodian -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
+docker compose exec db psql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
 ```
 
 Top statements by total time:
@@ -557,9 +628,10 @@ only route where a visitor without an account writes data.
 - `./deploy/local.sh` (start; `--build` builds the checkout instead of pulling the image), `./deploy/local.sh stop`,
   `./deploy/local.sh destroy` (deletes the trial's containers and volumes; the `.env` stays). It writes a `.env` marked
   `# made by deploy/local.sh` with a hex `POSTGRES_PASSWORD`, `APP_SECRET_KEY`, `PUBLIC_URL=http://localhost:<port>`,
-  `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `COMPOSE_FILE=compose.yaml:compose.local.yaml` and
-  `COMPOSE_PROJECT_NAME=inkling-local`, so plain `docker compose …` and the other `deploy/*.sh` scripts act on that
-  stack. A `.env` without the marker is never changed.
+  `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `INKLING_DATA_NAME=inkling`,
+  `COMPOSE_FILE=compose.yaml:compose.local.yaml` and `COMPOSE_PROJECT_NAME=inkling-local`, so plain
+  `docker compose …` and the other `deploy/*.sh` scripts act on that stack. A `.env` without the marker is never
+  changed; a marked one from before 0.19 gets `INKLING_DATA_NAME=nodian` (its old volume and role names).
 - It is not for a server other people use: http only, reachable from this machine only, no backups, no database host
   port. It needs bash, curl and Docker Compose v2.24 or newer (`!override`); on Windows run it from WSL or Git Bash.
 - Without `--build` it pulls `ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}`; an image older than 0.17 prints

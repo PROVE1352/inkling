@@ -79,8 +79,9 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 ```
 
-The compose project, volumes and database role are named `nodian` for historical reasons; keep them, or
-existing data volumes will not be found after an upgrade.
+Upgrading a server from 0.18 or older to 0.19: add `INKLING_DATA_NAME=nodian` to `.env` first, or compose
+refuses to start (the volumes and database of those releases carry the project's old name). Moving them to the
+new names is optional: `./deploy/rename-from-nodian.sh` ([docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)).
 
 ### Configuration
 
@@ -90,6 +91,7 @@ The essentials, all in `.env`:
 |---|---|---|
 | `PUBLIC_URL` | empty | Public origin, e.g. `https://notes.example.com`. Used for mail links, the OAuth issuer and share previews; the `Host` header is never trusted. An `https://` value also turns on Secure cookies. |
 | `POSTGRES_PASSWORD` | none, required | Database password. Set it **before the first start**; Postgres only reads it when it creates the data volume. Compose refuses to start without it. |
+| `INKLING_DATA_NAME` | none, required (`inkling` in `.env.example`) | Name of the compose project, volumes, database role and database: `inkling` for a new install, `nodian` on a server from 0.18 or older (above). |
 | `APP_SECRET_KEY` | empty | At least 32 characters. Encrypts two-step verification and Slack secrets; without it nobody can turn on two-step verification. Keep it out of backups. |
 | `SIGNUP_REQUIRE_KEY` | required in production | Leave empty: signup then needs a key. `0` opens public signup. |
 | `DEFAULT_LOCALE` | `en` | `en` or `ko`: language of emails and built-in templates for users who have not chosen one, and the UI default before the browser language. |

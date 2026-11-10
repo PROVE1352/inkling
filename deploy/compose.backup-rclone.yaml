@@ -12,7 +12,7 @@ services:
     restart: "no"
     entrypoint: ["sh", "-c", "cp /usr/local/bin/rclone /out/rclone && chmod 0755 /out/rclone"]
     volumes:
-      - nodian-rclone-bin:/out
+      - rclone-bin:/out
 
   backup:
     depends_on:
@@ -21,8 +21,9 @@ services:
     environment:
       RCLONE_CONFIG: /config/rclone/rclone.conf
     volumes:
-      - nodian-rclone-bin:/opt/rclone:ro
+      - rclone-bin:/opt/rclone:ro
       - ${BACKUP_RCLONE_CONFIG:-./deploy/rclone.conf}:/config/rclone/rclone.conf
 
 volumes:
-  nodian-rclone-bin:
+  rclone-bin:
+    name: ${COMPOSE_PROJECT_NAME}_${INKLING_DATA_NAME}-rclone-bin

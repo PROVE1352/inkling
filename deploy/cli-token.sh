@@ -23,7 +23,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 read -r -a DC <<<"${COMPOSE:-docker compose}"
-psql() { "${DC[@]}" exec -T db psql -U nodian -d nodian -v ON_ERROR_STOP=1 "$@"; }
+# Role and database come from the db container's own environment (whatever INKLING_DATA_NAME names them).
+psql() { "${DC[@]}" exec -T db sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 "$@"' psql "$@"; }
 
 # Public origin for the printed links: PUBLIC_URL from the environment, else the PUBLIC_URL= line of
 # ./.env (read with sed, never sourced), else a placeholder.

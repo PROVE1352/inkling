@@ -76,7 +76,7 @@ export const env = {
   /** Whether DEFAULT_LOCALE was set explicitly (only then does /auth/mode override the browser). */
   defaultLocaleConfigured: localeEnv(process.env.DEFAULT_LOCALE) !== null,
   databaseUrl:
-    process.env.DATABASE_URL ?? 'postgres://nodian:nodian@localhost:55432/nodian',
+    process.env.DATABASE_URL ?? 'postgres://inkling:inkling@localhost:55432/inkling',
   dataDir: process.env.DATA_DIR ?? './data',
   /** When set, serve this directory as the SPA's static files (production Docker) */
   webDist: process.env.WEB_DIST,

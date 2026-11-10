@@ -172,6 +172,7 @@ const prodWarn = (f: StatusFacts, bad: boolean): StatusLevel => (bad ? (f.isProd
 // Database password (judged, never returned)
 // ---------------------------------------------------------------------------
 
+// 'nodian': the old project name, the development default up to 0.18 and still on installs that kept it.
 const COMMON_PASSWORDS = new Set([
   'nodian', 'inkling', 'postgres', 'postgresql', 'password', 'passw0rd', 'changeme', 'change-me',
   'secret', 'admin', 'root', 'example', 'test', '123456', '12345678', 'qwerty', 'letmein',

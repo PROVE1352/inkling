@@ -247,7 +247,9 @@ describe('admin status: evaluator', () => {
   })
 
   it('database password judged without returning it', () => {
-    assert.equal(dbPasswordWeakness('postgres://nodian:nodian@db:5432/nodian'), 'sameAsUser')
+    assert.equal(dbPasswordWeakness('postgres://inkling:inkling@db:5432/inkling'), 'sameAsUser')
+    // the development default of 0.18 and older, still found on installs that kept the old names
+    assert.equal(dbPasswordWeakness('postgres://app:nodian@db/x'), 'common')
     assert.equal(dbPasswordWeakness('postgres://app:changeme@db/x'), 'common')
     assert.equal(dbPasswordWeakness('postgres://app:Abc123@db/x'), 'short')
     assert.equal(dbPasswordWeakness('postgres://app@db/x'), 'empty')

@@ -14,7 +14,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 read -r -a DC <<<"${COMPOSE:-docker compose}"   # e.g. COMPOSE="docker compose -f compose.yaml -f deploy/compose.caddy.yaml"
-psql() { "${DC[@]}" exec -T db psql -U nodian -d nodian -v ON_ERROR_STOP=1 "$@"; }
+# Role and database come from the db container's own environment (whatever INKLING_DATA_NAME names them).
+psql() { "${DC[@]}" exec -T db sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 "$@"' psql "$@"; }
 
 email="${1:?usage: $0 <email>}"
 esc="${email//\'/\'\'}"

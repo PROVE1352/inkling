@@ -16,7 +16,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 read -r -a DC <<<"${COMPOSE:-docker compose}"
-psql() { "${DC[@]}" exec -T db psql -U nodian -d nodian -v ON_ERROR_STOP=1 "$@"; }
+# Role and database come from the db container's own environment (whatever INKLING_DATA_NAME names them).
+psql() { "${DC[@]}" exec -T db sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 "$@"' psql "$@"; }
 
 # Public origin for the printed links: PUBLIC_URL from the environment, else the PUBLIC_URL= line of
 # ./.env (read with sed, never sourced), else a placeholder.
@@ -50,8 +51,11 @@ case "$cmd" in
     else
       expires="NULL"
     fi
-    psql -q -c "INSERT INTO signup_keys (key, note, max_uses, expires_at)
-                VALUES ('$key', $( [[ -n "$note" ]] && echo "'${note//\'/\'\'}'" || echo NULL ), $uses, $expires)"
+    # Stored like the server stores keys: SHA-256 of the upper-case key plus its last four characters
+    # (docs/adr/1110-*). The key itself is only printed here; the admin screen shows its hint.
+    psql -q -c "INSERT INTO signup_keys (key, key_hint, note, max_uses, expires_at)
+                VALUES (encode(sha256(convert_to('$key', 'UTF8')), 'hex'), right('$key', 4),
+                        $( [[ -n "$note" ]] && echo "'${note//\'/\'\'}'" || echo NULL ), $uses, $expires)"
     echo
     echo "  Signup key : $key"
     echo "  Note       : ${note:-(none)}"
@@ -60,14 +64,17 @@ case "$cmd" in
     echo
     ;;
   list)
-    psql -c "SELECT key, coalesce(note,'') AS note, used_count || '/' || max_uses AS uses,
+    psql -c "SELECT CASE WHEN key ~ '^[0-9a-f]{64}$' THEN '…' || coalesce(key_hint, '') ELSE key END AS key,
+                    coalesce(note,'') AS note, used_count || '/' || max_uses AS uses,
                     coalesce(to_char(expires_at,'YYYY-MM-DD'),'never') AS expires,
                     to_char(created_at,'YYYY-MM-DD') AS created
                FROM signup_keys ORDER BY created_at DESC"
     ;;
   revoke)
     key="${2:?usage: $0 revoke <KEY>}"
-    psql -q -c "DELETE FROM signup_keys WHERE key = '${key//\'/\'\'}'"
+    k="${key//\'/\'\'}"
+    psql -q -c "DELETE FROM signup_keys
+                 WHERE key IN ('$k', encode(sha256(convert_to(upper(trim('$k')), 'UTF8')), 'hex'))"
     echo "Deleted: $key"
     ;;
   *)

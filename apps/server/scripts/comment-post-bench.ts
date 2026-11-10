@@ -2,7 +2,7 @@
  * Comment POST under concurrency, with what the outbox costs around it (docs/adr/1150-*).
  *
  *   tsx scripts/comment-post-bench.ts --build before=/abs/dist-a/index.js --build after=/abs/dist-b/index.js \
- *       [--rounds 2] [--n 300] [--warmup 30] [--mode comment|append] [--admin postgres://nodian:nodian@localhost:55432/postgres]
+ *       [--rounds 2] [--n 300] [--warmup 30] [--mode comment|append] [--admin postgres://inkling:inkling@localhost:55432/postgres]
  *
  * Each build is a production bundle (`tsup --out-dir …`; its folder needs a `node_modules` link to
  * apps/server/node_modules). Per round and build, in interleaved order (a, b, a, b, …):
@@ -43,7 +43,7 @@ if (builds.length === 0) throw new Error('--build label=/abs/index.js (one or mo
 const ROUNDS = Number(opt('rounds', '2'))
 const N = Number(opt('n', '300'))
 const WARMUP = Number(opt('warmup', '30'))
-const ADMIN = opt('admin', 'postgres://nodian:nodian@localhost:55432/postgres')
+const ADMIN = opt('admin', 'postgres://inkling:inkling@localhost:55432/postgres')
 const PAGES = 2_000
 const CREATORS = 50
 const PORT0 = Number(opt('port', '3391'))

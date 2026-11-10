@@ -7,7 +7,7 @@
     "dev": "concurrently -n server,web -c blue,magenta \"pnpm --filter @inkling/server dev\" \"pnpm --filter @inkling/web dev\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "db:up": "POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nodian} docker compose up -d db",
+    "db:up": "INKLING_DATA_NAME=${INKLING_DATA_NAME:-inkling} POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-inkling} docker compose up -d db",
     "db:generate": "pnpm --filter @inkling/server db:generate",
     "db:migrate": "pnpm --filter @inkling/server db:migrate",
     "test": "pnpm -r test",

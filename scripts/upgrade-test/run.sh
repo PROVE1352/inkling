@@ -8,7 +8,7 @@
 # Both images must already exist locally (CI builds them with docker/build-push-action; locally:
 # `git archive <ref> | docker build -t inkling-upg:<name> -`, see CONTRIBUTING.md "Running CI
 # locally"). Everything this script creates is named inkling-upg-<random> and removed on exit
-# (KEEP=1 keeps it for debugging). It never touches the compose project (`nodian`).
+# (KEEP=1 keeps it for debugging). It never touches a compose project.
 #
 # Steps:
 #   1. postgres:16 on a private network (same major as compose.yaml)

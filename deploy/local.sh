@@ -8,9 +8,10 @@
 #
 # What it writes: a .env marked "made by deploy/local.sh" with POSTGRES_PASSWORD and APP_SECRET_KEY
 # from openssl, PUBLIC_URL=http://localhost:<port>, INKLING_PORT=127.0.0.1:<port> (reachable from this
-# machine only), BACKUP_ENABLED=0, and COMPOSE_FILE / COMPOSE_PROJECT_NAME so that plain
-# `docker compose …` and the other deploy/*.sh scripts act on this stack. A .env it did not write is
-# never changed: then it stops and says why.
+# machine only), BACKUP_ENABLED=0, INKLING_DATA_NAME=inkling, and COMPOSE_FILE / COMPOSE_PROJECT_NAME so
+# that plain `docker compose …` and the other deploy/*.sh scripts act on this stack. A .env it did not
+# write is never changed: then it stops and says why. A trial started before 0.19 keeps its data: its .env
+# gets INKLING_DATA_NAME=nodian (the old volume and database names, docs/adr/2340-*).
 #
 # The first account: with no account yet the server prints a one-time /setup?code=… link to its log;
 # this script shows it. That link, not "requests from localhost", is what lets the first admin in.
@@ -70,6 +71,8 @@ $MARKER — a local trial, reachable from this machine only. For a real server s
 # All settings: .env.example. Change the port: stop, edit INKLING_PORT and PUBLIC_URL together, start.
 COMPOSE_PROJECT_NAME=$PROJECT
 COMPOSE_FILE=$files
+# Volume, database role and database names (docs/adr/2340-*).
+INKLING_DATA_NAME=inkling
 INKLING_PORT=127.0.0.1:$port
 PUBLIC_URL=http://localhost:$port
 COOKIE_SECURE=0
@@ -97,6 +100,13 @@ if [[ "${2:-}" == --build ]]; then build=build; fi
 
 if [[ -f .env ]] && ! grep -qF "$MARKER" .env; then
   die '.env exists and was not written by this script; it is left alone. Run docker compose with your own .env (deploy/DEPLOY.md), or move .env away to start a local trial.'
+fi
+
+# A trial from before 0.19: its volumes and database use the old name. Pin it so it keeps its data
+# (deploy/rename-from-nodian.sh moves it to the new names later, if wanted).
+if [[ -f .env && -z "$(env_get INKLING_DATA_NAME)" ]]; then
+  set_env_line INKLING_DATA_NAME nodian
+  echo 'This trial was started before 0.19: added INKLING_DATA_NAME=nodian to .env so it keeps its data.'
 fi
 
 case "$cmd" in

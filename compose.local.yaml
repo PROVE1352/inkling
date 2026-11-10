@@ -5,8 +5,8 @@
 # deploy/local.sh puts COMPOSE_FILE=compose.yaml:compose.local.yaml and COMPOSE_PROJECT_NAME into the
 # .env it writes, so later plain `docker compose …` commands and the deploy/*.sh scripts act on this
 # stack. Differences from compose.yaml alone:
-# - its own project name, so its containers and volumes never mix with a `nodian` stack on the same
-#   machine (compose.yaml keeps that name for existing installs);
+# - its own project name, so its containers and volumes never mix with the main stack on the same
+#   machine;
 # - no host port for the database (nothing to clash with; deploy/*.sh reach it with `exec`);
 # - no backup sidecar (a trial needs no nightly dumps, and it saves pulling a second image).
 #   For a long-lived instance use compose.yaml (with deploy/compose.caddy.yaml) as in deploy/DEPLOY.md.

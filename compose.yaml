@@ -1,8 +1,10 @@
-# Fixed compose project name: if it were derived from the directory name (inkling), the volume
-# names would change and the existing DB/uploads would be swapped for new empty volumes. The app
-# is called Inkling, but the data plumbing below (project/volumes/DB/role) keeps the nodian name
-# so no migration is needed.
-name: nodian
+# Names of the data plumbing: the compose project (unless COMPOSE_PROJECT_NAME or -p sets another),
+# the volumes (<project>_<INKLING_DATA_NAME>-db, -data, -backups, -backup-ctl) and the database role and
+# database. INKLING_DATA_NAME has no default on purpose (docs/adr/2340-*): `inkling` for a new install;
+# an install that ran 0.18 or older keeps its data under the old name `nodian` until it is moved with
+# deploy/rename-from-nodian.sh (docs/OPERATIONS.md "Upgrading to 0.19"). Without the line compose
+# refuses to start, so an upgrade never comes up on new, empty volumes.
+name: '${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}'
 
 # Container stdout log rotation: the default json-file driver is unbounded (100MB+ in two weeks).
 x-logging: &default-logging
@@ -48,18 +50,21 @@ services:
       - -c
       - pg_stat_statements.track=top
     environment:
-      POSTGRES_USER: nodian
+      POSTGRES_USER: '${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}'
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
-      POSTGRES_DB: nodian
+      POSTGRES_DB: ${INKLING_DATA_NAME}
+      # Defaults for psql inside the container: `docker compose exec db psql` needs no -U/-d.
+      PGUSER: ${INKLING_DATA_NAME}
+      PGDATABASE: ${INKLING_DATA_NAME}
     ports:
       # Host exposure for development (55432 → 5432), on a non-standard port to avoid clashes.
       # Bound to loopback only so the DB port is never reachable from outside (H2).
       # INKLING_DB_PORT moves it when 55432 is taken (deploy/local.sh picks a free one).
       - "127.0.0.1:${INKLING_DB_PORT:-55432}:5432"
     volumes:
-      - nodian-db:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nodian -d nodian"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -90,7 +95,7 @@ services:
     # PORT, DATA_DIR, WEB_DIST, DRIZZLE_DIR. BACKUP_DIR / BACKUP_CTL_DIR are fixed by the
     # volume mounts below, and WEBHOOK_TEST_ALLOW_LOOPBACK is test-only (ignored in production).
     environment:
-      DATABASE_URL: postgres://nodian:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@db:5432/nodian
+      DATABASE_URL: postgres://${INKLING_DATA_NAME}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@db:5432/${INKLING_DATA_NAME}
       # Interpolated from .env AND the invoking shell: an exported NODE_ENV=development in the
       # operator's shell would silently turn production mode off. Leave it unset there.
       NODE_ENV: ${NODE_ENV:-production}
@@ -203,10 +208,10 @@ services:
       # on this machine. The container always listens on 3000.
       - "${INKLING_PORT:-3000}:3000"
     volumes:
-      - nodian-data:/data
+      - data:/data
       # Backups (docs/BACKUP.md): the app only reads backup sets/status and drops trigger files.
-      - nodian-backups:/backups:ro
-      - nodian-backup-ctl:/backup-ctl
+      - backups:/backups:ro
+      - backup-ctl:/backup-ctl
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -228,8 +233,8 @@ services:
     entrypoint: ["bash", "/scripts/backup-loop.sh"]
     environment:
       PGHOST: db
-      PGUSER: nodian
-      PGDATABASE: nodian
+      PGUSER: ${INKLING_DATA_NAME}
+      PGDATABASE: ${INKLING_DATA_NAME}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       TZ: ${TZ:-UTC}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
@@ -243,12 +248,18 @@ services:
       BACKUP_RCLONE_REMOTE: ${BACKUP_RCLONE_REMOTE:-}
     volumes:
       - ./deploy/backup:/scripts:ro
-      - nodian-data:/data:ro
-      - nodian-backups:/backups
-      - nodian-backup-ctl:/backup-ctl
+      - data:/data:ro
+      - backups:/backups
+      - backup-ctl:/backup-ctl
 
+# Named after INKLING_DATA_NAME (see the top). deploy/rename-from-nodian.sh copies old-name volumes
+# into new-name ones and leaves the old ones in place.
 volumes:
-  nodian-db:
-  nodian-data:
-  nodian-backups:
-  nodian-backup-ctl:
+  db:
+    name: '${COMPOSE_PROJECT_NAME}_${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}-db'
+  data:
+    name: '${COMPOSE_PROJECT_NAME}_${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}-data'
+  backups:
+    name: '${COMPOSE_PROJECT_NAME}_${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}-backups'
+  backup-ctl:
+    name: '${COMPOSE_PROJECT_NAME}_${INKLING_DATA_NAME:?set INKLING_DATA_NAME in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. See docs/OPERATIONS.md, Upgrading to 0.19}-backup-ctl'

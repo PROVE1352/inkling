@@ -8,6 +8,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://nodian:nodian@localhost:55432/nodian',
+    url: process.env.DATABASE_URL ?? 'postgres://inkling:inkling@localhost:55432/inkling',
   },
 })

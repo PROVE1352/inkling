@@ -31,6 +31,7 @@ import dbView from './en/db-view'
 import diagramsLinks from './en/diagrams-links'
 import oauthCimd from './en/oauth-cimd'
 import clip from './en/clip'
+import push from './en/push'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -68,6 +69,7 @@ export const en = {
   ...diagramsLinks,
   ...oauthCimd,
   ...clip,
+  ...push,
 }
 
 export type MessageKey = keyof typeof en

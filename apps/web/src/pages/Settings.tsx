@@ -42,6 +42,7 @@ import { IcalSettings } from '../components/IcalSettings'
 import { WebClipperSettings } from '../components/WebClipperSettings'
 import { TwoFactorSettings } from '../components/TwoFactorSettings'
 import { NotificationSettings } from '../components/NotificationSettings'
+import { PushSettings } from '../components/PushSettings'
 import { SidebarSettings } from '../components/SidebarSettings'
 import { VersionInfo } from '../components/VersionInfo'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
@@ -593,6 +594,7 @@ function SectionBody({ id, label }: { id: SectionId; label: string }) {
       return (
         <SettingsFlat omitTitle>
           <NotificationSettings />
+          <PushSettings />
         </SettingsFlat>
       )
     case 'editor':

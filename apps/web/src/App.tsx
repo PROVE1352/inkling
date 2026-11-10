@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, type ComponentType, type ReactNode } from 'r
 import { Navigate, Route, Routes } from 'react-router'
 import { AppLayout } from './components/AppLayout'
 import { RequireAuth } from './components/RequireAuth'
+import { PushSync } from './components/PushSync'
 import { FullScreenSpinner, Spinner } from './components/Spinner'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
@@ -124,6 +125,7 @@ export function App() {
         path="/w/:wsId"
         element={
           <RequireAuth>
+            <PushSync />
             <AppLayout />
           </RequireAuth>
         }

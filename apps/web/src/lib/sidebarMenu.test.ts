@@ -6,9 +6,12 @@ import { describe, it } from 'node:test'
 import { SIDEBAR_MENU_DEFAULT_HIDDEN, SIDEBAR_MENU_IDS } from '@inkling/shared'
 import {
   compactSidebarFooter,
+  expandedMenusLayout,
+  expandedTreeMinHeight,
   menusThatFit,
   moveEntry,
   resolveSidebarMenu,
+  rowsOutOfView,
   setEntryHidden,
   sidebarTreeMinHeight,
   toSidebarPrefs,
@@ -175,5 +178,58 @@ describe('fitting the menus above the page tree (docs/adr/1640-*)', () => {
     assert.equal(compactSidebarFooter(719), true)
     assert.equal(compactSidebarFooter(720), false)
     assert.equal(compactSidebarFooter(0), false) // not measured yet
+  })
+})
+
+describe('"More" opened: every folded menu shows (docs/adr/1643-*)', () => {
+  it('the tree gives way down to 120 px, never more than its folded minimum', () => {
+    assert.equal(expandedTreeMinHeight(280), 120)
+    assert.equal(expandedTreeMinHeight(200), 120)
+    assert.equal(expandedTreeMinHeight(90), 90)
+  })
+
+  it('1280×620, ten menus: "More (4)" folded, all ten when opened, no scroll', () => {
+    // sidebar 620, other rows 129 → tree minimum 248, available 243
+    const available = 243
+    const treeMin = 248
+    const shown = menusThatFit({ count: 10, available, rowHeight: 32 })
+    assert.equal(shown, 6)
+    assert.deepEqual(expandedMenusLayout({ count: 10, available, treeMin, rowHeight: 32 }), { treeMin: 120, maxHeight: null })
+  })
+
+  it('opened rows + "Show less" + the smaller tree never exceed the folded budget', () => {
+    for (const asideH of [420, 480, 560, 620, 700, 800, 900]) {
+      const treeMin = sidebarTreeMinHeight(asideH)
+      const available = asideH - 129 - treeMin
+      for (let count = 1; count <= 10; count++) {
+        const { treeMin: floor, maxHeight } = expandedMenusLayout({ count, available, treeMin, rowHeight: 32 })
+        const listH = maxHeight == null ? count * 32 : maxHeight + 24
+        if (menusThatFit({ count, available, rowHeight: 32 }) < count) {
+          assert.ok(listH + 32 + floor <= asideH - 129 || maxHeight === 32, `${asideH} px, ${count} menus`)
+        }
+      }
+    }
+  })
+
+  it('a very short sidebar (1280×420): the list scrolls in whole rows above a "k more below" row', () => {
+    // sidebar 420, other rows 129 → tree minimum 200, available 91: one menu and "More (9)"
+    assert.equal(menusThatFit({ count: 10, available: 91, rowHeight: 32 }), 1)
+    assert.deepEqual(expandedMenusLayout({ count: 10, available: 91, treeMin: 200, rowHeight: 32 }), { treeMin: 120, maxHeight: 96 })
+  })
+
+  it('at least one row even with no room; an unmeasured row height shows everything', () => {
+    assert.deepEqual(expandedMenusLayout({ count: 10, available: -200, treeMin: 200, rowHeight: 32 }), { treeMin: 120, maxHeight: 32 })
+    assert.deepEqual(expandedMenusLayout({ count: 10, available: 50, treeMin: 200, rowHeight: 0 }), { treeMin: 120, maxHeight: null })
+  })
+
+  it('rows out of view: a row cut by an edge counts as hidden', () => {
+    const rows = (scrollTop: number) => rowsOutOfView({ count: 10, rowHeight: 32, scrollTop, clientHeight: 96 })
+    assert.deepEqual(rows(0), { above: 0, below: 7 })
+    assert.deepEqual(rows(0.5), { above: 0, below: 7 }) // fractional scroll position
+    assert.deepEqual(rows(16), { above: 1, below: 7 })
+    assert.deepEqual(rows(96), { above: 3, below: 4 })
+    assert.deepEqual(rows(224), { above: 7, below: 0 }) // scrolled to the end
+    assert.deepEqual(rowsOutOfView({ count: 4, rowHeight: 32, scrollTop: 0, clientHeight: 200 }), { above: 0, below: 0 })
+    assert.deepEqual(rowsOutOfView({ count: 4, rowHeight: 0, scrollTop: 0, clientHeight: 0 }), { above: 0, below: 0 })
   })
 })

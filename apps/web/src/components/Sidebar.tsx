@@ -21,8 +21,10 @@ import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
 import {
   compactSidebarFooter,
+  expandedMenusLayout,
   menusThatFit,
   resolveSidebarMenu,
+  rowsOutOfView,
   setEntryHidden,
   sidebarTreeMinHeight,
   toSidebarPrefs,
@@ -224,7 +226,7 @@ export function Sidebar({
     })
   }
 
-  // Menus that do not fit above the page tree fold under "More (k)" (docs/adr/1640-*): the tree keeps
+  // Menus that do not fit above the page tree fold under "More (k)" (docs/adr/1640-*, opened: 1643-*): the tree keeps
   // sidebarTreeMinHeight() of the sidebar whatever menus are on, and below COMPACT_FOOTER_BELOW the footer
   // (trash, shortcuts, settings, account) becomes one row of icons. Heights are measured on the sidebar
   // itself, so the phone drawer and the desktop column follow the same rule.
@@ -300,6 +302,41 @@ export function Sidebar({
     : visibleMenus.length
   const folding = shownMenus < visibleMenus.length
   const foldedMenus = folding ? visibleMenus.slice(shownMenus) : []
+  // "More" open (docs/adr/1643-*): every menu shows and the tree gives way down to a smaller minimum.
+  // Whether the menus fold stays decided by the folded budget above, so "Show less" stays put. Only when
+  // even that leaves too little room does the list scroll, in whole rows, above a "k more below" row.
+  const menusOpen = folding && menusExpanded
+  const openLayout =
+    menusOpen && fit
+      ? expandedMenusLayout({ count: visibleMenus.length, available: fit.available, treeMin, rowHeight: fit.rowHeight })
+      : null
+  const navMin = openLayout ? openLayout.treeMin : treeMin
+  const openScrolls = openLayout?.maxHeight != null
+  const menusBoxRef = useRef<HTMLDivElement>(null)
+  const [outOfView, setOutOfView] = useState({ above: 0, below: 0 })
+  const updateOutOfView = useCallback(() => {
+    const box = menusBoxRef.current
+    const next = box
+      ? rowsOutOfView({
+          count: box.childElementCount,
+          rowHeight: fit?.rowHeight ?? 32,
+          scrollTop: box.scrollTop,
+          clientHeight: box.clientHeight,
+        })
+      : { above: 0, below: 0 }
+    setOutOfView((prev) => (prev.above === next.above && prev.below === next.below ? prev : next))
+  }, [fit?.rowHeight])
+  useLayoutEffect(updateOutOfView, [updateOutOfView, openScrolls, openLayout?.maxHeight, visibleMenus.length])
+  const hiddenOpenMenus = openScrolls
+    ? [...visibleMenus.slice(0, outOfView.above), ...visibleMenus.slice(visibleMenus.length - outOfView.below)]
+    : []
+  const scrollOpenMenus = () => {
+    const box = menusBoxRef.current
+    if (!box) return
+    const rowH = fit?.rowHeight ?? 32
+    if (outOfView.below > 0) box.scrollBy({ top: Math.max(rowH, Math.floor(box.clientHeight / rowH) * rowH), behavior: 'smooth' })
+    else box.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   // "New page ▾" menu: below the button when it fits, else above it, else as tall as fits with a scroll.
   const newMenuPopRef = useRef<HTMLDivElement>(null)
@@ -542,14 +579,37 @@ export function Sidebar({
       )}
       {!guest && visibleMenus.length > 0 && (
         <div ref={menusRef} className="px-2" data-testid="sidebar-menus">
-          {folding && menusExpanded ? (
-            <div
-              className="overflow-y-auto border-b border-line/60"
-              data-testid="sidebar-menus-scroll"
-              style={{ maxHeight: Math.max(fit?.rowHeight ?? 32, (fit?.available ?? 0) - (fit?.rowHeight ?? 32)) }}
-            >
-              {visibleMenus.map((id) => menuButtons[id])}
-            </div>
+          {menusOpen ? (
+            <>
+              <div
+                ref={menusBoxRef}
+                data-testid="sidebar-menus-open"
+                onScroll={openScrolls ? updateOutOfView : undefined}
+                className={openScrolls ? 'overflow-y-auto overscroll-contain' : undefined}
+                style={openScrolls ? { maxHeight: openLayout!.maxHeight! } : undefined}
+              >
+                {visibleMenus.map((id) => menuButtons[id])}
+              </div>
+              {openScrolls && (
+                // Height = MENUS_MORE_BELOW_ROW (h-6), which expandedMenusLayout keeps free for it.
+                <button
+                  type="button"
+                  data-testid="sidebar-menus-below"
+                  onClick={scrollOpenMenus}
+                  className={`flex h-6 w-full items-center gap-1 rounded-md border-t border-line/60 px-2 text-xs transition-colors duration-150 hover:bg-hover hover:text-ink ${
+                    hiddenOpenMenus.some((id) => menuActive[id]) ? 'font-medium text-ink' : 'text-sub'
+                  }`}
+                >
+                  <ChevronDownIcon size={12} className={outOfView.below > 0 ? undefined : 'rotate-180'} />
+                  <span className="flex-1 text-left">
+                    {outOfView.below > 0
+                      ? t('sidebar.menusBelow', { count: outOfView.below })
+                      : t('sidebar.menusAbove', { count: outOfView.above })}
+                  </span>
+                  {hiddenOpenMenus.some((id) => menuBadge[id]) && <span className="h-2 w-2 rounded-full bg-red-500" />}
+                </button>
+              )}
+            </>
           ) : (
             visibleMenus.slice(0, shownMenus).map((id) => menuButtons[id])
           )}
@@ -664,7 +724,7 @@ export function Sidebar({
       </div>
       )}
 
-      <nav ref={navRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-1" style={{ minHeight: treeMin || undefined }} data-testid="sidebar-tree">
+      <nav ref={navRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-1" style={{ minHeight: navMin || undefined }} data-testid="sidebar-tree">
         {/* ⭐ Favorites — above the Shared/Private sections. Hidden when empty. */}
         {(bookmarks.data?.length ?? 0) > 0 && (
           <div className="mb-1 flex flex-col">

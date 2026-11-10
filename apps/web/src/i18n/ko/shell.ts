@@ -174,6 +174,9 @@ export default {
   'sidebar.moreMenus': '더보기 ({count})',
   'sidebar.lessMenus': '접기',
   'sidebar.moreMenusTitle': '나머지 사이드바 메뉴 보기',
+  // 아주 낮은 사이드바에서 펼친 목록이 스크롤될 때 안 보이는 개수 (docs/adr/1643-*)
+  'sidebar.menusBelow': '아래에 {count}개 더',
+  'sidebar.menusAbove': '위에 {count}개 더',
   'sidebar.account': '계정',
   'sidebar.todayTitle': '오늘 날짜의 데일리 노트 열기',
   'sidebar.newPage': '새 페이지',

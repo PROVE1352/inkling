@@ -92,7 +92,7 @@ export function toSidebarPrefs(
   return { order, hidden: hiddenOut }
 }
 
-// --- fitting the menus above the page tree (docs/adr/1640-*) -----------------------------------------
+// --- fitting the menus above the page tree (docs/adr/1640-*, 1643-*) ---------------------------------
 
 /** Height the page tree always keeps: 40 % of the sidebar, at least 200 px, at most 280 px. */
 export function sidebarTreeMinHeight(sidebarHeight: number): number {
@@ -114,6 +114,68 @@ export function menusThatFit({ count, available, rowHeight }: { count: number; a
   if (!(rowHeight > 0)) return count
   if (count * rowHeight <= available) return count
   return Math.max(0, Math.min(count, Math.floor(available / rowHeight) - 1))
+}
+
+/**
+ * While the person has "More" open, the page tree gives way down to this height (docs/adr/1643-*):
+ * the section header and two or three rows, and never more than it keeps when the menus are folded.
+ */
+export const SIDEBAR_TREE_FLOOR_EXPANDED = 120
+
+export function expandedTreeMinHeight(treeMin: number): number {
+  return Math.min(treeMin, SIDEBAR_TREE_FLOOR_EXPANDED)
+}
+
+/** Height of the "k more below" row the open list gets when even the smaller tree leaves too little room. */
+export const MENUS_MORE_BELOW_ROW = 24
+
+/**
+ * Layout of the open "More" list (docs/adr/1643-*). `available` and `treeMin` are the folded state's
+ * budget (what `menusThatFit` gets), so opening the list never changes whether the menus fold.
+ * The list takes the room of the tree minimum down to `expandedTreeMinHeight`, less one row for
+ * "Show less". When every menu fits there, all of them show (`maxHeight` null). Otherwise the list
+ * scrolls in whole rows above a "k more below" row.
+ */
+export function expandedMenusLayout({
+  count,
+  available,
+  treeMin,
+  rowHeight,
+}: {
+  count: number
+  available: number
+  treeMin: number
+  rowHeight: number
+}): { treeMin: number; maxHeight: number | null } {
+  const floor = expandedTreeMinHeight(treeMin)
+  if (!(rowHeight > 0)) return { treeMin: floor, maxHeight: null }
+  const room = available + treeMin - floor - rowHeight
+  if (count * rowHeight <= room) return { treeMin: floor, maxHeight: null }
+  const rows = Math.max(1, Math.floor((room - MENUS_MORE_BELOW_ROW) / rowHeight))
+  return { treeMin: floor, maxHeight: rows * rowHeight }
+}
+
+/**
+ * Rows of a scrolled list that are not wholly inside its box: `above` the top edge, `below` the bottom
+ * edge. A row cut by an edge counts as out of view.
+ */
+export function rowsOutOfView({
+  count,
+  rowHeight,
+  scrollTop,
+  clientHeight,
+}: {
+  count: number
+  rowHeight: number
+  scrollTop: number
+  clientHeight: number
+}): { above: number; below: number } {
+  if (!(rowHeight > 0) || count <= 0) return { above: 0, below: 0 }
+  // 1 px of slack: fractional scroll positions on zoomed or high-DPI screens
+  const above = Math.min(count, Math.max(0, Math.ceil((scrollTop - 1) / rowHeight)))
+  const lastWhole = Math.floor((scrollTop + clientHeight + 1) / rowHeight)
+  const below = Math.max(0, count - Math.max(above, lastWhole))
+  return { above, below }
 }
 
 /** Moves the entry at `from` to `to` (array move). Out-of-range indexes leave the list unchanged. */

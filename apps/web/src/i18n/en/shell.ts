@@ -174,6 +174,9 @@ export default {
   'sidebar.moreMenus': 'More ({count})',
   'sidebar.lessMenus': 'Show less',
   'sidebar.moreMenusTitle': 'Show the other sidebar menus',
+  // the open list on a very short sidebar scrolls; this row says what is out of view (docs/adr/1643-*)
+  'sidebar.menusBelow': '{count} more below',
+  'sidebar.menusAbove': '{count} more above',
   'sidebar.account': 'Account',
   'sidebar.todayTitle': 'Open today\'s daily note',
   'sidebar.newPage': 'New page',

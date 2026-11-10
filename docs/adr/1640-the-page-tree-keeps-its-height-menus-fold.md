@@ -19,9 +19,11 @@ in-app browser had about 480 px. With ten menus and a coarse pointer the tree go
 - The menus show in full when they fit in what is left (sidebar height − the other rows − the tree
   minimum). Otherwise the first N show and one row "More (k)" folds the rest (`menusThatFit`). The row
   shows a red dot when a folded menu has a badge (Later reminders due, unread threads, due today), and
-  is in the active style when the current screen is one of the folded menus. Opening it lists every menu
-  in a scroll area of the same height, with "Show less" below it; the open/closed state is per device
-  (localStorage `inkling:sidebarMenusExpanded`, like `inkling:favCollapsed`).
+  is in the active style when the current screen is one of the folded menus. Opening it lists every menu,
+  with "Show less" below it; the open/closed state is per device (localStorage
+  `inkling:sidebarMenusExpanded`, like `inkling:favCollapsed`). While it is open the tree gives way down to
+  120 px, and only a sidebar too short even for that scrolls the list, with a "k more below" row (ADR 1643;
+  until 0.19 the open list was a scroll area of the folded height, about one row taller than the folded menus).
 - Heights are measured on the sidebar element (ResizeObserver), not the window, so the phone drawer and
   the desktop column use one rule, and the browser's own bars are already excluded. The measurement
   leaves the menus and the tree out of the sum, so it does not depend on how many menus show and settles

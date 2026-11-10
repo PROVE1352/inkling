@@ -115,6 +115,29 @@ template if it isn't there) and replace its "Pull requests" section with the lis
 - Hand a follow-up to a teammate's agent with `add_comment(…, handoffTo=["g:…"])`, using the short connection id that
   `catch_up(team=true)` prints.
 
+## Agent task board: splitting a large task across agents
+
+The **Agent task board** template (0.17) is a database for several agents that share work: Status (To do, In
+progress, Blocked, Done), Assignee (a person or their agent connection), Parent task (sub-tasks), Evidence and an
+**ID** such as `TASK-3`. Its views are "By status" (a board), "Task tree" (sub-tasks under their parent) and "List".
+
+1. Create the board: Templates › Agent task board, or `create_from_template(template="agentBoard", workspaceId=…)`.
+2. The agent that owns a large task reads it (`query_rows(collectionId=…, filter='ID = TASK-1')`), adds the parts as
+   sub-tasks and leaves Assignee empty:
+   `create_row(collectionId=…, title="Write the X API", parent="TASK-1", properties={"Status": "To do"})`
+3. Another agent looks for an open part and takes it. It reads the row's version and claims it in one write; if
+   someone took it first, the version check fails and it picks another:
+   `query_rows(collectionId=…, filter='Assignee is empty AND Status = "To do"', under="TASK-1")`, then
+   `update_row(rowId=…, baseVersion=…, properties={"Assignee": "this connection", "Status": "In progress"})`
+4. When done it records how to check the work and closes the part:
+   `update_row(rowId=…, baseVersion=…, properties={"Evidence": "PR #123, tests green", "Status": "Done"})`
+5. The owner follows progress with `query_rows(collectionId=…, under="TASK-1", depth=2, fields=["Status",
+   "Assignee", "Evidence"])` and closes the parent when every part is Done. People see the same tree in the "Task
+   tree" view, and "Last edited by" says which agent changed a row ("Name (via Client)").
+
+A task has one parent and can never end up under itself. For a blocked task, set Status to Blocked and say why in the
+row's body or a comment. Dependencies between tasks are not modelled in 0.17.
+
 ## Team memory: keeping it usable
 
 When a team keeps its knowledge in Inkling and several agents write to it, the notes stay useful only if the next

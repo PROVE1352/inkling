@@ -112,7 +112,7 @@ For the deployment hardening checklist see [OPERATIONS.md](OPERATIONS.md). To re
 - **Low** (B-L6) `query.ts` computes "today" in UTC while reminders use `TZ`, so date filters near midnight disagree.
 - **Low** (B-L7) Housekeeping does not delete expired `ip_bans` rows or unused `oauth_clients`.
 - **Low** (TODO, backup) Backup failures are only visible in Admin › Backups; there is no instance-level alert channel (`notifyBackupFailureExternal` is not wired to mail or an admin webhook).
-- **Low** (TODO #7) With `REQUIRE_EMAIL_VERIFICATION=1`, the first admin cannot log in before verifying, and mail may not be configured yet. Workaround: mark the account verified via SQL or set the flag after the first admin exists.
+- ~~**Low** (TODO #7) With `REQUIRE_EMAIL_VERIFICATION=1`, the first admin cannot log in before verifying, and mail may not be configured yet. Workaround: mark the account verified via SQL or set the flag after the first admin exists.~~ Resolved in part in 0.17 by docs/adr/2160-*: the account made through the first-admin setup link is not subject to `REQUIRE_EMAIL_VERIFICATION`. A first admin who signs up with a signup key instead still needs the workaround.
 - **Info** (TODO, webhooks) The link-preview cache is in memory (single instance). Webhook deliveries are in the outbox since docs/adr/1081-* and survive a restart; they are at least once: a crash during the HTTP call sends that message again after the 30 s lease (`X-Inkling-Delivery` is stable, but Slack and Discord do not deduplicate on it).
 - **Info** (TODO, vault-sync) `drizzle-kit push --force` drops hand-written indexes (trigram, perf). Since migration 0024 they are declared in the schema, but never run `push` against production.
 - **Info** (TODO #9) When upgrading an existing deployment, its environment (`DELEGATED_AUTH_URL`, `DELEGATED_AUTH_NAME`, `DELEGATED_EMAIL_DOMAIN`, `SIGNUP_REQUIRE_KEY=1`, and any existing `TZ` / `DEFAULT_LOCALE`) must be applied together before the first boot of the new version; changing `DELEGATED_EMAIL_DOMAIN` later splits delegated accounts.
@@ -166,10 +166,12 @@ Some of these were measured before the performance phase and may be partly mitig
 ## Editor
 
 - **Medium** (B-L8) The collaboration WebSocket `maxPayload` is 2 MB; a very large paste closes the socket with 1009 and the client reconnects in a loop.
-- **Medium** (TODO, vault-sync) A vault upload regenerates all block ids, which breaks comment anchors on that page. Exported Markdown carries callouts (`> [!type]`) and mentions as `@Name` text, but not page/link embeds or plugin blocks, so uploading a file back removes those and turns mention chips into text (docs/adr/1500-*).
+- ~~**Medium** (TODO, vault-sync) A vault upload regenerates all block ids, which breaks comment anchors on that page. Exported Markdown carries callouts (`> [!type]`) and mentions as `@Name` text, but not page/link embeds or plugin blocks, so uploading a file back removes those and turns mention chips into text (docs/adr/1500-*).~~ Resolved for the usual paths: block ids are kept since 0.15.1 (docs/adr/1920-*), and page embeds, database views, link embeds, plugin blocks and charts are kept as one-line block tokens since 0.17 (docs/adr/2169-*). Still open: when the minimal edit does not validate, the rewrite gives new ids (SYNC-3); a mention chip or a file/audio block in a paragraph edited in the vault becomes `@Label` / a link.
 - **Medium** (TODO, DB extension) Duplicating a collection leaves relation fields pointing at the original collection instead of the copy.
-- **Low** (TODO, embeds/plugins) linkEmbed, pageEmbed and pluginBlock are missing from public share HTML and from Markdown / Notion export. Callouts (and mention names) are in share HTML and Markdown export since docs/adr/1500-*, and `PageEmbed`'s embed schema is built from the editor's block list since docs/adr/1539-*.
-- **Low** (TODO, vault-sync) Query blocks are shown as raw code in public shares and embeds.
+- ~~**Low** (TODO, embeds/plugins) linkEmbed, pageEmbed and pluginBlock are missing from public share HTML and from Markdown / Notion export. Callouts (and mention names) are in share HTML and Markdown export since docs/adr/1500-*, and `PageEmbed`'s embed schema is built from the editor's block list since docs/adr/1539-*.~~ Resolved in part in 0.17: page embeds, link embeds, database views and query results are on public pages (docs/adr/2121-*) and in the Markdown download (docs/adr/2122-*).
+- **Low** (TODO, plugins) Plugin blocks are missing from public share HTML and Markdown export; Notion export leaves out page and link embeds.
+- ~~**Low** (TODO, vault-sync) Query blocks are shown as raw code in public shares and embeds.~~ Resolved in part in 0.17 by docs/adr/2121-*: public pages show the results.
+- **Low** (TODO, embeds) Inside an in-app page embed, a query block shows its code without results (the embed viewer has no query portals).
 - **Low** (tags) Tags inside code blocks and inline code are ignored, but plain-text tokens such as `#191919` still count as tags; Obsidian requires at least one non-digit character. Aligning would also need the query language's tag parser (`packages/shared`) to change.
 - **Low** (P, memory audit) `useCanvasDoc` depends on `me.name`, so a name change reconnects a destroyed provider and leaves a zombie socket.
 - **Info** (TODO, embeds) Paste-to-embed conversion and the toolbar's "Link" action are verified in Chromium and WebKit (Playwright). The Embed / Card toggle, the embed slash entry and the webhooks modal have not been verified in a real browser yet.
@@ -221,7 +223,8 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** Security-fix detection in the release check needs the release notes to carry the CHANGELOG Security section.
 
 ## Added in 0.9.0
-- **Low** Guests cannot open database pages, do not receive notifications or mentions, and cannot leave a shared page themselves (an owner or admin removes them). A view-only guest still sees the tree's [+] (it answers `PAGE_ACCESS`).
+- ~~**Low** Guests cannot open database pages, do not receive notifications or mentions, and cannot leave a shared page themselves (an owner or admin removes them). A view-only guest still sees the tree's [+] (it answers `PAGE_ACCESS`).~~ Resolved in part in 0.17 by docs/adr/2146-*: guests open the databases shared with them (what stays member-only: COLL17-5).
+- **Low** Guests do not receive notifications or mentions and cannot leave a shared page themselves (an owner or admin removes them). A view-only guest still sees the tree's [+] (it answers `PAGE_ACCESS`).
 - **Low** When a page is moved out of a guest's tree or made private, REST access stops at once but an open collaboration socket stays until it reconnects (same window as role changes, docs/adr/0970-*).
 - **Low** A callout pasted or inserted by another editor still renders a moment late (the cause fixed for the `/` menu in docs/adr/1270-*); ⌘. folds have not been tried in real Safari, where ⌘. also means Stop.
 
@@ -285,9 +288,9 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Info** (AGENTS-3, docs/adr/1551-*) `changes_since` waits only through the MCP tool; `GET /api/changes` has no `wait`. A proxy in front of Caddy with a read timeout under 25 s cuts waiting calls (the client then sees an error and calls again).
 
 ## Added in 0.13.0
-- **Low** (CHART-1, docs/adr/1605-*) Public pages cache their HTML per page revision for up to 10 minutes; a chart's table on a public folder page can lag the database by that much.
+- **Low** (CHART-1, docs/adr/1605-*, 2121-*) Public pages cache their HTML per page revision for up to 10 minutes; a chart's or database view's table, query results and an embedded page's text on a public page can lag by that much. A page leaving the link (private, trashed, moved out) is gone at once (the cache key carries the link's membership).
 - **Medium** (CHART-2, docs/adr/1600-*) A page with chart blocks opened in a 0.12 client loses the charts when that client edits the page (unknown block types are dropped by the editor schema). Update every client before using charts.
-- **Low** (CHART-3, docs/adr/1605-*) Public pages and exports show charts as tables; there is no server-rendered image yet.
+- **Low** (CHART-3, docs/adr/1605-*, 2122-*) Public pages and exports show charts as tables; there is no server-rendered image yet. Since 0.17 the Markdown download also keeps the chart line before its table, so importing the file restores the chart.
 - **Low** (CHART-4, docs/adr/1604-*) `read_page(known=…)` says "unchanged" when only the data behind a chart changed (the data line is not part of the page version).
 - **Info** (CHART-5, docs/adr/1601-*) `ztd-charts@0.5.0` is excluded from pnpm's minimum release age in `pnpm-workspace.yaml` (it was published the day it was added); the line can be removed after 2026-11-10 04:24 UTC.
 - **Low** (CHART-6, docs/adr/1602-*) Rollup fields can be measured (sum, average…) but not grouped; formula-like fields do not exist yet.
@@ -408,7 +411,7 @@ MCP profiles, resources, prompts and the memory check
 - **Info** (MCP-INSTR-1, docs/adr/2004-*) The instruction-length limit (200 lines, 25 KB) follows another tool's reading limit, not a measured drop in rule following.
 
 Suggest-only connections after flagged content
-- **Low** (TAINT-1, docs/adr/2040-*) API tokens are tainted only by the REST routes that return page bodies (`/pages/:id/section`, `/pages/read`, `/context`, `/pages/:id/export`). Routes that also return member text but do not taint: `/workspaces/:id/search` (snippets), `/pages/:id/snapshots/:sid/preview` and `/diff`, `/changes`, `/pages/:id/changes`, `/changes/:seq/diff` (after_text), `/workspaces/:id/activity`, `/pages/:id/comments`, `/pages/:id/collection/query`, `/pages/:id/row`, `/workspaces/:id/templates/:tid/preview`, `/files/:id`, and the experimental vault sync. MCP tools taint per page they read (read_page, read_pages, find_context, diff_versions, read_ink, page resources) and per attachment (read_file), but not changes_since excerpts, comment threads, lists or row reads. The flags themselves exist only for indexed sections and returned attachment text (docs/adr/0977-*, 2046-*).
+- **Low** (TAINT-1, docs/adr/2040-*) API tokens are tainted only by the REST routes that return page bodies (`/pages/:id/section`, `/pages/read`, `/context`, `/pages/:id/export`). Routes that also return member text but do not taint: `/workspaces/:id/search` (snippets), `/pages/:id/snapshots/:sid/preview` and `/diff`, `/changes`, `/pages/:id/changes`, `/changes/:seq/diff` (after_text), `/workspaces/:id/activity`, `/pages/:id/comments`, `/pages/:id/collection/query`, `/pages/:id/row`, `/workspaces/:id/templates/:tid/preview`, `/files/:id`, `/api/search` (snippets, 0.17), and vault sync (`/sync/read`, the 412 and replay bodies; this is what keeps vault sync experimental, docs/VAULT-SYNC.md). MCP tools taint per page they read (read_page, read_pages, find_context, diff_versions, read_ink, page resources) and per attachment (read_file), but not changes_since excerpts, comment threads, lists or row reads. The flags themselves exist only for indexed sections and returned attachment text (docs/adr/0977-*, 2046-*).
 - **Low** (TAINT-2, docs/adr/2040-*) Comments stay open to a suggest-only connection; a hijacked agent can still post, @mention people (who get a notification) and resolve threads inside the workspace. Each comment names the agent; refusing comments would remove the only way it can report back. Hand-offs to other connections are refused, but a person who reads the comment and passes it on to a clean agent carries the text across.
 - **Low** (TAINT-3, docs/adr/2042-*) A workspace admin lifts only sources in their workspace; a connection tainted by another workspace's page stays suggest-only there until its owner lifts it, the window ends, or the admin switches the rule off for the workspace.
 - **Low** (TAINT-4) Refused writes of a suggest-only connection are not audited one by one (the agent's answer says so); the audit shows when it became suggest-only and who lifted it.
@@ -429,3 +432,75 @@ Agent connection tokens
 - **Low** (AGT-5, docs/adr/2063-*) A token that runs out, and every token deleted by a password reset, leave no `agent.token_revoked` event (the expiry is in `agent.token_created`).
 - **Low** (AGT-6, docs/adr/2063-*) An admin's block of one agent token (its client) does not cover the next token the member makes; block "all agents" of the member to stop them all in the workspace.
 - **Info** (AGT-4) Real-client checks with Claude Code `--header`, Cursor `headers` and VS Code `inputs` against an `http://` LAN server were not run in this release (the db suite drives `/mcp` over HTTP with the SDK client). OAuth connections to `/mcp?profile=core` from Claude Code, Cursor and VS Code were not tried with the real clients either.
+
+## Added in 0.17.0
+
+Section links and Mermaid diagrams
+- **Low** (LINK-1, docs/adr/2100-*, 2102-*) A section link's text and stored names are a snapshot: after a heading (or page) rename the page still shows `Page#Old heading`, and MCP reads print the old name. The link itself follows the heading (block id, name, change log); write it again to refresh the text.
+- **Low** (LINK-2, docs/adr/2100-*) Section links reach top-level headings only (sections, ADR 0926). A heading inside a toggle or column is found when clicking an editor-made link, but the backlinks panel and check_notes report it as missing.
+- **Low** (LINK-3, docs/adr/2102-*) A section link without a block id (written in Markdown, by an agent or by an import) whose heading was renamed is found only while the change log still holds the rename (`CHANGE_FEED_RETENTION_DAYS`); after that it is `missing`.
+- **Low** (LINK-4, docs/adr/2100-*) `[[#Heading]]` (a heading of the same page) and typing `[[Page#Heading|alias]]` as raw text in the editor are not converted; use the `[[Page#` menu and edit the link text for an alias.
+- **Low** (LINK-5, docs/adr/2102-*) A section moved to a subpage by split_page leaves its section links `missing` (backlinks, check_notes, click notice); they are not followed to the subpage titled like the heading.
+- **Info** (LINK-6, docs/adr/2102-*) A section link to a heading of the same page is not indexed (page_links drops self-links): no backlink, not checked by check_notes; clicking it works.
+- **Info** (LINK-7, docs/adr/2100-*) `[[Page|alias]]` without `#` is unchanged: outside vault sync it is still exported as `[[alias]]` and does not resolve on the way back.
+- **Info** (LINK-8, docs/adr/2003-*) `[[…]]` inside code blocks counts as a literal broken link in check_notes (page_texts includes code), e.g. Mermaid's `A[[Name]]` subroutine nodes (the existing "code blocks count" limit of MCP-CHECK-1, now more visible).
+- **Low** (MMD-1, docs/adr/2104-*, 2191-*) Mermaid diagrams are drawn in the page editor, the row-template editor and on public pages; a page embed (`![[…]]`) in the app, exports and presentation mode of a public page show the ```mermaid code.
+- **Info** (MMD-2, docs/adr/2191-*) Presentation mode on a public page shows a Mermaid block as its code (the slides are built from the page's HTML before diagrams are drawn).
+- **Info** (MMD-3, docs/adr/2105-*) Diagrams are images: their text is not found by find-in-page and cannot be selected (the code can).
+- **Info** (MMD-4, docs/adr/2106-*) The browser's own print (Ctrl/⌘+P) does not wait for diagrams still rendering, and prints the code block too; use "Export as PDF". A dark-theme diagram printed through Export as PDF is colour-inverted, close to but not equal to the light theme.
+- **Info** (MMD-5, docs/adr/2105-*) A diagram label containing an inline handler (`<img onerror=…>`) makes Chrome log a CSP "inline event handler" violation while Mermaid's DOMPurify parses it in an inert document. Nothing runs (checked with and without the CSP); the console line is noise a member can cause.
+- **Info** (MMD-6, docs/adr/2105-*, 2191-*) While Mermaid lays out a diagram, its temporary SVG is in the page for a moment; an image node in the source (`img:` / image shapes) may be fetched then, as an image block's URL would be, also by a public page's visitor. The shown diagram is an `<img>` data URL with external references removed.
+
+Database views in pages, public pages and the Markdown download
+- **Low** (DBVIEW-1, docs/adr/2120-*) Database views are read-only inside a page (no cell edits, new rows, drag or view settings); rows open their page and "Open database" goes to the full view.
+- **Info** (DBVIEW-2, docs/adr/2120-*) A tab still running 0.16 or older keeps a database view but shows it as a page card; if it moves or rewrites that block, the view choice is lost and the block shows the database's first view.
+- **Low** (DBVIEW-3, docs/adr/2146-*) For a guest, a chart view inside a database view block shows its error (the chart aggregate is member-only, COLL17-5).
+- **Low** (DBVIEW-4, docs/adr/2121-*, 2190-*) On public pages a database view's table has no relation titles, no rollups and at most 200 rows; a chart view is its table; query sources of charts, and every chart on a single-page link, stay left out without a placeholder (docs/adr/1605-*). A query block runs with no user inside the link's subtree: `FROM "folder"` and `file.folder` only match when the shared folder is at the top level of its workspace. Sub-items are shown in tree order with `↳` in table and list views.
+- **Low** (DBVIEW-5, docs/adr/2122-*) The Markdown download writes at most 1000 rows per database view. Importing a downloaded file into another workspace or instance restores database views and charts that point at ids from the source, so they show "not available" there; the snapshot tables are not imported. A database view the exporter cannot see is left out of the file.
+- **Info** (DBVIEW-6, docs/adr/2122-*) PDF export prints the live page: query and chart results appear only if they were loaded (on screen) before printing; database views load at once.
+- **Info** (DBVIEW-8, docs/adr/2190-*) On public pages, created by / last edited by show the member's name without the agent connection ("via …"); the member download shows it.
+
+Databases
+- **Low** (COLL17-1, docs/adr/2140-*) A row created in a transaction that started before an ID property was added and committed after it stays without a number until the next fields update of that collection.
+- **Low** (COLL17-2, docs/adr/2141-*) "Last edited by" changes only with logged changes (properties, title, body); two-way relation mirroring, sheet sync and moves do not change it, while "Last edited time" (`updated_at`) moves with them. Body edits set it when the section index runs (8–30 s).
+- **Low** (COLL17-3, docs/adr/2142-*) A 0.16 client shows a view whose filter uses OR / NOT / groups unfiltered, and conditions it adds to such a view are ignored by 0.17 clients (it writes the flat list, the tree wins).
+- **Low** (COLL17-4, docs/adr/2140-*) Created/edited time filters compare by the UTC day (as `today` in query_rows); a person east or west of UTC may see a row created late in their evening under the next/previous date.
+- **Low** (COLL17-5, docs/adr/2146-*) Guests: chart views and chart blocks of a shared database answer 403 (the chart aggregate is member-only); bulk paste and CSV import into a shared database are refused; a guest with edit cannot assign people. The view tabs' "+" and the new-row button's template items still show for an edit guest (the server refuses them; same as on a locked page).
+- **Low** (COLL17-6, docs/adr/2144-*) Duplicating a collection leaves its Parent item pointing at the original collection (the existing relation issue), so the copy has no sub-items until the field is made again.
+- **Low** (COLL17-7, docs/adr/2140-*) Rollups can only count automatic values of linked rows.
+- **Info** (COLL17-8, docs/adr/2143-*) No files field yet.
+- **Low** (COLL17-9, docs/adr/2192-*) query_rows that filters or sorts on an automatic value computes it for every row it scans: 20,000 rows ≈ 111 ms vs ≈ 30 ms on a stored property (p50, local).
+- **Info** (COLL17-10, docs/adr/2140-*) Every page inserted under a parent runs the ID trigger (one UPDATE attempt on the parent's collection row): a 20,000-row bulk insert takes about 0.4 s longer (≈ 20 µs a row).
+
+Local trial, setup link and zip imports
+- **Low** (SETUP-1, docs/adr/2160-*) The first-admin setup code is printed to stdout. Where container logs go to a service other people can read, the code is readable there until the first account exists. Create the first account right after the first start, or use `deploy/signup-key.sh` (deploy/DEPLOY.md 3-C). No switch to turn the link off yet.
+- **Info** (LOCAL-1, docs/adr/2161-*) `deploy/local.sh` binds 127.0.0.1 and uses http; it is for one person's trial. It needs bash, curl and Docker Compose v2 (`!override` needs Compose ≥ 2.24). On Windows run it from WSL or Git Bash. Its default path pulls the published image, so it shows the setup link only once a 0.17 image is published (`--build` builds the checkout).
+- **Low** (ZIP-1, docs/adr/2162-*) `import_zip` refuses Notion exports (415 `NOTION_IMPORT_IN_APP`): the Notion importer stores attachments outside the connection upload rules. Use the web app, or `source="markdown"` for plain files.
+- **Low** (ZIP-2, docs/adr/2162-*) Reverting a connection's changes does not undo pages it created (page events are not reverted, docs/adr/1620-* .. 1624-*); undo an import by trashing its top page(s). For a zip with several top-level files that is one trash per top page.
+- **Info** (ZIP-3, docs/adr/2162-*) Folder and canvas pages from an import have no `page_added` row in the change log (as with every import): changes_since and catch_up show the documents; the folders appear through their documents.
+- **Info** (ZIP-4, docs/adr/2162-*) Attachments refused by type or size are skipped; links to them stay as written (relative paths) in the imported pages.
+
+Vault sync (experimental)
+- **Low** (VSYNC-1) Read-only API tokens cannot run `inklingctl sync` (the read is a POST).
+- **Info** (VSYNC-2) Two devices each keep their own copy of frontmatter Inkling does not store.
+- **Low** (VSYNC-3) Images inside table cells are dropped on upload.
+- **Info** (VSYNC-4) Pages created by sync do not queue the "new page" webhook and have no `created_via` (the change feed has them).
+
+Versions: AI steps
+- **Low** (STEP-1, docs/adr/2180-*) On a large page the chain rule of ADR 1100 still writes a whole row every 10th version, so an agent writing often to a 4 MB page writes (and pruning later deletes) about 4 MB raw per 10 writes. Logs should write child pages (docs/adr/1140-* .. 1142-*) as before. Dropping old steps at the cap merges diffs instead of rebuilding.
+- **Info** (STEP-2, docs/adr/2181-*) A conflicting or refused agent write can leave a "Before AI edit" version when someone edited since the last version (it is a real state of the page).
+- **Info** (STEP-3, docs/adr/2182-*) Step numbers are computed over the newest 50 rows: once a run's first steps are pruned, its oldest kept step is "AI step 1".
+- **Info** (STEP-4, docs/adr/2180-*) Line counts are Markdown lines of the written sections (a replace of a page over 2,000 blocks has none).
+
+search and workspace scope
+- **Info** (SEARCH-1, docs/adr/2183-*) search's whole-word test knows letters of Latin, Greek, Cyrillic, Hangul, kana and CJK scripts; letters of other scripts (Arabic, Hebrew, Thai, Devanagari …) count as separators, so a query in those scripts is "whole word" whenever it occurs. Case-insensitive matching of non-ASCII letters still follows the database locale (as ILIKE did).
+- **Info** (SEARCH-2, docs/adr/2183-*) Korean whole words allow one fitting particle and one of 는/은/도/만 after it; verb endings and copulas (`해커톤이다`, `배포했다`) are parts of words, and a Japanese or Chinese term is a whole word only next to punctuation or spaces.
+- **Info** (SEARCH-3, docs/adr/2183-*) A heading match is found only for pages already matched by title or body text; a heading in the middle of a body over 200 KB (cut in `page_texts`, ADR 1040) is not found by search (find_context sees it).
+- **Low** (SEARCH-4, docs/adr/2183-*) A one- or two-character query that matches thousands of pages in one workspace is slower than in 0.16 (all matches are graded before the cut; 5,000 matches ≈ 72 ms vs 51 ms).
+- **Info** (SEARCH-5, docs/adr/2184-*) The "more" line names workspaces by id only (names are member text and stay inside the data block); a workspace with matches but none shown has no name in the answer.
+- **Info** (SEARCH-6, docs/adr/2183-*) Like the web search route, `GET /api/search` does not record a taint read for its snippets (TAINT-1).
+- **Info** (SEARCH-7, docs/adr/2183-*) Each new query term costs one regex compilation on its database connection (≈ 0.5 ms; the word class is written out so the result does not depend on LC_CTYPE).
+- **Low** (WS-SCOPE-1, docs/adr/2188-*) find_context without workspaceId still ranks all workspaces together; results of another workspace can take slots. They are labelled (ADR 2185) and the answer says how to narrow, but an agent that ignores the labels can still answer from the wrong workspace. Passing workspaceId (an id or the name) is the fix.
+- **Low** (WS-SCOPE-2, docs/adr/2186-*) A workspace name is resolved when the call is made: renaming a workspace changes what a stored name means, and a name prefix that was unique stops resolving when another workspace gets a similar name (the error then lists both). Agents that keep ids are unaffected.
+- **Info** (WS-SCOPE-3) `inbox`'s workspaceId takes ids only (built with the shared `uuid()`, whose check is shared with page ids). Other tool descriptions do not mention that names work; the server instructions say it once.
+- **Info** (WS-SCOPE-4, docs/adr/2188-*) The several-workspace evaluation has 12 questions; results on them vary run to run by about one question (ties across workspaces). `context-bench.ts` and `context-tune.ts` still build one workspace.

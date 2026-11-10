@@ -433,6 +433,16 @@ and an `APP_SECRET_KEY` from `openssl rand`, `PUBLIC_URL=http://localhost:<port>
 `COMPOSE_PROJECT_NAME=inkling-local`. Then it starts the stack, waits for `/api/health` and prints the
 first-admin setup link and the MCP address. It never touches a `.env` it did not write.
 
+Without `--build` the script pulls the published image (`ghcr.io/prove1352/inkling`, the `INKLING_VERSION` tag,
+default `latest`). The setup link exists from 0.17 on: until the v0.17.0 image is published, the pulled image is an
+older release that prints no link, and the script says so and points to `./deploy/signup-key.sh new "first admin"`
+(open `/register` and paste the key). `--build` builds the checkout you cloned and has the setup link either way; the
+first build takes a few minutes. A later `./deploy/local.sh` without `--build` keeps building from source once you
+chose it.
+
+Needs bash, curl and Docker Compose v2.24 or newer (`compose.local.yaml` uses `!override`). On Windows, run it from
+WSL or Git Bash.
+
 `compose.local.yaml` gives the trial its own compose project (its containers and volumes never mix
 with a `nodian` stack on the same machine), no host port for the database and no backup sidecar.
 Because `.env` names the files, plain `docker compose logs -f app` and `./deploy/signup-key.sh` act on

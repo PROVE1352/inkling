@@ -128,6 +128,15 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   is set, which is none at upgrade time). No backfill. New dependency `unpdf` 1.9.1 in the image (pure JavaScript, no
   system package). New, optional: `AGENT_UPLOADS`, `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB` (section 10). After
   the upgrade, agents that read suspicious text only suggest for an hour in every workspace (section 10).
+- 0.16 → 0.17 applies 3 migrations (51 → 54 rows): `0051_v017_collection_rows` (`collections.row_seq` with the
+  constant default `0`; nullable `pages.row_number`, `pages.edited_by` with a foreign key, `pages.edited_via`; a partial
+  unique index on `pages (parent_id, row_number)` over rows with a number, which is none at upgrade time; three
+  triggers that hand out ID numbers), `0052_page_link_sections` (nullable `page_links.sections`) and
+  `0053_v017_snapshot_steps` (nullable `page_snapshots.digest` and `step`). No backfill; building the empty index and
+  checking the new foreign key read `pages` once inside the boot transaction. New dependency `mermaid` 12.3.0 in the
+  web bundle only (section 11). New, optional: `INKLING_PORT`, `INKLING_DB_PORT` (compose). Every agent write now
+  stores a version row (section 11); zip imports refuse unsafe archives; a server with no account prints a setup link
+  at boot.
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
@@ -515,3 +524,62 @@ only route where a visitor without an account writes data.
 - Each call parses in a short-lived worker thread: 256 MB heap cap, 10 s wall time, at most two PDFs at once per
   process (more wait for a slot); files over 20 MB are not parsed (metadata only), at most 50 pages per call. Nothing
   to configure. No OCR: scanned PDFs have no text.
+
+## 11. Local trial, setup link, zips, versions and diagrams (0.17)
+
+### First-admin setup link (docs/adr/2160-*)
+
+- A server with no account prints, once per boot, a framed block to stdout: "No accounts yet. Create the first
+  administrator account here: `<PUBLIC_URL>/setup?code=…`". Find it with `docker compose logs app | grep setup`. A
+  restart prints a new code and the old one stops working. The account made with it is the admin; the link closes as
+  soon as any account exists. Servers that already have accounts print nothing.
+- **Security.** The code is in memory only, works once and counts wrong guesses towards the IP ban, but it is
+  readable by anyone who can read the container's stdout until the first account exists. If logs go to a shared
+  service, create the first account right after the first start, or use a signup key (`./deploy/signup-key.sh new
+  "first admin"`, deploy/DEPLOY.md 3-C). There is no switch to turn the link off yet (KNOWN-ISSUES SETUP-1).
+
+### Local trial (docs/adr/2161-*)
+
+- `./deploy/local.sh` (start; `--build` builds the checkout instead of pulling the image), `./deploy/local.sh stop`,
+  `./deploy/local.sh destroy` (deletes the trial's containers and volumes; the `.env` stays). It writes a `.env` marked
+  `# made by deploy/local.sh` with a hex `POSTGRES_PASSWORD`, `APP_SECRET_KEY`, `PUBLIC_URL=http://localhost:<port>`,
+  `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `COMPOSE_FILE=compose.yaml:compose.local.yaml` and
+  `COMPOSE_PROJECT_NAME=inkling-local`, so plain `docker compose …` and the other `deploy/*.sh` scripts act on that
+  stack. A `.env` without the marker is never changed.
+- It is not for a server other people use: http only, reachable from this machine only, no backups, no database host
+  port. It needs bash, curl and Docker Compose v2.24 or newer (`!override`); on Windows run it from WSL or Git Bash.
+- Without `--build` it pulls `ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}`; an image older than 0.17 prints
+  no setup link, and the script then says to make the first signup key with `./deploy/signup-key.sh`.
+- `compose.yaml` reads `INKLING_PORT` (the app's host port or `ip:port`, default `3000`) and `INKLING_DB_PORT` (the
+  loopback database port, default `55432`).
+
+### Zip imports (docs/adr/2162-*, 2163-*)
+
+- Every zip import (web and MCP) refuses an archive with a `..` entry or a symbolic link and stops an entry that
+  inflates more than 200 times its packed size past 1 MB (400 `ZIP_RATIO`). Names are normalized (NFC, `\`, leading
+  `/`, drive letters); names that are not UTF-8 are read as CP949.
+- A zip posted with a connection's token (MCP `import_zip`, or a bearer `POST /api/workspaces/:id/import`) is at most
+  `min(IMPORT_MAX_UPLOAD_MB, AGENT_UPLOAD_MAX_MB)` (default 5 MB). Its `assets/` attachments follow the agent upload
+  switch, the per-file cap, the type check and the daily budget (section 10) and are recorded with `uploaded_via`; a
+  bearer `import-folder` does the same for its attachments. Browser imports keep `IMPORT_MAX_UPLOAD_MB` and no budget.
+- An `import_zip` call carries the zip as base64 in one MCP request; above 8 MB of `AGENT_UPLOAD_MAX_MB` the `/mcp`
+  body limit grows for it as for upload_file (about four times the file in memory per call in flight).
+
+### Versions: AI steps (docs/adr/2180-*)
+
+- Every agent write stores one `page_snapshots` row (an "AI step"): usually a small Yjs diff (median about 0.7 KB in
+  the benchmark), a whole state every 10th row of a chain (docs/adr/1100-*). Each client keeps its newest 20 steps per
+  page, a page at most 30 steps, and the 50-version cap per page is unchanged; step rows are pruned first, and the
+  diffs of dropped rows are merged into the next kept row instead of rebuilding it.
+- Storage: 30 agent writes to a 12 KB note keep 21 rows, 34.3 KB on disk (0.16: 1 row, 4.5 KB); to a 4.1 MB log,
+  2.37 MB on disk (0.16: 1.07 MB). The bound is the 50-version budget of a page (docs/PERFORMANCE.md). An agent
+  appending often to a multi-megabyte page writes about the page's size per 10 writes; logs should use child pages
+  (docs/adr/1140-*).
+- Write cost: two short transactions and two content digests per agent write, +6–9 ms on small pages.
+
+### Mermaid diagrams (docs/adr/2104-*, 2191-*)
+
+- `mermaid` 12.3.0 is in the web bundle under `assets/lazy/` (about 90 files, 5.16 MB, 1.44 MB gzip, over every
+  diagram type) and is not precached by the service worker: a browser fetches it on the first page with a diagram
+  (about 246 kB gzip for a flowchart). A browser that has never drawn a diagram cannot draw one offline. Nothing runs on
+  the server; public pages draw diagrams in the reader's browser.

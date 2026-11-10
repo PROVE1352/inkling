@@ -42,15 +42,17 @@ A 40-second tour: [site/assets/promo.mp4](site/assets/promo.mp4).
 You need Docker with the Compose plugin. To try it on your own computer:
 
 ```bash
-git clone https://github.com/PROVE1352/inkling.git
-cd inkling
-cp .env.example .env              # set POSTGRES_PASSWORD, e.g. from: openssl rand -base64 24
-docker compose up -d
-./deploy/signup-key.sh new "first admin"
+git clone https://github.com/PROVE1352/inkling.git && cd inkling
+./deploy/local.sh
 ```
 
-Open http://localhost:3000/register and paste the key (the stack runs in production mode, so signup needs a
-key even locally). The first account becomes the site admin; further keys are issued on the **Admin** page.
+The script writes a `.env` with generated secrets, starts Inkling on a free local port (usually
+http://localhost:3000) and prints a one-time link. Open it and create your account; it becomes the administrator.
+`./deploy/local.sh stop` stops it, `./deploy/local.sh destroy` deletes it. The script pulls the published image, and
+the setup link comes with 0.17: if the image it gets is older, it says so and shows how to make a signup key instead,
+or run `./deploy/local.sh --build` to build this checkout (a few minutes). Connecting an AI agent to the trial:
+[docs/MCP.md](docs/MCP.md#a-local-trial-with-an-agent-in-five-minutes). Further keys for other people are issued on
+the **Admin** page.
 
 On a server, point a domain at it (ports 80 and 443 open) and add the Caddy overlay, which obtains and renews
 the certificate and keeps the app and database ports private:
@@ -113,16 +115,16 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 ## Features
 
 **Writing**
-- Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, images, file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`
-- `[[wikilinks]]`, `#tags`, `@mentions`, daily notes, and templates for a page or a whole structure ([docs/TEMPLATES.md](docs/TEMPLATES.md)); pen and highlighter on documents
+- Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, Mermaid diagrams from a `mermaid` code block, images, file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`
+- `[[wikilinks]]` (`[[Page#Heading]]` for a section), `#tags`, `@mentions`, daily notes, and templates for a page or a whole structure ([docs/TEMPLATES.md](docs/TEMPLATES.md)); pen and highlighter on documents
 - Nested pages and folders with drag-and-drop, ⌘K search over titles and bodies, version history with named versions, trash, PDF export
 - Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides
 - Command palette, shortcuts you can change, Later reminders and followed comment threads
 - English and Korean UI, installable PWA, light and dark themes
 
 **Databases**
-- Table, board, calendar, gallery, timeline, chart and form views, each with its own sort, filter and grouping
-- Text, number, select, multi-select, date, checkbox, person, URL, relation, rollup and formula properties; row templates; CSV/XLSX import and export
+- Table, board, calendar, gallery, timeline, chart, form and list views, each with its own sort, filter (with OR and NOT) and grouping; any view can also sit inside a page (`/database view`)
+- Text, number, select, multi-select, date, checkbox, person, URL, email, phone, relation, rollup and formula properties, automatic created/edited time and by, and IDs like `TASK-12`; sub-items under a parent row; row templates; CSV/XLSX import and export
 - Charts in any page (`/chart`) from a database or a query; forms that members fill in, or anyone through a public link an owner or admin turns on
 
 **Links and canvas**
@@ -161,7 +163,7 @@ claude mcp add --transport http inkling https://notes.example.com/mcp
 # then in Claude Code: /mcp → inkling → Authenticate
 ```
 
-In claude.ai: Settings → Connectors → Add custom connector, same URL. The 47 tools (32 with `?profile=core`,
+In claude.ai: Settings → Connectors → Add custom connector, same URL. The 48 tools (32 with `?profile=core`,
 which reaches the rest through `more_tools`) and a guide for agents are in [docs/MCP.md](docs/MCP.md). The
 usual flow:
 
@@ -200,7 +202,7 @@ A rough comparison as of November 2026, from each project's repository, document
 | | Inkling | [salt.md](https://github.com/saltmd/salt.md) | [Docmost](https://github.com/docmost/docmost) | [AFFiNE](https://github.com/toeverything/AFFiNE) | [Outline](https://github.com/outline/outline) |
 |---|---|---|---|---|---|
 | License | MIT | AGPL-3.0 | AGPL-3.0 core + paid EE | MIT; server code under an EE license that exempts the free self-hosted Community Edition | BSL 1.1 (becomes Apache 2.0 on 2030-10-23) |
-| Database views | table, board, calendar, gallery, timeline, chart, form | table, board, list, gallery, calendar, timeline, form | EE | table, kanban, calendar | no |
+| Database views | table, board, calendar, gallery, timeline, chart, form, list | table, board, list, gallery, calendar, timeline, form | EE | table, kanban, calendar | no |
 | `[[wikilinks]]` / backlinks | yes / yes | `[[` opens the link menu / yes | no (`@` mentions) / yes | yes / yes | yes / yes |
 | Graph view | yes | yes | not found | not found | not found |
 | Canvas | JSON Canvas (`.canvas`) | no | Excalidraw, draw.io embeds | own whiteboard (Edgeless), not JSON Canvas | no (diagrams.net embed) |
@@ -236,7 +238,7 @@ Inkling is designed for one self-hosted instance shared by people who trust each
 
 - **Run it behind HTTPS.** Use `deploy/compose.caddy.yaml` (it also hides the app and database ports), or terminate TLS in your own proxy.
 - **Set `PUBLIC_URL`** (and `APP_URL` if mail links should use a different origin). Mail links, OAuth metadata and share previews are built from it, and an `https://` value turns on Secure session cookies.
-- **Keep signup keys required** (the production default) and create the first admin's key with `./deploy/signup-key.sh`.
+- **Keep signup keys required** (the production default). The first admin signs up through the one-time setup link a new server prints to its log, or with a key from `./deploy/signup-key.sh`.
 - **Set a strong `POSTGRES_PASSWORD`**, set `BACKUP_PASSPHRASE` and `APP_SECRET_KEY`, and keep a copy of both off the server (the key also outside the backups).
 - Keep `TRUST_PROXY` limited to your actual reverse proxy.
 - Experimental features (`plugins`, `vault-sync`, `sheets-sync`) are off by default. Plugins run sandboxed but are trusted once an admin approves them.

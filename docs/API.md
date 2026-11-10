@@ -157,7 +157,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/api/pages/:id/backlinks` | `{ pages: PageMetaDTO[] }`: live pages that link to this page (membership checked, updatedAt desc) |
+| GET | `/api/pages/:id/backlinks` | `{ pages: PageMetaDTO[], sections? }`: live pages that link to this page (membership checked, updatedAt desc). `sections` (0.17, only when a source has section links): see "v0.17.0 additions" |
 | POST | `/api/pages/:id/restore` | `{ page }`: sets `deleted_at=null` on the page and its descendants. If the parent is still deleted, `parentId=null` (moved to the root). 400 if the target is not deleted |
 | DELETE | `/api/pages/:id/purge` | 204: hard delete (cascade). Allowed **only for deleted (trashed) pages**, otherwise 400 |
 | GET | `/api/workspaces/:id/trash` | `{ pages: PageMetaDTO[] }`: all deleted pages (flat), deletedAt desc |
@@ -167,9 +167,9 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 
 | Method | Path | Input/Output |
 |---|---|---|
-| GET | `/api/pages/:id/export?format=md` | `text/markdown; charset=utf-8` attachment (single page, children excluded). Image links keep their absolute `/files/...` paths |
-| GET | `/api/pages/:id/export?format=zip` | zip: the page + its subtree. Structure follows the convention below |
-| GET | `/api/workspaces/:id/export` | zip: the whole workspace tree |
+| GET | `/api/pages/:id/export?format=md` | `text/markdown; charset=utf-8` attachment (single page, children excluded). Image links keep their absolute `/files/...` paths. `notation=plain` (default) \| `agent` \| `file` (0.17, see "v0.17.0 additions") |
+| GET | `/api/pages/:id/export?format=zip` | zip: the page + its subtree. Structure follows the convention below. Pages are written with `notation=file` unless `notation=plain` (0.17) |
+| GET | `/api/workspaces/:id/export` | zip: the whole workspace tree, `notation=file` unless `?notation=plain` (0.17) |
 | POST | `/api/workspaces/:id/import?parentId=<uuid?>&source=<auto\|markdown\|notion?>` | multipart `file` = a single `.md` or a `.zip` (≤ `IMPORT_MAX_UPLOAD_MB`, default 25). Response `{ pages: PageMetaDTO[] }` (created pages, in creation order). A Notion export (`source=notion`, or a zip detected as one when `source` is omitted) responds `{ pages, report }`, see [Notion export import](#notion-export-import). `source=notion` with a non-zip file → `415` |
 
 ### zip convention (Obsidian-friendly)
@@ -274,9 +274,9 @@ Types and validation schemas come from the M3 section of `@inkling/shared` (coll
 
 ## Snapshots (version history, doc pages, visibleTo guard)
 - `POST /api/pages/:id/snapshots` body `createSnapshotSchema { label? }` → `{ snapshot: SnapshotDTO }`.
-- `GET /api/pages/:id/snapshots` → `{ snapshots: SnapshotDTO[] }` newest 50.
+- `GET /api/pages/:id/snapshots` → `{ snapshots: SnapshotDTO[] }` newest 50 (`created_at DESC, id DESC`). AI step rows (0.17) add `step` (see "v0.17.0 additions").
 - `GET /api/pages/:id/snapshots/:sid/preview` → `{ markdown: string }`.
-- `POST /api/pages/:id/snapshots/:sid/restore` → 204. Applied to the live document (DirectConnection), with an automatic snapshot taken just before restoring. Canvas 400.
+- `POST /api/pages/:id/snapshots/:sid/restore` → `{ ok: true }` (0.17 adds `before` and `step`, see "v0.17.0 additions"). Applied to the live document (DirectConnection), with an automatic snapshot taken just before restoring. Canvas 400.
 - Automatic: in the store hook, if 10+ minutes have passed since the last snapshot, the pre-change state is saved; 50 are kept per page.
 - Rows are a full state or a Yjs V2 diff against the previous version (chains of at most 10, docs/adr/1100-*). `SnapshotDTO.bytes` is the stored size. Preview, compare and restore answer 409 `SNAPSHOT_UNAVAILABLE` when a version cannot be rebuilt; restore then writes nothing.
 
@@ -1449,3 +1449,115 @@ limit?, budget?)`, `more_tools(tool?, arguments?)` (core profile only). `read_fi
 reads more text files by extension; returned text is scanned for injection-like content. `get_instructions` ends with
 a `note:` line when the instructions are over 200 lines or 25 KB. `can:` lines say `suggest` while the connection is
 suggest-only. Tool lists: full 47 tools (~12,370 tokens), core 32 (~7,437). Details: [MCP.md](MCP.md).
+
+## v0.17.0 additions
+
+Migrations 0051 (`pages.row_number`, `edited_by`, `edited_via`, `collections.row_seq`, ID triggers), 0052
+(`page_links.sections`) and 0053 (`page_snapshots.digest`, `step`), all additive. Existing answers keep their shape
+unless noted; new fields are additive.
+
+### Section links (docs/adr/2100–2103)
+- Internal links are BlockNote `link` inlines with href `/w/<workspaceId>/p/<pageId>`. A section link adds a fragment
+  `#h=<heading>&b=<heading block id>&p=<page title>` (URL-encoded; `b` and `p` optional, in this order). Markdown:
+  `[[Page#Heading]]`, `[[Page#Heading|shown]]`. Imports and MCP writes turn `[[Page#Heading]]` into a section link
+  when `Page` is visible and no page or split subpage is titled `Page#Heading`; `[[…]]` inside a code block stays code.
+
+| Method | Path | Answer |
+|---|---|---|
+| GET | `/api/pages/:id/backlinks` | (changed) adds `sections` only when a source has section links: `{ <sourcePageId>: [{ heading, status }] }`, `status` `found` \| `renamed` (the heading is called `heading` now) \| `missing` ([ADR 2101](adr/2101-section-refs-in-page-links.md)) |
+| GET | `/api/pages/:id/headings` | `{ headings: [{ blockId, text, level, anchor }] }`: the page's section headings (top-level headings, ADR 0926), for the `[[Page#` menu. Documents only (others: `[]`). Membership as `/pages/:id/outline`; guests 403 ([ADR 2100](adr/2100-section-links-are-page-links-with-a-heading-fragment.md)) |
+| GET | `/api/pages/:id/section-link?heading=&block=` | Which heading a section link means now: `{ status: 'found' \| 'renamed' \| 'missing', heading, blockId, anchor }`, by block id, then name, then the change log's rename trace. `heading` 1–500 characters, `block` an optional block id. Read-only; no agent read recorded ([ADR 2102](adr/2102-following-section-links-through-renames.md)) |
+
+- `NotesCheckDTO`: `broken.items[].links[].state` adds `'noHeading'` (`targetId` = the page, `text` = `Title#Heading`).
+
+### Database views, public pages and the Markdown download (docs/adr/2120–2123, 2190)
+- Block props: `pageEmbed` has `viewId` (string, default `''`). When `pageId` is a collection the block is an inline
+  database view; `''` = the collection's first view.
+- `GET /api/pages/:id/export?format=md&notation=file`: the download form. A chart is its `<!-- inkling:chart {…} -->`
+  line, a database view its `<!-- inkling:pageEmbed {"pageId":"…","viewId":"…"} -->` line, each followed by
+  `<!-- inkling:snapshot -->`, a table of the numbers for the exporting member (at most 1000 rows) and
+  `<!-- /inkling:snapshot -->`; a ```dataview fence is followed by a snapshot of its results; page embeds become
+  `[[Title]]`, link embeds links. Zip exports default to it (`notation=plain` gives the 0.16 output). On import
+  (`POST /api/workspaces/:id/import`, zip and folder imports) a snapshot directly after a block line or a code fence is
+  dropped and the block restored; elsewhere only the markers are removed.
+- Public pages (`GET /api/public/:token`, `/api/public/:token/p/:ref`) render page embeds, link embeds, database views
+  and query blocks from pages inside the link only (anything else: "Embedded content that is not part of this
+  link."). The response shape is unchanged. Database tables there and in the download fill the automatic properties
+  (IDs as `TASK-12`, ISO UTC times, member names, `-` for non-members; `Name (via Client)` in member downloads only)
+  and put sub-items under their parent with `↳` in table and list views; at most 200 rows on public pages.
+- MCP `read_page` adds a `view-info` line under a database view ([MCP.md](MCP.md)).
+
+### Collections (docs/adr/2140–2147, 2192)
+- Field types `email`, `phone`, `createdTime`, `editedTime`, `createdBy`, `editedBy`, `uniqueId` (`{ uniqueId:
+  { prefix } }`); `relation.subItems: true` marks a collection's Parent item relation to itself. One ID and one Parent
+  item per collection (400). `PUT /pages/:id/collection/fields` validates them.
+- `GET /pages/:id/collection` (and the other row answers): rows' `props` include automatic values (`createdTime` /
+  `editedTime` as ISO UTC strings, `createdBy` / `editedBy` user ids with `via:<fieldId>` = the client name when an
+  agent made the change, `uniqueId` a number). Page guests may call it (404 outside their shared trees); their answer
+  adds `people: { [userId]: name }`.
+- Opened to page guests (edit level for writes): `GET /pages/:id/collection/row-options`, `GET …/covers`,
+  `GET …/row-templates`, `POST …/collection/rows`, `PATCH /pages/:id/props`. A guest's person value is 403
+  `GUEST_PERSON`. Properties, views, bulk paste and import, charts and the member list stay member-only.
+- `PATCH /pages/:id/props`: automatic values and `via:` keys are ignored; a Parent item keeps one id; a loop is 400
+  `SUBITEM_CYCLE`.
+- `GET /pages/:id/collection/query`: `under` (a row id, an ID like `TASK-3` or an exact title) and `depth` (1–8,
+  default 1); field summaries carry `prefix` (uniqueId) and `subItems: true`. Automatic values are computed in SQL
+  only for the fields the filter or sort names; the returned rows get theirs from a second read of those rows
+  ([ADR 2192](adr/2192-query-rows-computes-automatic-values-only-when-read.md)). The answer's shape is unchanged.
+- View config: `filter` (a tree: `{ mode: 'and' | 'or', items: (condition | group)[] }`, condition `{ fieldId, op,
+  value?, not? }`, group `{ mode, not?, items: condition[] }`, one level of groups, 10 items per level) next to the
+  old flat `filters`; a plain AND filter is still saved as `filters`. `subItems: 'nested' | 'flat'`. View type `list`.
+- Built-in template key `agentBoard`.
+
+### First-admin setup and the local trial (docs/adr/2160–2161)
+- `GET /api/auth/mode`: adds `setupPending: boolean` (no account yet and a setup link was printed).
+- `POST /api/auth/register`: body adds `setupCode?: string`. With it no `signupKey` is needed; the account is created
+  as admin only while the server has no account. 403 `INVALID_SETUP_CODE` (not the code in the log; counts towards the
+  IP ban), 403 `SETUP_CLOSED` (an account exists, or no code is open). The setup account is not subject to
+  `REQUIRE_EMAIL_VERIFICATION`.
+- Web route `/setup?code=…`: the sign-up screen in setup mode.
+
+### Imports by connections and zip safety (docs/adr/2162–2163)
+- `POST /api/workspaces/:id/import` with a bearer token and a zip: the file is at most
+  `min(IMPORT_MAX_UPLOAD_MB, AGENT_UPLOAD_MAX_MB)` (413 `PAYLOAD_TOO_LARGE`); if it has `assets/` attachments, 403
+  `AGENT_UPLOADS_OFF` / 429 `UPLOAD_BUDGET` before anything is created; attachments are typed like `POST /api/files`
+  and capped per file, and refused ones are listed as `skippedAttachments: [{ name, reason }]` (also on a bearer
+  `import-folder`). A Notion export is 415 `NOTION_IMPORT_IN_APP` unless `?source=markdown`. Attachments stored this
+  way have `uploaded_via` set and count towards the daily budget. Browser imports are unchanged.
+- Every zip import: 400 for an archive with a `..` entry ("Unsafe path in the archive"), a symbolic link, or an entry
+  inflating more than 200 times its packed size past 1 MB (`ZIP_RATIO`). Names are NFC; names that are not UTF-8 are
+  read as CP949.
+
+### Versions: AI steps (docs/adr/2180–2182)
+- `GET /api/pages/:id/snapshots`: AI step rows add `step: { n, tool, mode?, sections, more?, added?, removed?,
+  restoredFrom? }` (`SnapshotStepDTO`); `n` counts consecutive step rows of one client from 1; `sections` are at most 3
+  anchors (`more` = how many others, empty = the whole body); `added` / `removed` are Markdown lines.
+- `POST /api/pages/:id/snapshots/:sid/restore` → `{ ok: true, before: string | null, step: string | null }`. A person's
+  restore stores a "Before restore" snapshot first (`before`). An agent's restore (a bearer request with a client) is
+  an AI step: `before` is the newest version when it equals the page (the agent's previous step), else a new "Before
+  restore" snapshot; `step` is the restored page's step row.
+- Each client keeps its newest 20 step rows per page, a page at most 30; the 50-version cap is unchanged and step rows
+  are pruned first. Autosaves ignore step rows when deciding whether one is due.
+
+### Agent search (docs/adr/2183–2184)
+
+| Method | Path | Query | Answer |
+|---|---|---|---|
+| GET | `/api/search` | `q` (1–200 chars), `workspaceId?` (else every live workspace I belong to that does not block this agent, in the connection's range), `limit?` (1–50, default 10) | `{ results: [{id, workspaceId, title, kind, scope, updatedAt, match: 'title'\|'heading'\|'body', exact, anchor?, shortAnchor?, headingPath?, snippet?}], total, workspaces: [{id, name, matches}], limit }`. Match set as `/api/workspaces/:id/search` (title or body text contains `q`, case-insensitive; live, visible pages). Order: title equal to `q` → title with `q` as a whole word → title containing it → heading whole word → heading containing it → body whole word → body containing it, then `updatedAt` desc, then id. Whole word: no letter or digit (ASCII, Latin, Greek, Cyrillic, Hangul, kana, CJK) or `_` right before or after; a query ending in a Hangul syllable may be followed by a fitting particle (+ 는/은/도/만). `snippet` only for body matches. `total` and `workspaces[].matches` count every match, shown or not. Read-only tokens allowed. With `workspaceId`: the errors of the workspace search route (403/404, `OUT_OF_RANGE`, `AGENT_BLOCKED`, `TWO_FACTOR_REQUIRED`) |
+
+The web app's `GET /api/workspaces/:id/search` is unchanged.
+
+### Vault sync (experimental `vault-sync`, docs/adr/2166–2169)
+- `POST /api/workspaces/:id/sync/pages`: `clientKey?: uuid`; the page id is derived from the workspace and the key, and a retry with
+  the same key (same workspace, author, live page) answers the same page with `replayed: true`.
+- `PUT /api/pages/:id/sync/md`: 200 without writing when the page already equals the note despite a stale revision;
+  `droppedFrontmatterKeys` includes reserved and over-limit keys; the Markdown carries block tokens
+  (`<!-- inkling:pageEmbed … -->` and the like); the revision's meta half carries the format marker `md2`.
+- `DELETE /api/pages/:id/sync`: accepts a pre-0.17 meta half; logged as `page_trashed` in the change feed.
+
+### MCP tools
+New tool: `import_zip(base64, workspaceId?, parentId?, source?)` (hidden group `files`). New arguments:
+`search(…, limit?)`, `list_versions(…, all?)`, `query_rows(…, under?, depth?)`, `create_row(…, parent?)`;
+`create_collection` and `update_fields` take the new field types, `prefix` and `subItems`. `workspaceId` arguments take
+a workspace name (inbox excepted). `search` output and `find_context` across workspaces changed (docs/adr/2184-*,
+2185-*). Tool lists: full 48 tools (~12,777 tokens), core 32 (~7,533). Details: [MCP.md](MCP.md).

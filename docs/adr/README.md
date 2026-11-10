@@ -772,6 +772,75 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2063](2063-issuing-agent-tokens-names-audit-and-the-connections-screen.md) | Issuing agent connection tokens: browser only, names, audit, and the Connections screen | Accepted |
 | [2065](2065-agent-uploads-switch-and-limits.md) | Uploads by AI agents: a server default, a workspace switch, limits from the environment | Accepted |
 
+## 2100–2109 Mermaid diagrams and section links
+
+| ADR | Title | Status |
+|---|---|---|
+| [2100](2100-section-links-are-page-links-with-a-heading-fragment.md) | Section links `[[Page#Heading]]` are page links with a heading fragment | Accepted |
+| [2101](2101-section-refs-in-page-links.md) | Section references in `page_links.sections`; backlinks name the heading | Accepted |
+| [2102](2102-following-section-links-through-renames.md) | Following section links: block id, name, then the change log | Accepted |
+| [2103](2103-check-notes-reports-section-links-without-their-heading.md) | check_notes reports section links whose heading is gone | Accepted |
+| [2104](2104-mermaid-diagrams-in-code-blocks.md) | Mermaid diagrams are code blocks in language `mermaid`, drawn on demand | Accepted |
+| [2105](2105-mermaid-safety-strict-and-an-image.md) | Mermaid safety: strict configuration, a cleaning pass, shown as an image | Accepted |
+| [2106](2106-mermaid-in-themes-print-and-presentation.md) | Mermaid in dark mode, PDF export, presentation and narrow screens | Accepted |
+
+## 2120–2129 Database views in pages, public pages and exports
+
+| ADR | Title | Status |
+|---|---|---|
+| [2120](2120-inline-database-view-is-a-page-embed-with-a-view.md) | An inline database view is a page embed of a collection with a view | Accepted |
+| [2121](2121-public-pages-show-embedded-data-only-from-inside-the-link.md) | Public pages show embedded data only from inside the link | Accepted |
+| [2122](2122-markdown-download-keeps-blocks-with-snapshots.md) | The Markdown download keeps charts, database views and queries with a snapshot | Accepted |
+| [2123](2123-database-views-in-agent-reads.md) | Database views in agent reads: the page-embed token and a name line | Accepted |
+
+## 2140–2149 Database fields, filters, sub-items and guests
+
+| ADR | Title | Status |
+|---|---|---|
+| [2140](2140-automatic-values-email-phone-and-unique-ids.md) | Collection fields: automatic values, email and phone, unique IDs from a trigger | Accepted |
+| [2141](2141-last-editor-from-the-change-log.md) | "Last edited by" is the change log's actor, kept on the page | Accepted |
+| [2142](2142-view-filter-groups-and-not.md) | View filters: OR groups and NOT, one evaluator, stored next to the flat list | Accepted |
+| [2143](2143-file-field-deferred.md) | A files field: designed, not in 0.17 | Accepted |
+| [2144](2144-sub-items-as-a-parent-relation.md) | Sub-items: a Parent item relation of the collection to itself | Accepted |
+| [2145](2145-list-view.md) | A list view | Accepted |
+| [2146](2146-guests-open-shared-collections.md) | Page guests open the collections shared with them | Accepted |
+| [2147](2147-agent-task-board-template-and-mcp-parameters.md) | An agent task board template; sub-items in query_rows and create_row | Accepted |
+
+## 2160–2169 Local trial, zip imports and vault sync
+
+| ADR | Title | Status |
+|---|---|---|
+| [2160](2160-first-admin-setup-link-from-the-server-log.md) | The first admin comes in through a one-time setup link from the server log | Accepted |
+| [2161](2161-local-trial-script-and-compose-overlay.md) | A local trial in one command: deploy/local.sh and compose.local.yaml | Accepted |
+| [2162](2162-import-zip-for-agents-with-the-upload-rules.md) | import_zip: an agent's zip becomes a page tree under the upload rules | Accepted |
+| [2163](2163-zip-archive-safety-names-encodings-links-and-ratio.md) | Zip imports: crafted names, legacy encodings, links and the inflate ratio | Accepted |
+| [2166](2166-vault-sync-retries-create-once-and-rewrite-nothing.md) | Vault sync retries: a create happens once, a repeated write changes nothing | Accepted |
+| [2167](2167-vault-directories-follow-renames-and-deletes.md) | Vault sync: directories follow renames and deletes | Accepted |
+| [2168](2168-vault-sync-keeps-and-reports-what-it-cannot-carry.md) | Vault sync keeps and reports what it cannot carry, instead of dropping it or stopping | Accepted |
+| [2169](2169-vault-sync-writes-embeds-as-block-tokens.md) | Vault sync writes embeds as block tokens; the revision carries the Markdown format | Accepted |
+
+## 2180–2189 AI step versions, search and workspace scope
+
+| ADR | Title | Status |
+|---|---|---|
+| [2180](2180-one-version-per-agent-write.md) | One version per agent write ("AI step"): snapshot rows with a content digest, per-client step caps | Accepted |
+| [2181](2181-ai-step-boundaries.md) | Where one AI step ends: batches, people in between, suggestions, conflicts and restores | Accepted |
+| [2182](2182-list-versions-shows-steps-folded.md) | list_versions and the web history show AI steps; long runs are folded | Accepted |
+| [2183](2183-search-ranking-and-one-agent-search-route.md) | search ranks title > heading > body, whole word before part; one agent search route over every workspace | Accepted |
+| [2184](2184-search-output-grouped-by-workspace-with-a-more-line.md) | search output: grouped by workspace, 10 by default with an "N more" line, and when to use it instead of find_context | Accepted |
+| [2185](2185-find-context-names-workspaces-when-an-answer-spans-several.md) | find_context names the workspaces when an answer spans several | Accepted |
+| [2186](2186-workspace-arguments-take-a-name.md) | Workspace arguments take a name as well as an id | Accepted (extends 1940, 1941) |
+| [2187](2187-no-per-connection-default-search-workspace.md) | No per-connection default search workspace (for now) | Accepted |
+| [2188](2188-best-workspace-first-measured-and-not-adopted.md) | Several-workspace evaluation cases; "best workspace first" measured and not adopted | Accepted (extends 1213, 1909) |
+
+## 2190–2199 0.17 integration
+
+| ADR | Title | Status |
+|---|---|---|
+| [2190](2190-automatic-values-and-sub-items-outside-the-app.md) | Automatic values and sub-items in database tables outside the app | Accepted |
+| [2191](2191-mermaid-on-public-pages.md) | Mermaid diagrams on public pages are drawn in the reader's browser | Accepted |
+| [2192](2192-query-rows-computes-automatic-values-only-when-read.md) | query_rows computes automatic values in SQL only for the fields a filter or sort reads | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

@@ -7,6 +7,235 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-10
+
+A minor release about Notion- and Obsidian-style use and feedback from people running Inkling every day: Mermaid
+diagrams, `[[Page#Heading]]` links to a section, database views inside pages, new database properties (email,
+phone, created and edited time and by, IDs like `TASK-12`), filters with OR and NOT, sub-items and a list view,
+an agent task board template, guests who can open the databases shared with them, a one-command local trial, MCP
+`import_zip`, a version per agent write, and a ranked `search`. Three database migrations, all additive:
+`0051_v017_collection_rows` (row numbers and the last editor of a collection row), `0052_page_link_sections` (the
+heading a page link points to) and `0053_v017_snapshot_steps` (AI steps in the version history). A 0.16.0 database
+goes from 51 to 54 applied migrations. New dependency `mermaid` 12.3.0 (web only, loaded on the first diagram, not
+precached). Two new optional compose variables, `INKLING_PORT` and `INKLING_DB_PORT`. Upgrade matrix adds v0.16.0
+(`.github/workflows/upgrade.yml`).
+
+### Upgrade notes
+- **MCP `search` output and default count changed.** One call now ranks every workspace together (title, then
+  heading, then body; whole words before parts of words), groups answers from several workspaces under
+  `## <name> (<id>)`, prints `§anchor` for heading and body matches and returns **10 results by default** (before:
+  20 per workspace, every workspace) with a closing line saying how many more matched and where. Pass `limit`
+  (at most 50) or `workspaceId` for more. `format: "json"` keeps `results[].id`, `workspaceId`, `title`, `kind`,
+  `section` and `snippet` and adds keys (docs/adr/2183-*, 2184-*).
+- **Every agent write leaves a version ("AI step").** patch_section, patch_sections, update_page, restore_version
+  and upload_file each store the page right after the write, labelled with the client, the sections and the lines
+  changed; "Before AI edit" is stored only when the page changed since the newest version. Each client keeps its
+  newest 20 steps per page and a page keeps at most 30 steps; the 50-version cap per page is unchanged and step rows
+  are pruned first. A page an agent writes often keeps more rows than in 0.16 (docs/PERFORMANCE.md;
+  docs/adr/2180-* .. 2182-*).
+- **The Markdown download has snapshot markers.** "Export as Markdown" in the web app and every zip export
+  (`format=zip`, `GET /api/workspaces/:id/export`) now use `notation=file`: a chart or database view is its
+  `<!-- inkling:… -->` line followed by `<!-- inkling:snapshot -->`, a table of its numbers and
+  `<!-- /inkling:snapshot -->`, and a query block is followed by its results. Importing the file restores the
+  blocks and drops the tables. `notation=plain` gives the 0.16 output; `GET /api/pages/:id/export?format=md`
+  without `notation` is still `plain` (docs/adr/2122-*).
+- **Zip imports and bearer folder imports by a connection follow the upload rules.** A zip posted with a
+  connection's token to `POST /api/workspaces/:id/import` is at most `AGENT_UPLOAD_MAX_MB` (default 5 MB), and its
+  `assets/` attachments, like the attachments of a bearer `import-folder`, are checked as `upload_file` checks them
+  (the upload switch, the daily budget, the per-file cap, the type by bytes) and counted as the connection's uploads;
+  refused ones are skipped and listed in `skippedAttachments`. Before, a bearer zip import stored any attachment
+  unchecked. Imports from the browser are unchanged (docs/adr/2162-*).
+- **Zip imports refuse unsafe archives** (web and MCP): an entry with `..` (JSZip used to collapse it silently), a
+  symbolic link, or an entry that inflates more than 200 times its packed size past 1 MB is answered with 400.
+  Names are normalized (NFC, `\`, leading `/`, drive letters), and names that are not UTF-8 are read as CP949
+  (zips made by Windows Explorer on Korean systems) (docs/adr/2163-*).
+- **A new server with no account prints a setup link.** At boot, a server with no account writes a one-time
+  `<PUBLIC_URL>/setup?code=…` link to its log; the account made with it is the administrator. The code is kept in
+  memory only, works once and closes as soon as any account exists. Servers that already have accounts print
+  nothing and behave as before; `deploy/signup-key.sh` keeps working. If container logs go to a service other
+  people can read, create the first account right after the first start or use a signup key (docs/adr/2160-*).
+- **`[[Page#Heading]]` now links to the heading.** Markdown import, MCP writes and vault sync turn
+  `[[Page#Heading]]` and `[[Page#Heading|shown]]` into a section link when `Page` is a page you can see and no page
+  or split subpage is titled `Page#Heading` (those stay page links). A link written before 0.17 stays a page link
+  until its line is written again. `[[…]]` inside a fenced code block is now left as code on import
+  (docs/adr/2100-*, 2104-*).
+- **Vault sync (still experimental, `EXPERIMENTAL_FEATURES=vault-sync`) behaves differently in six ways**
+  (docs/VAULT-SYNC.md):
+  1. Page embeds, database views, link embeds, plugin blocks and charts are written to the note as one-line
+     `<!-- inkling:… -->` block tokens, and the revision carries a format marker (`md2`). A note last synced by 0.16
+     gets one 412 and a merge on its first upload; an edit on the line next to an embed then gives one conflict
+     copy, and nothing is lost (docs/adr/2169-*).
+  2. Deleting a folder in the vault trashes its folder page. This reverses ADR 0202's "folders are not deleted by
+     sync" for folders that held notes at the last completed run; empty folders and the first run from a pre-0.17
+     state file are exempt, so a git clone that drops empty folders deletes nothing (docs/adr/2167-*).
+  3. A `PUT` with a stale revision answers 200 and writes nothing when the page already equals the note
+     (docs/adr/2166-*).
+  4. Creating a page takes a `clientKey`; a retry with the same key returns the same page with `replayed: true`
+     (docs/adr/2166-*).
+  5. A 403 on one note skips that note and lists it, and the run exits 0; a read-only token's run "succeeds" while
+     writing nothing (docs/adr/2168-*).
+  6. A folder `X/` next to `X.md` is X's sub-page folder (before: a separate folder page with the same name).
+- **A database view is a page embed with a `viewId`.** A tab still running 0.16 keeps the block and shows a page
+  card for the database; only if that tab moves or rewrites the block does it lose the view choice (docs/adr/2120-*).
+  A view whose filter uses OR, NOT or groups shows unfiltered in a 0.16 tab; a plain AND filter is still saved in
+  the 0.16 format (docs/adr/2142-*).
+- `GET /api/pages/:id/backlinks` may carry a new `sections` field; clients that read only `pages` are unaffected
+  (docs/adr/2101-*).
+
+### Added
+- **Mermaid diagrams** (docs/adr/2104-* .. 2106-*, 2191-*). A code block in language `mermaid` (or `mmd`) draws its
+  diagram under the code: the code shows while you edit it (or always, with "Show code"), and a syntax error is one
+  line in the block. Light and dark themes, narrow screens, presentation mode (diagram only), PDF export (waits for
+  diagrams, prints them in the light palette) and public pages (`/s/…`, drawn in the reader's browser; if a diagram
+  cannot be drawn its code stays). Mermaid runs with a strict configuration and is shown as an image. It is loaded
+  only when a page has a diagram, and its source stays a ```mermaid fence for agents, vault sync and exports.
+- **Section links `[[Page#Heading]]`** (docs/adr/2100-* .. 2102-*). Type `[[Page#` to pick one of the page's
+  headings; the link opens the page at that heading (folded sections open). The link follows the heading when it is
+  renamed or moved; when the heading is gone the page opens and says so. The backlinks panel shows which heading
+  each linking page points to; the graph counts section links as page links. Markdown export, MCP reads, vault sync
+  and Notion publishing write them as `[[Page#Heading]]` (`|shown` when the text differs).
+- **check_notes** reports section links whose heading no longer exists: `[[Page#Heading]] heading not found in page
+  <id>` (docs/adr/2103-*).
+- **Database views in pages** (docs/adr/2120-*). Type `/database view` (`/데이터베이스 보기`) to show one view of a
+  database (table, board, gallery, calendar, timeline, chart or list) inside a page. The block stores only which
+  database and which view: everyone sees the rows they can see, and a database you cannot see shows "Database not
+  available" without its name. Rows open their page and "Open database" goes to the full view; the block is
+  read-only in this release. `![[Database]]` shows the database's first view.
+- **Public pages show embeds, database views and query results** (docs/adr/2121-*, 2190-*): an embedded page that is
+  part of the link shows its title and text, a database view a table of its view, a query block its results, a link
+  embed a card. Only data from pages inside the link is shown; anything else is one line, "Embedded content that is
+  not part of this link."
+- **Markdown download keeps charts, database views and queries** with a snapshot of their numbers, and importing
+  the file brings the blocks back (see Upgrade notes, docs/adr/2122-*). Database tables on public pages and in the
+  download show 0.17's automatic properties (IDs as `TASK-12`, ISO times, people's names) and table and list views
+  show sub-items under their parent (`↳`); public pages never show the connection an agent used (docs/adr/2190-*).
+- Agents: `read_page` writes a database view as its page-embed line followed by `<!-- inkling:view-info database
+  "…", view "…" (board); its rows: query_rows -->`; agents add a database view by writing the line
+  (docs/adr/2123-*).
+- **Database properties** (docs/adr/2140-*): email and phone (`mailto:` / `tel:` links), and automatic, read-only
+  created time, last edited time, created by, last edited by and **ID** (`TASK-12`: a prefix per property and a
+  number per database, handed out once by a database trigger, never reused, no duplicates under parallel creates;
+  existing rows are numbered when the property is added). Automatic values work in sort, filter, group, charts,
+  formulas (`prop("ID")` is the number) and CSV/XLSX export; forms never ask for them; writing them is ignored in
+  the web app and refused with a clear error through MCP.
+- **Last edited by** follows the change log: the person behind the newest property, title or body change, with
+  "(via Client)" when an agent made it (docs/adr/2141-*).
+- **Filters with OR groups and NOT** (docs/adr/2142-*): "Match all / any", a Not toggle per condition, and one
+  level of groups with their own all/any and Not, in every view type, in charts and inline views — the same
+  evaluator query_rows and the server's chart aggregate use.
+- **Sub-items** (docs/adr/2144-*): turn them on from the database menu; each row gets one Parent item (a loop is
+  refused with 400 `SUBITEM_CYCLE`). Table and list views show the tree with indentation and collapse ("Nested /
+  Flat" in view settings); board, calendar, gallery and timeline stay flat. A trashed parent leaves its sub-items
+  at the top level until it is restored.
+- **List view** (docs/adr/2145-*).
+- **Guests can open databases shared with them** (docs/adr/2146-*): read at view level, add rows and edit cells at
+  edit level; links, rollups and people outside their shared pages stay hidden. Properties, views, bulk paste and
+  import, charts and assigning people stay member-only. Database views in pages show guests the rows and people's
+  names of a database shared with them.
+- **Agent task board template** (Templates › Agent task board, `create_from_template template="agentBoard"`):
+  tasks with sub-tasks, an assignee (a person or their agent connection), evidence and `TASK-n` IDs
+  (docs/adr/2147-*, docs/RECIPES.md).
+- MCP for databases: `query_rows` `under` and `depth` (the sub-items of a row), `create_row` `parent`, IDs (`TASK-3`)
+  accepted wherever a parent row is named; `create_collection` and `update_fields` take the new types, `prefix` and
+  `subItems` (docs/adr/2147-*).
+- **One-command local trial** (docs/adr/2161-*): `./deploy/local.sh` writes a `.env` with generated secrets, picks a
+  free port bound to 127.0.0.1, starts the stack under its own compose project (`compose.local.yaml`: no database
+  host port, no backup sidecar) and prints the first-admin link and the MCP address. `--build` builds the checkout;
+  `stop` and `destroy`. It never changes a `.env` it did not write (deploy/DEPLOY.md, "Local trial").
+- **First-admin setup link** on a server with no account (see Upgrade notes, docs/adr/2160-*); the sign-up screen at
+  `/setup?code=…`.
+- **MCP `import_zip`** (hidden group `files`, docs/adr/2162-*): a zip of a folder becomes a page tree (folders,
+  `.md`, `.canvas`, `assets/` attachments) through the web app's zip import, under the upload rules. Notion exports
+  are left to the web app (or `source="markdown"`).
+- **AI steps in the version history** (docs/adr/2180-* .. 2182-*): `list_versions` shows them as
+  `AI step n | by <person> via <client> | patch_section replace §goals +1 −1 lines`, lists the newest 20 versions
+  and folds runs of more than 4 steps; `all=true` lists every version (up to 50). The web history shows "AI edit ·
+  step n" and what the step changed. `restore_version` by an agent is itself a step; when the page is still its
+  previous step it stores no "Before restore" copy and names that step as the undo point.
+- **Workspace arguments take a name** (docs/adr/2186-*): `workspaceId` in find_context, search, list_pages,
+  create_page, import_folder, import_zip, get_instructions, catch_up, changes_since, later, list_templates,
+  create_from_template, create_collection, list_trash and check_notes accepts the workspace's name
+  (case-insensitive, or a unique start of 2+ characters) as well as an id or 8-character prefix. `inbox` still takes
+  ids only.
+- **find_context names the workspaces** when an answer has results from two or more (only without `workspaceId`):
+  `{Workspace name}` before each title and one closing line with the ids and how to narrow. An answer from one
+  workspace is unchanged, byte for byte (docs/adr/2185-*).
+- `GET /api/search?q&workspaceId?&limit?`, the agent search route (the web app's workspace search is unchanged).
+- `compose.yaml`: `INKLING_PORT` (the app's host port or ip:port, default 3000) and `INKLING_DB_PORT` (default
+  55432).
+
+### Changed
+- The `search` tool description says when to use it: names and exact words; questions go to find_context
+  (docs/adr/2184-*).
+- The server instructions add one sentence: with several workspaces, pass workspaceId (an id or the name) to search
+  one.
+- Autosaves (every 10 minutes) ignore AI step rows when deciding whether one is due, and skip a state equal to the
+  newest version.
+- Printing and PDF export print database views and embedded pages whole instead of their scroll box.
+- The boot warning "no accounts yet and signups need a key" is replaced by the setup link.
+- Not changed: find_context still ranks across workspaces together. "Best workspace first" was measured on new
+  several-workspace evaluation cases and not adopted (MRR and recall@5 lower, docs/adr/2188-*); a per-connection
+  default search workspace was not built (docs/adr/2187-*).
+- Routes and fields: [docs/API.md](docs/API.md), "v0.17.0 additions".
+
+### Fixed
+- Vault sync (experimental): editing a note in the vault no longer deletes page embeds, database views, link
+  embeds, plugin blocks and charts; frontmatter Inkling cannot store stays in the note and is listed; inline images
+  are kept, and two notes with the same picture no longer share one file (docs/adr/2168-*, 2169-*).
+- Vault sync (experimental): a sync cut off part-way no longer duplicates pages or makes false conflict copies;
+  deleting a page with its sub-pages folder, or a folder, in the vault no longer comes back; renaming a folder keeps
+  its folder page; one refused attachment or locked page no longer stops the run; canvases are listed as not synced
+  (docs/adr/2166-* .. 2168-*). Vault deletes are in the change feed.
+- Vault sync wrote a `[[Page#Heading]]` link back as `[[Page|Page#Heading]]`.
+- Vault sync: a link to a page whose title contains `#` ("C# notes", also `[[C# notes#Setup]]`) keeps its target
+  when the note is edited in the vault; it used to move to a page "C" or become text.
+- `[[Title]]` inside a fenced code block became a link on Markdown import.
+- An agent's `update_page` replace right after its own `create_page` with Markdown could be refused as if a person
+  had edited the page last (the change log had not labelled the new page with the client yet).
+- `linkPreview.test.ts`'s ReDoS timing check measures the process's CPU time (best of three) instead of wall time,
+  so a loaded machine no longer fails it. No product change.
+
+### Security
+- Zip imports refuse `..` entries, symbolic links and entries that inflate more than 200 times past 1 MB, and
+  normalize entry names (see Upgrade notes, docs/adr/2163-*).
+- Attachments in zip and folder imports by a connection are typed and counted like `upload_file` (docs/adr/2162-*).
+- The first-admin setup code is in memory only, works once, counts wrong codes towards the IP ban and closes when
+  any account exists; concurrent setups commit at most one account. "Requests from localhost need no key" was
+  rejected as unsafe behind a proxy (docs/adr/2160-*).
+- Mermaid diagrams render with `securityLevel: 'strict'`, locked directive keys and a cleaning pass, and are shown
+  as an `<img>` with external references removed (docs/adr/2105-*). On public pages they are drawn the same way in
+  the reader's browser (docs/adr/2191-*).
+- Public pages show embedded data only from pages inside the link, never what the person who shared it can see
+  (docs/adr/2121-*). Guests opening a shared database get no titles, rows or people from outside their shared
+  pages (docs/adr/2146-*).
+
+### Performance
+- MCP fixed cost per session (tools/list + server instructions): full ~13,269 tokens (0.16: ~12,837, +3.4%; tools/list
+  48 tools ~12,777, instructions ~492), core ~8,025 (0.16: ~7,904, +1.5%; 32 tools ~7,533). The growth is
+  import_zip (181, hidden from core), the database parameters of create_collection, query_rows, create_row and
+  update_fields, and list_versions' `all`.
+- MCP search over several workspaces is one statement instead of 1 + W requests: p50 at 10 workspaces / 5,000 pages
+  182.7 → 22.5 ms (common word), 29.8 → 3.1 ms (rare word). In one workspace a two-character term that matches every
+  page is slower (50.6 → 72.2 ms; every match is graded).
+- AI steps: +6–9 ms per agent write on a 12 KB page; 30 agent writes to that page keep 21 rows, 34.3 KB on disk.
+- Mermaid adds nothing to the entry chunk; the library (about 246 kB gzip for the first flowchart) is fetched on the
+  first diagram and not precached.
+- query_rows on a database with automatic properties costs about the same as without them unless the filter or sort
+  uses them (docs/adr/2192-*). Single page and row writes with the 0.17 ID trigger and last-editor update are within
+  noise; a bulk insert of 20,000 rows under a parent is about 30% (≈ 20 µs a row) slower.
+- Vault sync (experimental) of a 1,000-file vault: first upload 23.5 s (rate limiter off) / 120.1 s (on), a run with
+  no changes 0.4 s.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Database
+- Migration 0051: `pages.row_number`, `pages.edited_by`, `pages.edited_via`, `collections.row_seq`, a partial unique
+  index on `(parent_id, row_number)`, and the triggers `pages_row_number_ins`, `pages_row_number_move` and
+  `collections_row_number_backfill` that hand out ID numbers (docs/adr/2140-*, 2141-*).
+- Migration 0052: `page_links.sections jsonb` (nullable; no section links existed before 0.17, so nothing is
+  backfilled) (docs/adr/2101-*).
+- Migration 0053: `page_snapshots.digest text` and `page_snapshots.step jsonb` (nullable, no data migration)
+  (docs/adr/2180-*).
+
 ## [0.16.0] - 2026-11-10
 
 A minor release about MCP and working with AI agents: a smaller tool list on request, pages as MCP resources and

@@ -85,6 +85,7 @@ images and files, and also:
 - **Embed / link card**: paste a link (YouTube, Figma, Google Docs, …). Switch between embed, preview card and plain link.
 - **Query**: a live list or table of pages (see below).
 - **Chart**: a chart of a database or a query (see [Charts](#charts)).
+- **Database view**: one view of a database inside this page (see [Databases](#databases)).
 
 **Tables**: type a row such as `| Name | Role | Due |` on an empty line and press Enter: it becomes a table with
 that header row and an empty row to fill in (⌘Z right after turns it back into text). `/table 3x4` inserts an
@@ -98,9 +99,20 @@ You can also drop images and files onto the page. The title is the large text at
 - Inline equation: type `$x^2$`, press ⌘⇧E (wraps the selection), or `/` → **Inline math**.
 - Click an equation to edit its LaTeX with a live preview. Prices like `$5 and $10` stay text.
 
+### Diagrams
+
+A code block in language **mermaid** (or `mmd`) draws a [Mermaid](https://mermaid.js.org) diagram under its code:
+flowcharts, sequence diagrams, Gantt charts and the other Mermaid types. The code shows while you edit it; click the
+diagram to edit, or **Show code** to keep the code open. A mistake in the code shows **Diagram error** with one line
+saying what is wrong. Diagrams follow the light and dark theme, show alone in presentation mode, print in **Export as
+PDF**, and are drawn on public pages too. Agents, exports and vault sync see the ```mermaid code.
+
 ### Links, mentions and tags
 
 - `[[` links to another page. Pick from the list or choose **＋ New page: "…"** to create it.
+- `[[Page#` links to a heading of that page: pick one of its headings. The link opens the page at that heading and
+  keeps working when the heading is renamed or moved; if the heading is gone, the page opens and says so. The
+  backlinks panel shows which heading each linking page points to.
 - `![[` embeds another page's content.
 - `@` mentions a member (they are notified) or a page.
 - `#tag` adds a tag. **Tags** in the sidebar lists every tag and its pages.
@@ -159,10 +171,24 @@ default, and turning it off again takes effect at once.
 
 Create one with **New database**. Each row is a page; **Open row as a page** opens it in full.
 
-- **Views:** Table, Board, Calendar, Gallery, Timeline, Chart, Form. Add one with **New view** in the view tabs.
-- **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup, Formula.
-  Add one with **Add a property**.
+- **Views:** Table, Board, Calendar, Gallery, Timeline, Chart, Form, List. Add one with **New view** in the view tabs.
+- **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Email, Phone, Relation, Rollup,
+  Formula, and the automatic ones: Created time, Last edited time, Created by, Last edited by and **ID**. Add one with
+  **Add a property**. Automatic properties fill themselves in and cannot be edited; "Last edited by" says "(via
+  Claude)" when an agent made the change. **ID** numbers the rows (`TASK-12` with the prefix `TASK`); a number is never
+  given twice, and existing rows are numbered when you add the property.
 - **Sort & filter** sets sorting, filters and visible properties per view. Boards group by a select property.
+  **Match: All / Any** decides whether every condition or one of them must hold, **Not** turns a condition around,
+  and **Add group** makes a group of conditions with its own All / Any.
+- **Sub-items:** **⋯ → Turn on sub-items** adds a **Parent item** property. Add a sub-item from a row's menu
+  (**Add sub-item**) or by picking the parent. Table and list views show the rows as a tree you can fold; **Nested /
+  Flat** in the view settings switches it. A row cannot be put under itself or its own sub-items.
+- **Show a database in a page:** type `/database view` and pick the database and the view. The block shows that view
+  with the rows each reader may see and updates with the database. Click a row to open it, or **Open database** for
+  the full view; switch the view from the block's header. The block is read-only. A database someone cannot see shows
+  "Database not available" to them.
+- **Agent task board:** the template of the same name makes a database for AI agents that split work: tasks with
+  sub-tasks, an assignee (a person or their agent), evidence and `TASK-n` IDs ([RECIPES.md](RECIPES.md)).
 - **Keyboard** in a table: click a cell or Tab into the table, then move with the arrows, Tab / ⇧Tab and Home / End.
   Enter or F2 edits the cell (or opens its list or ticks its checkbox); in a text cell Enter saves and moves down,
   Esc cancels. Space ticks a checkbox, ⌫ clears the selected cells, ⇧+arrows extend the selection for ⌘C / ⌘V,
@@ -391,7 +417,9 @@ a page and everything under it:
   when the server has no mail set up). They must sign in or sign up with that same address to accept.
   Guests see only the pages shared with them and the pages under them: nothing else of the workspace,
   no search, graph, members list or settings. They can view, comment or edit (never manage people), and
-  they get a **Guest** badge. Database pages don't open for guests yet.
+  they get a **Guest** badge. A database shared with a guest opens for them: they see its rows (links to pages they
+  cannot see stay hidden), and with **Can edit** they add rows and edit cells, but they cannot assign people or
+  change properties and views.
 - Who may invite guests is a workspace setting (Workspace settings › General › **Who can invite guests**):
   nobody, owners, owners and admins (the default), or members who can edit the page. Members never give more than they have.
 - A level set on a parent page shows as inherited on the pages under it; change it on the parent.
@@ -413,6 +441,9 @@ Only workspace owners and admins can publish or stop sharing.
    through it.
 3. Sharing a folder publishes every page in it, except private pages.
 4. **Stop sharing** turns the link off.
+
+A public page also shows its embedded pages, database views and query results, but only from pages that are part of
+the link (anything else is one line, "Embedded content that is not part of this link"), and draws Mermaid diagrams.
 
 **Web shares** in the sidebar lists everything published in the workspace. Private pages and canvases can't be
 shared. Owners can turn public links off for the whole workspace in Workspace settings → **Public links**.
@@ -703,6 +734,8 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 ## Export
 
 - One page: **⋯** menu → **Export (.md)**, or **Export with subpages (.zip)**. Canvases export as `.canvas`.
+  Charts, database views and query blocks are written with a table of their numbers at export time; importing the
+  file brings the blocks back.
 - PDF: **Export as PDF** in the page header's **⋯** menu.
 - Database: **Export view as CSV** / **Export view as Excel**.
 - Whole workspace: workspace menu → **Export all (.zip)**. An owner may limit who can do this.
@@ -729,6 +762,8 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 - **History** in the right panel lists saved versions. **View all** opens **Version history**: preview a version,
   **Compare with current**, **Snapshot now** to save one yourself, or **Restore this version** (the current state
   is saved first).
+- Every change an AI agent writes is its own version, **AI edit · step n**, with what it changed (which sections,
+  how many lines). Restore the step before a bad one to undo just that part; later steps stay in the list.
 - A deleted workspace can be restored by its owner from Settings → Account → **Deleted workspaces** for 30 days.
 
 ## Settings and the sidebar

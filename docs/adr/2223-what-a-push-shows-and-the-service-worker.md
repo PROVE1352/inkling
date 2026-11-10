@@ -22,8 +22,9 @@ must live in `public/push-sw.js`, a plain script it imports.
   hide content. Existing notification settings had no per-kind switch; subscription levels still apply
   first (push follows the bell).
 - `push-sw.js`: `push` shows the notification (tag, `renotify`), skipping it only when a focused,
-  visible window is on that very path (not on Safari, which revokes subscriptions whose pushes show
-  nothing); `notificationclick` focuses an Inkling window and asks the app to route there over a
+  visible window is on that very path, and only on Chromium and Firefox user agents (WebKit — Safari,
+  every iOS browser, Home Screen apps whose user agent lacks "Safari/" — revokes subscriptions whose
+  pushes show nothing); `notificationclick` focuses an Inkling window and asks the app to route there over a
   MessageChannel (`PushSync`), falling back to `client.navigate` and then `openWindow`; only same-origin
   paths starting with one `/` are opened. `pushsubscriptionchange` subscribes again with the server key
   and registers it. Permission is asked only from the "Turn on" click in Settings → Notifications.

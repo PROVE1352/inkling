@@ -65,6 +65,13 @@ describe('push-sw.js', () => {
     const safari = worker({ clients: [here], ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1' })
     await safari.fire('push', pushEvent({ title: 't', url: '/w/a/p/b', tag: 'p:b' }))
     assert.equal(safari.shown.length, 1)
+    // a Home Screen app on iOS has no "Safari/" token in its user agent
+    const homeScreen = worker({ clients: [here], ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148' })
+    await homeScreen.fire('push', pushEvent({ title: 't', url: '/w/a/p/b', tag: 'p:b' }))
+    assert.equal(homeScreen.shown.length, 1)
+    const macSafari = worker({ clients: [here], ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15' })
+    await macSafari.fire('push', pushEvent({ title: 't', url: '/w/a/p/b', tag: 'p:b' }))
+    assert.equal(macSafari.shown.length, 1)
   })
 
   it('click: an open window routes itself (ack); without a window one is opened', async () => {

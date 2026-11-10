@@ -4,8 +4,9 @@
 // Web push (docs/adr/2220-* .. 2223-*):
 //  - push:                    show the notification the server sent (JSON: title, body, url, tag, id).
 //                             One tag per page, so a newer push about the same page replaces the older
-//                             one. Skipped only when a focused, visible window already shows that page
-//                             (not on Safari, which revokes subscriptions whose pushes show nothing).
+//                             one. Skipped only when a focused, visible window already shows that page,
+//                             and only on Chromium and Firefox (WebKit revokes subscriptions whose pushes
+//                             show nothing).
 //  - notificationclick:       focus an open Inkling window and let the app route to the page (it acks
 //                             over a MessageChannel); without an ack, navigate that window; without a
 //                             window, open one.
@@ -32,9 +33,13 @@
     return typeof v === 'string' ? v.slice(0, max) : ''
   }
 
-  function isSafari() {
+  // Only browsers known to tolerate a push that shows nothing while the page is in view (Chromium,
+  // Firefox) may skip one. WebKit (Safari, every iOS browser, Home Screen apps whose UA has no
+  // "Safari/" token) revokes subscriptions whose pushes show nothing.
+  function maySkipNotification() {
     const ua = (self.navigator && self.navigator.userAgent) || ''
-    return /Safari\//.test(ua) && !/(Chrome|Chromium|CriOS|Edg|Firefox|FxiOS|OPR)\//.test(ua)
+    if (/iPhone|iPad|iPod/.test(ua)) return false
+    return /(Chrome|Chromium|Edg|Firefox|OPR)\//.test(ua)
   }
 
   function pathOf(clientUrl) {
@@ -59,7 +64,7 @@
         const title = str(p.title, 200) || 'Inkling'
         const tag = str(p.tag, 100) || 'inkling'
         // The person is looking at that very page: the app shows it live, no second ping.
-        if (!isSafari()) {
+        if (maySkipNotification()) {
           const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
           const here = wins.find((c) => c.visibilityState === 'visible' && c.focused && pathOf(c.url) === url.split(/[?#]/)[0])
           if (here) {

@@ -387,6 +387,24 @@ describe('[db] web push', { skip: !HAS_DB }, () => {
     assert.equal((await keys.activeVapid()).keys.publicKey, k.pub, 'the stored pair is reused')
   })
 
+  it('due-date reminders written outside the engine push too (pushForInserted)', async () => {
+    const alice = await h.makeUser('Alice')
+    const ws = await h.makeWorkspace(alice)
+    const page = await h.makeDocPage(ws.id, alice.id, 'Due today', [])
+    const b = browser('reminder')
+    await subscribe(alice, b)
+    const [n] = (await db.execute(sql`
+      INSERT INTO notifications (user_id, type, page_id, workspace_id) VALUES (${alice.id}, 'reminder', ${page.id}, ${ws.id}) RETURNING id
+    `)) as unknown as { id: string }[]
+    await deliver.pushForInserted([n.id])
+    await deliver.flushPush()
+    assert.equal(hitsFor(b).length, 1)
+    const p = b.open(hitsFor(b)[0].body)
+    assert.equal(p.title, 'Due today: "Due today"')
+    assert.equal(p.id, n.id)
+    assert.equal(hitsFor(b)[0].headers['urgency'], 'high')
+  })
+
   it('WEB_PUSH=off: nothing is queued or sent, the routes say unavailable', async () => {
     const alice = await h.makeUser('Alice')
     const bob = await h.makeUser('Bob')

@@ -44,6 +44,8 @@ export function Presentation({
   const [index, setIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // a slide taller than the screen scrolls inside (docs/adr/2323-*): wheel, touch, and ↑ ↓ here
+  const slideRef = useRef<HTMLDivElement>(null)
   const reduced = useMemo(() => prefersReducedMotion(), [])
   // BlockNote's themed variables key off data-color-scheme on .bn-container
   const { resolved } = useTheme()
@@ -102,6 +104,15 @@ export function Presentation({
       }
       // Space/Enter on the presenter's own buttons press them
       if ((e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement | null)?.closest?.('button')) return
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const el = slideRef.current
+        if (el && el.scrollHeight > el.clientHeight) {
+          e.preventDefault()
+          e.stopPropagation()
+          el.scrollBy({ top: (e.key === 'ArrowDown' ? 1 : -1) * Math.round(el.clientHeight * 0.2) })
+        }
+        return
+      }
       const next = slideKey(e.key, index, count)
       if (next === null) return
       e.preventDefault()
@@ -150,6 +161,8 @@ export function Presentation({
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-6 py-8 sm:px-16">
         <div
           key={`slide:${index}`}
+          ref={slideRef}
+          data-testid="presentation-slide"
           className={`flex max-h-full w-full max-w-5xl flex-col overflow-y-auto ${reduced ? '' : 'nd-fade'}`}
           aria-live="polite"
         >

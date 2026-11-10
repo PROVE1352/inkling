@@ -8,9 +8,12 @@ People present meeting notes and study pages straight from Inkling; scrolling a 
 projector is awkward. A separate slide format would mean a second copy of the content.
 
 ## Decision
-- **Split** (`lib/present.ts`, unit-tested on jsdom): the page's top-level blocks; every heading of
-  the highest level present starts a slide; a divider ends one and is not shown. Slide 1 is the page
-  title plus whatever comes before the first split. Blank blocks at slide edges are dropped.
+- **Split** (`lib/present.ts`, unit-tested on jsdom): the page's top-level blocks; every heading at
+  the split level or above starts a slide — the split level is the shallowest heading level used two or
+  more times, else the highest level present (0.18, ADR 2323; it was "the highest level present", which
+  put a page with one H1 title and H2 sections on two slides); a divider ends one and is not shown.
+  Slide 1 is the page title plus whatever comes before the first split. Blank blocks at slide edges are
+  dropped. A slide taller than the screen scrolls inside (↑/↓, wheel, touch).
 - **Read-only by construction**: slides show copies of blocks — `cloneNode` of the live editor's
   top-level blocks (no `data-id`, no `contenteditable`, inputs disabled) in the app, and the already
   sanitized server HTML parsed in an inert `<template>` on public links. The editor never becomes the

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { cloneForSlides, slideKey, splitSlides, swipeDirection, topLevelBlocks } from './present'
+import { cloneForSlides, slideKey, splitLevel, splitSlides, swipeDirection, topLevelBlocks } from './present'
 import { renderMermaidIn } from './mermaidPublic'
 import { setLocaleChoice } from '../i18n'
 
@@ -35,6 +35,48 @@ describe('presentation slides (1843)', () => {
   it('dividers end a slide and are not shown; blank paragraphs at the edges and empty slides go', () => {
     const d = doc(p('intro'), hr(), p(''), p('after rule'), p(''), hr(), hr(), h(2, 'H'), p('h'))
     assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['intro', 'after rule', 'H|h'])
+  })
+
+  it('one H1 as the title and H2 sections (2323): splits at the H1 and at every H2', () => {
+    const h2s = Array.from({ length: 15 }, (_, i) => [h(2, `S${i + 1}`), p(`s${i + 1}`)]).flat()
+    const d = doc(h(1, 'Doc'), p('intro'), ...h2s)
+    const got = texts(splitSlides(topLevelBlocks(d)))
+    assert.equal(got.length, 1 + 1 + 15)
+    assert.deepEqual(got.slice(0, 3), ['', 'Doc|intro', 'S1|s1'])
+    assert.equal(got[16], 'S15|s15')
+    assert.equal(splitLevel(topLevelBlocks(d)), 2)
+  })
+
+  it('H1 right above the first H2: the H1 keeps a slide of its own, no empty slide', () => {
+    const d = doc(h(1, 'Doc'), h(2, 'A'), p('a'), h(2, 'B'), p('b'), h(2, 'C'), h(2, 'D'), h(2, 'E'))
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['', 'Doc', 'A|a', 'B|b', 'C', 'D', 'E'])
+  })
+
+  it('several H1s with H2s below: splits at the H1s only, as before', () => {
+    const d = doc(h(1, 'One'), p('x'), h(2, 'a'), p('y'), h(2, 'b'), h(1, 'Two'), h(2, 'c'), h(1, 'Three'))
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['', 'One|x|a|y|b', 'Two|c', 'Three'])
+  })
+
+  it('no heading, one heading, only H2s', () => {
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(doc(p('a'), p('b'))))), ['a|b'])
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(doc(p('a'), h(2, 'Only'), p('b'))))), ['a', 'Only|b'])
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(doc(h(2, 'A'), p('a'), h(2, 'B'), p('b'), h(2, 'C'))))), ['', 'A|a', 'B|b', 'C'])
+  })
+
+  it('one H1 and one H2 with five H3s: splits at the H3s too (the shallowest level used twice)', () => {
+    const h3s = Array.from({ length: 5 }, (_, i) => [h(3, `T${i + 1}`), p(`t${i + 1}`)]).flat()
+    const d = doc(h(1, 'Doc'), p('intro'), h(2, 'Part'), p('part'), ...h3s)
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['', 'Doc|intro', 'Part|part', 'T1|t1', 'T2|t2', 'T3|t3', 'T4|t4', 'T5|t5'])
+  })
+
+  it('one heading per level (H1, then one H2): the highest level only, as before', () => {
+    const d = doc(h(1, 'Doc'), p('x'), h(2, 'Sub'), p('y'))
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['', 'Doc|x|Sub|y'])
+  })
+
+  it('dividers still end slides between the heading splits', () => {
+    const d = doc(h(1, 'Doc'), p('intro'), hr(), p('aside'), h(2, 'A'), p('a'), hr(), hr(), p('after'), h(2, 'B'), p(''))
+    assert.deepEqual(texts(splitSlides(topLevelBlocks(d))), ['', 'Doc|intro', 'aside', 'A|a', 'after', 'B'])
   })
 
   it('no headings and no dividers: one slide', () => {

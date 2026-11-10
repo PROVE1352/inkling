@@ -1,5 +1,5 @@
-// Presentation mode (docs/adr/1843-*): a page's top-level blocks split into slides at its
-// highest-level headings and at dividers. Works on DOM elements, so the same split serves the live
+// Presentation mode (docs/adr/1843-*, 2323-*): a page's top-level blocks split into slides at its
+// headings (the shallowest level used twice or more, and every level above it) and at dividers. Works on DOM elements, so the same split serves the live
 // editor (cloned blocks) and a public link's server-rendered HTML. Nothing here edits the document.
 
 /** Top-level blocks of BlockNote markup under `root` (server full HTML or the editor's DOM). */
@@ -43,16 +43,31 @@ export function isBlank(block: Element): boolean {
 }
 
 /**
- * Slides: slide 0 is the opening slide (the page title plus the blocks before the first split,
- * possibly none); every heading of the highest level present starts a slide; a divider ends one
- * (and is not shown). Blank blocks at a slide's edges are dropped, and other empty slides skipped.
+ * The heading level slides split at (docs/adr/2323-*): the shallowest level with two or more headings,
+ * so "one H1 as the document's title, H2 sections" splits at the H1 and at every H2. Without such a
+ * level (no heading, or one per level) the highest level present, as before; 7 = none.
  */
-export function splitSlides(blocks: Element[]): Element[][] {
+export function splitLevel(blocks: Element[]): number {
+  const count = new Map<number, number>()
   let top = 7
   for (const b of blocks) {
     const l = headingLevel(b)
-    if (l !== null && l < top) top = l
+    if (l === null) continue
+    count.set(l, (count.get(l) ?? 0) + 1)
+    if (l < top) top = l
   }
+  for (let l = 1; l <= 6; l++) if ((count.get(l) ?? 0) >= 2) return l
+  return top
+}
+
+/**
+ * Slides: slide 0 is the opening slide (the page title plus the blocks before the first split,
+ * possibly none); every heading at or above the split level (`splitLevel`) starts a slide; a divider
+ * ends one (and is not shown). Blank blocks at a slide's edges are dropped, and other empty slides
+ * skipped; a heading followed directly by another split heading keeps a slide of its own.
+ */
+export function splitSlides(blocks: Element[]): Element[][] {
+  const top = splitLevel(blocks)
   // slides[0] is the opening slide (title + what comes before the first split), always present
   const slides: Element[][] = [[]]
   let opening = true
@@ -62,7 +77,8 @@ export function splitSlides(blocks: Element[]): Element[][] {
       opening = false
       continue
     }
-    if (headingLevel(b) === top && (opening || slides[slides.length - 1].some((x) => !isBlank(x)))) {
+    const level = headingLevel(b)
+    if (level !== null && level <= top && (opening || slides[slides.length - 1].some((x) => !isBlank(x)))) {
       slides.push([])
       opening = false
     }

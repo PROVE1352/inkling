@@ -13,7 +13,7 @@ import { SCREEN_FAILED_EVENT } from '../components/AppErrorBoundary'
 // import(): when that fails (offline before it was ever cached) the intro is skipped quietly and
 // stays "not seen", instead of the stale-chunk reload the route chunks do.
 
-type IntroProps = { onClose: (finished: boolean) => void }
+type IntroProps = { onClose: (finished: boolean) => void; wsId: string }
 let introModule: Promise<ComponentType<IntroProps> | null> | null = null
 const loadIntro = () =>
   (introModule ??= import('./intro/IntroOverlay').then(
@@ -107,6 +107,7 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
   if (!Intro) return null
   return (
     <Intro
+      wsId={wsId}
       onClose={() => {
         setIntro(null)
         // closing it (skipped or watched) counts as seen on every device

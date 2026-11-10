@@ -19,6 +19,8 @@ export interface Candidate {
   tokens: number
   version: string
   updatedAt: Date
+  /** The page's wiki-link aliases joined by newlines; they count as part of the title (docs/adr/1701-*). */
+  aliases?: string
 }
 
 export interface Scored extends Candidate {
@@ -65,13 +67,80 @@ const MAX_TERMS = 8
 /**
  * Korean particles and verb endings stripped from query words of 3+ characters when at least two
  * characters remain ("백업을" also searches "백업", "결정된" → "결정", "구성하는" → "구성"). Longest
- * first. Two-character words are never stripped: too many nouns end in a particle-like syllable
- * (회의, 평가, 휴가), docs/adr/1210-*.
+ * first. Two-character words are never stripped to a prefix: too many nouns end in a particle-like
+ * syllable (회의, 평가, 휴가), docs/adr/1210-*; a one-syllable noun + particle gets whole-word forms
+ * instead (oneSyllableStem below, docs/adr/1700-*).
  */
 const KO_SUFFIXES = [
-  '하려면', '에서', '으로', '에게', '까지', '부터', '하고', '이랑', '했다', '한다', '하는', '하기', '되는', '된다',
+  '했습니다', '합니다', '입니다', '하려면', '했는지', '이라는',
+  '에서', '으로', '에게', '까지', '부터', '하고', '이랑', '했다', '한다', '하는', '하기', '되는', '된다',
+  // docs/adr/1700-*: past/question/conditional endings that hid the stem ("결석했을" → 결석)
+  '했을', '했나', '했던', '했고', '했어', '해야', '하면', '할까', '하나', '하지', '되나', '됐나', '됐다', '되면',
+  '받는', '받은', '처럼', '마다', '보다', '이란', '라는',
   '을', '를', '이', '가', '은', '는', '의', '에', '로', '와', '과', '도', '만', '된', '한', '할',
-]
+].sort((a, b) => b.length - a.length)
+
+/**
+ * One-syllable nouns with a particle ("팀을", "팀이", "팀으로", docs/adr/1700-*). The particle must
+ * fit the noun's last sound (을/은/이 after a final consonant, 를/는/가 after a vowel), so "가을",
+ * "마을", "아이", "평가", "국가" are never split. 의, 도, 만, 로, 과/와 are not split off two-character
+ * words (회의, 정도, 불만, 도로, 결과). The stem then counts only as a whole word or with a particle
+ * (exact forms below), never as a prefix: "휴가" → 휴 does not match 휴식 or 휴일.
+ */
+const STRIP_AFTER_CONSONANT = ['을', '은', '이', '에', '으로', '에서', '에게', '까지', '부터', '이랑', '처럼', '보다']
+const STRIP_AFTER_VOWEL = ['를', '는', '가', '에', '에서', '에게', '까지', '부터', '랑', '처럼', '보다']
+const FAMILY_AFTER_CONSONANT = ['을', '은', '이', '의', '에', '도', '만', '과', '으로', '에서', '에게', '까지', '부터', '이랑', '처럼', '보다']
+const FAMILY_AFTER_VOWEL = ['를', '는', '가', '의', '에', '도', '만', '와', '로', '에서', '에게', '까지', '부터', '랑', '처럼', '보다']
+
+/** Final consonant index of a Hangul syllable (0 = none), or -1 for any other character. */
+function finalConsonant(ch: string): number {
+  const c = ch.charCodeAt(0) - 0xac00
+  return c >= 0 && c < 11172 ? c % 28 : -1
+}
+
+/** "팀을" → { stem: 팀, family: [팀, 팀을, 팀은, 팀이, …] }; null when the word is not one syllable + particle. */
+export function oneSyllableStem(word: string): { stem: string; family: string[] } | null {
+  const chars = [...word]
+  if (chars.length < 2 || chars.length > 4) return null
+  const stem = chars[0]
+  const fin = finalConsonant(stem)
+  if (fin < 0) return null
+  const rest = chars.slice(1).join('')
+  // ㄹ-final nouns take 로 like vowel-final ones; kept simple: 으로 after any final consonant
+  if (!(fin > 0 ? STRIP_AFTER_CONSONANT : STRIP_AFTER_VOWEL).includes(rest)) return null
+  return { stem, family: particleFamily(stem) }
+}
+
+/** A one-syllable noun alone and with each particle that fits its final sound. */
+export function particleFamily(stem: string): string[] {
+  return [stem, ...(finalConsonant(stem) > 0 ? FAMILY_AFTER_CONSONANT : FAMILY_AFTER_VOWEL).map((p) => stem + p)]
+}
+
+/**
+ * Head of a split reading: a one-syllable head counts as a whole word, alone or with a particle
+ * ("팀 구성", "팀의 구성"), not as a prefix — '팀':* would scan every word starting with 팀 for
+ * every three-syllable query word ("해커톤" → 해 + 커톤), which cost ~10 ms per query.
+ */
+function splitHead(a: string): string[] | null {
+  return [...a].length === 1 ? particleFamily(a) : null
+}
+
+/** Hangul words of 3–8 syllables can be written with a space ("팀구성" ↔ "팀 구성"). */
+const SPLIT_MIN = 3
+const SPLIT_MAX = 8
+
+/**
+ * Two-word readings of a compound the query writes without a space (docs/adr/1700-*): every split
+ * point whose tail has at least two syllables ("팀구성" → 팀+구성; "회의주기" → 회+의주기,
+ * 회의+주기). The index matches them as adjacent words, so a wrong split costs little.
+ */
+export function compoundSplits(word: string): [string, string][] {
+  const chars = [...word]
+  if (chars.length < SPLIT_MIN || chars.length > SPLIT_MAX || !chars.every((c) => finalConsonant(c) >= 0)) return []
+  const out: [string, string][] = []
+  for (let i = 1; i + 2 <= chars.length; i++) out.push([chars.slice(0, i).join(''), chars.slice(i).join('')])
+  return out
+}
 
 /** English function words: dropped when the query has other terms (they match nearly everything). */
 const STOPWORDS = new Set(
@@ -85,14 +154,20 @@ function isCjkWord(t: string): boolean {
 /** One query word and the forms that count as it (the word first, then a stripped stem). */
 export interface TermGroup {
   word: string
+  /** Forms matched as a word prefix (or anywhere, for Korean of 2+ characters). */
   variants: string[]
+  /** Forms matched as whole words only: a one-syllable noun and its particles (docs/adr/1700-*). */
+  exact?: string[]
+  /** Adjacent word pairs that also count: a compound the query writes without a space (docs/adr/1700-*). */
+  splits?: [string, string][]
 }
 
 /**
  * Query words as groups: NFKC, lower case, letters/digits only, deduplicated, at most 8 words,
  * 1-character ASCII dropped, English function words dropped when other words exist. A Korean word
  * and its stem are one group: a chunk that has either counts once, and the word's document
- * frequency is that of either form.
+ * frequency is that of either form. The group also holds the whole-word forms of a one-syllable
+ * noun ("팀을" → 팀, 팀에 …) and the split readings of a compound ("팀구성" → 팀 + 구성), docs/adr/1700-*.
  */
 export function queryGroups(q: string): TermGroup[] {
   const raw = q
@@ -107,7 +182,9 @@ export function queryGroups(q: string): TermGroup[] {
     if (seen.has(t)) continue
     seen.add(t)
     const g: TermGroup = { word: t, variants: [t] }
-    if (isCjkWord(t) && t.length >= 3) {
+    const one = isCjkWord(t) ? oneSyllableStem(t) : null
+    // "팀으로" is 팀 + 으로, not 팀으 + 로: a one-syllable stem takes the whole-word path below
+    if (!one && isCjkWord(t) && t.length >= 3) {
       const p = KO_SUFFIXES.find((x) => t.endsWith(x) && t.length - x.length >= 2)
       if (p) {
         const stem = t.slice(0, t.length - p.length)
@@ -116,6 +193,12 @@ export function queryGroups(q: string): TermGroup[] {
           seen.add(stem)
         }
       }
+    }
+    if (isCjkWord(t)) {
+      if (one) g.exact = one.family.filter((f) => f !== t)
+      // split the stem when a particle or ending was stripped ("결제개편을" → 결제개편), else the word
+      const splits = one ? [] : compoundSplits(g.variants[g.variants.length - 1])
+      if (splits.length) g.splits = splits
     }
     out.push(g)
   }
@@ -131,6 +214,21 @@ export function queryTerms(q: string): string[] {
 /** OR-of-prefixes tsquery text. Terms contain only letters/digits (see queryGroups), so quoting is safe. */
 export function tsqueryText(terms: string[]): string {
   return terms.map((t) => `'${t}':*`).join(' | ')
+}
+
+/**
+ * tsquery text of one group: its prefixes, its whole-word forms and its split readings as phrases
+ * ("'팀구성':* | '팀':* <-> '구성':*", docs/adr/1700-*). Letters/digits only, so quoting is safe.
+ */
+export function groupTsquery(g: TermGroup): string {
+  return [
+    ...g.variants.map((t) => `'${t}':*`),
+    ...(g.exact ?? []).map((t) => `'${t}'`),
+    ...(g.splits ?? []).map(([a, b]) => {
+      const fam = splitHead(a)
+      return `(${fam ? `(${fam.map((f) => `'${f}'`).join(' | ')})` : `'${a}':*`} <-> '${b}':*)`
+    }),
+  ].join(' | ')
 }
 
 // ---------------------------------------------------------------------------
@@ -161,16 +259,19 @@ export function idf(n: number, df: number): number {
   return Math.log(1 + (Math.max(n, df) - df + 0.5) / (df + 0.5))
 }
 
-/** Score weights (set on the dev questions only, docs/adr/1213-*). They sum to 1 before bonuses. */
+/** Score weights (set on the dev questions only, docs/adr/1213-*, 1701-*). */
 export const WEIGHTS = {
   /** idf-weighted share of query words found anywhere (title, heading path, text). */
   coverage: 0.4,
   /** normalised BM25 of the chunk text (heading path included, as in the index). */
   bm25: 0.25,
-  /** idf-weighted share of query words in the page title. */
+  /** idf-weighted share of query words in the page title or one of its aliases (docs/adr/1701-*). */
   title: 0.15,
-  /** idf-weighted share of query words in the heading path. */
-  heading: 0.2,
+  /**
+   * idf-weighted share of query words in the heading path. 0.2 → 0.3 in 0.14 (docs/adr/1701-*): a
+   * section whose heading names the query outranks one that only mentions it; 0.4 overshoots.
+   */
+  heading: 0.3,
   /** Share of consecutive query word pairs found next to each other, each pair weighted by its larger idf. */
   adjacent: 0.15,
   /** the whole query as a phrase. */
@@ -195,6 +296,7 @@ export interface ScoreInput {
 }
 
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}]/u.test(c)
+const hasExtra = (g: TermGroup) => !!(g.exact?.length || g.splits?.length)
 
 /**
  * Positions where `v` occurs the way the index matches it: anywhere for Korean/CJK words of 2+
@@ -210,8 +312,58 @@ export function occurrences(hay: string, v: string): number[] {
   return out
 }
 
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
- * Score ≈ [0, 1.3]: idf-weighted coverage, BM25, title/heading hits, adjacency of consecutive query
+ * Every [start, end) where a group occurs the way the index matches it (docs/adr/1700-*): its
+ * variants (see occurrences), its whole-word forms, and its split readings as a word starting
+ * with the head followed by a word starting with the tail ('팀':* <-> '구성':*).
+ */
+export function groupSpans(hay: string, g: TermGroup): [number, number][] {
+  const hits: [number, number][] = []
+  const add = (a: number, b: number) => {
+    if (!hits.some(([x]) => x === a)) hits.push([a, b])
+  }
+  for (const v of g.variants) for (const p of occurrences(hay, v)) add(p, p + v.length)
+  const m = matchers(g)
+  if (m.exact) {
+    // one scan for the stem; the rest of the word must be empty or a particle of the family
+    const { stem, forms } = m.exact
+    for (let i = hay.indexOf(stem); i >= 0; i = hay.indexOf(stem, i + 1)) {
+      if (isWordChar(hay[i - 1])) continue
+      let j = i + stem.length
+      while (j < hay.length && isWordChar(hay[j])) j++
+      if (forms.has(hay.slice(i, j))) add(i, j)
+    }
+  }
+  for (const re of m.splits) for (const x of hay.matchAll(re)) add(x.index!, x.index! + x[0].length)
+  return hits.sort((x, y) => x[0] - y[0])
+}
+
+/** Compiled forms of a group's exact words and split readings, built once per group (it is scored for every candidate). */
+const matcherCache = new WeakMap<TermGroup, { exact: { stem: string; forms: Set<string> } | null; splits: RegExp[] }>()
+function matchers(g: TermGroup) {
+  let m = matcherCache.get(g)
+  if (!m) {
+    const ex = g.exact ?? []
+    const stem = ex.length ? ex.reduce((a, b) => (b.length < a.length ? b : a)) : ''
+    m = {
+      exact: ex.length ? { stem, forms: new Set(ex) } : null,
+      splits: (g.splits ?? []).map(([a, b]) => {
+        const fam = splitHead(a)
+        const head = fam ? `(?:${fam.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])` : `${escapeRe(a)}[\\p{L}\\p{N}]*`
+        return new RegExp(`(?<![\\p{L}\\p{N}])${head}[^\\p{L}\\p{N}]+${escapeRe(b)}`, 'gu')
+      }),
+    }
+    matcherCache.set(g, m)
+  }
+  return m
+}
+
+/**
+ * Score ≈ [0, 1.4]: idf-weighted coverage, BM25, title/heading hits, adjacency of consecutive query
  * words, phrase and a small recency bonus. Common words ("서울", "해커톤") weigh little, a rare one
  * ("구성") much: a chunk with only the common words no longer outranks one with the rare word.
  */
@@ -226,7 +378,8 @@ export function scoreParts(
 ): { score: number; coverage: number; bm25: number; title: number; heading: number; adjacent: number; phrase: boolean } {
   const { groups } = input
   if (groups.length === 0) return { score: 0, coverage: 0, bm25: 0, title: 0, heading: 0, adjacent: 0, phrase: false }
-  const title = c.title.toLowerCase()
+  // Aliases are other names of the page: they count as title (docs/adr/1701-*).
+  const title = (c.aliases ? `${c.title}\n${c.aliases}` : c.title).toLowerCase()
   const heading = c.headingPath.toLowerCase()
   // The page title is part of every chunk's text for tf (BM25F with all field weights 1).
   const hay = `${title}\n${heading}\n${c.text.toLowerCase()}`
@@ -241,14 +394,11 @@ export function scoreParts(
   /** Per group: [start, end) of every occurrence (a stem inside a longer variant's hit is the same one). */
   const spans: [number, number][][] = []
   groups.forEach((g, i) => {
-    const hits: [number, number][] = []
-    for (const v of g.variants) {
-      for (const p of occurrences(hay, v)) if (!hits.some(([a]) => a === p)) hits.push([p, p + v.length])
-    }
+    const hits = groupSpans(hay, g)
     spans.push(hits)
     const tf = hits.length
-    const ti = g.variants.some((v) => title.includes(v))
-    const he = g.variants.some((v) => heading.includes(v))
+    const ti = g.variants.some((v) => title.includes(v)) || (hasExtra(g) && groupSpans(title, g).length > 0)
+    const he = g.variants.some((v) => heading.includes(v)) || (hasExtra(g) && groupSpans(heading, g).length > 0)
     if (tf > 0 || ti) cover += w[i]
     if (ti) inTitle += w[i]
     if (he) inHeading += w[i]

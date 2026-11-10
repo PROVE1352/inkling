@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { AnyBlock } from '../md/convert'
 import { chunkBlocks, cjkBigrams, findSection, headingTail, MAX_CHUNK_TOKENS, shortAnchors, slugify, splitSections } from './chunker'
-import { diversify, idf, occurrences, pack, queryGroups, queryTerms, scoreCandidate, TopK, tsqueryText } from './rank'
+import { compoundSplits, diversify, groupSpans, groupTsquery, idf, occurrences, oneSyllableStem, pack, particleFamily, queryGroups, queryTerms, scoreCandidate, TopK, tsqueryText } from './rank'
 import type { Scored } from './rank'
 import { estimateTokens, truncateToTokens } from './tokens'
 
@@ -208,13 +208,57 @@ describe('ranking', () => {
     assert.deepEqual(occurrences('explanation plan lumen-plan', 'plan'), [12, 23])
   })
 
-  it('query groups: particles and endings as variants of one word, never below two characters', () => {
-    assert.deepEqual(queryGroups('구성하는 팀을 결정된 회의'), [
-      { word: '구성하는', variants: ['구성하는', '구성'] },
-      { word: '팀을', variants: ['팀을'] },
-      { word: '결정된', variants: ['결정된', '결정'] },
-      { word: '회의', variants: ['회의'] },
+  it('query groups: particles and endings as variants of one word, never a prefix below two characters', () => {
+    const groups = queryGroups('구성하는 팀을 결정된 회의')
+    assert.deepEqual(groups.map((g) => [g.word, g.variants]), [
+      ['구성하는', ['구성하는', '구성']],
+      ['팀을', ['팀을']],
+      ['결정된', ['결정된', '결정']],
+      ['회의', ['회의']],
     ])
+    // "팀을": the one-syllable noun counts as a whole word, alone or with a particle (docs/adr/1700-*)
+    assert.ok(groups[1].exact?.includes('팀') && groups[1].exact.includes('팀에') && groups[1].exact.includes('팀으로'))
+    assert.equal(groups[3].exact, undefined)
+  })
+
+  it('one-syllable stems: the particle must fit the final sound (docs/adr/1700-*)', () => {
+    assert.equal(oneSyllableStem('팀을')?.stem, '팀')
+    assert.equal(oneSyllableStem('팀으로')?.stem, '팀')
+    assert.equal(oneSyllableStem('내가')?.stem, '내')
+    assert.ok(oneSyllableStem('팀을')!.family.includes('팀과') && !oneSyllableStem('팀을')!.family.includes('팀와'))
+    // vowel-final + 을, consonant-final + 가, and 의/도/로/과 never split a two-character word
+    for (const w of ['가을', '마을', '아이', '평가', '국가', '회의', '정도', '도로', '결과', '불만']) assert.equal(oneSyllableStem(w), null, w)
+    // "팀으로" is 팀 + 으로, not 팀으 + 로
+    assert.deepEqual(queryGroups('팀으로')[0].variants, ['팀으로'])
+  })
+
+  it('compound splits: a query compound also matches the spaced form, and the reverse needs nothing new', () => {
+    assert.deepEqual(compoundSplits('팀구성'), [['팀', '구성']])
+    assert.deepEqual(compoundSplits('회의주기'), [['회', '의주기'], ['회의', '주기']])
+    assert.deepEqual(compoundSplits('회의'), [])
+    assert.deepEqual(compoundSplits('tf2026'), [])
+    const g = queryGroups('팀구성')[0]
+    // a one-syllable head is a whole word, alone or with a particle (not the prefix 팀:*)
+    assert.equal(groupTsquery(g), `'팀구성':* | ((${particleFamily('팀').map((f) => `'${f}'`).join(' | ')}) <-> '구성':*)`)
+    assert.equal(groupTsquery(queryGroups('회의주기')[0]).split(' | ').pop(), "('회의':* <-> '주기':*)")
+    // spaced, with a particle on the head, and the compound itself; not when the head is inside a word
+    assert.deepEqual(groupSpans('팀 구성은 다섯 명. 우리팀 구성, 팀의 구성, 팀구성', g), [[0, 4], [20, 25], [27, 30]])
+    // particle forms are whole words only: 팀장 and 스팀 do not count for "팀을"
+    assert.deepEqual(groupSpans('팀 구성, 팀장, 스팀, 팀에 배정', queryGroups('팀을')[0]).map(([a]) => a), [0, 14])
+  })
+
+  it('a compound query ranks the spaced form like the query word itself', () => {
+    const inp = input('팀구성 확정', [5, 20])
+    const spaced = scoreCandidate(cand({ text: '팀 구성은 다섯 명으로 확정했다. 주제와 발표 담당도 정했다.' }), inp)
+    const other = scoreCandidate(cand({ text: '발표 순서는 확정했다. 다른 이야기도 적었다. 다음 주에 다시 본다.' }), inp)
+    assert.ok(spaced > other + 0.2, `${spaced} > ${other}`)
+  })
+
+  it('aliases count as the page title (docs/adr/1701-*)', () => {
+    const inp = input('payfix 회의', [0, 300])
+    const withAlias = scoreCandidate(cand({ title: '사내 TF 킥오프', aliases: 'PayFix', headingPath: '회의 주기', text: '매주 화요일 오전에 모인다.' }), inp)
+    const without = scoreCandidate(cand({ title: '사내 TF 킥오프', headingPath: '회의 주기', text: '매주 화요일 오전에 모인다.' }), inp)
+    assert.ok(withAlias > without, `${withAlias} > ${without}`)
   })
 
   it('diversify: a page keeps two sections at full score, further ones are discounted', () => {

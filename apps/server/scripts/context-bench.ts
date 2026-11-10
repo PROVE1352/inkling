@@ -42,13 +42,19 @@ async function main() {
   const idByTitle = new Map<string, string>()
   const unpaddedIds = new Map<string, string>()
   const wsSmall = await h.makeWorkspace(owner)
+  // create_page has no aliases argument: set them on the row (docs/adr/1701-*).
+  const setAliases = async (id: string, aliases?: string[]) => {
+    if (aliases?.length) await db.update(schema.pages).set({ aliases }).where(sql`${schema.pages.id} = ${id}`)
+  }
   for (const p of EVAL_PAGES) {
     const r = await mcp.tool('create_page', { workspaceId: wsSmall.id, title: p.title, markdown: p.markdown })
     unpaddedIds.set(p.title, JSON.parse(r.text).id)
+    await setAliases(JSON.parse(r.text).id, p.aliases)
   }
   for (const p of padPages(EVAL_PAGES)) {
     const r = await mcp.tool('create_page', { workspaceId: ws.id, title: p.title, markdown: p.markdown })
     idByTitle.set(p.title, JSON.parse(r.text).id)
+    await setAliases(JSON.parse(r.text).id, p.aliases)
   }
   // a few cross links (realistic pages link to each other; the link-boost experiment in ADR 0927 used them)
   const links: [string, string][] = [
@@ -213,6 +219,13 @@ async function main() {
       (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${name} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} | ${r[sp].precisionAt5} | ${r[sp].pAt5} |`),
     ),
     '',
+    'rank metrics per question family (padded set):',
+    '| tag | split | n | MRR | recall@5 | nDCG@5 |',
+    '|---|---|---|---|---|---|',
+    ...Object.entries(rankBig.tags ?? {}).flatMap(([tag, r]) =>
+      (FINAL ? (['dev', 'test'] as const) : (['dev'] as const)).map((sp) => `| ${tag} | ${sp} | ${r[sp].n} | ${r[sp].mrr} | ${r[sp].recallAt5} | ${r[sp].ndcgAt5} |`),
+    ),
+    '',
     ...(hasFormats ? [fmtLine('with the relevance floor', fmtRuns.floor), fmtLine('floor off, budget filled', fmtRuns.fill)] : []),
     `budget 1500, per question (all ${EVAL_QUESTIONS.length}): output ${perQ(bodyStats.total)} tok, section text ${perQ(bodyStats.body)} tok, other ${perQ(bodyStats.total - bodyStats.body)} tok, fragments ${perQ(bodyStats.fragments)}, also-relevant ${perQ(bodyStats.more)}`,
     '',
@@ -227,6 +240,7 @@ async function main() {
     ...plan.map((p) => `  ${p['QUERY PLAN']}`),
   ]
   console.log(lines.join('\n'))
+  console.log(`workspaces: big ${ws.id} small ${wsSmall.id} user ${owner.id}`)
   await mcp.close()
   await collab.destroyCollab()
   await app.close()

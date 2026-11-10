@@ -78,6 +78,8 @@ export interface RankMetrics {
 export interface RankRow {
   q: string
   split: 'dev' | 'test'
+  /** EvalQuestion.tag (failure family), when set. */
+  tag?: string
   /** 1-based position of the first relevant section among the shown sections, 0 = not shown. */
   firstRank: number
   mrr: number
@@ -96,7 +98,7 @@ export interface RankRow {
  * may show fewer than five, and showing less noise is the point), 0 when nothing is shown; pAt5 = the
  * textbook relevant-in-top-5 / 5.
  */
-export function scoreRanking(out: string, relevant: { pageId: string; anchor: string }[]): Omit<RankRow, 'q' | 'split'> {
+export function scoreRanking(out: string, relevant: { pageId: string; anchor: string }[]): Omit<RankRow, 'q' | 'split' | 'tag'> {
   const shown = rankedSections(out)
   const isRel = (s: { pageId: string; anchor: string }) => relevant.some((r) => r.pageId === s.pageId && sameSection(r.anchor, s.anchor))
   const hits = shown.map(isRel)
@@ -130,7 +132,7 @@ export async function runRankEval(
   questions: EvalQuestion[],
   pageIdByTitle: Map<string, string>,
   findArgs: Record<string, unknown> = {},
-): Promise<{ rows: RankRow[]; dev: RankMetrics; test: RankMetrics }> {
+): Promise<{ rows: RankRow[]; dev: RankMetrics; test: RankMetrics; tags: Record<string, { dev: RankMetrics; test: RankMetrics }> }> {
   const rows: RankRow[] = []
   for (const qq of questions) {
     const id = (t: string) => {
@@ -140,14 +142,21 @@ export async function runRankEval(
     }
     const relevant = [{ pageId: id(qq.page), anchor: qq.anchor }, ...(qq.also ?? []).map((a) => ({ pageId: id(a.page), anchor: a.anchor }))]
     const fc = await tool('find_context', { query: qq.q, ...findArgs })
-    rows.push({ q: qq.q, split: qq.split, ...scoreRanking(fc.text, relevant) })
+    rows.push({ q: qq.q, split: qq.split, ...(qq.tag ? { tag: qq.tag } : {}), ...scoreRanking(fc.text, relevant) })
   }
-  const summary = (split: 'dev' | 'test'): RankMetrics => {
-    const xs = rows.filter((r) => r.split === split)
+  return { rows, ...summarizeRanks(rows) }
+}
+
+/** Mean rank metrics per split, overall and per question tag (docs/adr/1702-*). */
+export function summarizeRanks(rows: RankRow[]): { dev: RankMetrics; test: RankMetrics; tags: Record<string, { dev: RankMetrics; test: RankMetrics }> } {
+  const summary = (xs: RankRow[]): RankMetrics => {
     const m = (k: keyof RankMetrics & keyof RankRow) => Number(mean(xs.map((r) => r[k] as number)).toFixed(3))
     return { n: xs.length, mrr: m('mrr'), recallAt5: m('recallAt5'), ndcgAt5: m('ndcgAt5'), precisionAt5: m('precisionAt5'), pAt5: m('pAt5') }
   }
-  return { rows, dev: summary('dev'), test: summary('test') }
+  const split = (xs: RankRow[]) => ({ dev: summary(xs.filter((r) => r.split === 'dev')), test: summary(xs.filter((r) => r.split === 'test')) })
+  const tags: Record<string, { dev: RankMetrics; test: RankMetrics }> = {}
+  for (const t of [...new Set(rows.map((r) => r.tag).filter((t): t is string => !!t))].sort()) tags[t] = split(rows.filter((r) => r.tag === t))
+  return { ...split(rows), tags }
 }
 
 const median = (xs: number[]) => {

@@ -8,6 +8,8 @@
 export interface EvalPage {
   title: string
   markdown: string
+  /** Wiki-link aliases (pages.aliases); the harness sets them after create_page (docs/adr/1701-*). */
+  aliases?: string[]
 }
 
 export interface EvalQuestion {
@@ -21,6 +23,8 @@ export interface EvalQuestion {
    * (docs/adr/1213-*).
    */
   split: 'dev' | 'test'
+  /** Failure family the question reproduces (per-tag metrics in evalRun.ts, docs/adr/1702-*). */
+  tag?: string
 }
 
 export const EVAL_PAGES: EvalPage[] = [
@@ -569,12 +573,103 @@ const CONTEST_QUESTIONS: EvalQuestion[] = [
 ]
 
 /**
+ * Korean partial-match pages (docs/adr/1700-*, 1702-*): the forms that the field query "팀 구성"
+ * missed or ranked low — a compound written without a space ("팀구성"), a suffix syllable inside a
+ * compound ("디자인팀", "개발팀"), particles on a one-syllable noun ("팀을", "팀으로", "팀에"), verb
+ * endings ("결석했을") — and two pages known by an alias (pages.aliases). Fictional content written
+ * for this test; it avoids the literal phrase "팀 구성" so the field questions keep their answers.
+ */
+export const KO_PARTIAL_PAGES: EvalPage[] = [
+  {
+    title: '알고리즘 스터디 운영',
+    markdown: `# 스터디 운영
+
+## 팀구성
+스터디원은 열두 명이고 네 명씩 세 팀으로 나눈다. 팀구성은 학기 첫 모임에서 제비뽑기로 정한다.
+
+## 발표 순서
+매주 한 팀이 문제 풀이를 발표하고 나머지 팀은 질문을 준비한다.
+
+## 벌금
+결석하면 오천 원, 지각하면 이천 원을 낸다. 모인 돈은 학기 말 모임에 쓴다.`,
+  },
+  {
+    title: '사내 TF 킥오프',
+    aliases: ['PayFix'],
+    markdown: `# 결제 개편 TF
+
+## 구성원
+기획 하윤, 백엔드 지호와 은우, 프론트엔드 서진. 디자인은 디자인팀에서 한 명을 지원받는다.
+
+## 목표
+결제 실패율을 1% 아래로 낮추고 환불 처리 시간을 하루 안으로 줄인다.
+
+## 회의 주기
+매주 화요일 오전 10시에 30분 동안 모인다.`,
+  },
+  {
+    title: '동아리 신입 안내',
+    aliases: ['새내기 가이드'],
+    markdown: `# 신입 안내
+
+## 팀 배정
+신입은 관심 분야를 적어 내고, 운영진이 그 내용을 보고 팀에 배정한다. 배정 결과는 둘째 주에 알린다.
+
+## 활동비
+한 학기 활동비는 2만 원이다.
+
+## 연락 방법
+공지는 단톡방에 올리고, 개인 문의는 운영진에게 메시지로 한다.`,
+  },
+  {
+    title: '봄 프로젝트 회고',
+    markdown: `# 봄 프로젝트 회고
+
+## 잘한 점
+개발팀 구성을 일찍 끝내서 첫 주부터 코드를 쓸 수 있었다.
+
+## 아쉬운 점
+테스트 작성을 미루다가 마지막 주에 몰렸다.
+
+## 다음에 바꿀 것
+팀을 꾸릴 때 디자이너를 먼저 구한다.`,
+  },
+]
+
+/**
+ * Questions on KO_PARTIAL_PAGES and the field answers (docs/adr/1702-*). Each failure family has
+ * questions in both splits (matched pairs); the split is fixed here.
+ */
+const KO_PARTIAL_QUESTIONS: EvalQuestion[] = [
+  // the query writes a compound the document spaces ("팀구성" vs "팀 구성")
+  { q: '해커톤 팀구성', page: '03 방향 메모', anchor: DECIDED, also: [{ page: '00 대회요강', anchor: REQ }], split: 'dev', tag: 'ko-compound-query' },
+  { q: 'TF 회의주기', page: '사내 TF 킥오프', anchor: '결제-개편-tf/회의-주기', split: 'dev', tag: 'ko-compound-query' },
+  { q: '팀구성 다섯 명', page: '03 방향 메모', anchor: DECIDED, also: [{ page: '00 대회요강', anchor: REQ }], split: 'test', tag: 'ko-compound-query' },
+  { q: '결제개편 목표', page: '사내 TF 킥오프', anchor: '결제-개편-tf/목표', split: 'test', tag: 'ko-compound-query' },
+  // particles / endings on the query word ("팀을", "팀으로", "결석했을")
+  { q: '신입을 어느 팀으로 배정', page: '동아리 신입 안내', anchor: '신입-안내/팀-배정', split: 'dev', tag: 'ko-particle' },
+  { q: '결석했을 때 벌금', page: '알고리즘 스터디 운영', anchor: '스터디-운영/벌금', split: 'dev', tag: 'ko-particle' },
+  { q: '팀을 다섯 명으로 구성', page: '03 방향 메모', anchor: DECIDED, also: [{ page: '00 대회요강', anchor: REQ }], split: 'dev', tag: 'ko-particle' },
+  { q: '팀을 나눈 방식', page: '알고리즘 스터디 운영', anchor: '스터디-운영/팀구성', split: 'test', tag: 'ko-particle' },
+  { q: '팀이 배정되는 시기', page: '동아리 신입 안내', anchor: '신입-안내/팀-배정', split: 'test', tag: 'ko-particle' },
+  // the document writes a compound the query spaces ("팀구성", "디자인팀", "개발팀")
+  { q: '스터디 팀 구성 방법', page: '알고리즘 스터디 운영', anchor: '스터디-운영/팀구성', split: 'dev', tag: 'ko-doc-compound' },
+  { q: '디자인 팀 지원', page: '사내 TF 킥오프', anchor: '결제-개편-tf/구성원', split: 'dev', tag: 'ko-doc-compound' },
+  { q: '개발 팀 구성', page: '봄 프로젝트 회고', anchor: '봄-프로젝트-회고/잘한-점', split: 'test', tag: 'ko-doc-compound' },
+  { q: '운영진 팀 배정 결과', page: '동아리 신입 안내', anchor: '신입-안내/팀-배정', split: 'test', tag: 'ko-doc-compound' },
+  // the page is known by an alias that its text never repeats
+  { q: 'PayFix 회의', page: '사내 TF 킥오프', anchor: '결제-개편-tf/회의-주기', split: 'dev', tag: 'alias' },
+  { q: '새내기 가이드 공지 방법', page: '동아리 신입 안내', anchor: '신입-안내/연락-방법', split: 'test', tag: 'alias' },
+]
+
+/**
  * Every question. The 28 wiki questions of ADR 0927 are split by position (every third one is
- * held out as test); the contest questions carry their split explicitly.
+ * held out as test); the contest and Korean partial-match questions carry their split explicitly.
  */
 export const EVAL_QUESTIONS: EvalQuestion[] = [
   ...BASE_QUESTIONS.map((q, i): EvalQuestion => ({ ...q, split: i % 3 === 2 ? 'test' : 'dev' })),
   ...CONTEST_QUESTIONS,
+  ...KO_PARTIAL_QUESTIONS,
 ]
 
 /**
@@ -606,8 +701,8 @@ export function contestNoisePages(n = 30): EvalPage[] {
   })
 }
 
-/** Wiki + contest pages + other contest notes: the corpus the questions above are asked against. */
-export const ALL_EVAL_PAGES: EvalPage[] = [...EVAL_PAGES, ...CONTEST_PAGES, ...contestNoisePages()]
+/** Wiki + contest pages + Korean partial-match pages + other contest notes: the corpus the questions above are asked against. */
+export const ALL_EVAL_PAGES: EvalPage[] = [...EVAL_PAGES, ...CONTEST_PAGES, ...KO_PARTIAL_PAGES, ...contestNoisePages()]
 
 // ---------------------------------------------------------------------------
 // padding: real pages are longer than the fixture sections above
@@ -639,6 +734,6 @@ export function padPages(pages: EvalPage[], sections = 6, words = 110): EvalPage
     const extra = Array.from({ length: sections }, (_, i) =>
       `## ${korean ? '부록' : 'Appendix'} ${i + 1}\n${fillerText(pi * 31 + i, words, korean)}`,
     ).join('\n\n')
-    return { title: p.title, markdown: `${p.markdown}\n\n${extra}` }
+    return { ...p, markdown: `${p.markdown}\n\n${extra}` }
   })
 }

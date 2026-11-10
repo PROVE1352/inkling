@@ -48,6 +48,8 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
       const r = await mcp.tool('create_page', { workspaceId: ws.id, title: p.title, markdown: p.markdown })
       assert.equal(r.isError, false, r.text)
       idByTitle.set(p.title, (JSON.parse(r.text) as { id: string }).id)
+      // create_page has no aliases argument (docs/adr/1701-*)
+      if (p.aliases?.length) await db.update(schema.pages).set({ aliases: p.aliases }).where(eq(schema.pages.id, idByTitle.get(p.title)!))
     }
   })
 
@@ -81,6 +83,7 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     const r = await runRankEval(mcp.tool, EVAL_QUESTIONS, idByTitle)
     console.log('[rank] dev ', JSON.stringify(r.dev))
     console.log('[rank] test', JSON.stringify(r.test))
+    console.log('[rank] tags', JSON.stringify(r.tags))
     assert.ok(r.dev.mrr >= 0.8 && r.test.mrr >= 0.75, 'MRR')
     assert.ok(r.dev.recallAt5 >= 0.85 && r.test.recallAt5 >= 0.8, 'recall@5')
 
@@ -97,6 +100,22 @@ describe('[db] agent context tools', { skip: !HAS_DB }, async () => {
     assert.ok(Math.max(...perPage.values()) <= 2, out)
     // the location is the last heading and a short anchor, not the whole path
     assert.match(out, /\[\d\] 00 대회요강 › 우리 팀 체크리스트\n\(page [0-9a-f-]{36}; §우리-팀-체크리스트 v=/)
+  })
+
+  it('Korean partial match: a compound query finds the spaced form, an alias finds its page (docs/adr/1700-1701)', async () => {
+    const { rankedSections, sameSection } = await import('./evalRun')
+    const rankOf = async (query: string, title: string, anchor: string) => {
+      const shown = rankedSections((await mcp.tool('find_context', { query })).text)
+      return shown.findIndex((x) => x.pageId === idByTitle.get(title) && sameSection(anchor, x.anchor)) + 1
+    }
+    // "회의주기" is written "회의 주기" on the page; before 0.14 the three TF sections tied on "TF"
+    assert.equal(await rankOf('TF 회의주기', '사내 TF 킥오프', '결제-개편-tf/회의-주기'), 1)
+    // "팀구성" vs "팀 구성은 다섯 명으로 확정했다": before 0.14 not shown at all
+    const at = await rankOf('해커톤 팀구성', '03 방향 메모', '방향-메모/결정된-것')
+    assert.ok(at >= 1 && at <= 3, `decided at ${at}`)
+    // "PayFix" is only an alias of the page: before 0.14 find_context returned nothing
+    const alias = (await mcp.tool('find_context', { query: 'PayFix' })).text
+    assert.ok(alias.includes(idByTitle.get('사내 TF 킥오프')!), alias)
   })
 
   it('short anchors from find_context round-trip through read_page and patch_section; full paths still work', async () => {

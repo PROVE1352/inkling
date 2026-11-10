@@ -3,8 +3,8 @@ import type { SQL } from 'drizzle-orm'
 import { db } from '../db/index'
 import { agentAllowedSql } from '../agentAccess'
 import { escapeLike } from '../util'
-import type { Candidate, Fragment, Scored, SectionLabel } from './rank'
-import { fullLabel, idf, pack, queryGroups, scoreCandidate, TOP_K, TopK, tsqueryText, UNSEEN_WEIGHT } from './rank'
+import type { Candidate, Fragment, Scored, SectionLabel, TermGroup } from './rank'
+import { fullLabel, groupTsquery, idf, pack, queryGroups, scoreCandidate, TOP_K, TopK, UNSEEN_WEIGHT } from './rank'
 import { headingTail, shortAnchors } from './chunker'
 import { isCjkCode } from './tokens'
 import { pageInRangeSql } from '../tokenRange'
@@ -36,7 +36,7 @@ export interface FindContextOptions {
   /** Benchmarks only: 'full' prints the full anchor and heading path (the pre-1212 location format). */
   location?: 'short' | 'full'
   /** Benchmarks only: receives the word weights and the ranked candidates (never used by routes). */
-  explain?: (info: { groups: { word: string; variants: string[] }[]; df: number[]; n: number; idf: number[]; ranked: Scored[]; candidates: number }) => void
+  explain?: (info: { groups: TermGroup[]; df: number[]; n: number; idf: number[]; ranked: Scored[]; candidates: number }) => void
 }
 
 export interface FindContextResult {
@@ -83,7 +83,8 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   if (terms.length === 0 || opts.workspaceIds.length === 0) return empty
 
   const ws = uuidArray(opts.workspaceIds)
-  const tsq = tsqueryText(terms)
+  // Prefixes, whole-word particle forms and split compounds of every group (docs/adr/1700-*).
+  const tsq = groups.map(groupTsquery).join(' | ')
   // Trigram (infix) probes only for CJK terms of 3+ characters: Korean compounds have no spaces,
   // so "최적화" sits inside "성능최적화". Shorter terms have no trigrams (whole-index scan), and for
   // spaced languages the prefix query already finds words; an ILIKE recheck over thousands of
@@ -94,21 +95,36 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   const textLike = infix.length
     ? sql.join(infix.map((t) => sql`c.text ILIKE ${`%${escapeLike(t)}%`}`), sql` OR `)
     : null
-  const titleLike = long.length
-    ? sql.join(long.map((t) => sql`p.title ILIKE ${`%${escapeLike(t)}%`}`), sql` OR `)
-    : sql`false`
-  const titleCond = sql`(to_tsvector('simple'::regconfig, p.title) @@ q.tsq OR ${titleLike})`
+  // A page's aliases are other names for it and count as its title (docs/adr/1701-*). jsonb text
+  // keeps non-ASCII characters as they are; brackets and quotes are word separators for the parser.
+  // Most pages have none, so the alias test runs only where the array is not empty.
+  const hasAliases = sql`p.aliases <> '[]'::jsonb`
+  const inTitle = (cond: (field: SQL) => SQL) => sql`(${cond(sql`p.title`)} OR (${hasAliases} AND ${cond(sql`p.aliases::text`)}))`
+  const likeIn = (field: SQL, pattern: string) => sql`${field} ILIKE ${`%${escapeLike(pattern)}%`}`
+  const titleLike = long.length ? sql.join(long.map((t) => inTitle((f) => likeIn(f, t))), sql` OR `) : sql`false`
+  const titleCond = sql`(${inTitle((f) => sql`to_tsvector('simple'::regconfig, ${f}) @@ q.tsq`)} OR ${titleLike})`
 
   // Per query word (all its forms): does the chunk contain it (stored vector, + infix ILIKE), does
   // the page title contain it. Computed once per candidate row; the document frequencies and the
   // coarse order both come from these flags (docs/adr/1210-*).
-  const textMatch = groups.map((g) => {
+  // Each group's tsquery is parsed once in the `q` row instead of once per candidate row (to_tsquery
+  // is STABLE, not folded; with the particle forms a group's query has up to ~20 lexemes).
+  const groupQ = sql.join(groups.map((g, i) => sql`to_tsquery('simple', ${groupTsquery(g)}) AS ${sql.raw(`g${i}`)}`), sql`, `)
+  const textMatch = groups.map((g, i) => {
     const likes = g.variants.filter(isInfix).map((v) => sql`c.text ILIKE ${`%${escapeLike(v)}%`}`)
-    const tsv = sql`c.tsv @@ to_tsquery('simple', ${tsqueryText(g.variants)})`
+    const tsv = sql`c.tsv @@ ${sql.raw(`q.g${i}`)}`
     return likes.length ? sql`(${tsv} OR ${sql.join(likes, sql` OR `)})` : tsv
   })
-  const titleMatch = groups.map((g) => sql`(${sql.join(g.variants.map((v) => sql`p.title ILIKE ${`%${escapeLike(v)}%`}`), sql` OR `)})`)
-  const headingMatch = groups.map((g) => sql`(${sql.join(g.variants.map((v) => sql`c.heading_path ILIKE ${`%${escapeLike(v)}%`}`), sql` OR `)})`)
+  // Whole-word particle forms and split compounds in a title or heading path (docs/adr/1700-*).
+  // These flags only steer the coarse order (Node checks word boundaries exactly), so a substring
+  // test is enough: the bare stem, or head + space + tail (a to_tsvector per row was measurably slower).
+  const patterns = (g: (typeof groups)[number]) => [
+    ...g.variants,
+    ...(g.exact?.length ? [g.exact.reduce((a, b) => (b.length < a.length ? b : a))] : []),
+    ...(g.splits ?? []).map(([a, b]) => `${a} ${b}`),
+  ]
+  const titleMatch = groups.map((g) => inTitle((f) => sql`(${sql.join(patterns(g).map((v) => likeIn(f, v)), sql` OR `)})`))
+  const headingMatch = groups.map((g) => sql`(${sql.join(patterns(g).map((v) => likeIn(sql`c.heading_path`, v)), sql` OR `)})`)
   const col = (prefix: string, i: number) => sql.raw(`${prefix}${i}`)
   const mCols = sql.join(
     groups.map((_, i) => sql`(${textMatch[i]})::int AS ${col('m', i)}, (${headingMatch[i]})::int AS ${col('h', i)}`),
@@ -131,7 +147,7 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   // the coarse ORDER BY. N = chunks in the searched workspaces and df = chunks containing the word
   // are workspace statistics (not filtered by page visibility; they only weigh words).
   const rows = (await db.execute(sql`
-    WITH q AS (SELECT to_tsquery('simple', ${tsq}) AS tsq),
+    WITH q AS (SELECT to_tsquery('simple', ${tsq}) AS tsq, ${groupQ}),
     cand AS (
       SELECT c.page_id, c.ord, 0::float8 AS bonus FROM page_chunks c, q
        WHERE c.workspace_id = ANY(${ws}::uuid[]) AND c.tsv @@ q.tsq
@@ -147,7 +163,7 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
     ),
     matched AS (
       SELECT best.page_id, best.ord, best.bonus, ${mCols}
-        FROM best JOIN page_chunks c ON c.page_id = best.page_id AND c.ord = best.ord
+        FROM best JOIN page_chunks c ON c.page_id = best.page_id AND c.ord = best.ord CROSS JOIN q
     ),
     df AS (SELECT ${dfCols} FROM matched),
     scope AS (SELECT count(*)::float8 AS n FROM page_chunks c WHERE c.workspace_id = ANY(${ws}::uuid[])),
@@ -162,13 +178,13 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
     )
     SELECT c.page_id AS "pageId", p.workspace_id AS "workspaceId", p.title, c.ord, c.anchor,
            c.heading_path AS "headingPath", c.part, c.text, c.token_estimate AS tokens,
-           c.section_hash AS version, p.updated_at AS "updatedAt",
+           c.section_hash AS version, p.updated_at AS "updatedAt", p.aliases,
            scope.n AS "scopeChunks", to_json(df) AS df
       FROM ranked
       JOIN page_chunks c ON c.page_id = ranked.page_id AND c.ord = ranked.ord
       JOIN pages p ON p.id = c.page_id, df, scope
      ORDER BY c.page_id, c.ord
-  `)) as unknown as (Omit<Candidate, 'updatedAt'> & { updatedAt: Date | string; scopeChunks: number | string; df: Record<string, number> | string })[]
+  `)) as unknown as (Omit<Candidate, 'updatedAt' | 'aliases'> & { updatedAt: Date | string; aliases: unknown; scopeChunks: number | string; df: Record<string, number> | string })[]
 
   // Word weights from the statistics every row carries (the same for all rows).
   const stats = rows[0]
@@ -195,6 +211,7 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
       tokens: r.tokens,
       version: r.version,
       updatedAt: r.updatedAt instanceof Date ? r.updatedAt : new Date(r.updatedAt),
+      aliases: aliasText(r.aliases),
     }
     top.push({ ...c, score: scoreCandidate(c, { groups, idf: weights, phrase, now }) })
   }
@@ -233,6 +250,12 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
     if (more.length >= 5) break
   }
   return { fragments, more, titleOnly: titleRows, budget, usedTokens, candidates: rows.length }
+}
+
+/** pages.aliases (jsonb string[]) as one newline-separated string; '' when none. */
+function aliasText(v: unknown): string {
+  const arr = typeof v === 'string' ? (JSON.parse(v) as unknown) : v
+  return Array.isArray(arr) ? arr.filter((a): a is string => typeof a === 'string').join('\n') : ''
 }
 
 /** Per page: anchor → short anchor (shortest suffix unique on that page). */

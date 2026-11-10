@@ -16,7 +16,11 @@ async function main() {
     budget: budget ? Number(budget) : undefined,
     explain: (i) => {
       console.log(`candidates ${i.candidates}, N ${i.n}`)
-      i.groups.forEach((g, k) => console.log(`  ${g.variants.join('|')}: df ${i.df[k]} idf ${i.idf[k].toFixed(2)}`))
+      i.groups.forEach((g, k) => {
+        // whole-word particle forms and split readings (docs/adr/1700-*)
+        const extra = [...(g.exact?.length ? [`exact ${g.exact.length}: ${g.exact.slice(0, 4).join('|')}…`] : []), ...(g.splits ?? []).map(([a, b]) => `${a}+${b}`)]
+        console.log(`  ${g.variants.join('|')}${extra.length ? ` (${extra.join('; ')})` : ''}: df ${i.df[k]} idf ${i.idf[k].toFixed(2)}`)
+      })
       for (const c of i.ranked.slice(0, 12)) console.log(`  ${c.score.toFixed(3)} ${c.title} › ${c.headingPath} (${c.tokens} tok)`)
     },
   })

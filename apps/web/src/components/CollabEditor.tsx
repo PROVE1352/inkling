@@ -76,6 +76,9 @@ export type CollabState = {
 const schema = BlockNoteSchema.create(
   editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec, image: createZoomableImageSpec() }),
 )
+// LocalDocEditor (row templates, the offline recovery preview): the same nodes with BlockNote's plain
+// image, so the viewer's button appears only in page bodies (docs/adr/2386-*).
+const localSchema = BlockNoteSchema.create(editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec }))
 
 /** Why the device copy was not merged (docs/adr/2201-*): shown above the editor that reopened from the server. */
 type BlockedNotice = 'restored' | 'replaced' | 'readonly' | 'trashed' | 'gone'
@@ -613,7 +616,7 @@ export function LocalDocEditor({
   const navigate = useNavigate()
   const editor = useCreateBlockNote(
     {
-      schema,
+      schema: localSchema,
       collaboration: {
         fragment: doc.getXmlFragment('document'),
         user: { name: me.name, color: userColor(me.id) },

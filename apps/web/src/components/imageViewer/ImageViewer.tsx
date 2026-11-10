@@ -7,7 +7,8 @@
 //   so React does not re-render while zooming (a 3910 x 2060 screenshot stays smooth).
 // - Modal: role=dialog + aria-modal, the rest of <body> is inert, focus is trapped, every key is taken
 //   in the capture phase and stopped (the editor and the app shortcuts never see it), the page does
-//   not scroll. Closing (Esc, a click on the backdrop, the button) returns focus (openImageViewer.ts).
+//   not scroll. Closing (Esc, a click on the backdrop, the button, browser Back) returns focus
+//   (openImageViewer.ts).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { t } from '../../i18n'
@@ -24,6 +25,7 @@ import {
 } from '../../lib/imageZoom'
 import { ChevronRightIcon, XIcon } from '../Icons'
 import type { ViewerImage } from './openImageViewer'
+import './imageViewer.css'
 
 type Props = { images: ViewerImage[]; index: number; onClose: () => void }
 
@@ -300,12 +302,16 @@ export function ImageViewer({ images, index: startIndex, onClose }: Props) {
     set(toggleActual(view.current, p.x, p.y, natural.current, stageSize()))
   }
 
-  // first focus inside the dialog
+  // first focus inside the dialog; browser Back (or any history move) closes it, so it never stays
+  // open over another screen
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true })
+    window.addEventListener('popstate', onClose)
     return () => {
+      window.removeEventListener('popstate', onClose)
       if (frame.current) cancelAnimationFrame(frame.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const title = image?.title || t('imageViewer.untitled')

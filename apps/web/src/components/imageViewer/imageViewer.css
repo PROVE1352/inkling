@@ -1,0 +1,33 @@
+/* The image viewer (docs/adr/2386-*): loaded with its lazy chunk, so the entry stylesheet does not grow. */
+.nd-iv {
+  background: rgb(10 10 12 / 0.95);
+  animation: nd-iv-in var(--dur-base) var(--ease-out);
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.nd-iv-bar {
+  background: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0));
+}
+.nd-iv-stage {
+  cursor: default;
+}
+.nd-iv-stage[data-zoomed] {
+  cursor: grab;
+}
+.nd-iv-stage[data-zoomed]:active {
+  cursor: grabbing;
+}
+.nd-iv-img {
+  will-change: transform;
+  -webkit-user-drag: none;
+}
+@keyframes nd-iv-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd-iv {
+    animation: none;
+  }
+}

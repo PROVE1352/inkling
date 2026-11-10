@@ -648,9 +648,14 @@ html[data-resizing] .nd-sidebar-shell {
   border-radius: var(--radius-md);
 }
 /* Image viewer (docs/adr/2386-*): the "View larger" button in an image block's corner — on hover, on a
-   selected image, on focus, and always where there is no hover (touch). Read-only bodies and the public
-   page open the viewer with a click on the image itself. */
-.bn-container .nd-img-zoom {
+   selected image, on focus, and always where there is no hover (touch). Only in a live editor body
+   (.bn-editor): copies of blocks (presentation slides) and the clipboard keep the button's markup, and
+   there it stays hidden. Read-only bodies and the public page open the viewer with a click on the image.
+   The viewer's own styles ship with its lazy chunk (components/imageViewer/imageViewer.css). */
+.nd-img-zoom {
+  display: none;
+}
+.bn-container .bn-editor .nd-img-zoom {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -668,58 +673,28 @@ html[data-resizing] .nd-sidebar-shell {
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-.bn-container .bn-visual-media-wrapper:hover > .nd-img-zoom,
-.bn-container .ProseMirror-selectednode .nd-img-zoom,
-.bn-container .nd-img-zoom:focus-visible {
+.bn-container .bn-editor .bn-visual-media-wrapper:hover > .nd-img-zoom,
+.bn-container .bn-editor .ProseMirror-selectednode .nd-img-zoom,
+.bn-container .bn-editor .nd-img-zoom:focus-visible {
   opacity: 1;
 }
 @media (hover: none) {
-  .bn-container .nd-img-zoom {
+  .bn-container .bn-editor .nd-img-zoom {
     opacity: 1;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .bn-container .bn-editor .nd-img-zoom {
+    transition: none;
+  }
+}
 .bn-container .bn-editor[contenteditable='false'] [data-content-type='image'] img.bn-visual-media,
-.nd-public-body [data-content-type='image'] img.bn-visual-media {
+.nd-public-body:not(.nd-present-body) [data-content-type='image'] img.bn-visual-media {
   cursor: zoom-in;
 }
 @media print {
   .nd-img-zoom {
     display: none !important;
-  }
-}
-.nd-iv {
-  background: rgb(10 10 12 / 0.95);
-  animation: nd-iv-in var(--dur-base) var(--ease-out);
-  touch-action: none;
-  overscroll-behavior: contain;
-}
-.nd-iv-bar {
-  background: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0));
-}
-.nd-iv-stage {
-  cursor: default;
-}
-.nd-iv-stage[data-zoomed] {
-  cursor: grab;
-}
-.nd-iv-stage[data-zoomed]:active {
-  cursor: grabbing;
-}
-.nd-iv-img {
-  will-change: transform;
-  -webkit-user-drag: none;
-}
-@keyframes nd-iv-in {
-  from {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nd-iv {
-    animation: none;
-  }
-  .bn-container .nd-img-zoom {
-    transition: none;
   }
 }
 /* Slash menu and BlockNote dropdowns (drag-handle menu, colours) open like the app's menus: scale + fade

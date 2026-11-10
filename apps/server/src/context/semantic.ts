@@ -111,12 +111,13 @@ const queryVectors = new BoundedLru<Float32Array>(256, 10 * 60_000)
 
 async function queryVector(cfg: SemanticConfig, query: string): Promise<Float32Array | null> {
   const text = cutChars(query.normalize('NFKC').replace(/\s+/g, ' ').trim(), cfg.maxChars)
-  const key = `${cfg.model}\u0000${cfg.dimensions ?? ''}\u0000${text}`
+  const key = `${cfg.vectorModel}\u0000${cfg.dimensions ?? ''}\u0000${text}`
   const hit = queryVectors.get(key)
   if (hit) return hit
   if (inBackoff()) return null
   try {
-    const [v] = await embedTexts(cfg, [text], cfg.queryTimeoutMs)
+    // e5-style models want a role prefix on the query (docs/adr/2404-*); '' by default
+    const [v] = await embedTexts(cfg, [cfg.queryPrefix + text], cfg.queryTimeoutMs)
     recordSuccess(v.length)
     queryVectors.set(key, v)
     return v
@@ -169,7 +170,7 @@ function epochOf(ws: string): number {
  */
 export function semanticEpoch(workspaceId: string): string {
   const cfg = semanticConfig()
-  return cfg ? `${cfg.model}:${epochOf(workspaceId)}` : ''
+  return cfg ? `${cfg.vectorModel}:${epochOf(workspaceId)}` : ''
 }
 
 function cacheBytes(): number {
@@ -184,10 +185,10 @@ const LOAD_OVERLAP = '60 seconds'
 async function loadWorkspace(cfg: SemanticConfig, ws: string, dims: number): Promise<WsCache | null> {
   const epoch = epochOf(ws)
   let c = caches.get(ws)
-  const full = !c || c.model !== cfg.model || vectorEpochs.get(ws)?.full === true
+  const full = !c || c.model !== cfg.vectorModel || vectorEpochs.get(ws)?.full === true
   if (full) {
     const [size] = await run<{ n: number }>(sql`
-      SELECT count(*)::int AS n FROM page_chunk_vectors WHERE workspace_id = ${ws} AND model = ${cfg.model} AND dims = ${dims}
+      SELECT count(*)::int AS n FROM page_chunk_vectors WHERE workspace_id = ${ws} AND model = ${cfg.vectorModel} AND dims = ${dims}
     `)
     const need = (size?.n ?? 0) * (dims * 4 + 160)
     if (need > cfg.cacheBytes) {
@@ -203,7 +204,7 @@ async function loadWorkspace(cfg: SemanticConfig, ws: string, dims: number): Pro
       caches.delete(id)
       total -= other.bytes
     }
-    c = { model: cfg.model, entries: new Map(), since: null, epoch, bytes: 0, lastUsed: Date.now() }
+    c = { model: cfg.vectorModel, entries: new Map(), since: null, epoch, bytes: 0, lastUsed: Date.now() }
     const e = vectorEpochs.get(ws)
     if (e) e.full = false
   }
@@ -212,7 +213,7 @@ async function loadWorkspace(cfg: SemanticConfig, ws: string, dims: number): Pro
   const rows = await run<{ pageId: string; hash: string; embedding: number[]; at: string }>(sql`
     SELECT page_id AS "pageId", text_hash AS hash, embedding, updated_at::text AS at
       FROM page_chunk_vectors
-     WHERE workspace_id = ${ws} AND model = ${cfg.model} AND dims = ${dims}
+     WHERE workspace_id = ${ws} AND model = ${cfg.vectorModel} AND dims = ${dims}
        ${cache.since ? sql`AND updated_at > ${cache.since}::timestamptz - interval '${sql.raw(LOAD_OVERLAP)}'` : sql``}
   `)
   for (const r of rows) {
@@ -236,7 +237,7 @@ async function loadWorkspace(cfg: SemanticConfig, ws: string, dims: number): Pro
 async function workspaceCache(cfg: SemanticConfig, ws: string, dims: number): Promise<WsCache | null> {
   const c = caches.get(ws)
   const epoch = epochOf(ws)
-  if (c && c.epoch === epoch && c.model === cfg.model) {
+  if (c && c.epoch === epoch && c.model === cfg.vectorModel) {
     c.lastUsed = Date.now()
     return c
   }
@@ -274,7 +275,7 @@ async function scoreInSql(cfg: SemanticConfig, ws: string, userId: string, q: Fl
     SELECT v.page_id AS "pageId", v.text_hash AS hash,
            (SELECT sum(a * b) FROM unnest(v.embedding, ${lit}::real[]) t(a, b))::float8 AS score
       FROM page_chunk_vectors v JOIN pages p ON p.id = v.page_id
-     WHERE v.workspace_id = ${ws} AND v.model = ${cfg.model} AND v.dims = ${q.length}
+     WHERE v.workspace_id = ${ws} AND v.model = ${cfg.vectorModel} AND v.dims = ${q.length}
        AND p.deleted_at IS NULL AND ${visibleSql(userId)}
      ORDER BY score DESC, v.page_id, v.text_hash
      LIMIT ${n}
@@ -401,7 +402,7 @@ export async function semanticStatus(now = Date.now()): Promise<SemanticStatusDT
       WITH cur AS (
         SELECT c.page_id, c.anchor,
                EXISTS (SELECT 1 FROM page_chunk_vectors v
-                        WHERE v.page_id = c.page_id AND v.text_hash = ${TEXT_HASH_SQL} AND v.model = ${cfg.model}
+                        WHERE v.page_id = c.page_id AND v.text_hash = ${TEXT_HASH_SQL} AND v.model = ${cfg.vectorModel}
                           ${dims ? sql`AND v.dims = ${dims}` : sql``}) AS ok
           FROM page_chunks c JOIN pages p ON p.id = c.page_id JOIN workspaces w ON w.id = c.workspace_id
          WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL

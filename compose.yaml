@@ -161,6 +161,8 @@ services:
       EMBEDDING_QUERY_TIMEOUT_MS: ${EMBEDDING_QUERY_TIMEOUT_MS:-}
       EMBEDDING_MAX_CHARS: ${EMBEDDING_MAX_CHARS:-}
       EMBEDDING_CACHE_MB: ${EMBEDDING_CACHE_MB:-}
+      EMBEDDING_QUERY_PREFIX: ${EMBEDDING_QUERY_PREFIX:-}
+      EMBEDDING_PASSAGE_PREFIX: ${EMBEDDING_PASSAGE_PREFIX:-}
       # Uploads by AI agents (upload_file, API tokens; see .env.example, docs/adr/2065-*). Empty = defaults:
       # on unless a workspace turns them off, 5 MB per file, 200 MB per account per 24 hours.
       AGENT_UPLOADS: ${AGENT_UPLOADS:-}

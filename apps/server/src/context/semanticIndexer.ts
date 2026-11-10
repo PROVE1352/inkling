@@ -77,7 +77,7 @@ async function pendingChunks(cfg: SemanticConfig, limit: number, workspaceIds?: 
     todo AS (
       SELECT cur.* FROM cur
        WHERE NOT EXISTS (SELECT 1 FROM page_chunk_vectors v
-                          WHERE v.page_id = cur.page_id AND v.text_hash = cur.h AND v.model = ${cfg.model}
+                          WHERE v.page_id = cur.page_id AND v.text_hash = cur.h AND v.model = ${cfg.vectorModel}
                             ${dims ? sql`AND v.dims = ${dims}` : sql``})
          ${skip.length ? sql`AND NOT (cur.h = ANY(${`{${skip.join(',')}}`}::text[]))` : sql``}
        ORDER BY cur.updated_at DESC, cur.page_id, cur.ord
@@ -99,7 +99,7 @@ async function writeVectors(cfg: SemanticConfig, rows: PendingRow[], vectors: Fl
   const tuples = sql.join(
     values.map(
       ({ row, vec }) =>
-        sql`(${row.pageId}::uuid, ${row.hash}::text, ${row.workspaceId}::uuid, ${cfg.model}::text, ${vec.length}::int, ${`{${Array.from(vec).join(',')}}`}::real[], now())`,
+        sql`(${row.pageId}::uuid, ${row.hash}::text, ${row.workspaceId}::uuid, ${cfg.vectorModel}::text, ${vec.length}::int, ${`{${Array.from(vec).join(',')}}`}::real[], now())`,
     ),
     sql`, `,
   )
@@ -148,7 +148,7 @@ export async function runSemanticIndexPass(
     if (signal?.aborted) return { embedded, more: true }
     try {
       indexerStats.requests++
-      const inputs = batch.map((r) => cutChars(chunkEmbedText(r.title, r.headingPath, r.text), cfg.maxChars))
+      const inputs = batch.map((r) => cutChars(cfg.passagePrefix + chunkEmbedText(r.title, r.headingPath, r.text), cfg.maxChars))
       const vectors = await embedTexts(cfg, inputs, cfg.timeoutMs)
       // the hash is of the text actually sent (the chunk may have changed since the scan)
       const sent = batch.map((r) => ({ ...r, hash: chunkTextHash(r.title, r.headingPath, r.text) }))
@@ -203,7 +203,7 @@ export async function collectStaleVectors(batch = GC_BATCH): Promise<number> {
       gone AS (
         SELECT v.page_id, v.text_hash FROM page_chunk_vectors v
           LEFT JOIN cur ON cur.page_id = v.page_id AND cur.h = v.text_hash
-         WHERE cur.page_id IS NULL OR v.model <> ${cfg.model}
+         WHERE cur.page_id IS NULL OR v.model <> ${cfg.vectorModel}
          LIMIT ${batch}
       )
       DELETE FROM page_chunk_vectors v USING gone

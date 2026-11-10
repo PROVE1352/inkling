@@ -9,6 +9,10 @@
  * reuse the wiki's vocabulary, then reports: tokens and tool calls per question (old flow vs
  * find_context), recall, find_context latency p50/p95 vs the old search route,
  * and indexing cost per page.
+ *
+ * With semantic search configured (EMBEDDING_URL + EMBEDDING_MODEL, and EMBEDDING_QUERY_PREFIX /
+ * EMBEDDING_PASSAGE_PREFIX for e5 models, docs/adr/2404-*) every chunk is embedded before the
+ * questions are asked, so the same tables measure lexical + semantic find_context.
  */
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 process.env.DATA_DIR ||= `${process.env.TMPDIR || '/tmp'}/inkling-bench-${process.pid}`
@@ -130,6 +134,23 @@ async function main() {
     recallIds.set(evalPageKey(p), JSON.parse(r.text).id)
   }
 
+  // 2c) semantic search on: embed every chunk first (the server's background indexer is not running here)
+  const { semanticConfig } = await import('../src/context/semanticConfig')
+  let semanticLine = 'semantic search: off'
+  if (semanticConfig()) {
+    const { runSemanticIndexPass } = await import('../src/context/semanticIndexer')
+    const s0 = performance.now()
+    let embedded = 0
+    for (let pass = 0; pass < 100_000; pass++) {
+      const r = await runSemanticIndexPass()
+      embedded += r.embedded
+      if (!r.more) break
+      if (r.embedded === 0) await new Promise((res) => setTimeout(res, 1000)) // backoff after a failure
+    }
+    const cfg = semanticConfig()!
+    semanticLine = `semantic search: on, model ${cfg.model} (stored as ${cfg.vectorModel}), ${embedded} chunks embedded in ${Math.round((performance.now() - s0) / 1000)} s`
+  }
+
   // 3) quality and cost
   const small = await runEval(mcp.tool, EVAL_QUESTIONS, unpaddedIds, { workspaceId: wsSmall.id })
   const big = await runEval(mcp.tool, EVAL_QUESTIONS, idByTitle, { workspaceId: ws.id })
@@ -230,6 +251,7 @@ async function main() {
   const f = (v: number) => (Math.round(v * 100) / 100).toString()
   const lines = [
     `pages: ${argPages} distractors + ${EVAL_PAGES.length} wiki pages, ${chunkCount} chunks (index build ${f(indexMs / 1000)} s)`,
+    semanticLine,
     '',
     '| set | flow | mean tokens | median tokens | mean calls | success | section@1 | section@3 | page@1 | page@3 |',
     '|---|---|---|---|---|---|---|---|---|---|',

@@ -5,7 +5,7 @@ for (const k of Object.keys(process.env)) if (k.startsWith('EMBEDDING_')) delete
 
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
-import { readSemanticConfig, embeddingsEndpoint, endpointLabel, resetSemanticConfigForTests, semanticConfig } from './semanticConfig'
+import { readSemanticConfig, embeddingsEndpoint, endpointLabel, resetSemanticConfigForTests, semanticConfig, vectorModelName } from './semanticConfig'
 import {
   BACKOFF_MAX_MS,
   EmbeddingError,
@@ -57,6 +57,26 @@ describe('semantic search configuration', () => {
     assert.equal(d.batchSize, 256)
     assert.equal(d.requestsPerMinute, 1)
     assert.equal(d.dimensions, 256)
+  })
+
+  it('embedding prefixes (docs/adr/2404-*): empty by default, kept as written, part of the stored model name', () => {
+    const plain = readSemanticConfig({ EMBEDDING_URL: 'http://host:11434/v1', EMBEDDING_MODEL: 'multilingual-e5-small' }).config!
+    assert.equal(plain.queryPrefix, '')
+    assert.equal(plain.passagePrefix, '')
+    // no prefix: vectors keep the name they were stored under before 0.20
+    assert.equal(plain.vectorModel, 'multilingual-e5-small')
+    const e5 = readSemanticConfig({
+      EMBEDDING_URL: 'http://host:11434/v1',
+      EMBEDDING_MODEL: 'multilingual-e5-small',
+      EMBEDDING_QUERY_PREFIX: 'query: ',
+      EMBEDDING_PASSAGE_PREFIX: 'passage: ',
+    }).config!
+    assert.equal(e5.queryPrefix, 'query: ')
+    assert.equal(e5.passagePrefix, 'passage: ')
+    assert.equal(e5.model, 'multilingual-e5-small')
+    assert.match(e5.vectorModel, /^multilingual-e5-small#p[0-9a-f]{8}$/)
+    assert.notEqual(vectorModelName('m', 'query: ', 'passage: '), vectorModelName('m', 'query:', 'passage:'))
+    assert.notEqual(vectorModelName('m', 'a', ''), vectorModelName('m', '', 'a'))
   })
 
   it('labels the endpoint without credentials or query strings', () => {

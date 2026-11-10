@@ -520,4 +520,25 @@ describe('[db] optional semantic search', { skip: !HAS_DB }, async () => {
     assert.equal(fake.requests.length, n0)
     assert.equal(sem.semanticStats.dbQueries, q0)
   })
+
+  it('e5 prefixes (docs/adr/2404-*): sent before chunks and queries; a prefix change re-embeds like a model change', async () => {
+    const { vectorModelName } = await import('./semanticConfig')
+    on({ EMBEDDING_MODEL: 'fake-2', EMBEDDING_QUERY_PREFIX: 'query: ', EMBEDDING_PASSAGE_PREFIX: 'passage: ' })
+    const name = vectorModelName('fake-2', 'query: ', 'passage: ')
+    assert.notEqual(name, 'fake-2')
+    // vectors of the same model without prefixes are not served: every live chunk is pending again
+    assert.ok((await sem.semanticStatus())!.sections.pending > 0)
+    const live = await liveChunkCount(A)
+    const n0 = fake.requests.length
+    assert.equal(await indexAll([A]), live)
+    assert.equal(await vectorCount(A, name), live)
+    const sent = fake.requests.slice(n0)
+    assert.ok(sent.every((r) => r.model === 'fake-2' && r.inputs.every((t) => t.startsWith('passage: '))))
+    await sem.semanticCandidates({ workspaceIds: [A], query: 'rollback steps', limit: 3, userId: member.id })
+    assert.equal(fake.requests.at(-1)!.inputs[0], 'query: rollback steps')
+    // the clean-up removes the vectors stored without the prefixes
+    await idx.collectStaleVectors(100)
+    assert.equal(await vectorCount(A, 'fake-2'), 0)
+    off()
+  })
 })

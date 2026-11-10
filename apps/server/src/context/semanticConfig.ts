@@ -15,16 +15,33 @@
  *   EMBEDDING_QUERY_TIMEOUT_MS       timeout of the one query embedding per search (default 3000)
  *   EMBEDDING_MAX_CHARS              characters of one chunk sent to the model (default 4000)
  *   EMBEDDING_CACHE_MB               in-process vector cache for queries (default 128)
+ *   EMBEDDING_QUERY_PREFIX           optional text put before every query ("query: " for e5 models)
+ *   EMBEDDING_PASSAGE_PREFIX         optional text put before every chunk ("passage: " for e5 models)
+ *
+ * The prefixes are taken as written (not trimmed: e5 wants the space after the colon). Changing
+ * either one changes `vectorModel`, the name vectors are stored under, so the stored vectors are
+ * replaced as after a model change (docs/adr/2404-*).
  *
  * Read lazily (first call) so tests can set the environment after importing; memoised after that.
  */
 // Importing env first guarantees dotenv has loaded .env before process.env is read.
 import '../env'
+import { createHash } from 'node:crypto'
 
 export interface SemanticConfig {
   /** Full URL of the embeddings endpoint (…/embeddings). */
   endpoint: string
+  /** Model name sent with every request. */
   model: string
+  /**
+   * Name the vectors are stored and looked up under (page_chunk_vectors.model): the model, plus a
+   * short hash of the prefixes when one is set. Without prefixes it equals `model` (vectors written
+   * before 0.20 stay valid).
+   */
+  vectorModel: string
+  /** Put before the query / before each chunk text when embedding; '' = nothing (docs/adr/2404-*). */
+  queryPrefix: string
+  passagePrefix: string
   /** Never printed; only sent in the Authorization header. */
   apiKey: string | null
   dimensions: number | null
@@ -87,10 +104,15 @@ export function readSemanticConfig(e: NodeJS.ProcessEnv = process.env): Semantic
     return { config: null, warning: 'semantic search stays off: EMBEDDING_URL is not an http(s) URL' }
   }
   const dims = intEnv(e.EMBEDDING_DIMENSIONS, 0, 0, 16_384)
+  const queryPrefix = e.EMBEDDING_QUERY_PREFIX ?? ''
+  const passagePrefix = e.EMBEDDING_PASSAGE_PREFIX ?? ''
   return {
     config: {
       endpoint,
       model,
+      vectorModel: vectorModelName(model, queryPrefix, passagePrefix),
+      queryPrefix,
+      passagePrefix,
       apiKey: e.EMBEDDING_API_KEY?.trim() || null,
       dimensions: dims > 0 ? dims : null,
       batchSize: intEnv(e.EMBEDDING_BATCH_SIZE, 32, 1, 256),
@@ -102,6 +124,15 @@ export function readSemanticConfig(e: NodeJS.ProcessEnv = process.env): Semantic
     },
     warning: null,
   }
+}
+
+/**
+ * Stored name of the vectors: the model alone without prefixes, else `model#p<8 hex>` (sha1 of both
+ * prefixes). A new prefix is a new name, so the indexer re-embeds and prunes like for a new model.
+ */
+export function vectorModelName(model: string, queryPrefix: string, passagePrefix: string): string {
+  if (!queryPrefix && !passagePrefix) return model
+  return `${model}#p${createHash('sha1').update(`${queryPrefix}\u0000${passagePrefix}`).digest('hex').slice(0, 8)}`
 }
 
 let memo: SemanticConfigResult | undefined

@@ -13,7 +13,8 @@ import { readOutline, readSection } from '../context/sectionSource'
 import { movedOrThrow, patchSectionAs, sectionNotFound } from '../context/sectionWrite'
 import type { OutlineSection } from '../context/sectionSource'
 import { DEFAULT_BUDGET, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
-import { cachedFindContext } from '../context/contextCache'
+import { cachedFindContext, cachedFindContextMulti, normalizeContextQuery } from '../context/contextCache'
+import { MAX_QUERIES } from '../context/multiQuery'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
 import { db } from '../db/index'
 import { pageDocs } from '../db/schema'
@@ -35,7 +36,8 @@ import { registerSectionBatchRoutes } from './sectionBatch'
  * find_context, read_page(outline|section), read_pages and patch_section, but plain session-cookie
  * routes like every other /api route. Reads are GET (read-only tokens may call them).
  *
- *   GET  /context?q&workspaceId&budget        ranked sections packed into a token budget
+ *   GET  /context?q&workspaceId&budget        ranked sections packed into a token budget; q may repeat
+ *                                              (2-5 phrasings, merged by RRF under one budget, ADR 1720)
  *   GET  /pages/:id/outline                    sections: anchor, heading path, level, tokens, version
  *   GET  /pages/:id/section?ref&maxChars       one section as Markdown (+ version)
  *   GET  /pages/read?ids=a,b&budget            several pages as Markdown within a budget
@@ -43,8 +45,10 @@ import { registerSectionBatchRoutes } from './sectionBatch'
  *   POST /pages/:id/sections                   several section patches, all or nothing (routes/sectionBatch.ts)
  */
 
+const queryText = z.string().trim().min(1).max(300)
 const contextQuerySchema = z.object({
-  q: z.string().trim().min(1).max(300),
+  // one value: a string (the single-query answer, unchanged); repeated: an array (docs/adr/1720-*)
+  q: z.union([queryText, z.array(queryText).min(1).max(2 * MAX_QUERIES)]),
   workspaceId: z.uuid().optional(),
   budget: z.coerce.number().int().min(1).max(MAX_BUDGET).optional(),
 })
@@ -112,6 +116,17 @@ async function claimField(pageId: string, user: AuthUser, s: { anchor: string; b
   return c ? { claim: c } : {}
 }
 
+/** Queries in order without repeats (two spellings that retrieval sees alike count once). */
+export function distinctQueries(qs: string[]): string[] {
+  const seen = new Set<string>()
+  return qs.filter((q) => {
+    const n = normalizeContextQuery(q)
+    if (seen.has(n)) return false
+    seen.add(n)
+    return true
+  })
+}
+
 // Section patch (Yjs): context/sectionPatch.ts (docs/adr/0930-*, 0940-*).
 export type { PatchMode, PatchOutcome } from '../context/sectionPatch'
 
@@ -120,8 +135,12 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     const user = getUser(req)
     const { q, workspaceId, budget } = contextQuerySchema.parse(req.query)
     if (workspaceId) await requireMembership(workspaceId, user.id)
+    const queries = distinctQueries(typeof q === 'string' ? [q] : q)
+    if (queries.length > MAX_QUERIES) throw badRequest(`At most ${MAX_QUERIES} different queries per call`)
     // Same workspaces and permission filter as before, through the result cache (docs/adr/1550-*).
-    return cachedFindContext(user.id, q, workspaceId ?? null, budget ?? DEFAULT_BUDGET)
+    if (queries.length === 1) return cachedFindContext(user.id, queries[0], workspaceId ?? null, budget ?? DEFAULT_BUDGET)
+    // Several phrasings: per-query entries of the same cache, merged under one budget (docs/adr/1720-*).
+    return cachedFindContextMulti(user.id, queries, workspaceId ?? null, budget ?? DEFAULT_BUDGET)
   })
 
   app.get('/pages/:id/outline', { preHandler: requireUser }, async (req) => {

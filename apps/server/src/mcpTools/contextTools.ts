@@ -2,6 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { FindContextResult } from '../context/retrieve'
 import { DEFAULT_BUDGET, MAX_BUDGET } from '../context/retrieve'
+import { isMultiResult, MAX_QUERIES } from '../context/multiQuery'
+import { normalizeContextQuery } from '../context/contextCache'
 import { reviewFactsFor } from '../review'
 import { countReads } from '../pageReads'
 import type { ReviewFacts } from '../review'
@@ -53,15 +55,24 @@ export function renderFindContext(
   ink?: Map<string, number>,
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
+  // Several queries (docs/adr/1720-*): one header naming them by number, `matched:` per fragment.
+  const multi = isMultiResult(r) ? r : null
+  const queryList = multi ? multi.queries.map((q, i) => `${i + 1} "${q}"`).join(', ') : ''
   if (r.fragments.length === 0) {
-    const lines = [`No sections match "${query}". Try other or fewer words (synonyms, the other language), or list_pages.`]
+    const lines = [
+      multi
+        ? `No sections match any of ${multi.queries.length} queries (${queryList}). Try other or fewer words, or list_pages.`
+        : `No sections match "${query}". Try other or fewer words (synonyms, the other language), or list_pages.`,
+    ]
     if (r.titleOnly.length) {
       lines.push('Pages whose title matches (no text):')
       lines.push(wrapData(r.titleOnly.map((t) => `- ${t.title || 'Untitled'} (page ${t.pageId}, ${t.kind})`)))
     }
     return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
   }
-  const head = `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`
+  const head = multi
+    ? `${r.fragments.length} result(s) for ${multi.queries.length} queries (${queryList}), ~${r.usedTokens}/${r.budget} tokens`
+    : `${r.fragments.length} result(s) for "${query}", ~${r.usedTokens}/${r.budget} tokens`
   const data: string[] = []
   // Location = last heading + short anchor (docs/adr/1212-*); the full path only where a short one
   // would be ambiguous on the page. Older result objects without short/heading print the full form.
@@ -78,7 +89,8 @@ export function renderFindContext(
     if (i > 0) data.push('')
     // handwriting marker (docs/adr/1512-*): only where agents may read ink
     const inkNote = ink?.get(f.pageId) ? `; ${inkMarker(ink.get(f.pageId)!)}` : ''
-    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
+    const matched = multi ? `; matched: ${multi.fragments[i].matched.join(',')}` : ''
+    data.push(`[${i + 1}] ${f.title || 'Untitled'}${path}`, `(page ${f.pageId}; ${versions}${f.truncated ? '; truncated' : ''}${matched}${who}${reviewNote(review?.get(f.pageId))}${inkNote})`, f.text)
   })
   if (r.more.length) {
     // One line per page; a page already shown is referred to by its result number.
@@ -87,7 +99,10 @@ export function renderFindContext(
     for (const m of r.more) byPage.set(m.pageId, [...(byPage.get(m.pageId) ?? []), m])
     for (const [pageId, list] of byPage) {
       const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${pageId})`
-      data.push(`- ${where}: ${list.map((m) => `§${shortOf(m)} ~${m.tokens} tok`).join(', ')}`)
+      // a pointer from an extra ranked list may name a whole page (no anchor) or have no size
+      const one = (m: (typeof list)[number]) =>
+        multi && !m.anchor ? 'whole page' : multi && !m.tokens ? `§${shortOf(m)}` : `§${shortOf(m)} ~${m.tokens} tok`
+      data.push(`- ${where}: ${list.map(one).join(', ')}`)
     }
   }
   if (r.titleOnly.length) {
@@ -146,17 +161,32 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       description:
         'Start here. Searches all your notes (or one workspace) and returns the most relevant sections, ranked and packed ' +
         `into a token budget (default ${DEFAULT_BUDGET}, max ${MAX_BUDGET}; tokens are estimated). Each result has pageId, §anchor and ` +
-        'version for read_page(section=…) or patch_section. Use specific words; Korean and English both work.',
+        'version for read_page(section=…) or patch_section. Use specific words; Korean and English both work. ' +
+        `Unsure of the wording? Pass queries=[…] (up to ${MAX_QUERIES} synonyms/translations): one merged answer, one budget.`,
       inputSchema: {
-        query: z.string().trim().min(1).max(300).describe('What you are looking for (keywords or a question)'),
+        query: z.string().trim().min(1).max(300).optional().describe('What you are looking for (keywords or a question)'),
+        queries: z
+          .array(z.string().trim().min(1).max(300))
+          .min(1)
+          .max(MAX_QUERIES)
+          .optional()
+          .describe('Other phrasings searched together (merged, each section once; "matched: 1,3" = query numbers)'),
         workspaceId: uuid().optional().describe('Limit to one workspace (default: all of yours)'),
         budget: z.number().int().min(300).max(MAX_BUDGET).optional().describe(`Max tokens to return (default ${DEFAULT_BUDGET})`),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ query, workspaceId, budget }) => {
+    wrap(async ({ query, queries, workspaceId, budget }) => {
+      // query first, then queries; repeats (as retrieval sees them) once. One left: the single-query call.
+      const seen = new Set<string>()
+      const list = [...(query ? [query] : []), ...(queries ?? [])].filter((q) => {
+        const n = normalizeContextQuery(q)
+        return seen.has(n) ? false : (seen.add(n), true)
+      })
+      if (list.length === 0) throw new ToolError('query or queries is required')
+      if (list.length > MAX_QUERIES) throw new ToolError(`at most ${MAX_QUERIES} different queries in all (query + queries)`)
       const res = await call(ctx, 'GET', '/api/context', {
-        query: { q: query, ...(workspaceId ? { workspaceId } : {}), ...(budget ? { budget: String(budget) } : {}) },
+        query: { q: list.length === 1 ? list[0] : list, ...(workspaceId ? { workspaceId } : {}), ...(budget ? { budget: String(budget) } : {}) },
       })
       const result = res.json() as FindContextResult
       // pageIds come from the permission-checked REST answer; this only adds owner/review facts.
@@ -164,7 +194,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const review = await reviewFactsFor(shown)
       countReads(shown) // read counters, page totals only (docs/adr/0953-*)
       const ac = await loadAgentContext(ctx, shown, { read: true })
-      return text(renderFindContext(query, result, review, ac, await inkStrokeCounts(shown)))
+      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown)))
     }),
   )
 

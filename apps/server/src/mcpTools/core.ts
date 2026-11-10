@@ -30,7 +30,7 @@ export interface InjectOpts {
   json?: unknown
   payload?: Buffer
   headers?: Record<string, string>
-  query?: Record<string, string>
+  query?: Record<string, string | string[]>
   /** Statuses returned to the caller instead of thrown (e.g. 409 to show conflict details). */
   passStatuses?: number[]
   /** What a plain 404 means for this call (default: read from the URL, notFoundTarget). */

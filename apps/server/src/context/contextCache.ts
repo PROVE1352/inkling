@@ -10,6 +10,8 @@ import { chunkEpoch } from '../versions'
 import { noteCacheHit, noteWorkspaces } from '../connectionUsage'
 import { findContext, memberWorkspaceIds } from './retrieve'
 import type { FindContextResult } from './retrieve'
+import { fuseContextResults, isMultiResult, RRF_K } from './multiQuery'
+import type { ExtraList, MultiFindContextResult } from './multiQuery'
 
 /**
  * find_context result cache (docs/adr/1550-*). Several agents of one person asking the same thing
@@ -36,6 +38,11 @@ import type { FindContextResult } from './retrieve'
  * is equal — the retrieval is a function of exactly these inputs, so equal keys are equal answers.
  *
  * Per process: the section index epoch is process-local (versions.ts); Inkling runs one process.
+ *
+ * Several queries (docs/adr/1721-*): one marker statement for the bundle; each query is looked up
+ * under exactly the key a single call with the same budget uses (so bundles and single calls share
+ * entries), and the fused result is stored under a bundle key (the same inputs, the ordered query
+ * list, k and a digest of any extra ranked lists).
  */
 
 export const CONTEXT_CACHE_MAX_ENTRIES = 1_000
@@ -52,12 +59,17 @@ function sizeOf(r: FindContextResult): number {
   }
   for (const m of r.more) n += 128 + 2 * (m.title.length + m.anchor.length + m.headingPath.length)
   for (const t of r.titleOnly) n += 96 + 2 * t.title.length
+  if (isMultiResult(r)) {
+    for (const q of r.queries) n += 64 + 2 * q.length
+    for (const f of r.fragments) n += 32 * f.matched.length
+  }
   return n
 }
 
 const cache = new BoundedLru<FindContextResult>(CONTEXT_CACHE_MAX_ENTRIES, CONTEXT_CACHE_TTL_MS, CONTEXT_CACHE_MAX_BYTES, sizeOf)
 
-export const contextCacheStats = { hits: 0, misses: 0 }
+/** hits/misses: per-query entries (single calls and the queries of a bundle); batch*: bundle entries. */
+export const contextCacheStats = { hits: 0, misses: 0, batchHits: 0, batchMisses: 0 }
 
 let contextCacheEnabled = true
 /** Benchmarks only: false runs the uncached path (docs/PERFORMANCE.md "before" column). */
@@ -74,6 +86,8 @@ export function _resetContextCache(): void {
   cache.clear()
   contextCacheStats.hits = 0
   contextCacheStats.misses = 0
+  contextCacheStats.batchHits = 0
+  contextCacheStats.batchMisses = 0
 }
 
 /** The query as retrieval sees it (rank.ts queryGroups + phrase): two spellings, one entry. */
@@ -125,6 +139,23 @@ function scopeKey(userId: string): string {
  * find_context through the cache. The caller has checked membership of `only` (when given).
  * Records the searched workspaces and a hit on the current connection's usage (docs/adr/1552-*).
  */
+/** The searched workspaces and their markers (database first, then the in-process epochs). */
+async function markersFor(userId: string, only: string | null): Promise<{ workspaceIds: string[]; markers: string[] }> {
+  const scope = await searchScope(userId, only)
+  // In-process epochs after the database markers and before the retrieval (version before data).
+  const markers = scope.map((w) => `${w.id}:${w.acl}:${w.pages}:${chunkEpoch(w.id)}`)
+  return { workspaceIds: scope.map((w) => w.id), markers }
+}
+
+/** Key of one query's entry; bundles look their queries up under this same key. */
+function queryKey(userId: string, budget: number, query: string, markers: string[]): string {
+  const digest = createHash('sha256')
+    .update([scopeKey(userId), String(budget), normalizeContextQuery(query), ...markers].join('\n'))
+    .digest('base64url')
+  // The person comes first and in clear, so nothing can ever match across people.
+  return `${userId}|${digest}`
+}
+
 export async function cachedFindContext(userId: string, query: string, only: string | null, budget: number): Promise<FindContextResult> {
   if (!contextCacheEnabled) {
     // the path before the cache (benchmarks): membership list, then retrieval
@@ -132,16 +163,9 @@ export async function cachedFindContext(userId: string, query: string, only: str
     noteWorkspaces(workspaceIds)
     return findContext({ userId, query, workspaceIds, budget })
   }
-  const scope = await searchScope(userId, only)
-  // In-process epochs after the database markers and before the retrieval (version before data).
-  const markers = scope.map((w) => `${w.id}:${w.acl}:${w.pages}:${chunkEpoch(w.id)}`)
-  const workspaceIds = scope.map((w) => w.id)
+  const { workspaceIds, markers } = await markersFor(userId, only)
   noteWorkspaces(workspaceIds)
-  const digest = createHash('sha256')
-    .update([scopeKey(userId), String(budget), normalizeContextQuery(query), ...markers].join('\n'))
-    .digest('base64url')
-  // The person comes first and in clear, so nothing can ever match across people.
-  const key = `${userId}|${digest}`
+  const key = queryKey(userId, budget, query, markers)
   const hit = cache.get(key)
   if (hit) {
     contextCacheStats.hits++
@@ -151,5 +175,82 @@ export async function cachedFindContext(userId: string, query: string, only: str
   contextCacheStats.misses++
   const result = await findContext({ userId, query, workspaceIds, budget })
   cache.set(key, result)
+  return result
+}
+
+export interface MultiContextOptions {
+  k?: number
+  /**
+   * Extra ranked lists fused with the per-query lists (docs/adr/1722-*), e.g. semanticCandidates()
+   * of context/semantic.ts for each query. Called once per bundle after the markers are read, with
+   * the workspaces this person may search; return [] when the feature is off.
+   */
+  extraLists?: (scope: { userId: string; workspaceIds: string[]; queries: string[] }) => Promise<ExtraList[]>
+}
+
+/**
+ * find_context for several queries (docs/adr/1720-*, 1721-*): each query through the per-query
+ * cache entries (shared with single calls of the same budget), merged by RRF under one budget, the
+ * merged result cached under a bundle key. `queries` are already de-duplicated (2..MAX_QUERIES).
+ */
+export async function cachedFindContextMulti(
+  userId: string,
+  queries: string[],
+  only: string | null,
+  budget: number,
+  opts: MultiContextOptions = {},
+): Promise<MultiFindContextResult> {
+  const k = opts.k ?? RRF_K
+  if (!contextCacheEnabled) {
+    const workspaceIds = only ? [only] : await memberWorkspaceIds(userId)
+    noteWorkspaces(workspaceIds)
+    const perQuery = await Promise.all(queries.map((query) => findContext({ userId, query, workspaceIds, budget })))
+    const extra = (await opts.extraLists?.({ userId, workspaceIds, queries })) ?? []
+    return fuseContextResults(perQuery, { queries, budget: perQuery[0].budget, k, extra })
+  }
+  const { workspaceIds, markers } = await markersFor(userId, only)
+  noteWorkspaces(workspaceIds)
+  // Extra lists after the markers (version before data); their content is part of the bundle key.
+  const extra = (await opts.extraLists?.({ userId, workspaceIds, queries })) ?? []
+  const digest = createHash('sha256')
+    .update(
+      [
+        scopeKey(userId),
+        String(budget),
+        `multi k=${k}`,
+        JSON.stringify(queries.map(normalizeContextQuery)),
+        extra.length ? createHash('sha256').update(JSON.stringify(extra)).digest('base64url') : '',
+        ...markers,
+      ].join('\n'),
+    )
+    .digest('base64url')
+  const bundleKey = `${userId}|m|${digest}`
+  const hit = cache.get(bundleKey)
+  if (hit && isMultiResult(hit)) {
+    contextCacheStats.batchHits++
+    noteCacheHit()
+    return hit
+  }
+  contextCacheStats.batchMisses++
+  let computed = 0
+  const perQuery = await Promise.all(
+    queries.map(async (query) => {
+      const key = queryKey(userId, budget, query, markers)
+      const one = cache.get(key)
+      if (one) {
+        contextCacheStats.hits++
+        return one
+      }
+      contextCacheStats.misses++
+      computed++
+      const result = await findContext({ userId, query, workspaceIds, budget })
+      cache.set(key, result)
+      return result
+    }),
+  )
+  // No retrieval statement ran: the connection's usage counts the call as a cache hit.
+  if (computed === 0) noteCacheHit()
+  const result = fuseContextResults(perQuery, { queries, budget: perQuery[0].budget, k, extra })
+  cache.set(bundleKey, result)
   return result
 }

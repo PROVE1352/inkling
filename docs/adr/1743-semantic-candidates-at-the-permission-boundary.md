@@ -29,7 +29,9 @@ will search). The cache is per workspace, not per person. The caller passes a li
 ## Consequences
 - DB tests (`context/semantic.db.test.ts`) check, on the cache path and the SQL path: another person's
   private page, a page in the trash, a workspace the person is not in, and a deleted workspace never
-  appear; the author sees their own private page; an outsider gets nothing.
+  appear; the author sees their own private page; an outsider gets nothing. Through find_context (ADR 1723):
+  a subtree-range token never gets a candidate outside its subtree, a workspaces-range token none outside its
+  workspaces, and a guest with a page grant gets none from the workspace they are a guest in.
 
 ## References
 - docs/adr/0803-*, 0947-*, 1112-*, 1200-*, 1252-*, 1740-*, 1741-*

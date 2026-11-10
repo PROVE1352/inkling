@@ -350,6 +350,138 @@ describe('[db] optional semantic search', { skip: !HAS_DB }, async () => {
     }
   })
 
+  // --- wired into find_context (docs/adr/1723-*) -------------------------------------------------
+
+  const restContext = (u: { cookie: string }, qs: string) => app.inject({ method: 'GET', url: `/api/context?${qs}`, headers: { cookie: u.cookie } })
+
+  it('find_context: a section only meaning finds is shown (single header, no matched:); queries=[…] label it by number', async () => {
+    off()
+    const lexical = (await mcp.tool('find_context', { query: '체크리스트', workspaceId: A })).text
+    assert.match(lexical, /^No sections match "체크리스트"/, 'lexically the Korean word finds nothing')
+    on({ EMBEDDING_MODEL: 'fake-2' })
+    await indexAll([A])
+    const calls = sem.semanticStats.calls
+    const one = (await mcp.tool('find_context', { query: '체크리스트', workspaceId: A })).text
+    assert.ok(sem.semanticStats.calls > calls, 'semantic candidates were asked')
+    assert.match(one, /^\d+ result\(s\) for "체크리스트", ~\d+\/3500 tokens$/m, 'the single-query header')
+    assert.match(one, new RegExp(`\\(page ${pubA}; §team-checklist v=`), 'the checklist section, found by meaning only')
+    assert.match(one, /Who brings the laptop/, 'with its text')
+    assert.doesNotMatch(one, /matched:/, 'one query: no matched: column')
+    // two phrasings: the semantic list of each query carries that query's number
+    const two = (await mcp.tool('find_context', { queries: ['체크리스트', 'rollback zebra'], workspaceId: A })).text
+    assert.match(two, /result\(s\) for 2 queries \(1 "체크리스트", 2 "rollback zebra"\)/)
+    assert.match(two, new RegExp(`\\(page ${pubA}; §team-checklist v=[^;)]+; matched: 1(,2)?[;)]`), 'found by query 1 (by meaning only)')
+    assert.match(two, new RegExp(`\\(page ${pubA}; §rollback v=[^;)]+; matched: 2[;)]`), 'found by query 2 only')
+    // REST: the merged answer of one query, fragments from the permission-checked route
+    const res = await restContext(member, `q=${encodeURIComponent('체크리스트')}&workspaceId=${A}`)
+    assert.equal(res.statusCode, 200, res.body)
+    const body = res.json() as { queries: string[]; fragments: { pageId: string; anchor: string; matched: string[] }[] }
+    assert.deepEqual(body.queries, ['체크리스트'])
+    assert.ok(body.fragments.some((f) => f.pageId === pubA && f.anchor === 'team-checklist' && f.matched.join() === '1'))
+  })
+
+  it('find_context cache: the bundle key carries the semantic epoch; off, the key is unchanged', async () => {
+    const cache = await import('./contextCache')
+    on({ EMBEDDING_MODEL: 'fake-2' })
+    cache._resetContextCache()
+    const ask = () => mcp.tool('find_context', { query: '체크리스트', workspaceId: A })
+    const first = (await ask()).text
+    assert.equal((await ask()).text, first)
+    assert.equal(cache.contextCacheStats.batchHits, 1, 'the second call is a bundle hit')
+    const epoch = sem.semanticEpoch(A)
+    assert.match(epoch, /^fake-2:\d+$/)
+    sem.bumpVectorEpoch(A)
+    assert.notEqual(sem.semanticEpoch(A), epoch)
+    await ask()
+    assert.equal(cache.contextCacheStats.batchMisses, 2, 'vectors written since: a new bundle key')
+    off()
+    assert.equal(sem.semanticEpoch(A), '')
+    cache._resetContextCache()
+    await ask()
+    await ask()
+    assert.deepEqual(
+      { hits: cache.contextCacheStats.hits, batchHits: cache.contextCacheStats.batchHits, batchMisses: cache.contextCacheStats.batchMisses },
+      { hits: 1, batchHits: 0, batchMisses: 0 },
+      'off: the single-query entry, no bundle',
+    )
+  })
+
+  it('find_context with a range-limited token: no semantic candidate outside the range', async () => {
+    const { sha256 } = await import('../oauth')
+    on({ EMBEDDING_MODEL: 'fake-2' })
+    const trip = await page(A, owner.id, 'Trip plan', [H('Packing checklist'), P('passport, charger, tickets')])
+    const D = (await h.makeWorkspace(member)).id
+    const elsewhere = await page(D, member.id, 'Elsewhere', [H('Kitchen checklist'), P('salt, pepper, oil')])
+    const closers: (() => Promise<void>)[] = []
+    try {
+      await indexAll([A, D])
+      const ranged = async (set: Partial<typeof schema.oauthGrants.$inferInsert>) => {
+        const token = await h.mintToken(member, 'notes', 'Ranged')
+        await db.update(schema.oauthGrants).set(set).where(eq(schema.oauthGrants.accessHash, sha256(token)))
+        const c = await h.connectMcp(app, member, token)
+        closers.push(c.close)
+        return c
+      }
+      // unranged: both checklists of A are found by meaning
+      const all = (await mcp.tool('find_context', { query: '체크리스트' })).text
+      assert.ok(all.includes(pubA) && all.includes(trip), all)
+      // a subtree range: only the Trip plan page, never the runbook next to it
+      const sub = await ranged({ rangeKind: 'subtree', rangePageId: trip })
+      const calls = sem.semanticStats.calls
+      const t1 = (await sub.tool('find_context', { query: '체크리스트' })).text
+      assert.ok(sem.semanticStats.calls > calls, 'semantic candidates were asked')
+      assert.match(t1, new RegExp(`\\(page ${trip}; §packing-checklist v=`))
+      assert.ok(!t1.includes(pubA), `outside the subtree:\n${t1}`)
+      assert.ok(!t1.includes(elsewhere), `outside the subtree:\n${t1}`)
+      // a workspaces range: nothing of A
+      const wsr = await ranged({ rangeKind: 'workspaces', rangeWorkspaceIds: [D] })
+      const t2 = (await wsr.tool('find_context', { queries: ['체크리스트', 'packing'] })).text
+      assert.ok(t2.includes(elsewhere), t2)
+      assert.ok(!t2.includes(pubA) && !t2.includes(trip), `outside the workspaces range:\n${t2}`)
+    } finally {
+      for (const c of closers) await c()
+      await db.delete(schema.pages).where(eq(schema.pages.id, trip))
+    }
+  })
+
+  it('find_context for a guest: no semantic candidate from the workspace they are a guest in', async () => {
+    const { bumpAcl } = await import('../aclVersion')
+    on({ EMBEDDING_MODEL: 'fake-2' })
+    const guest = await h.makeUser('sem-guest')
+    const home = (await h.makeWorkspace(guest)).id
+    const own = await page(home, guest.id, 'Guest home', [H('My checklist'), P('water the plants')])
+    // the guest may view the runbook (a page grant in A, where they are no member)
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.pageGrants).values({ pageId: pubA, userId: guest.id, level: 'view', createdBy: owner.id })
+      await bumpAcl(tx, A)
+    })
+    try {
+      await indexAll([A, home])
+      assert.deepEqual(await sem.semanticCandidates({ workspaceIds: [A], query: '체크리스트', limit: 10, userId: guest.id }), [])
+      // browser session: the guest's own workspace is searched, the guest workspace never
+      const res = await restContext(guest, `q=${encodeURIComponent('체크리스트')}`)
+      assert.equal(res.statusCode, 200, res.body)
+      const frags = (res.json() as { fragments: { pageId: string }[]; more: { pageId: string }[] })
+      assert.ok(frags.fragments.some((f) => f.pageId === own), res.body)
+      assert.ok(!res.body.includes(pubA), `a semantic candidate from the guest workspace:\n${res.body}`)
+      assert.equal((await restContext(guest, `q=${encodeURIComponent('체크리스트')}&workspaceId=${A}`)).statusCode, 403)
+      // MCP (a token never reaches a guest workspace, docs/adr/1253-*)
+      const g = await h.connectMcp(app, guest, await h.mintToken(guest))
+      try {
+        const t = (await g.tool('find_context', { queries: ['체크리스트', 'team checklist'] })).text
+        assert.ok(t.includes(own), t)
+        assert.ok(!t.includes(pubA), `a semantic candidate from the guest workspace:\n${t}`)
+      } finally {
+        await g.close()
+      }
+    } finally {
+      await db.transaction(async (tx) => {
+        await tx.delete(schema.pageGrants).where(and(eq(schema.pageGrants.pageId, pubA), eq(schema.pageGrants.userId, guest.id)))
+        await bumpAcl(tx, A)
+      })
+    }
+  })
+
   it('admin status: a `semantic` block only while on, counts and errors, never the key', async () => {
     const get = () => statusApp.inject({ method: 'GET', url: '/api/admin/status', headers: { cookie: admin.cookie } })
     off()

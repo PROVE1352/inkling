@@ -1,3 +1,10 @@
+// run-tests: db-exclusive
+// (The changes_since waits below end on a change committed by THIS process. With other test files
+// running in parallel on the same database, another process's change consumer can apply that row
+// (the 'change' consumers share one log, SKIP LOCKED), while this process's own pass reports other
+// files' rows, so the commit fallback of changeWait.ts sees "reported" and does not wake; tests start
+// no LISTEN worker. In production one process applies its own rows or LISTEN is on. So this file
+// runs alone, after the others.)
 // Several agents at once (0.12, docs/adr/1550-* .. 1552-*): the find_context result cache (key =
 // person + permission state + index markers + normalised query + budget; never shared between
 // people), changes_since long-poll (wait, early return on a change, empty at the deadline, caps,
@@ -196,14 +203,19 @@ describe('[db] agent efficiency: context cache, changes_since wait, connection u
       const A = await agent(alice)
       const start = await A.tool('changes_since', { workspaceId: ws.id })
       const cursor = cursorOf(start.text)
+      const p = A.tool('changes_since', { cursor, workspaceId: ws.id, wait: 20 })
+      // the change is made once the call is waiting (an event from the registry, not a sleep), so an
+      // answer that contains it can only come from the wait ending on that change
+      await wait._whenWaiters(1)
       const t0 = Date.now()
-      setTimeout(() => void newPage(ws.id, bob, 'Fresh page during wait', doc({ Intro: 'hello from bob' })), 300)
-      const r = await A.tool('changes_since', { cursor, workspaceId: ws.id, wait: 10 })
+      await newPage(ws.id, bob, 'Fresh page during wait', doc({ Intro: 'hello from bob' }))
+      const r = await p
       const took = Date.now() - t0
       assert.equal(r.isError, false, r.text)
       assert.match(r.text, /Fresh page during wait/)
-      assert.ok(took < 8_000, `took ${took} ms`)
-      assert.ok(took >= 250, `returned before the change (${took} ms)`)
+      // well before the 20 s deadline (a generous bound: a loaded machine, not the wait, sets it)
+      assert.ok(took < 15_000, `took ${took} ms after the change`)
+      await wait._whenWaiters(0)
     })
 
     it('nothing visible: empty answer at the deadline, cursor still valid', async () => {
@@ -217,7 +229,9 @@ describe('[db] agent efficiency: context cache, changes_since wait, connection u
       const r = await A.tool('changes_since', { cursor, workspaceId: ws.id, wait: 1 })
       const took = Date.now() - t0
       assert.match(r.text, /No changes since the cursor\./)
-      assert.ok(took >= 950 && took < 8_000, `took ${took} ms`)
+      // at the deadline: not before it (timer slack only), and the upper bound generous for a loaded machine
+      assert.ok(took >= 950, `returned before the deadline (${took} ms)`)
+      assert.ok(took < 15_000, `took ${took} ms`)
       assert.match(r.text, /next cursor: \S+$/)
     })
 

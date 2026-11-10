@@ -56,7 +56,10 @@ export function renderFindContext(
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
   // Several queries (docs/adr/1720-*): one header naming them by number, `matched:` per fragment.
-  const multi = isMultiResult(r) ? r : null
+  // A merged result of ONE query (semantic search on, docs/adr/1723-*) keeps the single-query header
+  // and no `matched:`; only its pointer lines use the merged form (`fused`).
+  const fused = isMultiResult(r) ? r : null
+  const multi = fused && fused.queries.length > 1 ? fused : null
   const queryList = multi ? multi.queries.map((q, i) => `${i + 1} "${q}"`).join(', ') : ''
   if (r.fragments.length === 0) {
     const lines = [
@@ -101,7 +104,7 @@ export function renderFindContext(
       const where = fragmentNo.has(pageId) ? `page of [${fragmentNo.get(pageId)}]` : `${list[0].title || 'Untitled'} (page ${pageId})`
       // a pointer from an extra ranked list may name a whole page (no anchor) or have no size
       const one = (m: (typeof list)[number]) =>
-        multi && !m.anchor ? 'whole page' : multi && !m.tokens ? `§${shortOf(m)}` : `§${shortOf(m)} ~${m.tokens} tok`
+        fused && !m.anchor ? 'whole page' : fused && !m.tokens ? `§${shortOf(m)}` : `§${shortOf(m)} ~${m.tokens} tok`
       data.push(`- ${where}: ${list.map(one).join(', ')}`)
     }
   }

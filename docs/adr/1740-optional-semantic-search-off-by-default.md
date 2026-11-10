@@ -29,7 +29,7 @@ this is tested).
 The feature has one retrieval entry point, `semanticCandidates({ workspaceIds, query, limit, userId })`
 in `context/semantic.ts`, returning `{ pageId, anchor, score }[]` (one row per section, best score
 first) or `null` when off or when the endpoint fails. Fusion with the lexical list (RRF) belongs to
-find_context's multi-query merge and is wired in at integration; with `null` that path is the
+find_context's multi-query merge and is wired in by ADR 1723; with `null` that path is the
 lexical one unchanged.
 
 ### Where this differs from the 1214 memo

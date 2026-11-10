@@ -12,6 +12,7 @@ import { findContext, memberWorkspaceIds } from './retrieve'
 import type { FindContextResult } from './retrieve'
 import { fuseContextResults, isMultiResult, RRF_K } from './multiQuery'
 import type { ExtraList, MultiFindContextResult } from './multiQuery'
+import { semanticEpoch } from './semantic'
 
 /**
  * find_context result cache (docs/adr/1550-*). Several agents of one person asking the same thing
@@ -42,7 +43,8 @@ import type { ExtraList, MultiFindContextResult } from './multiQuery'
  * Several queries (docs/adr/1721-*): one marker statement for the bundle; each query is looked up
  * under exactly the key a single call with the same budget uses (so bundles and single calls share
  * entries), and the fused result is stored under a bundle key (the same inputs, the ordered query
- * list, k and a digest of any extra ranked lists).
+ * list, k, a digest of any extra ranked lists and, while semantic search is on, each workspace's
+ * semanticEpoch — vectors written since, docs/adr/1723-*).
  */
 
 export const CONTEXT_CACHE_MAX_ENTRIES = 1_000
@@ -210,6 +212,8 @@ export async function cachedFindContextMulti(
   }
   const { workspaceIds, markers } = await markersFor(userId, only)
   noteWorkspaces(workspaceIds)
+  // Vectors written in this process (docs/adr/1723-*); none while semantic search is off.
+  const semMarkers = workspaceIds.flatMap((w) => (semanticEpoch(w) ? [`sem ${w}:${semanticEpoch(w)}`] : []))
   // Extra lists after the markers (version before data); their content is part of the bundle key.
   const extra = (await opts.extraLists?.({ userId, workspaceIds, queries })) ?? []
   const digest = createHash('sha256')
@@ -221,6 +225,7 @@ export async function cachedFindContextMulti(
         JSON.stringify(queries.map(normalizeContextQuery)),
         extra.length ? createHash('sha256').update(JSON.stringify(extra)).digest('base64url') : '',
         ...markers,
+        ...semMarkers,
       ].join('\n'),
     )
     .digest('base64url')

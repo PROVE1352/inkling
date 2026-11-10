@@ -33,7 +33,8 @@ by rank, so it is the natural place where a semantic list joins; the wiring is d
 ## Consequences
 - Not wired in 0.14's first cut: `find_context` passes no extra lists until the integration change sets
   `extraLists` in `routes/context.ts`. A single query with semantic candidates would go through the multi path
-  (its output then gains `matched:`), which is a decision for that change.
+  (its output then gains `matched:`), which is a decision for that change. Wired in ADR 1723 (a merged single
+  query keeps the single-query header and prints no `matched:`).
 - Tests: `apps/server/src/context/multiQuery.test.ts` ("extra ranked lists", fake lists in the
   `semanticCandidates` shape).
 

@@ -15,6 +15,7 @@ import type { OutlineSection } from '../context/sectionSource'
 import { DEFAULT_BUDGET, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
 import { cachedFindContext, cachedFindContextMulti, normalizeContextQuery } from '../context/contextCache'
 import { MAX_QUERIES } from '../context/multiQuery'
+import { semanticExtraLists, semanticOn } from '../context/semanticFind'
 import { estimateTokens, truncateToTokens } from '../context/tokens'
 import { db } from '../db/index'
 import { pageDocs } from '../db/schema'
@@ -37,7 +38,8 @@ import { registerSectionBatchRoutes } from './sectionBatch'
  * routes like every other /api route. Reads are GET (read-only tokens may call them).
  *
  *   GET  /context?q&workspaceId&budget        ranked sections packed into a token budget; q may repeat
- *                                              (2-5 phrasings, merged by RRF under one budget, ADR 1720)
+ *                                              (2-5 phrasings, merged by RRF under one budget, ADR 1720;
+ *                                              with semantic search on, always merged, ADR 1723)
  *   GET  /pages/:id/outline                    sections: anchor, heading path, level, tokens, version
  *   GET  /pages/:id/section?ref&maxChars       one section as Markdown (+ version)
  *   GET  /pages/read?ids=a,b&budget            several pages as Markdown within a budget
@@ -137,10 +139,14 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
     if (workspaceId) await requireMembership(workspaceId, user.id)
     const queries = distinctQueries(typeof q === 'string' ? [q] : q)
     if (queries.length > MAX_QUERIES) throw badRequest(`At most ${MAX_QUERIES} different queries per call`)
-    // Same workspaces and permission filter as before, through the result cache (docs/adr/1550-*).
-    if (queries.length === 1) return cachedFindContext(user.id, queries[0], workspaceId ?? null, budget ?? DEFAULT_BUDGET)
+    // Semantic search off (the default): one query takes the single path exactly as before; same
+    // workspaces and permission filter, through the result cache (docs/adr/1550-*).
+    const semantic = semanticOn()
+    if (queries.length === 1 && !semantic) return cachedFindContext(user.id, queries[0], workspaceId ?? null, budget ?? DEFAULT_BUDGET)
     // Several phrasings: per-query entries of the same cache, merged under one budget (docs/adr/1720-*).
-    return cachedFindContextMulti(user.id, queries, workspaceId ?? null, budget ?? DEFAULT_BUDGET)
+    // Semantic search on: every call merges, each query's semantic candidates joining as an extra
+    // ranked list labelled with its number (docs/adr/1723-*). Called inside this request's scope.
+    return cachedFindContextMulti(user.id, queries, workspaceId ?? null, budget ?? DEFAULT_BUDGET, semantic ? { extraLists: semanticExtraLists } : {})
   })
 
   app.get('/pages/:id/outline', { preHandler: requireUser }, async (req) => {

@@ -50,6 +50,18 @@ function storeError(err: unknown): OfflineStoreError {
   return new OfflineStoreError('failed', err instanceof Error ? err.message : String(err))
 }
 
+/**
+ * How long an open may take before the store counts as unavailable. Some browsers leave
+ * `indexedDB.open` unanswered (neither success nor error, `onblocked` never fires); a page waiting
+ * for its device copy then stayed on "Connecting…". After this the page opens from the server only.
+ */
+export const OPEN_TIMEOUT_MS = 5000
+let openTimeoutMs = OPEN_TIMEOUT_MS
+/** tests: a shorter time limit */
+export function _setOpenTimeoutForTests(ms: number | null) {
+  openTimeoutMs = ms ?? OPEN_TIMEOUT_MS
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let r: IDBOpenDBRequest
@@ -59,6 +71,17 @@ function openDb(): Promise<IDBDatabase> {
       reject(storeError(err))
       return
     }
+    let settled = false
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn()
+    }
+    const timer = setTimeout(
+      () => finish(() => reject(new OfflineStoreError('unavailable', `IndexedDB open did not answer in ${openTimeoutMs} ms`))),
+      openTimeoutMs,
+    )
     r.onupgradeneeded = () => {
       const db = r.result
       db.createObjectStore('meta')
@@ -70,9 +93,21 @@ function openDb(): Promise<IDBDatabase> {
       const recovery = db.createObjectStore('recovery', { keyPath: 'id' })
       recovery.createIndex('user', 'userId')
     }
-    r.onsuccess = () => resolve(r.result)
-    r.onerror = () => reject(storeError(r.error))
-    r.onblocked = () => reject(new OfflineStoreError('unavailable', 'IndexedDB open blocked'))
+    r.onsuccess = () => {
+      // an answer after the time limit: nobody uses this handle, and an open one would hold off
+      // deleteDatabase (logout, setting off) and version changes in other tabs
+      if (settled) {
+        try {
+          r.result.close()
+        } catch {
+          // already closed
+        }
+        return
+      }
+      finish(() => resolve(r.result))
+    }
+    r.onerror = () => finish(() => reject(storeError(r.error)))
+    r.onblocked = () => finish(() => reject(new OfflineStoreError('unavailable', 'IndexedDB open blocked')))
   })
 }
 
@@ -105,7 +140,14 @@ export async function createIdbStore(): Promise<OfflineStore> {
   dbPromise = openDb().then(adopt)
   await dbPromise
   const getDb = () => {
-    if (!dbPromise) dbPromise = openDb().then(adopt)
+    if (!dbPromise) {
+      const p: Promise<IDBDatabase> = openDb().then(adopt)
+      dbPromise = p
+      // a reopen that failed (timed out, blocked) is not kept: the next write tries again
+      p.catch(() => {
+        if (dbPromise === p) dbPromise = null
+      })
+    }
     return dbPromise
   }
 

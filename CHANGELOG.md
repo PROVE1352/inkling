@@ -7,6 +7,143 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-10
+
+Four database migrations, all additive: `0043_v015_slack` (tables `slack_integrations`, `slack_user_links`,
+`slack_link_codes`, `slack_request_nonces`), `0044_wave13_forms` (table `collection_form_links`),
+`0045_wave13_verify_present_status` (column `pages.share_starts_at`, tables `page_verifications` and `user_statuses`)
+and `0046_wave13_team_agents` (columns `notifications.connection` and `notifications.person_too` with a partial index,
+`user_notification_settings.agent_handoff_copy`). Existing rows keep their meaning. A 0.14 database goes from 43 to 47
+applied migrations. Formula fields and form views need no column (field definitions and view config are jsonb). No
+new dependency. Upgrade matrix adds v0.14.0: CI also tests the upgrade from it with data
+(`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+
+### Added
+- **Slack app per workspace** (docs/adr/1800-* to 1806-*). Workspace owners connect their own Slack app under
+  Workspace settings → Slack: bot token, signing secret, channel ID, and which updates to post. The settings page
+  shows the request URLs, scopes and a filled-in app manifest.
+- Slack channel posts for mentions, assignments, open agent suggestions, comment replies and a daily summary of
+  changed shared pages, each switched on or off. Only pages shared with the whole workspace are ever named; private
+  pages, trashed pages and other workspaces are dropped when the post is sent. Posts go through the outbox with
+  retries, backoff and Slack's Retry-After; saving and editing never wait for Slack. A revoked token or a bot removed
+  from the channel pauses posts until the settings are saved again or the Test button passes (docs/adr/1802-*).
+- `/inkling <words>` in Slack answers with find_context results visible only to the person who typed it, as their own
+  Inkling account. Accounts link automatically when the Slack and Inkling email addresses match, or with
+  `/inkling link` (one-time link, 10 minutes). Unlinked people get only the instructions (docs/adr/1803-*).
+- Inkling page links pasted in Slack unfurl with the title and first paragraph (shared pages only, docs/adr/1805-*).
+- **Form views** (docs/adr/1820-*). A collection can have a "Form" view that adds a row per answer: choose the
+  questions (title and text, number, select, multi-select, date, checkbox, URL, person), their order, "required" and a
+  help text; set the form's title, description, button text and the message after sending. Members fill it in the app.
+- **Public forms** (docs/adr/1821-*, 1822-*). Owners and admins can turn on a public link for a form view
+  (`/f/<token>`): anyone with the link can send answers, which become rows; visitors never see rows or other answers.
+  The link can be turned off at any time (the old link stops at once) and closes by itself when the collection is
+  trashed or made private, public links are turned off in the workspace, or the member who published it can no
+  longer add rows. Answers appear in the change feed and catch_up as "<publisher> via public form". Audit:
+  `form.published`, `form.unpublished`.
+- **Formula fields** (docs/adr/1823-* to 1825-*). A new property type computes a value from the same row: arithmetic,
+  comparisons, `if`, `and`/`or`/`not`, `concat`, `length`, `round`, `min`/`max`, `abs`, `now`, `dateAdd`,
+  `dateBetween` and `prop("Name")`. Errors show in the cell (circular reference, division by zero, unknown
+  property…). Formulas follow property renames. The server and the web compute the same values.
+- Formulas work in view filters and sorts, chart views and chart blocks (group by, sum/average when the formula yields
+  a number), exports, and agents' `query_rows` (filter, sort, display) (docs/adr/1826-*, 1827-*).
+- MCP: `create_view` takes `type: "form"` with `form` settings (questions by property name); `create_collection` and
+  field specs take `type: "formula"` with `expression`; `query_rows describe=true` lists formulas as
+  `(formula → number, read-only)`; formula error cells read `#error(code)`.
+- **Page verification** (docs/adr/1840-* to 1842-*). "Verify page…" in the ⋯ menu marks a page as correct until a
+  date (30/90/180 days or a date, at most a year). The badge under the title says "Verified until …" or, after the
+  date, "Needs verification", and how many sections changed since (from the change feed). Who: people who can edit
+  the page; when the page has a document owner, only that owner or a workspace owner/admin. Verifying also counts as
+  a review. "All verified pages" lists pages that need verification, expire within 7 days, or are verified. Audit:
+  `page.verified`, `page.unverified`. MCP: `read_page` prints `- verified: until 2026-12-10` or
+  `- stale: verification lapsed 2026-11-01` (+ `, N sections changed since`); `find_context` adds `; verified`,
+  `; verified, changed since` or `; stale: verification lapsed`.
+- **Presentation mode** (docs/adr/1843-*). "Present" in a document's ⋯ menu and on shared pages: slides split at the
+  highest heading level and at dividers, full screen, ←/→ (PageUp/PageDown, Space, Home/End), swipe, Esc. Read-only
+  copies of the blocks; the fade is off under reduced motion.
+- **Scheduled public links** (docs/adr/1844-*). A public link can get a start time ("Schedule a start" when
+  publishing, "Opens …" with "Change start" / "Open now" afterwards, a badge in Web shares). Before the start every
+  public route answers like a link that is not shared (404, same body, plain shell) and visits are not counted as
+  token guesses; after the expiry it is 410 as before. Times are picked in the device's time zone. Audit:
+  `share.start_changed`.
+- **Member status** (docs/adr/1845-*, 1846-*). Settings → Account → Status: an emoji and a short message with an
+  automatic clear time (in an hour, today, this week, or a date and time). Shown in the members panel, the `@`
+  mention menus and on presence avatars. MCP: after `patch_section`, `update_page` and `create_page` that mention
+  people with a status, one line `status: Mia "🎓 Exam week" until 2026-11-14`; `read_page`'s owner line carries the
+  owner's status.
+- **Team agents board** (`/w/:wsId/team-agents`, linked from Activity; docs/adr/1862-*). Per person: sections their
+  agents claimed with the minutes left, their suggestions waiting for a person, and what each agent connection did
+  today (edits, new pages, suggestions, changes a person reverted, recent pages). Pages you cannot open are listed
+  without title or section. `GET /api/workspaces/:id/team-agents?since=` (members only).
+- **Hand a comment to one agent** (docs/adr/1863-*). `@Bob · Claude Code` in the comment box (or `mentionConnections`
+  in `POST /api/pages/:id/comments`, or `handoffTo` on MCP `add_comment` / `reply_comment`) puts the thread in that
+  connection's inbox only; Bob's other connections and Bob's bell do not get it unless Bob turns on "Show me what is
+  handed to my agents" (Settings › Notifications). Mention menus and comment boxes offer the members' live agent
+  connections (`GET /api/workspaces/:id/agent-connections`). A revoked or expired connection hands its open items back
+  to the person.
+- **Assign work to a person's agent** (docs/adr/1864-*). A person cell can name one of that person's connections
+  (picker under each member in the table and the row panel; MCP `update_row` / `create_row` take `"this connection"`,
+  `grant:<id>` or `g:1a2b3c4d`). The cell keeps the person (0.14 clients show the person); the agent sits next to it
+  under `agent:<fieldId>`. An agent chip in a to-do assigns that task to the agent. The assignment goes to the agent's
+  inbox (`assigned → this connection`). `query_rows`: `Owner = this connection`; cells read `Bob → Claude Code (g:…)`.
+- **catch_up `team: true`** (docs/adr/1865-*): one extra group with other connections' live claims and one line per
+  other busy agent. Off by default: catch_up output is unchanged.
+
+### Changed
+- Answers sent through a public form count as people's input everywhere Inkling separates people from AI: the
+  activity "AI" filter and client list, the "Written by AI" badge, the daily AI summary (in-app and the `agent_digest`
+  webhook), the team agents board and notification quieting. They still read "<publisher> via public form"
+  (docs/adr/1870-*).
+- MCP: `update_row` / `create_row` that assign people (or a person's agent) end with one
+  `status: Name "…" until …` line when someone assigned has a status; `query_rows` ends with one such line for the
+  people in the shown person cells. Nothing is added when nobody has a status. Agent chips in written Markdown count
+  as their person for the existing status line (docs/adr/1846-*, 1870-*).
+- MCP `inbox`: an item handed to this connection reads `… | mention (comment) → this connection | …`, the header adds
+  `(N handed to this connection)` when N > 0; every other line is byte-identical. `ack` from one connection never
+  acknowledges items handed to another.
+- Only live connections of workspace members can be targets of a hand-off or an assignment: a non-member's, another
+  person's, one whose range leaves the workspace (or, for a subtree range, the page) out, or one blocked there is
+  refused with 400 `AGENT_NOT_AVAILABLE` and nothing is written (docs/adr/1860-*).
+- Slack: work handed to one agent connection is never posted to the channel, also when the person keeps a copy; a
+  comment that mentions a person and hands to their agent posts once (docs/adr/1870-*).
+- The mention menus show a person's status on their agents' entries too; the comment box shows statuses like the
+  editor menu.
+- New routes and fields are in [docs/API.md](docs/API.md), "v0.15.0 additions".
+
+### Performance
+- query_rows filter and sort on a formula: 16.2 ms at 2,000 rows, 96.1 ms at 20,000 rows (the same query on a stored
+  number: 7.6 / 35.2 ms). A cursor page on a formula sort takes 161–172 ms at 20,000 rows (first page 89–121 ms)
+  (docs/adr/1826-*).
+- MCP tool list: the hand-off and team parameters add 149 tokens per session (0.9% of the tool list). An inbox line
+  for a hand-off is 12 tokens longer; `catch_up(team=true)` adds about 113 tokens in the test fixture; a status line
+  after a row write or `query_rows` is 11 tokens per person. Outputs without hand-offs, `team` or statuses are
+  byte-identical.
+- Workspaces without a Slack app: the notification consumer does one cached lookup per event (60 s cache), no extra
+  SQL statement once cached.
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Security
+- Requests from Slack are checked with the v0 signature, a 5-minute timestamp window, the team ID and a replay table
+  (docs/adr/1804-*). The bot token and signing secret are sealed with APP_SECRET_KEY (when set), never returned by the
+  API and never logged (docs/adr/1801-*). Slack settings are for workspace owners only.
+- The public form route is the first anonymous write. It accepts only the asked properties (no person, relation or
+  formula), answers only `{ ok: true }`, and is limited: 10 answers per minute per IP, 300 per form per hour (per
+  server process), a 32 KiB body, 5,000 characters per text answer, a strict body schema and a honeypot field. No
+  CAPTCHA or other third party (docs/adr/1822-*).
+- Formulas run in a small evaluator of our own (no `eval`, no `new Function`, no dependency) with caps on length
+  (2,000 characters), size (300 parts), nesting (40) and built text (10,000 characters) (docs/adr/1824-*).
+- `public form` is a reserved OAuth client name, so an agent cannot label its edits as form answers
+  (docs/adr/1870-*).
+- Being assigned work gives an agent connection no rights: it still acts as its person, within its range
+  (docs/adr/1860-*).
+
+### Database
+- Migration 0043: `slack_integrations`, `slack_user_links`, `slack_link_codes`, `slack_request_nonces`.
+- Migration 0044: table `collection_form_links` (view_id PK → collection_views ON DELETE CASCADE, token_hash unique,
+  token_enc, published_by → users ON DELETE SET NULL, created_at).
+- Migration 0045: `pages.share_starts_at`, tables `page_verifications`, `user_statuses`.
+- Migration 0046: `notifications.connection` (text, NULL), `notifications.person_too` (boolean, default false) with a
+  partial index on `connection`; `user_notification_settings.agent_handoff_copy` (boolean, default false).
+
 ## [0.14.0] - 2026-11-10
 
 One database migration, `0042_v014_semantic_vectors`: the table `page_chunk_vectors` (one `real[]` vector per section

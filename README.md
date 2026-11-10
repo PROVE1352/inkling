@@ -61,7 +61,7 @@ Using an Inkling server someone else runs? Start with the [user guide](docs/GUID
 - Workspace ownership transfer, and workspace deletion that owners can undo for 30 days
 
 **AI & integrations**
-- Built-in MCP server with OAuth 2.1 + PKCE: connect Claude Code, claude.ai or any MCP client per user, seeing only what that user can see ([docs/MCP.md](docs/MCP.md)). Each connection is read only or read and write, and there is no permanent-delete tool
+- Built-in MCP server with OAuth 2.1 + PKCE: connect Claude Code, claude.ai or any MCP client per user, seeing only what that user can see ([docs/MCP.md](docs/MCP.md)). Each connection is read only or read and write, and there is no permanent-delete tool. Using it next to other MCP servers (a game engine, a design tool, a code host): [docs/RECIPES.md](docs/RECIPES.md)
 - Section-level tools so agents spend fewer tokens: `find_context` returns the most relevant sections within a token budget (about 72% fewer tokens per question on a 5,000-page benchmark), `read_page` can read an outline or one section, `patch_section` edits one section with a version check and keeps what a person is typing there, and `changes_since` is a cursor-based change feed. Also `query_rows` / `create_row` / `update_row` for databases, comment tools and an agent inbox
 - Edits, comments and pages made through an agent are labelled "<you> (via <app>)" in history, comments, the change feed and the Activity screen
 - Agent instruction pages: workspace rules written in locked pages, which agents read with `get_instructions`

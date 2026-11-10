@@ -340,7 +340,7 @@ Read: `find_context(query?, queries?, workspaceId?, budget?)` (one of `query` / 
 Write (refused for read-only tokens): `patch_section(pageId, section, markdown?, mode, baseVersion?)`, `update_page(pageId, markdown, mode: append|replace)`,
 `create_page(workspaceId, title, markdown, parentId?, private?)`, `import_folder`, `update_row(rowId, properties, baseVersion)`, `create_row(collectionId, title?, properties?)`,
 `rename_page`, `move_page(pageId, parentId|null, section?)` (within the same workspace only), `trash_page` (soft delete), `add_comment(pageId, body)` (anchored to the first block), `create_from_template`.
-`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions", "v0.13.0 additions" and "v0.14.0 additions" below and [MCP.md](MCP.md).
+`list_pages` and `search` keep their legacy JSON unless `format: "lines"` or `"compact"` (docs/adr/0928-*, 1541-*). JSON answers clean member-written strings and add a trailing `untrusted` key (objects) or a second text block (arrays) (docs/adr/1525-*). Tools added later: see "v0.12.0 additions", "v0.13.0 additions", "v0.14.0 additions" and "v0.15.0 additions" below and [MCP.md](MCP.md).
 
 - `/.well-known/oauth-*`: `scopes_supported` is `["read","write"]` (`notes` still accepted as full access).
 - `GET /api/oauth/authorize/info?…&scope=`: adds `requestedAccess: "read" | "write"`.
@@ -400,7 +400,7 @@ commenting away from agents). The collab socket of a member who may not edit is 
 `page.unlocked`, `page.lock_editors_changed`, `instructions.set`, `instructions.removed`, `content.suspicious`
 (first detection per page and rule, no actor).
 
-OAuth: `POST /oauth/register` refuses a `client_name` that folds to a reserved word (Inkling, Admin, System, …;
+OAuth: `POST /oauth/register` refuses a `client_name` that folds to a reserved word (Inkling, Admin, System, public form, …;
 400 `invalid_client_metadata`); `POST /api/oauth/authorize` refuses the same reserved words (400
 `CLIENT_NAME_RESERVED`). A client named exactly like another member is refused per workspace at request time
 (403 `CLIENT_NAME_CLASH`, only in workspaces where that member is; common app names such as Claude are exempt), and
@@ -1113,3 +1113,167 @@ New arguments: `find_context(…, queries?)` (up to 5 phrasings; `query` becomes
 Changed output: with several queries the header names them by number and each fragment's paren line ends with
 `; matched: 1,3`; with semantic search on, a section found only by meaning is shown with its text. Details:
 [MCP.md](MCP.md).
+
+## v0.15.0 additions
+
+Four migrations: `0043_v015_slack` (`slack_integrations`, `slack_user_links`, `slack_link_codes`,
+`slack_request_nonces`), `0044_wave13_forms` (`collection_form_links`), `0045_wave13_verify_present_status`
+(`pages.share_starts_at`, `page_verifications`, `user_statuses`) and `0046_wave13_team_agents`
+(`notifications.connection`, `notifications.person_too`, `user_notification_settings.agent_handoff_copy`). Formula
+fields and form views live in the existing jsonb columns (`collection_fields`, view `config`); `collection_views.type`
+may be `form`.
+
+### Slack app (docs/adr/1800–1806)
+
+Settings (session cookie, workspace owners; others 403):
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/workspaces/:id/slack` | – | `SlackSettingsResponse { integration: SlackIntegrationDTO \| null, setup: SlackSetupInfo }`. Never contains the token or the secret (`botTokenHint` is `xoxb-…` + the last 4 characters) |
+| PUT | `/api/workspaces/:id/slack` | `{ botToken?, signingSecret?, channelId, events: SlackEventKind[], enabled? }` | `{ integration }`. Token and secret are required the first time (400 `SLACK_SECRETS_REQUIRED`), omitted later = keep. Runs Slack's `auth.test`: 400 `SLACK_AUTH_FAILED` with `error.slackError` (Slack's code). Clears a pause. Audit: `settings.updated`, target `slack` |
+| DELETE | `/api/workspaces/:id/slack` | – | Disconnect; removes links, link codes and pending Slack jobs |
+| POST | `/api/workspaces/:id/slack/test` | – | Posts a test message → `{ ok, error }` (Slack's code). A pass clears a pause |
+| GET | `/api/workspaces/:id/slack/links` | – | `{ links: SlackLinkDTO[] }` |
+| DELETE | `/api/workspaces/:id/slack/links/:userId` | – | Removes one member's link |
+
+Event kinds (`SLACK_EVENT_KINDS`): `mention`, `assigned`, `suggestion`, `reply`, `digest`. Bot scopes
+(`SLACK_BOT_SCOPES`): `chat:write chat:write.public commands links:read links:write users:read users:read.email`.
+
+Linking (signed-in member; the `/slack/link` page of the web app calls these):
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| POST | `/api/slack/link/preview` | `{ code }` | `SlackLinkPreviewDTO`; 404 unknown, expired or used code, 403 not a member of the workspace |
+| POST | `/api/slack/link/confirm` | `{ code }` | `{ ok, workspaceId }`; the code works once |
+
+From Slack (no session; the body is checked against the v0 signature, a 5-minute timestamp window, the team ID and the
+replay table; a failed check is 401 without detail):
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| POST | `/api/slack/w/:workspaceId/commands` | Slash command (form-encoded). Text: `<words>`, `help`, `link`, `unlink` | Always `response_type: ephemeral`. Slack's `ssl_check=1` answers 200 |
+| POST | `/api/slack/w/:workspaceId/events` | Events API JSON: `url_verification`, `event_callback` with `link_shared`, `app_uninstalled`, `tokens_revoked` | `{ challenge }` for `url_verification` (unsigned only while no app is saved for a live workspace); otherwise 200 at once, unfurls are answered later through the outbox. A body that is not JSON is 400 |
+
+### Form views and public forms (docs/adr/1820–1822, 1870)
+
+- `viewTypeSchema` gains `form`; `ViewConfig.form = { title?, description?, fields: [{ fieldId, required?,
+  description? }], submitLabel?, successMessage? }` (`fieldId: "title"` = the row title; up to 50 questions). A form
+  asks text, number, select, multiSelect, date, checkbox, url and (members only) person properties.
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/collection-views/:id/form-link` | – | `{ shared, token, canPublish }` for members who see the collection; 400 when the view is not a form |
+| POST | `/api/collection-views/:id/form-link` | – | Turn the public link on (owners and admins; 403 otherwise; 400 private collection or not a form; 403 `PUBLIC_SHARING_DISABLED`). Idempotent. Audit `form.published` |
+| DELETE | `/api/collection-views/:id/form-link` | – | Turn it off (owners and admins, or anyone who can edit the collection). Audit `form.unpublished` |
+| GET | `/api/public/forms/:token` | – (no session) | `PublicFormDTO { title, description, submitLabel, successMessage, fields: [{ key, name, type, required, description, options? }], honeypot }`. 60/min per IP. `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer` |
+| POST | `/api/public/forms/:token` | `{ values: { [key]: answer }, website?: "" }` (strict; `website` is the honeypot) | `{ ok: true }`. 400 `FORM_INVALID` (`fields: { key: "required" \| "invalid" }`), 404 closed or unknown link, 413 over 32 KiB, 429 `RATE_LIMITED` (10/min per IP, or 300/hour for the form) |
+
+Answers: text string ≤ 5,000 characters; number (or a numeric string); select/multiSelect option id or name; date
+`YYYY-MM-DD`; checkbox `true`/`"on"`; url ≤ 2,000 characters without spaces. Person, relation and formula properties
+are never taken from a public answer. The web page is `/f/:token`; it shares no route or gate with page links
+(`/api/public/:token`). A guessed token counts as a failure for the IP ban (reason `form-token`).
+
+A public answer is made as the member who turned the link on, with `via = "public form"` (`pages.created_via`,
+`page_changes.via_client`). It counts as a person's input (docs/adr/1870-*):
+- `GET /api/workspaces/:id/activity?actor=human` includes public form answers; `actor=ai`, `aiPagesOnly=1` and the
+  clients list leave them out.
+- `GET /api/pages/:id/provenance` gives `createdVia: null` and no `lastAgentEdit` for them.
+- Labels still say it: catch_up, the change feed, mail, webhooks and the inbox print "<publisher> via public form".
+- `POST /oauth/register` and `POST /api/oauth/authorize` refuse the client name "public form" (folded) like the
+  other reserved words (400).
+
+### Formula fields (docs/adr/1823–1827)
+
+- `CollectionField.type` gains `formula`; `CollectionField.formula = { expression: string }` (≤ 2,000 characters).
+  `PUT /api/pages/:id/collection/fields`: a new or edited formula must parse, name existing properties and not be
+  circular, else 400 `Formula "<name>": <reason>`. Unchanged formulas follow renamed properties (the stored
+  expression is rewritten). A rollup cannot aggregate a formula of the target collection (only `count`).
+- Formula values are in `rows[].props[fieldId]` of every read (`GET /api/pages/:id/collection`,
+  `PATCH /api/pages/:id/props` response, `GET /api/pages/:id/row`, `GET …/collection/query` cells): number, string,
+  boolean or a date string (`YYYY-MM-DD` / `YYYY-MM-DDTHH:mmZ`, UTC); `null` when empty or on an error. Writes to a
+  formula id are ignored (props, batch, row templates, sheet sync, import); MCP `update_row` refuses them.
+- `GET /api/pages/:id/collection/query`: formulas can be filtered and sorted with the operators of their result type
+  (number, text, checkbox, date). The summary has `fields[].formula = { expression, result }`. Error cells read
+  `#error(<code>)` (codes: `syntax`, `unknownProp`, `ambiguousProp`, `unknownFunction`, `args`, `cycle`, `type`,
+  `divZero`, `tooLong`, `tooComplex`, `badDate`, `badUnit`).
+- Chart aggregate: `groupBy` / `series` accept a formula; `measure.field` accepts a formula that yields a number.
+
+### Page verification (docs/adr/1840–1842)
+
+| Method | Path | Who | Request / response |
+|---|---|---|---|
+| GET | `/api/pages/:id/verification` | members (sessions and tokens) | `{ verification: PageVerificationDTO \| null, canVerify }` |
+| POST | `/api/pages/:id/verification` | browser session; people who can edit the page; when the page has an owner, that owner or a workspace owner/admin | `{ expiresInDays (1–365) \| expiresAt, note? (≤ 200) }` (one of the two expiry forms); also sets the page's review time |
+| DELETE | `/api/pages/:id/verification` | same as POST | `{ verification: null, canVerify }` |
+| GET | `/api/workspaces/:id/verified?days=1..90&mine=1` | members | `{ expiringDays, expired[], expiring[], verified[] }`, visible pages only, at most 500 |
+
+`PageVerificationDTO`: `state ('verified' | 'expired'), expiringSoon, verifiedAt, verifiedBy { id, name } | null,
+expiresAt, note, changedSections, changedMuch`. Errors: 403 (`Pages are verified in the web app`, `Only the page's
+owner or a workspace admin can verify this page`, `PAGE_LOCKED`), 400 (`Folders are not verified`, expiry out of
+range). Audit: `page.verified`, `page.unverified`.
+
+### Scheduled public links (docs/adr/1844)
+
+- `POST /api/pages/:id/share` body gains `startsAt?: ISO | null` (before the expiry, at most 10 years ahead; a past
+  instant = at once). `PATCH /api/pages/:id/share` gains `startsAt: ISO | null` (null = open now). 400 `Pick a start
+  before the expiry`. Audit: `share.start_changed`.
+- `ShareStatusDTO` and the items of `GET /api/workspaces/:id/shared` gain `startsAt: string | null` and
+  `notStarted: boolean`.
+- Public routes (`/api/public/:token`, `…/f/:fileId`, `…/p/:ref`, `…/p/:ref/f/:fileId`, `…/unlock`) and `/s/…`: before
+  `startsAt` → 404 `NOT_FOUND`, identical to an unshared token, `Cache-Control: no-store`, not counted as a failure.
+  Expired → 410 `SHARE_EXPIRED` (unchanged).
+
+### Member status (docs/adr/1845–1846)
+
+| Method | Path | Who | Request / response |
+|---|---|---|---|
+| GET | `/api/me/status` | signed in | `{ status: MemberStatusDTO \| null }` |
+| PUT | `/api/me/status` | browser session | `{ emoji? (≤ 16), text (≤ 80), clearAt?: ISO \| null }`; at least emoji or text; `clearAt` in the future, at most a year |
+| DELETE | `/api/me/status` | browser session | `{ status: null }` |
+
+`GET /api/workspaces/:id/members`: each member gains `status: { emoji, text, clearAt } | null` (a status past `clearAt`
+is null). One status per account, the same in every workspace.
+
+### Team agents (docs/adr/1860–1866)
+
+New routes (members only; guests 403):
+- `GET /api/workspaces/:id/agent-connections` → `{ connections: WorkspaceConnectionDTO[] }` with `{ ref, key, userId,
+  userName, client, kind: 'grant' | 'token', lastUsedAt }`: live connections of members (not expired, range includes
+  the workspace, not blocked there). `ref` = `<userId>/grant:<id>`.
+- `GET /api/workspaces/:id/team-agents?since=<ISO>` → `TeamAgentsDTO { since, now, totals: { claims, openSuggestions,
+  edits, created, suggestions, reverted }, people: [{ userId, name, claims[], suggestions[], agents[] }] }`; `since`
+  defaults to 24 h, at most 7 days back. Claims `{ pageId, pageTitle | null, anchor | null, hidden, connection, client,
+  expiresAt, ttlSeconds }`; suggestions `{ id, pageId, pageTitle | null, anchor | null, hidden, mode, client,
+  createdAt }`; agents `{ client, connections[], edits, created, suggestions, reverted, recentPages[{ pageId,
+  title | null, hidden, at }], lastAt }`. Rate limit 60/min.
+
+Changed (additive):
+- `POST /api/pages/:id/comments` body: `mentionConnections?: string[]` (≤ 10; `<userId>/grant:<id>`, `grant:<id>`,
+  `token:<id>` or `g:xxxxxxxx`). Not a live connection of a member → 400 `AGENT_NOT_AVAILABLE`, nothing written.
+- `PATCH /api/pages/:id/props`: a key `agent:<fieldId>` next to a person field (same value forms; `null` clears). The
+  cell is set to the connection's person; a cell set to someone else in the same write → 400 `AGENT_NOT_AVAILABLE`.
+  A write that moves the cell to another person drops the agent key. Batch create and update routes ignore `agent:`
+  keys.
+- Row `properties` may carry `agent:<fieldId>` (`<userId>/grant:<id>`); it counts only while that person is in the
+  cell and the connection is live.
+- `GET /api/notifications`: items handed to one of my connections are listed only with my copy setting on, and carry
+  `forAgent: "<client name>"`.
+- `GET|PATCH /api/me/notification-settings`: `agentHandoffCopy` (default false).
+- `GET /api/inbox` (MCP): items include `handoff: true` when handed to the calling connection; the result adds
+  `handoffs` (count). Items handed to another connection of the person are not listed; `POST /api/inbox/ack` never
+  acknowledges them.
+- `GET /api/catch-up?team=1` adds the team group.
+- `GET /api/pages/:id/collection/query` filter: person `= this connection` (agent connections only).
+
+### Member statuses in row answers (docs/adr/1846, 1870)
+
+`GET /api/pages/:id/collection/query` gains `people?: string[]`: the sorted user ids of the person cells shown on that
+page of rows, absent when there are none, so an answer without a person column is byte-identical to 0.14.
+
+### MCP tools
+New arguments: `create_view(…, type: "form", form?)`, field specs `type: "formula"` with `expression`
+(`create_collection`, `update_fields`), `add_comment(…, handoffTo?)`, `reply_comment(…, handoffTo?)`,
+`catch_up(…, team?)`; `update_row` / `create_row` person values `"this connection"`, `grant:<id>`, `g:xxxxxxxx`.
+Changed output: `read_page` verified / stale line and the owner's status; `find_context` verified marks; a last
+`status: …` line after writes that mention or assign people with a status and after `query_rows`; `inbox` marks
+items handed to this connection. Details: [MCP.md](MCP.md).

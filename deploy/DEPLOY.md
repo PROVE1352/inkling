@@ -296,6 +296,31 @@ longer than 10 minutes or was started in another tab or browser; `OIDC_UNAVAILAB
 discovery document, keys or token endpoint could not be reached (check the issuer and the
 container's outbound network).
 
+## 3-H. Semantic search (optional)
+
+Off unless both `EMBEDDING_URL` and `EMBEDDING_MODEL` are set (docs/adr/1740-*). When on, find_context also ranks
+sections by meaning, and the server sends the text of every section chunk (page title, heading path, chunk text) to
+that endpoint, once per change. With a hosted provider that is a third party; a local model server (Ollama,
+text-embeddings-inference) keeps notes on your network. Put the variables in `.env` (examples in `.env.example`) and
+restart:
+
+| env | Meaning | Default |
+|---|---|---|
+| `EMBEDDING_URL` | Base URL of an OpenAI-compatible API (`https://api.openai.com/v1`, Ollama `http://host:11434/v1`) or the full `…/embeddings` URL | none (off) |
+| `EMBEDDING_MODEL` | Model name; changing it re-embeds everything | none (off) |
+| `EMBEDDING_API_KEY` | Sent as `Authorization: Bearer …`; never logged or shown | none |
+| `EMBEDDING_DIMENSIONS` | Sent as `dimensions` (models that can shorten vectors) | model default |
+| `EMBEDDING_BATCH_SIZE` | Chunks per request (1–256) | `32` |
+| `EMBEDDING_REQUESTS_PER_MINUTE` | Indexer request rate | `60` |
+| `EMBEDDING_TIMEOUT_MS` | Indexer request timeout | `30000` |
+| `EMBEDDING_QUERY_TIMEOUT_MS` | Timeout of the query embedding of one search; on timeout search answers lexically | `3000` |
+| `EMBEDDING_MAX_CHARS` | Characters of one chunk sent to the model | `4000` |
+| `EMBEDDING_CACHE_MB` | In-process vector cache for queries | `128` |
+
+Inside the container `localhost` is the container: for Ollama on the Docker host use
+`http://host.docker.internal:11434/v1` (Docker Desktop) or the host's LAN address. Boot log, progress, memory and how
+to turn it off again: [docs/OPERATIONS.md](../docs/OPERATIONS.md) section 5.
+
 ## 4. Backups
 
 The `backup` service in `compose.yaml` backs up the database and the data volume every day at

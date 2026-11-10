@@ -15,6 +15,7 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Signup keys: with `NODE_ENV=production`, signups require a signup key unless `SIGNUP_REQUIRE_KEY=0` is set explicitly. Create the first admin's key with `./deploy/signup-key.sh new "<name>"` (the server logs this hint at boot).
 - [ ] OpenID Connect sign-in (optional, deploy/DEPLOY.md "3-G"): register `<PUBLIC_URL>/api/auth/oidc/callback` at the provider and set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`. A half-filled set or a missing `PUBLIC_URL` stops the boot. Signup keys do not apply to it: with `OIDC_AUTO_CREATE=1` also set `OIDC_ALLOWED_DOMAINS`. Keep `OIDC_LINK_EXISTING=0` unless the provider verifies email addresses (docs/adr/1161-*), and decide whether workspace two-step verification may trust the provider (`OIDC_REQUIRE_MFA`, docs/adr/1162-*). Sign in once as the first admin with a password before turning on `OIDC_AUTO_CREATE` on an empty instance.
 - [ ] Semantic search (optional, off by default, section 5): set `EMBEDDING_URL` and `EMBEDDING_MODEL` only if you want find_context to also rank by meaning. Chunk text is sent to that endpoint; with a hosted provider that is a third party, so prefer a local model server when notes must not leave the machine. A half-filled set stays off with one boot warning (docs/adr/1740-*).
+- [ ] Slack app (optional, section 6): needs `PUBLIC_URL` with a domain name (link unfurls and the `/inkling link` URL) and `APP_SECRET_KEY` (otherwise the bot token and signing secret are stored unencrypted; the settings page warns). No Slack variable is needed: each workspace owner pastes their own app's token and secret in Workspace settings → Slack.
 - [ ] Set `TZ` to the users' timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to `UTC`; a Korean deployment sets `TZ=Asia/Seoul`.
 - [ ] Set `DEFAULT_LOCALE` (`en` | `ko`, default `en`): language of emails and built-in templates for users who have not chosen one, and the web UI default before the browser language (docs/adr/0901-*, 0903-*). A Korean deployment sets `DEFAULT_LOCALE=ko`.
 - [ ] All server environment variables are passed through `compose.yaml` as `${X:-}`, so setting them in `.env` is enough (`.env` itself is not copied into the image). If you use a `compose.override.yaml`, check that it does not replace the `environment:` entries you need.
@@ -107,11 +108,15 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   share links, invite codes and signup keys stop working (docs/adr/1101-*, 1110-*).
 - Every release is tested for an upgrade from each earlier release, with data, before its image is
   published (`.github/workflows/upgrade.yml`, docs/adr/1052-*).
+- 0.14 → 0.15 applies 4 migrations (43 → 47 rows in `drizzle.__drizzle_migrations`): `0043_v015_slack`,
+  `0044_wave13_forms`, `0045_wave13_verify_present_status` and `0046_wave13_team_agents`. All four only add tables,
+  nullable columns or columns with a constant default (metadata-only on Postgres 11+) and an index on an all-NULL
+  column, with no backfill, so they are safe inside the boot transaction. No new environment variable is required.
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
 - [ ] Never run `drizzle-kit push` against production (see section 1).
-- [ ] Single app instance only: reminders, sheet sync, the webhook queue and Hocuspocus state are per process.
+- [ ] Single app instance only: reminders, sheet sync, the webhook queue, Hocuspocus state and the hourly cap of public form answers are per process.
 - [ ] After an upgrade, check the boot log for migration success and the list of enabled experimental features.
 
 ### Client updates
@@ -247,6 +252,8 @@ Push diffs the live database against `schema.ts` and drops anything not declared
 | `context/embeddings.ts`, `semanticIndexer.ts` | endpoint health and backoff, refused chunks (ADR 1742) | one state / 10,000 refused chunk hashes | backoff 5 s → 10 min; refused chunks until restart |
 | `connectionUsage.ts` | usage numbers per connection and per (workspace, connection) (ADR 1552) | 5,000 + 20,000 LRU | lost on restart (by design) |
 | `context/changeWait.ts` | changes_since calls waiting (ADR 1551) | 256 per process, 4 per connection | 25 s each; released at shutdown |
+| `slack/config.ts` | Slack settings per workspace for the notification consumer (ADR 1802) | 10,000 workspaces | 60 s; dropped when the settings are saved or removed |
+| `routes/forms.ts` | public form answers per form in the last hour (ADR 1822) | 5,000 forms, oldest forgotten first | sliding hour; lost on restart |
 
 No cache holds sessions, memberships or page visibility; those are read from the database on every request. The find_context cache holds answers, not rights: its key carries the workspace access version and the person's permission inputs, so a membership, lock, block or visibility change makes the next call search again. The only long-lived authorisation — an open collaboration socket — is revoked on member removal, a page becoming private, force delete and password change/session revocation (`liveConnections.ts`, ADR 0754).
 
@@ -312,3 +319,67 @@ failed"; configure the final URL.
 - **Size:** query time grows with the chunks of the searched workspaces (about 10 ms per 2,700 cached 768-dim
   vectors, docs/PERFORMANCE.md). Past ~50k chunks per workspace pgvector (docs/adr/1214-*) would be the fix
   (docs/KNOWN-ISSUES.md).
+
+## 6. Slack app (per workspace)
+
+Each Inkling workspace can connect its own Slack app (docs/adr/1800-*). There is no central Inkling app and no Slack
+setting in `.env`; a workspace owner creates the app in their Slack workspace and pastes its credentials.
+
+1. Set `PUBLIC_URL` (needed for link unfurls and for the `/inkling link` URL) and `APP_SECRET_KEY` (otherwise the token
+   and secret are stored unencrypted; the settings page warns).
+2. In Inkling: Workspace settings → Slack (owners). Copy the manifest (JSON).
+3. https://api.slack.com/apps → Create New App → From an app manifest → choose the Slack workspace → paste the
+   manifest → Create. If Slack rejects a field, create the app by hand with the values listed on the page: slash
+   command `/inkling` with the command URL, Event Subscriptions request URL with the bot events `link_shared`,
+   `app_uninstalled`, `tokens_revoked`, App unfurl domain = your `PUBLIC_URL` host, bot scopes
+   `chat:write chat:write.public commands links:read links:write users:read users:read.email`.
+4. Install to Workspace. Copy **OAuth & Permissions → Bot User OAuth Token** (`xoxb-…`) and
+   **Basic Information → Signing Secret**.
+5. Back in Inkling: paste both, enter the channel **ID** (channel details → bottom, `C…`), choose the updates, Save
+   (Inkling calls `auth.test`). For a private channel, `/invite @<app name>` there first.
+6. Press Test. `not_in_channel` = invite the bot; `invalid_auth` = wrong token.
+7. Members: type `/inkling help`. If their Slack email differs from their Inkling email, `/inkling link`.
+
+Slack checks the Event Subscriptions URL when the app is created from the manifest, before the token and secret are
+saved in Inkling; Inkling answers that first check for a live workspace without a saved app. If Slack still shows the
+URL as unverified, open Event Subscriptions after step 5 and press Retry.
+
+- **Failed posts:** outbox topic `slack`; failed jobs end as `state = 'dead'` with Slack's code in `last_error`:
+  `SELECT state, last_error, count(*) FROM outbox WHERE topic = 'slack' GROUP BY 1, 2;`
+- **Paused posts:** a revoked token or a bot removed from the channel shows as `blocked_reason` on the settings page;
+  saving the settings or a passing Test resumes.
+- **Housekeeping (hourly):** queues the daily summary (once per local day) and prunes `slack_request_nonces`
+  (older than 15 minutes) and expired `slack_link_codes`.
+- **Rotating the token or secret:** paste the new value and Save; omitted fields keep the stored value. If
+  `APP_SECRET_KEY` is lost or changed, the stored values cannot be read and must be entered again.
+- **Disconnecting** removes links, link codes and pending Slack jobs; the app itself is removed in Slack.
+- **Work handed to an agent connection** is not posted to the channel (docs/adr/1870-*).
+- **Test hook only:** `SLACK_TEST_API_URL=http://127.0.0.1:<port>/api` with `WEBHOOK_TEST_ALLOW_LOOPBACK=1` (ignored
+  when `NODE_ENV=production`).
+
+## 7. Public forms
+
+A form view can get a public link (`/f/<token>`, API `/api/public/forms/<token>`; docs/adr/1821-*, 1822-*). It is the
+only route where a visitor without an account writes data.
+
+- **Limits:** 10 answers per minute per IP (the `@fastify/rate-limit` route config), 60 form reads per minute per IP,
+  and 300 answers per form per hour counted **in memory per process** (several processes multiply it). A body is at
+  most 32 KiB, a text answer 5,000 characters. A filled honeypot field is answered like a success and writes nothing.
+- **Guessed tokens** count as failures for the IP ban (`guard.ts`, reason `form-token`), like page link tokens.
+- **Closing:** turning public links off in the workspace settings closes every public form at once. A form also
+  closes when its collection is trashed or made private, or when the member who turned the link on can no longer add
+  rows (removed from the workspace, or the collection locked against them): each answer is made as that member.
+- **Labels:** answers are rows created by the publisher `via public form`; activity, the "Written by AI" badge and the
+  AI summaries count them as people's input (docs/adr/1870-*).
+
+## 8. Page verification, scheduled links, member status and team agents
+
+- Migration 0045 adds a nullable column (`pages.share_starts_at`) and two small tables (`page_verifications`,
+  `user_statuses`); no backfill, no long locks. Verification expiry, scheduled link starts and status clearing are
+  compared at read time with the server clock: no new job and no new variable.
+- Migration 0046 adds `notifications.connection`, `notifications.person_too` and
+  `user_notification_settings.agent_handoff_copy` (constant defaults, metadata-only) and the partial index
+  `notifications_connection_idx` on an all-NULL column (empty when built).
+- Hourly housekeeping hands back unacknowledged items of connections that are no longer live in their workspace
+  (expired grant or token, block, person left, range change) with one UPDATE over that partial index. The disconnect
+  and token delete routes do it at once for their connection.

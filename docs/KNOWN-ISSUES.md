@@ -326,3 +326,42 @@ Some of these were measured before the performance phase and may be partly mitig
 - **Low** (SEM-8, docs/adr/1742-*) The pending scan and the status counts read every live chunk (md5 over its text): 51 ms at 2,700 chunks, roughly 2 s at 100k, once per ~8 requests during a backfill, once per 5 minutes when idle and once per 30 s of admin status refreshes. With pgvector a "dirty" marker written by the chunk writer would replace it.
 - **Low** (SEM-9, docs/adr/1742-*) A redirecting `EMBEDDING_URL` (e.g. http → https) is refused and reported as "connection failed"; configure the final URL.
 - **Low** (AGENTS-4, docs/adr/1551-*) With several server processes, a `changes_since` wait can miss a change whose change-log row another process applied: the wait ends at its deadline and the next call sees the change. One process (the supported deployment) is not affected.
+
+## Added in 0.15.0
+- **Low** (SLACK-1, docs/adr/1800-*) One Slack app per Inkling workspace: two Inkling workspaces in one Slack team cannot both own the `/inkling` command name.
+- **Low** (SLACK-2, docs/adr/1802-*) Delivery is at least once: a crash right after Slack accepted a post can post it twice.
+- **Info** (SLACK-3, docs/adr/1802-*) One edit that @mentions two people posts two lines (a document mention is one notification event per person); identical posts within 10 minutes are merged.
+- **Info** (SLACK-4, docs/adr/1802-*) Channel posts are in `DEFAULT_LOCALE`; `/inkling` answers follow the linked person's language.
+- **Low** (SLACK-5, docs/adr/1803-*) Email matching trusts Slack's confirmed address: a Slack admin who changes a member's email to another person's address would link them to that person. Use `/inkling link` if this matters.
+- **Low** (SLACK-6, docs/adr/1805-*) Link unfurls need `PUBLIC_URL` with a domain name (not an IP or localhost).
+- **Info** (SLACK-7, docs/adr/1806-*) The app manifest JSON was not validated against Slack's live manifest schema; the raw values are shown next to it.
+- **Low** (SLACK-8, docs/adr/1803-*) `/inkling` must answer within Slack's 3 s; the first command of an unlinked person makes one `users.info` call (1.5 s limit) before the search.
+- **Low** (FML-1, docs/adr/1823-*) Formulas cannot read person names or relation titles (`prop()` of a person or relation is empty): names depend on the viewer and are not known to the shared evaluator.
+- **Low** (FML-2, docs/adr/1825-*) Formula dates are UTC: `now()` and date-only values are compared in UTC, so near midnight a formula's "today" can differ from the viewer's local day.
+- **Info** (FML-3, docs/adr/1825-*) `now()` on the web is the time of the last recompute; the server's is the request time. Charts cache results for up to 60 s, so `now()`-based groups can lag by a minute.
+- **Low** (FML-4, docs/adr/1823-*) A rollup cannot aggregate a formula of the linked collection (only count).
+- **Low** (FML-5, docs/adr/1825-*) Exports compute formulas from stored properties: a formula over a rollup is empty in an export.
+- **Low** (FML-6, docs/adr/1826-*) A query_rows filter or sort on a formula reads every visible row of the collection once per call (16.2 ms at 2,000 rows, 96.1 ms at 20,000, docs/PERFORMANCE.md); not measured at the 100k row cap.
+- **Low** (FML-7, docs/adr/1826-*) A query_rows cursor page on a formula sort sends the rank map once per key part: 161–172 ms at 20,000 rows against 89–121 ms for the first page (docs/PERFORMANCE.md).
+- **Info** (FML-8, docs/adr/1825-*) The formula editor shows the parser's English detail after the localized error label.
+- **Low** (FORM-1, docs/adr/1822-*) The hourly cap of public answers per form (300) is per server process.
+- **Info** (FORM-2, docs/adr/1822-*) For the publisher, form rows are "your own changes" in catch_up (actor = publisher, docs/adr/1653-*); other members see "<publisher> via public form".
+- **Info** (FORM-3, docs/adr/1821-*) Public forms have no expiry or password (page links do); turn the link off instead.
+- **Low** (FORM-4, docs/adr/1820-*) Required questions are checked by the server only for public answers; member answers go through the generic row route (the web checks them before sending).
+- **Info** (FORM-5, docs/adr/1822-*) Public forms cannot be posted cross-site from browsers (origin check, docs/adr/1062-*); embedding a form on another site is not supported.
+- **Low** (FORM-6, docs/adr/1870-*) An OAuth client registered with the name "public form" before 0.15 keeps its existing grant until its next consent (it is refused then); its edits read as people's input until then.
+- **Low** (VERIFY-1, docs/adr/1841-*) "Changed since verification" is a lower bound for verifications older than the change-feed retention (default 30 days), and misses edits merged into a change row that predates the verification (10-minute merge window). The verifier's own edits logged within 5 minutes after verifying are not counted (they are what was verified).
+- **Info** (PRESENT-1, docs/adr/1843-*) Presentation mode copies the blocks when it opens: edits others make while presenting appear after reopening. Folded headings show in full. Interactive blocks (query tables, embeds) are static pictures of what the editor showed.
+- **Info** (PRESENT-2, docs/adr/1843-*) On iOS Safari presentation mode is a full-window overlay (no element full screen).
+- **Info** (STATUS-1, docs/adr/1846-*) Presence statuses come from the awareness `user.id` field: clients older than this release do not send it, so their avatars show no status until reloaded.
+- **Info** (STATUS-2, docs/adr/1845-*) Member status is per account (the same in every workspace).
+- **Low** (STATUS-3, docs/adr/1846-*) The comment box and the mention menus show the status that was live when the members list was loaded (no live refresh), like the members panel.
+- **Low** (TEAM-1, docs/adr/1862-*) The board and catch_up team activity are grouped by person and client name (`page_changes` stores the client name, not the grant): two connections of one person with the same client name are one row; claims and suggestions are per connection.
+- **Low** (TEAM-2, docs/adr/1863-*) Hand-back on expiry, refresh-token reuse, blocks, leaving the workspace or a range change happens in the hourly housekeeping, so for up to an hour such items are in neither the person's bell nor any inbox (the revoke routes hand back at once).
+- **Low** (TEAM-3, docs/adr/1861-*) `agent:<fieldId>` is written only through `PATCH /api/pages/:id/props` (web table cell, row panel, MCP update_row; MCP create_row follows up with it). Bulk edit, CSV import, batch create and row templates drop or ignore it; a template saved from a row may keep a stale key without its person (it never counts).
+- **Info** (TEAM-4, docs/adr/1861-*) The agent shows next to a person cell in the table and the row panel; board, gallery, calendar and exports show the person only.
+- **Info** (TEAM-5, docs/adr/1863-*) The "copy to the person" choice is the recipient's setting, not per hand-off. Turning it on does not reveal items handed before.
+- **Info** (TEAM-6, docs/adr/1864-*) Agents cannot create agent chips in page bodies (same rule as person chips, docs/adr/1002-*); they hand off through comments (`handoffTo`) or rows.
+- **Info** (TEAM-7, docs/adr/1864-*) A to-do assignment to an agent exists only as the inbox item it caused; there is no per-task assignee index (`page_tasks` is unchanged).
+- **Info** (TEAM-8, docs/adr/1863-*) A copy mailed to the person (copy setting on) uses the ordinary subject ("Alice mentioned you in a comment"); the mail does not say it was handed to the agent. The bell does ("For your Claude Code").
+- **Low** (TEAM-9, docs/adr/1865-*) `catch_up(team=true)` without `workspaceId` covers the first ten workspaces only.

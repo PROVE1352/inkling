@@ -626,6 +626,62 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1744](1744-semantic-index-state-in-the-admin-status.md) | Semantic index state in the admin status, never the key | Accepted |
 | [1745](1745-testing-semantic-search-with-a-fake-endpoint.md) | Testing semantic search: a local fake endpoint, and "off" proven by counters | Accepted |
 
+## 1800–1809 Slack app per workspace
+
+| ADR | Title | Status |
+|---|---|---|
+| [1800](1800-slack-app-per-workspace-operator-owned.md) | Slack app per workspace, owned by the operator | Accepted |
+| [1801](1801-slack-secrets-sealed-never-returned.md) | Slack token and signing secret: sealed at rest, never returned or logged | Accepted |
+| [1802](1802-slack-channel-posts-from-the-notification-engine.md) | Slack channel posts follow the notification engine, shared pages only | Accepted |
+| [1803](1803-slack-command-and-account-links.md) | /inkling: ephemeral find_context for linked members only | Accepted |
+| [1804](1804-slack-request-signatures-and-replays.md) | Slack requests: v0 signature, 5-minute window, replay table | Accepted |
+| [1805](1805-slack-link-unfurls.md) | Link unfurls: title and first paragraph of shared pages | Accepted |
+| [1806](1806-slack-setup-manifest-and-fake-slack-tests.md) | Setup by manifest, and tests against a fake Slack | Accepted |
+
+## 1820–1829 Form views and formula fields
+
+| ADR | Title | Status |
+|---|---|---|
+| [1820](1820-form-view-in-the-view-config.md) | A "form" collection view, its questions in the view config | Accepted |
+| [1821](1821-public-form-links.md) | Public form links: a token per form view, in their own table | Accepted |
+| [1822](1822-public-answers-made-as-the-publisher.md) | Public answers: made as the publisher, via "public form", with abuse limits | Accepted |
+| [1823](1823-formula-fields.md) | Formula fields: computed from the same row, never stored | Accepted |
+| [1824](1824-a-safe-formula-parser-of-our-own.md) | A small formula language with our own parser and evaluator | Accepted |
+| [1825](1825-same-formula-results-on-server-and-web.md) | Same formula results on the server and the web; errors in the cell | Accepted |
+| [1826](1826-formulas-in-query-rows.md) | Formulas in query_rows filters and sorts: decided in memory, handed to SQL | Accepted |
+| [1827](1827-formulas-in-charts.md) | Formulas in charts and view filters: by what they yield | Accepted |
+| [1828](1828-testing-forms-and-formulas.md) | Testing forms and formulas | Accepted |
+
+## 1840–1849 Page verification, presentation mode, scheduled public links and member status
+
+| ADR | Title | Status |
+|---|---|---|
+| [1840](1840-page-verification-with-an-expiry.md) | Page verification with an expiry | Accepted |
+| [1841](1841-changes-since-verification-from-the-change-feed.md) | "Changed since verification" comes from the change feed | Accepted |
+| [1842](1842-verified-and-stale-marks-in-agent-output.md) | Verified and stale marks in agent output | Accepted |
+| [1843](1843-presentation-mode-slides-from-headings.md) | Presentation mode: slides from headings, read-only copies | Accepted |
+| [1844](1844-scheduled-public-links.md) | Scheduled public links: a start time | Accepted |
+| [1845](1845-member-status-per-account-with-auto-clear.md) | Member status: one per account, cleared at a set time | Accepted |
+| [1846](1846-member-status-in-presence-mentions-and-agent-output.md) | Member status in presence, mentions and agent output | Accepted |
+
+## 1860–1869 Team agents
+
+| ADR | Title | Status |
+|---|---|---|
+| [1860](1860-a-persons-connection-as-a-target.md) | A person's connection as a target | Accepted |
+| [1861](1861-agent-refs-next-to-person-values.md) | Agent refs sit next to person values | Accepted |
+| [1862](1862-team-agents-board.md) | Team agents board | Accepted |
+| [1863](1863-hand-offs-go-to-one-connection.md) | Hand-offs go to one connection's inbox | Accepted |
+| [1864](1864-assigning-work-to-a-persons-agent.md) | Assigning work to a person's agent | Accepted |
+| [1865](1865-team-summary-in-catch-up.md) | Team summary through catch_up, not a new tool | Accepted |
+| [1866](1866-testing-team-agents.md) | Testing team agents | Accepted |
+
+## 1870–1879 Public form answers and agents
+
+| ADR | Title | Status |
+|---|---|---|
+| [1870](1870-public-form-answers-are-people-not-agents.md) | Public form answers are people's input, not agents' edits | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

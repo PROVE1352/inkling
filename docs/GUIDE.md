@@ -15,6 +15,7 @@ lists both.
 - [Working together](#working-together)
 - [Sharing on the web](#sharing-on-the-web)
 - [Edit lock](#edit-lock)
+- [Slack](#slack)
 - [Connecting your AI (MCP)](#connecting-your-ai-mcp)
 - [Importing from Notion](#importing-from-notion)
 - [Export](#export)
@@ -127,6 +128,21 @@ The panel button at the top right of a page opens the right panel: **Properties*
   what you search for, so every fold on the page opens, not only the ones with a match. Pen mode and printing
   show the whole page. Headings nested inside other blocks don't fold.
 
+### Verifying a page
+
+Mark a page as checked and correct until a date: **⋯** → **Verify page…** → choose 30, 90 or 180 days or **Until a
+date…** (at most a year), add a note if you like, then **Mark verified**. A badge under the title says "Verified
+until …". After the date it turns into **Needs verification**. The badge also shows how many sections changed since
+it was verified. People who can edit the page can verify it; when the page has an owner, only the owner or a
+workspace owner or admin. **All verified pages** lists the pages that need verification, the ones that expire within
+7 days and the verified ones. Connected AI agents see the mark too, and are told when a page is out of date.
+
+### Presenting a page
+
+**⋯** → **Present** (also on a shared page) shows a document as full-screen slides. Each top-level heading starts a
+slide, and a divider also ends one. Move with ← / → (or PageUp / PageDown, Space, Home / End) or swipe; Esc leaves.
+The slides are a copy of the page when you opened them: edits made meanwhile show after you open it again.
+
 ### Pen mode
 
 **Pen mode** in the page header's **⋯** menu lets you write and highlight on a document with a pen or finger.
@@ -143,8 +159,8 @@ default, and turning it off again takes effect at once.
 
 Create one with **New database**. Each row is a page; **Open row as a page** opens it in full.
 
-- **Views:** Table, Board, Calendar, Gallery, Timeline, Chart. Add one with **New view** in the view tabs.
-- **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup.
+- **Views:** Table, Board, Calendar, Gallery, Timeline, Chart, Form. Add one with **New view** in the view tabs.
+- **Properties:** Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Relation, Rollup, Formula.
   Add one with **Add a property**.
 - **Sort & filter** sets sorting, filters and visible properties per view. Boards group by a select property.
 - **Keyboard** in a table: click a cell or Tab into the table, then move with the arrows, Tab / ⇧Tab and Home / End.
@@ -195,6 +211,49 @@ which rows are counted.
 
 In Markdown exports a chart becomes a table of its numbers. On a public link, a chart shows a table
 only when its database is inside the shared folder.
+
+### Forms
+
+A form collects answers into a database: each answer becomes a row. Add a view and choose **Form**, then **Edit
+form**: pick the questions (the title and text, number, select, multi-select, date, checkbox, URL and person
+properties), put them in order with **Move up** / **Move down**, tick **Required**, and add a **Help text** under a
+question. You can also set the form's title, description, **Button text** and the **Message after sending**. Members
+fill the form in the app.
+
+**Public link** (owners and admins): **Turn on public link** and copy it. Anyone with the link can send answers
+without signing in; they never see the rows or other people's answers. Person and relation questions are left out
+of the public form. **Turn off** stops the link at once. The link also closes by itself when the database is trashed
+or made private, when public links are turned off for the workspace, or when the person who turned it on can no
+longer add rows. Answers show up in Activity as "<that person> via public form" and count as people's input, not
+as AI edits.
+
+### Formulas
+
+A **Formula** property computes a value from the same row; you can't type into it. Write the expression when you add
+the property, for example:
+
+- `prop("Price") * prop("Qty")`
+- `if(prop("Done"), "✓", "")`
+- `dateBetween(prop("Due"), now(), "days")`
+
+| Function | What it does |
+|---|---|
+| `prop("Name")` | The value of a property of the same row (`"Title"` is the row title). Select gives the option name, multi-select the names joined with ", ", checkbox true or false; person and relation are empty |
+| `if(cond, a, b)` | `a` when `cond` is true (not empty, not zero), else `b` |
+| `and(a, b, …)`, `or(a, b, …)`, `not(a)` | Logic; the words `and`, `or`, `not` and `&&`, `\|\|`, `!` work too |
+| `concat(a, b, …)` | The text of every argument joined |
+| `length(x)` | Number of characters of the text of `x` (empty is 0) |
+| `round(n, digits)` | Rounded to 0–10 digits (`digits` is optional) |
+| `min(a, …)`, `max(a, …)` | Smallest / largest number; empty values are skipped |
+| `abs(n)` | Absolute value |
+| `now()` | The current date and time |
+| `dateAdd(date, n, unit)` | The date moved by `n` units: `years`, `months`, `weeks`, `days`, `hours`, `minutes` |
+| `dateBetween(a, b, unit)` | `a` minus `b` in whole units |
+
+Operators: `+` (adds numbers; with text it joins), `-`, `*`, `/`, `%`, `=`, `!=`, `<`, `<=`, `>`, `>=`. Text goes in
+quotes. Dates are computed in UTC. A cell with a problem shows the error instead of a value (circular reference,
+division by zero, a property that doesn't exist, …). Formulas follow when you rename a property. You can filter,
+sort, group and chart by a formula like by any other property, and exports contain its values.
 
 ## Graph, canvas and query blocks
 
@@ -298,6 +357,13 @@ app, member, page or kind of change, and open **Show changes** to see a diff. Ch
 Workspace menu → **Members** to see members, add people you already share another workspace with, and copy or
 regenerate the invite link. **Copy invite link** is also at the bottom of the sidebar.
 
+### Your status
+
+Settings → **Account** → **Status** → **Set status**: pick an emoji, write a short message ("Exam week, back
+Friday") and choose when it clears: **In an hour**, **Today**, **This week**, **At a date and time…** or **Don't
+clear**. Your status shows next to your name in the members list, the `@` mention menus and on the avatars of people
+online on a page (the page header). It is the same in every workspace. AI agents see it when they mention you or assign you a row.
+
 ### People with access and guests
 
 The page **Share** dialog has a **People** part above the web link. Here you give one person a level on
@@ -367,6 +433,13 @@ links** (pre-selected, the publisher can still change it) and **Require a passwo
 links need one and it can't be removed). Neither changes links that already exist. Expiry and password
 changes are in the audit log; the password itself is never stored in plain form or logged.
 
+### Scheduling a start
+
+A public link can start working later. Before you click **Publish to web**, turn on **Schedule a start** and pick
+the date and time (in your device's time zone). Until then the link answers like a link that doesn't exist. Once
+published, the dialog says **Opens …** with **Change start** and **Open now**, and **Web shares** marks the link.
+Changing the start is in the audit log.
+
 ## Edit lock
 
 An edit lock protects a page and everything under it. Others can still read and comment.
@@ -387,6 +460,22 @@ database cells, canvas cards and properties.
 
 The same dialog has **Agent instructions**: a locked page whose text AI agents read as the workspace's rules for
 them (always, for matching pages, or only when asked by name).
+
+## Slack
+
+A workspace owner can connect the workspace to Slack: Workspace settings → **Slack**. The page lists the steps,
+the addresses and a ready-made app manifest to paste in Slack; the full procedure is in
+[OPERATIONS.md](OPERATIONS.md), section 6. The owner picks a channel and which updates it gets: mentions,
+assignments, AI suggestions waiting for review, comment replies and a daily summary of changed pages. **Send test
+message** checks the setup.
+
+- Only pages shared with the whole workspace appear in Slack. Private pages and other workspaces never do.
+- Work someone hands to a person's AI agent (see [Team agents](#team-agents)) is not posted to the channel.
+- Type `/inkling <words>` in Slack to search your own notes; only you see the answer, and it shows only what you
+  can see in Inkling. `/inkling help` lists the commands.
+- If `/inkling` says your account is not linked (your Slack email differs from your Inkling email), type
+  `/inkling link` and open the link while signed in to Inkling. `/inkling unlink` removes the link.
+- Paste an Inkling page link in Slack to show its title and first paragraph (shared pages only).
 
 ## Connecting your AI (MCP)
 
@@ -530,6 +619,24 @@ In **Activity** or in the page's side panel (**History › Recent changes**), ch
 **Revert**. Choose only that change, everything that agent changed on this page, or (owners and admins) in the whole
 workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
 Reverting is saved as your own change (a "Before revert" version is kept) and can be undone with **Undo revert**.
+
+### Team agents
+
+**Team agents** in the header of **Activity** shows what each person's AI connections are working on: the sections they claimed
+with the minutes left, their suggestions waiting for a person, and what each one did today. Pages you can't open
+are listed without their title.
+
+You can hand work to one person's agent instead of the person:
+
+- In a comment or a to-do, type `@` and pick an entry like "Bob · Claude Code". Only that agent's inbox gets it;
+  Bob's other agents don't, and Bob's bell doesn't either.
+- In a database, open a person cell and pick one of the person's agents under their name (**Or one of their
+  agents**). The cell keeps the person; the agent shows next to it.
+- To see what is handed to your own agents, turn on Settings → **Notifications** → **Show me what is handed to my
+  agents**.
+
+If an agent connection is disconnected or expires, what was handed to it goes back to its person. Being handed work
+gives an agent no extra rights: it still acts as its person.
 
 ### API tokens for scripts
 

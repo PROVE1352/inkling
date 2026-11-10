@@ -40,6 +40,7 @@ import { Spinner } from './Spinner'
 import { useLaterList, useThreads } from '../laterApi'
 import { askConfirm } from '../lib/confirm'
 import { offlineStatus } from '../lib/offline/runtime'
+import { OnboardingSidebarEntry } from '../onboarding/SidebarEntry'
 import {
   AlarmIcon,
   ClockIcon,
@@ -782,6 +783,7 @@ export function Sidebar({
         )}
       </nav>
 
+      {!compactFooter && <OnboardingSidebarEntry wsId={wsId} />}
       {compactFooter ? (
         // Short sidebar (a tablet in landscape with the browser's bars, an in-app browser): the footer is
         // one row of icons so the page tree keeps its room (docs/adr/1640-*).

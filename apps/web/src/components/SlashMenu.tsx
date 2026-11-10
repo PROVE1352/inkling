@@ -17,6 +17,7 @@ import { mathSlashItems } from './blocks/Math'
 import { tableSizeSlashItems } from './tableSlash'
 import { useT } from '../i18n'
 import { insertFromSlash, withCaretBelow, type SlashEditor } from '../lib/slashInsert'
+import { noteOnboarding } from '../onboarding/api'
 
 /** Default items for blocks without inline content: the caret goes to an empty line below them. */
 const CARET_BELOW = new Set(['divider', 'image', 'video', 'audio', 'file'])
@@ -39,6 +40,7 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
   }
 
   const getItems = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+    noteOnboarding('slash') // the menu opened (sent once; docs/adr/2380-*)
     const calloutItem: DefaultReactSuggestionItem = {
       title: t('slash.calloutTitle'),
       subtext: t('slash.calloutSubtext'),

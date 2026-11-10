@@ -36,6 +36,7 @@ import { TrashModal } from './TrashModal'
 import { ToastContainer } from './Toast'
 import { AppDnd } from './dnd/AppDnd'
 import { AppErrorBoundary } from './AppErrorBoundary'
+import { OnboardingHost } from '../onboarding/Host'
 
 export type LayoutContext = {
   onToggleSidebar: () => void
@@ -344,6 +345,7 @@ export function AppLayout() {
 
       <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ConfirmDialog />
+      <OnboardingHost wsId={wsId} />
       <ToastContainer />
     </div>
     </AppDnd>

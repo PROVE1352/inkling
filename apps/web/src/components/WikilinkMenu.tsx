@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCreatePage, usePages } from '../api'
 import { useT } from '../i18n'
 import { fetchHeadings, type PageHeading } from '../lib/sectionLinks'
+import { noteOnboarding } from '../onboarding/api'
 
 // [[ autocomplete: inserts a standard inline link (href = /w/<ws>/p/<page>).
 // [[Page# autocomplete: the page's section headings; inserts a section link (docs/adr/2100-*), text
@@ -29,6 +30,7 @@ export function WikilinkMenu({
   const queryClient = useQueryClient()
 
   const insertLink = (pageId: string, title: string) => {
+    noteOnboarding('link')
     editor.insertInlineContent([
       { type: 'link', href: `/w/${wsId}/p/${pageId}`, content: title || t('common.untitled') },
       ' ',
@@ -36,6 +38,7 @@ export function WikilinkMenu({
   }
 
   const insertSectionLink = (page: PageMetaDTO, h: PageHeading) => {
+    noteOnboarding('link')
     const title = page.title || t('common.untitled')
     editor.insertInlineContent([
       {

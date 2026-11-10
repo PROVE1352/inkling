@@ -17,6 +17,8 @@ const LAZY_ONLY = [
   // d3 parts only Mermaid's charts use (d3-interpolate/d3-color's core is shared with the canvas: not here)
   /[\\/]node_modules[\\/](?:d3-scale|d3-scale-chromatic|d3-array|d3-format|d3-time|d3-time-format|d3-shape|d3-path|d3-hierarchy|d3-chord|d3-contour|d3-delaunay|delaunator|d3-geo|d3-polygon|d3-random|d3-brush|d3-axis|d3-fetch|d3-dsv)[\\/]/,
   /[\\/]node_modules[\\/]d3-(?:color|interpolate)[\\/]src[\\/]cubehelix\.js$/,
+  // the onboarding intro motion: once per new account, fetched when it plays (docs/adr/2382-*)
+  /[\\/]src[\\/]onboarding[\\/]intro[\\/]/,
 ]
 
 // Build id (docs/adr/0990-build-id-and-version-header.md): INKLING_BUILD (e.g. a commit hash passed as

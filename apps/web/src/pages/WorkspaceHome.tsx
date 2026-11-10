@@ -10,6 +10,8 @@ import { Spinner } from '../components/Spinner'
 import { FileTextIcon, MenuIcon, PlusIcon } from '../components/Icons'
 import { useT } from '../i18n'
 import { useIsGuest } from '../lib/useGuest'
+import { useOnboarding } from '../onboarding/api'
+import { Checklist } from '../onboarding/Checklist'
 
 // No page selected: empty state + New page button.
 export function WorkspaceHome() {
@@ -21,6 +23,8 @@ export function WorkspaceHome() {
   const pages = usePages(wsId ?? '')
   // A guest has no top-level pages to make (docs/adr/1252-*): only the pages shared with them.
   const guest = useIsGuest(wsId)
+  // Getting started card for new accounts (docs/adr/2380-*)
+  const onboarding = useOnboarding()
 
   // Setting "Page to open on launch: last" — jump to the last page only on first app entry (consumed once during render).
   // When Home is clicked again in the sidebar the entry is already consumed, so we stay on Home.
@@ -52,7 +56,7 @@ export function WorkspaceHome() {
         <ThemeToggle />
       </header>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-4 overflow-y-auto px-6 py-6 text-center">
         <div className="text-sub">
           <FileTextIcon size={40} />
         </div>
@@ -69,6 +73,7 @@ export function WorkspaceHome() {
           type="button"
           onClick={newPage}
           disabled={isPending}
+          data-onboarding="new-page"
           className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
         >
           {isPending ? (
@@ -78,6 +83,11 @@ export function WorkspaceHome() {
           )}
           {t('home.newPage')}
         </button>
+        )}
+        {!guest && wsId && onboarding?.checklist.show && (
+          <div className="mt-4 flex w-full justify-center">
+            <Checklist wsId={wsId} dto={onboarding} variant="home" />
+          </div>
         )}
       </div>
     </div>

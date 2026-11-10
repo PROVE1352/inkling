@@ -32,10 +32,10 @@ migration, no new dependency, no API or configuration change.
   pages keep opening without a connection."
 
 ### Performance
-- The intro's lazy chunk is 34.72 kB (13.46 kB gzip) instead of 20.63 kB (7.51 kB gzip), still loaded only when it
-  plays and not precached. Entry `index-*.js` 447,094 → 447,032 B (122,916 → 122,976 B gzip); entry plus modulepreload
-  1,368,719 → 1,371,693 B (403,057 → 403,177 B gzip, the longer intro copy in the i18n chunk); precache 104 entries,
-  +2,229 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- The intro's lazy chunk is 34.94 kB (13.57 kB gzip) instead of 20.63 kB (7.51 kB gzip), still loaded only when it
+  plays and not precached. Entry `index-*.js` 447,094 → 447,032 B (122,916 → 122,962 B gzip); entry plus modulepreload
+  1,368,719 → 1,371,693 B (403,057 → 403,152 B gzip, the longer intro copy in the i18n chunk); precache 104 entries,
+  +2,295 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 
 ## [0.19.0] - 2026-11-11
 

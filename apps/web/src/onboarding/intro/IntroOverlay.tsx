@@ -314,8 +314,9 @@ export function IntroOverlay({ onClose, wsId = '' }: { onClose: (finished: boole
 
   const iconBtn =
     'flex h-9 w-9 items-center justify-center rounded-full text-sub transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-30'
+  // the end screen's buttons: a full-width stack of 44 px targets on a phone, one centred row from sm up
   const endBtn =
-    'rounded-md px-3.5 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-app'
+    'min-h-11 rounded-md px-4 py-2 text-sm font-medium sm:min-h-10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-app'
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-0 sm:p-6" data-testid="intro-overlay">
       <div
@@ -349,14 +350,14 @@ export function IntroOverlay({ onClose, wsId = '' }: { onClose: (finished: boole
 
         <div className="flex shrink-0 flex-col justify-end px-5 pb-4 pt-2 sm:px-8">
           {finished ? (
-            <div ref={endRef} data-testid="intro-end" className="min-h-[7.5rem]">
+            <div ref={endRef} data-testid="intro-end" className="flex min-h-[7.5rem] flex-col items-center text-center">
               <p id="intro-body" className="text-sm text-sub">
                 {t('intro.tagline')}
               </p>
               <h2 id="intro-title" className="mt-1 text-xl font-bold text-ink sm:text-2xl" data-testid="intro-title">
                 {t('intro.end.title')}
               </h2>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="mt-4 flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
                 {actions.map((a, i) => (
                   <button
                     key={a.id}

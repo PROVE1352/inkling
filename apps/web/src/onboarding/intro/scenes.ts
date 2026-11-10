@@ -433,7 +433,7 @@ const CAMS: CamKey[][] = [
     { a: 5.75, b: 6.1, r: [120, 70, 1740, 960], f: [500, 800] },
   ],
   [
-    { a: 0, b: 0, r: [1040, 90, 800, 560], f: [1440, 330] },
+    { a: 0, b: 0, r: [1040, 70, 800, 360], f: [1440, 250] },
     { a: 1.75, b: 2.2, r: [90, 80, 1760, 880], f: [500, 430] },
     { a: 2.95, b: 3.35, r: [90, 80, 1760, 880], f: [1440, 420] },
     { a: 3.9, b: 4.35, r: [1080, 520, 760, 440], f: [1450, 680] },
@@ -451,7 +451,7 @@ const CAMS: CamKey[][] = [
     { a: 0, b: 0, r: [140, 180, 1680, 660], f: [340, 480] },
     { a: 1.0, b: 1.5, r: [140, 180, 1680, 660], f: [1040, 460] },
     { a: 2.45, b: 2.9, r: [560, 200, 860, 560], f: [1040, 460] },
-    { a: 4.6, b: 5.3, r: [620, 190, 680, 590], f: [960, 480] },
+    { a: 4.6, b: 5.3, r: [560, 21, 800, 826], f: [960, 358] },
   ],
 ]
 /** Frames narrower than this aspect are "phone" frames: they centre on f instead of fitting the rect. */
@@ -582,14 +582,20 @@ function scene1(L: number, t: number, c: IntroCopy): string {
     STATUS.map((k, i) => statusChip(X + i * 300, dbY + 26, i, w[k], 17).s + text(X + i * 300 + statusChip(0, 0, i, w[k], 17).w + 12, dbY + 46, String(counts[i]), 18, C.sub)).join(''),
   )
   const slot = [0, 0, 0]
+  // the rows that leave for the right go first; the two that rise into their places follow (no crossing)
+  const DELAY = [0, 0.05, 0.16, 0.21]
+  // the first row arcs higher than the second, so the two never cross
+  const LIFT = [70, 0, 0, 0]
   S1_ROWS.forEach((r, i) => {
-    const p = inOut(seg(L, 5.0 + i * 0.07, 5.55 + i * 0.07))
+    const p = inOut(seg(L, 5.0 + DELAY[i], 5.5 + DELAY[i]))
     const sl = slot[r.k]++
     const tb = { x: X, y: dbY + 62 + i * 60, w: 880, h: 56 }
     const bd = { x: X + r.k * 300, y: dbY + 76 + sl * 86, w: 284, h: 74 }
     const x = lerp(tb.x, bd.x, p)
-    const y = lerp(tb.y, bd.y, p) - Math.sin(Math.PI * p) * 26
-    const ww = lerp(tb.w, bd.w, p)
+    const y = lerp(tb.y, bd.y, p) - Math.sin(Math.PI * p) * LIFT[i]
+    // the row narrows to a card early in its move, so it clears the rows around it
+    const pw = out3(Math.min(1, p * 1.6))
+    const ww = lerp(tb.w, bd.w, pw)
     const hh = lerp(tb.h, bd.h, p)
     const who = r.who === 1 ? w.peer1 : w.peer2
     const col = r.who === 1 ? P1 : P2
@@ -598,11 +604,14 @@ function scene1(L: number, t: number, c: IntroCopy): string {
       pg += text(x + 16, y + 36, w[r.w], 24, C.ink) + statusChip(620, y + 13, r.k, w[STATUS[r.k]], 16).s + avatar(914, y + 28, 14, who, col)
     } else if (p >= 1) pg += boardCard(x, y, ww, hh, w[r.w], r.k, w[STATUS[r.k]], who, col)
     else {
-      // in flight: the card's frame grows around the moving title, chip and owner
-      pg += box(x, y, ww, hh, lerp(0, 12, p), `fill:${C.side};stroke:${C.line};stroke-width:2;opacity:${f2(0.4 + 0.6 * p)}`)
-      pg += text(x + 16, y + lerp(36, 30, p), w[r.w], lerp(24, 22, p), C.ink, { w: p > 0.5 ? 600 : 400 })
-      pg += op(1 - 0.85 * Math.sin(Math.PI * p), statusChip(lerp(620, x + 16, p), y + lerp(13, 40, p), r.k, w[STATUS[r.k]], lerp(16, 15, p)).s)
-      pg += avatar(lerp(914, x + ww - 24, p), y + lerp(28, 24, p), lerp(14, 13, p), who, col)
+      // in flight: an opaque card that shrinks a little on the way (dips to 0.88) while its frame grows
+      // around the moving title, chip and owner
+      let f = box(x, y, ww, hh, lerp(0, 12, p), `fill:${C.side};stroke:${C.line};stroke-width:2`)
+      f += text(x + 16, y + lerp(36, 30, p), w[r.w], lerp(24, 22, p), C.ink, { w: p > 0.5 ? 600 : 400 })
+      // chip and owner keep their place in the narrowing card
+      f += op(1 - 0.85 * Math.sin(Math.PI * p), statusChip(x + lerp(620 - X, 16, pw), y + lerp(13, 40, p), r.k, w[STATUS[r.k]], lerp(16, 15, p)).s)
+      f += avatar(x + ww - lerp(X + tb.w - 914, 24, pw), y + lerp(28, 24, p), lerp(14, 13, p), who, col)
+      pg += sc(x + ww / 2, y + hh / 2, 1 - 0.12 * Math.sin(Math.PI * p), f)
     }
   })
   s += op(tidyAt(L, 0.5), pg)
@@ -679,8 +688,10 @@ function scene2(L: number, t: number, c: IntroCopy): string {
 
   // the agent panel
   const PX = 1060
-  s += sketch(PX, 90, 760, 860, L, 0.5, 21, t)
-  let pn = agentPanel(PX, 90, 760, 860, `MCP · ${w.agent}`, 28)
+  // the panel starts as tall as its first lines and grows as the sections come in
+  const PH = lerp(300, 860, inOut(seg(L, 1.6, 2.3)))
+  s += sketch(PX, 90, 760, PH, L, 0.5, 21, t)
+  let pn = agentPanel(PX, 90, 760, PH, `MCP · ${w.agent}`, 28)
   // the person's question
   const qW = Math.min(680, tw(w.question, 26) + 44)
   const qp = popAt(L, 0.55, 0.25)

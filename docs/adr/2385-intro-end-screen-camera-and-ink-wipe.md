@@ -33,7 +33,8 @@ a lazy chunk.
   and blink; it ends as the logo's first node. One protagonist per scene is a rough boiling sketch for
   0.3 s before it settles.
 - **End screen**: when the clock runs out (or after the last reduced-motion slide) the dialog stays open
-  under the picture's last frame (the logo) with the tagline, "Ready to write?" and buttons: Open/Make the
+  under the picture's last frame (the logo, framed low and about half the picture's height so it sits with
+  the text) with, centred under it, the tagline, "Ready to write?" and buttons: Open/Make the
   sample page (new accounts only: the checklist is not dismissed), New page (the sidebar's rule in
   `lib/newPage.ts`), Connect an AI agent (Settings › Connections with the checklist's bubble), Close.
   Buttons that cannot work there (no workspace, a guest) are not drawn. A button closes the intro (seen)
@@ -57,7 +58,7 @@ a lazy chunk.
   database now lives inside the notes scene and comes back as something an agent changes.
 
 ## Trade-offs
-- The chunk grew from 20.6 kB (7.5 kB gzip) to 34.7 kB (13.5 kB gzip); the longer copy also sits in the
+- The chunk grew from 20.6 kB (7.5 kB gzip) to 34.9 kB (13.6 kB gzip); the longer copy also sits in the
   i18n chunk that the entry preloads.
 - On a phone the camera shows part of a scene at a time; the words drawn in the picture are about 12–16 px.
 - The 0.8 s reading rule is tested on the markup (every completed string present for 0.8 s at 0.05 s

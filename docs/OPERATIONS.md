@@ -833,7 +833,11 @@ only route where a visitor without an account writes data.
 Both are read per request and passed through by `compose.yaml`; recreate the app container after changing them
 (`docker compose up -d app`). The routes are for browser sessions only; agents and tokens never see onboarding.
 
-Onboarding state lives in `user_onboarding` (one row per account, deleted with the account). To show the
-intro again to one person: `UPDATE user_onboarding SET state = state - 'introSeenAt' - 'legacy' WHERE user_id = '…';`
-(or the person uses Settings › About › Watch the intro again). The first admin of a new server gets a sample page
-in their private pages on their first app load; nobody else gets one unless they press the card's button.
+Onboarding state lives in `user_onboarding` (one row per account, deleted with the account). To show the intro
+again to one person, the simplest way is theirs: Settings › About › Watch the intro again. By SQL,
+`UPDATE user_onboarding SET state = state - 'introSeenAt' WHERE user_id = '…';` plays it again on their next app
+load for an account made after the upgrade (or for any account while `ONBOARDING_EXISTING_USERS=once` is set).
+Removing `legacy` as well (`state - 'introSeenAt' - 'legacy'`) makes an older account count as new: the checklist
+comes back too, and if the account is the server's first account and an admin, its next load also makes the sample
+page. The first admin of a new server gets a sample page in their private pages on their first app load; nobody else
+gets one unless they press the card's button.

@@ -170,7 +170,7 @@ export const TWO_FACTOR_REQUIRED_EVENT = 'inkling:two-factor-required'
 /**
  * A request that got no answer at all (offline, server unreachable). Still a TypeError like fetch's own
  * failure, so `offline.isNetworkError` and the offline fallbacks keep working, but its message is the
- * localized "no connection" text every screen shows as is (docs/adr/2202-*, 0.18 integration).
+ * localized "no connection" text every screen shows as is (docs/adr/2321-*).
  */
 export class OfflineError extends TypeError {
   constructor(cause?: unknown) {
@@ -852,7 +852,7 @@ export function useLogout() {
     // This device's offline copies go even when the server cannot be told (offline): logging out
     // means leaving this device (docs/adr/2203-*).
     // A logout that did not reach the server leaves the session (and its push rows) there: this
-    // browser's push subscription goes too, so the device stops receiving pushes (0.18 integration).
+    // browser's push subscription goes too, so the device stops receiving pushes (docs/adr/2321-*).
     mutationFn: async () => {
       let reached = false
       try {

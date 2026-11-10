@@ -5,7 +5,8 @@ import type { FloatingUIOptions } from '@blocknote/react'
 // items were still loading was small, "fitted" into the little room below a line near the bottom of the
 // window, was then capped to that room by `size`, and never measured again (one item visible, the rest
 // cut off). Here the side comes from the room on each side of the caret in the visible part of the
-// window (visualViewport, so a phone's on-screen keyboard counts), and the height is set in the same step.
+// window (visualViewport, so a phone's on-screen keyboard counts), and the height is set in the same step
+// (docs/adr/2322-*).
 
 export interface CaretMenuInput {
   /** caret box, viewport coordinates */

@@ -16,7 +16,7 @@ export type PushDeviceState =
   | 'server-off'
   /** The person blocked notifications for this site in the browser. */
   | 'denied'
-  /** No connection to the server right now (0.18 integration): nothing can be checked or changed. */
+  /** No connection to the server right now (docs/adr/2321-*): nothing can be checked or changed. */
   | 'offline'
   | 'off'
   | 'on'

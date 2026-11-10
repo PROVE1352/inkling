@@ -22,6 +22,8 @@ export interface ToolCtx {
   origin: string
   /** False for a read-only token: write tools answer with a clear error (docs/adr/0935-*). */
   canWrite: boolean
+  /** Tool profile from the MCP URL (`/mcp?profile=core`); absent = 'full' (docs/adr/2000-*). */
+  profile?: 'core' | 'full'
 }
 
 export class ToolError extends Error {}

@@ -31,6 +31,7 @@ import {
   SUPPORTED_SCOPES,
   verifyPkce,
 } from '../oauth'
+import { resourceWithoutProfile } from '../mcpProfile'
 
 /**
  * OAuth 2.1 for the remote MCP connector (MCP authorization spec 2025-06-18)
@@ -78,10 +79,13 @@ function withParams(redirectUri: string, params: Record<string, string | undefin
   return u.toString()
 }
 
-/** Resource indicator (RFC 8707) — only this server's /mcp (or origin) is allowed */
+/**
+ * Resource indicator (RFC 8707) — only this server's /mcp (or origin) is allowed; `/mcp?profile=core`
+ * and `?profile=full` name the same resource (tool profiles, docs/adr/2000-*).
+ */
 function isOurResource(req: FastifyRequest, resource: string): boolean {
   const origin = publicOrigin(req)
-  const norm = resource.replace(/\/+$/, '')
+  const norm = resourceWithoutProfile(resource).replace(/\/+$/, '')
   return norm === origin || norm === `${origin}/mcp`
 }
 

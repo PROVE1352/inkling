@@ -45,6 +45,10 @@ import { PATH_SEP } from './context/chunker'
 import { inferWorkspace, resolveIdArgs } from './mcpTools/idArgs'
 import { idArg, isFullId } from './mcpTools/idSchema'
 import { slimToolList } from './mcpTools/toolList'
+import { applyProfile, parseProfile, PROFILE_ERROR } from './mcpTools/profiles'
+import { registerNotesCheckTools } from './mcpTools/notesCheckTools'
+import { registerResources } from './mcpTools/resources'
+import { registerPrompts } from './mcpTools/prompts'
 import { readChangedSections, unchangedText } from './mcpTools/tokenSaving'
 import { registerPatchSectionsTool } from './mcpTools/patchSections'
 import { agentProperties, pageVersion } from './context/pageVersion'
@@ -955,8 +959,14 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerCatchUpTools(server, ctx)
   registerCollabTools(server, ctx) // suggestions and section claims (docs/adr/1530-*, 1535-*)
   registerStructureTools(server, ctx)
+  registerNotesCheckTools(server, ctx) // check_notes, the memory check (docs/adr/2003-*)
+  // Pages as resources, three fixed prompts (docs/adr/2001-*, 2002-*)
+  registerResources(server, ctx)
+  registerPrompts(server, ctx)
   // The tool list without the SDK's defaults (docs/adr/1945-*); after every registerTool.
   slimToolList(server)
+  // core / full (docs/adr/2000-*): after the list is slimmed, so more_tools prints what tools/list would
+  applyProfile(server, ctx)
   return server
 }
 
@@ -993,7 +1003,11 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
         .send({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null })
     }
 
-    const server = buildMcpServer({ app: rootApp, token, ip: req.ip, user, origin, canWrite: canWriteFromScopes(user.scope) })
+    // /mcp?profile=core|full (docs/adr/2000-*): no query = full, as before 0.16
+    const profile = parseProfile(req.query)
+    if (!profile) return reply.code(400).send(PROFILE_ERROR)
+
+    const server = buildMcpServer({ app: rootApp, token, ip: req.ip, user, origin, canWrite: canWriteFromScopes(user.scope), profile })
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

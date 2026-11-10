@@ -3,7 +3,13 @@
  * model's context before the first call (0.15.1, docs/adr/1940-*). Not part of CI; no database.
  *
  *   cd apps/server
- *   npx tsx scripts/mcp-tools-list-cost.ts [--json] [--by-tool]
+ *   npx tsx scripts/mcp-tools-list-cost.ts [--json] [--by-tool] [--profile core|full] [--surface]
+ *
+ * --profile picks the tool profile of the connection (docs/adr/2000-*; default full). --surface also
+ * measures the rest of what a client receives before the first call (0.16, docs/adr/2001-*, 2002-*):
+ * the initialize result (capabilities, server info, instructions), resources/templates/list and
+ * prompts/list. resources/list needs a database (pages); its size per entry is measured by the
+ * [db] test mcpTools/resourcesPrompts.db.test.ts.
  *
  * Builds the MCP server for a read-write connection with an inert context, connects an in-memory
  * client and measures `JSON.stringify(tool)` of every listed tool (what the SDK sends, minus the
@@ -19,7 +25,11 @@ async function main() {
   const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
   const { buildMcpServer, SERVER_INSTRUCTIONS } = await import('../src/mcp')
   const { estimateTokens } = await import('../src/context/tokens')
+  const pi = process.argv.indexOf('--profile')
+  const profile = (pi > 0 ? process.argv[pi + 1] : 'full') as 'core' | 'full'
+  if (profile !== 'core' && profile !== 'full') throw new Error('--profile core|full')
   const ctx = {
+    profile,
     app: {} as never,
     token: 'x',
     ip: '127.0.0.1',
@@ -30,6 +40,13 @@ async function main() {
   const server = buildMcpServer(ctx)
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'cost', version: '1' })
+  // the initialize result as the client receives it (the server's answer to `initialize`)
+  let initResult: unknown = null
+  const origSend = a.send.bind(a)
+  a.send = async (m, o) => {
+    if ('result' in m && m.id === 0) initResult = m.result
+    return origSend(m, o)
+  }
   await Promise.all([server.connect(a), client.connect(b)])
   const { tools } = await client.listTools()
   const instructions = client.getInstructions() ?? ''
@@ -59,11 +76,26 @@ async function main() {
     instructionsTokens: estimateTokens(instructions),
     serverInstructionsTokens: estimateTokens(SERVER_INSTRUCTIONS),
   }
+  let surface: Record<string, { chars: number; tokens: number; items?: number }> | null = null
+  if (process.argv.includes('--surface')) {
+    const m = (v: unknown, items?: number) => ({ chars: JSON.stringify(v).length, tokens: estimateTokens(JSON.stringify(v)), ...(items !== undefined ? { items } : {}) })
+    const caps = client.getServerCapabilities()
+    const templates = caps?.resources ? (await client.listResourceTemplates()).resourceTemplates : []
+    const prompts = caps?.prompts ? (await client.listPrompts()).prompts : []
+    surface = {
+      initialize: m(initResult),
+      capabilities: m(caps ?? {}),
+      resourceTemplates: m(templates, templates.length),
+      prompts: m(prompts, prompts.length),
+    }
+  }
   if (process.argv.includes('--json')) {
-    console.log(JSON.stringify({ totals, rows }, null, 1))
+    console.log(JSON.stringify({ profile, totals, rows, ...(surface ? { surface } : {}) }, null, 1))
   } else {
     console.log(`tools/list: ${totals.tools} tools, ${totals.chars} chars, ~${totals.tokens} tok (descriptions ~${totals.descTokens}, schemas ~${totals.schemaTokens}); uuid patterns: ${totals.uuidPatterns}`)
+    console.log(`profile: ${profile}`)
     console.log(`instructions: ${totals.instructionsChars} chars, ~${totals.instructionsTokens} tok`)
+    if (surface) for (const [k, v] of Object.entries(surface)) console.log(`${k}: ${v.chars} chars, ~${v.tokens} tok${v.items !== undefined ? ` (${v.items})` : ''}`)
     if (process.argv.includes('--by-tool')) {
       console.log('| tool | chars | tok | desc tok | schema tok | uuid patterns |')
       console.log('|---|---|---|---|---|---|')

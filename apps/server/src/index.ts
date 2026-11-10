@@ -51,6 +51,8 @@ import { registerInboxRoutes } from './routes/inbox'
 import { registerLaterRoutes } from './routes/later'
 import { registerThreadRoutes } from './routes/threads'
 import { registerVerificationRoutes } from './routes/verification'
+import { registerNotesCheckRoutes } from './routes/notesCheck'
+import { registerInstructionLengthRoutes } from './routes/instructionLength'
 import { registerMemberStatusRoutes } from './routes/memberStatus'
 import { startLaterReminders } from './later'
 import { registerNotionRoutes } from './routes/notion'
@@ -557,6 +559,9 @@ async function main(): Promise<void> {
       // Page verification and member status (docs/adr/1840-*, 1845-*)
       await registerVerificationRoutes(api)
       await registerMemberStatusRoutes(api)
+      // Memory check and instruction length (docs/adr/2003-*, 2004-*)
+      await registerNotesCheckRoutes(api)
+      await registerInstructionLengthRoutes(api)
       await registerFileRoutes(api)
       // Public web sharing (M15): unauthenticated. No session/membership preHandler, only the token + scope gate.
       await registerPublicRoutes(api)

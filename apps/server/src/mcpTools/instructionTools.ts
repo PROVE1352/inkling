@@ -1,4 +1,5 @@
 import type { InstructionBundle } from '../agentInstructions'
+import { instructionLengthNote } from '../instructionLength'
 import { call, text, wrap, idArg } from './core'
 import { inferWorkspace } from './idArgs'
 import { shortId } from './shortIds'
@@ -41,6 +42,9 @@ export function renderInstructions(b: InstructionBundle): string {
       out.push(`- ${cleanText(m.title || 'Untitled')} (page ${shortId(m.pageId)})${m.description ? ` — ${attr(m.description)}` : ''}`)
     }
   }
+  // long instructions, measured on the bodies returned in full (docs/adr/2004-*): one line at the end
+  const note = instructionLengthNote([...b.always, ...(b.forPageId ? b.matching : [])].map((x) => x.markdown))
+  if (note) out.push('', note)
   return out.join('\n')
 }
 

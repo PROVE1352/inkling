@@ -34,13 +34,20 @@ exports, forms) reads values from `props`.
   `UPDATE collections SET row_seq = row_seq + 1 WHERE page_id = NEW.parent_id AND fields @> '[{"type":"uniqueId"}]'
   RETURNING row_seq`: the row lock on the collection serializes parallel creates until commit (no
   duplicates), the counter only grows (a trashed or purged row's number is never handed out again; a
-  rolled-back insert's number was never visible), and the WHERE is re-checked after a lock wait, so a
-  create that waited for a fields update that added the ID gets a number. A row that leaves a collection
+  rolled-back insert's number was never visible), and the WHERE is re-checked after a lock wait. A
+  create that runs while another transaction's fields update adds the ID is not guaranteed a number: the
+  UPDATE finds no ID field (it matched nothing, so it took no lock and waited for nothing) and the
+  backfill of the fields update does not see the uncommitted row (measured: 0 of 3 such rows, 2 of 5 rows
+  of an insert transaction open around the fields change; known issue, ADR 2320). A row that leaves a collection
   loses its number; one that enters another collection gets that collection's next number.
   `collections_row_number_backfill` (BEFORE INSERT OR UPDATE OF fields, when the fields contain an ID)
   numbers the rows that have none, in manual order (sort_order, created_at, id), trashed rows included —
   this covers a new ID property and the trees (templates, Notion import, duplicates) that insert rows
   before their collection row.
+- **0.18 (migration 0058, ADR 2320).** The counter bump of the n-th row in one transaction goes to the
+  collection row version that transaction wrote last (its ctid in a transaction-local setting) instead of
+  walking the n − 1 versions it left behind; same UPDATE, WHERE and lock. Bulk inserts under one ID
+  collection are linear again (50,000 rows in one transaction: 41.1 s → 3.7 s).
 - **Behaviour per consumer**: see the table in the 0.17 notes (CHANGELOG, docs/MCP.md). query_rows maps
   email/phone → text, created/edited time → date (UTC day; sort by the whole timestamp), created/edited
   by → person (filter by member name, email, `me`), uniqueId → number. Rollups may only count automatic

@@ -1052,6 +1052,5 @@ export * from './clip'
 export * from './push'
 // Buttons and database automations (docs/adr/2240-*)
 export * from './automations'
-
 // A person's own workspace list: groups and archived workspaces (docs/adr/2300-*)
 export * from './workspaceListing'

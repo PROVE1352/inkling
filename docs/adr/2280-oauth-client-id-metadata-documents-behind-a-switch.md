@@ -42,7 +42,7 @@ a consent link.
 ## Alternatives considered
 - Key grants by the URL without an `oauth_clients` row: every join (grants list, bearer lookup, usage,
   agent tokens) would need a second path; refused.
-- A separate `oauth_cimd_clients` table (migration 0058): the same rows with a different name; nothing
+- A separate `oauth_cimd_clients` table (a new migration): the same rows with a different name; nothing
   it would hold that `oauth_clients` cannot.
 - On by default: Inkling has not yet been connected from claude.ai with it (KNOWN-ISSUES AGT-4), and it
   adds outbound requests an operator may not expect.

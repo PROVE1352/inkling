@@ -1,4 +1,4 @@
-# 2301. Two tables for the list: workspace_list_groups and workspace_listings (migration 0059)
+# 2301. Two tables for the list: workspace_list_groups and workspace_listings (migration 0057)
 
 - Status: Accepted
 - Date: 2026-11-10
@@ -34,8 +34,8 @@ statement that already lists the person's workspaces.
   group could not exist.
 
 ## Consequences
-- Migration 0059_workspace_listings (two tables, four foreign keys, two indexes), no data migration.
+- Migration 0057_workspace_listings (two tables, four foreign keys, two indexes), no data migration.
 - The scope probe is a primary-key lookup per listed workspace (ADR 2303).
 
 ## References
-- apps/server/src/db/schema-workspaceListing.ts, drizzle/0059_workspace_listings.sql, routes/workspaces.ts (`removeMember`)
+- apps/server/src/db/schema-workspaceListing.ts, drizzle/0057_workspace_listings.sql, routes/workspaces.ts (`removeMember`)

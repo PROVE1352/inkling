@@ -29,7 +29,7 @@ workspace; the request here is different: "let me put workspaces aside".
   section keeps it one click away.
 
 ## Consequences
-- Migration 0059 (ADR 2301); routes under /api/me (ADR 2302); default scope rules (ADR 2303).
+- Migration 0057 (ADR 2301); routes under /api/me (ADR 2302); default scope rules (ADR 2303).
 
 ## References
 - apps/server/src/workspaceListing.ts, routes/workspaceListing.ts; apps/web/src/components/WorkspaceSwitcherList.tsx, WorkspaceOrganizer.tsx

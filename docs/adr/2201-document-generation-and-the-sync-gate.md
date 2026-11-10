@@ -23,7 +23,7 @@ the server's SyncStep1 with everything the local doc has. A tab left open throug
 before any code of ours runs — unless the code runs before Auth.
 
 ## Decision
-- **`pages.doc_gen`** (migration 0057, integer, default 0) is bumped by `bumpDocGen()` (`docGen.ts`)
+- **`pages.doc_gen`** (migration 0056, integer, default 0) is bumped by `bumpDocGen()` (`docGen.ts`)
   **after** the content transact of: version restore, AI-edit revert, split (parent), and the
   delete-everything fallbacks of update_page (`writeBlocksToDoc`) and vault sync. Minimal edits
   (update_page's `applyDocumentReplace`, patch_section, append) do not bump: they change only the
@@ -78,6 +78,6 @@ before any code of ours runs — unless the code runs before Auth.
 
 ## References
 - apps/server/src/docGen.ts, collab.ts, routes/offlineSync.ts, routes/snapshots.ts, revert.ts,
-  routes/splitPage.ts, md/docWrite.ts, routes/sync.ts, drizzle/0057_offline_doc_gen.sql
+  routes/splitPage.ts, md/docWrite.ts, routes/sync.ts, drizzle/0056_offline_doc_gen.sql
 - apps/web/src/lib/offline/decide.ts, gate.ts, apps/web/src/components/CollabEditor.tsx
 - apps/server/src/offlineSync.db.test.ts, apps/web/src/lib/offline/offline.test.ts

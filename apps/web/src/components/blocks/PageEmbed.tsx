@@ -20,6 +20,7 @@ import {
 } from '@inkling/shared'
 import { useMe, usePages } from '../../api'
 import { openCollab, readStatus } from '../../lib/collabSocket'
+import { internalLinkClick } from '../../lib/internalLinks'
 import { PageIconGlyph } from '../PageIconGlyph'
 import { useTheme } from '../../lib/theme'
 import { LinkIcon, LockIcon } from '../Icons'
@@ -160,15 +161,11 @@ function PageEmbedViewer({
     [doc],
   )
 
-  // Wikilink (/w/...) clicks inside the embed body → SPA navigation. stopPropagation prevents the
-  // outer editor from handling it twice.
+  // A plain click on an internal link (/w/...) inside the embed body → SPA navigation (once: the outer
+  // editor's capture handler runs first and marks the click handled). Modified and middle clicks are
+  // the browser's: the body is read-only, so it follows the link itself (lib/internalLinks.ts).
   const onClickCapture = (e: React.MouseEvent) => {
-    const href = (e.target as HTMLElement).closest('a')?.getAttribute('href')
-    if (href && href.startsWith('/w/')) {
-      e.preventDefault()
-      e.stopPropagation()
-      navigate(href)
-    }
+    if (internalLinkClick(e, navigate)) e.stopPropagation()
   }
 
   return (

@@ -17,6 +17,8 @@ import { pinAnchor } from '../lib/pinAnchor'
 import { revealBlock } from '../lib/headingFolds'
 import { inklingShortcuts, useEditorPaletteCommands } from '../lib/shortcuts/editorKeys'
 import { tableQuickInput } from '../lib/tableQuickInput'
+import { selectPickerGuard } from '../lib/selectPickerGuard'
+import { editableLinkAuxClick, editorLinkClick, internalLinkClick } from '../lib/internalLinks'
 import { useTheme } from '../lib/theme'
 import { editorSchemaSpecs, pageEmbedSpec } from './blocks/PageEmbed'
 import { QueryBlockPortals } from './blocks/QueryBlock'
@@ -233,9 +235,13 @@ function CollabEditorBody({
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
-      // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*) and the typed
-      // pipe row that becomes a table on Enter (docs/adr/1642-*)
-      extensions: [inklingShortcuts(), tableQuickInput()],
+      // Link clicks: BlockNote's default opens every link with window.open — internal links move in
+      // the app instead (lib/internalLinks.ts, onClickCapture below).
+      links: { onClick: editorLinkClick },
+      // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*), the typed
+      // pipe row that becomes a table on Enter (docs/adr/1642-*) and select pickers in blocks
+      // that ProseMirror must not take as clicks on the block (lib/selectPickerGuard.ts)
+      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard()],
     },
     [provider],
   )
@@ -361,19 +367,14 @@ function CollabEditorBody({
     return () => onEditorReady?.(null)
   }, [editor, onEditorReady])
 
-  // Intercept clicks on internal wikilinks (/w/...) as SPA navigation instead of a new tab/full load.
+  // A plain click on an internal link (/w/...) moves in the app; ⌘/Ctrl/Shift-click and the middle
+  // button open a new tab (lib/internalLinks.ts).
   const onClickCapture = (e: React.MouseEvent) => {
-    const href = (e.target as HTMLElement)
-      .closest('a')
-      ?.getAttribute('href')
-    if (href && href.startsWith('/w/')) {
-      e.preventDefault()
-      navigate(href)
-    }
+    internalLinkClick(e, navigate)
   }
 
   return (
-    <div className="relative" onClickCapture={onClickCapture}>
+    <div className="relative" onClickCapture={onClickCapture} onAuxClick={editableLinkAuxClick}>
       {!synced && (
         <div className="nd-late pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
           {t('editor.connecting')}
@@ -436,7 +437,8 @@ export function LocalDocEditor({
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
         handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
-      extensions: [inklingShortcuts(), tableQuickInput()],
+      links: { onClick: editorLinkClick },
+      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard()],
     },
     [doc],
   )
@@ -454,14 +456,10 @@ export function LocalDocEditor({
     }
   }, [readOnly, doc, editor])
   const onClickCapture = (e: React.MouseEvent) => {
-    const href = (e.target as HTMLElement).closest('a')?.getAttribute('href')
-    if (href && href.startsWith('/w/')) {
-      e.preventDefault()
-      navigate(href)
-    }
+    internalLinkClick(e, navigate)
   }
   return (
-    <div className="relative" onClickCapture={onClickCapture}>
+    <div className="relative" onClickCapture={onClickCapture} onAuxClick={editableLinkAuxClick}>
       <BlockNoteView editor={editor} theme={resolved} slashMenu={false} editable={!readOnly}>
         <SlashMenu editor={editor} />
         <WikilinkMenu editor={editor} wsId={wsId} />

@@ -275,6 +275,8 @@ function TableRow({
             value={row.props[f.id]}
             members={handlers.members}
             onCommit={(v) => handlers.onCommitProps(row.id, { [f.id]: v })}
+            rowProps={f.type === 'person' ? row.props : undefined}
+            onCommitPatch={f.type === 'person' ? (patch) => handlers.onCommitProps(row.id, patch) : undefined}
             onAddOption={
               f.type === 'select' || f.type === 'multiSelect'
                 ? (name) => handlers.onAddOption(f.id, name)

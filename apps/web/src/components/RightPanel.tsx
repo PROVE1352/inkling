@@ -684,6 +684,8 @@ export function RightPanel({
                       onCommit={(v) =>
                         updateProps.mutate({ id: page.id, props: { [f.id]: v } })
                       }
+                      rowProps={f.type === 'person' ? rowProps : undefined}
+                      onCommitPatch={f.type === 'person' ? (patch) => updateProps.mutate({ id: page.id, props: patch }) : undefined}
                       onAddOption={
                         f.type === 'select' || f.type === 'multiSelect'
                           ? (name) => addOption(f.id, name)

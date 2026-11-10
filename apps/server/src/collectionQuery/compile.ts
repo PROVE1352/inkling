@@ -148,8 +148,15 @@ function compileCond(c: Cond, ctx: CompileCtx): SQL {
       const p = sql`coalesce(${propText(fid)}, '')`
       if (c.op === 'empty') return sql`(${p} = '')`
       if (c.op === 'notEmpty') return sql`(${p} <> '')`
+      // `this connection` (docs/adr/1864-*): the agent key next to the cell names this connection and
+      // the person still in the cell (a key left over from another person never counts)
+      const agentKey = propText(`agent:${fid}`)
       const match =
-        v!.t === 'personId' ? sql`(${p} = ${String(val)}::text)` : sql`(${p} IN ${memberIdsByName(String(val), ctx)})`
+        v!.t === 'personId'
+          ? sql`(${p} = ${String(val)}::text)`
+          : v!.t === 'personConn'
+            ? sql`(coalesce(split_part(${agentKey}, '/', 2), '') = ${String(val)}::text AND ${p} = split_part(${agentKey}, '/', 1))`
+            : sql`(${p} IN ${memberIdsByName(String(val), ctx)})`
       return c.op === '=' ? match : sql`(NOT ${match})`
     }
     case 'relation': {

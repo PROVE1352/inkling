@@ -46,6 +46,8 @@ export type Value =
   /** person: a user id, or a member name / email to resolve in SQL */
   | { t: 'personId'; v: string }
   | { t: 'personName'; v: string }
+  /** `this connection`: rows assigned to the caller's own agent connection (docs/adr/1864-*). */
+  | { t: 'personConn'; v: string }
   /** relation: a row id or a row title to resolve in SQL (visible rows of the target only) */
   | { t: 'rowRef'; v: string }
 
@@ -74,6 +76,8 @@ export interface ParseContext {
   userId: string
   /** YYYY-MM-DD used for `today` */
   today: string
+  /** The caller's connection key, for `this connection` (docs/adr/1864-*); null for a browser session. */
+  connection?: string | null
 }
 
 /** Valid operators per field type (aliases such as `=` on multi-value fields are mapped below). */
@@ -464,6 +468,10 @@ function bindValue(field: ResolvedField, kind: FieldKind, raw: string, quoted: b
     case 'person': {
       const s = raw.trim()
       if (!quoted && s.toLowerCase() === 'me') return { t: 'personId', v: ctx.userId }
+      if (!quoted && s.toLowerCase() === 'this connection') {
+        if (!ctx.connection) throw new FilterError('"this connection" is for an agent connection; use me', pos)
+        return { t: 'personConn', v: ctx.connection }
+      }
       if (UUID_RE.test(s)) return { t: 'personId', v: s.toLowerCase() }
       return { t: 'personName', v: s }
     }

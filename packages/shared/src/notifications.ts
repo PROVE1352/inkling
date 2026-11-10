@@ -48,6 +48,8 @@ export interface NotificationSettingsDTO {
   threadAutoFollow: boolean
   /** Notify me about replies in threads I follow (the Threads view lists them either way). */
   threadReplies: boolean
+  /** Also show me what is handed or assigned to one of my agent connections (docs/adr/1863-*). Additive. */
+  agentHandoffCopy?: boolean
   subscriptions: SubscriptionDTO[]
 }
 
@@ -57,6 +59,7 @@ export const updateNotificationSettingsSchema = z
     emailDigest: emailDigestSchema.optional(),
     threadAutoFollow: z.boolean().optional(),
     threadReplies: z.boolean().optional(),
+    agentHandoffCopy: z.boolean().optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'Nothing to change' })
 export type UpdateNotificationSettingsInput = z.infer<typeof updateNotificationSettingsSchema>

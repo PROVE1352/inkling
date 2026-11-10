@@ -97,6 +97,14 @@ export function ActivityView() {
             </>
           )}
         </div>
+        {/* the team agents board (docs/adr/1862-*): who is working on what right now */}
+        <Link
+          to={`/w/${wsId}/team-agents`}
+          className="rounded-md px-2 py-1 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
+          data-testid="open-team-agents"
+        >
+          {t('teamAgents.open')}
+        </Link>
         <ThemeToggle />
       </header>
 

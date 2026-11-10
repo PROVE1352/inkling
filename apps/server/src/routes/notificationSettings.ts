@@ -37,15 +37,18 @@ interface Settings {
   emailDigest: EmailDigestMode
   threadAutoFollow: boolean
   threadReplies: boolean
+  /** Copies of hand-offs to my agent connections (docs/adr/1863-*). */
+  agentHandoffCopy: boolean
 }
 
 async function loadSettings(userId: string): Promise<Settings> {
   const rows = (await db.execute(sql`
     SELECT email_instant AS "emailInstant", email_digest AS "emailDigest",
-           thread_auto_follow AS "threadAutoFollow", thread_replies AS "threadReplies"
+           thread_auto_follow AS "threadAutoFollow", thread_replies AS "threadReplies",
+           agent_handoff_copy AS "agentHandoffCopy"
       FROM user_notification_settings WHERE user_id = ${userId}
   `)) as unknown as Settings[]
-  return rows[0] ?? { emailInstant: true, emailDigest: 'daily', threadAutoFollow: true, threadReplies: true }
+  return rows[0] ?? { emailInstant: true, emailDigest: 'daily', threadAutoFollow: true, threadReplies: true, agentHandoffCopy: false }
 }
 
 async function listSubscriptions(userId: string): Promise<SubscriptionDTO[]> {
@@ -132,12 +135,14 @@ export async function registerNotificationSettingsRoutes(app: FastifyInstance): 
       emailDigest: b.emailDigest ?? cur.emailDigest,
       threadAutoFollow: b.threadAutoFollow ?? cur.threadAutoFollow,
       threadReplies: b.threadReplies ?? cur.threadReplies,
+      agentHandoffCopy: b.agentHandoffCopy ?? cur.agentHandoffCopy,
     }
     await db.execute(sql`
-      INSERT INTO user_notification_settings (user_id, email_instant, email_digest, thread_auto_follow, thread_replies, updated_at)
-      VALUES (${user.id}, ${next.emailInstant}, ${next.emailDigest}, ${next.threadAutoFollow}, ${next.threadReplies}, now())
+      INSERT INTO user_notification_settings (user_id, email_instant, email_digest, thread_auto_follow, thread_replies, agent_handoff_copy, updated_at)
+      VALUES (${user.id}, ${next.emailInstant}, ${next.emailDigest}, ${next.threadAutoFollow}, ${next.threadReplies}, ${next.agentHandoffCopy}, now())
       ON CONFLICT (user_id) DO UPDATE SET email_instant = EXCLUDED.email_instant, email_digest = EXCLUDED.email_digest,
-        thread_auto_follow = EXCLUDED.thread_auto_follow, thread_replies = EXCLUDED.thread_replies, updated_at = now()
+        thread_auto_follow = EXCLUDED.thread_auto_follow, thread_replies = EXCLUDED.thread_replies,
+        agent_handoff_copy = EXCLUDED.agent_handoff_copy, updated_at = now()
     `)
     // Turning a channel off drops what was waiting for it.
     if (!next.emailInstant) {

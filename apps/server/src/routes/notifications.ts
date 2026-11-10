@@ -25,6 +25,9 @@ const markReadSchema = z.object({
 function visibleNotifCond(userId: string): SQL {
   return and(
     eq(notifications.userId, userId),
+    // Handed to one of my agent connections (docs/adr/1863-*): mine to see only with my "copies"
+    // setting; it falls to me (connection NULL) when that connection goes away.
+    or(isNull(notifications.connection), eq(notifications.personToo, true)),
     or(
       isNull(notifications.pageId),
       and(isNull(pages.deletedAt), visibleTo(userId)),
@@ -97,6 +100,10 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         excerpt: notifications.excerpt,
         anchor: notifications.anchor,
         delivery: notifications.delivery,
+        forAgent: sql<string | null>`CASE
+          WHEN ${notifications.connection} ~ '^grant:[0-9a-f-]{36}$' THEN (SELECT oc.name FROM oauth_grants og JOIN oauth_clients oc ON oc.id = og.client_id WHERE og.id = substr(${notifications.connection}, 7)::uuid)
+          WHEN ${notifications.connection} ~ '^token:[0-9a-f-]{36}$' THEN (SELECT at.name FROM api_tokens at WHERE at.id = substr(${notifications.connection}, 7)::uuid)
+        END`,
       })
       .from(notifications)
       .leftJoin(pages, eq(pages.id, notifications.pageId))
@@ -121,6 +128,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
       excerpt: r.excerpt,
       anchor: r.anchor,
       quiet: r.delivery === 'quiet',
+      ...(r.forAgent ? { forAgent: r.forAgent } : {}),
     }))
 
     const unread = await countUnread(user.id)

@@ -26,6 +26,7 @@ import revert from './ko/revert'
 import charts from './ko/charts'
 import pageWorkspace from './ko/page-workspace'
 import forms from './ko/forms'
+import teamAgents from './ko/team-agents'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -56,4 +57,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...charts,
   ...pageWorkspace,
   ...forms,
+  ...teamAgents,
 }

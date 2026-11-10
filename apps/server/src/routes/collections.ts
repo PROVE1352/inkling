@@ -45,6 +45,8 @@ import type { PageRow } from '../pageDto'
 import { registerCollectionExtRoutes } from './collectionsExt'
 import { registerFormRoutes } from './forms'
 import { nonMemberPersonIds } from '../collectionRelations'
+import { connectionKey } from '../leases'
+import { normalizeAgentProps } from '../teamAgents'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -388,6 +390,9 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
           })
         }
         const oldProps = (cur.props ?? {}) as Record<string, unknown>
+        // A person's agent connection next to a person cell (docs/adr/1861-*, 1864-*): checked here,
+        // stored as `agent:<fieldId>`; a refused one writes nothing.
+        const agentAssigned = await normalizeAgentProps(target.workspaceId, parentFields, oldProps, body.props, id)
         const set: Record<string, unknown> = {}
         const del: string[] = []
         const pairSyncs: { field: CollectionField; oldIds: string[]; newIds: string[] }[] = []
@@ -425,12 +430,20 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
           .limit(1)
         // Task assignment (docs/adr/1000-*): people newly put in a person cell hear about it; the
         // events commit with the write (docs/adr/1150-*).
+        // A person assigned together with their agent hears nothing as a person: the agent's inbox
+        // gets the assignment (and the person a copy with their setting, docs/adr/1863-*).
         const assigned = newAssignees(parentFields, oldProps, set)
-        const queued: OutboxTopic[] = assigned.length
-          ? await enqueueAssignments(tx, taskAssignments({ workspaceId: target.workspaceId, rowId: id, actorId: user.id, via: user.via ?? null, changes: assigned }))
+          .map((a) => ({ ...a, userIds: a.userIds.filter((u) => !agentAssigned.some((x) => x.field === a.field && x.conn.userId === u)) }))
+          .filter((a) => a.userIds.length)
+        const toAgents = agentAssigned
+          .filter((x) => x.conn.key !== connectionKey(user))
+          .map((x) => ({ workspaceId: target.workspaceId, pageId: id, actorId: user.id, via: user.via ?? null, kind: 'task_assigned' as const, userIds: [x.conn.userId], field: x.field, connection: x.conn.key }))
+        const queued: OutboxTopic[] = assigned.length || toAgents.length
+          ? await enqueueAssignments(tx, [...taskAssignments({ workspaceId: target.workspaceId, rowId: id, actorId: user.id, via: user.via ?? null, changes: assigned }), ...toAgents])
           : []
         // Change feed (docs/adr/1650-*): which properties changed, committed with the write.
-        const changedKeys = changedPropKeys(oldProps, (updated?.props ?? {}) as Record<string, unknown>)
+        // an agent next to a person cell is a change of that cell (docs/adr/1861-*)
+        const changedKeys = [...new Set(changedPropKeys(oldProps, (updated?.props ?? {}) as Record<string, unknown>).map((k) => (k.startsWith('agent:') ? k.slice(6) : k)))]
         if (changedKeys.length) {
           await recordPageEvents([{ pageId: id, kind: 'page_props', after: propsEventText(parentFields, changedKeys) }], actorOf(user), tx)
           queued.push('change')

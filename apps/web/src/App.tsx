@@ -27,6 +27,8 @@ const loadPageView = () => import('./pages/PageView')
 const PageView = lazyNamed(loadPageView, 'PageView')
 const Admin = lazyNamed(() => import('./pages/Admin'), 'Admin')
 const ActivityView = lazyNamed(() => import('./pages/ActivityView'), 'ActivityView')
+// Team agents board (docs/adr/1862-*)
+const TeamAgentsView = lazyNamed(() => import('./pages/TeamAgentsView'), 'TeamAgentsView')
 const DueView = lazyNamed(() => import('./pages/DueView'), 'DueView')
 const LaterView = lazyNamed(() => import('./pages/LaterView'), 'LaterView')
 const ThreadsView = lazyNamed(() => import('./pages/ThreadsView'), 'ThreadsView')
@@ -124,6 +126,7 @@ export function App() {
         <Route index element={<Pane><WorkspaceHome /></Pane>} />
         <Route path="admin" element={<Pane><Admin /></Pane>} />
         <Route path="activity" element={<Pane><ActivityView /></Pane>} />
+        <Route path="team-agents" element={<Pane><TeamAgentsView /></Pane>} />
         <Route path="calendar" element={<Pane><GlobalCalendar /></Pane>} />
         <Route path="due" element={<Pane><DueView /></Pane>} />
         <Route path="later" element={<Pane><LaterView /></Pane>} />

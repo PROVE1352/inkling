@@ -16,6 +16,7 @@ import {
   revokeAllApiTokens,
 } from '../apiTokens'
 import { rangeToColumns, validateRange } from '../tokenRange'
+import { handBackConnections } from '../teamAgents'
 
 /**
  * Personal API tokens (docs/adr/1201-*). Browser sessions only: a token never makes, lists or
@@ -84,6 +85,8 @@ export async function registerApiTokenRoutes(app: FastifyInstance): Promise<void
       .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, user.id)))
       .returning({ id: apiTokens.id })
     if (deleted.length === 0) throw notFound()
+    // what was handed to this token falls to its person (docs/adr/1863-*)
+    await handBackConnections(deleted.map((d) => `token:${d.id}`))
     return reply.code(204).send()
   })
 
@@ -104,6 +107,7 @@ export async function registerApiTokenRoutes(app: FastifyInstance): Promise<void
     const id = idParam(req.params)
     const deleted = await db.delete(apiTokens).where(eq(apiTokens.id, id)).returning({ id: apiTokens.id })
     if (deleted.length === 0) throw notFound()
+    await handBackConnections(deleted.map((d) => `token:${d.id}`))
     return reply.code(204).send()
   })
 }

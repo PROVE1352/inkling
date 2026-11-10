@@ -9,6 +9,7 @@ import { getServerEditor } from './editor'
  *
  *   callout          `> [!warning] text`                               (Obsidian / GitHub alerts)
  *   mention          `@[Label](user:<id>)` / `@[Title](page:<id>)`      agent reads; exports write `@Label`
+ *                    `@[Name · Client](agent:<id>/grant:<id>)` a person's agent connection (docs/adr/1861-*)
  *   block tokens     `<!-- inkling:pageEmbed {"pageId":"…"} -->`        agent reads only, one line each:
  *                    pageEmbed, linkEmbed, pluginBlock, chart, and file / audio blocks (whose plain
  *                    Markdown — a link paragraph, an HTML figure — does not read back as the same block).
@@ -227,7 +228,8 @@ export interface NotationImport {
 
 const FENCE_RE = /^[ \t>]*(`{3,}|~{3,})/
 const BLOCK_TOKEN_RE = /^([ \t>]*)<!--[ \t]*inkling:([A-Za-z]+)[ \t]+(\{.*\})[ \t]*-->[ \t]*$/
-const MENTION_TOKEN_RE = /@\[([^[\]\n]*)\]\((user|page):([A-Za-z0-9_-]{1,64})\)/g
+// `agent:<person uuid>/grant:<uuid>` is a person's connection (docs/adr/1861-*); agents keep, move or delete it like any chip.
+const MENTION_TOKEN_RE = /@\[([^[\]\n]*)\]\((user|page|agent):([A-Za-z0-9_-]{1,64}|[0-9a-fA-F-]{36}\/(?:grant|token):[0-9a-fA-F-]{36})\)/g
 const CODE_SPAN_RE = /(`+)[\s\S]*?\1/g
 
 /** A token's props, checked against the block's prop schema; null when the token is not usable. */

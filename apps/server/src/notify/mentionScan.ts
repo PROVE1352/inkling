@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { AGENT_MENTION_KIND, parseAgentRef } from '@inkling/shared'
 import { applyStoredState } from '../yState'
 
 /**
@@ -21,6 +22,15 @@ export interface DocMention {
   top: number
   /** Plain text of the line holding the chip, chips rendered as `@label`. */
   text: string
+  /** A chip of a person's agent connection (kind 'agent', docs/adr/1861-*): its connection key. */
+  connection?: string
+  /** The chip sits in a to-do (checkListItem): an assignment of that task (docs/adr/1864-*). */
+  inTask?: boolean
+}
+
+/** Set key of a mention: the person, or `<person>/<connection>` for an agent chip. */
+export function mentionKey(m: Pick<DocMention, 'userId' | 'connection'>): string {
+  return m.connection ? `${m.userId}/${m.connection}` : m.userId
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -63,7 +73,12 @@ function walk(
     if (!(c instanceof Y.XmlElement)) continue
     if (c.nodeName === 'mention') {
       const id = attrString(c, 'id')
-      if (attrString(c, 'kind') !== 'page' && UUID_RE.test(id)) {
+      const kind = attrString(c, 'kind')
+      const inTask = node instanceof Y.XmlElement && node.nodeName === 'checkListItem'
+      if (kind === AGENT_MENTION_KIND) {
+        const ref = parseAgentRef(id)
+        if (ref) out.push({ userId: ref.userId, connection: ref.connection, blockId, top, text: lineText(node), inTask })
+      } else if (kind !== 'page' && UUID_RE.test(id)) {
         out.push({ userId: id.toLowerCase(), blockId, top, text: lineText(node) })
       }
       continue

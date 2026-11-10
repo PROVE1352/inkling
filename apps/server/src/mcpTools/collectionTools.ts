@@ -15,9 +15,11 @@ import { opsHelp } from '../collectionQuery/filter'
 import { describeField, mapWrite, needsMembers, ValueError } from '../collectionQuery/values'
 import type { MappedWrite, Member } from '../collectionQuery/values'
 import { call, text, ToolError, uuid, wrap, wrapWrite } from './core'
+import { connectionKey } from '../leases'
 import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
+import { agentPropKey } from '@inkling/shared'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const today = () => new Date().toISOString().slice(0, 10)
@@ -105,6 +107,8 @@ function assertSanitized(fields: CollectionField[], props: Record<string, unknow
   const byId = new Map(fields.map((f) => [f.id, f]))
   const { set, del } = sanitizeBatchProps(byId, props)
   for (const [k, v] of Object.entries(props)) {
+    // a person's agent next to a person cell: checked by the server (docs/adr/1864-*)
+    if (k.startsWith('agent:')) continue
     const ok = v === null ? del.includes(k) : k in set
     if (!ok) throw new ToolError(`Value for "${byId.get(k)?.name ?? k}" was rejected; check its type with query_rows describe`)
   }
@@ -257,7 +261,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       let mapped: MappedWrite
       try {
         const members = needsMembers(cur.fields, properties) ? await loadMembers(ctx, cur.workspaceId) : undefined
-        mapped = mapWrite(cur.fields, properties, { userId: ctx.user.id, today: today(), members })
+        mapped = mapWrite(cur.fields, properties, { userId: ctx.user.id, today: today(), members, connection: connectionKey(ctx.user) || null })
       } catch (err) {
         if (err instanceof ValueError) throw new ToolError(`${err.message}\nNothing was written.`)
         throw err
@@ -312,7 +316,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       let mapped: MappedWrite
       try {
         const members = needsMembers(fields, properties) ? await loadMembers(ctx, def.workspaceId) : undefined
-        mapped = mapWrite(fields, properties, { userId: ctx.user.id, today: today(), members })
+        mapped = mapWrite(fields, properties, { userId: ctx.user.id, today: today(), members, connection: connectionKey(ctx.user) || null })
       } catch (err) {
         if (err instanceof ValueError) throw new ToolError(`${err.message}\nNothing was written.`)
         throw err
@@ -336,6 +340,11 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       ).json() as CreateRowResultDTO
       const rowId = created.row?.id
       if (!rowId) throw new ToolError('The row was not created')
+      // Agent assignments (docs/adr/1864-*) are checked by the props route, not by row creation.
+      const agentProps = Object.fromEntries(Object.entries(props).filter(([k]) => k.startsWith('agent:')))
+      if (Object.keys(agentProps).length) {
+        await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: agentProps } })
+      }
       const notes = droppedLinks(fields, relLinks, (created.row.props ?? {}) as Record<string, unknown>)
       const row = await getRow(ctx, rowId)
       const used = tpls.templates.find((t) => t.id === created.templateId)

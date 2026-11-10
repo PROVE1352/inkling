@@ -1,0 +1,27 @@
+// English source strings for team agents: the board, hand-offs and assignments to a person's agent
+// connection (docs/adr/1860-* .. 1866-*).
+export default {
+  'teamAgents.title': 'Team agents',
+  'teamAgents.open': 'Team agents',
+  'teamAgents.subtitle': "What each person's AI connections are working on: sections they claimed, suggestions waiting for a person, and what they did today.",
+  'teamAgents.toggleSidebar': 'Toggle sidebar',
+  'teamAgents.totals': '{claims} claimed sections · {open} suggestions waiting · {edits} edits today',
+  'teamAgents.empty': 'No agent is connected to this workspace yet, and none worked here today.',
+  'teamAgents.claims': 'Working on',
+  'teamAgents.claimLeft': '{min} min left',
+  'teamAgents.hiddenPage': 'A page you cannot open',
+  'teamAgents.waiting': 'Waiting for a person',
+  'teamAgents.today': 'Today',
+  'teamAgents.edits': '{count} edits',
+  'teamAgents.created': '{count} new pages',
+  'teamAgents.suggested': '{count} suggestions',
+  'teamAgents.reverted': '{count} reverted',
+  'teamAgents.idle': 'Nothing today',
+  'teamAgents.gone': 'not connected now',
+  'teamAgents.connectionSub': 'Agent connection',
+  'teamAgents.assignAgent': 'Or one of their agents',
+  'teamAgents.agentChipTitle': "{label}: only this agent's inbox gets it",
+  'notifications.forAgent': 'For your {client}',
+  'notifSettings.agentHandoffCopy': 'Show me what is handed to my agents',
+  'notifSettings.agentHandoffCopyDesc': "When someone mentions or assigns one of your agent connections, it goes to that agent's inbox. On: you see a copy here too.",
+}

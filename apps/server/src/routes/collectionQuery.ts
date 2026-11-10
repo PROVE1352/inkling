@@ -41,6 +41,8 @@ import { AppError } from '../errors'
 import { idParam, requireMembership } from '../helpers'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { requireCollectionPage } from './collections'
+import { connectionKey } from '../leases'
+import { agentCellLabels } from '../teamAgents'
 
 export const QUERY_DEFAULT_LIMIT = 25
 export const QUERY_MAX_LIMIT = 200
@@ -150,11 +152,18 @@ async function formatRows(
       for (const u of us) personNames.set(u.id, u.name)
     }
   }
+  // A person cell assigned to the person's live agent connection reads `Name → Client (g:1a2b3c4d)`
+  // (docs/adr/1864-*); every other cell is as before.
+  const agents = personFields.length ? await agentCellLabels(workspaceId, personFields, rows) : null
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
     version: r.version,
-    cells: columns.map((c) => formatCell(c, r.title, r.props, { refTitles, personNames, formulaErrors: formulaErrors.get(r.id) })),
+    cells: columns.map((c) => {
+      const cell = formatCell(c, r.title, r.props, { refTitles, personNames, formulaErrors: formulaErrors.get(r.id) })
+      const agent = agents && c.kind === 'field' && c.field.type === 'person' ? agents.get(`${r.id}|${c.field.id}`) : undefined
+      return agent && cell ? `${cell} → ${agent}` : cell
+    }),
   }))
 }
 
@@ -228,7 +237,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
     // one instant for every formula of this request (deterministic output, docs/adr/0937-*)
     const now = new Date()
     try {
-      const ast = parseFilter(filterSrc, { fields, userId: user.id, today: today() })
+      const ast = parseFilter(filterSrc, { fields, userId: user.id, today: today(), connection: connectionKey(user) || null })
       const sort = parseSort(sortSrc, fields)
       // formula conditions and sort keys are decided in memory first (docs/adr/1826-*)
       const pre = await precomputeFormulaQuery({

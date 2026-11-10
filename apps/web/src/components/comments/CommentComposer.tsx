@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import type { MemberDTO } from '@inkling/shared'
+import { useParams } from 'react-router'
+import type { MemberDTO, WorkspaceConnectionDTO } from '@inkling/shared'
+import { connectionLabel, useAgentConnections } from '../../teamAgentsApi'
 import { isMod } from '../../lib/platform'
 import { useT } from '../../i18n'
 
@@ -23,13 +25,18 @@ export function CommentComposer({
   autoFocus?: boolean
   initialValue?: string
   busy?: boolean
-  onSubmit: (body: string, mentionUserIds: string[]) => void
+  /** mentionConnections: members' agent connections the comment is handed to (docs/adr/1863-*). */
+  onSubmit: (body: string, mentionUserIds: string[], mentionConnections: string[]) => void
   onCancel?: () => void
 }) {
   const t = useT()
   const [value, setValue] = useState(initialValue ?? '')
   // userId → name token at insertion time. Only those still in the body are sent.
   const mentionsRef = useRef<Map<string, string>>(new Map())
+  // agent ref → "@Bob · Claude Code" label at insertion time (docs/adr/1863-*)
+  const agentsRef = useRef<Map<string, string>>(new Map())
+  const { wsId } = useParams()
+  const connections = useAgentConnections(wsId)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [query, setQuery] = useState<{ text: string; at: number; caret: number } | null>(
     null,
@@ -66,6 +73,21 @@ export function CommentComposer({
     })
   }
 
+  const pickAgent = (c: WorkspaceConnectionDTO) => {
+    if (!query) return
+    const label = connectionLabel(c)
+    const before = value.slice(0, query.at)
+    const after = value.slice(query.caret)
+    agentsRef.current.set(c.ref, label)
+    setValue(`${before}@${label} ${after}`)
+    setQuery(null)
+    const pos = before.length + label.length + 2
+    requestAnimationFrame(() => {
+      taRef.current?.focus()
+      taRef.current?.setSelectionRange(pos, pos)
+    })
+  }
+
   const submit = () => {
     const body = value.trim()
     if (!body || busy) return
@@ -73,9 +95,14 @@ export function CommentComposer({
     mentionsRef.current.forEach((name, id) => {
       if (body.includes(`@${name}`)) ids.push(id)
     })
-    onSubmit(body, ids)
+    const refs: string[] = []
+    agentsRef.current.forEach((label, ref) => {
+      if (body.includes(`@${label}`)) refs.push(ref)
+    })
+    onSubmit(body, ids, refs)
     setValue('')
     mentionsRef.current.clear()
+    agentsRef.current.clear()
     setQuery(null)
   }
 
@@ -92,6 +119,12 @@ export function CommentComposer({
             )
           })
           .slice(0, 6)
+  const agentSuggestions =
+    query === null
+      ? []
+      : (connections.data ?? [])
+          .filter((c) => !query.text || connectionLabel(c).toLowerCase().includes(query.text.toLowerCase()))
+          .slice(0, 4)
 
   return (
     <div className="relative flex flex-col gap-1.5">
@@ -118,7 +151,7 @@ export function CommentComposer({
         className="w-full resize-y rounded border border-line bg-transparent px-2 py-1.5 text-xs text-ink placeholder:text-sub/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
       />
 
-      {suggestions.length > 0 && (
+      {suggestions.length + agentSuggestions.length > 0 && (
         <div className="nd-pop absolute left-0 right-0 top-full z-30 mt-0.5 origin-top overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
           {suggestions.map((m) => (
             <button
@@ -132,6 +165,20 @@ export function CommentComposer({
             >
               <span className="truncate text-xs text-ink">{m.name}</span>
               <span className="truncate text-[11px] text-sub">{m.email}</span>
+            </button>
+          ))}
+          {agentSuggestions.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                pickAgent(c)
+              }}
+              className="flex w-full flex-col px-2.5 py-1 text-left hover:bg-hover"
+            >
+              <span className="truncate text-xs text-ink">{connectionLabel(c)}</span>
+              <span className="truncate text-[11px] text-sub">{t('teamAgents.connectionSub')}</span>
             </button>
           ))}
         </div>

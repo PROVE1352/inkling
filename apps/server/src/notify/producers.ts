@@ -9,7 +9,8 @@ import { enqueue, kickOutbox, outboxTopics } from '../outbox'
 import type { Exec, OutboxRow, OutboxTopic } from '../outbox'
 import { enqueueWebhookEvent, webhookOutboxRows } from '../webhooks'
 import { enqueueNotify, notifyOutboxRow } from './engine'
-import { mayHaveMentions, scanMentions, scanMentionsInDoc, textMentions } from './mentionScan'
+import { mayHaveMentions, mentionKey, scanMentions, scanMentionsInDoc, textMentions } from './mentionScan'
+import { connectionLiveSql, connectionOwnerSql, connectionsOutsidePage } from '../teamAgents'
 
 /**
  * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each only queues
@@ -26,11 +27,14 @@ export interface Assignment {
   userIds: string[]
   /** 'owner' or the person field's name (shown in the item and the webhook). */
   field: string
+  /** Assigned to this agent connection of the (single) person (docs/adr/1864-*): its inbox only. */
+  connection?: string
 }
 
 /** Outbox rows of an owner / person-cell assignment: one event, webhook `assigned` for the channel. */
 export async function assignmentRows(a: Assignment, exec: Pick<typeof db, 'select'> = db): Promise<OutboxRow[]> {
-  const ids = [...new Set(a.userIds)].filter((id) => id !== a.actorId)
+  // People assign work to their own agents: an agent assignment keeps the actor (docs/adr/1863-*).
+  const ids = [...new Set(a.userIds)].filter((id) => !!a.connection || id !== a.actorId)
   if (!ids.length) return []
   const rows: OutboxRow[] = []
   const n = notifyOutboxRow({
@@ -40,6 +44,7 @@ export async function assignmentRows(a: Assignment, exec: Pick<typeof db, 'selec
     via: a.via,
     recipients: ids.map((userId) => ({ userId, kind: a.kind, reason: 'direct' })),
     excerpt: a.field === 'owner' ? null : a.field,
+    connection: a.connection ?? null,
   })
   if (n) rows.push(n)
   rows.push(
@@ -123,7 +128,7 @@ export function mentionSignature(
 ): { sig: string; mentions: ReturnType<typeof scanMentions> } {
   // `decoded` = the same state already applied to a throwaway doc (the indexer decodes once, docs/adr/1102-*).
   const mentions = !mayHaveMentions(state) ? [] : decoded ? scanMentionsInDoc(decoded) : scanMentions(state)
-  return { sig: [...new Set(mentions.map((m) => m.userId))].sort().join(','), mentions }
+  return { sig: [...new Set(mentions.map((m) => mentionKey(m)))].sort().join(','), mentions }
 }
 
 /**
@@ -137,7 +142,9 @@ export async function syncDocMentions(
   mentions: ReturnType<typeof scanMentions>,
   actor: EditActor | null,
 ): Promise<void> {
-  const ids = [...new Set(mentions.map((m) => m.userId))].sort()
+  // People by id; agent chips by `<person>/<connection>` (docs/adr/1861-*), so handing a page line to
+  // a person's agent and mentioning the person are separate entries of the set.
+  const ids = [...new Set(mentions.map((m) => mentionKey(m)))].sort()
   // The mention set and the events it causes commit together: no lost or replayed mention.
   const queued = await db.transaction(async (tx) => {
     const [prevRow] = (await tx.execute(sql`
@@ -160,9 +167,39 @@ export async function syncDocMentions(
 
     const sections = splitSections(blocks)
     const sectionOf = (top: number) => sections.find((s) => top >= s.start && top < s.end)?.anchor ?? null
+    // Agent chips (docs/adr/1863-*, 1864-*): to that connection's inbox while it is live in the
+    // workspace; otherwise (revoked, expired, blocked, person left) to the person. A chip in a to-do
+    // is an assignment of the task.
+    const agentKeys = added.filter((k) => k.includes('/'))
+    const live = new Set<string>()
+    if (agentKeys.length) {
+      const conns = [...new Set(agentKeys.map((k) => k.slice(k.indexOf('/') + 1)))]
+      const rows = (await tx.execute(sql`
+        SELECT c.key, ${connectionOwnerSql(sql`c.key`)} AS owner FROM unnest(${`{${conns.join(',')}}`}::text[]) AS c(key)
+         WHERE ${connectionLiveSql(sql`c.key`, sql`${prevRow.workspaceId}::uuid`)}
+      `)) as unknown as { key: string; owner: string | null }[]
+      // a chip naming another person's connection is that person's chip, never the connection's; a
+      // connection whose subtree range leaves this page out would never see the item: the person gets it
+      const outside = await connectionsOutsidePage(rows.map((r) => r.key), pageId, tx)
+      for (const r of rows) if (r.owner && !outside.has(r.key)) live.add(`${r.owner}/${r.key}`)
+    }
+    for (const key of agentKeys) {
+      const m = mentions.find((x) => mentionKey(x) === key)!
+      const toAgent = live.has(key)
+      await enqueueNotify(tx, {
+        workspaceId: prevRow.workspaceId,
+        pageId,
+        actorId: actor?.userId ?? null,
+        via: actor?.via ?? null,
+        recipients: [{ userId: m.userId, kind: m.inTask ? 'task_assigned' : 'doc_mention', reason: 'direct' }],
+        connection: toAgent ? m.connection! : null,
+        anchor: sectionOf(m.top) ?? m.blockId,
+        excerpt: m.text,
+      })
+    }
     // One event per added person (each gets the line that mentions them).
-    for (const userId of added) {
-      const m = mentions.find((x) => x.userId === userId)!
+    for (const userId of added.filter((k) => !k.includes('/'))) {
+      const m = mentions.find((x) => !x.connection && x.userId === userId)!
       await enqueueNotify(tx, {
         workspaceId: prevRow.workspaceId,
         pageId,
@@ -175,12 +212,13 @@ export async function syncDocMentions(
     }
     // People's mentions ping the channel; agent-written ones do not (docs/adr/1002-*).
     // Only members are named in the channel (a chip can carry any user id).
-    if (!actor?.via) {
+    const people = added.filter((k) => !k.includes('/'))
+    if (!actor?.via && people.length) {
       const members = (await tx.execute(sql`
         SELECT user_id AS "userId" FROM workspace_members
-         WHERE workspace_id = ${prevRow.workspaceId} AND user_id = ANY(${`{${added.join(',')}}`}::uuid[])
+         WHERE workspace_id = ${prevRow.workspaceId} AND user_id = ANY(${`{${people.join(',')}}`}::uuid[])
       `)) as unknown as { userId: string }[]
-      const named = added.filter((id) => members.some((m) => m.userId === id) && id !== actor?.userId)
+      const named = people.filter((id) => members.some((m) => m.userId === id) && id !== actor?.userId)
       if (named.length) {
         await enqueueWebhookEvent(tx, { type: 'mention', workspaceId: prevRow.workspaceId, pageId, actorId: actor?.userId ?? null, mentionedUserIds: named })
       }

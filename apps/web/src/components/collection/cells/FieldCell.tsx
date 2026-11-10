@@ -6,6 +6,8 @@ import { FieldValue, FormulaValue, OptionBadge } from './FieldValue'
 import { useCollectionReadOnly } from '../readOnlyContext'
 import { useCellTabIndex } from '../gridContext'
 import { RelationCell, RollupValue } from './RelationCell'
+import { useParams } from 'react-router'
+import { agentPropKey, cellAgent, connectionLabel, useAgentConnections } from '../../../teamAgentsApi'
 
 const CELL_BTN =
   'flex min-h-[30px] w-full items-center gap-1 px-2 py-1 text-left text-sm hover:bg-hover'
@@ -22,6 +24,10 @@ export type FieldCellProps = {
   onAddOption?: (name: string) => string
   // Display only (page edit lock, docs/adr/0970-*). Also on inside a read-only CollectionView.
   readOnly?: boolean
+  /** The row's props: a person cell reads its agent next to it (`agent:<fieldId>`, docs/adr/1861-*). */
+  rowProps?: Record<string, unknown>
+  /** Several keys at once (person + agent). Without it the person cell offers people only. */
+  onCommitPatch?: (patch: Record<string, unknown>) => void
 }
 
 function useOutsideClose(
@@ -367,16 +373,27 @@ function MultiSelectCell({ field, value, onCommit, onAddOption }: FieldCellProps
 // person
 // ---------------------------------------------------------------------------
 
-function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
+function PersonCell({ field, value, members, onCommit, rowProps, onCommitPatch }: FieldCellProps) {
   const t = useT()
   const tabIndex = useCellTabIndex()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useOutsideClose(ref, open, () => setOpen(false))
   const list = members ?? []
+  // A person's agent connection next to the cell (docs/adr/1861-*, 1864-*); only offered where the
+  // caller can write both keys at once.
+  const { wsId } = useParams()
+  const connections = useAgentConnections(onCommitPatch ? wsId : undefined)
+  const agent = cellAgent(rowProps, field.id, connections.data)
 
   const pick = (id: string | null) => {
-    onCommit(id)
+    // picking a person (again) takes the cell back from their agent
+    if (onCommitPatch && rowProps?.[agentPropKey(field.id)] !== undefined) onCommitPatch({ [field.id]: id, [agentPropKey(field.id)]: null })
+    else onCommit(id)
+    setOpen(false)
+  }
+  const pickAgent = (userId: string, agentRef: string) => {
+    onCommitPatch?.({ [field.id]: userId, [agentPropKey(field.id)]: agentRef })
     setOpen(false)
   }
 
@@ -388,6 +405,7 @@ function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
         ) : (
           <span className="select-none text-transparent">·</span>
         )}
+        {agent && <span className="truncate text-xs text-sub" data-testid="cell-agent">→ {agent.client}</span>}
       </button>
       {open && (
         <div data-cell-popup className="absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-line bg-app p-1 shadow-xl">
@@ -414,9 +432,27 @@ function PersonCell({ field, value, members, onCommit }: FieldCellProps) {
                   </span>
                   <span className="truncate text-ink">{m.name}</span>
                 </span>
-                {value === m.id && <CheckIcon size={13} />}
+                {value === m.id && !agent && <CheckIcon size={13} />}
               </button>
-            ))}
+            )).flatMap((el, i) => {
+              const m = list[i]
+              const agents = (connections.data ?? []).filter((c) => c.userId === m.id)
+              return [
+                el,
+                ...agents.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    title={t('teamAgents.assignAgent')}
+                    onClick={() => pickAgent(m.id, c.ref)}
+                    className="flex w-full items-center justify-between gap-2 rounded py-1 pl-8 pr-2 text-left text-xs text-sub hover:bg-hover hover:text-ink"
+                  >
+                    <span className="truncate">{connectionLabel(c)}</span>
+                    {agent?.key === c.key && <CheckIcon size={12} />}
+                  </button>
+                )),
+              ]
+            })}
             {list.length === 0 && (
               <p className="px-2 py-1 text-xs text-sub">{t('cell.noMembers')}</p>
             )}

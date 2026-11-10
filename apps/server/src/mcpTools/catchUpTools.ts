@@ -39,15 +39,17 @@ export function registerCatchUpTools(server: McpServer, ctx: ToolCtx): void {
           .optional()
           .describe(`Max tokens to return (default ${CATCH_UP_DEFAULT_BUDGET})`),
         peek: z.boolean().optional().describe('true: do not move this connection\'s "last catch_up" marker'),
+        team: z.boolean().optional().describe("true: also others' section claims and what each person's agents did"),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ workspaceId, since, budget, peek }) => {
+    wrap(async ({ workspaceId, since, budget, peek, team }) => {
       const query: Record<string, string> = {}
       if (workspaceId) query.workspaceId = workspaceId
       if (since) query.since = since
       if (budget) query.budget = String(budget)
       if (peek) query.advance = '0'
+      if (team) query.team = '1'
       const res = await call(ctx, 'GET', '/api/catch-up', { query })
       return text((res.json() as CatchUpResult).text)
     }),

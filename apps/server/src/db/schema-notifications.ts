@@ -50,6 +50,8 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
   threadAutoFollow: boolean('thread_auto_follow').notNull().default(true),
   /** Notify (bell, mail) about replies in followed threads; the Threads view lists them either way. */
   threadReplies: boolean('thread_replies').notNull().default(true),
+  /** Also list hand-offs and assignments to one of my agent connections in my bell (docs/adr/1863-*). */
+  agentHandoffCopy: boolean('agent_handoff_copy').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

@@ -266,13 +266,14 @@ function ThreadCard({
           submitLabel={tr('comments.reply')}
           autoFocus
           busy={create.isPending}
-          onSubmit={(body, mentionUserIds) => {
+          onSubmit={(body, mentionUserIds, mentionConnections) => {
             create.mutate(
               {
                 blockId: thread.blockId,
                 body,
                 threadId: thread.root.threadId,
                 mentionUserIds: mentionUserIds.length ? mentionUserIds : undefined,
+                mentionConnections: mentionConnections.length ? mentionConnections : undefined,
               },
               { onSuccess: () => setReplying(false) },
             )
@@ -393,12 +394,13 @@ export function CommentsPanel({
             submitLabel={tr('comments.submit')}
             autoFocus
             busy={create.isPending}
-            onSubmit={(body, mentionUserIds) => {
+            onSubmit={(body, mentionUserIds, mentionConnections) => {
               create.mutate(
                 {
                   blockId: composeBlockId,
                   body,
                   mentionUserIds: mentionUserIds.length ? mentionUserIds : undefined,
+                mentionConnections: mentionConnections.length ? mentionConnections : undefined,
                 },
                 { onSuccess: () => setComposeBlockId(null) },
               )

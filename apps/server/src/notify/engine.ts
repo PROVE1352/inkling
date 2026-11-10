@@ -51,6 +51,14 @@ export interface NotifyInput {
   threadId?: string | null
   anchor?: string | null
   excerpt?: string | null
+  /**
+   * Hand-off (docs/adr/1863-*): the event is for one agent connection ('grant:<id>' / 'token:<id>')
+   * of each recipient (the producer checked that it is live and theirs). The row lists only in that
+   * connection's inbox, reaches the person's bell only with their "copies" setting, never mails
+   * otherwise, and is not dropped by the person's subscription level or for being the actor (people
+   * hand work to their own agents).
+   */
+  connection?: string | null
 }
 
 /** Recipients of one event (a wall of mentions or a huge follower list is cut here). */
@@ -228,9 +236,11 @@ function groupKeyOf(kind: NotifyKind, ev: NotifyInput): string | null {
 interface Settings {
   emailInstant: boolean
   emailDigest: 'off' | 'daily' | 'weekly'
+  /** Copies of hand-offs to my agents in my bell (docs/adr/1863-*). */
+  agentHandoffCopy?: boolean
 }
 
-export const DEFAULT_SETTINGS: Settings = { emailInstant: true, emailDigest: 'daily' }
+export const DEFAULT_SETTINGS: Settings = { emailInstant: true, emailDigest: 'daily', agentHandoffCopy: false }
 
 export interface ProcessResult {
   /** userId → delivery of the row written (inserted or collapsed). */
@@ -279,7 +289,7 @@ interface Planned {
  */
 async function planEvents(evs: NotifyInput[], exec: Exec): Promise<Planned[]> {
   const planned: Planned[] = evs.map((ev, i) => {
-    const excluded = new Set([...(ev.exclude ?? []), ...(ev.actorId ? [ev.actorId] : [])])
+    const excluded = new Set([...(ev.exclude ?? []), ...(ev.actorId && !ev.connection ? [ev.actorId] : [])])
     const wanted: Planned['wanted'] = new Map()
     for (const r of ev.recipients.slice(0, MAX_RECIPIENTS)) offer(wanted, excluded, r.userId, r.kind, r.reason)
     return { i, ev, wanted, levels: new Map() }
@@ -360,12 +370,12 @@ async function lookupRecipients(exec: Exec, planned: Planned[]): Promise<Lookup>
            (m.ok IS NOT NULL AND ${liveWorkspace(sql`q.ws`)}
              AND (q.page IS NULL OR (p.id IS NOT NULL AND p.workspace_id = q.ws AND p.deleted_at IS NULL
                                      AND (p.scope = 'shared' OR p.created_by = q.uid)))) AS visible,
-           s.email_instant AS "emailInstant", s.email_digest AS "emailDigest", c.n
+           s.email_instant AS "emailInstant", s.email_digest AS "emailDigest", s.agent_handoff_copy AS "agentHandoffCopy", c.n
       FROM jsonb_to_recordset(${JSON.stringify(q)}::jsonb) AS q(i int, ws uuid, page uuid, uid uuid)
       -- LATERAL … LIMIT 1 (not flattened): index lookups per recipient, never a scan of pages.
       LEFT JOIN LATERAL (SELECT 1 AS ok FROM workspace_members WHERE workspace_id = q.ws AND user_id = q.uid LIMIT 1) m ON true
       LEFT JOIN LATERAL (SELECT id, workspace_id, deleted_at, scope, created_by FROM pages WHERE id = q.page LIMIT 1) p ON true
-      LEFT JOIN LATERAL (SELECT email_instant, email_digest FROM user_notification_settings WHERE user_id = q.uid LIMIT 1) s ON true
+      LEFT JOIN LATERAL (SELECT email_instant, email_digest, agent_handoff_copy FROM user_notification_settings WHERE user_id = q.uid LIMIT 1) s ON true
       CROSS JOIN LATERAL (
         SELECT count(*)::int AS n FROM notifications WHERE user_id = q.uid AND created_at > now() - interval '1 hour'
       ) c
@@ -375,6 +385,7 @@ async function lookupRecipients(exec: Exec, planned: Planned[]): Promise<Lookup>
     visible: boolean
     emailInstant: boolean | null
     emailDigest: Settings['emailDigest'] | null
+    agentHandoffCopy: boolean | null
     n: number
   }[]
   for (const r of rows) {
@@ -384,7 +395,7 @@ async function lookupRecipients(exec: Exec, planned: Planned[]): Promise<Lookup>
       out.visible.set(r.i, set)
     }
     if (r.emailInstant !== null && r.emailDigest !== null) {
-      out.settings.set(r.userId, { emailInstant: r.emailInstant, emailDigest: r.emailDigest })
+      out.settings.set(r.userId, { emailInstant: r.emailInstant, emailDigest: r.emailDigest, agentHandoffCopy: r.agentHandoffCopy === true })
     }
     out.counts.set(r.userId, Number(r.n))
   }
@@ -403,19 +414,23 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
   for (const [userId, w] of p.wanted) {
     if (!visible.has(userId)) continue
     const level = p.levels.get(userId) ?? 'mentions'
-    const d = decide(w.kind, w.reason, level, agent)
+    const s = look.settings.get(userId) ?? DEFAULT_SETTINGS
+    // A hand-off is work for the agent, not a ping: the person's level does not drop it, and the
+    // person sees (and is mailed about) it only with their "copies" setting (docs/adr/1863-*).
+    const personToo = !!ev.connection && s.agentHandoffCopy === true
+    const d = ev.connection ? (personToo ? { deliver: true, delivery: decide(w.kind, w.reason, level, agent).delivery } : { deliver: true, delivery: 'now' as const }) : decide(w.kind, w.reason, level, agent)
     if (!d.deliver) continue
     const spec = KINDS[w.kind]
     const recent = look.counts.get(userId) ?? 0
     if (recent >= HARD_CAP_PER_HOUR && !spec.bypassMute) continue
     const delivery = recent >= SOFT_CAP_PER_HOUR && !spec.bypassMute ? 'quiet' : d.delivery
-    const s = look.settings.get(userId) ?? DEFAULT_SETTINGS
     // Mail: direct items right away when allowed; the rest waits for the digest; "nothing" never mails.
     let mailState: 'instant' | 'digest' | null = null
-    if (mailEnabled && level !== 'nothing') {
+    if (mailEnabled && level !== 'nothing' && (!ev.connection || personToo)) {
       if (delivery === 'now' && spec.instantMail && s.emailInstant) mailState = 'instant'
       else if (s.emailDigest !== 'off') mailState = 'digest'
     }
+    const group = groupKeyOf(w.kind, ev)
     rows.push({
       user_id: userId,
       type: w.kind,
@@ -426,19 +441,23 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
       via_client: ev.via ? ev.via.slice(0, 100) : null,
       delivery,
       mail_state: mailState,
-      group_key: groupKeyOf(w.kind, ev),
+      // a hand-off never collapses into the person's own row of the same thread or page
+      group_key: ev.connection && group ? `${ev.connection}|${group}` : group,
       excerpt: plainExcerpt(ev.excerpt),
       anchor: ev.anchor ? ev.anchor.slice(0, 200) : null,
+      connection: ev.connection ?? null,
+      person_too: personToo,
     })
   }
   if (!rows.length) return { delivered, written }
 
   const out = (await exec.execute(sql`
-    INSERT INTO notifications (user_id, type, page_id, workspace_id, actor_id, comment_id, via_client, delivery, mail_state, group_key, excerpt, anchor)
-    SELECT x.user_id, x.type, x.page_id, x.workspace_id, x.actor_id, x.comment_id, x.via_client, x.delivery, x.mail_state, x.group_key, x.excerpt, x.anchor
+    INSERT INTO notifications (user_id, type, page_id, workspace_id, actor_id, comment_id, via_client, delivery, mail_state, group_key, excerpt, anchor, connection, person_too)
+    SELECT x.user_id, x.type, x.page_id, x.workspace_id, x.actor_id, x.comment_id, x.via_client, x.delivery, x.mail_state, x.group_key, x.excerpt, x.anchor,
+           x.connection, coalesce(x.person_too, false)
       FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS x(
         user_id uuid, type text, page_id uuid, workspace_id uuid, actor_id uuid, comment_id uuid, via_client text,
-        delivery text, mail_state text, group_key text, excerpt text, anchor text)
+        delivery text, mail_state text, group_key text, excerpt text, anchor text, connection text, person_too boolean)
     ON CONFLICT (user_id, group_key) WHERE read = '0' AND group_key IS NOT NULL
     DO UPDATE SET
       count = notifications.count + 1,
@@ -449,6 +468,7 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
       comment_id = coalesce(EXCLUDED.comment_id, notifications.comment_id),
       excerpt = coalesce(EXCLUDED.excerpt, notifications.excerpt),
       anchor = coalesce(EXCLUDED.anchor, notifications.anchor),
+      person_too = notifications.person_too OR EXCLUDED.person_too,
       delivery = CASE WHEN notifications.delivery = 'now' OR EXCLUDED.delivery = 'now' THEN 'now' ELSE 'quiet' END,
       mail_state = CASE
         WHEN EXCLUDED.mail_state = 'instant' OR notifications.mail_state = 'instant' THEN 'instant'

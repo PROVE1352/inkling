@@ -4,7 +4,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createCommentSchema } from '@inkling/shared'
-import type { CommentDTO } from '@inkling/shared'
+import type { CommentDTO, WorkspaceConnectionDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { broadcastToPage } from '../collab'
 import { currentAgent } from '../agentAccess'
@@ -24,6 +24,8 @@ import { outboxCommitted, outboxInsertSql, outboxTopics } from '../outbox'
 import type { Exec, OutboxRow } from '../outbox'
 import { webhookOutboxRows } from '../webhooks'
 import { isManagerRole } from '../workspaceAdmin'
+import { connectionKey } from '../leases'
+import { resolveAgentRefs } from '../teamAgents'
 
 /** Display name for a removed/deleted author (comments whose author_id was set null), in the viewer's locale. */
 const DELETED_AUTHOR: Record<Locale, string> = { en: '(deleted user)', ko: '(삭제된 사용자)' }
@@ -126,6 +128,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
       // from agents only (docs/adr/0970-*). No walk without a lock in the workspace (docs/adr/1071-*).
       await assertPageCommentable(id, user.id, role, acl)
+      // Hand-offs (docs/adr/1863-*): live connections of members only; a refused one writes nothing.
+      const handoffs = body.mentionConnections?.length ? await resolveAgentRefs(page.workspaceId, body.mentionConnections, undefined, id) : []
 
       const commentId = randomUUID()
       let threadId: string
@@ -153,6 +157,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         isReply: !!body.threadId,
         body: body.body,
         ctx,
+        // an agent never hands a comment to itself
+        handoffs: handoffs.filter((h) => h.key !== connectionKey(user)),
       })
       const values = {
         id: commentId,
@@ -361,6 +367,8 @@ async function commentEvents(args: {
   isReply: boolean
   body: string
   ctx: CommentContext
+  /** Connections the comment is handed to: one event each, listed only in that connection's inbox. */
+  handoffs?: WorkspaceConnectionDTO[]
 }): Promise<OutboxRow[]> {
   const { pageId, workspaceId, threadId, commentId, actorId, via, isReply, body, ctx } = args
   const recipients: Recipient[] = []
@@ -388,6 +396,21 @@ async function commentEvents(args: {
     excerpt: body,
   })
   if (n) rows.push(n)
+  for (const h of args.handoffs ?? []) {
+    const e = notifyOutboxRow({
+      workspaceId,
+      pageId,
+      actorId,
+      via,
+      recipients: [{ userId: h.userId, kind: 'comment_mention', reason: 'direct' }],
+      connection: h.key,
+      commentId,
+      threadId,
+      anchor: null,
+      excerpt: body,
+    })
+    if (e) rows.push(e)
+  }
   rows.push(...(await webhookOutboxRows({ type: 'comment', workspaceId, pageId, actorId, commentId, via })))
   if (mentioned.length > 0 && !via) {
     rows.push(...(await webhookOutboxRows({ type: 'mention', workspaceId, pageId, actorId, commentId, mentionedUserIds: mentioned })))

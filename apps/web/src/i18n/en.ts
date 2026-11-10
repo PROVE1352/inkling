@@ -25,6 +25,7 @@ import revert from './en/revert'
 import charts from './en/charts'
 import pageWorkspace from './en/page-workspace'
 import forms from './en/forms'
+import teamAgents from './en/team-agents'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -56,6 +57,7 @@ export const en = {
   ...charts,
   ...pageWorkspace,
   ...forms,
+  ...teamAgents,
 }
 
 export type MessageKey = keyof typeof en

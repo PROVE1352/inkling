@@ -57,6 +57,8 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/catchUp')).registerCatchUpRoutes(api)
       await (await import('../routes/suggestions')).registerSuggestionRoutes(api)
       await (await import('../routes/agentPolicy')).registerAgentPolicyRoutes(api)
+      // team agents board and member connections (docs/adr/1862-*)
+      await (await import('../routes/teamAgents')).registerTeamAgentRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
       await (await import('../routes/largePages')).registerLargePageRoutes(api)
       await (await import('../routes/splitPage')).registerSplitPageRoutes(api)

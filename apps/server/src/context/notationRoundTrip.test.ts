@@ -21,6 +21,7 @@ const CENSUS = process.env.CENSUS === '1'
 
 const PAGE_ID = '6f1c2a10-1111-4c3b-9a55-0123456789ab'
 const USER_ID = '0b9d8e7f-2222-4a1b-8c3d-abcdef012345'
+const GRANT_ID = '7a6b5c4d-3333-4e2f-9a1b-fedcba987654'
 
 /** What patch_section / update_page pass: the mention chips already in the page may be written back. */
 function parseOpts(doc: Y.Doc) {
@@ -272,6 +273,14 @@ const ELEMENTS: Element[] = [
     add: inlineEl('mention', { kind: 'user', id: USER_ID, label: 'Kim' }),
     sig: new RegExp(`<mention id="${USER_ID}" kind="user" label="Kim">`, 'i'),
     token: /@\[Kim\]\(user:[^)]*\)/,
+  },
+  {
+    // a person's agent connection (docs/adr/1861-*): same chip, kind 'agent', id `<person>/grant:<id>`
+    name: 'agent mention',
+    place: 'inline',
+    add: inlineEl('mention', { kind: 'agent', id: `${USER_ID}/grant:${GRANT_ID}`, label: 'Kim · Claude Code' }),
+    sig: new RegExp(`<mention id="${USER_ID}/grant:${GRANT_ID}" kind="agent" label="Kim · Claude Code">`, 'i'),
+    token: new RegExp(`@\\[Kim · Claude Code\\]\\(agent:${USER_ID}/grant:${GRANT_ID}\\)`),
   },
   {
     name: 'inline math',

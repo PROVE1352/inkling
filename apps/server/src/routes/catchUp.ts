@@ -18,6 +18,8 @@ const catchUpQuerySchema = z.object({
   workspaceId: z.uuid().optional(),
   budget: z.coerce.number().int().min(1).max(CATCH_UP_MAX_BUDGET).optional(),
   advance: z.enum(['0', '1']).optional(),
+  /** 1 = add the team agents group (docs/adr/1865-*). */
+  team: z.enum(['0', '1']).optional(),
 })
 
 export async function registerCatchUpRoutes(app: FastifyInstance): Promise<void> {
@@ -29,7 +31,7 @@ export async function registerCatchUpRoutes(app: FastifyInstance): Promise<void>
     try {
       return await readCatchUp(
         { userId: user.id, connection, workspaceId: q.workspaceId ?? null },
-        { since: q.since, workspaceId: q.workspaceId, budget: q.budget, advance: q.advance !== '0' },
+        { since: q.since, workspaceId: q.workspaceId, budget: q.budget, advance: q.advance !== '0', team: q.team === '1' },
       )
     } catch (err) {
       if (err instanceof CatchUpError) throw new AppError(400, err.code, err.message)

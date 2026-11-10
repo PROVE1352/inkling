@@ -189,6 +189,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                           <span className="min-w-0 flex-1 pr-5 text-xs text-ink">
                             {describe(n)}
                             {n.via && <span className="text-sub"> {t('comments.via', { client: n.via })}</span>}
+                            {n.forAgent && <span className="text-sub"> · {t('notifications.forAgent', { client: n.forAgent })}</span>}
                             {repeat && <span className="ml-1 text-sub">{repeat}</span>}
                           </span>
                         </span>

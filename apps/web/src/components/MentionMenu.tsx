@@ -2,6 +2,8 @@ import type { BlockNoteEditor } from '@blocknote/core'
 import { SuggestionMenuController } from '@blocknote/react'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { useMembers, usePages } from '../api'
+import { AGENT_MENTION_KIND } from '@inkling/shared'
+import { connectionLabel, useAgentConnections } from '../teamAgentsApi'
 import { pageIcon } from '../lib/pageIcon'
 import { useT } from '../i18n'
 import { liveStatus, statusLabel } from '../memberStatusApi'
@@ -18,8 +20,10 @@ export function MentionMenu({
   const t = useT()
   const members = useMembers(wsId)
   const pages = usePages(wsId)
+  // members' live agent connections ("Bob · Claude Code", docs/adr/1861-*): a chip of kind 'agent'
+  const connections = useAgentConnections(wsId)
 
-  const insertMention = (kind: 'user' | 'page', id: string, label: string) => {
+  const insertMention = (kind: 'user' | 'page' | typeof AGENT_MENTION_KIND, id: string, label: string) => {
     editor.insertInlineContent([
       { type: 'mention', props: { kind, id, label: label || t('mention.noName') } },
       ' ',
@@ -44,8 +48,21 @@ export function MentionMenu({
       })
     }
 
+    let agents = 0
+    for (const c of connections.data ?? []) {
+      if (agents >= 6) break
+      const label = connectionLabel(c)
+      if (q && !label.toLowerCase().includes(q)) continue
+      agents++
+      items.push({
+        title: label,
+        subtext: t('teamAgents.connectionSub'),
+        onItemClick: () => insertMention(AGENT_MENTION_KIND, c.ref, label),
+      })
+    }
+
     for (const p of pages.data ?? []) {
-      if (items.length >= 20) break
+      if (items.length >= 26) break
       const title = p.title || t('common.untitled')
       if (q && !title.toLowerCase().includes(q)) continue
       items.push({

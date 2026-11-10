@@ -10,6 +10,10 @@
 import { formatFormulaNumber, formulaErrorText } from '@inkling/shared'
 import type { CollectionField, FormulaErrorCode } from '@inkling/shared'
 import { fieldResolver, findOption, optionNames, parseBool, parseDateValue } from './filter'
+import { agentPropKey } from '@inkling/shared'
+
+/** A connection written into a person cell (docs/adr/1864-*): full ref, connection key or short id. */
+const AGENT_VALUE_RE = /^(?:[0-9a-f-]{36}\/)?(?:grant|token):[0-9a-f-]{36}$|^[gt]:[0-9a-f]{4,32}$/i
 import type { ResolvedField } from './filter'
 
 export const CELL_MAX_CHARS = 200
@@ -145,6 +149,8 @@ export interface MapCtx {
   today: string
   /** required only when a person field is written */
   members?: Member[]
+  /** The caller's connection key, for "this connection" (docs/adr/1864-*). */
+  connection?: string | null
 }
 
 export interface MappedWrite {
@@ -258,6 +264,18 @@ export function mapWrite(fields: CollectionField[], input: Record<string, unknow
       }
       case 'person': {
         const s = typeof value === 'string' ? value.trim() : ''
+        // A person's agent connection (docs/adr/1864-*): "this connection", <userId>/grant:<id>,
+        // grant:<id> / token:<id> or the short g:xxxxxxxx. The server checks it and fills the cell
+        // with the connection's person (PATCH /pages/:id/props).
+        const conn = s.toLowerCase() === 'this connection' ? (ctx.connection ?? null) : AGENT_VALUE_RE.test(s) ? s : null
+        if (s.toLowerCase() === 'this connection' && !conn) {
+          bad('"this connection" is for an agent connection')
+          break
+        }
+        if (conn) {
+          out.props[agentPropKey(field.id)] = conn
+          break
+        }
         const members = ctx.members ?? []
         let id: string | null = null
         if (s.toLowerCase() === 'me') id = ctx.userId

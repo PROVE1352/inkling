@@ -22,7 +22,7 @@ export function NotificationSettings() {
   const [error, setError] = useState<string | null>(null)
 
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : t('notifSettings.saveFailed'))
-  const patch = (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode; threadAutoFollow?: boolean; threadReplies?: boolean }) => {
+  const patch = (input: { emailInstant?: boolean; emailDigest?: EmailDigestMode; threadAutoFollow?: boolean; threadReplies?: boolean; agentHandoffCopy?: boolean }) => {
     setError(null)
     update.mutate(input, { onError })
   }
@@ -80,6 +80,14 @@ export function NotificationSettings() {
               label={t('notifSettings.threadReplies')}
               checked={data.threadReplies}
               onChange={(v) => patch({ threadReplies: v })}
+            />
+          </Row>
+          {/* copies of hand-offs to my agent connections (docs/adr/1863-*) */}
+          <Row id="agentHandoffCopy" title={t('notifSettings.agentHandoffCopy')} desc={t('notifSettings.agentHandoffCopyDesc')}>
+            <Toggle
+              label={t('notifSettings.agentHandoffCopy')}
+              checked={data.agentHandoffCopy === true}
+              onChange={(v) => patch({ agentHandoffCopy: v })}
             />
           </Row>
 

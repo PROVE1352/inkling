@@ -12,6 +12,7 @@ import { accessRangeSchema, updateGrantRangeSchema } from '@inkling/shared'
 import type { ClientNameNotice } from '@inkling/shared'
 import { rangeToColumns, rangeView, validateRange } from '../tokenRange'
 import { idParam } from '../helpers'
+import { handBackConnections } from '../teamAgents'
 import {
   ACCESS_TOKEN_TTL_MS,
   AUTH_CODE_TTL_MS,
@@ -508,6 +509,8 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       .where(and(eq(oauthGrants.id, id), eq(oauthGrants.userId, user.id)))
       .returning({ id: oauthGrants.id })
     if (deleted.length === 0) throw notFound()
+    // what was handed to this connection falls to its person (docs/adr/1863-*)
+    await handBackConnections(deleted.map((d) => `grant:${d.id}`))
     return reply.code(204).send()
   })
 }

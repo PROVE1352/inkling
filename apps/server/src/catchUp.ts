@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
-import type { DateItemDTO, LaterItemDTO } from '@inkling/shared'
+import { shortConnection } from '@inkling/shared'
+import type { DateItemDTO, LaterItemDTO, TeamAgentsDTO } from '@inkling/shared'
 import { agentAllowedSql } from './agentAccess'
 import { db } from './db/index'
 import { catchUpMarkers } from './db/schema'
@@ -31,6 +32,7 @@ import { readLater } from './later'
 import { readInbox } from './routes/inbox'
 import type { InboxItem } from './routes/inbox'
 import { attr, wrapUntrusted } from './mcpTools/trust'
+import { readTeamAgents } from './teamAgents'
 
 /**
  * catch_up (docs/adr/1520-*): "what happened while I was away" in one call. The server has no
@@ -176,17 +178,18 @@ export type SinceSource = 'given' | 'connection' | 'person' | 'default'
 // items (pure)
 // ---------------------------------------------------------------------------
 
-export type Group = 'you' | 'due' | 'later' | 'comments' | 'pages' | 'own'
+export type Group = 'you' | 'due' | 'later' | 'comments' | 'team' | 'pages' | 'own'
 
 export const GROUP_TITLES: Record<Group, string> = {
   you: 'For you (mentions, replies, assignments)',
   due: 'Due soon',
   later: 'Later reminders',
   comments: 'Comments',
+  team: "Team agents (others' claims and agents)",
   pages: 'Pages changed by others',
   own: 'Your own changes (you or your agents)',
 }
-const GROUP_ORDER: Group[] = ['you', 'due', 'later', 'comments', 'pages', 'own']
+const GROUP_ORDER: Group[] = ['you', 'due', 'later', 'comments', 'team', 'pages', 'own']
 
 export interface Item {
   group: Group
@@ -632,11 +635,62 @@ export function inboxItems(items: InboxItem[]): Item[] {
   return items.map((i) => {
     const who = i.actorName ? `${i.actorName}${i.via ? ` via ${i.via}` : ''}` : i.via ? `via ${i.via}` : 'someone'
     const where = i.pageId ? `page ${q(i.pageTitle)} ${i.pageId}${i.anchor ? ` §${attr(i.anchor)}` : ''}` : `workspace ${i.workspaceId ?? '?'}`
-    const kind = `${i.kind}${i.type === 'comment_mention' ? ' (comment)' : i.type === 'doc_mention' ? ' (body)' : ''}`
+    const kind = `${i.kind}${i.type === 'comment_mention' ? ' (comment)' : i.type === 'doc_mention' ? ' (body)' : ''}${i.handoff ? ' → this connection' : ''}`
     const head = [`- ${kind} · ${where} · by ${who}${i.count > 1 ? ` ×${i.count}` : ''} · can: ${i.can ?? 'n/a'} · ${minute(i.createdAt)} · inbox ${i.seq}`]
     if (i.excerpt) head.push(`    ${one(i.excerpt)}`)
-    return { group: 'you' as const, score: (INBOX_SCORE[i.kind] ?? 0.9) + (i.read ? 0 : 0.02), key: `you:${i.seq.padStart(20, '0')}`, head }
+    return { group: 'you' as const, score: (INBOX_SCORE[i.kind] ?? 0.9) + (i.read ? 0 : 0.02) + (i.handoff ? 0.03 : 0), key: `you:${i.seq.padStart(20, '0')}`, head }
   })
+}
+
+/** Workspaces a team group covers (catch_up without workspaceId); the rest are left out. */
+export const TEAM_MAX_WORKSPACES = 10
+
+/**
+ * The team group (docs/adr/1865-*): other connections' live claims, then one line per other agent
+ * with what it did in the window and its open suggestions. Pages by 8-character short id; pages the
+ * caller cannot see are "(hidden)" with no title or section. This connection's own work is left out.
+ */
+export function teamItems(
+  t: TeamAgentsDTO,
+  o: { workspaceId: string; many: boolean; connection: string | null; userId: string; nowMs: number },
+): Item[] {
+  const out: Item[] = []
+  const ws = o.many ? ` · ws ${o.workspaceId.slice(0, 8)}` : ''
+  const page = (id: string, title: string | null, hidden: boolean) => (hidden ? `(hidden) ${id.slice(0, 8)}` : `${q(title)} ${id.slice(0, 8)}`)
+  for (const p of t.people) {
+    for (const c of p.claims) {
+      if (c.connection === o.connection) continue
+      const left = Math.max(1, Math.round(c.ttlSeconds / 60))
+      out.push({
+        group: 'team',
+        score: 0.7,
+        key: `team:c:${c.expiresAt}:${c.pageId}:${c.connection}`,
+        head: [`- claim ${c.hidden ? '' : `§${attr(c.anchor ?? '')} · `}${page(c.pageId, c.pageTitle, c.hidden)} · ${p.name} via ${c.client} (${shortConnection(c.connection)}) · until ${minute(c.expiresAt)} (${left} min)${ws}`],
+      })
+    }
+    for (const a of p.agents) {
+      const mine = o.connection !== null && a.connections.includes(o.connection as never)
+      const open = p.suggestions.filter((s) => s.client === a.client).length
+      if (mine || (!a.edits && !a.created && !a.suggestions && !a.reverted && !open)) continue
+      const parts = [
+        a.edits ? `${a.edits} edit${a.edits === 1 ? '' : 's'}` : '',
+        a.created ? `${a.created} new` : '',
+        a.suggestions ? `${a.suggestions} suggested` : '',
+        open ? `${open} open` : '',
+        a.reverted ? `${a.reverted} reverted` : '',
+      ].filter(Boolean)
+      // every live connection of that name (a person may run the same client twice), for handoffTo
+      const ids = a.connections.length ? ` (${a.connections.slice(0, 3).map((k) => shortConnection(k)).join(', ')}${a.connections.length > 3 ? ', …' : ''})` : ''
+      const pages = a.recentPages.slice(0, 3).map((r) => page(r.pageId, r.title, r.hidden))
+      out.push({
+        group: 'team',
+        score: 0.55,
+        key: `team:a:${p.userId}:${a.client}`,
+        head: [`- ${p.name} via ${a.client}${ids}: ${parts.join(', ')}${a.lastAt ? ` · last ${minute(a.lastAt)}` : ''}${pages.length ? ` · ${pages.join(', ')}` : ''}${ws}`],
+      })
+    }
+  }
+  return out
 }
 
 export function dueItems(items: DateItemDTO[], today: string, tomorrow: string): Item[] {
@@ -784,6 +838,8 @@ export interface CatchUpOptions {
   since?: string
   workspaceId?: string
   budget?: number
+  /** Add the team agents group (docs/adr/1865-*); off by default so the output stays as before. */
+  team?: boolean
   /** Store the end as this connection's marker (default true). */
   advance?: boolean
 }
@@ -858,7 +914,7 @@ export async function readCatchUp(owner: MarkerOwner, opts: CatchUpOptions): Pro
     SELECT seq::text AS seq FROM notifications WHERE user_id = ${userId} AND created_at <= to_timestamp(${sinceMs / 1000})
      ORDER BY created_at DESC, seq DESC LIMIT 1
   `)) as unknown as { seq: string }[]
-  const inbox = await readInbox(userId, { workspaceId: ws ?? undefined, cursor: ib?.seq })
+  const inbox = await readInbox(userId, { workspaceId: ws ?? undefined, cursor: ib?.seq }, owner.connection)
   const inboxNew = inbox.items.filter((i) => Date.parse(i.createdAt) > sinceMs)
 
   const now = new Date(nowMs)
@@ -872,6 +928,12 @@ export async function readCatchUp(owner: MarkerOwner, opts: CatchUpOptions): Pro
     for (const d of list) if (!d.done) due.push(d)
   }
   const later = await readLater(userId, { workspaceId: ws ?? undefined, state: 'open' })
+  const team: Item[] = []
+  if (opts.team) {
+    for (const w of wsIds.slice(0, TEAM_MAX_WORKSPACES)) {
+      team.push(...teamItems(await readTeamAgents(w, userId, sinceMs, nowMs), { workspaceId: w, many: wsIds.length > 1, connection: owner.connection, userId, nowMs }))
+    }
+  }
 
   // ---- rank, pack, render ----
   const items = [
@@ -879,6 +941,7 @@ export async function readCatchUp(owner: MarkerOwner, opts: CatchUpOptions): Pro
     ...dueItems(due, today, tomorrow),
     ...laterItems(later.items, nowMs),
     ...commentItems(commentRows, roots),
+    ...team,
     ...pageItems(pages, details),
   ]
   const packed = packItems(items, budget)

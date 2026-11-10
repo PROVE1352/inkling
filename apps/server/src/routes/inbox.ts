@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { inboxAckSchema, inboxQuerySchema, INBOX_KINDS } from '@inkling/shared'
 import type { InboxKind, WorkspaceRole } from '@inkling/shared'
 import { agentAllowedSql } from '../agentAccess'
 import { getUser, requireUser } from '../auth'
+import { connectionKey } from '../leases'
 import { db } from '../db/index'
 import { CAP_COMMENT, CAP_EDIT, capsFor } from '../editLock'
 import { requireMembership } from '../helpers'
@@ -40,20 +42,33 @@ export interface InboxItem {
   read: boolean
   /** What the agent may do on the page now (edit lock, docs/adr/0970-*). */
   can: 'edit' | 'comment' | 'read' | null
+  /** Handed to this connection (docs/adr/1863-*): only its inbox lists it. Additive. */
+  handoff?: boolean
 }
 
 const uuidArray = (ids: string[]) => sql`${`{${ids.join(',')}}`}::uuid[]`
 
+/**
+ * SQL: notification row `n` belongs in the inbox of `connection` (docs/adr/1863-*): items for the
+ * person, and items handed to this very connection; never those handed to another connection of the
+ * same person. A browser session ('' / null) sees the person's items only.
+ */
+export function inboxConnectionSql(connection: string | null | undefined, col = sql`n.connection`): SQL {
+  return connection ? sql`(${col} IS NULL OR ${col} = ${connection})` : sql`${col} IS NULL`
+}
+
 export async function readInbox(
   userId: string,
   q: { workspaceId?: string; cursor?: string; kinds?: InboxKind[] },
-): Promise<{ items: InboxItem[]; more: boolean; unacked: number }> {
+  /** The caller's connection key ('grant:<id>' / 'token:<id>'), null for a browser session. */
+  connection: string | null = null,
+): Promise<{ items: InboxItem[]; more: boolean; unacked: number; handoffs: number }> {
   const kinds = q.kinds?.length ? q.kinds : [...INBOX_KINDS]
   const types = typesForInbox(kinds)
-  if (!types.length) return { items: [], more: false, unacked: 0 }
+  if (!types.length) return { items: [], more: false, unacked: 0, handoffs: 0 }
   const typeList = sql.join(types.map((t) => sql`${t}`), sql`, `)
   const where = sql`
-    n.user_id = ${userId} AND n.acked_at IS NULL AND n.type IN (${typeList})
+    n.user_id = ${userId} AND n.acked_at IS NULL AND n.type IN (${typeList}) AND ${inboxConnectionSql(connection)}
     ${q.workspaceId ? sql`AND coalesce(n.workspace_id, p.workspace_id) = ${q.workspaceId}` : sql``}
     AND (n.page_id IS NULL OR (p.id IS NOT NULL AND p.deleted_at IS NULL AND (p.scope = 'shared' OR p.created_by = ${userId})))
     AND (n.page_id IS NULL OR ${pageInRangeSql(sql`p.id`, sql`p.workspace_id`, userId)})
@@ -64,7 +79,7 @@ export async function readInbox(
   const rows = (await db.execute(sql`
     SELECT n.seq::text AS seq, n.type, coalesce(n.workspace_id, p.workspace_id) AS "workspaceId", n.page_id AS "pageId",
            p.title AS "pageTitle", n.anchor, a.name AS "actorName", n.via_client AS via, n.excerpt, n.count,
-           n.created_at AS "createdAt", n.read
+           n.created_at AS "createdAt", n.read, n.connection IS NOT NULL AS handoff
       FROM notifications n
       LEFT JOIN pages p ON p.id = n.page_id
       LEFT JOIN users a ON a.id = n.actor_id
@@ -84,10 +99,12 @@ export async function readInbox(
     count: number
     createdAt: Date | string
     read: '0' | '1'
+    handoff: boolean
   }[]
-  const [{ n: unacked }] = (await db.execute(sql`
-    SELECT count(*)::int AS n FROM notifications n LEFT JOIN pages p ON p.id = n.page_id WHERE ${where}
-  `)) as unknown as { n: number }[]
+  const [{ n: unacked, h: handoffs }] = (await db.execute(sql`
+    SELECT count(*)::int AS n, count(*) FILTER (WHERE n.connection IS NOT NULL)::int AS h
+      FROM notifications n LEFT JOIN pages p ON p.id = n.page_id WHERE ${where}
+  `)) as unknown as { n: number; h: number }[]
   const more = rows.length > INBOX_MAX_ITEMS
   const list = rows.slice(0, INBOX_MAX_ITEMS)
 
@@ -128,9 +145,10 @@ export async function readInbox(
       createdAt: new Date(r.createdAt).toISOString(),
       read: r.read === '1',
       can: c === undefined ? null : c & CAP_EDIT ? 'edit' : c & CAP_COMMENT ? 'comment' : 'read',
+      handoff: r.handoff === true,
     }
   })
-  return { items, more, unacked }
+  return { items, more, unacked, handoffs }
 }
 
 export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
@@ -138,7 +156,7 @@ export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
     const user = getUser(req)
     const q = inboxQuerySchema.parse(req.query)
     if (q.workspaceId) await requireMembership(q.workspaceId, user.id)
-    return readInbox(user.id, q)
+    return readInbox(user.id, q, connectionKey(user) || null)
   })
 
   // Acknowledge inbox items: by seq ids, or everything up to and including a cursor.
@@ -158,6 +176,7 @@ export async function registerInboxRoutes(app: FastifyInstance): Promise<void> {
     const rows = (await db.execute(sql`
       UPDATE notifications SET acked_at = now()
        WHERE user_id = ${user.id} AND acked_at IS NULL AND type IN (${types}) AND (${byIds} OR ${byCursor}) ${inRange}
+         AND ${inboxConnectionSql(connectionKey(user) || null, sql`connection`)}
       RETURNING seq
     `)) as unknown as { seq: string }[]
     return { acked: rows.length }

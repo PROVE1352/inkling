@@ -1,5 +1,6 @@
 import { unlink } from 'node:fs/promises'
 import { sweepExpiredLeases } from './leases'
+import { handBackConnections } from './teamAgents'
 import path from 'node:path'
 import { and, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { db, relaxStatementTimeout } from './db/index'
@@ -129,6 +130,9 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     const e = await purgeOldAuditEvents(now)
     // Section claims that have ended (docs/adr/1535-*; reads already ignore them)
     await sweepExpiredLeases()
+    // Hand-offs to connections that are gone (expired, refresh reuse, blocked, person left) fall to
+    // the person (docs/adr/1863-*); the revoke routes do it at once for their connection.
+    await handBackConnections(null)
     // Stored suggestion bases whose suggestion was decided or deleted (docs/adr/1621-*)
     await purgeStaleSuggestionBases()
     if (s.length || n.length || t || w || o || a || c || e) {

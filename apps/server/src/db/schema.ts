@@ -539,6 +539,14 @@ export const notifications = pgTable(
     anchor: text('anchor'),
     /** When the user's agent acknowledged it in the MCP inbox (separate from `read`). */
     ackedAt: timestamp('acked_at', { withTimezone: true }),
+    /**
+     * Handed to one of the user's agent connections ('grant:<id>' / 'token:<id>', docs/adr/1863-*):
+     * only that connection's inbox lists it. NULL = for the person (and all their connections).
+     * Set back to NULL when the connection goes away, so the item falls to the person.
+     */
+    connection: text('connection'),
+    /** A connection row the person also sees in the bell (their "copies of hand-offs" setting). */
+    personToo: boolean('person_too').notNull().default(false),
   },
   (t) => [
     index('notifications_user_idx').on(t.userId, t.read),
@@ -547,6 +555,7 @@ export const notifications = pgTable(
     index('notifications_user_seq_idx').on(t.userId, t.seq),
     uniqueIndex('notifications_group_unread_idx').on(t.userId, t.groupKey).where(sql`read = '0' AND group_key IS NOT NULL`),
     index('notifications_mail_idx').on(t.mailState).where(sql`mail_state IN ('instant', 'digest')`),
+    index('notifications_connection_idx').on(t.connection).where(sql`connection IS NOT NULL`),
   ],
 )
 

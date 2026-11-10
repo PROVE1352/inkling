@@ -5,6 +5,7 @@ import type { WorkspaceCapabilities, WorkspaceTwoFactorStatus } from './workspac
 import type { WorkspaceAccessRole } from './pageAccess'
 import { chartSettingsSchema } from './charts'
 import { formSettingsSchema } from './forms'
+import { mentionConnectionsSchema } from './teamAgents'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -685,6 +686,8 @@ export const createCommentSchema = z.object({
   threadId: z.uuid().optional(),
   /** User ids @mentioned in the comment body (for notifications) */
   mentionUserIds: z.array(z.uuid()).max(20).optional(),
+  /** Members' agent connections the comment is handed to (docs/adr/1863-*): only their inbox gets it. */
+  mentionConnections: mentionConnectionsSchema.optional(),
 })
 export type CreateCommentInput = z.infer<typeof createCommentSchema>
 
@@ -757,6 +760,8 @@ export interface NotificationDTO {
   anchor?: string | null
   /** Listed without a badge or mail (agent-written mentions, level "nothing"). Additive. */
   quiet?: boolean
+  /** Handed to one of my agent connections; I see a copy (docs/adr/1863-*). Client or token name. Additive. */
+  forAgent?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -986,3 +991,5 @@ export * from './verification'
 export * from './memberStatus'
 // Slack app per workspace: channel notifications, /inkling search, link unfurls (docs/adr/1800-*)
 export * from './slack'
+// Team agents: board, hand-offs and assignments to a person's connection (docs/adr/1860-*)
+export * from './teamAgents'

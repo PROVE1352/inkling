@@ -115,6 +115,13 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
     }),
   )
 
+  /** Hand-off to other agents (docs/adr/1863-*): connections as catch_up(team=true) prints them. */
+  const HANDOFF_ARG = z
+    .array(z.string().trim().min(1).max(120))
+    .max(10)
+    .optional()
+    .describe('Hand to these agent connections (g:xxxxxxxx, see catch_up team); only their inbox lists it')
+
   server.registerTool(
     'add_comment',
     {
@@ -128,9 +135,10 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         text: z.string().trim().min(1).max(4000).optional().describe('Comment text'),
         body: z.string().trim().min(1).max(4000).optional().describe('Same as text (older name)'),
         section: z.string().trim().min(1).max(500).optional().describe('Anchor the thread to this section'),
+        handoffTo: HANDOFF_ARG,
       },
     },
-    wrapWrite(ctx, async ({ pageId, text: t, body, section }) => {
+    wrapWrite(ctx, async ({ pageId, text: t, body, section, handoffTo }) => {
       const message = t ?? body
       if (!message) throw new ToolError('text is required')
       // Check permissions (visibility + membership) first; read the document only after that passes.
@@ -146,7 +154,9 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         blockId = map.blocks[0]?.id as string | undefined
       }
       if (!blockId) throw new ToolError("Can't comment on a page with an empty body")
-      const r = await call(ctx, 'POST', `/api/pages/${pageId}/comments`, { json: { blockId, body: message } })
+      const r = await call(ctx, 'POST', `/api/pages/${pageId}/comments`, {
+        json: { blockId, body: message, ...(handoffTo?.length ? { mentionConnections: handoffTo } : {}) },
+      })
       const c = (r.json() as { comment: { id: string } }).comment
       return json(anchor ? { id: c.id, threadId: c.id, pageId, section: anchor } : { id: c.id, threadId: c.id, pageId })
     }),
@@ -160,9 +170,10 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
       inputSchema: {
         threadId: uuid().describe('Thread id'),
         text: z.string().trim().min(1).max(4000).describe('Reply text'),
+        handoffTo: HANDOFF_ARG,
       },
     },
-    wrapWrite(ctx, async ({ threadId, text: message }) => {
+    wrapWrite(ctx, async ({ threadId, text: message, handoffTo }) => {
       // Only the page id is looked up here; the REST route checks visibility, membership and the lock.
       // A thread on a page the caller cannot see gets the same answer as a missing one (that route
       // answers 404), so the tool does not tell which thread ids exist elsewhere (docs/adr/1301-*).
@@ -174,7 +185,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         .limit(1)
       if (!root) throw notFound()
       const r = await call(ctx, 'POST', `/api/pages/${root.pageId}/comments`, {
-        json: { blockId: root.blockId, threadId, body: message },
+        json: { blockId: root.blockId, threadId, body: message, ...(handoffTo?.length ? { mentionConnections: handoffTo } : {}) },
         passStatuses: [404],
       })
       if (r.statusCode === 404) throw notFound()

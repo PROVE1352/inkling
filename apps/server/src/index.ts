@@ -62,6 +62,7 @@ import { registerChangeRoutes } from './routes/changes'
 import { registerCatchUpRoutes } from './routes/catchUp'
 import { registerSuggestionRoutes } from './routes/suggestions'
 import { registerAgentPolicyRoutes } from './routes/agentPolicy'
+import { registerTeamAgentRoutes } from './routes/teamAgents'
 import { startAutoAcceptTimer } from './autoAccept'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
@@ -501,6 +502,8 @@ async function main(): Promise<void> {
       await registerCatchUpRoutes(api)
       await registerSuggestionRoutes(api)
       await registerAgentPolicyRoutes(api)
+      // Team agents board and member connections for hand-offs (docs/adr/1862-*)
+      await registerTeamAgentRoutes(api)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)

@@ -26,6 +26,7 @@ import { mentionStatusLineForPage } from '../memberStatus'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index'
 import { pages, workspaces } from '../db/schema'
+import { archivedNote } from '../workspaceListing'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -190,6 +191,9 @@ export function renderFindContext(
       lines.push(wrapData(r.titleOnly.map((t) => `- ${ws(t.pageId)}${t.title || 'Untitled'} (page ${idOf(t.pageId)}, ${t.kind})`)))
     }
     if (spans) lines.push(spans.line)
+    // archived workspaces left out of a search without workspaceId (docs/adr/2304-*)
+    const left = archivedNote(r.archived)
+    if (left) lines.push(left)
     return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
   }
   // `can:` once in the header when two or more results all have the same (docs/adr/1906-*); with one
@@ -250,6 +254,9 @@ export function renderFindContext(
   if (hint) out.push(hint)
   // Several workspaces: which results are where, by id, and how to narrow (docs/adr/2185-*).
   if (spans) out.push(spans.line)
+  // Archived workspaces left out of a search without workspaceId (docs/adr/2304-*): before the dated line.
+  const left = archivedNote(r.archived)
+  if (left) out.push(left)
   // Verified / stale marks (docs/adr/1842-*) are dated and flip with the clock: one line, last
   // (docs/adr/1907-*), so the fragments above stay byte-stable when a verification lapses.
   const marks = r.fragments.flatMap((f, i) => {

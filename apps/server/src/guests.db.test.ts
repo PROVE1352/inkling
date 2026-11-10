@@ -114,6 +114,7 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
         await r(import('./routes/files'), 'registerFileRoutes')
         await r(import('./routes/splitPage'), 'registerSplitPageRoutes')
         await r(import('./routes/clip'), 'registerClipRoutes')
+        await r(import('./routes/workspaceListing'), 'registerWorkspaceListingRoutes')
       },
       { prefix: '/api' },
     )
@@ -472,6 +473,15 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
       const list = await as(G, 'GET', '/api/later')
       assert.equal(list.statusCode, 200)
       assertNoOutside(list.body, 'later list')
+    })
+
+    it('arranges the guest workspace in their own list (docs/adr/2301-*); a workspace they cannot open is not found', async () => {
+      assert.equal((await as(G, 'PATCH', `/api/me/workspaces/${ws1.id}/listing`, { archived: true })).statusCode, 200)
+      const g = ((await as(G, 'GET', '/api/workspaces')).json() as { workspaces: { id: string; role: string; listing?: { archived?: true } }[] }).workspaces.find((w) => w.id === ws1.id)!
+      assert.equal(g.role, 'guest')
+      assert.equal(g.listing?.archived, true)
+      assert.equal((await as(G, 'PATCH', `/api/me/workspaces/${ws2.id}/listing`, { archived: true })).statusCode, 404)
+      assert.equal((await as(G, 'PATCH', `/api/me/workspaces/${ws1.id}/listing`, { archived: false })).statusCode, 200)
     })
 
     it('collections in the shared tree (docs/adr/2146-*): read, pick, add rows and edit cells; the rest stays member-only', async () => {

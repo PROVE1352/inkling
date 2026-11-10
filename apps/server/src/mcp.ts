@@ -59,6 +59,7 @@ import { registerPatchSectionsTool } from './mcpTools/patchSections'
 import { agentProperties, pageVersion } from './context/pageVersion'
 import { verificationFactsFor, verificationLine } from './verification'
 import { memberStatuses, mentionStatusLine, mentionStatusLineForPage, statusPhrase } from './memberStatus'
+import { archivedNote } from './workspaceListing'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -368,7 +369,17 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     wrap(async () => {
       const res = await call(ctx, 'GET', '/api/workspaces')
       const { workspaces } = res.json() as { workspaces: WorkspaceDTO[] }
-      return jsonUntrusted(workspaces.map((w) => ({ id: w.id, name: w.name, icon: w.icon, role: w.role })))
+      // the person's own group and archive mark, only where set (docs/adr/2305-*)
+      return jsonUntrusted(
+        workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          icon: w.icon,
+          role: w.role,
+          ...(w.listing?.group ? { group: w.listing.group } : {}),
+          ...(w.listing?.archived ? { archived: true } : {}),
+        })),
+      )
     }),
   )
 
@@ -436,9 +447,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       ).json() as AgentSearchResponse
       // json stays JSON when nothing matches (an empty results array, as before)
       if (format === 'json') return jsonUntrusted(searchJson(res))
-      if (res.results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.`)
+      // archived workspaces left out (docs/adr/2304-*): the last line, also when nothing matched
+      const left = archivedNote(res.archived)
+      if (res.results.length === 0) return text(`No pages match "${query}". Try find_context or fewer words.${left ? `\n${left}` : ''}`)
       // grouped by workspace when there are several, then the "N more" line (docs/adr/2184-*)
-      return text(renderCompactSearch(res, { format, workspaceGiven: !!workspaceId }))
+      return text(renderCompactSearch(res, { format, workspaceGiven: !!workspaceId }) + (left ? `\n${left}` : ''))
     }),
   )
 

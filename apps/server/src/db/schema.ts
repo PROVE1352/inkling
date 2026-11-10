@@ -998,3 +998,5 @@ export * from './schema-taint'
 export * from './schema-push'
 // Database automations and their recent runs (docs/adr/2240-*)
 export * from './schema-automations'
+// A person's own workspace list: groups and archived workspaces (docs/adr/2300-*)
+export * from './schema-workspaceListing'

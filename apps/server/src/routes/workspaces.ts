@@ -58,6 +58,8 @@ import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { escapeLike } from '../util'
 import { agentAllowedSql } from '../agentAccess'
+import { workspaceListings } from '../db/schema-workspaceListing'
+import { listingsFor } from '../workspaceListing'
 import {
   diffFields,
   isManagerRole,
@@ -216,6 +218,9 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     }
     // Tokens (MCP, API) never see invite codes: joining is browser-only (docs/adr/1201-*).
     if (req.authVia === 'bearer') for (const w of result) w.inviteCode = ''
+    // The caller's own arrangement (group, order, archived), only where set; the list order stays (docs/adr/2300-*).
+    const listings = await listingsFor(user.id)
+    for (const w of result) if (listings.has(w.id)) w.listing = listings.get(w.id)
     return { workspaces: result }
   })
 
@@ -1003,6 +1008,8 @@ export async function removeMember(
       .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)))
     // Their page rows go too: a leftover row would make them a guest of that page (docs/adr/1250-*).
     await dropWorkspaceRowsTx(tx, workspaceId, userId, { bumped: true })
+    // and their own arrangement of it (group, archived; docs/adr/2301-*)
+    await tx.delete(workspaceListings).where(and(eq(workspaceListings.workspaceId, workspaceId), eq(workspaceListings.userId, userId)))
     // soft-delete the leaving user's private pages in this workspace (shared pages belong to the team and stay)
     await tx
       .update(pages)

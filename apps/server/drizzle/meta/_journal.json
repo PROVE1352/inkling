@@ -400,6 +400,13 @@
       "when": 1794296157000,
       "tag": "0057_offline_doc_gen",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794296159000,
+      "tag": "0059_workspace_listings",
+      "breakpoints": true
     }
   ]
 }

@@ -8,11 +8,13 @@ import { currentRange } from '../tokenRange'
 import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { chunkEpoch } from '../versions'
 import { noteCacheHit, noteWorkspaces } from '../connectionUsage'
-import { findContext, memberWorkspaceIds } from './retrieve'
+import { findContext } from './retrieve'
 import type { FindContextResult } from './retrieve'
 import { fuseContextResults, isMultiResult, RRF_K } from './multiQuery'
 import type { ExtraList, MultiFindContextResult } from './multiQuery'
 import { semanticEpoch } from './semantic'
+import { archivedSql, defaultSearchScope, splitArchived } from '../workspaceListing'
+import type { ArchivedWorkspace } from '../workspaceListing'
 
 /**
  * find_context result cache (docs/adr/1550-*). Several agents of one person asking the same thing
@@ -99,6 +101,8 @@ export function normalizeContextQuery(q: string): string {
 
 interface WorkspaceMarker {
   id: string
+  name: string
+  archived: boolean
   acl: string
   pages: string
 }
@@ -109,7 +113,8 @@ interface WorkspaceMarker {
  */
 async function searchScope(userId: string, only: string | null): Promise<WorkspaceMarker[]> {
   const rows = (await db.execute(sql`
-    SELECT wm.workspace_id AS id, coalesce(a.version, 0)::text AS acl,
+    SELECT wm.workspace_id AS id, w.name, ${only ? sql`false` : archivedSql(sql`wm.workspace_id`, userId)} AS archived,
+           coalesce(a.version, 0)::text AS acl,
            (SELECT coalesce(max(greatest(p.updated_at, coalesce(p.deleted_at, p.updated_at)))::text, '') || '/' ||
                    count(*) FILTER (WHERE p.deleted_at IS NULL)::text
               FROM pages p WHERE p.workspace_id = wm.workspace_id) AS pages
@@ -142,11 +147,18 @@ function scopeKey(userId: string): string {
  * Records the searched workspaces and a hit on the current connection's usage (docs/adr/1552-*).
  */
 /** The searched workspaces and their markers (database first, then the in-process epochs). */
-async function markersFor(userId: string, only: string | null): Promise<{ workspaceIds: string[]; markers: string[] }> {
-  const scope = await searchScope(userId, only)
+async function markersFor(userId: string, only: string | null): Promise<{ workspaceIds: string[]; markers: string[]; archived: ArchivedWorkspace[] }> {
+  // Without a workspace, the ones this person archived are left out (docs/adr/2303-*); the key then
+  // names fewer workspaces, so an archive change is a different entry at once.
+  const { kept: scope, archived } = splitArchived(userId, await searchScope(userId, only))
   // In-process epochs after the database markers and before the retrieval (version before data).
   const markers = scope.map((w) => `${w.id}:${w.acl}:${w.pages}:${chunkEpoch(w.id)}`)
-  return { workspaceIds: scope.map((w) => w.id), markers }
+  return { workspaceIds: scope.map((w) => w.id), markers, archived }
+}
+
+/** The archived workspaces a default search left out, beside the (shared, cached) result object. */
+function withArchived<T extends FindContextResult>(result: T, archived: ArchivedWorkspace[]): T {
+  return archived.length ? { ...result, archived } : result
 }
 
 /** Key of one query's entry; bundles look their queries up under this same key. */
@@ -161,23 +173,23 @@ function queryKey(userId: string, budget: number, query: string, markers: string
 export async function cachedFindContext(userId: string, query: string, only: string | null, budget: number): Promise<FindContextResult> {
   if (!contextCacheEnabled) {
     // the path before the cache (benchmarks): membership list, then retrieval
-    const workspaceIds = only ? [only] : await memberWorkspaceIds(userId)
+    const { ids: workspaceIds, archived } = only ? { ids: [only], archived: [] } : await defaultSearchScope(userId)
     noteWorkspaces(workspaceIds)
-    return findContext({ userId, query, workspaceIds, budget })
+    return withArchived(await findContext({ userId, query, workspaceIds, budget }), archived)
   }
-  const { workspaceIds, markers } = await markersFor(userId, only)
+  const { workspaceIds, markers, archived } = await markersFor(userId, only)
   noteWorkspaces(workspaceIds)
   const key = queryKey(userId, budget, query, markers)
   const hit = cache.get(key)
   if (hit) {
     contextCacheStats.hits++
     noteCacheHit()
-    return hit
+    return withArchived(hit, archived)
   }
   contextCacheStats.misses++
   const result = await findContext({ userId, query, workspaceIds, budget })
   cache.set(key, result)
-  return result
+  return withArchived(result, archived)
 }
 
 export interface MultiContextOptions {
@@ -204,13 +216,13 @@ export async function cachedFindContextMulti(
 ): Promise<MultiFindContextResult> {
   const k = opts.k ?? RRF_K
   if (!contextCacheEnabled) {
-    const workspaceIds = only ? [only] : await memberWorkspaceIds(userId)
+    const { ids: workspaceIds, archived } = only ? { ids: [only], archived: [] } : await defaultSearchScope(userId)
     noteWorkspaces(workspaceIds)
     const perQuery = await Promise.all(queries.map((query) => findContext({ userId, query, workspaceIds, budget })))
     const extra = (await opts.extraLists?.({ userId, workspaceIds, queries })) ?? []
-    return fuseContextResults(perQuery, { queries, budget: perQuery[0].budget, k, extra })
+    return withArchived(fuseContextResults(perQuery, { queries, budget: perQuery[0].budget, k, extra }), archived)
   }
-  const { workspaceIds, markers } = await markersFor(userId, only)
+  const { workspaceIds, markers, archived } = await markersFor(userId, only)
   noteWorkspaces(workspaceIds)
   // Vectors written in this process (docs/adr/1723-*); none while semantic search is off.
   const semMarkers = workspaceIds.flatMap((w) => (semanticEpoch(w) ? [`sem ${w}:${semanticEpoch(w)}`] : []))
@@ -234,7 +246,7 @@ export async function cachedFindContextMulti(
   if (hit && isMultiResult(hit)) {
     contextCacheStats.batchHits++
     noteCacheHit()
-    return hit
+    return withArchived(hit, archived)
   }
   contextCacheStats.batchMisses++
   let computed = 0
@@ -257,5 +269,5 @@ export async function cachedFindContextMulti(
   if (computed === 0) noteCacheHit()
   const result = fuseContextResults(perQuery, { queries, budget: perQuery[0].budget, k, extra })
   cache.set(bundleKey, result)
-  return result
+  return withArchived(result, archived)
 }

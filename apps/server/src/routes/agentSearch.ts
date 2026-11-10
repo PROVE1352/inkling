@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getUser, requireUser } from '../auth'
 import { shortAnchors } from '../context/chunker'
-import { memberWorkspaceIds } from '../context/retrieve'
+import { defaultSearchScope } from '../workspaceListing'
+import type { ArchivedWorkspace } from '../workspaceListing'
 import { withSsdPlanCosts } from '../db/index'
 import { requireMembership } from '../helpers'
 import { pageInRangeSql } from '../tokenRange'
@@ -204,11 +205,14 @@ export async function registerAgentSearchRoutes(app: FastifyInstance): Promise<v
     const { q, workspaceId, limit } = querySchema.parse(req.query)
     // One workspace: the same membership, range, 2FA and agent-block checks (and errors) as the
     // web search route. All: the workspaces find_context searches (retrieve.ts memberWorkspaceIds).
+    // Without one, archived workspaces are left out and named (docs/adr/2303-*, 2304-*).
     let workspaceIds: string[]
+    let archived: ArchivedWorkspace[] = []
     if (workspaceId) {
       await requireMembership(workspaceId, user.id)
       workspaceIds = [workspaceId]
-    } else workspaceIds = await memberWorkspaceIds(user.id)
-    return agentSearch({ userId: user.id, q, workspaceIds, limit: limit ?? SEARCH_DEFAULT_LIMIT })
+    } else ({ ids: workspaceIds, archived } = await defaultSearchScope(user.id))
+    const res = await agentSearch({ userId: user.id, q, workspaceIds, limit: limit ?? SEARCH_DEFAULT_LIMIT })
+    return archived.length ? { ...res, archived } : res
   })
 }

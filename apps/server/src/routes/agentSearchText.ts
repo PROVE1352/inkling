@@ -38,6 +38,8 @@ export interface AgentSearchResponse {
   /** Workspaces with matches: count desc, then id. */
   workspaces: { id: string; name: string; matches: number }[]
   limit: number
+  /** Archived workspaces left out of a search without workspaceId (docs/adr/2303-*); absent when none. */
+  archived?: { id: string; name: string }[]
 }
 
 /**

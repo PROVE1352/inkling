@@ -264,5 +264,7 @@ export function searchJson(res: AgentSearchResponse): Record<string, unknown> {
     total: res.total,
     more: Math.max(0, res.total - res.results.length),
     moreByWorkspace: remainingByWorkspace(res).map((w) => ({ workspaceId: w.id, workspace: w.name, more: w.more })),
+    // archived workspaces left out of a search without workspaceId (docs/adr/2304-*), only when any
+    ...(res.archived?.length ? { archivedNotSearched: res.archived.map((w) => ({ workspaceId: w.id, workspace: w.name })) } : {}),
   }
 }

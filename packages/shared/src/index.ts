@@ -7,6 +7,7 @@ import { chartSettingsSchema } from './charts'
 import { formSettingsSchema } from './forms'
 import { mentionConnectionsSchema } from './teamAgents'
 import { filterOpSchema, uniqueIdConfigSchema, viewFilterSchema } from './collectionFields'
+import type { WorkspaceListingDTO } from './workspaceListing'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -370,6 +371,8 @@ export interface WorkspaceDTO {
    * (docs/adr/1112-*). Additive: older servers omit it.
    */
   twoFactor?: WorkspaceTwoFactorStatus
+  /** The caller's own arrangement: group, order, archived (docs/adr/2300-*). Absent when never set. */
+  listing?: WorkspaceListingDTO
 }
 
 /** A soft-deleted workspace the caller owns and can still restore (GET /workspaces/deleted). */
@@ -1049,3 +1052,6 @@ export * from './clip'
 export * from './push'
 // Buttons and database automations (docs/adr/2240-*)
 export * from './automations'
+
+// A person's own workspace list: groups and archived workspaces (docs/adr/2300-*)
+export * from './workspaceListing'

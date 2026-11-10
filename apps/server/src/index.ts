@@ -572,6 +572,7 @@ async function main(): Promise<void> {
       await registerNotificationRoutes(api)
       // Per-user sidebar menu order / hidden menus (docs/adr/1020-*)
       await registerSidebarPrefsRoutes(api)
+      await (await import('./routes/workspaceListing')).registerWorkspaceListingRoutes(api) // own workspace list: groups, archive (docs/adr/2300-*)
       // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)
       await registerActivityRoutes(api)
       // Reverting logged changes, one or an agent's run (docs/adr/1620-* .. 1624-*)

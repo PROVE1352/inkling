@@ -48,6 +48,8 @@ export interface FindContextResult {
   budget: number
   usedTokens: number
   candidates: number
+  /** Archived workspaces a search without workspaceId left out (docs/adr/2303-*); absent when none. */
+  archived?: { id: string; name: string }[]
 }
 
 function uuidArray(ids: string[]): string {

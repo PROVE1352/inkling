@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { db } from './db/index'
 import { AppError } from './errors'
 import { liveDoc } from './liveConnections'
+import { agentViaSql } from './agentVia'
 import { docToBlocks } from './md/convert'
 import type { AnyBlock } from './md/convert'
 import {
@@ -347,7 +348,7 @@ export async function hasRecentAgentSnapshot(pageId: string): Promise<boolean> {
   const rows = (await db.execute(sql`
     SELECT 1 AS hit FROM page_snapshots
      WHERE page_id = ${pageId}
-       AND via_client IS NOT NULL
+       AND ${agentViaSql(sql`via_client`)}
        AND created_at > now() - make_interval(secs => ${throttleSec})
      LIMIT 1
   `)) as unknown as { hit: number }[]

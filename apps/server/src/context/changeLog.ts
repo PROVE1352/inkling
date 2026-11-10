@@ -8,6 +8,7 @@ import { notifyPageEdited } from '../notify/producers'
 import type { EditActor } from './attribution'
 import { computeSectionChanges } from './sectionChanges'
 import { changePassStarting, notifyChangesCommitted } from './changeWait'
+import { isAgentVia } from '../agentVia'
 import type { SectionChange, SectionChangeKind } from './sectionChanges'
 
 /**
@@ -221,7 +222,7 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
       text: fits(text) ? text : null,
       ...(sections.length
         ? {
-            sections: firstIndexSections(sections, !!actor?.via),
+            sections: firstIndexSections(sections, isAgentVia(actor?.via)),
             typing: liveEditors(delta.pageId),
             typedBy: actor ? null : windowTypist(delta.pageId),
           }
@@ -239,7 +240,7 @@ export async function recordSectionChanges(delta: PageSectionDelta, exec?: Exec)
       actor,
       typing: liveEditors(delta.pageId),
       typedBy: actor ? null : windowTypist(delta.pageId),
-      changes: changes.map((c) => storeChange(c, !!actor?.via)),
+      changes: changes.map((c) => storeChange(c, isAgentVia(actor?.via))),
     }
   }
   await enqueue(exec ?? db, [{ topic: 'change', workspaceId: delta.workspaceId, payload: op }])

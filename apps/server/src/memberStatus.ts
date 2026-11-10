@@ -48,12 +48,13 @@ export function statusPhrase(s: MemberStatusDTO): string {
   return `"${label}"${s.clearAt ? ` until ${localISODate(new Date(s.clearAt))}` : ''}`
 }
 
-const USER_MENTION_RE = /@\[([^[\]\n]*)\]\(user:([0-9a-fA-F-]{36})\)/g
+// people and people's agent connections (`agent:<person>/grant:<id>`, docs/adr/1861-*): the status is the person's
+const USER_MENTION_RE = /@\[([^[\]\n]*)\]\((?:user|agent):([0-9a-fA-F-]{36})(?:\/(?:grant|token):[0-9a-fA-F-]{36})?\)/g
 const MAX_MENTIONED = 20
 
-/** User ids mentioned as `@[Name](user:<id>)` in agent-written Markdown (first MAX_MENTIONED). */
+/** User ids mentioned as `@[Name](user:<id>)` (or their agent chip) in agent-written Markdown (first MAX_MENTIONED). */
 export function mentionedUserIds(markdown: string | undefined | null): string[] {
-  if (!markdown || !markdown.includes('(user:')) return []
+  if (!markdown || !(markdown.includes('(user:') || markdown.includes('(agent:'))) return []
   const ids = new Set<string>()
   USER_MENTION_RE.lastIndex = 0
   for (let m = USER_MENTION_RE.exec(markdown); m && ids.size < MAX_MENTIONED; m = USER_MENTION_RE.exec(markdown)) {
@@ -105,8 +106,9 @@ export async function memberStatuses(
 
 /** The same line for given people (members of `workspaceId` only), in name order. */
 export async function peopleStatusLine(workspaceId: string, userIds: string[]): Promise<string | null> {
-  const parts = [...(await memberStatuses(workspaceId, userIds)).values()]
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .map((r) => `${cleanText(r.name)} ${statusPhrase(r.status)}`)
+  // name order, user id on equal names: the same line for the same statuses (docs/adr/0937-*)
+  const parts = [...(await memberStatuses(workspaceId, userIds)).entries()]
+    .sort(([ia, a], [ib, b]) => (a.name < b.name ? -1 : a.name > b.name ? 1 : ia < ib ? -1 : ia > ib ? 1 : 0))
+    .map(([, r]) => `${cleanText(r.name)} ${statusPhrase(r.status)}`)
   return parts.length ? `status: ${parts.join('; ')}` : null
 }

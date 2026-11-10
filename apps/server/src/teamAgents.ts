@@ -22,6 +22,7 @@ import { db } from './db/index'
 import type { Exec } from './outbox'
 import { AppError } from './errors'
 import { pageInRangeSql } from './tokenRange'
+import { agentViaSql } from './agentVia'
 
 /**
  * Team agents (docs/adr/1860-* .. 1866-*).
@@ -279,7 +280,7 @@ export async function readTeamAgents(workspaceId: string, viewerId: string, sinc
            count(*) FILTER (WHERE kind = 'page_added')::int AS created,
            max(changed_at) AS "lastAt"
       FROM page_changes
-     WHERE workspace_id = ${workspaceId} AND changed_at >= ${sinceSql} AND via_client IS NOT NULL AND actor_id IS NOT NULL
+     WHERE workspace_id = ${workspaceId} AND changed_at >= ${sinceSql} AND ${agentViaSql(sql`via_client`)} AND actor_id IS NOT NULL
      GROUP BY actor_id, via_client
   `)) as unknown as { userId: string; client: string; edits: number; created: number; lastAt: Date | string }[]
 
@@ -290,7 +291,7 @@ export async function readTeamAgents(workspaceId: string, viewerId: string, sinc
           FROM (
             SELECT actor_id AS "userId", via_client AS client, page_id AS "pageId", max(changed_at) AS at
               FROM page_changes
-             WHERE workspace_id = ${workspaceId} AND changed_at >= ${sinceSql} AND via_client IS NOT NULL AND actor_id IS NOT NULL
+             WHERE workspace_id = ${workspaceId} AND changed_at >= ${sinceSql} AND ${agentViaSql(sql`via_client`)} AND actor_id IS NOT NULL
              GROUP BY actor_id, via_client, page_id
           ) x
       ) r
@@ -314,7 +315,7 @@ export async function readTeamAgents(workspaceId: string, viewerId: string, sinc
       CROSS JOIN LATERAL jsonb_array_elements_text(coalesce(e.before->'seqs', '[]'::jsonb)) s(seq)
       JOIN page_changes pc ON pc.seq = s.seq::bigint
      WHERE e.workspace_id = ${workspaceId} AND e.action = 'page.changes_reverted' AND e.created_at >= ${sinceSql}
-       AND pc.via_client IS NOT NULL AND pc.actor_id IS NOT NULL
+       AND ${agentViaSql(sql`pc.via_client`)} AND pc.actor_id IS NOT NULL
      GROUP BY 1, 2
   `)) as unknown as { userId: string; client: string; n: number }[]
 

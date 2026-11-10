@@ -17,7 +17,8 @@ import { db } from './db/index'
  * and only a warning for common app names.
  */
 
-const RESERVED = ['inkling', 'admin', 'administrator', 'system', 'root', 'owner', 'moderator', 'support', 'staff', '관리자', '시스템', '운영자', '잉클링']
+// 'public form' is the via of public form answers, read as a person's input (docs/adr/1870-*)
+const RESERVED = ['inkling', 'admin', 'administrator', 'system', 'root', 'owner', 'moderator', 'support', 'staff', '관리자', '시스템', '운영자', '잉클링', 'public form']
 
 /** Look-alikes folded to the Latin letter they imitate (Cyrillic, Greek, leetspeak). */
 const CONFUSABLE: Record<string, string> = {

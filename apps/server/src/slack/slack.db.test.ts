@@ -287,6 +287,49 @@ describe('[db] Slack app', { skip: !HAS_DB }, async () => {
     assert.equal(posts().length, n)
   })
 
+  it('hand-offs to an agent connection never reach the channel, also with the person copy on; mention + hand-off posts once', async () => {
+    const { owner, member, ws } = await connected(['mention', 'assigned', 'reply'])
+    const page = await h.makeDocPage(ws.id, owner.id, 'Handoff page', blocks('x'))
+    await h.mintToken(member, 'notes', 'Member Agent')
+    const [grant] = await db
+      .select({ id: schema.oauthGrants.id })
+      .from(schema.oauthGrants)
+      .where(eq(schema.oauthGrants.userId, member.id))
+    const key = `grant:${grant.id}`
+    // the person keeps a copy of what is handed to their agents (person_too)
+    await db
+      .insert(schema.userNotificationSettings)
+      .values({ userId: member.id, agentHandoffCopy: true })
+      .onConflictDoUpdate({ target: schema.userNotificationSettings.userId, set: { agentHandoffCopy: true } })
+    await settle()
+    const n0 = posts().length
+
+    // a direct hand-off event (mention and assignment kinds): no post
+    notify({ workspaceId: ws.id, pageId: page.id, actorId: owner.id, via: null, connection: key, recipients: [{ userId: member.id, kind: 'comment_mention', reason: 'direct' }] })
+    notify({ workspaceId: ws.id, pageId: page.id, actorId: owner.id, via: null, connection: key, recipients: [{ userId: member.id, kind: 'task_assigned', reason: 'direct' }] })
+    await settle()
+    assert.equal(posts().length, n0, JSON.stringify(posts().slice(n0).map((c) => c.params.text)))
+
+    // a comment that only hands the thread to the member's agent: no post
+    const only = await req(owner, 'POST', `/pages/${page.id}/comments`, { blockId: 'b1', body: 'Agent, please summarise', mentionConnections: [key] })
+    assert.equal(only.statusCode, 200, only.body)
+    await settle()
+    assert.equal(posts().length, n0, JSON.stringify(posts().slice(n0).map((c) => c.params.text)))
+    const copies = await db
+      .select({ connection: schema.notifications.connection, personToo: schema.notifications.personToo })
+      .from(schema.notifications)
+      .where(and(eq(schema.notifications.userId, member.id), eq(schema.notifications.pageId, page.id)))
+    assert.ok(copies.some((c) => c.connection === key && c.personToo), 'hand-off row with the person copy written')
+
+    // a comment that mentions the member and hands to their agent: exactly one post (the person's mention)
+    const both = await req(owner, 'POST', `/pages/${page.id}/comments`, { blockId: 'b2', body: 'Can you check this?', mentionUserIds: [member.id], mentionConnections: [key] })
+    assert.equal(both.statusCode, 200, both.body)
+    await settle()
+    const mine = posts().slice(n0)
+    assert.equal(mine.length, 1, JSON.stringify(mine.map((c) => c.params.text)))
+    assert.match(mine[0].params.text, /owner mentioned member in/)
+  })
+
   it('a comment reply through the API reaches the channel with its excerpt; saving never waits for Slack', async () => {
     const { owner, member, ws } = await connected(['reply'])
     const page = await h.makeDocPage(ws.id, owner.id, 'Retro', blocks('x'))

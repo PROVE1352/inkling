@@ -36,6 +36,40 @@ test('every English key has a Korean translation (Korean has no `_one` plural fo
   assert.deepEqual(missing, [])
 })
 
+test('no key is defined in two area files (a later spread would silently win)', async () => {
+  const { readdirSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  for (const [lang, dict] of [['en', en], ['ko', ko]] as const) {
+    const dir = fileURLToPath(new URL(`./${lang}/`, import.meta.url))
+    const owner = new Map<string, string>()
+    const dupes: string[] = []
+    let sum = 0
+    // ko/server-messages-*.ts is the separate server-message dictionary of errors.ts (checked below)
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.startsWith('server-messages')).sort()) {
+      const mod = (await import(`./${lang}/${file}`)) as { default: Record<string, string> }
+      for (const k of Object.keys(mod.default)) {
+        sum++
+        const prev = owner.get(k)
+        if (prev) dupes.push(`${lang}: ${k} in ${prev} and ${file}`)
+        else owner.set(k, file)
+      }
+    }
+    assert.deepEqual(dupes, [])
+    assert.equal(Object.keys(dict).length, sum, `${lang}: an area file is not spread into the dictionary`)
+  }
+  const seen = new Map<string, string>()
+  const dupes: string[] = []
+  for (const file of ['server-messages-a', 'server-messages-b', 'server-messages-c']) {
+    const mod = (await import(`./ko/${file}.ts`)) as { default: Record<string, string> }
+    for (const k of Object.keys(mod.default)) {
+      const prev = seen.get(k)
+      if (prev && mod.default[k] !== (await import(`./ko/${prev}.ts`)).default[k]) dupes.push(`${k} in ${prev} and ${file}`)
+      else seen.set(k, file)
+    }
+  }
+  assert.deepEqual(dupes, [])
+})
+
 test('normalizeLocale accepts tags and rejects unknown languages', () => {
   assert.equal(normalizeLocale('ko-KR'), 'ko')
   assert.equal(normalizeLocale('EN_us'), 'en')

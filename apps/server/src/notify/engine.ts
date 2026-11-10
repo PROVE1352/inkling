@@ -10,6 +10,7 @@ import { decide, KINDS } from './kinds'
 import type { NotifyKind, Reason } from './kinds'
 import { scheduleInstantMail } from './mailer'
 import { enqueueSlackInTx, slackCommitted } from '../slack/notify'
+import { isAgentVia } from '../agentVia'
 
 /**
  * Notification engine (docs/adr/1000-*).
@@ -409,7 +410,8 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
   const ev = p.ev
   if (p.wanted.size === 0) return { delivered, written }
   const visible = look.visible.get(p.i) ?? new Set<string>()
-  const agent = !!ev.via
+  // a public form answer is a person's input, not an agent's (docs/adr/1870-*)
+  const agent = isAgentVia(ev.via)
   const rows: Record<string, unknown>[] = []
   for (const [userId, w] of p.wanted) {
     if (!visible.has(userId)) continue

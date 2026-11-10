@@ -6,6 +6,7 @@ import { liveWorkspace } from '../workspaceLive'
 import { flushNotifications, notify } from './engine'
 import { runMailDigests, sweepInstantMails } from './mailer'
 import { runSlackHousekeeping } from '../slack/notify'
+import { agentViaSql } from '../agentVia'
 
 /**
  * Daily AI-edit summaries (docs/adr/1004-*), run from housekeeping.
@@ -39,7 +40,7 @@ export async function runAgentSummaries(now = new Date(), opts: { force?: boolea
     SELECT d.id AS pref, d.user_id AS "userId", d.workspace_id AS "workspaceId", d.root_page_id AS "rootId",
            c.page_id AS "pageId", pg.title, count(*)::int AS n, max(c.seq)::text AS last
       FROM due d
-      JOIN page_changes c ON c.workspace_id = d.workspace_id AND c.via_client IS NOT NULL
+      JOIN page_changes c ON c.workspace_id = d.workspace_id AND ${agentViaSql(sql`c.via_client`)}
                          AND c.changed_at > d.since AND c.changed_at <= ${iso}::timestamptz
                          AND (c.scope = 'shared' OR c.owner_id = d.user_id)
       JOIN pages pg ON pg.id = c.page_id AND pg.deleted_at IS NULL AND (pg.scope = 'shared' OR pg.created_by = d.user_id)
@@ -107,7 +108,7 @@ export async function runAgentWebhookDigests(now = new Date(), opts: { force?: b
     if (!claimed.length) continue
     const pages = (await db.execute(sql`
       SELECT c.page_id AS "pageId" FROM page_changes c JOIN pages p ON p.id = c.page_id
-       WHERE c.workspace_id = ${ws.id} AND c.via_client IS NOT NULL AND c.scope = 'shared'
+       WHERE c.workspace_id = ${ws.id} AND ${agentViaSql(sql`c.via_client`)} AND c.scope = 'shared'
          AND c.changed_at > ${iso}::timestamptz - interval '1 day' AND c.changed_at <= ${iso}::timestamptz
          AND p.deleted_at IS NULL AND p.scope = 'shared'
        GROUP BY c.page_id ORDER BY max(c.seq) DESC LIMIT ${WEBHOOK_PAGES}

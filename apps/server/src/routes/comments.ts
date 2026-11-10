@@ -26,6 +26,7 @@ import { webhookOutboxRows } from '../webhooks'
 import { isManagerRole } from '../workspaceAdmin'
 import { connectionKey } from '../leases'
 import { resolveAgentRefs } from '../teamAgents'
+import { isAgentVia } from '../agentVia'
 
 /** Display name for a removed/deleted author (comments whose author_id was set null), in the viewer's locale. */
 const DELETED_AUTHOR: Record<Locale, string> = { en: '(deleted user)', ko: '(삭제된 사용자)' }
@@ -412,7 +413,7 @@ async function commentEvents(args: {
     if (e) rows.push(e)
   }
   rows.push(...(await webhookOutboxRows({ type: 'comment', workspaceId, pageId, actorId, commentId, via })))
-  if (mentioned.length > 0 && !via) {
+  if (mentioned.length > 0 && !isAgentVia(via)) {
     rows.push(...(await webhookOutboxRows({ type: 'mention', workspaceId, pageId, actorId, commentId, mentionedUserIds: mentioned })))
   }
   return rows

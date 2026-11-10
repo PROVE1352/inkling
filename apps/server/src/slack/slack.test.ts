@@ -75,6 +75,12 @@ describe('notification events → channel posts', async () => {
     assert.equal(slackPostFor({ ...base, recipients: [r('b', 'agent_digest')] }, all), null)
   })
 
+  it('work handed to an agent connection never posts; a public form answer is a person, not an agent', () => {
+    assert.equal(slackPostFor({ ...base, connection: 'grant:g1', recipients: [r('b', 'comment_mention')] }, all), null)
+    assert.equal(slackPostFor({ ...base, connection: 'grant:g1', recipients: [r('b', 'task_assigned')] }, all), null)
+    assert.equal(slackPostFor({ ...base, via: 'public form', recipients: [r('b', 'doc_mention')] }, all)?.kind, 'mention')
+  })
+
   it('an agent mention does not ping the channel; its suggestion does', () => {
     assert.equal(slackPostFor({ ...base, via: 'Claude', recipients: [r('b', 'doc_mention')] }, all), null)
     const s = slackPostFor({ ...base, via: 'Claude', actorId: null as unknown as string, recipients: [r('b', 'approval_request')], anchor: 'plan' }, all)

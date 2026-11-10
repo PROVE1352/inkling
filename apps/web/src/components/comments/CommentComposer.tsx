@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import type { MemberDTO, WorkspaceConnectionDTO } from '@inkling/shared'
 import { connectionLabel, useAgentConnections } from '../../teamAgentsApi'
+import { statusByUser, statusLabel } from '../../memberStatusApi'
 import { isMod } from '../../lib/platform'
 import { useT } from '../../i18n'
 
@@ -119,6 +120,8 @@ export function CommentComposer({
             )
           })
           .slice(0, 6)
+  // a status in force shows next to the person and their agents (docs/adr/1846-*, 1870-*)
+  const statuses = statusByUser(members)
   const agentSuggestions =
     query === null
       ? []
@@ -164,7 +167,7 @@ export function CommentComposer({
               className="flex w-full flex-col px-2.5 py-1 text-left hover:bg-hover"
             >
               <span className="truncate text-xs text-ink">{m.name}</span>
-              <span className="truncate text-[11px] text-sub">{m.email}</span>
+              <span className="truncate text-[11px] text-sub">{statuses.has(m.id) ? `${statusLabel(statuses.get(m.id)!)} · ${m.email}` : m.email}</span>
             </button>
           ))}
           {agentSuggestions.map((c) => (
@@ -178,7 +181,9 @@ export function CommentComposer({
               className="flex w-full flex-col px-2.5 py-1 text-left hover:bg-hover"
             >
               <span className="truncate text-xs text-ink">{connectionLabel(c)}</span>
-              <span className="truncate text-[11px] text-sub">{t('teamAgents.connectionSub')}</span>
+              <span className="truncate text-[11px] text-sub">
+                {statuses.has(c.userId) ? `${statusLabel(statuses.get(c.userId)!)} · ${t('teamAgents.connectionSub')}` : t('teamAgents.connectionSub')}
+              </span>
             </button>
           ))}
         </div>

@@ -49,6 +49,7 @@ import { lockSharePolicy } from '../shareSettings'
 import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { liveWorkspace } from '../workspaceLive'
 import { requestLocale } from '../i18n'
+import { PUBLIC_FORM_VIA } from '../agentVia'
 
 /** Visitors' reads: as gentle as the other public routes. */
 const FORM_READ_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
@@ -56,8 +57,8 @@ const FORM_READ_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
 export const FORM_SUBMIT_PER_MINUTE = 10
 /** Answers one form takes per hour, whatever their source (a distributed flood fills nothing more). */
 export const FORM_SUBMIT_PER_FORM_HOUR = 300
-/** `via` of rows made through a public form (change feed, catch_up: "Alice via public form"). */
-export const PUBLIC_FORM_VIA = 'public form'
+/** `via` of rows made through a public form (change feed, catch_up: "Alice via public form"); a person's input, not an agent's (docs/adr/1870-*). */
+export { PUBLIC_FORM_VIA }
 
 const tokenParam = z.object({ token: z.string().min(1).max(128) })
 

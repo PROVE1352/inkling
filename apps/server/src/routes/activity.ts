@@ -18,6 +18,7 @@ import { snapshotBlocks } from '../snapshotStore'
 import type { AnyBlock } from '../md/convert'
 import { pageInRangeSql } from '../tokenRange'
 import { revertInfo } from '../revert'
+import { agentViaSql, personViaSql } from '../agentVia'
 
 /**
  * Activity screen and diffs for people (docs/adr/1005-*). Reads the change log the agent feed
@@ -79,7 +80,7 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
              c.actor_id AS "actorId", u.name AS "actorName", c.via_client AS via, c.changed_at AS "changedAt",
              c.large, (c.before_text IS NOT NULL OR c.after_text IS NOT NULL) AS "hasText",
              CASE WHEN ${visibleNow} THEN p.title END AS title,
-             CASE WHEN ${visibleNow} THEN p.created_via END AS "createdVia"
+             CASE WHEN ${visibleNow} AND ${agentViaSql(sql`p.created_via`)} THEN p.created_via END AS "createdVia"
         FROM page_changes c
         LEFT JOIN pages p ON p.id = c.page_id
         LEFT JOIN users u ON u.id = c.actor_id
@@ -88,11 +89,11 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
          AND (c.scope = 'shared' OR c.owner_id = ${user.id})
          AND ${pageInRangeSql(sql`c.page_id`, sql`c.workspace_id`, user.id)}
          ${q.before ? sql`AND c.seq < ${q.before}::bigint` : sql``}
-         ${q.actor === 'human' ? sql`AND c.via_client IS NULL` : q.actor === 'ai' ? sql`AND c.via_client IS NOT NULL` : sql``}
+         ${q.actor === 'human' ? sql`AND ${personViaSql(sql`c.via_client`)}` : q.actor === 'ai' ? sql`AND ${agentViaSql(sql`c.via_client`)}` : sql``}
          ${q.via ? sql`AND c.via_client = ${q.via}` : sql``}
          ${q.userId ? sql`AND c.actor_id = ${q.userId}` : sql``}
          ${kindFilter(q.kind)}
-         ${q.aiPagesOnly === '1' ? sql`AND p.created_via IS NOT NULL AND ${visibleNow}` : sql``}
+         ${q.aiPagesOnly === '1' ? sql`AND ${agentViaSql(sql`p.created_via`)} AND ${visibleNow}` : sql``}
          ${rootFilter}
        ORDER BY c.seq DESC
        LIMIT ${limit + 1}
@@ -136,7 +137,7 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
     for (const it of items) it.revert = info.get(it.seq)
     const clients = (await db.execute(sql`
       SELECT DISTINCT via_client AS via FROM page_changes
-       WHERE workspace_id = ${id} AND via_client IS NOT NULL AND (scope = 'shared' OR owner_id = ${user.id})
+       WHERE workspace_id = ${id} AND ${agentViaSql(sql`via_client`)} AND (scope = 'shared' OR owner_id = ${user.id})
          AND ${pageInRangeSql(sql`page_id`, sql`workspace_id`, user.id)}
        ORDER BY 1 LIMIT 50
     `)) as unknown as { via: string }[]
@@ -251,12 +252,12 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
     const [row] = (await db.execute(sql`
-      SELECT p.created_via AS "createdVia", cu.name AS "createdByName", lc.changed_at AS at, lc.via_client AS via, au.name AS "actorName"
+      SELECT CASE WHEN ${agentViaSql(sql`p.created_via`)} THEN p.created_via END AS "createdVia", cu.name AS "createdByName", lc.changed_at AS at, lc.via_client AS via, au.name AS "actorName"
         FROM pages p
         LEFT JOIN users cu ON cu.id = p.created_by
         LEFT JOIN LATERAL (
           SELECT c.changed_at, c.via_client, c.actor_id FROM page_changes c
-           WHERE c.page_id = p.id AND c.via_client IS NOT NULL
+           WHERE c.page_id = p.id AND ${agentViaSql(sql`c.via_client`)}
            ORDER BY c.seq DESC LIMIT 1
         ) lc ON true
         LEFT JOIN users au ON au.id = lc.actor_id

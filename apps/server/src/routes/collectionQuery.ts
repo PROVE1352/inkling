@@ -60,6 +60,11 @@ export interface QueryRowsDTO {
   columns: string[]
   rows: { id: string; version: string; cells: string[] }[]
   nextCursor: string | null
+  /**
+   * User ids in the shown person cells of these rows, sorted (absent when none), so an agent can be
+   * told those people's status once (docs/adr/1846-*, 1870-*).
+   */
+  people?: string[]
 }
 
 export interface CollectionRowDTO {
@@ -72,6 +77,20 @@ export interface CollectionRowDTO {
 }
 
 const invalidQuery = (message: string) => new AppError(400, 'INVALID_QUERY', message)
+
+/** User ids held by the shown person columns of these rows (sorted, unique; the cell is the person also when an agent is assigned). */
+function personIdsShown(columns: ResolvedField[], rows: RawRow[]): string[] {
+  const personFields = columns.flatMap((c) => (c.kind === 'field' && c.field.type === 'person' ? [c.field.id] : []))
+  if (!personFields.length) return []
+  const ids = new Set<string>()
+  for (const r of rows) {
+    for (const fid of personFields) {
+      const v = r.props?.[fid]
+      if (typeof v === 'string') ids.add(v)
+    }
+  }
+  return [...ids].sort()
+}
 
 async function loadFields(collectionId: string): Promise<CollectionField[]> {
   const [row] = await db
@@ -296,6 +315,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
           )
         : null
     const rows = await formatRows(page.workspaceId, fields, columns, pageRows, user.id, now)
+    const people = personIdsShown(columns, pageRows)
     return {
       collection,
       workspaceId: page.workspaceId,
@@ -303,6 +323,7 @@ export async function registerCollectionQueryRoutes(app: FastifyInstance): Promi
       columns: columns.map((c) => c.name),
       rows: rows.map((r) => ({ id: r.id, version: r.version, cells: r.cells })),
       nextCursor,
+      ...(people.length ? { people } : {}),
     }
   })
 

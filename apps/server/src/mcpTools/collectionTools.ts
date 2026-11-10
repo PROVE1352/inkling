@@ -20,6 +20,7 @@ import type { McpServer, ToolCtx } from './core'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
 import { agentPropKey } from '@inkling/shared'
+import { peopleStatusLine } from '../memberStatus'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const today = () => new Date().toISOString().slice(0, 10)
@@ -128,6 +129,27 @@ function droppedLinks(fields: CollectionField[], sent: Record<string, string[]>,
   return notes
 }
 
+/**
+ * Status of the people a write put in person cells (docs/adr/1846-*, 1870-*): the stored person of
+ * each written person field (also when a person's agent connection was assigned: the cell holds its
+ * person). The caller's own person is left out. null (no tokens, no statement) when nobody has one.
+ */
+async function assignedStatusLine(
+  workspaceId: string,
+  fields: CollectionField[],
+  written: Record<string, unknown>,
+  stored: Record<string, unknown>,
+  self: string,
+): Promise<string | null> {
+  const ids = new Set<string>()
+  for (const f of fields) {
+    if (f.type !== 'person' || !(f.id in written || agentPropKey(f.id) in written)) continue
+    const v = stored[f.id]
+    if (typeof v === 'string' && v !== self) ids.add(v)
+  }
+  return ids.size ? peopleStatusLine(workspaceId, [...ids]) : null
+}
+
 async function loadRowTemplates(ctx: ToolCtx, collectionId: string): Promise<RowTemplateListDTO> {
   return (await call(ctx, 'GET', `/api/pages/${collectionId}/collection/row-templates`)).json() as RowTemplateListDTO
 }
@@ -228,11 +250,15 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       if (!cursor) data.push(`Fields: ${r.fields.map((f) => describeField(f, 10)).join('; ') || '(none)'}`)
       data.push(['id', 'version', ...r.columns].join(' | '))
       for (const row of r.rows) data.push([row.id, row.version, ...row.cells].join(' | '))
+      // statuses of the people in the shown person cells, once, last (docs/adr/1846-*); none = no line
+      const others = (r.people ?? []).filter((id) => id !== ctx.user.id)
+      const status = others.length ? await peopleStatusLine(r.workspaceId, others) : null
       const lines = [
         `collection ${r.collection.id}; can: ${pageFacts(ac, r.collection.id).can}`,
         wrapUntrusted(data.join('\n'), { source: 'rows', id: r.collection.id }),
         `${r.rows.length} row(s)${r.nextCursor ? ', more available' : ''}`,
         r.nextCursor ? `next cursor: ${r.nextCursor}` : '(end of results)',
+        ...(status ? [status] : []),
       ]
       return text(withApplies(ac, lines.join('\n')))
     }),
@@ -280,11 +306,13 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       }
       const out = res.json() as { row: { props: Record<string, unknown> }; version: string }
       const changed = Object.entries(properties).map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+      const status = await assignedStatusLine(cur.workspaceId, cur.fields, mapped.props, out.row.props, ctx.user.id)
       return text(
         withApplies(await loadAgentContext(ctx, [rowId]), [
           `Updated row ${rowId} in "${cleanText(cur.collection.title || 'Untitled')}". New version: ${out.version}`,
           `Set: ${changed.join('; ')}`,
           ...droppedLinks(cur.fields, rel, out.row.props),
+          ...(status ? [status] : []),
         ].join('\n')),
       )
     }),
@@ -342,9 +370,11 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       if (!rowId) throw new ToolError('The row was not created')
       // Agent assignments (docs/adr/1864-*) are checked by the props route, not by row creation.
       const agentProps = Object.fromEntries(Object.entries(props).filter(([k]) => k.startsWith('agent:')))
+      let stored = (created.row.props ?? {}) as Record<string, unknown>
       if (Object.keys(agentProps).length) {
-        await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: agentProps } })
+        stored = ((await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: agentProps } })).json() as { row: { props: Record<string, unknown> } }).row.props
       }
+      const status = await assignedStatusLine(def.workspaceId, fields, props, stored, ctx.user.id)
       const notes = droppedLinks(fields, relLinks, (created.row.props ?? {}) as Record<string, unknown>)
       const row = await getRow(ctx, rowId)
       const used = tpls.templates.find((t) => t.id === created.templateId)
@@ -354,6 +384,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
           used ? `Template: ${cleanText(used.name)} (${used.id})` : 'Template: none (empty row)',
           wrapUntrusted(rowLines(row.columns, row.row.cells), { source: 'rows', id: rowId }),
           ...notes,
+          ...(status ? [status] : []),
         ].join('\n')),
       )
     }),

@@ -10,6 +10,7 @@ import { backoffMs, drainOutbox, enqueue, kickOutbox, outboxCommitted, ownedOrOr
 import type { Exec, OutboxRow, RetryPolicy } from '../outbox'
 import { localISODate } from '../review'
 import { liveWorkspace } from '../workspaceLive'
+import { isAgentVia } from '../agentVia'
 import { BLOCKING_ERRORS, slackApi } from './api'
 import { botTokenOf, configuredOrigin, eventsOf, invalidateSlackCache, loadIntegration, pageLink, tapConfig } from './config'
 import type { IntegrationRow } from './config'
@@ -102,10 +103,14 @@ const ORDER: [PostKind, NotifyKind[]][] = [
 /** The channel post of one notification event, or null (no page, nothing switched on, nobody). */
 export function slackPostFor(ev: NotifyInput, enabled: Set<SlackEventKind>): SlackPostJob | null {
   if (!ev.pageId) return null
+  // Work handed to one agent connection (docs/adr/1863-*) is that agent's inbox item, never a
+  // channel post, also when the person keeps a copy (person_too): the channel follows only the
+  // person's own events, so a comment that mentions Bob and hands to Bob's agent posts once.
+  if (ev.connection) return null
   for (const [kind, kinds] of ORDER) {
     if (!enabled.has(kind)) continue
     // An agent's @mention does not ping a channel (same rule as the Slack webhook, docs/adr/1000-*).
-    if (kind === 'mention' && ev.via) continue
+    if (kind === 'mention' && isAgentVia(ev.via)) continue
     const hits = ev.recipients.filter((r) => kinds.includes(r.kind))
     if (!hits.length) continue
     const userIds = [...new Set(hits.map((r) => r.userId).filter((id) => id !== ev.actorId))].slice(0, 10)

@@ -11,6 +11,7 @@ import { enqueueWebhookEvent, webhookOutboxRows } from '../webhooks'
 import { enqueueNotify, notifyOutboxRow } from './engine'
 import { mayHaveMentions, mentionKey, scanMentions, scanMentionsInDoc, textMentions } from './mentionScan'
 import { connectionLiveSql, connectionOwnerSql, connectionsOutsidePage } from '../teamAgents'
+import { isAgentVia } from '../agentVia'
 
 /**
  * Producers that turn writes into notification events (docs/adr/1000-*, 1002-*). Each only queues
@@ -213,7 +214,7 @@ export async function syncDocMentions(
     // People's mentions ping the channel; agent-written ones do not (docs/adr/1002-*).
     // Only members are named in the channel (a chip can carry any user id).
     const people = added.filter((k) => !k.includes('/'))
-    if (!actor?.via && people.length) {
+    if (!isAgentVia(actor?.via) && people.length) {
       const members = (await tx.execute(sql`
         SELECT user_id AS "userId" FROM workspace_members
          WHERE workspace_id = ${prevRow.workspaceId} AND user_id = ANY(${`{${people.join(',')}}`}::uuid[])
@@ -280,7 +281,7 @@ export async function notifyPageEdited(
     },
     origin,
   )
-  if (!via) return
+  if (!isAgentVia(via)) return
   const added = a.sections.filter((s) => s.after && s.after.includes('@'))
   if (!added.length) return
   const members = (await exec.execute(sql`

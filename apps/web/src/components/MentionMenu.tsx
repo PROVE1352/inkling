@@ -6,7 +6,7 @@ import { AGENT_MENTION_KIND } from '@inkling/shared'
 import { connectionLabel, useAgentConnections } from '../teamAgentsApi'
 import { pageIcon } from '../lib/pageIcon'
 import { useT } from '../i18n'
-import { liveStatus, statusLabel } from '../memberStatusApi'
+import { liveStatus, statusByUser, statusLabel } from '../memberStatusApi'
 
 // `@` autocomplete → inserts an inline mention (M13).
 // Shows members (people) and pages in one list. People = kind 'user' blue chip, pages = kind 'page' link.
@@ -49,6 +49,8 @@ export function MentionMenu({
     }
 
     let agents = 0
+    // the person's status also on their agents' entries (docs/adr/1846-*, 1870-*)
+    const statuses = statusByUser(members.data)
     for (const c of connections.data ?? []) {
       if (agents >= 6) break
       const label = connectionLabel(c)
@@ -56,7 +58,7 @@ export function MentionMenu({
       agents++
       items.push({
         title: label,
-        subtext: t('teamAgents.connectionSub'),
+        subtext: statuses.has(c.userId) ? `${statusLabel(statuses.get(c.userId)!)} · ${t('teamAgents.connectionSub')}` : t('teamAgents.connectionSub'),
         onItemClick: () => insertMention(AGENT_MENTION_KIND, c.ref, label),
       })
     }

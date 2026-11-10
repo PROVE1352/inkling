@@ -20,6 +20,7 @@ import { applySectionPatch, buildEchoIndex } from './sectionPatch'
 import type { EchoIndex, PatchMode, PatchOutcome } from './sectionPatch'
 import { resolveMovedSection } from './sectionMoves'
 import { pageMentionKeys, readSectionBlocks } from './sectionSource'
+import { isAgentVia } from '../agentVia'
 
 /**
  * One section patch as a given user (docs/adr/0930-*, 0940-*, 1501-*): the core of
@@ -78,7 +79,7 @@ export async function beforeAgentEditSnapshot(pageId: string, user: Pick<AuthUse
  * throttled "AI edit" snapshot of the result (docs/adr/0936-*). Agents only (`via`).
  */
 export async function afterAgentEditSnapshot(pageId: string, user: Pick<AuthUser, 'id' | 'via'>, locale: () => Promise<Locale>): Promise<void> {
-  if (!user.via || (await hasRecentAgentSnapshot(pageId))) return
+  if (!isAgentVia(user.via) || (await hasRecentAgentSnapshot(pageId))) return
   const state = await currentSnapshotSource(pageId)
   if (!state) return
   const label = (await locale()) === 'ko' ? 'AI 편집' : 'AI edit'

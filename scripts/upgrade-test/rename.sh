@@ -22,7 +22,7 @@
 # runs a `nodian` project uses other ones; the old tree's files are rewritten to FROM). LOCAL_TAG (default
 # inkling:local) is the tag the override names. APP_PORT (default 3130; step 7 uses the next one) and DB_PORT
 # (default 55440, and the next one); a release before 0.17 uses 3000 and 55432 until it is upgraded.
-# EXPECT_MIGRATIONS: "OLD NEW" rows of the migration journal before and after step 3 (e.g. "59 60" from
+# EXPECT_MIGRATIONS: "OLD NEW" rows of the migration journal before and after step 3 (e.g. "59 61" from
 # 0.18.0); without it the new count only has to be at least the old one. FRESH_PROJECT: COMPOSE_PROJECT_NAME of the new install in step 7 (default none, so the project is
 # `inkling`; that install keeps .env.example's INKLING_DATA_NAME). WORK: work folder (default a new
 # temporary one). KEEP=1 leaves everything in place. Needs docker, node 18+, curl, perl, rsync.

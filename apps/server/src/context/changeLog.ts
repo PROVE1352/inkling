@@ -608,6 +608,9 @@ async function applyOp(tx: Tx, op: ChangeOp, hwm: number, at: Date, origin: stri
       if (rows.length) await insertRows(tx, rows)
       // Database automations (docs/adr/2240-*): rows added or changed in a collection with enabled
       // rules queue their runs here, in the transaction that logs the change: once, after the write committed.
+      // Any process may apply these rows, also one that never loaded the automation code (a CLI, a
+      // test, a process without the routes): the hook is loaded here then, so no row event is lost.
+      if (!automationHook && op.events.some((e) => e.kind === 'page_added' || e.kind === 'page_props')) await import('../automations/queue')
       if (automationHook && (await automationHook(tx, op.workspaceId, op.actor, op.events, origin))) {
         automationQueued = true
         if (origin !== OUTBOX_ORIGIN) automationForeign = true

@@ -22,13 +22,14 @@ edit, or an agent limited to one subtree writing outside it.
   for one action (automations/context.ts, auth.ts). The request is a non-browser client (`authVia
   'bearer'`, no connection scope). So membership, visibility, edit locks (`assertCan`), placement, the row
   cap, person cells, agent hand-offs and two-way relations are checked exactly as for the author's own
-  request. Notifications and webhook deliveries have no REST route; they are queued directly, to members
+  request. A process without the routes leaves runs to one that has them. Notifications and webhook deliveries have no REST route; they are queued directly, to members
   who can see the row and to hooks registered in the same workspace.
 - **The trigger's cap**: an action that writes outside the triggering row (add a row to a database) runs
-  only if whoever triggered could make that write: a member with edit access to the target. Refused, with
-  the reason in the run log: public form answers, page guests, and agent connections (the run cannot carry
-  their range or blocks) unless the target is the rule's own database. Handing a row to an AI connection
-  is refused for form answers and guests. Dates have no trigger person: author's rights only.
+  only if whoever triggered could make that write: a member with edit access to the target. Refused: public
+  form answers, page guests, and agent connections (the run cannot carry their range or blocks) unless the
+  target is the rule's own database. Handing a row to an AI connection is refused for form answers and
+  guests. Dates have no trigger person: author's rights only. A refusal is recorded as **skipped** with the
+  reason and does not count toward turning the rule off (ADR 2243), so outsiders cannot disable a rule.
 - Writes on the triggering row itself (set values, assign) are the rule's purpose and run with the
   author's rights for every trigger, including a form answer (a visitor cannot choose those values).
 - **What cannot trigger**: writes refused before they happen — read-only tokens, suggest-only connections
@@ -50,6 +51,9 @@ edit, or an agent limited to one subtree writing outside it.
 - A rule keeps working for others with its author's rights until the author loses them; the run log shows
   who the author is and why a run failed.
 - The cap is coarse for agents: a rule started by an agent write cannot add rows to another database.
+- A personal API token limited to a range (ADR 1200) writes with `via` null, so the cap sees its person:
+  a rule it starts can add rows to a database outside the token's range that the person can edit. The
+  run is the rule author's write, not the token's; recorded as a known issue.
 
 ## Consequences
 - apps/server/src/automations/{context,runner}.ts (`triggerMayReach`), auth.ts (one header branch),

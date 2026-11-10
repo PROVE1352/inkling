@@ -61,6 +61,7 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
         await r(import('../routes/apiTokens'), 'registerApiTokenRoutes')
         await r(import('../routes/oauth'), 'registerOAuthApiRoutes')
         await r(import('../routes/notifications'), 'registerNotificationRoutes')
+        await r(import('../routes/exportImport'), 'registerExportImportRoutes')
       },
       { prefix: '/api' },
     )
@@ -283,7 +284,7 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       assert.equal(res.statusCode, 200, res.body)
       await settle()
       const runs = await runsOf(src, rule.id)
-      assert.equal(runs[0].status, 'failed')
+      assert.equal(runs[0].status, 'skipped')
       assert.equal(runs[0].failedAction, 0)
       assert.match(String(runs[0].error), /guest/)
       assert.ok(!(await rowsOf(O, dst)).some((r) => r.title === 'from guest request'))
@@ -296,7 +297,7 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       assert.equal(res.statusCode, 200, res.body)
       await settle()
       const runs = await runsOf(src, rule.id)
-      assert.equal(runs[0].status, 'failed')
+      assert.equal(runs[0].status, 'skipped')
       assert.match(String(runs[0].error), /public form/)
       assert.ok(!(await rowsOf(O, dst)).some((r) => r.title === 'from form request'))
     })
@@ -307,7 +308,7 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       assert.equal(made.isError, false, made.text)
       await settle()
       let runs = await runsOf(src, rule.id)
-      assert.equal(runs[0].status, 'failed')
+      assert.equal(runs[0].status, 'skipped')
       assert.match(String(runs[0].error), /agent connection/)
       await mcp.close()
       // read-only token: the write itself is refused, so nothing is queued
@@ -328,6 +329,10 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       await settle()
       runs = await runsOf(src, rule.id)
       assert.equal(runs.length, before, 'refused writes start no run')
+      // refusals by the trigger's cap are skips: outsiders cannot turn the rule off
+      const list = (await ok(O, 'GET', `/api/collections/${src}/automations`)).automations as AutomationDTO[]
+      assert.equal(list[0].enabled, true)
+      assert.equal(list[0].failureCount, 0)
     })
 
     it('the author loses the right to edit the other database: the run fails at that action', async () => {
@@ -361,6 +366,24 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       assert.match(String(ra2.find((r) => r.status === 'skipped')?.error), /loop/)
       assert.equal((await rowsOf(O, a)).length, 2)
       assert.equal((await rowsOf(O, b)).length, 1)
+    })
+
+    it('two rules on the same row that change each other field stop at the loop marker', async () => {
+      const c = await newCollection(O, `SameRow ${W}`, [STATUS, { id: 'note', name: 'Note', type: 'text' }] as CollectionField[])
+      const ra = await addRule(O, c, { name: 'Status to note', trigger: { type: 'fieldChanged', fieldId: 'st' }, actions: [{ type: 'setFields', props: { note: 'status moved {{today}}' } }] })
+      const rb = await addRule(O, c, { name: 'Note to status', trigger: { type: 'fieldChanged', fieldId: 'note' }, actions: [{ type: 'setFields', props: { st: 'done' } }] })
+      const row = await newRow(O, c, 'ping-pong')
+      await settle()
+      await ok(M, 'PATCH', `/api/pages/${row.id}/props`, { props: { st: 'review' } })
+      await settle()
+      // person → A (sets Note) → B (sets Status) → A again: refused by the chain marker
+      assert.deepEqual((await runsOf(c, ra.id)).map((r) => r.status), ['skipped', 'ok'])
+      assert.deepEqual((await runsOf(c, rb.id)).map((r) => r.status), ['ok'])
+      const got = (await rowsOf(O, c)).find((r) => r.id === row.id)!
+      assert.equal(got.props.st, 'done')
+      assert.match(String(got.props.note), /^status moved /)
+      const feed = (await db.execute(sql`SELECT via_client AS via FROM page_changes WHERE page_id = ${row.id} AND kind = 'page_props' ORDER BY seq`)) as unknown as { via: string | null }[]
+      assert.deepEqual(feed.map((f) => f.via), [null, 'automation: Status to note', 'automation: Note to status'])
     })
 
     it('a chain of distinct rules stops at the depth limit', async () => {
@@ -411,6 +434,21 @@ describe('[db] database automations and button webhooks', { skip: !HAS_DB }, asy
       await ok(O, 'PATCH', `/api/pages/${row.id}/props`, { props: { n: 'y' } })
       await changeLog.drainChangeLog()
       assert.equal(await automationRows(), before)
+    })
+  })
+
+  describe('button export', () => {
+    it('plain Markdown shows the label; the download keeps the token with its actions', async () => {
+      const page = await h.makeDocPage(ws.id, O.id, `Export ${W}`, [
+        { id: 'b-exp', type: 'button', props: { label: 'Log it', color: 'green', actions: JSON.stringify([{ type: 'open', url: 'https://example.com/' }]) }, children: [] },
+      ] as never)
+      const plain = await as(O, 'GET', `/api/pages/${page.id}/export?format=md&notation=plain`)
+      assert.equal(plain.statusCode, 200, plain.body)
+      assert.match(plain.body, /\*\*\[Log it\]\*\*/)
+      assert.ok(!plain.body.includes('example.com') && !plain.body.includes('inkling:button'), plain.body)
+      const file = await as(O, 'GET', `/api/pages/${page.id}/export?format=md&notation=file`)
+      assert.equal(file.statusCode, 200, file.body)
+      assert.match(file.body, /<!-- inkling:button \{"actions":\[\{"type":"open","url":"https:\/\/example\.com\/"\}\],"color":"green","label":"Log it"\} -->/)
     })
   })
 

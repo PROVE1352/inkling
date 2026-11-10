@@ -83,6 +83,8 @@ export function resetAutomationLimits(): void {
 }
 
 export async function runAutomationPass(): Promise<number> {
+  // a process without the routes cannot run actions: leave the rows to one that can
+  if (!app) return 0
   const rows = (await db.execute(sql`
     UPDATE outbox SET locked_until = now() + make_interval(secs => ${LEASE_MS / 1000}), attempts = attempts + 1
      WHERE id IN (
@@ -151,7 +153,14 @@ async function record(rule: Pick<RuleRow, 'id' | 'name' | 'collectionId' | 'work
   if (told) outboxCommitted(['notify'])
 }
 
+/** A failure the author can fix (a target gone, lost rights, a webhook off): counts toward turning the rule off. */
 class ActionError extends Error {}
+/**
+ * Nothing to do for this row, or the trigger may not do it (docs/adr/2241-*, 2243-*): recorded as
+ * skipped with the reason and never counted, so outsiders (form answers, guests) or empty cells
+ * cannot turn a rule off.
+ */
+class SkipAction extends Error {}
 
 async function inject(user: AuthUser, method: 'POST' | 'PATCH', url: string, payload: unknown): Promise<unknown> {
   if (!app) throw new ActionError('automations are not running in this process')
@@ -254,6 +263,7 @@ async function runJob(r: Claimed): Promise<void> {
     try {
       await runAction(a, { rule, job, user, row: { id: row.id, workspaceId: row.workspaceId, props }, fields, ctx })
     } catch (err) {
+      if (err instanceof SkipAction) return record(rule, job, 'skipped', { failedAction: i, error: err.message })
       const msg = err instanceof ActionError ? err.message : String(err instanceof Error ? err.message : err)
       if (!(err instanceof ActionError)) log(`[automations] rule ${rule.id} action ${i + 1}: ${String(err)}`)
       return record(rule, job, 'failed', { failedAction: i, error: msg })
@@ -274,27 +284,33 @@ interface RunCtx {
 async function runAction(a: AutomationAction, c: RunCtx): Promise<void> {
   switch (a.type) {
     case 'setFields': {
+      const gone = Object.keys(a.props).filter((k) => !c.fields.some((f) => f.id === k))
+      if (gone.length) throw new ActionError(`the field ${gone.join(', ')} was removed from the database`)
       const props = resolveActionProps(c.fields, a.props, c.ctx)
-      if (!Object.keys(props).length) throw new ActionError('nothing to set (fields removed or values empty)')
+      if (!Object.keys(props).length) throw new SkipAction('nothing to set for this row (the values did not resolve)')
       await inject(c.user, 'PATCH', `/api/pages/${c.row.id}/props`, { props })
       return
     }
     case 'assign': {
+      if (!c.fields.some((f) => f.id === a.fieldId)) throw new ActionError('the person field was removed from the database')
       const v = resolveActionProps(c.fields, { [a.fieldId]: a.to }, c.ctx)[a.fieldId]
       const first = Array.isArray(v) ? v[0] : v
-      if (!first) throw new ActionError('nobody to assign (no one triggered it, or the field is gone)')
+      if (!first) throw new SkipAction('nobody to assign for this row (no one triggered it)')
       await inject(c.user, 'PATCH', `/api/pages/${c.row.id}/props`, { props: { [a.fieldId]: first } })
       return
     }
     case 'assignAgent': {
       const cap = c.job.actorVia === PUBLIC_FORM_VIA ? 'started by a public form answer, which cannot hand rows to an AI connection' : c.job.actorId && !c.job.event.startsWith('date') && !(await memberRole(c.rule.workspaceId, c.job.actorId)) ? 'started by a guest, who cannot hand rows to an AI connection' : null
-      if (cap) throw new ActionError(cap)
+      if (cap) throw new SkipAction(cap)
       await inject(c.user, 'PATCH', `/api/pages/${c.row.id}/props`, { props: { [`agent:${a.fieldId}`]: a.connection } })
       return
     }
     case 'addRow': {
+      // a database that is gone is the author's to fix; the trigger's cap is not
+      const [live] = (await db.execute(sql`SELECT 1 AS x FROM pages WHERE id = ${a.collectionId} AND kind = 'collection' AND deleted_at IS NULL`)) as unknown as unknown[]
+      if (!live) throw new ActionError('the database to add rows to is in the trash or deleted')
       const cap = await triggerMayReach(c.job, c.rule, a.collectionId)
-      if (cap) throw new ActionError(cap)
+      if (cap) throw new SkipAction(cap)
       const target = a.collectionId === c.rule.collectionId ? c.fields : await collectionFields(a.collectionId)
       const props = resolveActionProps(target, a.props, c.ctx)
       await inject(c.user, 'POST', `/api/pages/${a.collectionId}/collection/rows`, {
@@ -305,6 +321,7 @@ async function runAction(a: AutomationAction, c: RunCtx): Promise<void> {
       return
     }
     case 'notify': {
+      if (a.fieldId && !c.fields.some((f) => f.id === a.fieldId)) throw new ActionError('the person field was removed from the database')
       const ids = new Set<string>()
       if (a.fieldId) {
         const v = c.row.props[a.fieldId]
@@ -317,7 +334,7 @@ async function runAction(a: AutomationAction, c: RunCtx): Promise<void> {
       for (const u of [...ids].slice(0, 20)) {
         if ((await memberRole(c.row.workspaceId, u)) && (await findVisiblePage(c.row.id, u))) to.push(u)
       }
-      if (!to.length) throw new ActionError('nobody to notify (empty field, or no one who can see the row)')
+      if (!to.length) throw new SkipAction('nobody to notify for this row (empty field, or no one who can see the row)')
       const message = a.message ? renderTextVars(a.message, c.ctx) : ''
       await enqueueNotify(db, {
         workspaceId: c.row.workspaceId,

@@ -20,6 +20,8 @@ export type TrackedDoc = {
   unsynced: number
   /** read-only connection or denied document: its edits can never be saved by waiting */
   inert: boolean
+  /** its unsent edits are written to this device's offline copy (docs/adr/2204-*): leaving does not lose them */
+  durable: boolean
 }
 
 export type UnsavedTracker = {
@@ -31,8 +33,12 @@ export type UnsavedTracker = {
   unsynced: (key: object, n: number) => void
   /** Read-only scope or permission denied. */
   inert: (key: object, inert: boolean) => void
+  /** The document's unsent edits are (or are no longer) all stored on this device. */
+  durable: (key: object, durable: boolean) => void
   isUnsaved: (key: object) => boolean
   anyUnsaved: () => boolean
+  /** Unsent edits that exist only in this tab: a reload or a tab close would lose them. */
+  anyAtRisk: () => boolean
   /** Time (ms) since when anyUnsaved() has been true without a break, or null. */
   unsavedSince: () => number | null
   subscribe: (fn: () => void) => () => void
@@ -47,6 +53,10 @@ export function createUnsavedTracker(now: () => number = () => Date.now()): Unsa
     for (const d of docs.values()) if (unsavedOf(d)) return true
     return false
   }
+  const atRisk = () => {
+    for (const d of docs.values()) if (unsavedOf(d) && !d.durable) return true
+    return false
+  }
   const changed = () => {
     const a = any()
     if (a && since === null) since = now()
@@ -55,7 +65,7 @@ export function createUnsavedTracker(now: () => number = () => Date.now()): Unsa
   }
   return {
     track: (key) => {
-      if (!docs.has(key)) docs.set(key, { localPending: false, unsynced: 0, inert: false })
+      if (!docs.has(key)) docs.set(key, { localPending: false, unsynced: 0, inert: false, durable: false })
     },
     untrack: (key) => {
       if (docs.delete(key)) changed()
@@ -81,8 +91,15 @@ export function createUnsavedTracker(now: () => number = () => Date.now()): Unsa
       d.inert = inert
       changed()
     },
+    durable: (key, durable) => {
+      const d = docs.get(key)
+      if (!d || d.durable === durable) return
+      d.durable = durable
+      changed()
+    },
     isUnsaved: (key) => unsavedOf(docs.get(key)),
     anyUnsaved: any,
+    anyAtRisk: atRisk,
     unsavedSince: () => since,
     subscribe: (fn) => {
       listeners.add(fn)

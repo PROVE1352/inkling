@@ -26,7 +26,7 @@ import {
   useToggleBookmark,
   useUpdatePage,
 } from '../api'
-import { useUnsavedEdits } from '../lib/collabSocket'
+import { useUnsavedAtRisk, useUnsavedEdits } from '../lib/collabSocket'
 import { setActiveEditor } from '../lib/activeEditor'
 import { registerPageEditor } from '../lib/activeEditor'
 import { LINE_WIDTH_FULL, setLastPage, usePrefs } from '../lib/prefs'
@@ -130,12 +130,16 @@ function StatusDot({ status }: { status: ConnStatus }) {
   // Local edits the server has not acknowledged for a while, on this page or one just left
   // (docs/adr/1926-*): said in words, not only by the dot's colour.
   const unsaved = useUnsavedEdits()
+  // On this device's offline copy the edits survive a reload: "not uploaded yet" instead of
+  // "not saved yet" (docs/adr/2204-*).
+  const atRisk = useUnsavedAtRisk()
   if (unsaved) {
-    const hint = `${t('page.statusUnsaved')} · ${t(STATUS_STYLE[status].label)}. ${t('page.statusUnsavedHint')}`
+    const label = atRisk ? t('page.statusUnsaved') : t('offline.statusUnsent')
+    const hint = `${label} · ${t(STATUS_STYLE[status].label)}. ${atRisk ? t('page.statusUnsavedHint') : t('offline.statusUnsentHint')}`
     return (
-      <span role="status" title={hint} aria-label={hint} className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+      <span role="status" data-testid="page-unsent" data-at-risk={atRisk ? '1' : '0'} title={hint} aria-label={hint} className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
-        <span className="whitespace-nowrap">{t('page.statusUnsaved')}</span>
+        <span className="whitespace-nowrap">{label}</span>
       </span>
     )
   }
@@ -1075,6 +1079,7 @@ export function PageView() {
                 pageId={page.id}
                 wsId={wsId ?? ''}
                 me={me.data}
+                title={page.title}
                 onCollabChange={handleCollab}
                 onEditorReady={handleEditorReady}
                 readOnly={penMode || lockReadOnly}

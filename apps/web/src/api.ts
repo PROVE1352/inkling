@@ -17,6 +17,7 @@ import { useParams } from 'react-router'
 import { adoptUserLocale, getLocale, setServerDefaultLocale, t, type Locale } from './i18n'
 import { localizeApiError } from './i18n/errors'
 import { noteServerBuild } from './lib/update'
+import * as offline from './lib/offline/runtime'
 import type {
   AdminUserDTO,
   ApiErrorBody,
@@ -179,6 +180,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   noteServerBuild(res.headers) // X-Inkling-Build vs this bundle (lib/update.ts, docs/adr/0991-*)
   if (!res.ok) {
     const err = await parseError(res)
+    // The server no longer knows this session (expired, "log out everywhere", password change):
+    // this device's offline copies go with it (docs/adr/2203-*).
+    if (err.status === 401 && err.code === 'UNAUTHORIZED') void offline.wipeOffline()
     // A workspace started requiring two-step verification (docs/adr/1112-*): the layout refetches
     // the workspace list and shows the setup screen instead of a trail of failed requests.
     if (err.code === 'TWO_FACTOR_REQUIRED' && typeof window !== 'undefined') {
@@ -327,10 +331,23 @@ export function useMe() {
   return useQuery({
     queryKey: qk.me,
     queryFn: () =>
-      api<{ user: MeDTO }>('/api/auth/me').then((r) => {
-        adoptUserLocale(r.user.locale)
-        return r.user
-      }),
+      api<{ user: MeDTO }>('/api/auth/me').then(
+        (r) => {
+          adoptUserLocale(r.user.locale)
+          offline.noteServerAnswered()
+          void offline.adoptUser(r.user)
+          return r.user
+        },
+        // No answer at all (offline, server down): start from what this device kept, if anything
+        // (docs/adr/2202-*). A 401 stays an error: RequireAuth sends it to /login.
+        async (err: unknown) => {
+          if (offline.isNetworkError(err)) {
+            const kept = await offline.deviceMe<MeDTO>()
+            if (kept) return kept
+          }
+          throw err
+        },
+      ),
     staleTime: 60_000,
     retry: false,
   })
@@ -355,7 +372,21 @@ export function useAuthMode() {
 }
 
 const fetchWorkspaces = () =>
-  api<{ workspaces: WorkspaceDTO[] }>('/api/workspaces').then((r) => r.workspaces)
+  api<{ workspaces: WorkspaceDTO[] }>('/api/workspaces').then(
+    (r) => {
+      // kept for an offline start; copies of workspaces no longer listed are deleted (docs/adr/2202-*)
+      void offline.saveSnapshot('workspaces', r.workspaces)
+      void offline.sweepWorkspaces(new Set(r.workspaces.map((w) => w.id)))
+      return r.workspaces
+    },
+    async (err: unknown) => {
+      if (offline.isNetworkError(err)) {
+        const kept = await offline.deviceSnapshot<WorkspaceDTO[]>('workspaces')
+        if (kept) return kept
+      }
+      throw err
+    },
+  )
 
 export function useWorkspaces() {
   return useQuery({
@@ -381,13 +412,32 @@ export function useMemberScope(wsId?: string): boolean {
 
 export function usePages(wsId: string) {
   const queryClient = useQueryClient()
+  const polled = pollingQuery<{ pages: PageMetaDTO[] }, PageMetaDTO[]>(
+    queryClient,
+    qk.pages(wsId),
+    `/api/workspaces/${wsId}/pages`,
+    (r) => r.pages,
+  )
   return useQuery({
-    ...pollingQuery<{ pages: PageMetaDTO[] }, PageMetaDTO[]>(
-      queryClient,
-      qk.pages(wsId),
-      `/api/workspaces/${wsId}/pages`,
-      (r) => r.pages,
-    ),
+    ...polled,
+    // The tree is kept for an offline start; copies of pages it no longer lists are checked
+    // (trashed: unsent edits kept for recovery; no access: deleted) — docs/adr/2202-*.
+    queryFn: (ctx: { signal: AbortSignal }) =>
+      polled.queryFn(ctx).then(
+        (pages) => {
+          offline.noteServerAnswered()
+          void offline.saveSnapshot(`pages:${wsId}`, pages)
+          void offline.sweepWorkspace(wsId, new Set(pages.map((p) => p.id)), offline.pageStillThere)
+          return pages
+        },
+        async (err: unknown) => {
+          if (offline.isNetworkError(err)) {
+            const kept = queryClient.getQueryData<PageMetaDTO[]>(qk.pages(wsId)) ?? (await offline.deviceSnapshot<PageMetaDTO[]>(`pages:${wsId}`))
+            if (kept) return kept
+          }
+          throw err
+        },
+      ),
     enabled: !!wsId,
     refetchInterval: 20_000,
     refetchOnWindowFocus: true,
@@ -775,8 +825,16 @@ export function useSetUserLocale() {
 export function useLogout() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => api<void>('/api/auth/logout', { method: 'POST' }),
-    onSuccess: () => {
+    // This device's offline copies go even when the server cannot be told (offline): logging out
+    // means leaving this device (docs/adr/2203-*).
+    mutationFn: async () => {
+      try {
+        await api<void>('/api/auth/logout', { method: 'POST' })
+      } finally {
+        await offline.wipeOffline()
+      }
+    },
+    onSettled: () => {
       qc.clear()
     },
   })

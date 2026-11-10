@@ -50,6 +50,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { getLocale, useT, type TKey } from '../i18n'
 import { delegatedDisplayName, oidcErrorText } from './Login'
 import { Group, Row, Select, SettingsFlat, Toggle } from '../components/SettingsRows'
+import { OfflineSettings } from '../lib/offline/OfflineSettings'
 import { StatusRow } from '../components/MemberStatus'
 
 // Settings (/w/:wsId/settings): Obsidian-style, a list of sections on the left and the chosen section on
@@ -70,6 +71,7 @@ const SECTION_IDS = [
   'appearance',
   'connections',
   'shortcuts',
+  'offline',
   'about',
 ] as const
 type SectionId = (typeof SECTION_IDS)[number]
@@ -85,6 +87,7 @@ const SECTIONS: Record<SectionId, { label: TKey; icon: (size: number) => ReactNo
   appearance: { label: 'settings.appearance', icon: (s) => <ContrastIcon size={s} /> },
   connections: { label: 'settings.connections', icon: (s) => <PlugIcon size={s} /> },
   shortcuts: { label: 'settings.shortcuts', icon: (s) => <KeyboardIcon size={s} /> },
+  offline: { label: 'settings.offline', icon: (s) => <PlugIcon size={s} /> },
   about: { label: 'settings.about', icon: (s) => <InfoIcon size={s} /> },
 }
 
@@ -629,6 +632,12 @@ function SectionBody({ id, label }: { id: SectionId; label: string }) {
       )
     case 'shortcuts':
       return <ShortcutsSection />
+    case 'offline':
+      return (
+        <SettingsFlat omitTitle>
+          <OfflineSettings />
+        </SettingsFlat>
+      )
     case 'about':
       return (
         <SettingsFlat omitTitle>

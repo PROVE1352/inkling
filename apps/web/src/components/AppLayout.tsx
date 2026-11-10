@@ -24,6 +24,7 @@ import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { SearchModal, type SearchMode } from './SearchModal'
 import { ConfirmDialog } from './ConfirmDialog'
+import { OfflineBanner } from '../lib/offline/OfflineBanner'
 import { EmailVerifyBanner } from './EmailVerifyBanner'
 import { AdminStatusBanner } from '../status/AdminStatusBanner'
 import { TwoFactorBanner, TwoFactorGate, useTwoFactorRequiredListener } from './TwoFactorRequired'
@@ -301,6 +302,7 @@ export function AppLayout() {
         <AdminStatusBanner />
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />
+        <OfflineBanner />
         <Outlet
           context={
             { onToggleSidebar, openSearch } satisfies LayoutContext

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Y from 'yjs'
@@ -12,6 +12,11 @@ import type { UserDTO } from '@inkling/shared'
 import { qk, uploadFile } from '../api'
 import { userColor } from '../lib/colors'
 import { openCollab, readStatus, readUsers, sameUsers } from '../lib/collabSocket'
+import { createGate, fetchSyncCheck } from '../lib/offline/gate'
+import type { PageCopy } from '../lib/offline/pageCopy'
+import { deviceStateWith, forgetCopy, keepRecovery, openPageCopy, useOfflineStatus } from '../lib/offline/runtime'
+import { toast } from '../lib/toast'
+import type { TKey } from '../i18n'
 import { capUndoHistory } from '../lib/undoCap'
 import { pinAnchor } from '../lib/pinAnchor'
 import { revealBlock } from '../lib/headingFolds'
@@ -69,22 +74,65 @@ const schema = BlockNoteSchema.create(
   editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec }),
 )
 
-export function CollabEditor({
-  pageId,
-  wsId,
-  me,
-  onCollabChange,
-  onEditorReady,
-  readOnly = false,
-}: {
+/** Why the device copy was not merged (docs/adr/2201-*): shown above the editor that reopened from the server. */
+type BlockedNotice = 'restored' | 'replaced' | 'readonly' | 'trashed' | 'gone'
+const BLOCKED_TEXT: Record<BlockedNotice, TKey> = {
+  restored: 'offline.blocked.restored',
+  replaced: 'offline.blocked.replaced',
+  readonly: 'offline.blocked.readonly',
+  trashed: 'offline.blocked.trashed',
+  gone: 'offline.blocked.gone',
+}
+
+type CollabEditorProps = {
   pageId: string
   wsId: string
   me: UserDTO
+  /** page title, kept with the device copy and its recovery items */
+  title?: string
   onCollabChange?: (state: CollabState) => void
   onEditorReady?: (editor: InklingEditor | null) => void
   /** Ink mode or an edit lock — the body is not editable */
   readOnly?: boolean
-}) {
+}
+
+/**
+ * The page editor. When the sync gate (lib/offline/gate.ts) does not let the device copy merge, the
+ * session is thrown away and a new one opens from the server (`epoch`), with a notice saying why.
+ */
+export function CollabEditor(props: CollabEditorProps) {
+  const t = useT()
+  const [epoch, setEpoch] = useState(0)
+  const [notice, setNotice] = useState<BlockedNotice | null>(null)
+  const onReopen = useCallback((why: BlockedNotice | null, delayMs = 0) => {
+    if (why) setNotice(why)
+    window.setTimeout(() => setEpoch((e) => e + 1), delayMs)
+  }, [])
+  return (
+    <>
+      {notice && (
+        <div role="status" data-testid="offline-blocked" className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-ink">
+          <span className="min-w-0 flex-1">{t(BLOCKED_TEXT[notice])}</span>
+          <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-xs text-sub hover:text-ink">
+            {t('common.close')}
+          </button>
+        </div>
+      )}
+      <CollabEditorSession key={epoch} {...props} onReopen={onReopen} />
+    </>
+  )
+}
+
+function CollabEditorSession({
+  pageId,
+  wsId,
+  me,
+  title,
+  onCollabChange,
+  onEditorReady,
+  readOnly = false,
+  onReopen,
+}: CollabEditorProps & { onReopen: (why: BlockedNotice | null, delayMs?: number) => void }) {
   // M16: on a stateless broadcast ({t:'comments'}) invalidate the comments cache so it shows at once.
   const queryClient = useQueryClient()
   const t = useT()
@@ -98,18 +146,98 @@ export function CollabEditor({
   const [synced, setSynced] = useState(false)
   const [users, setUsers] = useState<CollabUser[]>([])
   const [scope, setScope] = useState<string | undefined>(undefined)
+  // The device copy (docs/adr/2200-*): undefined while it loads, null when there is none to keep
+  // (setting off, storage unusable). Loaded into `doc` before the provider exists.
+  const [copy, setCopy] = useState<PageCopy | null | undefined>(undefined)
+  const [hadCopy, setHadCopy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    let c: PageCopy | null = null
+    void (async () => {
+      try {
+        c = await openPageCopy({ pageId, wsId, doc, session: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`, title })
+        if (c && (await c.load())) setHadCopy(true)
+      } catch {
+        c = null
+      }
+      if (!alive) {
+        c?.dispose()
+        return
+      }
+      setCopy(c)
+    })()
+    return () => {
+      alive = false
+      // a copy handed to a provider lives until that provider is destroyed (onDestroy below)
+      if (c && !c.started()) c.dispose()
+    }
+    // the title only labels the copy; a rename must not reopen it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, pageId, wsId])
+  useEffect(() => {
+    if (copy && title) copy.setTitle(title)
+  }, [copy, title])
 
   useEffect(() => {
-    const handle = openCollab({
+    if (copy === undefined) return
+    let blocked = false
+    // The sync gate runs before every Auth (docs/adr/2201-*). Without a device copy (setting off,
+    // storage unusable) there is nowhere to keep a recovery item, so the page syncs as in 0.17.
+    const token = copy && createGate({
+      doc,
+      copy,
+      check: () => fetchSyncCheck(pageId),
+      onBlocked: async (d) => {
+        if (d.kind === 'retry') {
+          onReopen(null, 10_000)
+          return
+        }
+        blocked = true
+        try {
+          if (d.kind === 'recover') {
+            await copy?.flush()
+            await keepRecovery({ pageId, wsId, title: title ?? '', reason: d.reason, state: await deviceStateWith(pageId, doc) })
+          }
+          copy?.dispose()
+          await forgetCopy(pageId)
+        } finally {
+          // a reset lost nothing (no unsent edits): reopen without a notice
+          onReopen(d.kind === 'forget' ? 'gone' : d.kind === 'recover' ? d.reason : null)
+        }
+      },
+    })
+    let uploadedAfterOutage = !!copy?.pending()
+    let destroyed = false
+    // eslint-disable-next-line prefer-const
+    let handle: ReturnType<typeof openCollab> | undefined
+    handle = openCollab({
       name: pageId,
       document: doc,
       userKey: me.id,
+      token: token || undefined,
+      copy: copy ?? undefined,
+      // The provider outlives this editor while it holds unacknowledged edits (ADR 1926): the copy
+      // keeps clearing its marks until then.
+      onDestroy: () => {
+        destroyed = true
+        const prov = handle?.provider
+        prov?.off('unsyncedChanges', onUnsynced)
+        // destroyed because its last edits were just acknowledged: clear their marks, then let go
+        void (async () => {
+          if (copy && !blocked && prov && prov.unsyncedChanges === 0 && copy.pending()) await copy.acked()
+          copy?.dispose()
+        })()
+      },
       // Stateless notices the server sends on this page's channel. On a comment change, refetch
-      // immediately instead of waiting for the poll. Parse failures are ignored.
+      // immediately instead of waiting for the poll; the document generation goes to the device
+      // copy (docs/adr/2201-*). Unknown and malformed payloads are ignored.
       onStateless: ({ payload }) => {
         try {
-          if (JSON.parse(payload)?.t === 'comments') {
+          const msg = JSON.parse(payload)
+          if (msg?.t === 'comments') {
             queryClient.invalidateQueries({ queryKey: qk.comments(pageId) })
+          } else if (msg?.t === 'gen' && typeof msg.gen === 'number' && !blocked) {
+            copy?.setGen(msg.gen)
           }
         } catch {
           // ignore malformed payloads
@@ -117,6 +245,21 @@ export function CollabEditor({
       },
     })
     const p = handle.provider
+    copy?.start((origin) => origin === p)
+    // Everything sent so far is acknowledged: clear the copy's unsent marks (compare-and-delete).
+    function onUnsynced(n: number) {
+      if (n !== 0 || !copy || blocked || destroyed || !copy.pending()) return
+      const after = uploadedAfterOutage
+      uploadedAfterOutage = false
+      void copy.acked().then(() => {
+        if (after) toast({ message: t('offline.uploaded') })
+      })
+    }
+    p.on('unsyncedChanges', onUnsynced)
+    const onDown = () => {
+      if (copy?.pending()) uploadedAfterOutage = true
+    }
+    p.on('disconnect', onDown)
     // Subscribe in the same tick as construction (network events are async, so nothing is
     // missed), then read the current state defensively.
     // On the shared socket the socket status says nothing about *this* document: a denied
@@ -153,6 +296,7 @@ export function CollabEditor({
     if (p.isAuthenticated) onAuthenticated()
     setProvider(p)
     return () => {
+      p.off('disconnect', onDown)
       p.off('status', onStatus)
       p.off('authenticationFailed', onDenied)
       p.off('authenticated', onAuthenticated)
@@ -161,7 +305,7 @@ export function CollabEditor({
       handle.release()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, pageId, me.id])
+  }, [doc, pageId, me.id, copy])
 
   useEffect(() => () => doc.destroy(), [doc])
 
@@ -169,6 +313,24 @@ export function CollabEditor({
   useEffect(() => {
     onCollabChange?.({ status, synced, users, scope })
   }, [status, synced, users, scope, onCollabChange])
+
+  // No server and nothing on this device for this page: say so instead of an empty editor whose
+  // typing would only start a second, unrelated history (docs/adr/2202-*).
+  const offline = useOfflineStatus()
+  const [late, setLate] = useState(false)
+  useEffect(() => {
+    if (synced) return
+    const timer = window.setTimeout(() => setLate(true), 4000)
+    return () => window.clearTimeout(timer)
+  }, [synced])
+  const unreachable = !synced && (offline.offline || (late && status !== 'connected'))
+  if (copy !== undefined && !hadCopy && unreachable) {
+    return (
+      <div data-testid="offline-not-cached" className="rounded-md border border-line px-4 py-6 text-center text-sm text-sub">
+        {t(offline.enabled ? 'offline.notCached' : 'offline.notCachedOff')}
+      </div>
+    )
+  }
 
   // The "Connecting…" pill fades in only when the connection takes longer than 400 ms (`nd-late`),
   // so a normal page open does not flash it for one frame (docs/adr/1222-*).
@@ -189,6 +351,7 @@ export function CollabEditor({
       doc={doc}
       provider={provider}
       synced={synced}
+      deviceCopy={hadCopy}
       onEditorReady={onEditorReady}
       readOnly={readOnly}
     />
@@ -202,6 +365,7 @@ function CollabEditorBody({
   doc,
   provider,
   synced,
+  deviceCopy,
   onEditorReady,
   readOnly,
 }: {
@@ -211,6 +375,8 @@ function CollabEditorBody({
   doc: Y.Doc
   provider: HocuspocusProvider
   synced: boolean
+  /** the body came from this device's offline copy (shown until the server answers) */
+  deviceCopy: boolean
   onEditorReady?: (editor: InklingEditor | null) => void
   readOnly: boolean
 }) {
@@ -376,8 +542,11 @@ function CollabEditorBody({
   return (
     <div className="relative" onClickCapture={onClickCapture} onAuxClick={editableLinkAuxClick}>
       {!synced && (
-        <div className="nd-late pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur">
-          {t('editor.connecting')}
+        <div
+          data-testid={deviceCopy ? 'offline-device-copy' : undefined}
+          className="nd-late pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-app/90 px-3 py-1 text-xs text-sub shadow-sm backdrop-blur"
+        >
+          {t(deviceCopy ? 'offline.deviceCopy' : 'editor.connecting')}
         </div>
       )}
       {/* slashMenu={false}: turn off the default slash menu and replace it with SlashMenu (default

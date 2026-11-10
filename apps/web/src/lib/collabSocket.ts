@@ -60,16 +60,25 @@ export const unsavedEdits = createUnsavedTracker()
 // Leaving a page inside the app never drops it either: its provider stays until acknowledged.
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', (e) => {
-    if (!unsavedEdits.anyUnsaved()) return
+    // edits already written to this device's offline copy survive a reload (docs/adr/2204-*)
+    if (!unsavedEdits.anyAtRisk()) return
     e.preventDefault()
     // older browsers still need returnValue set to show the prompt
     e.returnValue = ''
   })
 }
 
+/** The device copy of a document as the tracker needs it (lib/offline/pageCopy.ts). */
+export type DurableCopy = { durable: () => boolean; pending: () => boolean; subscribe: (fn: () => void) => () => void }
+
 /** Wires one provider into the tracker; returns the cleanup. */
-function trackUnsaved(provider: HocuspocusProvider, document: Y.Doc): () => void {
+function trackUnsaved(provider: HocuspocusProvider, document: Y.Doc, copy?: DurableCopy): () => void {
   unsavedEdits.track(provider)
+  // edits stored on the device before this provider existed (loaded from the offline copy) are unsent too
+  if (copy?.pending()) unsavedEdits.localEdit(provider)
+  const syncDurable = () => unsavedEdits.durable(provider, !!copy?.durable())
+  syncDurable()
+  const offCopy = copy?.subscribe(syncDurable)
   const onUpdate = (_u: Uint8Array, origin: unknown) => {
     // the provider applies the server's updates with itself as origin; everything else is local
     if (origin !== provider) unsavedEdits.localEdit(provider)
@@ -86,6 +95,7 @@ function trackUnsaved(provider: HocuspocusProvider, document: Y.Doc): () => void
     provider.off('unsyncedChanges', onUnsynced)
     provider.off('authenticated', onAuthenticated)
     provider.off('authenticationFailed', onDenied)
+    offCopy?.()
     unsavedEdits.untrack(provider)
   }
 }
@@ -123,6 +133,11 @@ export function useUnsavedEdits(): boolean {
     return () => window.clearTimeout(t)
   }, [since])
   return showUnsaved(since, Date.now())
+}
+
+/** Whether the unsent edits behind the indicator would survive a reload (all on this device). */
+export function useUnsavedAtRisk(): boolean {
+  return useSyncExternalStore(unsavedEdits.subscribe, unsavedEdits.anyAtRisk, () => false)
 }
 
 /**
@@ -192,6 +207,15 @@ export type OpenCollabOptions = {
   /** Session owner (user id). Sockets are never shared across identities. */
   userKey: string
   onStateless?: HocuspocusProviderConfiguration['onStateless']
+  /** Auth token callback; the offline sync gate (lib/offline/gate.ts) decides there whether to sync. */
+  token?: () => Promise<string>
+  /** The document's offline copy, if any (durability for the leave guard). */
+  copy?: DurableCopy
+  /**
+   * Runs when the provider is really destroyed — after `release()`, once its edits are acknowledged
+   * (it can outlive the editor that opened it): the offline copy clears its unsent marks until then.
+   */
+  onDestroy?: () => void
 }
 
 /**
@@ -211,12 +235,12 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       url: collabUrl(),
       name: opts.name,
       document: opts.document,
-      token: 'cookie',
+      token: opts.token ?? 'cookie',
       onStateless: opts.onStateless,
     })
     let released = false
     live.add(provider)
-    const untrack = trackUnsaved(provider, opts.document)
+    const untrack = trackUnsaved(provider, opts.document, opts.copy)
     return {
       provider,
       sharedSocket: false,
@@ -228,6 +252,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
           live.delete(provider)
           provider.destroy()
           provider.configuration.websocketProvider?.destroy?.()
+          opts.onDestroy?.()
         })
       },
     }
@@ -241,7 +266,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     websocketProvider: s.ws,
     name: opts.name,
     document: opts.document,
-    token: 'cookie',
+    token: opts.token ?? 'cookie',
     // Keep the socket when this provider detaches (destroy / permission denied) — other
     // documents still use it. The last release closes it below.
     preserveConnection: true,
@@ -253,7 +278,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
   let released = false
   let destroyed = false
   live.add(provider)
-  const untrack = trackUnsaved(provider, opts.document)
+  const untrack = trackUnsaved(provider, opts.document, opts.copy)
   let strikes = 0
   const watchdog = window.setInterval(() => {
     if (destroyed || provider.isSynced || s.denied.has(opts.name) || s.ws.status !== 'connected') {
@@ -286,6 +311,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
         s.closedAt.set(opts.name, Date.now())
         s.refs--
         if (s.refs <= 0) closeShared(s)
+        opts.onDestroy?.()
       })
     },
   }

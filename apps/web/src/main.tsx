@@ -6,6 +6,7 @@ import './index.css'
 import { App } from './App'
 import { ApiError } from './api'
 import { initPwa } from './lib/pwa'
+import { initOffline } from './lib/offline/runtime'
 import { addUpdateSafetyCheck, noteServerBuild, setUpdateMode } from './lib/update'
 import { UpdateBanner } from './components/UpdateBanner'
 import { getLocale, setServerDefaultLocale, useLocale } from './i18n'
@@ -28,6 +29,8 @@ const queryClient = new QueryClient({
 })
 
 initPwa()
+// Offline copies on this device (docs/adr/2200-*): the device setting and network events.
+initOffline()
 
 // Version check (docs/adr/0990-0993): the server's build id and UPDATE_MODE. Every later /api
 // response is checked too (api.ts → noteServerBuild). Force mode never reloads while a mutation

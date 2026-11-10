@@ -77,4 +77,20 @@ describe('unsaved edits', () => {
     assert.equal(t.unsavedSince(), null)
     assert.ok(calls >= 2)
   })
+
+  it('edits stored on the device copy are unsent but not at risk: the leave guard does not ask (docs/adr/2204-*)', () => {
+    const t = createUnsavedTracker()
+    const p = {}
+    t.track(p)
+    t.localEdit(p)
+    t.unsynced(p, 1)
+    assert.equal(t.anyAtRisk(), true)
+    t.durable(p, true)
+    assert.equal(t.anyUnsaved(), true, 'still not on the server: the indicator stays')
+    assert.equal(t.anyAtRisk(), false)
+    t.durable(p, false) // a later write to the device failed
+    assert.equal(t.anyAtRisk(), true)
+    t.unsynced(p, 0)
+    assert.equal(t.anyAtRisk(), false)
+  })
 })

@@ -33,6 +33,7 @@ import oauthCimd from './en/oauth-cimd'
 import clip from './en/clip'
 import push from './en/push'
 import automations from './en/automations'
+import offline from './en/offline'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -72,6 +73,7 @@ export const en = {
   ...clip,
   ...push,
   ...automations,
+  ...offline,
 }
 
 export type MessageKey = keyof typeof en

@@ -36,6 +36,8 @@ import { PageTree } from './PageTree'
 import { TrashModal } from './TrashModal'
 import { Spinner } from './Spinner'
 import { useLaterList, useThreads } from '../laterApi'
+import { askConfirm } from '../lib/confirm'
+import { offlineStatus } from '../lib/offline/runtime'
 import {
   AlarmIcon,
   ClockIcon,
@@ -190,8 +192,11 @@ export function Sidebar({
     window.setTimeout(() => setCopied(null), 1500)
   }
 
-  const doLogout = () => {
-    logout.mutate(undefined, { onSuccess: () => navigate('/login', { replace: true }) })
+  const doLogout = async () => {
+    // logging out deletes this device's offline copies, unsent edits included (docs/adr/2203-*)
+    const pending = offlineStatus().pendingPages
+    if (pending > 0 && !(await askConfirm(t('offline.logoutPending', { count: pending }), t('sidebar.logout')))) return
+    logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) })
   }
 
   // Top menus (docs/adr/1020-*): saved order/visibility from the server, merged with this build's menus.

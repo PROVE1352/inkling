@@ -4,7 +4,9 @@ import { z } from 'zod'
 import type { CommentDTO } from '@inkling/shared'
 import { findSection, splitSections } from '../context/chunker'
 import type { Section } from '../context/chunker'
+import { resolveSectionWriteRef } from '../context/sectionMoves'
 import { db } from '../db/index'
+import { AppError } from '../errors'
 import { comments, pageDocs, pages } from '../db/schema'
 import { stateToBlocks } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
@@ -151,7 +153,16 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
       let blockId: string | undefined
       let anchor: string | null = null
       if (section) {
-        const s = sectionOrError(map, section)
+        // A short anchor or heading text that another section answered to since it was printed is
+        // refused with the sections it could mean (docs/adr/1960-*), not put on the first one.
+        let ref = section
+        try {
+          ref = await resolveSectionWriteRef(pageId, section, map.sections)
+        } catch (err) {
+          if (err instanceof AppError && err.code === 'SECTION_AMBIGUOUS') throw new ToolError(err.message)
+          throw err
+        }
+        const s = sectionOrError(map, ref)
         blockId = map.blocks[s.start]?.id as string | undefined
         anchor = s.anchor
       } else {

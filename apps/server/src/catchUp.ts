@@ -898,7 +898,7 @@ export async function readCatchUp(owner: MarkerOwner, opts: CatchUpOptions): Pro
     if (sinceMs > nowMs) sinceMs = nowMs
     // the first row logged at or after the time (changed_at index), minus one
     const [r] = (await db.execute(sql`
-      SELECT seq::text AS seq FROM page_changes WHERE changed_at >= to_timestamp(${sinceMs / 1000}) ORDER BY changed_at, seq LIMIT 1
+      SELECT seq::text AS seq FROM page_changes WHERE changed_at >= to_timestamp(${sinceMs / 1000}) ORDER BY changed_at, page_changes.seq LIMIT 1
     `)) as unknown as { seq: string }[]
     fromSeq = r ? Math.min(end.seq, Number(r.seq) - 1) : end.seq
   }
@@ -912,7 +912,7 @@ export async function readCatchUp(owner: MarkerOwner, opts: CatchUpOptions): Pro
   // inbox items created after `since` (the inbox's own cursor is not moved: nothing is acknowledged)
   const [ib] = (await db.execute(sql`
     SELECT seq::text AS seq FROM notifications WHERE user_id = ${userId} AND created_at <= to_timestamp(${sinceMs / 1000})
-     ORDER BY created_at DESC, seq DESC LIMIT 1
+     ORDER BY created_at DESC, notifications.seq DESC LIMIT 1
   `)) as unknown as { seq: string }[]
   const inbox = await readInbox(userId, { workspaceId: ws ?? undefined, cursor: ib?.seq }, owner.connection)
   const inboxNew = inbox.items.filter((i) => Date.parse(i.createdAt) > sinceMs)

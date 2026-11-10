@@ -70,11 +70,24 @@ export function computeSectionChanges(before: SectionLike[], after: SectionLike[
   const afterBy = new Map(after.map((s) => [s.anchor, s]))
   const changes: SectionChange[] = []
 
+  // An anchor that passed from one heading to another (a second "Decided" inserted above the first
+  // takes `decided` and pushes the old one to `decided~2`; deleting the first hands `decided` to the
+  // second) is not a modification of one section: when the heading block that held the anchor, or
+  // the one that holds it now, lives on under another anchor, both sides take part in the rename
+  // pairing below instead (docs/adr/1960-*). A heading retyped as a new block stays "modified".
+  const beforeBlocks = new Set(before.map((s) => s.blockId).filter((b): b is string => !!b))
+  const afterBlocks = new Set(after.map((s) => s.blockId).filter((b): b is string => !!b))
+  const passed = new Set<string>()
+  for (const s of after) {
+    const old = beforeBy.get(s.anchor)
+    if (old?.blockId && s.blockId && old.blockId !== s.blockId && (afterBlocks.has(old.blockId) || beforeBlocks.has(s.blockId))) passed.add(s.anchor)
+  }
+
   // after-anchor → matched before section (same anchor or rename pair)
   const match = new Map<string, SectionLike>()
   for (const s of after) {
     const old = beforeBy.get(s.anchor)
-    if (!old) continue
+    if (!old || passed.has(s.anchor)) continue
     match.set(s.anchor, old)
     if (old.version === s.version) continue
     if (old.text === s.text) {
@@ -85,8 +98,8 @@ export function computeSectionChanges(before: SectionLike[], after: SectionLike[
     }
   }
 
-  const removed = before.filter((s) => !afterBy.has(s.anchor))
-  const added = after.filter((s) => !beforeBy.has(s.anchor))
+  const removed = before.filter((s) => !afterBy.has(s.anchor) || passed.has(s.anchor))
+  const added = after.filter((s) => !beforeBy.has(s.anchor) || passed.has(s.anchor))
   const pairedOld = new Set<string>()
   const pairedNew = new Set<string>()
   if (removed.length && added.length) {

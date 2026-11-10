@@ -11,6 +11,7 @@ import { joinPath } from '../context/chunker'
 import type { Section } from '../context/chunker'
 import { readOutline, readSection } from '../context/sectionSource'
 import { movedOrThrow, patchSectionAs, sectionNotFound } from '../context/sectionWrite'
+import { resolveSectionWriteRef } from '../context/sectionMoves'
 import type { OutlineSection } from '../context/sectionSource'
 import { DEFAULT_BUDGET, MAX_BUDGET, memberWorkspaceIds } from '../context/retrieve'
 import { cachedFindContext, cachedFindContextMulti, normalizeContextQuery } from '../context/contextCache'
@@ -300,6 +301,11 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       // Role + access version, kept for the write gate below (docs/adr/1071-*, 1150-*).
       const access = await pageAccess(db, id, user.id)
       if (!access) throw notFound()
+      // The section the name means now, or SECTION_AMBIGUOUS when another section answered to it
+      // since it was printed (docs/adr/1960-*); claims, suggestions and the patch then use that anchor.
+      if (page.kind === 'doc') {
+        body.ref = await resolveSectionWriteRef(page.id, body.ref, await readOutline(page.id), { baseVersion: body.baseVersion, exactHistory: true })
+      }
       // The edit check, or a suggestion instead (suggest=true, or a "suggestions only" lock for
       // agents), and other connections' section claims (docs/adr/1531-*, 1532-*, 1536-*).
       const suggestion = await suggestOrCheck(user, page, access, { ref: body.ref, markdown: body.markdown, mode: body.mode, baseVersion: body.baseVersion, suggest: body.suggest })

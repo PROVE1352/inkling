@@ -50,7 +50,9 @@ describe('[db] inbox ack follows the listing filter', { skip: !HAS_DB }, async (
   }
   const acked = async (seqs: string[]) =>
     (
-      (await db.execute(sql`SELECT seq::text AS seq, acked_at IS NOT NULL AS acked FROM notifications WHERE seq = ANY(${`{${seqs.join(',')}}`}::bigint[]) ORDER BY seq`)) as unknown as { seq: string; acked: boolean }[]
+      // ORDER BY the bigint column: the text alias sorted "100" before "99" (a flake whenever the two
+      // seqs straddled a power of ten in the shared test database)
+      (await db.execute(sql`SELECT seq::text AS seq, acked_at IS NOT NULL AS acked FROM notifications WHERE seq = ANY(${`{${seqs.join(',')}}`}::bigint[]) ORDER BY notifications.seq`)) as unknown as { seq: string; acked: boolean }[]
     ).map((r) => r.acked)
   const cursorOf = (text: string) => /cursor: (\S+)\s*$/.exec(text)?.[1] ?? ''
 
@@ -87,6 +89,25 @@ describe('[db] inbox ack follows the listing filter', { skip: !HAS_DB }, async (
     assert.doesNotMatch(next.text, /later in B/, 'the cursor carries the workspace filter')
     await mcp.tool('ack', { cursor: cursorOf(first.text) })
     assert.deepEqual(await acked([b2, a2]), [false, true])
+  })
+
+  it('a short workspace id (docs/adr/1941-*): the cursor carries the full id and is never taken for an id', async () => {
+    const [b3] = await notify([{ type: 'doc_mention', workspaceId: wsB, pageId: pB, excerpt: 'short-id B' }])
+    const [a3] = await notify([{ type: 'doc_mention', workspaceId: wsA, pageId: pA, excerpt: 'short-id A' }])
+    const list = await mcp.tool('inbox', { workspaceId: wsA.slice(0, 8) })
+    assert.equal(list.isError, false, list.text)
+    assert.match(list.text, /short-id A/)
+    assert.doesNotMatch(list.text, /short-id B/)
+    const cursor = cursorOf(list.text)
+    assert.match(cursor, new RegExp(`^\\d+;ws=${wsA}$`), 'the resolved full workspace id, as the cursor schema expects')
+    // the cursor passes through unchanged (no id resolution on it), and keeps the filter
+    assert.doesNotMatch((await mcp.tool('inbox', { cursor })).text, /short-id B/)
+    const res = await mcp.tool('ack', { cursor })
+    assert.equal(res.isError, false, res.text)
+    assert.deepEqual(await acked([b3, a3]), [false, true])
+    // a hand-shortened ws in a cursor is refused by the cursor schema, not resolved as an id
+    const bad = await mcp.tool('ack', { cursor: `${cursor.split(';')[0]};ws=${wsA.slice(0, 8)}` })
+    assert.equal(bad.isError, true, bad.text)
   })
 
   it('an unfiltered ack(cursor) acknowledges only what the listing could show', async () => {

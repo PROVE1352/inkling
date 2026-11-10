@@ -8,7 +8,7 @@ import { findSection, joinPath } from '../context/chunker'
 import { applySectionBatch } from '../context/sectionBatch'
 import type { BatchEdit, BatchOutcome } from '../context/sectionBatch'
 import { buildEchoIndex } from '../context/sectionPatch'
-import { resolveMovedSection } from '../context/sectionMoves'
+import { resolveMovedSection, resolveSectionWriteRef } from '../context/sectionMoves'
 import { pageMentionKeys, readOutline, readSection, readSectionBlocks } from '../context/sectionSource'
 import { db } from '../db/index'
 import { pageEditGate } from '../docWriteGate'
@@ -78,6 +78,21 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
       await requireMembership(page.workspaceId, user.id)
       const access = await pageAccess(db, id, user.id)
       if (!access) throw notFound()
+      // Which section each name means now (docs/adr/1960-*): a name another section answered to since it
+      // was printed needs the version read, else that edit is listed as ambiguous and nothing is written.
+      const refOutline = page.kind === 'doc' ? await readOutline(id) : []
+      const refs: string[] = []
+      const refConflicts: SectionConflict[] = []
+      for (const [index, e] of body.edits.entries()) {
+        try {
+          refs.push(page.kind === 'doc' ? await resolveSectionWriteRef(id, e.ref, refOutline, { baseVersion: e.baseVersion, exactHistory: true }) : e.ref)
+        } catch (err) {
+          if (!(err instanceof AppError) || err.code !== 'SECTION_AMBIGUOUS') throw err
+          refs.push(e.ref)
+          refConflicts.push({ index, ref: e.ref, reason: 'ambiguous', message: err.message })
+        }
+      }
+      if (refConflicts.length) return sendConflicts(reply, refConflicts, body.edits.length, refOutline.map((s) => s.anchor))
       // The edit check, or suggestions instead: asked (suggest=true) or the "agents: suggestions only"
       // lock. Suggestions are made all together in one transaction or not at all (docs/adr/1538-*);
       // claims and stale base versions do not stop them (the person sees "changed since").
@@ -87,7 +102,7 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
         const suggestions = await createSuggestions(
           user,
           page,
-          body.edits.map((e) => ({ ref: e.ref, markdown: e.markdown, mode: e.mode, ...(e.baseVersion ? { baseVersion: e.baseVersion } : {}) })),
+          body.edits.map((e, i) => ({ ref: refs[i], markdown: e.markdown, mode: e.mode, ...(e.baseVersion ? { baseVersion: e.baseVersion } : {}) })),
           how.origin,
           how.policy,
         )
@@ -115,7 +130,7 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
       const anchors = outline.map((s) => s.anchor)
       const targets: ({ anchor: string; blockId: string | null; movedFrom?: string } | null)[] = []
       for (const [index, e] of body.edits.entries()) {
-        const s = findSection(outline, e.ref)
+        const s = findSection(outline, refs[index])
         if (s) {
           targets.push({ anchor: s.anchor, blockId: s.blockId })
           const held = claimOf(claims, s)

@@ -3,7 +3,7 @@ import { CLAIM_TTL_DEFAULT_S, CLAIM_TTL_MAX_S } from '@inkling/shared'
 import type { SectionClaimDTO } from '@inkling/shared'
 import type { AuthUser } from './auth'
 import { findSection } from './context/chunker'
-import { resolveMovedSection } from './context/sectionMoves'
+import { resolveMovedSection, resolveSectionWriteRef } from './context/sectionMoves'
 import { readOutline } from './context/sectionSource'
 import type { OutlineSection } from './context/sectionSource'
 import { db } from './db/index'
@@ -75,7 +75,9 @@ export function claimLine(c: SectionClaimDTO): string {
 /** Resolves `ref` (anchor, heading text, heading path or block id) on the page's outline. */
 export async function sectionForClaim(pageId: string, ref: string): Promise<OutlineSection> {
   const outline = await readOutline(pageId)
-  const s = findSection(outline, ref)
+  // A short anchor or heading text another section answered to since it was printed is refused
+  // with the sections it could mean (docs/adr/1960-*); a claim takes no version to pick one.
+  const s = findSection(outline, await resolveSectionWriteRef(pageId, ref, outline))
   if (s) return s
   // An anchor from before a heading rename claims the section under its new anchor, as
   // read_page(section=…) and patch_section read and write it (docs/adr/1501-*, 1655-*).

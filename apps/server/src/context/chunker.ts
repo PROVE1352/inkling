@@ -423,3 +423,50 @@ export function findSection<T extends Pick<Section, 'anchor' | 'blockId' | 'head
     null
   )
 }
+
+export type SectionRefMatch<T> = { kind: 'exact'; section: T; byBlockId: boolean } | { kind: 'loose'; candidates: T[] } | { kind: 'none' }
+
+/**
+ * How `ref` names a section, for writes (docs/adr/1960-*). `exact`: the whole anchor, a heading
+ * block id or the whole heading path — the section findSection returns. `loose`: only the end of
+ * the path (a find_context short anchor, a heading text): every section that end fits, in page
+ * order, where findSection takes the first. Same rules and order as findSection, so a loose ref
+ * with one candidate is the section findSection returns.
+ */
+export function matchSectionRef<T extends Pick<Section, 'anchor' | 'blockId' | 'headingPath'>>(sections: T[], ref: string): SectionRefMatch<T> {
+  const r = ref.trim().replace(/^§/, '').replace(/^#/, '')
+  if (!r) return { kind: 'none' }
+  const exact = sections.find((s) => s.anchor === r || s.blockId === r)
+  if (exact) return { kind: 'exact', section: exact, byBlockId: exact.anchor !== r }
+  const lower = r.toLowerCase()
+  const slugRef = r
+    .split(/\s*(?:›|>|\/)\s*/)
+    .map(slugify)
+    .join('/')
+  const whole =
+    sections.find((s) => s.anchor.toLowerCase() === lower) ??
+    sections.find((s) => s.anchor === slugRef) ??
+    sections.find((s) => joinPath(s.headingPath).toLowerCase() === lower)
+  if (whole) return { kind: 'exact', section: whole, byBlockId: false }
+  const stages: ((s: T) => boolean)[] = [
+    (s) => s.anchor.toLowerCase().endsWith(`/${lower}`),
+    (s) => (s.headingPath[s.headingPath.length - 1] ?? '').toLowerCase() === lower,
+    (s) => s.anchor.endsWith(`/${slugRef}`) || s.anchor === slugRef.split('/').pop(),
+  ]
+  for (const fits of stages) {
+    const candidates = sections.filter(fits)
+    if (candidates.length) return { kind: 'loose', candidates }
+  }
+  return { kind: 'none' }
+}
+
+/** The anchor forms a loose ref stands for (lowercase as written, and slugged), for matching old anchors. */
+export function refNameForms(ref: string): string[] {
+  const r = ref.trim().replace(/^§/, '').replace(/^#/, '')
+  if (!r) return []
+  const slug = r
+    .split(/\s*(?:›|>|\/)\s*/)
+    .map(slugify)
+    .join('/')
+  return [...new Set([r.toLowerCase(), slug.toLowerCase()])]
+}

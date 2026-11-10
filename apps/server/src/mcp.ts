@@ -196,7 +196,7 @@ export function renderPageList(
  * client puts this into the model's context.
  */
 export const SERVER_INSTRUCTIONS = [
-  'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version. Unsure of the wording: queries=[…] searches up to 5 phrasings (synonyms, both languages) in that one call.',
+  'Inkling notes (self-hosted). To answer from notes: call find_context(query) first — one call returns the most relevant sections across all your workspaces within a token budget, each tagged with pageId, §anchor and version. Unsure of the wording: queries=[…] searches up to 5 phrasings (synonyms, both languages) in that one call. If the notes may be in another language than the question, pass queries=[question, translation].',
   'If that is not enough: read_page(pageId, outline=true) to see sections, then read_page(pageId, section=anchor); read_pages(ids) reads several pages in one call. Avoid list_pages/full read_page unless you need the whole tree or page.',
   'To edit: patch_section(pageId, section, markdown, mode, baseVersion) changes one section; on a conflict, merge with the returned current text and retry. update_page appends, or replaces the whole body given the page version you read (baseVersion); for a growing log, put new entries in child pages (tools mark large pages).',
   'Coming back after a while: catch_up() ranks what happened since this connection\'s last catch_up (for the person, due, comments, changes by others).',

@@ -502,7 +502,7 @@ export async function revertChanges(
       const own = (await db.execute(sql`
         SELECT seq::text AS seq FROM page_changes
          WHERE page_id = ${w.page.pageId} AND seq > ${start!.seq} AND actor_id = ${user.id} AND via_client IS NULL
-         ORDER BY seq
+         ORDER BY page_changes.seq
       `)) as unknown as { seq: string }[]
       const applied = w.page.changes.filter((c) => c.outcome === 'applied' || c.outcome === 'partial')
       await recordAudit(db, {

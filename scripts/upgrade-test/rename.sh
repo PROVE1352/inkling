@@ -22,7 +22,8 @@
 # runs a `nodian` project uses other ones; the old tree's files are rewritten to FROM). LOCAL_TAG (default
 # inkling:local) is the tag the override names. APP_PORT (default 3130; step 7 uses the next one) and DB_PORT
 # (default 55440, and the next one); a release before 0.17 uses 3000 and 55432 until it is upgraded.
-# FRESH_PROJECT: COMPOSE_PROJECT_NAME of the new install in step 7 (default none, so the project is
+# EXPECT_MIGRATIONS: "OLD NEW" rows of the migration journal before and after step 3 (e.g. "59 60" from
+# 0.18.0); without it the new count only has to be at least the old one. FRESH_PROJECT: COMPOSE_PROJECT_NAME of the new install in step 7 (default none, so the project is
 # `inkling`; that install keeps .env.example's INKLING_DATA_NAME). WORK: work folder (default a new
 # temporary one). KEEP=1 leaves everything in place. Needs docker, node 18+, curl, perl, rsync.
 set -euo pipefail
@@ -97,6 +98,9 @@ verify_data() { # BASE: the same data as seeded
   node "$HERE/seed-verify.mjs" verify --base "$1" --in "$FP" >/dev/null || fail "seed-verify: data differs"
   node "$HERE/rename-extra.mjs" verify --base "$1" --fp "$FP" --in "$EX" || fail "attachment / share link / login"
 }
+migrations() { # rows of the migration journal of the install in $1
+  (cd "$1" && docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtX -c "select count(*) from drizzle.__drizzle_migrations"') | tr -d '[:space:]'
+}
 volumes_of() { docker volume ls -q | grep -E "^$1_" | sort | tr '\n' ' '; }
 env_line() { local tmp; tmp=$(mktemp); grep -v "^$2=" "$1" >"$tmp" || true; printf '%s=%s\n' "$2" "$3" >>"$tmp"; cat "$tmp" >"$1"; rm -f "$tmp"; }
 
@@ -143,7 +147,8 @@ node "$HERE/seed-verify.mjs" seed --base "$OLD_BASE" --out "$FP"
 node "$HERE/rename-extra.mjs" seed --base "$OLD_BASE" --fp "$FP" --out "$EX"
 OLD_IDS=$(docker ps -q --filter "label=com.docker.compose.project=$P_OLD" | sort | tr '\n' ' ')
 OLD_VOLS=$(volumes_of "$P_OLD")
-log "old stack: $(names "$P_OLD" | tr '\n' ' ')"
+MIG_OLD=$(migrations "$INST")
+log "old stack: $(names "$P_OLD" | tr '\n' ' '); migrations $MIG_OLD"
 pass "$OLD_VOLS"
 
 # ==================================================================================================
@@ -173,7 +178,10 @@ wait_ready "$BASE" || fail "the new release did not become ready on the old name
 [ "$(volumes_of "$P_OLD")" = "$OLD_VOLS" ] || fail "volumes changed: $(volumes_of "$P_OLD")"
 verify_data "$BASE"
 in_inst ./deploy/signup-key.sh list >/dev/null || fail "deploy/signup-key.sh on the old names"
-pass "project $P_OLD, $(docker ps --filter "label=com.docker.compose.project=$P_OLD" --format '{{.Names}}' | sort | tr '\n' ' ')"
+MIG_NEW=$(migrations "$INST")
+[ "$MIG_NEW" -ge "$MIG_OLD" ] || fail "migration journal shrank: $MIG_OLD -> $MIG_NEW"
+[ -z "${EXPECT_MIGRATIONS:-}" ] || [ "$MIG_OLD $MIG_NEW" = "$EXPECT_MIGRATIONS" ] || fail "migrations $MIG_OLD -> $MIG_NEW, expected $EXPECT_MIGRATIONS"
+pass "migrations $MIG_OLD -> $MIG_NEW; project $P_OLD, $(docker ps --filter "label=com.docker.compose.project=$P_OLD" --format '{{.Names}}' | sort | tr '\n' ' ')"
 
 # ==================================================================================================
 step 4 "rename --dry-run"
@@ -209,6 +217,7 @@ backward() {
 # ==================================================================================================
 step 5 "rename"
 forward
+[ "$(migrations "$INST")" = "$MIG_NEW" ] || fail "migration journal changed by the rename: $(migrations "$INST")"
 STATUS=$(in_inst docker compose exec -T backup cat /backups/status.json)
 printf '%s' "$STATUS" | grep -q '"lastSuccess"' || fail "no backup recorded under the new names"
 last=$(in_inst ./deploy/backup.sh list | head -n 1)

@@ -122,10 +122,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The last release with the old names. Older ones had the same names (name: nodian, nodian-* volumes,
-        # role nodian); the upgrade job above covers their schemas. By commit: d775b5d is v0.17.1.
+        # The releases with the old names that servers run: v0.18.0 (the last one, with 0.18's new compose
+        # lines) and v0.17.1 (the compose.yaml before them). Older ones had the same names (name: nodian,
+        # nodian-* volumes, role nodian); the upgrade job above covers their schemas.
+        # By commit: d775b5d is v0.17.1, d45c5a0 is v0.18.0.
         from:
           - { name: v0.17.1, ref: d775b5d817116ef68c649f2bc914c11767c71f8f }
+          - { name: v0.18.0, ref: d45c5a0ebaa59eda78b5611a92b32feba83124c6 }
     steps:
       - uses: actions/checkout@v4
         with:

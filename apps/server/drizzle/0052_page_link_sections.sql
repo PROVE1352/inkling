@@ -1,0 +1,1 @@
+ALTER TABLE "page_links" ADD COLUMN "sections" jsonb;

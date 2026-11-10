@@ -3,6 +3,8 @@ import { alias } from 'drizzle-orm/pg-core'
 import { db } from './db/index'
 import { pageChunks, pageLinks, pageTexts, pages } from './db/schema'
 import { buildTitleResolver } from './md/importer'
+import { resolveSectionLink } from './context/sectionLinks'
+import { readOutline } from './context/sectionSource'
 import { visibleTo } from './pageDto'
 import { localISODate } from './review'
 import { listVerified } from './verification'
@@ -25,6 +27,8 @@ import { listVerified } from './verification'
  *   former titles, `Page#Heading`) — `missing`, or `exists` when a visible page has that name now
  *   (writing the line again links it); and links (page_links) whose target is now in the trash.
  *   Limits: page_texts keeps the head and tail of a body over 200 KB, and code blocks count.
+ *   Section links `[[Page#Heading]]` to a visible page whose heading is not there any more (by block
+ *   id, name or the change log's rename trace, docs/adr/2102-*) are `noHeading` (docs/adr/2103-*).
  * - duplicates: pages whose titles are equal after Unicode normalisation, case, punctuation,
  *   spacing and word order are ignored.
  * - unlinked: no link in or out among visible pages (folders and collection rows excluded).
@@ -46,8 +50,8 @@ const WIKILINK_RE = /\[\[([^[\]]+)\]\]/g
 
 export interface BrokenLink {
   text: string
-  state: 'missing' | 'exists' | 'trashed'
-  /** exists: the page the text names now; trashed: the trashed target. */
+  state: 'missing' | 'exists' | 'trashed' | 'noHeading'
+  /** exists: the page the text names now; trashed: the trashed target; noHeading: the page that lacks the heading. */
   targetId?: string
   trashedOn?: string
 }
@@ -191,7 +195,7 @@ export async function notesCheck(
   }
   const linkRows = visible.size
     ? await db
-        .select({ s: pageLinks.sourcePageId, t: pageLinks.targetPageId })
+        .select({ s: pageLinks.sourcePageId, t: pageLinks.targetPageId, sections: pageLinks.sections })
         .from(pageLinks)
         .innerJoin(pages, eq(pages.id, pageLinks.sourcePageId))
         .where(and(eq(pages.workspaceId, workspaceId), isNull(pages.deletedAt)))
@@ -213,6 +217,28 @@ export async function notesCheck(
       const list = brokenBy.get(l.s) ?? []
       list.push({ text: t.title || 'Untitled', state: 'trashed', targetId: t.id, trashedOn: localISODate(t.deletedAt!) })
       brokenBy.set(l.s, list)
+    }
+  }
+  // section links whose heading is gone, from pages in scope to pages this viewer can see
+  const sectionLinks = linkRows
+    .filter((l) => l.sections?.length && scope.has(l.s) && visible.has(l.s) && visible.has(l.t))
+    .sort((a, b) => cmp(a.s, b.s) || cmp(a.t, b.t))
+  if (sectionLinks.length) {
+    const outlines = new Map<string, Awaited<ReturnType<typeof readOutline>>>()
+    for (const l of sectionLinks) {
+      if (visible.get(l.t)!.kind !== 'doc') continue
+      let sections = outlines.get(l.t)
+      if (!sections) {
+        sections = await readOutline(l.t)
+        outlines.set(l.t, sections)
+      }
+      for (const ref of l.sections!) {
+        const res = await resolveSectionLink(l.t, sections, { heading: ref.h, ...(ref.b ? { blockId: ref.b } : {}) })
+        if (res.status !== 'missing') continue
+        const list = brokenBy.get(l.s) ?? []
+        list.push({ text: `${titleOf(l.t)}#${ref.h}`, state: 'noHeading', targetId: l.t })
+        brokenBy.set(l.s, list)
+      }
     }
   }
   const brokenItems = [...brokenBy.entries()]

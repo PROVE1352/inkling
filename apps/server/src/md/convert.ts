@@ -4,6 +4,7 @@ import { extractMath, prepareMathExport } from './math'
 import { extractNotation, prepareNotationExport } from './notation'
 import type { NotationMode, ParseNotationOptions } from './notation'
 import { applyStoredState } from '../yState'
+import { internalHref, parseInternalHref, sectionLinkMarkdown, wikiSectionCandidates } from '@inkling/shared/sectionLink'
 
 // ---------------------------------------------------------------------------
 // Loose structural types — handling BlockNote's generic Block type directly makes inline
@@ -48,8 +49,11 @@ export interface AnyBlock {
 // ---------------------------------------------------------------------------
 
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-/** Internal wikilink href: /w/<workspaceId>/p/<pageId> → capture = targetPageId */
-const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})$`)
+/**
+ * Internal wikilink href: /w/<workspaceId>/p/<pageId>, optionally with a section fragment
+ * (`#h=…`, docs/adr/2100-*) → capture = targetPageId. Use parseInternalHref for the section.
+ */
+const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})(?:#.*)?$`)
 /** Attachment URL: /files/<fileId> → capture = fileId */
 const FILE_URL_RE = new RegExp(`^/files/(${UUID})$`)
 /** [[title]] */
@@ -70,9 +74,11 @@ function isTableContent(c: AnyBlock['content']): c is TableContent {
 export function mapBlockInlines(
   blocks: AnyBlock[],
   mapFn: (inlines: Inline[]) => Inline[],
+  /** blocks whose own inlines are left alone (their children are still visited) */
+  skip?: (block: AnyBlock) => boolean,
 ): void {
   for (const b of blocks) {
-    const c = b.content
+    const c = skip?.(b) ? undefined : b.content
     if (Array.isArray(c)) {
       b.content = mapFn(c)
     } else if (isTableContent(c)) {
@@ -88,7 +94,7 @@ export function mapBlockInlines(
         }
       }
     }
-    if (Array.isArray(b.children)) mapBlockInlines(b.children, mapFn)
+    if (Array.isArray(b.children)) mapBlockInlines(b.children, mapFn, skip)
   }
 }
 
@@ -215,15 +221,17 @@ export async function blocksToMarkdown(
 ): Promise<BlocksToMarkdownResult> {
   const copy: AnyBlock[] = structuredClone(blocks)
 
-  // 1) internal link inline → plain text [[title]]
+  // 1) internal link inline → plain text [[title]]; a section link → [[Page#Heading]] or
+  //    [[Page#Heading|shown]] (docs/adr/2100-*)
   mapBlockInlines(copy, (inlines) =>
     inlines.map((inl) => {
       if (inl.type === 'link' && typeof (inl as LinkInline).href === 'string') {
         const link = inl as LinkInline
         if (INTERNAL_HREF_RE.test(link.href)) {
-          const text =
-            (link.content ?? []).map((c) => c.text ?? '').join('') || 'Untitled'
-          const styled: StyledText = { type: 'text', text: `[[${text}]]`, styles: {} }
+          const shown = (link.content ?? []).map((c) => c.text ?? '').join('')
+          const section = parseInternalHref(link.href)?.section
+          const text = section ? sectionLinkMarkdown(section, shown) : `[[${shown || 'Untitled'}]]`
+          const styled: StyledText = { type: 'text', text, styles: {} }
           return styled
         }
       }
@@ -281,8 +289,9 @@ export async function markdownToBlocks(
   const math = extractMath(marks.markdown)
   const blocks = marks.restore(math.restore((await editor.tryParseMarkdownToBlocks(math.markdown)) as unknown as AnyBlock[]))
 
-  // Split [[title]] inside text inlines and replace it with a link/literal
-  mapBlockInlines(blocks, (inlines) => expandWikiLinks(inlines, resolveTitle))
+  // Split [[title]] inside text inlines and replace it with a link/literal. Not in code blocks: their
+  // text is code (a Mermaid subroutine node is `A[[Name]]`, docs/adr/2104-*) and must come back as written.
+  mapBlockInlines(blocks, (inlines) => expandWikiLinks(inlines, resolveTitle), (b) => b.type === 'codeBlock')
 
   // assets/... relative path → /files/<newId>
   if (resolveAsset) {
@@ -324,8 +333,11 @@ function splitWiki(textInline: StyledText, resolveTitle: ResolveTitle): Inline[]
     const before = text.slice(last, m.index)
     if (before) parts.push({ type: 'text', text: before, styles })
     const title = m[1]
-    const url = resolveTitle(title)
-    if (url) {
+    const section = title.includes('#') ? resolveSectionLink(title, resolveTitle) : null
+    const url = section ? null : resolveTitle(title)
+    if (section) {
+      parts.push({ type: 'link', href: section.href, content: [{ type: 'text', text: section.text, styles }] })
+    } else if (url) {
       parts.push({ type: 'link', href: url, content: [{ type: 'text', text: title, styles }] })
     } else {
       parts.push({ type: 'text', text: `[[${title}]]`, styles })
@@ -336,6 +348,42 @@ function splitWiki(textInline: StyledText, resolveTitle: ResolveTitle): Inline[]
   const rest = text.slice(last)
   if (rest) parts.push({ type: 'text', text: rest, styles })
   return parts
+}
+
+/**
+ * `[[Page#Heading]]` / `[[Page#Heading|shown]]` → a section link (docs/adr/2100-*), or null when the
+ * text means something else. The whole text keeps its old meanings first: a page titled exactly so
+ * (or by alias / former title) and the subpage a split made from that section (docs/adr/1140-*) stay
+ * page links, as before. Otherwise the last `#` whose left part is a page's own title wins, so a
+ * title with `#` ("C# notes#Setup") and a heading with `#` ("Guide#Step #2") both work; the
+ * resolver's own fallback (`X#Y` → page X) does not count as a title. No block id: the link finds
+ * its heading by name (and the change log) until the editor rewrites it.
+ */
+function resolveSectionLink(inner: string, resolveTitle: ResolveTitle): { href: string; text: string } | null {
+  const candidates = wikiSectionCandidates(inner)
+  if (!candidates.length) return null
+  const bar = inner.indexOf('|')
+  const target = (bar >= 0 ? inner.slice(0, bar) : inner).trim()
+  const before = (s: string) => s.slice(0, s.indexOf('#')).trim()
+  const whole = resolveTitle(target)
+  const prefix = before(target)
+  if (whole && whole !== (prefix ? resolveTitle(prefix) : null)) return null
+  for (const c of [...candidates].reverse()) {
+    const base = resolveTitle(c.page)
+    if (!base) continue
+    if (c.page.includes('#')) {
+      const pre = before(c.page)
+      if (pre && resolveTitle(pre) === base) continue
+    }
+    const m = INTERNAL_HREF_RE.exec(base)
+    const ws = /^\/w\/([^/]+)\//.exec(base)?.[1]
+    if (!m || !ws) return null
+    return {
+      href: internalHref(ws, m[1], { heading: c.heading, page: c.page }),
+      text: c.alias ?? `${c.page}#${c.heading}`,
+    }
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +401,32 @@ export function extractInternalLinks(blocks: AnyBlock[]): string[] {
     }
   })
   return [...ids]
+}
+
+/** Most section refs kept per (source, target) pair in page_links.sections. */
+export const MAX_LINK_SECTIONS = 20
+
+/**
+ * Section links per target page (docs/adr/2101-*): the headings this document links to, for the
+ * backlinks panel and check_notes, keyed by lower-case page id. Deduplicated by block id or heading;
+ * page links add nothing.
+ */
+export function extractLinkSections(blocks: AnyBlock[]): Map<string, { h: string; b?: string }[]> {
+  const out = new Map<string, { h: string; b?: string }[]>()
+  visitBlockInlines(blocks, (inlines) => {
+    for (const inl of inlines) {
+      if (inl.type !== 'link') continue
+      const link = parseInternalHref((inl as LinkInline).href)
+      if (!link?.section) continue
+      const key = link.pageId.toLowerCase()
+      const list = out.get(key) ?? []
+      const { heading, blockId } = link.section
+      if (list.length >= MAX_LINK_SECTIONS || list.some((x) => (blockId && x.b === blockId) || (!blockId && !x.b && x.h === heading))) continue
+      list.push(blockId ? { h: heading, b: blockId } : { h: heading })
+      out.set(key, list)
+    }
+  })
+  return out
 }
 
 // ---------------------------------------------------------------------------

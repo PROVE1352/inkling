@@ -38,7 +38,9 @@ export function renderCheckKinds(r: NotesCheckDTO, n: number): string {
         ? `[[${one(l.text)}]] missing`
         : l.state === 'exists'
           ? `[[${one(l.text)}]] not linked, page ${shortId(l.targetId!)} has that name now`
-          : `link to ${q(l.text)} ${shortId(l.targetId!)} trashed ${l.trashedOn}`,
+          : l.state === 'noHeading'
+            ? `[[${one(l.text)}]] heading not found in page ${shortId(l.targetId!)}`
+            : `link to ${q(l.text)} ${shortId(l.targetId!)} trashed ${l.trashedOn}`,
     )
     out.push(`- ${shortId(p.pageId)} ${q(p.title)} (${p.count}): ${links.join('; ')}${p.count > p.links.length ? '; …' : ''}`)
   }

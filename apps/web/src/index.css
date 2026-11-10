@@ -831,6 +831,42 @@ html[data-resizing] .nd-sidebar-shell {
   border-bottom-style: solid;
 }
 
+/* Mermaid code blocks (docs/adr/2104-*, 2106-*): the diagram under the code; the code hides while the
+   caret is elsewhere (components/blocks/MermaidBlock.tsx toggles the classes). */
+.bn-editor .bn-block-content.nd-mermaid.nd-mermaid-code-hidden > pre {
+  display: none;
+}
+.bn-editor .bn-block-content.nd-mermaid.nd-mermaid-code-hidden {
+  padding-top: 28px;
+}
+.nd-mermaid-host {
+  padding: 0 12px 8px;
+}
+.nd-mermaid-figure:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+/* presentation (copies of the editor's blocks): the diagram only */
+.nd-present-body .nd-mermaid.nd-mermaid-ok > pre,
+.nd-present-body .nd-mermaid.nd-mermaid-ok > div:first-child,
+.nd-present-body .nd-mermaid-tools {
+  display: none;
+}
+@media print {
+  /* PDF export: the diagram only, and drawn for paper (print.css prints the light palette) */
+  html.nd-printing .nd-mermaid.nd-mermaid-ok > pre,
+  html.nd-printing .nd-mermaid-tools {
+    display: none !important;
+  }
+  html.nd-printing .nd-mermaid-host {
+    break-inside: avoid;
+  }
+  html.nd-printing.dark .nd-mermaid-img {
+    filter: invert(1) hue-rotate(180deg);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Public viewer body (M15) — /s/:token does not load BlockNote CSS, so this is our own */
 /* prose style for rendering the server's blocks→HTML readably.                       */

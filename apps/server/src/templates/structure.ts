@@ -96,8 +96,9 @@ export interface TemplateMeta {
 export const TEMPLATE_MAX_BYTES = 20 * 1024 * 1024
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// with an optional section fragment (`#h=…`, docs/adr/2100-*), kept on the remapped link
 const INTERNAL_HREF_RE =
-  /^\/w\/[0-9a-fA-F-]{36}\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/
+  /^\/w\/[0-9a-fA-F-]{36}\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(#.*)?$/
 
 function tooLarge(message: string): AppError {
   return new AppError(400, 'TEMPLATE_TOO_LARGE', message)
@@ -632,7 +633,7 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
     const m = INTERNAL_HREF_RE.exec(href)
     if (!m) return null
     const id = remapId(m[1])
-    return id ? `/w/${a.workspaceId}/p/${id}` : null
+    return id ? `/w/${a.workspaceId}/p/${id}${m[2] ?? ''}` : null
   }
   const text = (s: string): string => renderString(s, a.ctx).text
 

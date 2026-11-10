@@ -19,7 +19,9 @@ import { inklingShortcuts, useEditorPaletteCommands } from '../lib/shortcuts/edi
 import { tableQuickInput } from '../lib/tableQuickInput'
 import { useTheme } from '../lib/theme'
 import { editorSchemaSpecs, pageEmbedSpec } from './blocks/PageEmbed'
-import { QueryBlockPortals, queryCodeBlockSpec } from './blocks/QueryBlock'
+import { QueryBlockPortals } from './blocks/QueryBlock'
+import { MermaidPortals, mermaidCodeBlockSpec } from './blocks/MermaidBlock'
+import { useSectionLinkJump } from '../lib/sectionLinks'
 import { handleUrlPaste } from './blocks/LinkEmbed'
 import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
@@ -60,9 +62,9 @@ export type CollabState = {
 // One spec list for this schema and the page-embed viewer's (editorSchemaSpecs, docs/adr/1539-*):
 // the custom nodes share their configs with the server schema (@inkling/shared, docs/adr/1500-*),
 // so server reads keep them. Here pageEmbed renders the target body and code blocks in language
-// `dataview` render live query results (docs/QUERY.md).
+// `dataview` render live query results (docs/QUERY.md), in language `mermaid` a diagram (docs/adr/2104-*).
 const schema = BlockNoteSchema.create(
-  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: queryCodeBlockSpec }),
+  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec }),
 )
 
 export function CollabEditor({
@@ -301,6 +303,9 @@ function CollabEditorBody({
     return () => window.clearTimeout(timer)
   }, [synced, anchorBlock, setSearchParams])
 
+  // Section link `#h=…` (docs/adr/2102-*): find the heading, then jump through ?block= above.
+  useSectionLinkJump(pageId, synced, () => editor.document)
+
   // Template caret (?cursor=<blockId>:<offset>, docs/adr/0922-*): a page just created from a
   // template with {{cursor}} opens with the caret where the marker was. Retried briefly until the
   // block is in the editor after sync, then the param is removed.
@@ -387,6 +392,7 @@ function CollabEditorBody({
         <WikilinkMenu editor={editor} wsId={wsId} />
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />
+        <MermaidPortals editor={editor} />
       </BlockNoteView>
     </div>
   )
@@ -461,6 +467,7 @@ export function LocalDocEditor({
         <WikilinkMenu editor={editor} wsId={wsId} />
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />
+        <MermaidPortals editor={editor} />
       </BlockNoteView>
     </div>
   )

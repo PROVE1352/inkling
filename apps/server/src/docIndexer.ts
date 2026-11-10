@@ -5,7 +5,7 @@ import { chunkBlocks } from './context/chunker'
 import { reindexPageChunks } from './context/chunkIndex'
 import { docToBlocks } from './md/convert'
 import { docFromStoredState } from './yState'
-import { extractInternalLinks } from './md/convert'
+import { extractInternalLinks, extractLinkSections } from './md/convert'
 import { reindexPageLinks } from './md/linkIndex'
 import { blocksToTagText, extractTags, reindexPageTags } from './md/tagIndex'
 import { extractTasks, reindexPageTasks } from './md/taskIndex'
@@ -109,6 +109,8 @@ async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | n
   docIndexStats.conversions++
   const text = blocksToPlainText(blocks)
   const links = extractInternalLinks(blocks).filter((t) => t !== pageId).sort()
+  // the headings section links name are part of the link index (page_links.sections, docs/adr/2101-*)
+  const linkSections = [...extractLinkSections(blocks).entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   // tags come from a separate walk that skips code (blocks and inline spans)
   const tagText = blocksToTagText(blocks)
   const tags = extractTags(tagText)
@@ -117,7 +119,7 @@ async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | n
   // Captured before any await: the REST/MCP request that caused this pass is still in flight.
   const actor = indexActor(pageId)
   const next: Signature = {
-    links: links.join(','),
+    links: linkSections.length ? `${links.join(',')}|${JSON.stringify(linkSections)}` : links.join(','),
     text: digest(text),
     tags: tags.join('\u0000'),
     tasks: digest(JSON.stringify(tasks)),

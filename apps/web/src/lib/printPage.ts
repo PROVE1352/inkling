@@ -1,6 +1,10 @@
 // "Export as PDF": print one element with print-only CSS (docs/adr/0307).
 // Uses the browser's own print-to-PDF — no PDF library, nothing added to the bundle.
 import '../print.css'
+import { mermaidIdle } from './mermaid'
+
+/** Longest wait for diagrams still rendering before the print dialog opens (docs/adr/2106-*). */
+const DIAGRAM_WAIT_MS = 4_000
 
 /** Print `el` alone: hide everything off its ancestor chain, then window.print(). */
 export function printElement(el: HTMLElement | null, title?: string): void {
@@ -28,8 +32,10 @@ export function printElement(el: HTMLElement | null, title?: string): void {
     window.removeEventListener('afterprint', cleanup)
   }
   window.addEventListener('afterprint', cleanup)
-  // let React render windowed lists in full (beforeprint → flushSync) before the snapshot
-  requestAnimationFrame(() => {
+  // Mermaid diagrams render asynchronously: wait (bounded) for any still in the queue, then let React
+  // render windowed lists in full (beforeprint → flushSync) before the snapshot
+  const diagrams = Promise.race([mermaidIdle(), new Promise<void>((r) => window.setTimeout(r, DIAGRAM_WAIT_MS))])
+  void diagrams.then(() => requestAnimationFrame(() => {
     window.print()
     // Fallback for browsers that never fire afterprint (or whose print() does not block):
     // restore on the user's next interaction with the page.
@@ -42,5 +48,5 @@ export function printElement(el: HTMLElement | null, title?: string): void {
       window.addEventListener('pointermove', onBack, { once: true })
       window.addEventListener('keydown', onBack, { once: true })
     }, 500)
-  })
+  }))
 }

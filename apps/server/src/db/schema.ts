@@ -626,6 +626,11 @@ export const pageLinks = pgTable(
     targetPageId: uuid('target_page_id')
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
+    /**
+     * Headings of the target that the source's section links name (docs/adr/2101-*): `h` the heading
+     * text in the link, `b` its block id when known. Null when the source only links the page.
+     */
+    sections: jsonb('sections').$type<{ h: string; b?: string }[]>(),
   },
   (t) => [
     primaryKey({ columns: [t.sourcePageId, t.targetPageId] }),

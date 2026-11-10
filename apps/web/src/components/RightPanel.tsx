@@ -6,6 +6,7 @@ import { membersWithPeople } from '../lib/collection'
 import {
   ApiError,
   useBacklinks,
+  useBacklinkSections,
   useCollection,
   useComments,
   useMembers,
@@ -256,6 +257,7 @@ export function RightPanel({
   const navigate = useNavigate()
   const pages = usePages(wsId)
   const backlinks = useBacklinks(page.id)
+  const backlinkSections = useBacklinkSections(page.id)
   const comments = useComments(page.kind === 'doc' ? page.id : undefined)
 
   // When the parent is a collection, this row's properties are edited with that collection's fields.
@@ -475,6 +477,16 @@ export function RightPanel({
                   <span className="shrink-0 leading-none"><PageIconGlyph page={p} size={13} /></span>
                   <span className="min-w-0 flex-1 truncate">{p.title || tr('common.untitled')}</span>
                 </button>
+                {/* which headings of this page its section links name (docs/adr/2101-*) */}
+                {(backlinkSections.data?.[p.id] ?? []).map((s) => (
+                  <p
+                    key={`${s.status}:${s.heading}`}
+                    className={`truncate pl-5 text-[11px] ${s.status === 'missing' ? 'text-red-600 dark:text-red-400' : 'text-sub'}`}
+                    title={s.heading}
+                  >
+                    # {s.status === 'missing' ? tr('sectionLink.backlinkMissing', { heading: s.heading }) : s.heading}
+                  </p>
+                ))}
               </li>
             ))}
           </ul>

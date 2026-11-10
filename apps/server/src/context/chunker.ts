@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { parseInternalHref, sectionLinkMarkdown } from '@inkling/shared/sectionLink'
 import { scanInjection } from './injectionScan'
 import type { AnyBlock } from '../md/convert'
 import { estimateTokens, isCjkCode } from './tokens'
@@ -70,7 +71,8 @@ export interface Chunk {
 // inline / block text
 // ---------------------------------------------------------------------------
 
-const INTERNAL_HREF_RE = /^\/w\/[0-9a-f-]{36}\/p\/[0-9a-f-]{36}$/i
+// a section fragment (`#h=…`, docs/adr/2100-*) is part of an internal link
+const INTERNAL_HREF_RE = /^\/w\/[0-9a-f-]{36}\/p\/[0-9a-f-]{36}(?:#.*)?$/i
 
 interface InlineLike {
   type?: string
@@ -85,7 +87,10 @@ function inlineText(inl: InlineLike): string {
   if (inl.type === 'link' && Array.isArray(inl.content)) {
     const label = (inl.content as InlineLike[]).map(inlineText).join('')
     const href = typeof inl.href === 'string' ? inl.href : ''
-    if (INTERNAL_HREF_RE.test(href)) return `[[${label || 'Untitled'}]]`
+    if (INTERNAL_HREF_RE.test(href)) {
+      const section = parseInternalHref(href)?.section
+      return section ? sectionLinkMarkdown(section, label) : `[[${label || 'Untitled'}]]`
+    }
     return href && href !== label ? `[${label}](${href})` : label
   }
   if (typeof inl.text === 'string') return inl.text

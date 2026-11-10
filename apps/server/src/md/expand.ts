@@ -70,7 +70,7 @@ interface TableContent {
 
 // Internal wikilink href: /w/<workspaceId>/p/<pageId> → capture = targetPageId
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})$`)
+const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})(?:#.*)?$`) // a section link counts as its page (docs/adr/2100-*)
 const EXTERNAL_HREF_RE = /^(?:https?:\/\/|mailto:)/i
 
 const ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem'])

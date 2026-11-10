@@ -2,12 +2,13 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index'
 import { bumpIndexEpoch } from '../versions'
 import { pageLinks, pages } from '../db/schema'
-import { extractInternalLinks } from './convert'
+import { extractInternalLinks, extractLinkSections } from './convert'
 import type { AnyBlock } from './convert'
 
 /**
  * Extract internal wikilinks from a document's blocks and resync page_links
  * (delete all then reinsert, distinct, no self-links, targets limited to live pages in the same workspace).
+ * A section link `[[Page#Heading]]` is a link to Page; its heading goes into `sections` (docs/adr/2101-*).
  *
  * Swallows every error internally (logs only) so callers (store/import) never fail.
  */
@@ -32,6 +33,8 @@ export async function reindexPageLinks(
     }
 
     const candidates = extractInternalLinks(blocks).filter((t) => t !== sourcePageId)
+    // headings named by section links, per target (docs/adr/2101-*)
+    const sections = extractLinkSections(blocks)
 
     // Valid targets: live pages in the same workspace only
     let validTargets: string[] = []
@@ -58,6 +61,7 @@ export async function reindexPageLinks(
             validTargets.map((targetPageId) => ({
               sourcePageId,
               targetPageId,
+              sections: sections.get(targetPageId) ?? null,
             })),
           )
           .onConflictDoNothing()

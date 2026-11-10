@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
 import { STATE_V2, wholeStateFormat } from '../yState'
 import type { PageProperty, PagePropertyType } from '@inkling/shared'
+import { parseInternalHref, sectionLinkMarkdown } from '@inkling/shared/sectionLink'
 import { blocksToMarkdown } from './convert'
 import type { AnyBlock } from './convert'
 
@@ -219,7 +220,8 @@ function isTagsKey(name: unknown): boolean {
 // wikilinks: export by CURRENT target title so renames don't orphan links
 // ---------------------------------------------------------------------------
 
-const INTERNAL_HREF = /^\/w\/[0-9a-fA-F-]{36}\/p\/([0-9a-fA-F-]{36})$/
+// a section fragment (`#h=…`, docs/adr/2100-*) belongs to the link
+const INTERNAL_HREF = /^\/w\/[0-9a-fA-F-]{36}\/p\/([0-9a-fA-F-]{36})(?:#.*)?$/
 
 type InlineLike = { type?: string; text?: string; href?: string; content?: InlineLike[]; styles?: unknown }
 
@@ -268,6 +270,9 @@ function exportWikiLinks(blocks: AnyBlock[], titleById: Map<string, string>): An
       if (!m) return i
       const shown = (i.content ?? []).map((c) => c.text ?? '').join('')
       const title = titleById.get(m[1].toLowerCase())
+      // a section link: [[Current Title#Heading]] (|shown when the text is not the plain target)
+      const section = parseInternalHref(i.href)?.section
+      if (section) return { type: 'text', text: sectionLinkMarkdown(section, shown, title), styles: {} }
       const text = !title ? `[[${shown}]]` : !shown || shown === title ? `[[${title}]]` : `[[${title}|${shown}]]`
       return { type: 'text', text, styles: {} }
     }),

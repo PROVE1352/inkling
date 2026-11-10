@@ -75,6 +75,7 @@ function assertEditable(
   return assertCan(tx, pageId, actorFor(userId, role), opts)
 }
 import { recordPageEvents } from '../context/changeLog'
+import { backlinkSections } from '../context/sectionLinks'
 import type { PageEvent } from '../context/changeLog'
 import { assertTopLevelInRange, currentRange, guestOutside } from '../tokenRange'
 import { clientGoneSignal, heavyJobs } from '../heavyJobs'
@@ -946,7 +947,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     // and only source pages visible to me are listed (hidden even if someone's private page links here).
     const rows = await db
-      .select(pageColumns)
+      .select({ ...pageColumns, linkSections: pageLinks.sections })
       .from(pageLinks)
       .innerJoin(pages, eq(pages.id, pageLinks.sourcePageId))
       .where(
@@ -958,9 +959,13 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       )
       .orderBy(desc(pages.updatedAt))
 
+    // Which headings of this page each source's section links name, as they are called now
+    // (docs/adr/2101-*, 2102-*); only for sources that have section links.
+    const sections = await backlinkSections(page.id, page.kind, rows)
+    const extra = sections ? { sections } : {}
     // A guest is not told where a source sits in the tree (its parent may be outside their pages).
-    if (isGuestIn(page.workspaceId, user.id)) return { pages: rows.map((r) => toPageDTO({ ...r, parentId: null })) }
-    return { pages: rows.map(toPageDTO) }
+    if (isGuestIn(page.workspaceId, user.id)) return { pages: rows.map(({ linkSections: _s, ...r }) => toPageDTO({ ...r, parentId: null })), ...extra }
+    return { pages: rows.map(({ linkSections: _s, ...r }) => toPageDTO(r)), ...extra }
   })
 
   // Unlinked mentions: visible pages whose text mentions the target's title/aliases (page_texts ILIKE)

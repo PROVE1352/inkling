@@ -432,17 +432,26 @@ export function useUnlinked(pageId: string | undefined, enabled: boolean) {
   })
 }
 
+/** Backlinks response: sources, and the headings their section links name (docs/adr/2101-*). */
+export type BacklinksResponse = {
+  pages: PageMetaDTO[]
+  sections?: Record<string, { heading: string; status: 'found' | 'renamed' | 'missing' }[]>
+}
+const backlinksQuery = (pageId: string | undefined) => ({
+  queryKey: qk.backlinks(pageId ?? ''),
+  queryFn: () => api<BacklinksResponse>(`/api/pages/${pageId}/backlinks`),
+  enabled: !!pageId,
+  staleTime: 30_000,
+})
+
 // Pages pointing at me (backlinks)
 export function useBacklinks(pageId: string | undefined) {
-  return useQuery({
-    queryKey: qk.backlinks(pageId ?? ''),
-    queryFn: () =>
-      api<{ pages: PageMetaDTO[] }>(`/api/pages/${pageId}/backlinks`).then(
-        (r) => r.pages,
-      ),
-    enabled: !!pageId,
-    staleTime: 30_000,
-  })
+  return useQuery({ ...backlinksQuery(pageId), select: (r: BacklinksResponse) => r.pages })
+}
+
+/** Per source page: the headings of this page its section links point to (same request as useBacklinks). */
+export function useBacklinkSections(pageId: string | undefined) {
+  return useQuery({ ...backlinksQuery(pageId), select: (r: BacklinksResponse) => r.sections ?? {} })
 }
 
 // Title + full-text body search (body matches come with a snippet)

@@ -6,8 +6,18 @@ import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 // Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import,
-// KaTeX for pages with math — lib/katex.ts).
-const LAZY_ONLY = [/[\\/]@shikijs[\\/]langs/, /[\\/]@shikijs[\\/]themes/, /[\\/]exceljs[\\/]/, /[\\/]katex[\\/](?!package\.json)/]
+// KaTeX for pages with math — lib/katex.ts, Mermaid and the libraries only it uses — lib/mermaid.ts,
+// docs/adr/2104-*).
+const LAZY_ONLY = [
+  /[\\/]@shikijs[\\/]langs/,
+  /[\\/]@shikijs[\\/]themes/,
+  /[\\/]exceljs[\\/]/,
+  /[\\/]katex[\\/](?!package\.json)/,
+  /[\\/]node_modules[\\/](?:mermaid|@mermaid-js|cytoscape(?:-[a-z-]+)?|elkjs|dagre-d3-es|chevrotain|@chevrotain|langium|khroma|stylis|roughjs|@braintree|@upsetjs|d3-sankey|@iconify|marked|dompurify|dayjs)[\\/]/,
+  // d3 parts only Mermaid's charts use (d3-interpolate/d3-color's core is shared with the canvas: not here)
+  /[\\/]node_modules[\\/](?:d3-scale|d3-scale-chromatic|d3-array|d3-format|d3-time|d3-time-format|d3-shape|d3-path|d3-hierarchy|d3-chord|d3-contour|d3-delaunay|delaunator|d3-geo|d3-polygon|d3-random|d3-brush|d3-axis|d3-fetch|d3-dsv)[\\/]/,
+  /[\\/]node_modules[\\/]d3-(?:color|interpolate)[\\/]src[\\/]cubehelix\.js$/,
+]
 
 // Build id (docs/adr/0990-build-id-and-version-header.md): INKLING_BUILD (e.g. a commit hash passed as
 // a Docker build-arg) or a hash of the build time — works without git. It is compiled into the

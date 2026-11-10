@@ -1,4 +1,5 @@
 import type { AnyBlock } from '../md/convert'
+import { parseInternalHref, sectionLinkMarkdown } from '@inkling/shared/sectionLink'
 
 // ---------------------------------------------------------------------------
 // Map BlockNote blocks (stateToBlocks output) → Notion blocks (2022-06-28 schema).
@@ -50,7 +51,7 @@ export interface MapResult {
 
 // ── patterns/constants ─────────────────────────────────────────────────────
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})$`)
+const INTERNAL_HREF_RE = new RegExp(`^/w/${UUID}/p/(${UUID})(?:#.*)?$`) // section links too (docs/adr/2100-*)
 const FILE_URL_RE = new RegExp(`^/files/(${UUID})$`)
 
 /** Notion rich_text.text.content is limited to 2000 characters → split. */
@@ -127,8 +128,9 @@ function inlinesToRichText(inlines: Inline[]): NotionBlock[] {
       const inner = Array.isArray(link.content) ? link.content : []
       const label = inner.map((c) => str(c.text)).join('')
       if (INTERNAL_HREF_RE.test(href)) {
-        // internal wikilink → plain [[title]] text
-        out.push(...textRuns(`[[${label || 'Untitled'}]]`, {}))
+        // internal wikilink → plain [[title]] text ([[Page#Heading]] for a section link)
+        const section = parseInternalHref(href)?.section
+        out.push(...textRuns(section ? sectionLinkMarkdown(section, label) : `[[${label || 'Untitled'}]]`, {}))
       } else if (/^https?:/i.test(href)) {
         // external link → keep link + annotations on each segment
         for (const seg of inner) {

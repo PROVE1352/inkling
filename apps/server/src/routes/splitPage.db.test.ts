@@ -164,11 +164,12 @@ describe('[db] split page and rotation', { skip: !HAS_DB }, async () => {
     const snaps = (await db.execute(sql`SELECT label FROM page_snapshots WHERE page_id = ${p.id}`)) as unknown as { label: string }[]
     assert.ok(snaps.some((s) => s.label === 'Before split'))
 
-    // [[Page#Heading]] written later resolves to the subpage made from that section.
+    // [[Page#Heading]] written later resolves to the subpage made from that section; without such a
+    // subpage it is a section link to the page (0.17, docs/adr/2100-*).
     const later = await tool('create_page', { workspaceId: ws.id, title: 'Later', markdown: 'see [[Lab log#Run 2]] and [[Lab log#Nope]]' })
     const laterBlocks = await blocksOf((JSON.parse(later) as { id: string }).id)
     const hrefs = (laterBlocks[0].content as { type: string; href?: string }[]).filter((c) => c.type === 'link').map((c) => c.href)
-    assert.deepEqual(hrefs, [`/w/${ws.id}/p/${kids[1].id}`, `/w/${ws.id}/p/${p.id}`])
+    assert.deepEqual(hrefs, [`/w/${ws.id}/p/${kids[1].id}`, `/w/${ws.id}/p/${p.id}#h=Nope&p=Lab%20log`])
   })
 
   it('split of a page open in an editor reaches the live document; an edit inside a moved section in between aborts it', async () => {

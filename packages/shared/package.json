@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./math": "./src/math.ts"
+    "./math": "./src/math.ts",
+    "./sectionLink": "./src/sectionLink.ts"
   },
   "scripts": {
     "build": "echo 'shared: consumed as TS source'",

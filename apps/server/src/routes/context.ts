@@ -32,6 +32,7 @@ import { pages } from '../db/schema'
 import { liveWorkspace } from '../workspaceLive'
 import { agentProperties, pageVersion } from '../context/pageVersion'
 import { registerSectionBatchRoutes } from './sectionBatch'
+import { registerSectionLinkRoutes } from './sectionLinks'
 import { recordTokenRead } from '../agentTaint'
 
 /**
@@ -331,4 +332,6 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
 
   // POST /pages/:id/sections — several section patches, all or nothing (docs/adr/1542-*)
   await registerSectionBatchRoutes(app)
+  // [[Page#Heading]] headings and resolution for the web app (docs/adr/2100-*, 2102-*)
+  await registerSectionLinkRoutes(app)
 }

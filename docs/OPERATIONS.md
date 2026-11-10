@@ -40,6 +40,8 @@ The app sets these on every pool connection: `statement_timeout` 15 s, `idle_in_
 
 - `stop_grace_period: 30s` is set on `app` in `compose.yaml`. On SIGTERM the app stops accepting collaboration upgrades, flushes open documents (10 s cap), closes HTTP (bounded), stops the optional semantic indexer (2 s; an embedding request in flight is abandoned), then closes the database pool. A 25 s watchdog forces exit.
 - `unhandledRejection` is logged and the process keeps running. `uncaughtException` is logged and triggers the graceful shutdown above; the container restart policy brings the app back.
+- Since 0.15.1 a document save that failed after its retries is retried in the background (5 s, doubling up to 60 s), and a page with unsaved changes stays in memory until a save succeeds, also after its last editor left. The single-instance lock is released last, after open documents are saved (section 9, docs/adr/1921-*, 1925-*).
+- A crash or kill (OOM, power loss, `docker kill`) still loses what was typed in the last 2–10 s (the store is debounced); a graceful stop saves everything first. Pages whose index pass was lost in a crash are re-indexed at the next boot (section 9).
 
 ### Monitoring
 
@@ -112,11 +114,18 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   `0044_wave13_forms`, `0045_wave13_verify_present_status` and `0046_wave13_team_agents`. All four only add tables,
   nullable columns or columns with a constant default (metadata-only on Postgres 11+) and an index on an all-NULL
   column, with no backfill, so they are safe inside the boot transaction. No new environment variable is required.
+- 0.15 → 0.15.1 applies 1 migration (47 → 48 rows): `0047_v0151_index_stamp` adds the nullable column
+  `page_chunk_index.doc_updated_at` and fills it from `page_docs.updated_at` for existing rows (one UPDATE, one row
+  per page), so the first boot re-indexes nothing. It assumes the 0.15 process stopped gracefully (it flushes its
+  queued index passes on SIGTERM); `docker compose up -d app` does that. New, optional: `SINGLE_INSTANCE` and
+  `SINGLE_INSTANCE_WAIT` (section 9). Vaults synced with an older server need no action: the first `inklingctl sync`
+  after the upgrade re-reads pages changed since the last sync and merges notes edited locally once, without
+  overwriting anything or marking a conflict (docs/adr/1920-*).
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
 - [ ] Never run `drizzle-kit push` against production (see section 1).
-- [ ] Single app instance only: reminders, sheet sync, the webhook queue, Hocuspocus state and the hourly cap of public form answers are per process.
+- [ ] Single app instance only: reminders, sheet sync, the webhook queue, Hocuspocus state and the hourly cap of public form answers are per process. Since 0.15.1 the server refuses to start while another Inkling process uses the same database (section 9).
 - [ ] After an upgrade, check the boot log for migration success and the list of enabled experimental features.
 
 ### Client updates
@@ -383,3 +392,58 @@ only route where a visitor without an account writes data.
 - Hourly housekeeping hands back unacknowledged items of connections that are no longer live in their workspace
   (expired grant or token, block, person left, range change) with one UPDATE over that partial index. The disconnect
   and token delete routes do it at once for their connection.
+
+## 9. Single instance, boot re-index and saving (0.15.1)
+
+### Single instance (docs/adr/1925-*)
+
+- Inkling runs one server process per database. At boot, before migrations, the server takes a Postgres advisory
+  lock on its own connection (`application_name = inkling-instance-lock`, visible in `pg_stat_activity`) and keeps it
+  until it exits; it releases it last, after saving open documents.
+- If another process holds it, the log says which and the server waits:
+  `[inkling] another Inkling process uses this database (pid …, application "inkling-instance-lock", from …,
+  connected since …); waiting up to 60 s for it to stop`. When the other process stops, the boot continues. After
+  `SINGLE_INSTANCE_WAIT` seconds (default 60) it exits with `[inkling] refusing to start: another Inkling process is
+  running against this database (…)`. With `restart: unless-stopped` the container keeps retrying and starts once
+  the other process is gone.
+- `docker compose up -d` stops the old container before it starts the new one, so a normal deploy is not delayed. A
+  replacement started while the old container is still shutting down (up to its 30 s stop grace period) waits for
+  it. Nothing in `compose.yaml` waits on the app's health; the healthcheck (start period 10 s, interval 30 s, 3
+  retries) turns unhealthy only after about 100 s, so a replacement waiting the default 60 s still turns healthy.
+- The lock is checked every 30 s. After a database restart the server takes it again; if another process took it
+  first, the server shuts down (`lost the instance lock to another process`).
+- `SINGLE_INSTANCE=0` (also `false`, `off`, `no`) turns the guard off, with a warning at boot. Use it only for a
+  deliberate extra process against a live database (a one-off maintenance script), never for a second web server,
+  and behind a transaction-mode pooler (PgBouncer `pool_mode=transaction`), where a session lock means nothing.
+  Tests are unaffected: they never boot `index.ts`.
+- A 0.15.0 process takes no lock, so the guard cannot see one during a mixed-version overlap. A compose deploy never
+  overlaps (stop, then start).
+
+### Boot re-index of stale pages (docs/adr/1924-*)
+
+- A crash between a save and its queued index pass used to leave the page's search text, sections, links, tags and
+  tasks describing the old content until the next edit. From 10 s after the server listens, a background pass
+  re-indexes pages whose stored content is newer than `page_chunk_index.doc_updated_at`, about ten pages a second
+  and at most 20,000 per boot, and logs `[inkling] re-indexed N page(s) whose last index pass was lost (crash or
+  kill)`. Nothing is logged when nothing was stale.
+
+### Saving documents (docs/adr/1921-*)
+
+- `[inkling] collab store of <page> failed; retrying in the background`, then `collab store retry N of <page>
+  failed`: the database refused the document save; retries every 5 s, doubling to 60 s.
+- `[inkling] <page> has unsaved changes and the store failed; keeping it in memory`: the last editor left before a
+  save succeeded; the page stays loaded until one does.
+- At shutdown, `[inkling] shutting down with unsaved changes in N document(s): …` names what could not be saved.
+- In the browser, while edits have not reached the server the page's connection dot turns amber and reads "Not saved
+  yet", and the tab asks before it is closed or reloaded (docs/adr/1926-*). Nothing is kept in the browser's storage: edits made
+  offline survive only while the tab stays open.
+
+### Vault sync revisions (docs/adr/1920-*)
+
+- Revisions include the document's deletions since 0.15.1, so `inklingctl sync` no longer brings back text deleted on
+  the server. Server-only change: old CLIs keep working. A revision from an older server is recognised (no `-` in
+  it): a write with it is refused once with the current version and the CLI merges; a delete with it succeeds when
+  nothing was inserted or reformatted since. A note deleted locally before the upgrade is still trashed on the
+  server.
+- A vault write is applied as a minimal edit; when that does not validate the server rewrites the whole document
+  and logs `[vault-sync] minimal replace not applied`.

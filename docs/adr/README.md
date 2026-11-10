@@ -682,6 +682,54 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 |---|---|---|
 | [1870](1870-public-form-answers-are-people-not-agents.md) | Public form answers are people's input, not agents' edits | Accepted |
 
+## 1900–1909 find_context 0.15.1: page slots, URLs, packing, output
+
+| ADR | Title | Status |
+|---|---|---|
+| [1900](1900-thin-and-title-only-sections-do-not-take-the-page-slot.md) | find_context: a line of links or a title-only match does not take its page's slot | Accepted (amends the per-page rule of 1211) |
+| [1901](1901-urls-are-not-words-of-the-note.md) | find_context: link targets and bare URLs are not words of the note | Accepted |
+| [1902](1902-large-chunks-are-cut-around-their-best-lines.md) | find_context packing: a chunk above 40% of the budget is cut around its best lines | Accepted (amends the packing of 0927, 1211 and the merge of 1720) |
+| [1903](1903-per-page-rule-and-floor-re-measured.md) | find_context: per-page rule and relevance floor re-measured, kept at 1 / 0.7 / 0.6 | Accepted (confirms 1211) |
+| [1904](1904-other-language-notes-guidance-and-weak-result-hint.md) | find_context: notes in another language — ask with queries=[original, translation], and say so when an answer is weak | Accepted |
+| [1905](1905-query-forms-and-rrf-k.md) | find_context query forms (English inflection, Korean double particles) and RRF k = 10 | Accepted (amends the word groups of 1210/1700 and the merge constant of 1720) |
+| [1906](1906-find-context-short-page-ids-and-shared-can.md) | find_context output: 8-character page ids, `can:` once when every result has the same | Accepted (amends the output of 0927, 1212 and 1720) |
+| [1907](1907-find-context-verification-marks-at-the-end.md) | find_context: verification marks in one line at the end | Accepted (amends the find_context part of 1842) |
+| [1908](1908-find-context-output-baselines-changed-in-0151.md) | find_context output in 0.15.1: what changed in the bytes, and the tests that pin them | Accepted |
+| [1909](1909-evaluation-field-cases-of-0151.md) | Retrieval evaluation: the 0.15.1 field cases, answer-in-body and tokens per question, 0.15.1 numbers | Accepted (extends 1213, 1702) |
+
+## 1920–1929 Sync and data-loss paths
+
+| ADR | Title | Status |
+|---|---|---|
+| [1920](1920-vault-sync-revision-sees-deletions.md) | Vault sync revisions see deletions | Accepted |
+| [1921](1921-failed-collab-store-retries-and-unload-guard.md) | A failed collab store retries, and an unsaved document is not unloaded | Accepted |
+| [1922](1922-inbox-ack-follows-the-listing.md) | Inbox acknowledgement follows the listing | Accepted |
+| [1923](1923-duplicate-flushes-live-documents-transfer-bumps-access.md) | Duplicate copies the live document; ownership transfer is an access change | Accepted |
+| [1924](1924-boot-reindex-of-pages-a-crash-left-stale.md) | Boot re-index of pages a crash left stale | Accepted |
+| [1925](1925-single-instance-guard.md) | Single-instance guard at boot | Accepted |
+| [1926](1926-unsaved-edits-in-the-browser.md) | Unsaved edits in the browser: leave guard, deferred release, indicator | Accepted |
+
+## 1940–1949 MCP fixed cost and tool surface
+
+| ADR | Title | Status |
+|---|---|---|
+| [1940](1940-id-arguments-without-patterns-in-the-tool-list.md) | Id arguments: a plain string in the tool list, checked by a refinement, resolved before the handler | Accepted |
+| [1941](1941-short-ids-in-every-tool-and-what-a-prefix-may-reveal.md) | Short ids in every tool, and what a prefix may reveal | Accepted |
+| [1942](1942-ids-once-and-outline-without-repeated-headings.md) | Ids once each in read output; outline lines without the repeated heading, with known | Accepted |
+| [1943](1943-workspace-inferred-from-a-page-or-the-only-workspace.md) | workspaceId inferred from a page or the only workspace; fewer calls before the first answer | Accepted |
+| [1944](1944-compact-is-the-default-list-format.md) | compact is the default format of list_pages and search | Accepted |
+| [1945](1945-tool-list-without-sdk-defaults-and-one-copy-of-each-spec.md) | Tool list without the SDK's defaults, one copy of each spec; profiles designed, not built | Accepted |
+| [1946](1946-values-that-change-without-the-page-go-after-the-body.md) | Values that change without the page go after the body | Accepted |
+| [1947](1947-update-page-replace-names-the-version-it-read.md) | update_page replace names the version it read | Accepted |
+| [1948](1948-backlinks-on-read-page-and-create-page-kinds.md) | Backlinks on read_page; create_page makes canvases and folders | Accepted |
+
+## 1960–1969 Section names after headings move
+
+| ADR | Title | Status |
+|---|---|---|
+| [1960](1960-a-section-name-another-section-answered-to-needs-the-version.md) | A section name that passed to another section needs the version read | Accepted |
+| [1961](1961-patch-section-keeps-its-baseversion-rule.md) | patch_section keeps its baseVersion rule (not ADR 1947's) | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

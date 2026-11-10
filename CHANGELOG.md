@@ -7,6 +7,170 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-10
+
+A patch release that follows an outside evaluation of the agent tools and reports from a production server. One
+database migration, additive: `0047_v0151_index_stamp` (column `page_chunk_index.doc_updated_at`, filled from
+`page_docs.updated_at` for existing rows, so the first boot re-indexes nothing). A 0.15 database goes from 47 to 48
+applied migrations. Two new environment variables, both optional: `SINGLE_INSTANCE` and `SINGLE_INSTANCE_WAIT`. No
+new dependency. Upgrade matrix adds v0.15.0 (`.github/workflows/upgrade.yml`). Several defaults of the MCP tools
+changed; read the upgrade notes first.
+
+### Upgrade notes
+- The server refuses to start while another Inkling process uses the same database. A replacement waits up to
+  `SINGLE_INSTANCE_WAIT` seconds (default 60) for the old one to stop, then exits; `SINGLE_INSTANCE=0` turns the guard
+  off. `docker compose up -d` stops the old container first and is not affected (docs/adr/1925-*).
+- MCP `list_pages` and `search` default to `format: "compact"`. Clients that parse their JSON must pass
+  `format: "json"` (docs/adr/1944-*).
+- MCP text outputs print 8-character ids (find_context, read_page header and outline, `unchanged` lines,
+  list_comments thread ids, get_instructions); every tool accepts them. JSON outputs and urls keep full ids
+  (docs/adr/1906-*, 1941-*, 1942-*).
+- `read_page(outline=true)` lines are `- §<anchor> ~N tok v=…`, indented one space per level, without the repeated
+  heading text; the owner's status, verified/stale and claims lines come after the page text (docs/adr/1942-*,
+  1946-*).
+- `update_page` with `mode: "replace"` takes `baseVersion` (read_page's `version:` line). Without it, a replace is
+  refused when a person edited the page last; pages an agent wrote last are replaced as before (docs/adr/1947-*).
+- find_context output: page ids as 8-character prefixes, `can:` once in the first line when every result has the
+  same, `; truncated, section ~N tok` on a cut fragment, verification marks in one last `Verification:` line, and a
+  last `Not in any result: …` line on a weak answer (docs/adr/1902-*, 1904-*, 1906-*, 1907-*).
+- `queries=[…]` merge with RRF k = 10 instead of 60 (docs/adr/1905-*).
+- Agents that write by a short anchor or heading text without `baseVersion` can get `SECTION_AMBIGUOUS` after a
+  heading with the same name was added, moved or renamed (within the 30 days of change-log retention). Pass the
+  `v=…` you read, or read the section and retry with its full anchor (docs/adr/1960-*).
+- Vaults synced with an older server need no action: the first `inklingctl sync` after the upgrade re-reads pages
+  changed since the last sync and merges notes edited locally once; nothing is overwritten or marked as a conflict
+  (docs/adr/1920-*).
+
+### Fixed
+- **Vault sync no longer brings back text deleted on the server.** A pure deletion (an agent's `patch_section` with
+  `mode: delete`, a deleted paragraph) did not change the page's sync revision, so `inklingctl sync` of a note edited
+  elsewhere overwrote the page with the old text and the deleted section came back. The revision now includes the
+  document's deletions. Server-only change. A note deleted locally before the upgrade is still trashed on the server
+  (docs/adr/1920-*).
+- **A vault write no longer erases typing that was on its way from a browser.** The note is applied as a minimal edit
+  (the `update_page` replace path): blocks the note did not change keep their nodes, colours and ids, and typing
+  that reaches the server just after the write merges into them (docs/adr/1920-*).
+- **Edits are not lost when saving fails and the last person leaves the page.** A save that failed after its retries
+  used to wait for the next edit; when the last editor left, the server dropped the document from memory without
+  saving. Now a failed save retries in the background (5 s, doubling up to 60 s), and a page with unsaved changes is
+  saved before it leaves memory or kept there until a save succeeds (docs/adr/1921-*).
+- **`ack(cursor)` acknowledges only what the inbox listing showed.** After `inbox(workspaceId=A)` or
+  `inbox(kinds=[…])`, `ack(cursor)` also acknowledged older items of other workspaces and kinds, and items the agent
+  could not see. The listing and the acknowledgement now share one filter; the MCP cursor of a filtered listing
+  carries its filters (`<seq>;ws=<id>;kinds=a,b`, unfiltered stays the plain number), and `POST /api/inbox/ack` takes
+  `workspaceId` and `kinds` with `cursor` (docs/adr/1922-*).
+- **Duplicating an open page copies its last seconds of typing**: open documents in the subtree are saved and indexed
+  before the copy (docs/adr/1923-*).
+- **Ownership transfer refreshes cached permissions**: it bumps the workspace access version like any role change
+  (docs/adr/1923-*).
+- **Search and find_context catch up after a crash.** A crash between a save and its queued index pass left the
+  page's search text, sections, links, tags and tasks describing the old content until the next edit. At boot, pages
+  whose stored content is newer than their index are re-indexed in the background, about ten a second
+  (docs/adr/1924-*).
+- **A section write no longer lands in a section that took over the name the agent had.** find_context prints short
+  anchors (`decided` for `alpha/decided`); when a new `# Beta / ## Decided` was inserted above,
+  `patch_section(section='decided', mode='append')` wrote into the new section. A name that fits several sections, or
+  that another still-existing section answered to before (change log, or the section index while typing is not
+  logged yet), now needs the `v=…` printed next to it as `baseVersion`; it picks the section with that version.
+  Otherwise nothing is written and the error names the sections: `Section "decided" now names §beta/decided, but
+  §beta/decided~2 answered to that name before … Read the one you mean with read_page(pageId, section=<anchor>) and
+  retry with that anchor and its version as baseVersion`. Also patch_sections, claim_section and add_comment (these
+  two take no version: they ask for the full anchor). The usual find_context → patch_section flow needs no extra call
+  (docs/adr/1960-*).
+- **find_context: the section that answers takes its page's slot** (docs/adr/1900-*). A section that is only a line
+  of links (an `_intro` like `← [[previous]] · [record](https://…)`) or that matches the question only through the
+  page title no longer holds the page's one result slot when another section of the same page matches by itself;
+  such link lines also score like heading-only chunks. Field case: "<idea> 폐기 이유" now shows the ruling, not the
+  link line above it.
+- **find_context ignores link targets and bare URLs when matching words** (docs/adr/1901-*). A table whose links
+  contain `…/solar-forecast/…` no longer outranks the short section that answers "solar forecast best submission
+  score". Query time only; nothing is re-indexed.
+- `catch_up(since=<time>)` started a few rows late when one batch of change-log rows straddled a power of ten in
+  `seq`: the start row was picked by `seq::text … ORDER BY seq`, which sorts the text alias ("100" before "99"), so a
+  page changed in that batch could be left out. It now orders by the column; the inbox start of catch_up and the
+  audit record of a revert had the same pattern and are fixed too.
+
+### Added
+- **Single-instance guard** (docs/adr/1925-*). At boot, before migrations, the server takes a Postgres advisory lock
+  on its own connection (`inkling-instance-lock` in `pg_stat_activity`) and keeps it until it exits; the log names
+  the other process while it waits. `SINGLE_INSTANCE`, `SINGLE_INSTANCE_WAIT` in `compose.yaml` and `.env.example`.
+- **"Not saved yet" in the editor** (docs/adr/1926-*). When edits have not reached the server (connection down), the
+  connection dot turns amber with the words "Not saved yet", the browser asks before a reload or tab close, and
+  leaving the page inside the app keeps the edits until the server has them.
+- MCP `read_page(backlinks=true)`: the pages that link here, after the page (docs/adr/1948-*).
+- MCP `create_page(kind="canvas"|"folder")` (docs/adr/1948-*).
+- MCP: `workspaceId` can be left out of list_pages, create_page, import_folder, create_from_template,
+  create_collection and get_instructions: it comes from `parentId`/`forPageId`, or from the only workspace of the
+  connection; with several, the error lists them (docs/adr/1943-*).
+- `read_page(outline=true, known=v)` answers one line when no section changed: the outline has its own version
+  (docs/adr/1942-*).
+- `scripts/mcp-tools-list-cost.ts` (tool list size per tool, no database) and `scripts/mcp-output-cost.ts`
+  (outline, header and list sizes before and after, scratch database).
+
+### Changed
+- **find_context packing** (docs/adr/1902-*): a section larger than 40% of the budget is cut around its best
+  matching lines (a table keeps its column row) so shorter relevant sections after it still fit; a cut fragment says
+  the size of the whole section (`; truncated, section ~612 tok`). A small chunk counts as at least 80 tokens (was
+  60) when packing by value per token. `queries=[…]` answers are packed the same way and cut around the words of the
+  query that found the piece.
+- **find_context matches more word forms** (docs/adr/1905-*): English plurals and -ed/-ing ("deploys", "approved",
+  "answering") also find the base form; Korean words with two particles ("회의에서는") are stripped twice.
+- **queries=[…] merge**: RRF k 60 → 10 (docs/adr/1905-*).
+- **find_context output** (docs/adr/1906-*, 1907-*, 1908-*): page ids are printed as their 8-character prefix; `can:`
+  is printed once in the first line when every result has the same; verification marks (`verified`, `stale:
+  verification lapsed`) moved from each fragment header to one `Verification: [n] …` line at the end.
+- **Notes in another language** (docs/adr/1904-*): the find_context description and the empty answer suggest
+  `queries=[original, translation]`; an answer where more than half of the query's words (and at least two) are in
+  no result ends with `Not in any result: … If the notes may be in another language, ask again with queries=[…]`.
+  The MCP server instructions gained one sentence: "If the notes may be in another language than the question, pass
+  queries=[question, translation]." (+24 tokens).
+- **MCP tool list is 28% smaller** (docs/adr/1940-*, 1945-*): ~16,500 → ~11,900 estimated tokens (65,971 → 47,646
+  characters) with no tool or argument removed. Id fields no longer carry a 190-character UUID pattern each (51
+  fields), the SDK's default `execution` and `$schema` lines are left out, and update_fields / create_view point to
+  the create_collection / create_chart specs instead of repeating them (checked by the same schemas in the handler).
+- **Short ids everywhere** (docs/adr/1941-*). Every MCP id argument (page, parent, collection, row, workspace,
+  comment thread, trashed page) accepts the first 8 or more hex characters as tools print them. Prefixes resolve
+  only among what the connection can see; a page the agent cannot see never makes a prefix ambiguous and never
+  shows in an error. Version and suggestion ids still need the full id.
+- **read_page and outline print each id once** (docs/adr/1942-*): 8-character ids in the header, the outline, the
+  `unchanged` line, list_comments and get_instructions; full ids only in the url. Outline lines drop the heading text
+  that repeated the anchor and are indented by level. Outline 34% smaller, full-read header 16%.
+- **list_pages and search default to `format: "compact"`** (docs/adr/1944-*); `lines` and `json` are unchanged.
+- **Values that change without the page come after the body** (docs/adr/1946-*): the owner's status, verified/stale
+  and live claims are printed after the page text in read_page (and after the list in outlines), so the header and
+  body stay a stable prompt-cache prefix.
+- **update_page replace names the version it read** (docs/adr/1947-*): `baseVersion`; a changed page is not
+  overwritten (`PAGE_CONFLICT`). The MCP server instructions say so. patch_section keeps its own rule: `replace` and
+  `delete` already require `baseVersion` in the MCP tool (docs/adr/1961-*).
+- **Change feed: an anchor that passes from one heading to another is a rename** (docs/adr/1960-*). Inserting a
+  heading above one with the same name (`## Decided` above `## Decided`) was logged as `modified decided` +
+  `added decided~2`; it is now `renamed decided>decided~2` + `added decided` (the text reads `renamed decided →
+  decided~2`). Deleting the first of two gives `removed decided` + `renamed decided~2>decided`. changes_since,
+  catch_up, activity and revert see these kinds for that pattern. A heading retyped as a new block stays
+  `modified`.
+- README: "offline edits merge on reconnect" now says they merge while the tab stays open, and that the tab warns
+  before closing with unsaved edits.
+- Routes and fields: [docs/API.md](docs/API.md), "v0.15.1 additions".
+
+### Performance
+- find_context on 78 evaluation questions (16 new ones reproduce the field cases), padded corpus + 5,000 distractors:
+  dev MRR 0.841 → 0.896, recall@5 0.881 → 0.948, answer in the returned text 0.889 → 0.956, tokens per question
+  361.6 → 317.6 (−12.2%); held-out test MRR 0.879 → 0.909, recall@5 0.899 → 0.960, answer in text 0.909 → 0.970,
+  tokens 399.1 → 290.2 (−27.3%) (docs/adr/1909-*).
+- find_context latency regressed: p50 about +5.5 ms (+14%, +3.6 to +8.8 ms per interleaved pair), p95 +11 to +28 ms.
+  The query forms return 9% more candidate rows; ranking and cutting add no measurable CPU.
+- MCP fixed cost per session (tools/list + server instructions): ~16,938 → ~12,390 tokens (−26.9%). read_page outline
+  −34.4% (a repeat with `known` −93.5%), full-read header −15.9%, list_pages without `format` −81.4%.
+- A vault sync revision of a stored page costs 11.5 ms instead of 3.0 ms (1.17 MB state), only for pages changed since
+  the sync cursor (docs/adr/1920-*).
+- A section write by a short anchor or heading text runs two small indexed queries first (docs/adr/1960-*).
+- Numbers and methods: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Database
+- Migration 0047: `page_chunk_index.doc_updated_at` (timestamptz, NULL), set from `page_docs.updated_at` for existing
+  rows and after every complete index pass. A boot pass re-indexes pages whose `page_docs.updated_at` is newer
+  (docs/adr/1924-*).
+
 ## [0.15.0] - 2026-11-10
 
 Four database migrations, all additive: `0043_v015_slack` (tables `slack_integrations`, `slack_user_links`,

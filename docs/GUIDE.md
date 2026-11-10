@@ -281,7 +281,13 @@ sort, group and chart by a formula like by any other property, and exports conta
 ### Editing at the same time
 
 Several people can edit the same document or canvas at once. You see their cursors, and the header shows who is
-online and the connection state. Changes made offline merge when you reconnect.
+online and the connection state. Changes made while the connection is down merge when you reconnect, as long as
+the tab stays open: Inkling keeps nothing in the browser's storage.
+
+While some of your edits have not reached the server, the connection dot turns amber and reads **Not saved yet**
+(hover it for "Some edits have not reached the server yet. Keep this tab open until they are saved."). Closing or
+reloading the tab then asks you first. Opening another page inside the app is fine: the edits of the page you left
+are kept until the server has them.
 
 ### Comments
 

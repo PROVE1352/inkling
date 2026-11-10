@@ -421,6 +421,11 @@ Access changes wait for writes in progress (docs/adr/1071-*): `PUT /pages/:id/lo
 |---|---|---|
 | GET | `/api/changes?cursor&workspaceId&budget&detail` | Changes since a cursor (net per-section diffs within a token budget; `detail` = `none` \| `diff` (default) \| `full`). No cursor → current cursor. Returns `{ status: 'start'\|'ok'\|'resync_required', cursor, text, changes, detailed, listedOnly, rows, more }`. 400 `INVALID_CURSOR` / `CURSOR_WORKSPACE`; `workspaceId` → membership required. Only pages visible at change time are reported; pages no longer visible appear as `removed (no longer visible)` without content. Rows are kept `CHANGE_FEED_RETENTION_DAYS` (default 30) |
 
+Since 0.15.1 an anchor that passes from one heading to another is logged as a rename, not a modification: a
+`## Decided` inserted above another `## Decided` gives `renamed decided>decided~2` + `added decided` (before:
+`modified decided` + `added decided~2`); the text reads `renamed decided → decided~2` (docs/adr/1960-*, "v0.15.1
+additions" below).
+
 ## Notifications, subscriptions, activity and the agent inbox (docs/adr/1000–1007)
 
 Notification rows are written by a background queue after the write that caused them (comments, body @mentions,
@@ -442,7 +447,7 @@ produced.
 | GET | `/api/pages/:id/snapshots/:sid/diff` | `against=current\|<snapshot id>` | `SnapshotDiffDTO { from, to, ops, large }` (Markdown of both versions, line diff) |
 | GET | `/api/pages/:id/provenance` | – | `PageProvenanceDTO { createdVia, createdByName, lastAgentEdit: {at, via, actorName} \| null }` |
 | GET | `/api/inbox` | `workspaceId?, cursor?, kinds=mention,reply,comment,assigned,…` | `{ items: InboxItem[], more, unacked }` — unacknowledged direct items of the caller in `seq` order (MCP `inbox`) |
-| POST | `/api/inbox/ack` | `{ ids?: string[], cursor?: string }` | `{ acked }` — sets `acked_at`; does not touch `read` |
+| POST | `/api/inbox/ack` | `{ ids?: string[], cursor?: string, workspaceId?: uuid, kinds?: InboxKind[] }` | `{ acked }` — sets `acked_at`; does not touch `read`. `ids`: exactly those items. `cursor`: the items up to it that `GET /api/inbox` with the same `workspaceId`/`kinds` lists (visibility, range, membership, agent access and the two-step rule included); without them, the unfiltered inbox (docs/adr/1922-*) |
 
 `PATCH /api/comments/:id` with `resolved` from an agent (bearer) request: 403 `AGENT_RESOLVE_NOT_ALLOWED` unless the
 thread root was written by the token's user. `PageMetaDTO`s are unchanged; `pages.created_via` is set for pages
@@ -610,7 +615,7 @@ Dataview-style queries (syntax: [QUERY.md](QUERY.md)). docs/adr/0203, 0204.
 
 Registered only when `EXPERIMENTAL_FEATURES` contains `vault-sync` (otherwise 404). Used by
 `inklingctl sync <vaultDir> --workspace <name|id>`. Revision tokens are opaque strings
-(state-vector hash + metadata hash); `contentHash` is SHA-256 of the normalized canonical
+(state-vector hash + delete-set hash + metadata hash since 0.15.1, docs/adr/1920-*); `contentHash` is SHA-256 of the normalized canonical
 markdown (frontmatter `inkling-id`, `aliases`, `tags`, page properties + body; attachments as
 `/files/<id>`; wikilinks as `[[Current Title]]` / `[[Current Title|shown]]`). docs/adr/0200–0202.
 
@@ -1277,3 +1282,75 @@ New arguments: `create_view(…, type: "form", form?)`, field specs `type: "form
 Changed output: `read_page` verified / stale line and the owner's status; `find_context` verified marks; a last
 `status: …` line after writes that mention or assign people with a status and after `query_rows`; `inbox` marks
 items handed to this connection. Details: [MCP.md](MCP.md).
+
+## v0.15.1 additions
+
+One migration, `0047_v0151_index_stamp`: column `page_chunk_index.doc_updated_at` (timestamptz, NULL), filled from
+`page_docs.updated_at` for existing rows. No route was added or removed. This release follows an outside evaluation of
+the agent tools and reports from a production server.
+
+### find_context (docs/adr/1900–1909)
+- `GET /api/context`: unchanged shape except `fragments[].fullTokens?: number`, present on a fragment whose text was
+  cut (`truncated: true`): the estimated tokens of the whole section (all its index parts).
+- Ranking (no shape change): sections that are only a line of links, or that match only through the page title, do
+  not take a page's slot when another section of the page matches by itself; link targets and bare URLs are not
+  matched; a fragment above 40% of the budget is cut around its best lines (a table keeps its column row); English
+  plural/-ed/-ing forms and Korean words with two particles in the query also match the base form; repeated `q`
+  merge with RRF k = 10 (was 60).
+- Page ids stay full in REST. The MCP text prints 8-character prefixes (docs/adr/1906-*).
+
+### Section writes (docs/adr/1960–1961)
+- `POST /api/pages/:id/section` and `POST /api/pages/:id/sections` resolve the section reference before any write.
+  A reference that fits several sections, or that another still-existing section answered to before (change log, or
+  the section index while typing is not logged yet), needs a `baseVersion` that picks one section; otherwise 409
+  `SECTION_AMBIGUOUS` (details: `anchors`) and nothing is written. This applies to exact anchors too when another
+  existing section held the anchor before. `/sections` lists such an edit as `reason: 'ambiguous'` in its 409
+  `SECTIONS_CONFLICT`, also in suggestion mode.
+- The claim route answers the same 409 for a short anchor or heading text that became ambiguous (it takes no
+  version: exact anchors are used as they are). The comment route is unchanged; the MCP `add_comment` resolves the
+  section before it calls the route.
+- `patch_section` over REST still accepts a missing `baseVersion` for `replace`/`delete` (scripts with a person's own
+  token); the MCP tool requires it (docs/adr/1961-*).
+
+### Change feed (docs/adr/1960-*)
+- A heading inserted above another with the same name (`## Decided` above `## Decided`) passes the anchor to the new
+  heading. It is logged as a rename of the old section and an added one: before 0.15.1 `modified decided` +
+  `added decided~2`, now `renamed decided>decided~2` + `added decided` (rows: `kind: 'renamed'` with anchor
+  `decided~2` and `prev_anchor` `decided`, then `kind: 'added'` with anchor `decided`; the `changes_since` text reads
+  `renamed decided → decided~2`). Deleting the first of two gives `removed decided` + `renamed decided~2>decided`. `GET /api/changes`, catch_up,
+  activity and revert see these kinds for that pattern. A heading retyped as a new block stays `modified`.
+
+### Inbox (docs/adr/1922-*)
+- `POST /api/inbox/ack` takes `workspaceId` and `kinds` next to `cursor`: a cursor acknowledges only what
+  `GET /api/inbox` with the same filters lists, including the visibility, range and access rules of the listing.
+  Before 0.15.1 it also acknowledged older items of other workspaces and kinds, and items the caller could not see.
+- `inboxAckSchema` (`@inkling/shared`) gains `workspaceId` and `kinds`.
+
+### Vault sync (docs/adr/1920-*)
+- `revision` is `<state vector hash>-<delete set hash>.<metadata hash>` (opaque to clients), so a pure deletion
+  changes it. A token without `-` comes from an older server: a `PUT` with it gets 412 with the current version (the
+  CLI merges), a `DELETE` with it succeeds when nothing was inserted or reformatted since.
+- `PUT /api/pages/:id/sync/md` applies the Markdown as a minimal edit of the document (the `update_page` replace
+  path): blocks the note did not change keep their ids and non-Markdown properties, and typing that reaches the
+  server just after the write merges into them. When the minimal edit does not validate, the whole document is
+  rewritten as before (logged as `[vault-sync] minimal replace not applied`).
+
+### Other behaviour
+- `POST /api/pages/:id/duplicate` stores (and indexes) the open documents of the subtree before copying, so the copy
+  includes the last seconds of typing (docs/adr/1923-*).
+- Ownership transfer bumps the workspace access version like any role change, so cached permissions refresh
+  (docs/adr/1923-*).
+- `GET /api/catch-up?since=<time>` starts at the first change-log row at or after that time also when one batch of
+  rows straddles a power of ten in `seq` (it sorted the seqs as text and could start a few rows late).
+
+### MCP tools
+New arguments: `read_page(…, backlinks?)`, `create_page(…, kind?)` (`doc`, `canvas`, `folder`), `update_page(…,
+baseVersion?)` for `replace`. `workspaceId` may be left out of `list_pages`, `create_page`, `import_folder`,
+`create_from_template`, `create_collection` and `get_instructions` when a page id names the workspace or the
+connection has one workspace. Every id argument takes an 8-character (or longer) prefix. Changed defaults and
+output: `list_pages` / `search` default to `format: "compact"`; text outputs print 8-character ids; outline lines are
+`- §<anchor> ~N tok v=…` indented per level, with an outline version; owner status, verified/stale and claims come
+after the page text; `find_context` prints `can:` once when all results share it, `; truncated, section ~N tok` on a
+cut fragment and a last `Verification:` line; an `inbox` cursor of a filtered listing carries the filter
+(`<seq>;ws=<id>;kinds=a,b`). The tool list no longer carries a UUID pattern per id field or the SDK's `execution` and
+`$schema` defaults (docs/adr/1940–1948). Details: [MCP.md](MCP.md).

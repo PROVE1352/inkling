@@ -321,6 +321,19 @@ Inside the container `localhost` is the container: for Ollama on the Docker host
 `http://host.docker.internal:11434/v1` (Docker Desktop) or the host's LAN address. Boot log, progress, memory and how
 to turn it off again: [docs/OPERATIONS.md](../docs/OPERATIONS.md) section 5.
 
+## 3-I. One server process per database
+
+The server refuses to start while another Inkling process uses the same database, because two processes overwrite
+each other's documents (docs/adr/1925-*). `docker compose up -d` stops the old container first, so normal updates are
+not affected. Put the variables in `.env` only if you need to change the default:
+
+| env | Meaning | Default |
+|---|---|---|
+| `SINGLE_INSTANCE` | `0` (or `false`/`off`/`no`) turns the guard off, with a warning at boot. Only for a deliberate extra process against a live database, or behind a transaction-mode pooler; never for a second web server | on |
+| `SINGLE_INSTANCE_WAIT` | Seconds a starting server waits for the other process to stop (a replaced container still saving documents) before it exits | `60` |
+
+Log lines and what to do: [docs/OPERATIONS.md](../docs/OPERATIONS.md) section 9.
+
 ## 4. Backups
 
 The `backup` service in `compose.yaml` backs up the database and the data volume every day at
@@ -368,7 +381,8 @@ the old release.
 
 On a stop signal (SIGTERM) the app saves collaborative documents being edited to the DB before
 exiting, which takes up to ~25 seconds. compose's `stop_grace_period: 30s` waits for this, so don't
-cut it short with `docker kill` / `docker compose kill`.
+cut it short with `docker kill` / `docker compose kill`. A new container started while the old one is still
+saving waits for it (`SINGLE_INSTANCE_WAIT`, section 3-I).
 
 ## Notes
 

@@ -7,6 +7,7 @@ import { closeDb, db, runMigrations } from './db/index'
 import { sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { enabledExperimentalFeatures } from './features'
+import { semanticConfig, semanticConfigWarning } from './context/semanticConfig'
 import { lifecycle, withTimeout } from './lifecycle'
 import { assertOriginConfigured } from './origin'
 import { hashLegacySessionTokens } from './sessionTokens'
@@ -117,6 +118,7 @@ let appRef: FastifyInstance | null = null
 let stopReminders: (() => void) | null = null
 let stopLaterReminders: (() => void) | null = null
 let stopReadFlusher: (() => Promise<void>) | null = null
+let stopSemanticIndexer: (() => Promise<void>) | null = null
 let shutdownStarted = false
 
 /** Hard cap for the whole shutdown; compose gives the container 30 s (stop_grace_period). */
@@ -169,6 +171,8 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   if (a) await step('http close', () => a.close(), HTTP_CLOSE_TIMEOUT_MS)
   // buffered page read counts (docs/adr/0953-*) — after HTTP so in-flight reads are counted
   if (stopReadFlusher) await step('read counter flush', () => stopReadFlusher!(), 3_000)
+  // optional semantic indexer (docs/adr/1742-*): an embedding request in flight is abandoned
+  if (stopSemanticIndexer) await step('semantic indexer stop', () => stopSemanticIndexer!(), 2_000)
   // outbox consumers (docs/adr/1080-*): rows still pending stay in the table for the next boot
   await step('outbox stop', () => stopOutboxWorker(), 3_000)
   await step('db close', () => closeDb(), 6_000)
@@ -213,6 +217,9 @@ async function main(): Promise<void> {
   assertSecretKeyConfig()
   //    OpenID Connect sign-in (docs/adr/1160-*): a half-filled set or no PUBLIC_URL refuses to boot.
   for (const w of assertOidcConfig()) console.warn(`[inkling] ${w}`)
+  //    Optional semantic search (docs/adr/1740-*): a half-filled EMBEDDING_* set stays off with a warning.
+  const semanticWarning = semanticConfigWarning()
+  if (semanticWarning) console.warn(`[inkling] ${semanticWarning}`)
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
@@ -562,6 +569,12 @@ async function main(): Promise<void> {
   //      + section index for agent retrieval (page_chunks, docs/adr/0926-*): pages without a current
   //        marker, 50 per batch with event-loop yields, at most 50k pages per boot
   void backfillPageChunks((msg) => app.log.info(msg))
+  //      + optional chunk embeddings (docs/adr/1740-*, 1742-*): only with EMBEDDING_URL and
+  //        EMBEDDING_MODEL set; otherwise the module is not even loaded
+  if (semanticConfig()) {
+    const { startSemanticIndexer } = await import('./context/semanticIndexer')
+    stopSemanticIndexer = startSemanticIndexer((msg) => app.log.info(msg))
+  }
 
   // 9.6) M17 due-date reminder scheduler: one delayed scan after boot + a rescan every hour.
   //      shutdown calls stop to clear the timer.

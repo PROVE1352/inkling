@@ -18,6 +18,21 @@ export type AdminStatusDTO = {
   cache: { hit: boolean; ageSec: number; ttlSec: number }
   /** Agent connections and API tokens since the server started (docs/adr/1552-*). */
   agents?: AgentUsage
+  /** Optional semantic search (docs/adr/1744-*): present only while the server has it switched on. */
+  semantic?: SemanticStatus | { enabled: true; error: string }
+}
+
+export type SemanticStatus = {
+  enabled: true
+  model: string
+  endpoint: string
+  dims: number | null
+  sections: { indexed: number; pending: number }
+  chunks: { indexed: number; pending: number; rejected: number }
+  lastError: { at: string; message: string } | null
+  lastSuccessAt: string | null
+  backoffUntil: string | null
+  cache: { workspaces: number; bytes: number }
 }
 
 export type ConnectionUsage = {

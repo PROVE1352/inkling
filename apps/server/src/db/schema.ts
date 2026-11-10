@@ -899,3 +899,5 @@ export * from './schema-guests'
 export * from './schema-later'
 // Suggested section edits, section claims and catch_up markers (docs/adr/1530-*, 1535-*, 1537-*)
 export * from './schema-collab'
+// Optional semantic search: chunk embeddings, written only when an embedding endpoint is set (docs/adr/1740-*)
+export * from './schema-semantic'

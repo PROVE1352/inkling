@@ -295,6 +295,13 @@
       "when": 1794234596509,
       "tag": "0041_v012_suggestions_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794264778784,
+      "tag": "0042_v014_semantic_vectors",
+      "breakpoints": true
     }
   ]
 }

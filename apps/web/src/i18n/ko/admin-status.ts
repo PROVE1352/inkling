@@ -144,6 +144,13 @@ export default {
   'adminStatus.update.check.security': '{latest} 나옴, 보안 수정 포함 (현재 {current})',
   'adminStatus.update.notes': '릴리스 노트',
 
+  'adminStatus.semantic.title': '의미 검색',
+  'adminStatus.semantic.model': '{endpoint}의 {model}',
+  'adminStatus.semantic.sections': '섹션 {indexed}개 색인, {pending}개 대기',
+  'adminStatus.semantic.rejected': '엔드포인트가 거부한 청크 {count}개',
+  'adminStatus.semantic.error': '마지막 오류 {when}: {message}',
+  'adminStatus.semantic.backoff': '{when}까지 쉬는 중',
+  'adminStatus.semantic.unavailable': '상태를 읽지 못했습니다: {message}',
   'adminStatus.duration.minutes': '{count}분',
   'adminStatus.duration.hours': '{hours}시간 {minutes}분',
   'adminStatus.duration.days': '{days}일 {hours}시간',

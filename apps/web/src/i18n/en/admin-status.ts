@@ -143,6 +143,13 @@ export default {
   'adminStatus.update.check.security': '{latest} is available with security fixes (running {current})',
   'adminStatus.update.notes': 'Release notes',
 
+  'adminStatus.semantic.title': 'Semantic search',
+  'adminStatus.semantic.model': '{model} at {endpoint}',
+  'adminStatus.semantic.sections': '{indexed} sections indexed, {pending} waiting',
+  'adminStatus.semantic.rejected': '{count} chunks refused by the endpoint',
+  'adminStatus.semantic.error': 'Last error {when}: {message}',
+  'adminStatus.semantic.backoff': 'paused until {when}',
+  'adminStatus.semantic.unavailable': 'Status unavailable: {message}',
   'adminStatus.duration.minutes': '{count} min',
   'adminStatus.duration.hours': '{hours} h {minutes} min',
   'adminStatus.duration.days': '{days} d {hours} h',

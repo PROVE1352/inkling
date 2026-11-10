@@ -2,7 +2,7 @@ import { ApiError } from '../api'
 import { RefreshIcon } from '../components/Icons'
 import { Spinner } from '../components/Spinner'
 import { fmtDateTime, fmtNumber, fmtRelative, useT } from '../i18n'
-import { useAdminStatus, useRecheckStatus, type AgentUsage, type StatusGroup, type StatusItem, type StatusLevel } from './api'
+import { useAdminStatus, useRecheckStatus, type AdminStatusDTO, type AgentUsage, type StatusGroup, type StatusItem, type StatusLevel } from './api'
 import { fmtBytes, groupTitle, itemLabel, itemValue, problemText } from './text'
 
 // Admin page, top: one card per area (backups, storage, app, security settings, updates) with its
@@ -76,6 +76,40 @@ function Card({ g }: { g: StatusGroup }) {
 }
 
 const compact = (n: number) => fmtNumber(n, { notation: 'compact', maximumFractionDigits: 1 })
+
+/**
+ * Optional semantic search (docs/adr/1744-*): shown only while the server has an embedding endpoint
+ * configured. Counts, the model and the endpoint host; the API key never reaches the client.
+ */
+function SemanticSection({ s }: { s: NonNullable<AdminStatusDTO['semantic']> }) {
+  const tr = useT()
+  if (!('model' in s)) {
+    return (
+      <div className="mt-4 rounded-lg border border-line p-3" data-testid="status-semantic">
+        <h3 className="text-sm font-semibold text-ink">{tr('adminStatus.semantic.title')}</h3>
+        <p className="mt-1 text-xs text-sub">{tr('adminStatus.semantic.unavailable', { message: s.error })}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4 rounded-lg border border-line p-3" data-testid="status-semantic">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h3 className="text-sm font-semibold text-ink">{tr('adminStatus.semantic.title')}</h3>
+        <span className="break-all text-xs text-sub">{tr('adminStatus.semantic.model', { model: s.model, endpoint: s.endpoint })}</span>
+      </div>
+      <p className="mt-1 text-xs text-sub">
+        {tr('adminStatus.semantic.sections', { indexed: fmtNumber(s.sections.indexed), pending: fmtNumber(s.sections.pending) })}
+        {s.chunks.rejected > 0 && ` · ${tr('adminStatus.semantic.rejected', { count: fmtNumber(s.chunks.rejected) })}`}
+        {s.backoffUntil && ` · ${tr('adminStatus.semantic.backoff', { when: fmtDateTime(s.backoffUntil) })}`}
+      </p>
+      {s.lastError && (
+        <p className="mt-1 break-words text-xs text-amber-700 dark:text-amber-400">
+          {tr('adminStatus.semantic.error', { when: fmtRelative(Date.parse(s.lastError.at)), message: s.lastError.message })}
+        </p>
+      )}
+    </div>
+  )
+}
 
 /**
  * Agent connections and API tokens since the server started (docs/adr/1550-* .. 1552-*): totals,
@@ -192,6 +226,7 @@ export function AdminStatusCards() {
           </div>
           <p className="mt-2 text-[11px] text-sub">{tr('adminStatus.offHint')}</p>
           {d.agents && <AgentUsageSection a={d.agents} />}
+          {d.semantic && <SemanticSection s={d.semantic} />}
         </>
       )}
     </section>

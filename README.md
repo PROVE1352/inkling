@@ -119,13 +119,15 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - `[[wikilinks]]` (`[[Page#Heading]]` for a section), `#tags`, `@mentions`, daily notes, and templates for a page or a whole structure ([docs/TEMPLATES.md](docs/TEMPLATES.md)); pen and highlighter on documents
 - Nested pages and folders with drag-and-drop, ⌘K search over titles and bodies, version history with named versions, trash, PDF export
 - Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides
-- Command palette, shortcuts you can change, Later reminders and followed comment threads
-- English and Korean UI, installable PWA, light and dark themes
+- Command palette, shortcuts you can change, Later reminders and followed comment threads; button blocks that add a row, set values, open a page or call a webhook
+- Save from the web with a bookmarklet, the `/clip` screen or Android's share sheet, as a link or the article's text
+- English and Korean UI, installable PWA with offline copies of the pages you open, light and dark themes
 
 **Databases**
 - Table, board, calendar, gallery, timeline, chart, form and list views, each with its own sort, filter (with OR and NOT) and grouping; any view can also sit inside a page (`/database view`)
 - Text, number, select, multi-select, date, checkbox, person, URL, email, phone, relation, rollup and formula properties, automatic created/edited time and by, and IDs like `TASK-12`; sub-items under a parent row; row templates; CSV/XLSX import and export
 - Charts in any page (`/chart`) from a database or a query; forms that members fill in, or anyone through a public link an owner or admin turns on
+- Automations: when a row is added, a property changes or a date comes near, set values, assign or notify people, add a row elsewhere or call a webhook
 
 **Links and canvas**
 - Backlinks, unlinked mentions and outgoing links; workspace and local graph
@@ -133,10 +135,10 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Query blocks: a Dataview subset (`TABLE` / `LIST` / `TASK`) that stays live ([docs/QUERY.md](docs/QUERY.md))
 
 **Working together**
-- Real-time co-editing with Yjs: live cursors, presence; edits made while the connection drops merge on reconnect as long as the tab stays open (nothing is kept in the browser, so the tab warns before it closes with unsaved edits)
-- Invite links, owner, admin and member roles, private pages, per-page levels (view, comment, edit, full) and guests who see only the pages shared with them
+- Real-time co-editing with Yjs: live cursors, presence; edits made while the connection drops merge on reconnect, kept on the device where offline copies are on (the default in the installed app) and otherwise only while the tab stays open
+- Invite links, owner, admin and member roles, private pages, per-page levels (view, comment, edit, full) and guests who see only the pages shared with them; your own workspace groups and an archive for finished ones
 - Edit lock for a page tree; agents can be held separately to suggestions, comments or reading
-- Comments on pages and sections, notifications with mail digests, an Activity screen with a diff per change, page owners and review dates, and "Verify page", which marks a page correct until a date
+- Comments on pages and sections, notifications with mail digests and web push to your devices, an Activity screen with a diff per change, page owners and review dates, and "Verify page", which marks a page correct until a date
 - Public links for a page or a folder, with expiry, password and a scheduled start
 - Member status (emoji, message, clear time) in the members panel, mentions and presence
 - Slack app per workspace (channel posts, `/inkling` search, link previews), and webhooks to Slack, Discord or any https endpoint ([docs/WEBHOOKS.md](docs/WEBHOOKS.md))
@@ -215,9 +217,9 @@ A rough comparison as of November 2026, from each project's repository, document
 ## Limits
 
 - It needs PostgreSQL; there is no SQLite mode.
-- There are no native desktop or mobile apps (the web app installs as a PWA) and no web push notifications; notifications arrive in the app, by mail or in Slack.
+- There are no native desktop or mobile apps (the web app installs as a PWA). Web push needs the server on HTTPS and, on iPhone and iPad, the Home Screen app.
 - It runs as a single instance: the server refuses to start while another process uses the same database, and there is no horizontal scaling.
-- Nothing is stored in the browser, so edits made while offline survive only as long as the tab stays open.
+- Offline you can read and edit only the pages you opened on a device with offline copies on (off by default in a browser tab, where offline edits survive only while the tab stays open); you cannot create or move pages, open databases or search offline.
 - Inkling has no AI model of its own; writing and summarizing are done by the agents you connect.
 - Without semantic search, `find_context` matches words, so an English question does not find a note written only in Korean. Pass `queries=[question, translation]` or turn semantic search on.
 - It is a young project with a small user base. Open problems by area and severity: [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md); planned work: [docs/ROADMAP.md](docs/ROADMAP.md).

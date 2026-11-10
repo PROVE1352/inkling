@@ -367,6 +367,19 @@ not affected. Put the variables in `.env` only if you need to change the default
 
 Log lines and what to do: [docs/OPERATIONS.md](../docs/OPERATIONS.md) section 9.
 
+## 3-J. Push notifications and the web clipper (0.18)
+
+Both work with the setup above and need no extra proxy route: `/sw.js`, `/push-sw.js`, `/api/push/*`, `/api/clip` and
+`/clip` are ordinary app paths behind the catch-all `reverse_proxy`. Push needs the site on HTTPS (3-B; browsers
+refuse push on plain http except `localhost`), and the proxy must keep the app's `Cache-Control: no-cache` on
+`/sw.js` and `/push-sw.js`. What the server needs is **outbound** HTTPS: to the browsers' push services on port 443
+(`fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`) for push, and to
+any public web server on ports 80/443 for the clipper's "Article text" (and for CIMD documents when `OAUTH_CIMD=1`).
+A security list or firewall that blocks egress leaves push silent and saves every article clip as a link. The VAPID
+key is made on first use and kept in the database; set `APP_SECRET_KEY` in `.env` so it is stored sealed, and
+`VAPID_SUBJECT=mailto:you@your-domain` for iPhones. Variables and details: [docs/OPERATIONS.md](../docs/OPERATIONS.md)
+section 12.
+
 ## 4. Backups
 
 The `backup` service in `compose.yaml` backs up the database and the data volume every day at

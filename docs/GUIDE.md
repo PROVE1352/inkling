@@ -54,6 +54,13 @@ To move a page between them, open the right panel → Properties → **Move to p
 
 Roles are **Owner**, **Admin** and **Member**. Owners change workspace settings; owners and admins publish pages to the web and manage edit locks.
 
+**Groups and archive.** Open the workspace menu at the top of the sidebar and choose **Organize workspaces…**. Make
+groups such as "Contests" or "Classes", choose a group for each workspace, and drag (or use the arrows) to change the
+order. Archive a workspace you are done with: it moves to **Archived** at the bottom of the menu, still one click
+away, and your searches across all workspaces (and your AI agents' default searches) skip it. This is only your list;
+other members see no change, and an archived workspace stays open and editable. **Unarchive** brings it back. The same
+editor is in Settings → Sidebar.
+
 ### Making pages
 
 - **New page** at the top of the sidebar, or ⌘N. The arrow (˅) next to it picks the type: **New document**,
@@ -107,6 +114,15 @@ diagram to edit, or **Show code** to keep the code open. A mistake in the code s
 saying what is wrong. Diagrams follow the light and dark theme, show alone in presentation mode, print in **Export as
 PDF**, and are drawn on public pages too. Agents, exports and vault sync see the ```mermaid code.
 
+### Buttons
+
+Type `/button`. Give it a label and a color, then add up to five actions: **Add a row** to a database (pick a template
+and fill values; `today`, `today+7`, `me`, `this page` and `{{today}}`, `{{me}}`, `{{page}}` in text), **Set values
+of this row** (when the page is a database row), **Open** a page or a link, **Send to a webhook** (one a workspace
+owner registered). Pressing the button runs the actions in order with your own access: if you cannot add rows to that
+database, the button cannot either. If an action fails, the button says which one and stops. On public links and in
+presentation mode the button is shown but cannot be pressed.
+
 ### Links, mentions and tags
 
 - `[[` links to another page. Pick from the list or choose **＋ New page: "…"** to create it.
@@ -151,9 +167,12 @@ workspace owner or admin. **All verified pages** lists the pages that need verif
 
 ### Presenting a page
 
-**⋯** → **Present** (also on a shared page) shows a document as full-screen slides. Each top-level heading starts a
-slide, and a divider also ends one. Move with ← / → (or PageUp / PageDown, Space, Home / End) or swipe; Esc leaves.
-The slides are a copy of the page when you opened them: edits made meanwhile show after you open it again.
+**⋯** → **Present** (also on a shared page) shows a document as full-screen slides. Slides start at the page's
+headings: at the shallowest heading level you use more than once, and at any heading above it (one H1 at the top
+with H2 sections gives a slide for the H1 and one per H2). A divider also starts a new slide. Move with ← / → (or
+PageUp / PageDown, Space, Home / End) or swipe; Esc leaves. A slide longer than the screen scrolls: use the mouse
+wheel, swipe up or down, or ↑ ↓. The slides are a copy of the page when you opened them: edits made meanwhile show
+after you open it again. Buttons on the slides cannot be pressed.
 
 ### Pen mode
 
@@ -281,6 +300,16 @@ quotes. Dates are computed in UTC. A cell with a problem shows the error instead
 division by zero, a property that doesn't exist, …). Formulas follow when you rename a property. You can filter,
 sort, group and chart by a formula like by any other property, and exports contain its values.
 
+### Automations
+
+Open a database's **⋯** menu → **Automations** → **New automation**. Choose when it runs (a row is added, a property changes,
+optionally to one value, or a date is N days away), optionally a condition, and what it does: set values, assign a
+person, notify people, send to a registered webhook, add a row to another database, or hand the row to a person's
+AI connection (up to five actions, 20 rules per database). A rule runs as the person who last saved or turned it on,
+right after the change; what it changes shows as "<name> via automation: <rule>". The run log shows each run; five
+failures in a row turn a rule off and notify its author. Rules started by guests, public form answers or AI
+connections cannot write to other databases. Connected AI agents see a database's rules but cannot make them.
+
 ## Graph, canvas and query blocks
 
 - **Graph** (⌘G): every page and its links. **Graph settings** has a title search, **Show orphans**, **Show tags**,
@@ -307,13 +336,14 @@ sort, group and chart by a formula like by any other property, and exports conta
 ### Editing at the same time
 
 Several people can edit the same document or canvas at once. You see their cursors, and the header shows who is
-online and the connection state. Changes made while the connection is down merge when you reconnect, as long as
-the tab stays open: Inkling keeps nothing in the browser's storage.
+online and the connection state. Changes made while the connection is down merge when you reconnect. With offline
+copies on (see *Working offline*), they are kept on the device; without them, only as long as the tab stays open.
 
-While some of your edits have not reached the server, the connection dot turns amber and reads **Not saved yet**
-(hover it for "Some edits have not reached the server yet. Keep this tab open until they are saved."). Closing or
-reloading the tab then asks you first. Opening another page inside the app is fine: the edits of the page you left
-are kept until the server has them.
+While some of your edits have not reached the server, the connection dot turns amber. It reads **Not uploaded yet**
+when the edits are stored on this device, and **Not saved yet** when they exist only in this tab (hover it for
+"Some edits have not reached the server yet. Keep this tab open until they are saved."); only then does closing or
+reloading the tab ask you first. Opening another page inside the app is fine: the edits of the page you left are
+kept until the server has them.
 
 ### Comments
 
@@ -333,6 +363,14 @@ The bell at the top right holds notifications from all your workspaces. You are 
 A reminder you set on your Later list also arrives there when it comes due.
 
 Mentions written by an AI agent arrive quietly (no badge or mail) and in the summary email.
+
+**Push notifications.** Settings → Notifications → **Push notifications** → This device → **Turn on**. Your browser
+asks once for permission; notifications then reach this device with the app closed. Choose what to push, pause it
+for all devices, or hide the content on the lock screen ("New notification" only). **Send a test** checks a device.
+On iPhone and iPad, add Inkling to the Home Screen first and open it from there (iOS 16.4 or later). Signing out of a
+device stops its pushes. A database automation that notifies you arrives as a mention: "Alice via automation: Ping
+reviewer mentioned you in …". Push needs the server on HTTPS; if Settings says push is not available here, ask your
+server admin.
 
 ### Following a page
 
@@ -720,6 +758,16 @@ revokes every token (like disconnecting your AI apps). If a workspace requires t
 account doesn't have it, tokens are refused in that workspace too. An instance admin can revoke a member's tokens
 in Admin → Users.
 
+## Save from the web
+
+On a computer: Settings → Connections → **Web clipper**, drag **Save to Inkling** to the bookmarks bar. On a page,
+select text if you like and click it: a small window opens with the title, address and selection. Pick the workspace
+and where to save (the last place is remembered, and you can set a default), add tags, choose **Link and note** or
+**Article text** (the server fetches the page and keeps its main text), then **Save**. If you clipped the same address
+before, the window says so. Some sites block bookmarklets; then paste the address into `/clip` in the app.
+
+On an Android phone: install Inkling as an app, then share a link from any app to Inkling.
+
 ## Importing from Notion
 
 1. In Notion: Settings → Export (or ⋯ → Export on a page) → **Markdown & CSV**, with subpages included and
@@ -923,6 +971,18 @@ install or "Add to Home Screen" option. The installed app opens in its own windo
 The page header keeps bookmark, share, who is online, the right panel and **⋯**; pen mode, edit lock, page
 notifications, PDF and theme are in **⋯** (a dot on it means the page is locked or followed). On a narrow
 screen share and the right panel move into **⋯** too.
+
+### Working offline
+
+Turn on Settings → Offline → **Keep offline copies on this device** (it is on by default in the installed app, off in
+a browser tab). Every page you open is then kept on the device: without a connection the app still starts, shows the
+page list from your last visit, and opens those pages for reading and editing. A banner says when you are offline;
+the dot next to the page says **Not uploaded yet** while your edits wait on the device. When the connection is back
+they are uploaded and you see **Offline edits uploaded**. If someone restored an older version of the page, reverted
+or split it, moved it to the trash or took away your edit right in the meantime, your offline edits are not mixed
+into it: they are kept under Settings → Offline → **Recovery**, where you can read them and copy what you need.
+Offline you cannot create, move or delete pages, open databases, attachments or the canvas, or search. Logging out
+deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.
 
 ## FAQ
 

@@ -783,6 +783,8 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2104](2104-mermaid-diagrams-in-code-blocks.md) | Mermaid diagrams are code blocks in language `mermaid`, drawn on demand | Accepted |
 | [2105](2105-mermaid-safety-strict-and-an-image.md) | Mermaid safety: strict configuration, a cleaning pass, shown as an image | Accepted |
 | [2106](2106-mermaid-in-themes-print-and-presentation.md) | Mermaid in dark mode, PDF export, presentation and narrow screens | Accepted |
+| [2107](2107-internal-link-clicks-in-editor-bodies.md) | Internal link clicks in editor bodies: one owner per click | Accepted |
+| [2108](2108-select-pickers-inside-editor-blocks.md) | Select pickers inside editor blocks are kept from ProseMirror | Accepted |
 
 ## 2120–2129 Database views in pages, public pages and exports
 
@@ -840,6 +842,73 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2190](2190-automatic-values-and-sub-items-outside-the-app.md) | Automatic values and sub-items in database tables outside the app | Accepted |
 | [2191](2191-mermaid-on-public-pages.md) | Mermaid diagrams on public pages are drawn in the reader's browser | Accepted |
 | [2192](2192-query-rows-computes-automatic-values-only-when-read.md) | query_rows computes automatic values in SQL only for the fields a filter or sort reads | Accepted |
+
+## 2200–2209 Offline copies
+
+| ADR | Title | Status |
+|---|---|---|
+| [2200](2200-device-copies-of-pages-in-indexeddb.md) | Device copies of pages in IndexedDB, written without y-indexeddb | Accepted |
+| [2201](2201-document-generation-and-the-sync-gate.md) | Document generation and a sync gate before every Auth | Accepted |
+| [2202](2202-offline-start-from-stored-app-data.md) | Offline start from the last app data the server sent | Accepted |
+| [2203](2203-device-setting-and-when-copies-are-deleted.md) | Device setting: on in the installed app, off in a browser tab; when copies are deleted | Accepted |
+| [2204](2204-one-status-for-unsent-edits.md) | One status for unsent edits: on this device, or only in this tab | Accepted |
+
+## 2220–2229 Web push
+
+| ADR | Title | Status |
+|---|---|---|
+| [2220](2220-web-push-with-node-crypto-and-a-stored-vapid-key.md) | Web push with node:crypto, and a VAPID key made on first use | Accepted |
+| [2221](2221-push-subscriptions-belong-to-a-session-and-endpoints-are-allowlisted.md) | Push subscriptions belong to the session that made them; endpoints are allowlisted and protected | Accepted |
+| [2222](2222-push-deliveries-through-the-outbox-from-the-notification-rows.md) | Push deliveries go through the outbox, one per notification row and device | Accepted |
+| [2223](2223-what-a-push-shows-and-the-service-worker.md) | What a push shows on a lock screen, and what the service worker does with it | Accepted |
+
+## 2240–2249 Buttons and database automations
+
+| ADR | Title | Status |
+|---|---|---|
+| [2240](2240-database-automations-run-from-the-change-log.md) | Database automations are queued by the change-log consumer and run after the write | Accepted |
+| [2241](2241-automations-act-as-their-author-capped-by-the-trigger.md) | Automations act as their author through REST, capped by whoever triggered them | Accepted |
+| [2242](2242-automation-loops-limits-and-the-via-label.md) | Automation loops stop at a marker and a depth limit; their writes read "via automation: <name>" | Accepted |
+| [2243](2243-automation-runs-failures-and-outbound-actions.md) | Automation runs are logged, failing rules turn off, outbound actions use registered webhooks | Accepted |
+| [2244](2244-button-block.md) | A button block runs its actions as the person who presses it | Accepted |
+| [2245](2245-agents-see-automations-in-describe.md) | Agents see a database's enabled automations in query_rows describe; they cannot make rules | Accepted |
+
+## 2260–2269 Web clipper and share target
+
+| ADR | Title | Status |
+|---|---|---|
+| [2260](2260-web-clipper-request-and-page-shape.md) | The web clipper is one REST route that writes a page like an imported file, with no MCP tool | Accepted |
+| [2261](2261-article-extraction-on-the-server-dom-without-readability.md) | Article extraction uses server-util's DOM and a small reader-mode heuristic, not Readability | Accepted |
+| [2262](2262-clip-fetches-are-browser-only-and-rate-limited.md) | Server-side fetches for clips are for browser sessions only, limited per person and per server | Accepted |
+| [2263](2263-clip-screen-bookmarklet-and-share-target.md) | /clip is a form filled from its query; the bookmarklet and the share target only open it | Accepted |
+
+## 2280–2289 OAuth Client ID Metadata Documents
+
+| ADR | Title | Status |
+|---|---|---|
+| [2280](2280-oauth-client-id-metadata-documents-behind-a-switch.md) | OAuth clients identified by a metadata document, behind OAUTH_CIMD, stored as oauth_clients rows keyed by the URL | Accepted |
+| [2281](2281-cimd-document-fetch-validation-and-cache.md) | Metadata documents: fetched through safeFetch without redirects, 5 KiB, public clients only, cached 1 min–24 h | Accepted |
+| [2282](2282-cimd-consent-screen-host-and-iss.md) | Metadata-document clients on the consent screen: the client_id host next to the unverified name, a localhost warning, no logo, `iss` in the response | Accepted |
+
+## 2300–2309 Workspace groups and archive
+
+| ADR | Title | Status |
+|---|---|---|
+| [2300](2300-workspace-groups-and-archive-are-per-person.md) | Workspace groups and archive are a person's own list, not a state of the workspace | Accepted |
+| [2301](2301-workspace-listings-table-for-members-and-guests.md) | Two tables for the list: workspace_list_groups and workspace_listings (migration 0057) | Accepted |
+| [2302](2302-list-arrangement-is-not-a-permission.md) | The list arrangement is not a permission: browser-only writes, no access version | Accepted |
+| [2303](2303-archived-workspaces-leave-the-default-scope.md) | Archived workspaces leave the default scope of find_context, search and catch_up only | Accepted |
+| [2304](2304-one-closing-line-names-the-archived-workspaces.md) | One closing line names the archived workspaces a default answer left out | Accepted |
+| [2305](2305-switcher-shape-organizer-and-list-workspaces.md) | Switcher shape, the organizer, list_workspaces fields; group names are not workspace arguments | Accepted |
+
+## 2320–2329 0.18 integration
+
+| ADR | Title | Status |
+|---|---|---|
+| [2320](2320-row-numbers-in-bulk-inserts-without-walking-row-versions.md) | Row numbers in bulk inserts: the counter bump goes to this transaction's newest collection row | Accepted |
+| [2321](2321-no-answer-from-the-server-on-the-0-18-screens.md) | No answer from the server: one "No connection" error, 0.18 screens fail at once, logout drops the push subscription it could not end | Accepted |
+| [2322](2322-menus-at-the-caret-choose-their-side-from-the-room.md) | Menus at the caret choose their side from the room around the caret | Accepted |
+| [2323](2323-presentation-splits-at-the-shallowest-repeated-heading-level.md) | Presentation mode splits at the shallowest heading level used twice, and long slides scroll | Accepted |
 
 ## 099x Client updates
 

@@ -7,6 +7,226 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-10
+
+A minor release about writing from anywhere: offline copies of the pages you open, web push notifications to your
+devices, a button block and database automations, a web clipper with an Android share target, workspace groups and
+an archive of your own, and OAuth Client ID Metadata Documents for MCP clients (off by default, `OAUTH_CIMD=1`). Five
+database migrations, all additive: `0054_w18_web_push` (push subscriptions, settings and the VAPID key),
+`0055_w18_automations` (rules and their runs), `0056_offline_doc_gen` (`pages.doc_gen`), `0057_workspace_listings`
+(each person's workspace groups and archive) and `0058_row_number_tid` (a new body for the row-number trigger
+function). A 0.17 database goes from 54 to 59 applied migrations. No new dependency: web push encryption (RFC 8291)
+and VAPID (RFC 8292) use `node:crypto`. New optional variables `WEB_PUSH`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT`, `WEB_PUSH_ALLOWED_HOSTS`, `OAUTH_CIMD` and `OAUTH_CIMD_ALLOWED_HOSTS`, passed through by
+`compose.yaml`. The MCP tool list is unchanged (48 tools, 32 in core). Upgrade matrix adds v0.17.0 and v0.17.1
+(`.github/workflows/upgrade.yml`).
+
+### Upgrade notes
+- **Reload every tab and installed app before anyone uses a button block.** A 0.17 client (an old tab, or an
+  installed app that has not reloaded since the deploy) that edits a page with a button deletes the button: the
+  0.17 editor does not know the block (as CHART-2 did for charts in 0.12). KNOWN-ISSUES AUTO-1.
+- **Offline copies are on by default in the installed app and off in a browser tab.** The installed app keeps
+  every page opened after the update in the browser (IndexedDB `inkling-offline`); a browser tab keeps nothing until
+  the person turns on Settings › Offline › "Keep offline copies on this device". Logging out, an expired or revoked
+  session (any `401 UNAUTHORIZED`) and another account signing in delete every copy on the device. Copies are not
+  encrypted: on a shared computer leave the setting off (docs/adr/2203-*). After restoring the database from a backup
+  (`deploy/restore.sh`), devices that hold unsent edits newer than the backup keep them as recovery items
+  (Settings › Offline › Recovery) instead of merging them (docs/adr/2201-*).
+- **Web push needs HTTPS and outbound HTTPS from the server.** Browsers allow push only on `https://` origins (and
+  `http://localhost`). The server sends pushes to the browsers' push services on port 443 (`fcm.googleapis.com`,
+  `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`; docs/OPERATIONS.md section 12); an
+  egress firewall must allow them. Nothing to configure otherwise: the server makes its VAPID key on first use and
+  keeps it in the database (`push_vapid_keys`) unless `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` are set. Another
+  key (a different database, such as another instance's or a fresh one; a deleted row; a changed env pair) voids
+  every device's subscription; devices subscribe again when the person next opens the app. Set `APP_SECRET_KEY` so
+  subscription endpoints and the generated private key are sealed at rest: a database restored under another
+  `APP_SECRET_KEY` cannot read its key, and push stops until the original secret (kept off the server, outside the
+  backups) is put back or the row is deleted, which makes a new key. For iPhone and iPad set `VAPID_SUBJECT=mailto:…` or an https
+  `PUBLIC_URL`. `WEB_PUSH=off` switches push off server-wide (docs/adr/2220-*).
+- **`/push-sw.js` is sent with `Cache-Control: no-cache`** like `/sw.js` (the service worker imports it, and imports
+  go through the HTTP cache on worker updates). A proxy or CDN must not override it.
+- **Push subscriptions belong to the login session that made them.** Logging out, a password change, an admin's
+  revoke of sessions and the 30-day session expiry delete that device's subscription; the device is silent until the
+  person opens the app and signs in there again (docs/adr/2221-*).
+- **Automations run as the person who last saved (or turned on) the rule**, capped by whoever triggered the run;
+  their writes read `<author> via automation: <rule>`. Clients that read `via` as "an agent" meet these values in
+  the feed, catch_up, webhooks and `edited_via`; they are not agent writes. `page_props` change-log events now carry
+  `keys` (the changed property ids, at most 100); `page_changes` is unchanged. A 15-minute timer per server process
+  queues "date reached" rules in the server's time zone (docs/adr/2240-* .. 2243-*).
+- **OAuth client names that fold to a word starting with "automation" are refused** at registration, at consent
+  and for new agent connection tokens (`CLIENT_NAME_RESERVED`), like "public form", so no app can write as
+  `automation: …`. Existing connections are not renamed.
+- **The web clipper's "Article text" makes the server fetch the page** (outbound HTTP(S) GET, ports 80/443, public
+  addresses only, through the SSRF guard). On a server that blocks outbound traffic every article save becomes a
+  link save with `fallback: fetch_failed`; the page is created either way. Bearer tokens may call `POST /api/clip`
+  with `mode: 'link'` only (`403 CLIP_ARTICLE_SESSION_ONLY`). Images in a clipped article stay on the original site.
+- **Archived workspaces leave agents' default searches.** find_context, search and catch_up without `workspaceId`
+  skip the workspaces the person archived and end with one line naming them (`Not searched: …` / `Not included: …`);
+  `workspaceId` (an id or the name) reaches one. Nobody has archived anything right after the upgrade, so every
+  answer is the same until someone does (docs/adr/2303-*, 2304-*).
+- **Presentation mode splits slides differently.** Slides now start at the shallowest heading level used two or more
+  times, and at every heading above it. A page with one H1 at the top and H2 sections gets a slide per section
+  instead of two slides in all; a page with several H1s splits as before (docs/adr/2323-*).
+- **Menus at the caret open upwards** (`/`, `[[`, `![[`, `@`) when there are less than 300 px below the line and more
+  room above, even for a short menu, and fit the visible part of the window (docs/adr/2322-*).
+- **OAuth Client ID Metadata Documents are off.** Nothing changes unless `OAUTH_CIMD=1` is set; the authorization
+  server metadata is identical while it is off. Turned on, Claude clients prefer it over dynamic registration for
+  new connections; existing connections keep working. Turned off again, connections made through it stop at their
+  next token refresh (within an hour) (docs/adr/2280-*).
+- **Migration 0058 replaces the body of `inkling_row_number()`** (the trigger function of 0051); no table, index or
+  trigger definition changes. A row inserted while another transaction adds an ID property to its database may
+  still stay without a number, as in 0.17 (KNOWN-ISSUES ROWNUM-1, not fixed in 0.18; docs/adr/2320-*).
+
+### Added
+- **Offline copies on this device** (docs/adr/2200-* .. 2204-*). Pages you open are kept in the browser (IndexedDB)
+  so they open and can be edited without a connection; the edits are uploaded through the normal live sync when the
+  connection is back. The app also starts offline from the last user, workspace list, workspace groups and page tree
+  the server sent, with a banner saying so; the page list is read-only offline, and a page never opened on the
+  device says so instead of showing an empty editor. Settings › Offline: "Keep offline copies on this device" (on by
+  default in the installed app, off in a browser tab), how much is stored, "Delete now", and recovery items.
+- **Document generation** (`pages.doc_gen`, migration 0056): bumped after a version restore, an AI-edit revert, a
+  split and a full-body rewrite. A device copy whose unsent edits are based on an older generation is not merged:
+  the edits are kept as a recovery item (Settings › Offline › Recovery) and the page reopens from the server with a
+  notice. The same happens when the page went to the trash or the edit right was lost while offline; with no access
+  at all (member removed, page made private) the copy is deleted (docs/adr/2201-*).
+- **Push notifications (web push)** (docs/adr/2220-* .. 2223-*). Turn them on per device in Settings › Notifications
+  › Push notifications; mentions, assignments, replies, comments, approvals and reminders then arrive with the app
+  closed (installed app or a browser tab; iPhone and iPad from the Home Screen app, iOS 16.4+). Choose which kinds
+  push, pause push on all devices, hide the content on the lock screen, see and remove your devices, send a test.
+  Pushes follow your notifications (same recipients, levels and page visibility, checked again when sent), one per
+  page at a time; the page you are looking at is not pinged twice. Automation notices push as mentions.
+- **Button block** (`/button`, docs/adr/2244-*): a label, a color and up to five actions run in order by whoever
+  presses it: add a row to a database (template, values with `today`, `today+N`, `me`, `this` page, `{{today}}` /
+  `{{me}}` / `{{page}}` in text), set values of the row the page is, open a page or an http(s) URL, send to a webhook
+  a workspace owner registered. It shows progress, ignores a second press while running and says which action
+  stopped and why. It runs through the REST routes the person may use anyway: a button adds no right. Public links
+  and presentation mode show it disabled; print hides it; agents and downloads see `<!-- inkling:button {…} -->`;
+  plain Markdown shows `**[label]**`; vault sync keeps the token.
+- **Database automations** (database menu › Automations, docs/adr/2240-* .. 2243-*): rules with a trigger (row
+  added; a property changed, optionally "to a value"; a date property N days ahead), an optional condition (the view
+  filter with any / all groups and NOT) and up to five actions (set values, assign a person, notify people, send to a
+  registered webhook — Slack, Discord or generic —, add a row to another database, hand the row to a person's AI
+  connection). A rule runs after the write commits, as its author, capped by who triggered it; its writes read
+  `<author> via automation: <rule>`. Recent runs (50 per rule) with the failed action and reason; five failures in a
+  row turn a rule off and tell its author; runs refused by the trigger cap and rows with nothing to do are recorded as
+  skipped and never count. At most 20 rules per database.
+- MCP `query_rows describe=true` lists a database's enabled automations, one line each (docs/adr/2245-*).
+- **Web clipper** (docs/adr/2260-* .. 2263-*): save what you see on the web as a page, nothing to install. The `/clip`
+  screen ("Save to Inkling") is filled from `?title&text&url`; a bookmarklet in Settings › Connections › Web clipper;
+  the installed app's share target on Android opens the same screen. Choose workspace and location (the last one is
+  remembered, a default can be set), edit the title, add tags, save as "Link and note" or "Article text" (the server
+  fetches the page and keeps its main text). An earlier clip of the same address is pointed out. Opening `/clip`
+  never saves anything by itself. Not an MCP tool.
+- `examples/web-clipper-extension/`: a minimal MV3 extension (load unpacked; not in any store) for sites whose
+  security policy blocks the bookmarklet.
+- **Workspace groups and archive, per person** (docs/adr/2300-* .. 2302-*, 2305-*). The workspace switcher can sort
+  workspaces into named groups ("Contests", "Classes") that fold, and put finished ones under "Archived". Only for
+  you: other members see nothing change, and archived workspaces stay open and editable. "Organize workspaces…" in
+  the switcher, or Settings › Sidebar. Works for guests' shared workspaces too.
+- **Agents stop searching archived workspaces by default** (docs/adr/2303-*, 2304-*): find_context, search and
+  catch_up without `workspaceId` leave your archived workspaces out and end with one line naming them. Mentions,
+  replies and assignments from them still arrive (inbox, catch_up "For you"); changes_since is not narrowed.
+  Connections limited to some workspaces follow their range, not the archive. `list_workspaces` shows `group` and
+  `archived` where set.
+- **OAuth Client ID Metadata Documents** (CIMD; MCP authorization 2025-11-25, draft-ietf-oauth-client-id-metadata-document-03;
+  docs/adr/2280-* .. 2282-*): an MCP client's `client_id` may be an https URL, and Inkling reads the app's name and
+  redirect URIs from the JSON document there. This is claude.ai's "use Claude's published ID" and what Claude Code
+  uses when a server offers it. **Off by default**: set `OAUTH_CIMD=1`; `OAUTH_CIMD_ALLOWED_HOSTS` limits the
+  client_id hosts (e.g. `claude.ai`). Dynamic client registration is unchanged and stays on. The consent screen shows
+  "Identified by <host>" under such an app's name (the name is the app's own claim) and warns when the sign-in
+  returns to a program on this computer (localhost); the Connections list shows the host after the name.
+- Admin › Server status: "Web push" (devices, failing devices, deliveries given up in 24 h) and "Database
+  automations" (rules on, runs queued, failed in 24 h; a warning when due runs wait 15 minutes or more).
+- REST: `GET /api/pages/:id/sync-check`; `/api/push/*`; `GET/POST /api/collections/:id/automations`,
+  `PATCH/DELETE /api/collections/:id/automations/:ruleId`, `GET /api/collections/:id/automations/runs`,
+  `GET /api/workspaces/:id/webhook-targets`, `POST /api/pages/:id/button-webhook`; `POST /api/clip`,
+  `GET /api/clip/lookup`; `/api/me/workspace-groups…`, `PATCH /api/me/workspaces/:id/listing`,
+  `PUT /api/me/workspace-order` ([docs/API.md](docs/API.md), "v0.18.0 additions").
+
+### Changed
+- Presentation mode splits slides at the shallowest heading level used two or more times (and at every heading
+  above it); a slide longer than the screen scrolls with the wheel, touch and ↑ ↓ (←, →, Space, PageUp and PageDown
+  still change slides). Buttons, selects and text areas in the slides are shown disabled, and a button block has no
+  settings control there (docs/adr/2323-*).
+- A request that gets no answer (offline, server unreachable) shows "No connection. Try again when you are back
+  online." on button presses, clip saves, the automations screen and push settings, at once, instead of a browser
+  error text or a spinner that never ends (a clip save used to wait as "Saving…" until the connection came back).
+  Other screens keep the old behaviour: their changes wait while the browser reports offline and are sent when it is
+  back (docs/adr/2321-*).
+- "Not saved yet" is "Not uploaded yet" when the edits are stored on this device; the leave prompt asks only for
+  edits that exist only in the tab (docs/adr/2204-*).
+- Logging out asks first when pages have edits that are not uploaded yet, and deletes the device's offline copies
+  (docs/adr/2203-*).
+- `/clip` lists workspaces in your switcher order (groups, archived last) and does not pick an archived one by
+  default; offline, the switcher keeps its groups.
+- `GET /api/workspaces` adds an optional `listing` object per workspace for workspaces the caller arranged;
+  `GET /api/search` and `GET /api/context` add `archived` when a default search left archived workspaces out.
+- Webhook deliveries can have the event type `automation` (not subscribable; sent only to the hook a button or rule
+  names; generic payload `type: "automation"`, `field` = the rule name or button label, `message`).
+- `via` values starting with `automation: ` are not agent writes.
+- Every authorization response to a metadata-document client (code or error) carries `iss` (RFC 9207); answers to
+  registered clients are unchanged (docs/adr/2282-*).
+- Link previews decode pages labelled `cp949`, `ms949`, `x-windows-949`, `uhc` or `x-euc-kr` as EUC-KR.
+- Settings › Offline has its own icon; the installed app's share target declares its encoding (no Chrome manifest
+  warning).
+- Not changed: MCP tool descriptions, the tool list and the server instructions (full 48 tools ~12,777 tokens, core
+  32 ~7,533, instructions ~492). No new MCP tool: agents cannot make automation rules, archive workspaces, register
+  push endpoints or clip URLs.
+- Routes and fields: [docs/API.md](docs/API.md), "v0.18.0 additions".
+
+### Fixed
+- The slash menu (and the `[[` / `![[` link and `@` mention menus) opened below a line near the bottom of the window
+  and was cut off; it now opens above the caret when there is not enough room below, fits the visible part of the
+  window (also with a phone keyboard up) and scrolls inside, with the chosen item kept in view (docs/adr/2322-*).
+- Logging out after the connection dropped did nothing until the connection came back (the device's offline copies
+  stayed); it now logs out at once, deletes the copies and also removes this browser's push subscription (the
+  server could not be told; the session stays valid there until it expires or is revoked, KNOWN-ISSUES
+  OFFLINE-LOGOUT) (docs/adr/2321-*).
+- Inserting many rows into a database with an ID property in one go (sheet sync, large CSV or Notion imports,
+  templates) no longer slows down with every row: each row's number bump walked every row version the transaction
+  had left behind (docs/adr/2320-*).
+
+### Security
+- Push endpoints must be on an allowed push service (`WEB_PUSH_ALLOWED_HOSTS` adds more), resolve to public
+  addresses and are called without redirects; endpoints, their keys and the generated VAPID private key are sealed
+  with `APP_SECRET_KEY`. Subscriptions are browser-session only and belong to one session (docs/adr/2221-*).
+- Clip article fetches are for browser sessions only and go through the SSRF guard (public addresses, every redirect
+  checked again, at most 3 redirects, 10 s, 2 MiB), limited per person and per server (docs/adr/2262-*). The clipper
+  is not an MCP tool, so an agent steered by injected text cannot make the server fetch a URL (docs/adr/2260-*).
+- Automations act as their author through the REST routes, capped by whoever triggered them: a rule started by a
+  guest, a public form answer or an agent connection cannot add rows to another database. A button adds no right
+  (docs/adr/2241-*, 2244-*).
+- CIMD documents are fetched only for a signed-in person's consent screen or a refresh token the server already
+  knows: public addresses, no redirects, 5 KB, 5 s, cached, at most 60 fetches a minute. Only public clients
+  (`none` + PKCE) are accepted; reserved names ("automation…", "public form") are refused in documents too
+  (docs/adr/2281-*).
+- Workspace groups and archive are a person's own list, written by the browser session only; they change no
+  permission and no workspace for anyone else (docs/adr/2302-*).
+
+### Performance
+- Row numbers in bulk inserts (migration 0058): 50,000 rows into an ID database in one transaction (sheet sync's
+  shape) 41.1 s → 3.7 s; statement 50 of 50: 1,460 → 92 ms. Single-row creates unchanged (insert p50 5–6 ms either
+  way; the trigger's own time under an ID database ~10 µs higher).
+- Archived workspaces out of the default scope: with 40 of 50 workspaces archived, find_context uncached 55.5 →
+  32.7 ms p50 and search 59.4 → 43.1 ms p50; the scope statement costs ~0.3 ms more per default call.
+- Database automations add no statement to writers; the change-log consumer pays one indexed rules lookup per batch
+  with row events (+~5–6 ms per pass, off the request path).
+- Web push adds one cached EXISTS and one INSERT…SELECT per notify pass when any subscription exists (within noise).
+- Clip article extraction: a 1.6 MB page ~0.35 s instead of ~4.4 s; a 3,000-deep `<div>` nest is refused in 5 ms
+  instead of a 53 s extraction.
+- Opening a 1.8 MB page from its device copy: within the spread of opening it with the setting off.
+- MCP fixed cost per session unchanged (tool list and server instructions).
+- Several of these were measured on a shared, loaded machine; numbers, methods and load:
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Database
+- Migration 0054: `push_subscriptions`, `push_vapid_keys`, `push_settings` (docs/adr/2220-* .. 2222-*).
+- Migration 0055: `collection_automations`, `automation_runs` (docs/adr/2240-*, 2243-*).
+- Migration 0056: `pages.doc_gen integer not null default 0` (docs/adr/2201-*).
+- Migration 0057: `workspace_list_groups`, `workspace_listings` (docs/adr/2301-*).
+- Migration 0058: a new body for `inkling_row_number()` (hand-written, `drizzle-kit generate --custom`); no table,
+  index or trigger definition changes (docs/adr/2320-*).
+
 ## [0.17.1] - 2026-11-10
 
 A patch release with three fixes found by clicking through 0.17.0 in Chrome. Web app only: no database migration,

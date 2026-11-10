@@ -27,6 +27,18 @@ and click **Allow**. (Leave the OAuth Client ID/Secret fields empty; dynamic cli
 uses the same connectors. The connection comes from Anthropic's servers, so the server must be reachable from the
 internet.
 
+### Client ID Metadata Documents (optional, 0.18)
+
+Some MCP clients identify themselves with an https URL instead of registering (Client ID Metadata Documents, MCP
+authorization 2025-11-25): claude.ai's custom connectors ("use Claude's published ID") and Claude Code. Inkling
+accepts them when the server runs with `OAUTH_CIMD=1` (off by default; `OAUTH_CIMD_ALLOWED_HOSTS=claude.ai` limits it
+to Claude's documents, docs/OPERATIONS.md section 12); otherwise those clients fall back to dynamic registration as
+before, so nothing is needed on the client side. On the consent screen such an app shows "Identified by claude.ai"
+under its name: the name comes from the app's own document, the host is what identifies it. A sign-in that returns
+to `localhost` (Claude Code, desktop editors) also shows a warning: allow it only right after you started the
+connection yourself. No real client has connected this way yet; the checklist at the end of this page is how to try
+it ([ADR 2280](adr/2280-oauth-client-id-metadata-documents-behind-a-switch.md)–[2282](adr/2282-cimd-consent-screen-host-and-iss.md)).
+
 ## Other clients
 
 Settings → Connections → **Connect an AI app** makes the settings for Claude Code, claude.ai / Claude Desktop, Cursor
@@ -79,11 +91,11 @@ project) or `.claude/skills/` in a project; Claude Code loads it when a task nee
 | `find_context` | read | **Start here.** Ranked sections across all your workspaces (or one), packed into a token budget (default 3,500, max 12,000), each tagged with page id, a short `§anchor` and version `v=…`; at most two sections per page, more under "Also relevant". The same question from the same person within a few minutes is answered from a server-side cache that any edit, permission change or reindex in the searched workspaces invalidates; never shared between people ([ADR 1550](adr/1550-find-context-result-cache.md)). Unsure of the wording, or the notes may be in another language? `queries=[original, translation, …]` (up to 5 phrasings) are searched together and merged into one ranked answer under one budget, each section once with `matched: 1,3` naming the queries that found it ([ADR 1720](adr/1720-find-context-several-queries-merged-by-rrf.md)). With semantic search on ([ADR 1740](adr/1740-optional-semantic-search-off-by-default.md)), each query also searches by meaning; a section found only that way is shown with its text ([ADR 1723](adr/1723-semantic-candidates-wired-into-find-context.md)). Pages with a verification are listed in one last line, `Verification: [1] verified; [3] stale: verification lapsed` (`verified, changed since` after 3+ changed sections or a large change) ([ADR 1842](adr/1842-verified-and-stale-marks-in-agent-output.md), [1907](adr/1907-find-context-verification-marks-at-the-end.md)). Page ids are printed as their first 8 characters ([ADR 1906](adr/1906-find-context-short-page-ids-and-shared-can.md)). When an answer has results from two or more workspaces (only possible without `workspaceId`), each result, pointer and title match starts with the workspace name in braces, `[1] {Wind Power Forecast Cup} HARNESS.md › Validate`, and one line after the hints names the workspaces by id with their result numbers: `Results come from 2 workspaces ({name} on each line): 5e6f7a8b [1], 1a2b3c4d [2]. To search one, pass workspaceId=<its id> (its name works too).` With one workspace nothing is added ([ADR 2185](adr/2185-find-context-names-workspaces-when-an-answer-spans-several.md)) |
 | `read_page` | read | A page as Markdown. `outline=true` lists sections (`§anchor`, ~tokens, `v=`), `section=<anchor or heading>` reads one, `maxChars` caps the body. The header has the page `version`; `known=<version>` answers an unchanged page (or section, with `section=`) with one `unchanged` line, `knownSections={anchor: v}` returns only changed, new and removed sections ([ADR 1540](adr/1540-known-versions-and-unchanged-reads.md)). The header prints 8-character ids (`- id`, `- workspaceId`, `- parentId`); the url keeps the full ids ([ADR 1942](adr/1942-ids-once-and-outline-without-repeated-headings.md)). After the page text come the lines that change without the page: `- owner status: "…" until …`, `- verified: until …` / `- stale: …` and `- claims: §a claimed by <client> until <time>Z`; an outline ends with one `claims:` line after the section list, and `unchanged` with a claims line (a claim is not part of the version, [ADR 1654](adr/1654-claims-on-every-read-page-form.md), [1946](adr/1946-values-that-change-without-the-page-go-after-the-body.md)). `outline=true` prints one line per section, `- §<anchor> ~N tok v=…`, indented one space per level, without the heading text; the outline's header ends with its own `v=…`, and `known=<that v>` with `outline=true` answers `unchanged (page <id8> outline v=…; …)`. `backlinks=true` adds `linked from (n): <id8> "Title", …` at the end ([ADR 1948](adr/1948-backlinks-on-read-page-and-create-page-kinds.md)). Charts read as `<!-- inkling:chart {…} -->` followed by `<!-- inkling:chart-data … -->` with the numbers for you; keep the chart line as it is when editing (the data line is ignored when you write the page back), delete it to remove the chart, edit its JSON to change it ([ADR 1604](adr/1604-chart-token-carries-its-config.md)). A database view (a page embed of a database) reads as `<!-- inkling:pageEmbed {"pageId":"…","viewId":"…"} -->` followed by `<!-- inkling:view-info database "…", view "…" (table); its rows: query_rows -->` for you (only for databases you can see; a hidden one says `unavailable`). Keep the first line when editing (the info line is ignored when you write the page back); write such a line yourself to add a view (`viewId` may be left out: the first view) ([ADR 2123](adr/2123-database-views-in-agent-reads.md)). `pageId` may be an 8-character short id. A verified page has `- verified: until YYYY-MM-DD` or `- stale: verification lapsed YYYY-MM-DD`, followed by `, N sections changed since` when it changed after it was verified (outline and section reads print the same line without the dash); the owner's status is its own line, `- owner status: "…" until …` ([ADR 1842](adr/1842-verified-and-stale-marks-in-agent-output.md), [1846](adr/1846-member-status-in-presence-mentions-and-agent-output.md), [1946](adr/1946-values-that-change-without-the-page-go-after-the-body.md)) |
 | `read_pages` | read | Up to 20 pages in one call within a budget (default 8,000); each page line has `v=`; `known={pageId: v}` turns unchanged pages into one line each that uses no budget |
-| `list_workspaces` | read | Your workspaces |
+| `list_workspaces` | read | Your workspaces; since 0.18 a workspace you put in a group of your switcher has `"group"`, one you archived `"archived": true` ([ADR 2305](adr/2305-switcher-shape-organizer-and-list-workspaces.md)) |
 | `list_pages` | read | Page tree. `format`: `compact` (the default since 0.15.1: 8-character ids, numbered/dated siblings folded into one line), `lines` (one line per page, full ids) or `json` (id, title, kind, parentId, section, path, children; the default before 0.15.1). `parentId` (full or short, or `'root'`) and `depth` narrow it. `workspaceId` may be left out with a `parentId` or when the connection has one workspace ([ADR 1541](adr/1541-compact-lists-and-short-page-ids.md), [1943](adr/1943-workspace-inferred-from-a-page-or-the-only-workspace.md), [1944](adr/1944-compact-is-the-default-list-format.md)) |
 | `search` | read | Pages by a name or exact words, across your workspaces or one: titles first, then headings, then bodies; whole words before parts of words (Korean particles allowed after the word). Default 10, `limit` up to 50; results from several workspaces are grouped under `## <name> (<id>)`; heading and body matches show `§anchor`; a last line says how many more matched and in which workspaces. To find what answers a question, use `find_context`. `format`: `compact` (default), `lines` (full ids) or `json` ([ADR 2183](adr/2183-search-ranking-and-one-agent-search-route.md), [2184](adr/2184-search-output-grouped-by-workspace-with-a-more-line.md)) |
 | `changes_since` | read | What changed since a cursor: per-section `-`/`+` diffs, added/removed/renamed/moved sections, page renames/moves/trash/visibility (`trashed, then restored` when both happened between two cursors), new collections and rows (`collection added:`, `row added:`; ten or more rows of one collection in one answer are one `rows added: N to collection …` line) and changed row properties (`properties: Status, Due`), "by <user> via <client>" ([ADR 1650](adr/1650-collections-and-rows-in-the-change-feed.md), [1651](adr/1651-many-added-rows-are-one-line.md), [1652](adr/1652-trash-then-restore-leaves-a-line.md)). `detail`: `none`/`diff` (default)/`full`; `budget` default 3,000, max 12,000. No cursor = start tracking. The cursor is always the last line. `wait` (seconds, max 25, with a cursor): when nothing changed yet, the call waits and returns as soon as something changes in your workspaces, or empty at the end ([ADR 1551](adr/1551-changes-since-long-poll.md)) |
-| `query_rows` | read | Filter/sort/page a collection's rows by property name (`Status = Done AND Due < today`); one line per row `rowId \| version \| Title \| …`; `describe=true` for the schema (field names, options and templates inside `<untrusted_content>`, [ADR 1656](adr/1656-query-rows-describe-is-data.md)). Formulas can be filtered and sorted with the operators of their result type; `describe=true` shows `Name (formula → number, read-only)` and an error cell reads `#error(code)` ([ADR 1826](adr/1826-formulas-in-query-rows.md)). `Owner = this connection` finds rows assigned to this connection; a person cell with an agent reads `Bob → Claude Code (g:1a2b3c4d)` ([ADR 1864](adr/1864-assigning-work-to-a-persons-agent.md)). A last line `status: …` names the people in the shown person cells who have a status, once, without your own person ([ADR 1870](adr/1870-public-form-answers-are-people-not-agents.md)). Automatic properties (0.17) filter like their type: `Created >= 2026-11-01` (the UTC day), `ID = TASK-12`, `Editor = me`; an ID cell reads `TASK-12`, created / last edited by `Name (via Client)` when an agent made it. Sub-items: `under="TASK-3"` (a row id, an ID or an exact title) lists the rows under it, `depth` (1–8, default 1) how many levels; the Parent item column is always shown, as the parent's ID ([ADR 2140](adr/2140-automatic-values-email-phone-and-unique-ids.md), [2147](adr/2147-agent-task-board-template-and-mcp-parameters.md)) |
+| `query_rows` | read | Filter/sort/page a collection's rows by property name (`Status = Done AND Due < today`); one line per row `rowId \| version \| Title \| …`; `describe=true` for the schema (field names, options and templates inside `<untrusted_content>`, [ADR 1656](adr/1656-query-rows-describe-is-data.md)). Formulas can be filtered and sorted with the operators of their result type; `describe=true` shows `Name (formula → number, read-only)` and an error cell reads `#error(code)` ([ADR 1826](adr/1826-formulas-in-query-rows.md)). `Owner = this connection` finds rows assigned to this connection; a person cell with an agent reads `Bob → Claude Code (g:1a2b3c4d)` ([ADR 1864](adr/1864-assigning-work-to-a-persons-agent.md)). A last line `status: …` names the people in the shown person cells who have a status, once, without your own person ([ADR 1870](adr/1870-public-form-answers-are-people-not-agents.md)). Automatic properties (0.17) filter like their type: `Created >= 2026-11-01` (the UTC day), `ID = TASK-12`, `Editor = me`; an ID cell reads `TASK-12`, created / last edited by `Name (via Client)` when an agent made it. Sub-items: `under="TASK-3"` (a row id, an ID or an exact title) lists the rows under it, `depth` (1–8, default 1) how many levels; the Parent item column is always shown, as the parent's ID ([ADR 2140](adr/2140-automatic-values-email-phone-and-unique-ids.md), [2147](adr/2147-agent-task-board-template-and-mcp-parameters.md)). `describe=true` ends with the database's enabled automations (0.18, see "Buttons and automations" below, [ADR 2245](adr/2245-agents-see-automations-in-describe.md)) |
 | `list_templates` | read | Templates you can use in a workspace, with their input questions |
 | `get_instructions` | read | The workspace's rules for agents from locked instruction pages: `always` ones in full, the ones matching `forPageId` (nearest first), a list of `manual` ones. Call once per workspace. `workspaceId` may be left out with `forPageId` or when the connection has one workspace ([ADR 1943](adr/1943-workspace-inferred-from-a-page-or-the-only-workspace.md)). When the instructions returned in full are longer than 200 lines or 25 KB, the answer ends with one `note:` line ([ADR 2004](adr/2004-long-instructions-note-and-length-route.md)) |
 | `patch_section` | write | Change one section (`replace`/`append`/`prepend`/`insert_after`/`delete`) with `baseVersion`; a stale version returns a conflict with the current text. An anchor from before a heading rename still works: the output adds `moved_to: §new-anchor`; with an old `baseVersion` you get a conflict naming the new anchor and version (the version includes the heading, [ADR 1501](adr/1501-old-section-anchors-follow-heading-renames.md)). `suggest=true` writes nothing and leaves the change as a suggestion for a person ([ADR 1531](adr/1531-suggest-is-a-flag-next-to-mode.md)); the workspace's agent edit policy or the page's lock can make that the rule, and the answer says what happened (see "Suggestions, edit policy and claims" below). A section another connection claimed answers `SECTION_CLAIMED`. `replace` and `delete` need `baseVersion` ([ADR 1961](adr/1961-patch-section-keeps-its-baseversion-rule.md)). A short anchor (find_context) or heading text that another section answered to since you got it is refused with `SECTION_AMBIGUOUS` and the sections it could mean; passing the `v=…` you read as `baseVersion` picks the right one ([ADR 1960](adr/1960-a-section-name-another-section-answered-to-needs-the-version.md)) |
@@ -496,6 +508,40 @@ ids only ([ADR 2186](adr/2186-workspace-arguments-take-a-name.md)). There is no 
 a connection to some workspaces with its range instead
 ([ADR 2187](adr/2187-no-per-connection-default-search-workspace.md)).
 
+### Archived workspaces
+
+A person can archive workspaces they are done with (a finished contest) in their workspace switcher (0.18). find_context
+and search without `workspaceId` then skip them and say so in their last line:
+`Not searched: 1 archived workspace (1a2b3c4d "OIBC 2026"); pass workspaceId=<id or name> to include one.`
+catch_up without `workspaceId` ends with
+`Not included: changes, comments and due tasks of 1 archived workspace (1a2b3c4d "OIBC 2026"); items for you from them are. Pass workspaceId=<id or name> for one.`
+Up to five workspaces are named (names cut at 40 characters), then `, N more`. search with `format: "json"` adds
+`archivedNotSearched: [{ workspaceId, workspace }]` instead of the line. Pass `workspaceId: "OIBC 2026"` (or its id)
+when the question is about that workspace. Mentions and assignments from archived workspaces still appear in inbox
+and catch_up's "For you"; changes_since reports every workspace. A connection limited to some workspaces (Settings ›
+Connections › range) always searches its range. `list_workspaces` marks them `"archived": true` and prints the
+person's `"group"`. Agents cannot archive or group workspaces
+([ADR 2303](adr/2303-archived-workspaces-leave-the-default-scope.md), [2304](adr/2304-one-closing-line-names-the-archived-workspaces.md)).
+
+### Buttons and automations
+
+- `query_rows describe=true` ends its data block with `Automations (run after your writes, as the rule's author):` and
+  one `- <name>: <summary>` line per enabled rule, for example `- Ping reviewer: Status changed to "Review" → notify
+  Owner` (trigger `row added`, `<property> changed[ to "<value>"]` or `[Nd before ]<date property>`, ` (if filter)`
+  when the rule has a condition, then the actions). Nothing is printed when there are none or the caller is a guest.
+  Agents cannot create rules. A rule started by an agent's write cannot add rows to another database (the run log
+  says so); what a rule writes reads `<author> via automation: <rule>`
+  ([ADR 2245](adr/2245-agents-see-automations-in-describe.md), [2241](adr/2241-automations-act-as-their-author-capped-by-the-trigger.md)).
+- `read_page` shows a button block as `<!-- inkling:button {"actions":[…],"color":"blue","label":"…"} -->`. Keep the
+  line when editing; writing it back keeps the button, and actions an agent writes are checked against the shared
+  schema (invalid ones are dropped). Agents do not press buttons ([ADR 2244](adr/2244-button-block.md)).
+- The web clipper is not an MCP tool on purpose: a tool that makes the server fetch any URL would let an agent
+  steered by injected text send data out. Agents keep using `create_page` (a link in Markdown); personal API tokens
+  may call `POST /api/clip` with `mode: 'link'` only. Clipped article text is outside text: it is indexed like any
+  page, so the injection heuristics flag it at indexing time and `read_page` marks it as usual
+  ([ADR 2260](adr/2260-web-clipper-request-and-page-shape.md)).
+- Push notifications are a browser feature: tokens cannot register endpoints or change push settings (403).
+
 ### Versions: one per agent write
 
 Every write an agent makes (patch_section, patch_sections, update_page, restore_version, upload_file) is one version,
@@ -619,3 +665,42 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
   diff, a whole row every 10th of a chain; docs/PERFORMANCE.md). Requests calling `upload_file` or `import_zip` may
   exceed the 12 MB `/mcp` body limit when `AGENT_UPLOAD_MAX_MB` is above 8. search is one statement over every
   searched workspace (`GET /api/search`).
+- **0.18**: five migrations (`0054_w18_web_push`, `0055_w18_automations`, `0056_offline_doc_gen`,
+  `0057_workspace_listings`, `0058_row_number_tid`); none changes a tool. Fixed cost per session is the same as 0.17:
+  full 48 tools in 51,059 characters (~12,777 tokens: descriptions ~4,442, schemas ~7,063), core 32 tools in 30,093
+  characters (~7,533), server instructions 1,965 characters (~492 tokens); no tool description or instruction text
+  changed (`scripts/mcp-tools-list-cost.ts`, `toolSurface.test.ts` keeps its bounds). The default scope of
+  find_context, search and catch_up drops the caller's archived workspaces (one more probe in the scope statement,
+  ~0.3 ms p50, docs/PERFORMANCE.md). `restore_version`, `split_page` and an `update_page` that rewrites the whole body
+  raise the page's document generation, so browsers holding offline edits of that page keep those edits as recovery
+  items instead of merging them ([ADR 2201](adr/2201-document-generation-and-the-sync-gate.md)). `OAUTH_CIMD=1`
+  turns on Client ID Metadata Documents (see "Client ID Metadata Documents" above and docs/OPERATIONS.md section 12).
+
+## Checking connections with real clients (DCR and Client ID Metadata Documents)
+
+Client ID Metadata Documents were tested with a local document server, the test suite and a Chrome run of the
+consent screen, and Claude's published documents were fetched and validated through the same code (2026-11-10), but
+no real client has connected to Inkling with them yet (KNOWN-ISSUES OAUTH-CIMD-1, AGT-4). Do this once on a test
+server reachable over HTTPS (claude.ai needs a public address), with a test account. For each row, connect twice:
+once to `https://<host>/mcp`, once to `https://<host>/mcp?profile=core`.
+
+How to tell which registration a client used: with a metadata document the consent screen shows a grey box
+"Identified by <host>" and the Connections list shows the host after the name; with dynamic registration (DCR) there
+is no box and the server log has a `POST /oauth/register` just before the consent screen.
+
+| # | Client | Server setting | Expect |
+|---|---|---|---|
+| 1 | claude.ai → Settings → Connectors → Add custom connector, URL `/mcp` | `OAUTH_CIMD` unset | DCR: no "Identified by" box; connect; a tool call works |
+| 2 | same, URL `/mcp?profile=core` | unset | DCR; `tools/list` shows the core set (32 tools) |
+| 3 | claude.ai, URL `/mcp` (Advanced: leave the client ID empty, or "use Claude's published ID") | `OAUTH_CIMD=1` | "Identified by claude.ai", name "Claude", returns to `claude.ai`; no localhost warning; connect; a tool call works |
+| 4 | same, URL `/mcp?profile=core` | `OAUTH_CIMD=1` | as 3, core tools. If Claude refuses with a resource mismatch, note it under AGT-4 |
+| 5 | Claude Code: `claude mcp add --transport http inkling https://<host>/mcp`, then `/mcp` → authenticate | unset | DCR, loopback callback page ("Return to the app on this computer") |
+| 6 | same with `/mcp?profile=core` | unset | DCR, core tools |
+| 7 | Claude Code, `/mcp` | `OAUTH_CIMD=1` | "Identified by claude.ai", name "Claude Code", amber localhost warning; returns to `http://localhost:<port>/callback` |
+| 8 | Claude Code, `/mcp?profile=core` | `OAUTH_CIMD=1` | as 7, core tools |
+| 9 | Cursor (`mcp.json` `"url": "https://<host>/mcp"`), and `?profile=core` | unset, then `OAUTH_CIMD=1` | DCR both times unless Cursor supports CIMD (then a box with Cursor's host). Write down which |
+| 10 | VS Code (`.vscode/mcp.json` `{"type":"http","url":…}`), and `?profile=core` | unset, then `OAUTH_CIMD=1` | as 9 |
+| 11 | any CIMD connection from 3–8 | `OAUTH_CIMD=1` | Settings → Connections shows it with the host; change its range to one page → a tool outside fails; disconnect → the next call asks to sign in again |
+| 12 | after 3 or 7, set `OAUTH_CIMD_ALLOWED_HOSTS=example.org` and restart | | the next connection attempt shows "Apps from claude.ai are not allowed on this server"; an existing connection fails at its next refresh (≤ 1 h) |
+
+Record for each row: client version, date, which registration was used, pass or fail, and any error text.

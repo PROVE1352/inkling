@@ -1561,3 +1561,137 @@ New tool: `import_zip(base64, workspaceId?, parentId?, source?)` (hidden group `
 `create_collection` and `update_fields` take the new field types, `prefix` and `subItems`. `workspaceId` arguments take
 a workspace name (inbox excepted). `search` output and `find_context` across workspaces changed (docs/adr/2184-*,
 2185-*). Tool lists: full 48 tools (~12,777 tokens), core 32 (~7,533). Details: [MCP.md](MCP.md).
+
+## v0.18.0 additions
+
+Migrations 0054 (`push_subscriptions`, `push_vapid_keys`, `push_settings`), 0055 (`collection_automations`,
+`automation_runs`), 0056 (`pages.doc_gen`), 0057 (`workspace_list_groups`, `workspace_listings`) and 0058 (a new
+body for the row-number trigger function), all additive. Existing answers keep their shape unless noted; new fields
+are additive. "Browser session only" means a cookie session: bearer tokens (API tokens, MCP and agent connection
+tokens) get 403.
+
+### Offline copies (docs/adr/2200–2204)
+
+| Method | Path | Answer |
+|---|---|---|
+| GET | `/api/pages/:id/sync-check` | `{ gen: number, canEdit: boolean, trashed: boolean, sv: string }` for the browser before it syncs a device copy. `gen` the page's document generation; `canEdit` whether the caller may edit the body now (lock, people rows, guest level; false when trashed); `trashed` the page is in the trash (a trashed page the caller could see answers 200 instead of 404); `sv` the base64 Yjs state vector of the live document (or of `page_docs`). Browser session only (403 for tokens); members and guests, as on the collaboration socket. 404 when the page is not visible or not a document; 403 not a member or guest of the workspace, or `TWO_FACTOR_REQUIRED`. `Cache-Control: no-store` |
+
+- Collaboration socket: right after authentication the server sends the stateless message `{"t":"gen","gen":<n>}` on
+  the page's channel, and again to every open client when the generation changes. Clients ignore unknown `t`.
+- The generation goes up on a version restore, an AI-edit revert, a split and a full-body rewrite
+  ([ADR 2201](adr/2201-document-generation-and-the-sync-gate.md)).
+
+### Web push (docs/adr/2220–2223)
+
+Browser session only.
+
+| Method | Path | Body / answer |
+|---|---|---|
+| GET | `/api/push/key` | `{ available, publicKey }`: the VAPID public key (base64url, a 65-byte point), or `available: false` (`WEB_PUSH=off`, key problem) |
+| GET | `/api/push/settings` | `PushSettingsDTO` `{ available, enabled, kinds[], hideContent, devices[] }`; a device: `{ id, label, createdAt, lastSuccessAt, lastFailureAt, failureCount, current, stale }` |
+| PATCH | `/api/push/settings` | `{ enabled?, kinds?: ('mention'\|'assigned'\|'reply'\|'comment'\|'approval'\|'reminder'\|'updates')[], hideContent? }` → `PushSettingsDTO`. Default kinds: all but `updates` |
+| POST | `/api/push/subscriptions` | `PushSubscription.toJSON()` (`{ endpoint, expirationTime?, keys: { p256dh, auth } }`) and an optional `label` → 201 `{ id, device }`. The same endpoint again is the same row (refreshed, bound to this session); another account registering it takes it over. 400 `PUSH_SERVICE_NOT_ALLOWED` (endpoint host not an allowed push service), 400 `PUSH_SUBSCRIPTION_INVALID` (the URL or key checks), 503 `PUSH_UNAVAILABLE`; a body of the wrong shape (missing keys, endpoint over 1,024 characters, label over 80) is the usual validation error. 20/min. At most 20 devices per person (the one longest without a delivery is dropped) |
+| DELETE | `/api/push/subscriptions` | `{ endpoint }` → 204; removes this browser's row if it is the caller's (no error otherwise) |
+| DELETE | `/api/push/devices/:id` | 204, or 404 when not the caller's |
+| POST | `/api/push/test` | `{ deviceId? }` → `{ queued }`; 404 for a device that is not the caller's; 503 when unavailable. 5/min |
+
+- Push payload (inside the encrypted message, for people writing their own service worker):
+  `{ v: 1, title, body, url, tag, id, ts }`; `url` is a same-origin path, `tag` is `p:<pageId>`, `n:<id>` or `test`.
+- A subscription belongs to the session that registered it and is deleted with it (logout, password change, an
+  admin's revoke, expiry).
+
+### Buttons and database automations (docs/adr/2240–2245)
+
+| Method | Path | Body / answer |
+|---|---|---|
+| GET | `/api/collections/:id/automations` | `{ automations: AutomationDTO[], canEdit }`; members who can see the database (not guests). Tokens may read; `canEdit` is true only for a browser session with edit access |
+| POST | `/api/collections/:id/automations` | `{ name (1–80), enabled?, trigger, condition?, actions }` → `{ automation }`. Browser session only; edit access to the database (as `PUT /pages/:id/collection/fields`); 400 when a field, database or webhook does not fit; at most 20 rules per database; 30/min. The saver becomes the author |
+| PATCH | `/api/collections/:id/automations/:ruleId` | a partial body → `{ automation }`. `{ enabled: false }` alone keeps the author; anything else (turning on included) makes the caller the author and checks the rule again; turning on resets the failure streak. Browser session only |
+| DELETE | `/api/collections/:id/automations/:ruleId` | 204. Browser session only |
+| GET | `/api/collections/:id/automations/runs?automationId=&limit=` | `{ runs: AutomationRunDTO[] }`, newest first, `limit` 1–100 (default 50): `status` `ok` / `failed` / `skipped`, `failedAction` (0-based), `error`, `actorName`, `depth`, `rowTitle` (null when the row is gone) |
+| GET | `/api/workspaces/:id/webhook-targets` | `{ targets: [{ id, kind, label, enabled }] }` (`label` is the host); members |
+| POST | `/api/pages/:id/button-webhook` | `{ blockId, webhookId }` → `{ ok: true }`; members who can see the page; 10/min. 409 `BUTTON_NOT_SAVED` when the stored page has no such button with that hook (the collaboration store writes a few seconds after typing), 409 `WEBHOOK_OFF`, 429 `RATE_LIMITED` when the workspace's webhook queue is full |
+
+- trigger: `{ type: 'rowAdded' }` | `{ type: 'fieldChanged', fieldId, to? }` | `{ type: 'dateReached', fieldId,
+  daysBefore: 0..30 }`. condition: a view filter tree (`{ mode, items }` with groups and `not`).
+- actions (at most 5): `setFields { props }`, `assign { fieldId, to: ['me' | 'creator' | userId] }`,
+  `notify { fieldId?, creator?, userIds?, message? }`, `webhook { webhookId, message? }`,
+  `addRow { collectionId, templateId?, title?, props? }`, `assignAgent { fieldId, connection }`. A button block has
+  the same actions without `assign`/`assignAgent`/`notify` and with `open`; its block props carry `label`, `color`
+  and `actions`.
+- Writes by a rule carry `via` = `automation: <rule name>` (cut at 80 characters).
+- Change log: `page_props` events carry `keys` (the changed property ids, at most 100). Webhooks may deliver the
+  event type `automation` (not subscribable; only to the hook a button or rule names; generic payload
+  `type: "automation"`, `field`, `message`).
+- Markdown: a button is `<!-- inkling:button {"actions":[…],"color":"…","label":"…"} -->` in agent reads,
+  downloads and vault sync, and `**[label]**` in plain Markdown.
+
+### Web clipper (docs/adr/2260–2263)
+
+| Method | Path | Body / answer |
+|---|---|---|
+| POST | `/api/clip` | `{ workspaceId, parentId?, url? (http(s), ≤ 2,048), title? (≤ 300), text? (≤ 20,000), mode?: 'link' \| 'article' (default link), tags?: string[] (≤ 10, each ≤ 40 letters, digits, _, - or /, a leading # allowed) }`, at least one of `url` and `text` → `200 { page: PageMetaDTO, mode: 'link' \| 'article', fallback?: 'fetch_failed' \| 'not_html' \| 'no_content', truncated?: true }` |
+| GET | `/api/clip/lookup?workspaceId=&url=` | `{ pages: [{ id, title, workspaceId, createdAt }] }`: up to 5 live pages in that workspace, visible to the caller, whose `source` property is this URL (normalized), newest first. `workspaceId` is required. Members and guests (their visible pages only); tokens allowed |
+
+- `POST /api/clip` checks as `POST /pages`: membership (guests only under a page shared with them for editing),
+  connection range, the edit lock on the parent (`403 PAGE_LOCKED`), suggest-only connections refused (`403
+  CONNECTION_SUGGEST_ONLY`), read-only tokens refused. A URL that is not http(s): `400 CLIP_INVALID_URL`.
+- `mode: 'article'` needs a browser session: any bearer token gets `403 CLIP_ARTICLE_SESSION_ONLY`. Article fetches
+  are limited (10 per person per minute, 2 at once per person, 8 per server): `429 CLIP_RATE_LIMITED`. Route limit
+  30/min.
+- An article that cannot be fetched or has no article text is saved as a link with `fallback`; the page is created
+  either way. The body: a link card for the URL, the text as quotes, `#tags`, a "Saved … UTC from host" line, then
+  the article (cut at 100,000 characters, at the 2 MiB read limit or by the block conversion; any cut sets
+  `truncated`). Page properties `source` (the URL) and `clipped` (`YYYY-MM-DD HH:MM UTC`), named "Source" / "Clipped"
+  (Korean "출처" / "저장한 날") after the creator's language.
+- Web route `/clip?title=&text=&url=`: the save screen. It saves nothing by itself.
+
+### Workspace groups and archive (docs/adr/2300–2305)
+
+Browser session only, reads included. A workspace id must be one the caller can open (a member of a live workspace,
+or a guest), else 404. Another person's group is 404.
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| GET | `/api/me/workspace-groups` | – | `{ groups: [{ id, name, collapsed }] }` in the person's order |
+| POST | `/api/me/workspace-groups` | `{ name }` (1–40 characters, trimmed; at most 50 groups) | `{ group }` |
+| PATCH | `/api/me/workspace-groups/:id` | `{ name?, collapsed? }` | `{ group }` |
+| DELETE | `/api/me/workspace-groups/:id` | – | 204; its workspaces become ungrouped (appended), their archive state is kept |
+| PUT | `/api/me/workspace-groups/order` | `{ ids }` (≤ 50) | `{ groups }`; groups not listed keep their order after the listed ones |
+| POST | `/api/me/workspace-groups/:id/archive` | `{ archived }` | `{ count }` (every workspace in the group) |
+| PATCH | `/api/me/workspaces/:id/listing` | `{ archived?, groupId? }` (null = no group; moving appends) | `{ listing }` |
+| PUT | `/api/me/workspace-order` | `{ groupId, ids }` (≤ 500) | 204; the listed workspaces join the group at these positions |
+
+- `GET /api/workspaces`: each workspace the caller arranged adds `listing?: { archived?: true, groupId?, group?,
+  position? }`. The list order is unchanged.
+- `GET /api/search` and `GET /api/context` without `workspaceId` add `archived: [{ id, name }]` when they left the
+  caller's archived workspaces out. A connection limited to some workspaces searches its range; the archive does not
+  apply to it.
+
+### OAuth: Client ID Metadata Documents (`OAUTH_CIMD=1`, docs/adr/2280–2282)
+
+- `GET /.well-known/oauth-authorization-server`: `client_id_metadata_document_supported: true` only when
+  `OAUTH_CIMD=1`.
+- `/oauth/authorize` (the consent screen), `GET /api/oauth/authorize/info` (browser session) and
+  `POST /api/oauth/authorize`: `client_id` may be an https URL (up to 2,000 characters; other ids still up to 200).
+  For such a client `info` adds `metadataDocument: { host, loopbackRedirect }`. Errors: `400 INVALID_CLIENT` (switched
+  off, with the same message as an unknown id; URL not acceptable; host not allowed; document refused, with the
+  reason), `400 INVALID_REDIRECT` (`redirect_uri` not in the document's `redirect_uris`; loopback http may use any
+  port), `400 CLIENT_NAME_RESERVED` (the document's `client_name`), `503 CLIENT_METADATA_UNAVAILABLE` (the document
+  could not be fetched now; `Retry-After: 60`). None of them redirects to the client.
+- Every authorization response to a metadata-document client (code or error, deny included) carries
+  `iss=<issuer>` (RFC 9207). Responses to registered clients do not change.
+- `POST /oauth/token`: `authorization_code` for a URL client answers `400 invalid_client` when CIMD is off or the host
+  is no longer allowed; the document is not fetched on the code exchange. `refresh_token` for a URL client reads the
+  document again (cached): `400 invalid_client` when off, not allowed or the document is refused; if the document
+  now names another `client_id` the grant is revoked; `503 temporarily_unavailable` when it cannot be fetched and no
+  usable copy is cached (a copy that was valid is used for up to 7 days while the host fails).
+- `GET /api/oauth/grants`: grants of URL clients add `clientHost`.
+- Reserved client names: a name that folds to a word starting with "automation", or to "public form", is
+  `CLIENT_NAME_RESERVED` at registration, at consent (also from a metadata document) and for agent connection tokens.
+
+### MCP tools
+No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (~7,533), server instructions ~492.
+find_context, search and catch_up without `workspaceId` leave the caller's archived workspaces out and say so in a
+closing line; `list_workspaces` adds `group` and `archived`; `query_rows describe=true` lists enabled automations;
+buttons read as `<!-- inkling:button … -->`. Details: [MCP.md](MCP.md).

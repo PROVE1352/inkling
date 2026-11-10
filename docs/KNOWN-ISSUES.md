@@ -392,7 +392,7 @@ Section names (the short-anchor problem found during this release, MCP-SA-1, is 
 
 Sync and saving
 - **Medium** (SYNC-1, docs/adr/1921-*, design limit) A crash or kill (OOM, power loss, `docker kill`) loses what was typed in the last 2–10 s before it: the store is debounced (2 s, at most 10 s behind) and the browser keeps nothing. A tab still open re-sends its edits on reconnect; a tab already closed cannot. A graceful stop (SIGTERM, `docker compose stop` / `up -d`) saves everything first.
-- **Low** (SYNC-2, docs/adr/1926-*) No local persistence in the browser (IndexedDB): edits made offline survive only while the tab stays open. The tab warns before closing and keeps a page's edits after in-app navigation until the server has them, but a crash of the browser or the device loses them.
+- ~~**Low** (SYNC-2, docs/adr/1926-*) No local persistence in the browser (IndexedDB): edits made offline survive only while the tab stays open. The tab warns before closing and keeps a page's edits after in-app navigation until the server has them, but a crash of the browser or the device loses them.~~ Resolved in part in 0.18 (docs/adr/2200-*, 2203-*): with "Keep offline copies on this device" on (the default in the installed app), opened pages and their unsent edits are kept in IndexedDB and survive a crash. Still open in a browser tab with the setting off, which is the default there: such a tab behaves as described (OFFLINE-8).
 - **Low** (SYNC-3, docs/adr/1920-*) A vault `PUT` is a minimal edit, so in-flight browser typing in blocks the note left alone merges. Typing in a block the note changes is still lost (as with `update_page` replace, AGENT-C1), and when the minimal edit does not validate the server rewrites the whole document (logged as `[vault-sync] minimal replace not applied`).
 - **Low** (SYNC-4, docs/adr/1925-*) The single-instance lock guards processes on one database only. Two servers pointed at two copies of the data, or a server whose lock connection is cut while the database stays up (a network partition), are not detected until the heartbeat (30 s) sees the lock gone.
 - **Low** (SYNC-5, docs/adr/1925-*) The guard needs a session connection: behind a transaction-mode pooler (PgBouncer `pool_mode=transaction`) the session lock means nothing, so set `SINGLE_INSTANCE=0` there. It also cannot see a 0.15.0 process (which takes no lock) during a mixed-version overlap; a compose deploy never overlaps (stop, then start).
@@ -462,7 +462,7 @@ Database views in pages, public pages and the Markdown download
 - **Info** (DBVIEW-8, docs/adr/2190-*) On public pages, created by / last edited by show the member's name without the agent connection ("via …"); the member download shows it.
 
 Databases
-- **Low** (COLL17-1, docs/adr/2140-*) A row created in a transaction that started before an ID property was added and committed after it stays without a number until the next fields update of that collection.
+- ~~**Low** (COLL17-1, docs/adr/2140-*) A row created in a transaction that started before an ID property was added and committed after it stays without a number until the next fields update of that collection.~~ Corrected in 0.18: such a row gets no number from a later fields update either; see ROWNUM-1 (docs/adr/2320-*, ADR 2140 corrected).
 - **Low** (COLL17-2, docs/adr/2141-*) "Last edited by" changes only with logged changes (properties, title, body); two-way relation mirroring, sheet sync and moves do not change it, while "Last edited time" (`updated_at`) moves with them. Body edits set it when the section index runs (8–30 s).
 - **Low** (COLL17-3, docs/adr/2142-*) A 0.16 client shows a view whose filter uses OR / NOT / groups unfiltered, and conditions it adds to such a view are ignored by 0.17 clients (it writes the flat list, the tree wins).
 - **Low** (COLL17-4, docs/adr/2140-*) Created/edited time filters compare by the UTC day (as `today` in query_rows); a person east or west of UTC may see a row created late in their evening under the next/previous date.
@@ -505,3 +505,67 @@ search and workspace scope
 - **Low** (WS-SCOPE-2, docs/adr/2186-*) A workspace name is resolved when the call is made: renaming a workspace changes what a stored name means, and a name prefix that was unique stops resolving when another workspace gets a similar name (the error then lists both). Agents that keep ids are unaffected.
 - **Info** (WS-SCOPE-3) `inbox`'s workspaceId takes ids only (built with the shared `uuid()`, whose check is shared with page ids). Other tool descriptions do not mention that names work; the server instructions say it once.
 - **Info** (WS-SCOPE-4, docs/adr/2188-*) The several-workspace evaluation has 12 questions; results on them vary run to run by about one question (ties across workspaces). `context-bench.ts` and `context-tune.ts` still build one workspace.
+
+## Added in 0.18.0
+
+Offline copies
+- **Low** (OFFLINE-1, docs/adr/2202-*) Creating, moving and deleting pages offline is not supported (the page list is a read-only list from the last visit); database rows, page embeds, the canvas, attachments (images and files are not stored) and search are not available offline; nothing is queued for later.
+- **Low** (OFFLINE-2, docs/adr/2203-*) Offline copies are not encrypted: anyone with access to the browser profile can read them. Logging out deletes them; on a shared computer leave "Keep offline copies on this device" off (the default in a browser tab).
+- **Low** (OFFLINE-LOGOUT, docs/adr/2321-*) Logging out while offline deletes the device's offline copies and its push subscription, but the server session cannot be ended: until it expires (30 days) or is revoked (a password change, or an admin's reset code or temporary password; there is no "sign out everywhere" button), opening the app online on that device signs in again.
+- **Low** (OFFLINE-3, docs/adr/1340-*) Ink (pen layer): offline the ink layer cannot load, and by the no-save-before-load rule strokes drawn then are not saved. Comments, suggestions, page history and sharing need the server and show their usual errors. Presence shows nobody while offline.
+- **Low** (OFFLINE-4, docs/adr/2201-*) When the connection comes back to a page that was opened offline from its copy, the editor keeps running on the same document (no reload), but if the server changed the generation (restore, revert, split, full rewrite), trashed the page or took the edit right away, the editor reopens from the server: the cursor position is lost and the device edits are in Recovery.
+- **Low** (OFFLINE-5, docs/adr/2201-*) A restore, revert, split or full rewrite during someone's outage turns all their unsent edits on that page into a recovery item, also those in blocks the operation did not touch.
+- **Info** (OFFLINE-6, docs/adr/2201-*) Recovery items are shown read-only; copying their text back into the page is manual.
+- **Low** (OFFLINE-7, docs/adr/2200-*) Copies of pages that were left with unsent edits are uploaded the next time the page is opened (or while a tab that edited them is still open); there is no background upload of pages not open in any tab.
+- **Info** (OFFLINE-8, docs/adr/2204-*) Without a device copy (setting off or storage unavailable) a tab that typed through an outage merges on reconnect as in 0.17 (no gate), and loses those edits if it closes or crashes first (SYNC-2).
+- **Info** (OFFLINE-9, docs/adr/2321-*) Only the 0.18 screens (button presses, clip saves, the automations screen, push settings) and logging out fail at once with "No connection" while offline; other changes in the app keep React Query's default: they wait while the browser reports offline and are sent when it is back.
+- **Info** (OFFLINE-10, docs/adr/2104-*) A browser that has never drawn a Mermaid diagram cannot draw one offline (the library is fetched on the first diagram and not precached; OPERATIONS.md section 11).
+
+Web push
+- **Low** (PUSH-1, docs/adr/2222-*) A push is not sent for system notices (`workspace_added`, `workspace_deleted`, `webhook_disabled`, `backup_failed`, `large_page`); they only show in the bell.
+- **Low** (PUSH-2, docs/adr/2221-*) After the 30-day session expiry (or a password change, or an admin's revoke) a device is silent until the person opens the app and signs in there. Between the expiry and the cleanup of the expired session row a few pushes can still go out.
+- **Info** (PUSH-3, docs/adr/2223-*) Headless browser checks cannot click a real OS notification: `notificationclick` was tested with a synthetic event (window already open); the "no window → openWindow" path is untested in automation. Receiving a real FCM push headless is not guaranteed either.
+- **Info** (PUSH-4, docs/adr/2303-*) Push for a workspace you archived: everything the bell shows is pushed by your push kinds, archived or not (the archive narrows only searches).
+- **Info** (PUSH-5, docs/adr/2243-*) A failing-rule notice arrives as "automation: <rule> mentioned you in <database>" (no person), in the bell, mail and push alike; automation notices use the mention push kind.
+- **Info** (PUSH-6, docs/adr/2222-*) At most 100 pushes wait per person; beyond that new ones are dropped (the bell still has them).
+
+Buttons and database automations
+- **Medium** (AUTO-1, docs/adr/2244-*) A 0.17 client (an old tab, or an installed app that has not reloaded) editing a page with a button deletes the button (unknown block type; CHART-2 again). Reload all clients after the upgrade before using buttons.
+- **Low** (AUTO-2, docs/adr/2244-*) A button's webhook action works only once the page is stored (a few seconds after editing): before that the server answers 409 `BUTTON_NOT_SAVED`.
+- **Low** (AUTO-3, docs/adr/2240-*) Moving a page into a database and restoring a row from the trash do not count as "row added"; batch create (paste, CSV into an existing database), sheet sync and vault sync start no rules.
+- **Low** (AUTO-4, docs/adr/2240-*) "Changed to X" and conditions are checked when the run starts: two quick edits can make both runs see the second value.
+- **Low** (AUTO-5, docs/adr/2242-*) Rate limits are per server process (two processes would double them; Inkling runs one).
+- **Low** (AUTO-6, docs/adr/2240-*) "Date reached" uses the server's time zone; a rule turned on after the day passed does not catch up.
+- **Info** (AUTO-7, docs/adr/2241-*) A rule started by a guest, a public form answer or an agent connection cannot add rows to another database (by design); the run log shows it as failed.
+- **Low** (AUTO-8, docs/adr/2240-*) Duplicating a database does not copy its automations; templates carry none.
+- **Low** (AUTO-9, docs/adr/2243-*) The settings screen edits conditions as a flat "all of" list; a condition with any / NOT groups (from the API) is kept as it is and can only be cleared there.
+- **Low** (AUTO-10, docs/adr/2244-*) A button's "open URL" action runs after earlier actions finished and may be blocked by a popup blocker.
+- **Info** (AUTO-11, docs/adr/2244-*) A button inside a page embedded read-only in another page is shown disabled ("open the page to use it").
+- **Low** (AUTO-12, docs/adr/2241-*) A personal API token limited to a range writes as its person (via null): a rule it starts may add rows to a database outside the token's range that the person can edit.
+- **Info** (AUTO-13, docs/adr/2323-*) Presentation mode disables every button, select and text area in the slides (the copies had no handlers before either); a toggle's arrow or a code block's language picker may look dimmed there. Not checked by eye.
+
+Web clipper
+- **Low** (CLIP-1, docs/adr/2261-*) Pages that build their text with JavaScript (many single-page apps) have no article text on the server and are saved as links (`no_content`). Pages behind a login save only the selected text.
+- **Low** (CLIP-2, docs/adr/2263-*) Bookmarklets do nothing on sites whose Content-Security-Policy blocks them; use the share menu, the example extension (`examples/web-clipper-extension/`) or paste the address into `/clip`.
+- **Low** (CLIP-3, docs/adr/2260-*) Clipped images stay on the original site (hotlinked); they disappear if the site removes them.
+- **Info** (CLIP-4, C-L17) `GET /api/link-preview` can be called with a personal API token and makes the server fetch a URL's head (pre-existing; not changed in 0.18).
+
+OAuth Client ID Metadata Documents
+- **Info** (OAUTH-CIMD-1, docs/adr/2280-*) Client ID Metadata Documents are off by default because no real client has connected to Inkling with them yet: the flow was tested with a local document server, the test suite and a Chrome run of the consent screen; Claude's published documents were fetched and validated through the same code (2026-11-10). See the checklist at the end of docs/MCP.md; this joins AGT-4.
+- **Low** (OAUTH-CIMD-2, docs/adr/2282-*) The consent screen cannot tell a real Claude Code from another program on the same computer using Claude Code's client_id (any local process can listen on a loopback port). The screen warns for every localhost sign-in; there is no attestation.
+- **Low** (OAUTH-CIMD-3, docs/adr/2281-*) Only public clients (`none` + PKCE). A document that offers only `private_key_jwt` is refused; Claude's `…/confidential_client` document is not used because the metadata does not list `private_key_jwt`.
+- **Low** (OAUTH-CIMD-4, docs/adr/2282-*) `iss` is sent only to metadata-document clients and is not advertised (`authorization_response_iss_parameter_supported`), so registered clients stay unchanged.
+- **Info** (AGT-4, 0.18 addition) Claude's connector docs say the protected resource metadata's `resource` "must equal the URL as the user enters it, including any path component". Inkling's is `<origin>/mcp` for both `/mcp` and `/mcp?profile=core` (the query is not a path, and the authorization request accepts both), but whether claude.ai accepts `/mcp?profile=core` this way is part of the unverified AGT-4 check.
+
+Workspace groups and archive
+- **Low** (WSARC-1, docs/adr/2303-*) The global calendar, the Later list and other cross-workspace web views still show archived workspaces; the web ⌘K searches the open workspace only.
+- **Low** (WSARC-2, docs/adr/2303-*) catch_up's marker advances over archived workspaces: changes made there while archived are not shown after unarchiving (use changes_since, or catch_up with that `workspaceId` and `since`).
+- **Info** (WSARC-3, docs/adr/2304-*) catch_up's first line still says `, all workspaces` when archived ones were left out; the closing line says which (the first line is the window, not the scope).
+- **Info** (WSARC-4, docs/adr/2301-*) A guest whose last shared page is removed keeps a harmless listing row until the purge or until the account goes.
+- **Info** (WSARC-5, docs/adr/2305-*) A group name is not a search scope (`workspaceId: "Contests"` does not search a group), and the organizer moves a workspace to another group with a select (dragging reorders inside a group only).
+
+Integration
+- **Low** (ROWNUM-1, docs/adr/2320-*, 2140-*) A row inserted while another transaction is adding an ID property to its database may stay without a number (measured: 0 of 3 rows inserted during the change; 2 of 5 rows of an insert transaction open around it). It gets none later; editing the ID property again (remove and add) numbers such rows. Same in 0.17; not fixed in 0.18 because the fix (a share lock on the collection row for every row under any parent) costs more than the race is worth.
+- **Low** (AUTH-429) When `/api/auth/me` is answered with 429 (the limit of 300 requests a minute), the app sends you to the login screen although the session is still valid; reloading brings you back. Seen when browser checks opened pages quickly many times in a row. Unchanged in 0.18; candidate: retry on 429 and 5xx instead of going to the login screen.
+- **Info** (CARET-1, docs/adr/2322-*) Menus at the caret were placed with unit tests and a 390 × 600 window, not on a phone with its keyboard up (the room is measured on `visualViewport`). The open animation's origin stays top-left when a menu opens upwards.
+- **Info** (CHECK-W17) In one of six full browser-check runs of the release tree, opening a page with a database view in a new tab showed a white page (no text, no spinner); ten runs of only that step and five other full runs passed. Cause unknown (the app or the check's timing); the check now records console errors, failed requests and the page state when it happens.

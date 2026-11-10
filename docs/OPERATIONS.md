@@ -80,6 +80,8 @@ app when something needs attention (docs/adr/1230-*, 1233-*). The same data is
 | App · Restarts in 24 h | From `DATA_DIR/status/boots.json`. Amber at any restart without a clean shutdown (OOM kill, crash, `docker kill`), or at 3 clean restarts in production; red at 3 unclean ones (crash loop). Deploys count as clean restarts. | `docker compose logs --tail 200 app`; exit 137 = memory (section 2). |
 | App · Errors logged in 24 h | Log records at level error/fatal. Amber at 10 in 24 h, red at 50 in one hour. Only the count is kept. | `docker compose logs app \| grep '"level":50'`. |
 | App · Database schema | Applied migrations vs. the ones this server ships. Red when they differ (e.g. a database restored from a newer release). | Upgrade to the release that wrote the database (section "Upgrades"). |
+| App · Web push | Devices, failing devices and deliveries given up in 24 h (0.18). Grey with `WEB_PUSH=off`; amber at 20 given up in 24 h, or "Cannot send: VAPID key problem (…)". | Section 12 "Web push": egress to the push services, `APP_SECRET_KEY`, the VAPID env pair. |
+| App · Database automations | Rules on, runs queued, runs failed in 24 h (0.18). Grey when there are no rules; amber when a due run has waited 15 minutes or more ("the automation queue is not keeping up"). | Section 12 "Database automations"; look for a rule in a loop or a slow webhook. |
 | Security settings | Amber in production when `APP_SECRET_KEY` or `PUBLIC_URL` is missing, cookies are not `Secure`, anyone can sign up (`SIGNUP_REQUIRE_KEY=0`, or `OIDC_AUTO_CREATE=1` without `OIDC_ALLOWED_DOMAINS`), or the database password is empty, equal to the user name, a common default or shorter than 12 characters (judged on the server; the value is never shown). Red when sealed secrets exist but `APP_SECRET_KEY` is gone. | Section 0 "Before first deploy". |
 | Updates | Grey unless `UPDATE_CHECK=github`. Amber when a newer release exists, red when a release newer than this server has a "Security" section in its notes (docs/adr/1232-*). | Section "Upgrades". |
 
@@ -137,6 +139,18 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
   web bundle only (section 11). New, optional: `INKLING_PORT`, `INKLING_DB_PORT` (compose). Every agent write now
   stores a version row (section 11); zip imports refuse unsafe archives; a server with no account prints a setup link
   at boot.
+- 0.17 → 0.18 applies 5 migrations (54 → 59 rows): `0054_w18_web_push` (tables `push_subscriptions`,
+  `push_vapid_keys`, `push_settings`), `0055_w18_automations` (`collection_automations`, `automation_runs`),
+  `0056_offline_doc_gen` (`pages.doc_gen integer not null default 0`, a constant default), `0057_workspace_listings`
+  (`workspace_list_groups`, `workspace_listings`) and `0058_row_number_tid` (a new body for the trigger function
+  `inkling_row_number()`; no table, index or trigger definition changes). No backfill; they run in milliseconds. No
+  new dependency. New, optional: `WEB_PUSH`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
+  `WEB_PUSH_ALLOWED_HOSTS`, `OAUTH_CIMD`, `OAUTH_CIMD_ALLOWED_HOSTS` (section 12; `compose.yaml` passes them through).
+  After the upgrade: tell people to reload every open tab and installed app before they use button blocks (a 0.17
+  client that edits a page with a button deletes it); web push needs outbound HTTPS from the server to the push
+  services and makes its VAPID key on first use; `/push-sw.js` is served `no-cache` (section 4); the web clipper's
+  "Article text" makes outbound HTTP(S) requests; a 15-minute automation timer runs per process. Nothing else changes
+  for people until they turn something on.
 
 - [ ] Take a manual backup first: `./deploy/backup.sh`.
 - [ ] Do not deploy during the backup window (default 03:00).
@@ -284,7 +298,7 @@ No cache holds sessions, memberships or page visibility; those are read from the
 
 ## 4. HTTP caching
 
-- `assets/*`, `workbox-*.js`: `public, max-age=31536000, immutable`. `index.html`, `sw.js`, `registerSW.js`, `manifest.webmanifest`, SPA routes: `no-cache`. Other static files: one day.
+- `assets/*`, `workbox-*.js`: `public, max-age=31536000, immutable`. `index.html`, `sw.js`, `push-sw.js` (0.18: the service worker imports it, and imports go through the HTTP cache on worker updates), `registerSW.js`, `manifest.webmanifest`, SPA routes: `no-cache`. Other static files: one day.
 - API: `private, no-store` by default. Large GETs (page tree, graph, due list, collections) carry a weak ETag and `private, no-cache` and answer `If-None-Match` with 304 before doing the work; other GET JSON ≥ 1 KB gets a content-hash ETag.
 - Compression happens only in Caddy (`encode gzip zstd`). Quick check through the proxy:
 
@@ -583,3 +597,123 @@ only route where a visitor without an account writes data.
   diagram type) and is not precached by the service worker: a browser fetches it on the first page with a diagram
   (about 246 kB gzip for a flowchart). A browser that has never drawn a diagram cannot draw one offline. Nothing runs on
   the server; public pages draw diagrams in the reader's browser.
+
+## 12. Offline copies, web push, automations, the web clipper and CIMD (0.18)
+
+### Offline copies (docs/adr/2200-* .. 2204-*)
+
+- Offline copies live in each person's browser (IndexedDB `inkling-offline`); the server stores nothing new apart
+  from `pages.doc_gen` and answers one `GET /api/pages/:id/sync-check` per open of a page with a copy and per
+  reconnect. Nothing to configure.
+- The setting "Keep offline copies on this device" is per device: on by default in the installed app, off in a
+  browser tab. Copies are not encrypted; anyone with access to the browser profile can read them. On shared or public
+  computers tell people to use a browser tab with the setting off (the default) and to log out: logging out, an
+  expired or revoked session and another account signing in delete every copy on that device.
+- Logging out while offline deletes the copies and the browser's push subscription at once, but cannot end the
+  session on the server; it stays valid until it expires (30 days) or is revoked. There is no "sign out everywhere"
+  button yet: the person changes their password, or an admin issues a reset code or temporary password in Admin ›
+  Users, which signs out every session (KNOWN-ISSUES OFFLINE-LOGOUT).
+- After `deploy/restore.sh` (restore from a backup), browsers with unsent edits newer than the backup turn them into
+  recovery items on their next connection; tell people to look in Settings › Offline › Recovery.
+
+### Web push (docs/adr/2220-* .. 2223-*)
+
+- **HTTPS is required.** Browsers allow push (and service workers) only on `https://` origins and on
+  `http://localhost`. Behind a reverse proxy (Caddy, nginx) serve the app over HTTPS as usual; the proxy needs no extra
+  route: `/sw.js`, `/push-sw.js` and `/api/push/*` are ordinary app paths. The server sends `/sw.js` and
+  `/push-sw.js` with `Cache-Control: no-cache` (section 4); a proxy must not override it.
+- **iPhone and iPad:** push works only in the Home Screen app (Safari → Share → Add to Home Screen), iOS/iPadOS 16.4
+  or later; a Safari tab shows how to do that. Apple checks the VAPID `sub` claim: set
+  `VAPID_SUBJECT=mailto:you@your-domain` (or rely on an https `PUBLIC_URL`); the placeholder
+  `mailto:webpush@inkling.invalid` used when neither is set may be refused by Apple.
+- **Outbound connections** (HTTPS, port 443) from the server to the push services browsers use: `fcm.googleapis.com`
+  (and the legacy `android.googleapis.com`) for Chrome, Edge on Android, Samsung Internet and Opera;
+  `updates.push.services.mozilla.com` / `*.push.services.mozilla.com` for Firefox; `web.push.apple.com` /
+  `*.push.apple.com` for Safari; `*.notify.windows.com` for Edge on Windows. An egress firewall must allow them.
+  Other hosts are refused unless listed in `WEB_PUSH_ALLOWED_HOSTS` (comma-separated, `host` or `*.suffix`); every
+  target must still resolve to public addresses, no redirects are followed and at most 4 KiB of a response is read.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WEB_PUSH` | on | `off` switches push off server-wide: nothing is queued, queued deliveries are dropped, the routes answer unavailable |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | empty (a key made on first use, kept in `push_vapid_keys`) | both or neither; base64url raw keys as printed by `npx web-push generate-vapid-keys` |
+| `VAPID_SUBJECT` | `PUBLIC_URL` when https, else `mailto:webpush@inkling.invalid` | the VAPID `sub` claim |
+| `WEB_PUSH_ALLOWED_HOSTS` | empty | more push service hosts, comma-separated, `host` or `*.suffix` |
+| `PUSH_TEST_ALLOW_LOOPBACK` | off | tests only; ignored with `NODE_ENV=production` |
+
+- **The key.** The generated private key is sealed with `APP_SECRET_KEY` (rows written before the key was set are
+  sealed at the next boot), like subscription endpoints and their auth secrets. Changing the key voids every
+  subscription (deliveries to old ones are dropped and the rows removed; devices subscribe again when the person
+  opens the app). The key lives in its database: pointing the server at a different database (another instance's,
+  or a fresh one) or deleting the row means another key, while restoring this database's own backup keeps it, as
+  long as the same `APP_SECRET_KEY` is set (keep a copy off the server, outside the backups). To start over with a new generated key: `DELETE FROM push_vapid_keys;` and restart. If Server status shows
+  "VAPID key problem (stored_unreadable)", `APP_SECRET_KEY` is missing or changed: restore it, or delete the row.
+  `env_incomplete` / `env_invalid`: fix the env pair.
+- **Subscriptions** belong to the login session that made them and are deleted with it (logout, password change,
+  an admin's revoke of sessions, the 30-day expiry). At most 20 devices per person.
+- **Delivery:** outbox topic `push`, 4 requests at a time per process, retries 10 s → 30 s → 90 s → … (capped at 30
+  minutes, 5 attempts, the push service's Retry-After honoured); a device is removed on 404/410 or after 10 failures
+  in a row. TTL 24 h at the push service. A burst on one page or thread within 30 s sends one push per device; at
+  most 100 pending pushes per person (newer ones are dropped beyond that). Watch Server status › Web push.
+- **What pushes.** A push follows a notification row: the person's push kinds (mention, assigned, reply, comment,
+  approval, reminder; `updates` is off by default) and the page's visibility are checked again when it is sent.
+  Automation notices (a rule's "notify" action, and "turned off after five failures") push as mentions, written
+  `Alice via automation: Ping reviewer mentioned you in "Draft 3"` (a failing-rule notice has no person:
+  `automation: <rule> mentioned you in "<database>"`). System notices (`workspace_added`, `workspace_deleted`,
+  `webhook_disabled`, `backup_failed`, `large_page`) only show in the bell. Archiving a workspace in one's own switcher
+  does not stop its pushes.
+
+### Database automations and buttons (docs/adr/2240-* .. 2244-*)
+
+- Rules are queued by the change-log consumer from events writers already log and run through outbox topic
+  `automation` (pending and done rows in `outbox`; done rows are kept 7 days, as for every topic, which also serves
+  the "date reached" dedupe). Server status shows "Database automations" (section "Reading the status summary").
+- A timer per process queues "date reached" rules every 15 minutes (the first 20 s after boot), by the server's local
+  date. A rule turned on after the day passed does not catch up.
+- Limits per process: 30 runs per rule per minute, 120 per workspace per minute, loop depth 3, 50 runs kept per
+  rule, five failures in a row turn a rule off. At most 20 rules per database, 5 actions per rule or button.
+- Outbound actions go only to webhooks a workspace owner registered (Workspace settings › Webhooks), through the
+  existing webhook queue.
+- Nothing to configure. To stop all automations in an emergency: `UPDATE collection_automations SET enabled =
+  false;` (authors turn their rules on again in the database menu › Automations).
+
+### Web clipper (docs/adr/2260-* .. 2263-*)
+
+- "Article text" clips make the server fetch the page: an outbound GET through the SSRF guard (public addresses only,
+  each redirect checked again, at most 3 redirects, 10 s, 2 MiB read, HTML only, ports 80/443), user agent
+  `Mozilla/5.0 (compatible; InklingBot/1.0)`. A server that blocks outbound traffic saves every article as a link
+  (`fallback: fetch_failed`).
+- Limits, in memory per process: 10 article fetches per person per minute, 2 at once per person, 8 per server; the
+  route allows 30 requests per minute. Only browser sessions may fetch articles; tokens save links.
+- Extraction runs on the request thread: about 0.3–0.9 s CPU for a 1.6 MB page, bounded by a cut at 20,000 tags and a
+  refusal of nesting deeper than 400 levels. Article images stay on the original site (at most 100 per clip).
+- `CLIP_TEST_ALLOW_LOOPBACK` is for tests only and ignored with `NODE_ENV=production`. No other variable.
+- The Android share target and the bookmarklet only open `/clip` in the app; there is no proxy route to add.
+
+### OAuth Client ID Metadata Documents (docs/adr/2280-* .. 2282-*)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OAUTH_CIMD` | off | `1` = accept OAuth clients whose `client_id` is an https URL of a metadata document |
+| `OAUTH_CIMD_ALLOWED_HOSTS` | empty (any public host) | comma or space separated hosts, exact or `*.suffix`; e.g. `claude.ai` |
+| `OAUTH_CIMD_TEST_ALLOW_LOOPBACK` | off | tests only: documents on `http://127.0.0.1`; ignored with `NODE_ENV=production` |
+
+- **Outbound connections.** With it on, the server fetches the client_id URL (HTTPS GET, `Accept: application/json`)
+  when a signed-in person opens a consent link and when such a connection refreshes its token after its cached copy
+  expired. Through `safeFetch`: https only, public addresses only (private, loopback, link-local, CGNAT and metadata
+  addresses refused; DNS pinned), no redirects, 5 KB, 5 s. Cached per URL for the response's `max-age` (60 s–24 h; 5
+  minutes without one; Claude's: 5 minutes), one cache per process; while the host fails, a copy that was valid is
+  used for up to 7 days. A failed URL is not fetched again for 30 s; at most 60 fetches a minute in total. A firewall
+  that blocks egress breaks only these clients (they see "could not be loaded"); allow `claude.ai:443` if you limit
+  egress.
+- `OAUTH_CIMD_ALLOWED_HOSTS=claude.ai` is the narrow setting for a team that uses only Claude.
+- Anonymous requests cannot make the server fetch: the consent info route needs a browser session, and the token
+  endpoint fetches only for a refresh token it already knows. None of the document's content is logged.
+- Turning it off again: connections made through it stop at their next token refresh (within an hour); they stay in
+  the Connections list until disconnected. Before relying on it, run the real-client checklist at the end of
+  [MCP.md](MCP.md).
+
+### Workspace groups and archive (docs/adr/2300-* .. 2305-*)
+
+- Nothing to configure. The rows go with the account, with the workspace's purge, and when a member leaves or is
+  removed; a soft-deleted workspace keeps them for a restore. Downgrading to 0.17 leaves the two tables unused.

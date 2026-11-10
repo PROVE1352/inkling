@@ -7,6 +7,26 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-10
+
+A patch release with three fixes found by clicking through 0.17.0 in Chrome. Web app only: no database migration,
+no new dependency, no configuration change.
+
+### Fixed
+- **A click on a page link in the editor no longer opens a second tab.** `[[Page]]` and `[[Page#Heading]]` links moved
+  the current tab and also opened the same page in a new tab, because BlockNote's link handler opened every link
+  with `window.open`; ⌘-click moved the current tab as well. A plain click now moves in the app only, ⌘/Ctrl-click and
+  the middle button open one new tab and leave the current one where it is, and external links open one new tab as
+  before. The same holds in the row-template editor, in a page embed's body and in a page that is read-only for you
+  (docs/adr/2107-*).
+- **Presentation mode draws Mermaid diagrams.** On a public link the slides showed the ```mermaid code; each slide now
+  draws its diagrams with the public page's renderer (strict settings, an image), and in the app a diagram the
+  editor had not drawn yet when the presentation opened is drawn on its slide too (docs/adr/2191-*). Code blocks on
+  slides were white text on a light background and keep the editor's dark box now.
+- **The view picker of a database view block works on the first click.** Picking a view with the mouse (or, in an
+  empty block, a database and a view) node-selected the block and kept the old value until a second pick. The editor
+  no longer takes a mouse press inside a select as a click on its block (docs/adr/2108-*).
+
 ## [0.17.0] - 2026-11-10
 
 A minor release about Notion- and Obsidian-style use and feedback from people running Inkling every day: Mermaid

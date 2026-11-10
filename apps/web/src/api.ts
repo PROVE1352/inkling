@@ -1964,10 +1964,14 @@ export interface OAuthClientInfo {
   requestedAccess?: 'read' | 'write'
   /** The app's name equals a member's display name (docs/adr/1000-*); absent on older servers. */
   nameNotice?: import('@inkling/shared').ClientNameNotice | null
+  /** The client_id is a metadata document URL (docs/adr/2282-*): its host, and whether the code goes to a local port. */
+  metadataDocument?: { host: string; loopbackRedirect: boolean }
 }
 export interface OAuthGrantDTO {
   id: string
   clientName: string
+  /** The client_id host of an app identified by a metadata document (docs/adr/2282-*); absent otherwise. */
+  clientHost?: string | null
   /** 'read' = read-only connection; absent on older servers (= full access) */
   access?: 'read' | 'write'
   /** What the connection may see (docs/adr/1200-*); absent on older servers (= everything) */

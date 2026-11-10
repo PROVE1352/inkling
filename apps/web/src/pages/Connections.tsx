@@ -135,6 +135,11 @@ function GrantRow({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="truncate text-sm text-ink">{g.clientName}</span>
+            {g.clientHost && (
+              <span className="truncate text-xs text-sub" data-testid="connection-client-host">
+                {t('oauthCimd.connectionHost', { host: g.clientHost })}
+              </span>
+            )}
             <AccessBadge access={g.access} />
             <RangeBadge range={g.range} />
           </div>

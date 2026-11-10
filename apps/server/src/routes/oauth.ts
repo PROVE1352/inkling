@@ -33,6 +33,8 @@ import {
 } from '../oauth'
 import { resourceWithoutProfile } from '../mcpProfile'
 import { suggestOnlyStates } from '../agentTaint'
+import { CimdError, cimdClientUsable, cimdConfig, isUrlClientId, resolveCimdClient } from '../oauthCimd'
+import type { CimdClient } from '../oauthCimd'
 
 /**
  * OAuth 2.1 for the remote MCP connector (MCP authorization spec 2025-06-18)
@@ -40,6 +42,7 @@ import { suggestOnlyStates } from '../agentTaint'
  *   GET  /.well-known/oauth-protected-resource[/mcp]  RFC 9728 protected resource metadata
  *   GET  /.well-known/oauth-authorization-server       RFC 8414 authorization server metadata
  *   POST /oauth/register                                RFC 7591 dynamic client registration (public clients)
+ *   (client_id = https URL)                             Client ID Metadata Document when OAUTH_CIMD=1 (oauthCimd.ts, docs/adr/2280-*)
  *   POST /oauth/token                                   authorization_code(+PKCE S256) / refresh_token (rotating)
  *   GET  /oauth/authorize                               ← no server route: the SPA consent screen handles it
  *
@@ -149,6 +152,8 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
       scopes_supported: [...SUPPORTED_SCOPES],
+      // only while OAUTH_CIMD=1 (docs/adr/2280-*); otherwise the document is unchanged
+      ...(cimdConfig().enabled ? { client_id_metadata_document_supported: true } : {}),
     }
   })
 
@@ -235,6 +240,11 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       if (clientId && clientId !== row.clientId) {
         return oauthError(reply, 400, 'invalid_grant', 'Client mismatch')
       }
+      // A metadata-document client (docs/adr/2280-*): no fetch here (the code was issued after one, and
+      // a transient failure must not burn the single-use code); only "still switched on and allowed".
+      if (isUrlClientId(row.clientId) && !cimdClientUsable(row.clientId, publicOrigin(req))) {
+        return oauthError(reply, 400, 'invalid_client', 'This client is not accepted by this server')
+      }
       if (redirectUri !== row.redirectUri) {
         return oauthError(reply, 400, 'invalid_grant', 'redirect_uri mismatch')
       }
@@ -297,6 +307,19 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       if (clientId && clientId !== grant.clientId) {
         return oauthError(reply, 400, 'invalid_grant', 'Client mismatch')
       }
+      // A metadata-document client is re-read (cached) on refresh (docs/adr/2281-*): a document that
+      // now names another client_id revokes the grant (draft §6.1); a transient failure answers 503
+      // unless a previously valid document is still cached.
+      if (isUrlClientId(grant.clientId)) {
+        try {
+          await resolveCimdClient(grant.clientId, publicOrigin(req))
+        } catch (e) {
+          if (!(e instanceof CimdError)) throw e
+          if (e.kind === 'transient') return oauthError(reply, 503, 'temporarily_unavailable', e.message)
+          if (e.code === 'client_id_mismatch') await db.delete(oauthGrants).where(eq(oauthGrants.id, grant.id))
+          return oauthError(reply, 400, 'invalid_client', e.message)
+        }
+      }
 
       const accessToken = newOpaqueToken('ink_at_')
       const refreshToken = newOpaqueToken('ink_rt_')
@@ -343,7 +366,12 @@ async function requireCookieUser(req: FastifyRequest): Promise<void> {
 }
 
 const authorizeQuerySchema = z.object({
-  client_id: z.string().min(1).max(200),
+  // 200 for registered ids; a metadata-document URL may be longer (checked in oauthCimd.ts)
+  client_id: z
+    .string()
+    .min(1)
+    .max(2000)
+    .refine((v) => v.length <= 200 || isUrlClientId(v), { message: 'String must contain at most 200 character(s)' }),
   redirect_uri: z.string().min(1).max(2000),
 })
 
@@ -372,8 +400,36 @@ const authorizeBodySchema = authorizeQuerySchema.extend({
   range: accessRangeSchema.optional(),
 })
 
+/**
+ * A metadata-document client (docs/adr/2280-*), fetched or cached. Switched off, it answers exactly
+ * like an unknown client_id did before (a row left from when it was on is not consulted).
+ */
+async function cimdClientFor(req: FastifyRequest, clientId: string): Promise<CimdClient> {
+  try {
+    return await resolveCimdClient(clientId, publicOrigin(req))
+  } catch (e) {
+    if (!(e instanceof CimdError)) throw e
+    if (e.code === 'disabled') throw new AppError(400, 'INVALID_CLIENT', 'Unknown app. Connect again from the app.')
+    if (e.kind === 'transient') {
+      throw new AppError(503, 'CLIENT_METADATA_UNAVAILABLE', `The app's registration could not be loaded right now: ${e.message}. Try again in a minute.`, 60)
+    }
+    throw new AppError(400, 'INVALID_CLIENT', `The app's registration cannot be used: ${e.message}.`)
+  }
+}
+
 /** Validates client_id + redirect_uri — on failure answer 400 instead of redirecting (no open redirect) */
-async function validateClientRedirect(clientId: string, redirectUri: string) {
+async function validateClientRedirect(
+  req: FastifyRequest,
+  clientId: string,
+  redirectUri: string,
+): Promise<{ id: string; name: string; redirectUris: string[]; cimd?: CimdClient }> {
+  if (isUrlClientId(clientId)) {
+    const cimd = await cimdClientFor(req, clientId)
+    if (!redirectUriMatches(redirectUri, cimd.redirectUris)) {
+      throw new AppError(400, 'INVALID_REDIRECT', "The app's redirect URL does not match the registered one.")
+    }
+    return { id: cimd.clientId, name: cimd.name, redirectUris: cimd.redirectUris, cimd }
+  }
   const client = await findClient(clientId)
   if (!client) throw new AppError(400, 'INVALID_CLIENT', 'Unknown app. Connect again from the app.')
   if (!redirectUriMatches(redirectUri, client.redirectUris)) {
@@ -382,11 +438,40 @@ async function validateClientRedirect(clientId: string, redirectUri: string) {
   return client
 }
 
+function assertNameNotReserved(name: string): void {
+  if (reservedClientName(name)) {
+    throw new AppError(
+      400,
+      'CLIENT_NAME_RESERVED',
+      `This app calls itself "${name}", which matches a reserved name. Connect an app with its own name.`,
+    )
+  }
+}
+
+function isLoopbackRedirect(uri: string): boolean {
+  try {
+    const u = new URL(uri)
+    return u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+  } catch {
+    return false
+  }
+}
+
+function urlHost(url: string): string | null {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return null
+  }
+}
+
 export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void> {
   // app name / redirect host for the consent screen
   app.get('/oauth/authorize/info', { preHandler: requireCookieUser }, async (req) => {
     const q = authorizeInfoQuerySchema.parse(req.query)
-    const client = await validateClientRedirect(q.client_id, q.redirect_uri)
+    const client = await validateClientRedirect(req, q.client_id, q.redirect_uri)
+    // a metadata document's name is checked here, as /oauth/register checks a registered one (docs/adr/2282-*)
+    if (client.cimd) assertNameNotReserved(client.name)
     const user = getUser(req)
     const clash = await memberNameClashes(client.name, user.id)
     const nameNotice: ClientNameNotice | null = clash
@@ -398,6 +483,11 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       redirectHost: new URL(q.redirect_uri).host,
       // 'read' = the client asked only for read access → the consent screen offers read-only only
       requestedAccess: requestedAccess(q.scope),
+      // additive (docs/adr/2282-*): the client_id's host for a metadata-document client — its name is
+      // the document's claim, the host is what identifies it; loopback = the code goes to a local port
+      ...(client.cimd
+        ? { metadataDocument: { host: client.cimd.host, loopbackRedirect: isLoopbackRedirect(q.redirect_uri) } }
+        : {}),
     }
   })
 
@@ -408,30 +498,31 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
     async (req) => {
       const user = getUser(req)
       const b = authorizeBodySchema.parse(req.body)
+      let validated: Awaited<ReturnType<typeof validateClientRedirect>>
       try {
-        await validateClientRedirect(b.client_id, b.redirect_uri)
+        validated = await validateClientRedirect(req, b.client_id, b.redirect_uri)
       } catch (err) {
-        await recordFailure(req, 'oauth-authorize')
+        // a metadata document that could not be fetched right now is not the caller's failure
+        if (!(err instanceof AppError && err.status === 503)) await recordFailure(req, 'oauth-authorize')
         throw err
       }
+      const cimd = validated.cimd
+      // Metadata-document clients get `iss` (RFC 9207) on every response, as draft §7 requires; DCR
+      // responses are unchanged and the metadata does not advertise it (docs/adr/2282-*).
       const back = (params: Record<string, string | undefined>) => ({
-        redirectTo: withParams(b.redirect_uri, { ...params, state: b.state }),
+        redirectTo: withParams(b.redirect_uri, { ...params, state: b.state, ...(cimd ? { iss: publicOrigin(req) } : {}) }),
       })
 
       if (b.decision === 'deny') {
         return back({ error: 'access_denied', error_description: 'The user denied access' })
       }
       // A client named like a member would make its writes read as that person's (docs/adr/0978-*).
-      const [client] = await db.select({ name: oauthClients.name }).from(oauthClients).where(eq(oauthClients.id, b.client_id)).limit(1)
+      const [client] = cimd
+        ? [{ name: cimd.name }]
+        : await db.select({ name: oauthClients.name }).from(oauthClients).where(eq(oauthClients.id, b.client_id)).limit(1)
       // Product/operator names are refused everywhere; a member's name is handled per workspace at
       // request time and shown as a notice on the consent screen (docs/adr/1007-*).
-      if (client && reservedClientName(client.name)) {
-        throw new AppError(
-          400,
-          'CLIENT_NAME_RESERVED',
-          `This app calls itself "${client.name}", which matches a reserved name. Connect an app with its own name.`,
-        )
-      }
+      if (client) assertNameNotReserved(client.name)
       if (b.response_type !== 'code') {
         return back({ error: 'unsupported_response_type' })
       }
@@ -448,6 +539,15 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
 
       const range = b.range ?? { kind: 'all' as const }
       await validateRange(user.id, range)
+      // A metadata-document client gets its oauth_clients row on consent, keyed by the client_id URL, so
+      // grants, the Connections list, via names, agent blocks and revocation work as for DCR clients;
+      // name and redirect URIs follow the document each time (docs/adr/2280-*).
+      if (cimd) {
+        await db
+          .insert(oauthClients)
+          .values({ id: cimd.clientId, name: cimd.name, redirectUris: cimd.redirectUris })
+          .onConflictDoUpdate({ target: oauthClients.id, set: { name: cimd.name, redirectUris: cimd.redirectUris } })
+      }
       const code = newOpaqueToken('ink_code_')
       await db.insert(oauthCodes).values({
         ...rangeToColumns(range),
@@ -470,6 +570,7 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
     const rows = await db
       .select({
         id: oauthGrants.id,
+        clientId: oauthGrants.clientId,
         clientName: oauthClients.name,
         scope: oauthGrants.scope,
         rangeKind: oauthGrants.rangeKind,
@@ -489,6 +590,8 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       grants.push({
         id: r.id,
         clientName: r.clientName,
+        // additive (docs/adr/2282-*): the client_id host of a metadata-document client
+        ...(isUrlClientId(r.clientId) ? { clientHost: urlHost(r.clientId) } : {}),
         // additive: legacy (null/'notes') grants report full access
         access: canWriteFromScopes(r.scope ?? '') ? ('write' as const) : ('read' as const),
         // additive (docs/adr/1200-*): what the connection may see

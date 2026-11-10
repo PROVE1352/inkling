@@ -124,12 +124,31 @@ export function OAuthAuthorize() {
   } else {
     const name = info.data.client.name
     const notice = info.data.nameNotice
+    const doc = info.data.metadataDocument
     body = (
       <>
         <p className="text-sm text-ink">
           <strong className="font-semibold">{name}</strong>
           {t('oauth.requestSuffix')}
         </p>
+        {doc && (
+          // The name comes from the app's own document; the client_id host is what identifies it (docs/adr/2282-*).
+          <div data-testid="oauth-client-host" className="rounded-md border border-line bg-hover px-2.5 py-2 text-xs leading-relaxed">
+            <p className="font-medium text-ink">
+              {t('oauthCimd.identity', { host: doc.host })}
+            </p>
+            <p className="text-sub">{t('oauthCimd.identityHint', { host: doc.host })}</p>
+          </div>
+        )}
+        {doc?.loopbackRedirect && (
+          <p
+            role="alert"
+            data-testid="oauth-loopback-warning"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200"
+          >
+            {t('oauthCimd.loopbackWarn', { host: doc.host })}
+          </p>
+        )}
         {notice && (
           // The app name equals a member's display name: warn (common names) or say where it will be refused.
           <p

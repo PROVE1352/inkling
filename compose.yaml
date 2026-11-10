@@ -161,6 +161,10 @@ services:
       AGENT_UPLOADS: ${AGENT_UPLOADS:-}
       AGENT_UPLOAD_MAX_MB: ${AGENT_UPLOAD_MAX_MB:-}
       AGENT_UPLOAD_DAILY_MB: ${AGENT_UPLOAD_DAILY_MB:-}
+      # MCP connectors that identify themselves with a Client ID Metadata Document (see .env.example,
+      # docs/adr/2280-*). Empty = off.
+      OAUTH_CIMD: ${OAUTH_CIMD:-}
+      OAUTH_CIMD_ALLOWED_HOSTS: ${OAUTH_CIMD_ALLOWED_HOSTS:-}
       # With NODE_ENV=production an unset/empty value REQUIRES a signup key; only an explicit
       # SIGNUP_REQUIRE_KEY=0 opens public signup.
       SIGNUP_REQUIRE_KEY: ${SIGNUP_REQUIRE_KEY:-}

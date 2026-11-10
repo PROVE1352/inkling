@@ -460,6 +460,29 @@ export function LinkSettings({
           </form>
         )}
       </div>
+      {/* visitors' Markdown download (docs/adr/2362-*): off until a manager turns it on */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3">
+          <span className="w-20 shrink-0 text-xs text-sub">{t('shareLink.download')}</span>
+          {canManage ? (
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={!!status.allowDownload}
+                disabled={update.isPending}
+                onChange={(e) => send({ allowDownload: e.target.checked })}
+                data-testid="share-allow-download"
+              />
+              {t('shareLink.allowDownload')}
+            </label>
+          ) : (
+            <span className="min-w-0 flex-1 text-sm text-ink">
+              {status.allowDownload ? t('shareLink.downloadOn') : t('shareLink.downloadOff')}
+            </span>
+          )}
+        </div>
+        {canManage && <p className="pl-[92px] text-xs text-sub max-sm:pl-0">{t('shareLink.downloadHint')}</p>}
+      </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
       {canManage && <PolicyNote policy={policy} />}
     </div>

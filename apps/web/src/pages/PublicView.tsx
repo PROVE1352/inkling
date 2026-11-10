@@ -13,7 +13,8 @@ import { renderMathIn } from '../lib/katex'
 import { renderMermaidIn } from '../lib/mermaidPublic'
 import { useTheme } from '../lib/theme'
 import { topLevelBlocks } from '../lib/present'
-import { PresentIcon, Presentation } from '../components/Presentation'
+import { Presentation } from '../components/Presentation'
+import { PublicToolbar, usePublicPrint, usePublicWide } from '../components/PublicToolbar'
 import { t } from '../i18n'
 
 // Public (unauthenticated) read-only viewer — /s/:token (+ /s/:token/p/:ref for folder shares). Standalone page without sidebar/app shell.
@@ -45,6 +46,7 @@ export function PublicView() {
       data={page}
       isLoading={isLoading}
       isError={isError || (!!root && !page)}
+      exportHref={token ? `/api/public/${token}/export.md` : undefined}
     />
   )
 }
@@ -156,17 +158,19 @@ function PublicSingleView({
   data,
   isLoading,
   isError,
+  exportHref,
 }: {
   data: PublicPageDTO | undefined
   isLoading: boolean
   isError: boolean
+  exportHref?: string
 }) {
   useDocumentTitle(data ? data.title : null)
 
   return (
     <div className="relative flex min-h-full flex-col bg-app">
-      {/* Top right: theme toggle only */}
-      <div className="pointer-events-none absolute right-3 top-3 z-10">
+      {/* Top right: theme toggle only (the article's toolbar carries it once the page is shown) */}
+      <div className={`pointer-events-none absolute right-3 top-3 z-10 ${data && !isLoading && !isError ? 'hidden' : ''}`}>
         <div className="pointer-events-auto">
           <ThemeToggle />
         </div>
@@ -179,7 +183,7 @@ function PublicSingleView({
       ) : isError || !data ? (
         <PublicNotFound />
       ) : (
-        <PublicArticle data={data} />
+        <PublicArticle data={data} exportHref={exportHref} withTheme />
       )}
     </div>
   )
@@ -216,11 +220,19 @@ function IconGlyph({ icon, kind = 'doc', className }: { icon: string | null; kin
 function PublicArticle({
   data,
   onBodyClick,
+  exportHref,
+  withTheme,
 }: {
   data: PublicPageDTO
   onBodyClick?: (e: ReactMouseEvent<HTMLDivElement>) => void
+  /** the Markdown download of this page (shown when the link allows it, docs/adr/2362-*) */
+  exportHref?: string
+  withTheme?: boolean
 }) {
   const html = useMemo(() => sanitizeHtml(data.html), [data.html])
+  // one object per HTML: React 19 compares this prop by identity and would reset the body (and drop
+  // the drawn diagrams and formulas) on every re-render, such as the wide-view toggle
+  const bodyHtml = useMemo(() => ({ __html: html }), [html])
   const coverUrl = data.coverUrl ? safeUrl(data.coverUrl, 'media') : null
   // Equations arrive as their LaTeX source (data-latex); KaTeX renders them after sanitizing and
   // loads only when the page has math (docs/adr/0997-*).
@@ -243,30 +255,33 @@ function PublicArticle({
     setSlides(topLevelBlocks(tpl.content))
   }
   const iconText = data.icon && !data.icon.startsWith('/') ? data.icon : undefined
+  // wide view and PDF (docs/adr/2360-*, 2361-*)
+  const [wide, setWide] = usePublicWide(!!data.fullWidth)
+  const articleRef = useRef<HTMLElement>(null)
+  const print = usePublicPrint(articleRef, data.title || t('common.untitled'))
   return (
-    <article className="nd-enter flex-1">
+    <article ref={articleRef} className="nd-enter nd-public-article flex-1">
       {coverUrl && (
-        <div className="h-[200px] w-full overflow-hidden sm:h-[240px]">
+        <div className="nd-public-cover h-[200px] w-full overflow-hidden sm:h-[240px]">
           <img src={coverUrl} alt="" className="h-full w-full object-cover" />
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-3xl px-6 pb-24 pt-10">
+      <div className={`nd-public-column mx-auto w-full pb-24 pt-10 ${wide ? 'nd-public-wide max-w-none px-6 sm:px-10' : 'max-w-3xl px-6'}`}>
+        <PublicToolbar
+          wide={wide}
+          onWide={setWide}
+          onPresent={present}
+          onPdf={print}
+          markdownHref={data.download ? exportHref : undefined}
+          withTheme={withTheme}
+        />
         {data.icon && (
           <div className="mb-1 text-5xl leading-none">
             <IconGlyph icon={data.icon} />
           </div>
         )}
         <h1 className="mb-6 text-4xl font-bold text-ink">{data.title || t('common.untitled')}</h1>
-        <button
-          type="button"
-          onClick={present}
-          data-testid="public-present"
-          className="-mt-3 mb-5 flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink"
-        >
-          <PresentIcon size={14} />
-          {t('present.menu')}
-        </button>
         {slides && (
           <Presentation key="pres:public" title={data.title} icon={iconText} blocks={slides} renderMath onClose={() => setSlides(null)} />
         )}
@@ -276,7 +291,7 @@ function PublicArticle({
           ref={body}
           className="bn-container nd-public-body"
           onClick={onBodyClick}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={bodyHtml}
         />
       </div>
     </article>
@@ -413,7 +428,7 @@ function PublicFolderView({
   } else if (child.isError || !child.data) {
     pane = <PublicNotFound />
   } else {
-    pane = <PublicArticle key={currentRef} data={child.data} onBodyClick={onBodyClick} />
+    pane = <PublicArticle key={currentRef} data={child.data} onBodyClick={onBodyClick} exportHref={`/api/public/${token}/p/${currentRef}/export.md`} />
   }
 
   return (

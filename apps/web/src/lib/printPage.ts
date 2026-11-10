@@ -6,9 +6,13 @@ import { mermaidIdle } from './mermaid'
 /** Longest wait for diagrams still rendering before the print dialog opens (docs/adr/2106-*). */
 const DIAGRAM_WAIT_MS = 4_000
 
-/** Print `el` alone: hide everything off its ancestor chain, then window.print(). */
-export function printElement(el: HTMLElement | null, title?: string): void {
-  if (!el) return
+/**
+ * Mark `el` as the element to print: it and its ancestors stay, everything else is hidden by
+ * print.css, which applies under html.nd-printing only. Returns the function that undoes it.
+ * The public page keeps its article marked while it is shown, so the browser's own Print command
+ * (and a PDF printed without the button) gets the same result (docs/adr/2361-*).
+ */
+export function markPrintRoot(el: HTMLElement): () => void {
   const html = document.documentElement
   const marked: HTMLElement[] = []
   el.setAttribute('data-print-root', '')
@@ -16,20 +20,28 @@ export function printElement(el: HTMLElement | null, title?: string): void {
     cur.setAttribute('data-print-ancestor', '')
     marked.push(cur)
   }
-  const prevTitle = document.title
-  // the PDF file name defaults to the document title
-  if (title) document.title = title
   html.classList.add('nd-printing')
-
-  let done = false
-  const cleanup = () => {
-    if (done) return
-    done = true
+  return () => {
     html.classList.remove('nd-printing')
     el.removeAttribute('data-print-root')
     for (const m of marked) m.removeAttribute('data-print-ancestor')
+  }
+}
+
+/**
+ * Open the print dialog once diagrams have drawn, with `title` as the document title (the PDF file
+ * name defaults to it); `done` runs when printing is over.
+ */
+export function printWhenReady(title?: string, done?: () => void): void {
+  const prevTitle = document.title
+  if (title) document.title = title
+  let finished = false
+  const cleanup = () => {
+    if (finished) return
+    finished = true
     document.title = prevTitle
     window.removeEventListener('afterprint', cleanup)
+    done?.()
   }
   window.addEventListener('afterprint', cleanup)
   // Mermaid diagrams render asynchronously: wait (bounded) for any still in the queue, then let React
@@ -49,4 +61,10 @@ export function printElement(el: HTMLElement | null, title?: string): void {
       window.addEventListener('keydown', onBack, { once: true })
     }, 500)
   }))
+}
+
+/** Print `el` alone: hide everything off its ancestor chain, then window.print(). */
+export function printElement(el: HTMLElement | null, title?: string): void {
+  if (!el) return
+  printWhenReady(title, markPrintRoot(el))
 }

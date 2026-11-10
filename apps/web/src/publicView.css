@@ -1,0 +1,36 @@
+/*
+ * Public page view options (docs/adr/2360-*). Loaded with the public page only (components/PublicToolbar.tsx).
+ *
+ * Wide view: the column drops its max width (PublicView), so tables, code, images, diagrams and the
+ * tables that stand for charts, database views and query results use the whole window. Running text
+ * keeps a readable line: text blocks stop at 60rem (about 110 Latin or 60 Korean characters; the
+ * narrow column is 45rem of text), left-aligned with the title.
+ */
+.nd-public-wide .nd-public-body
+  :is(
+    [data-content-type='paragraph'],
+    [data-content-type='heading'],
+    [data-content-type='bulletListItem'],
+    [data-content-type='numberedListItem'],
+    [data-content-type='checkListItem'],
+    [data-content-type='toggleListItem'],
+    [data-content-type='quote'],
+    [data-content-type='callout']
+  ) {
+  max-width: 60rem;
+}
+
+/* A table wider than the column scrolls inside its own box instead of widening the page (the
+   server HTML wraps it in .tableWrapper, which BlockNote's CSS leaves unbounded); phones included. */
+.nd-public-body .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Code: BlockNote's global CSS gives the code block a dark box with white text, while the public
+   body draws a light <pre> (index.css): the code was white on a light grey. Text and box follow the
+   page palette here (and paper, print.css). */
+.nd-public-body .bn-block-content[data-content-type='codeBlock'] {
+  color: var(--color-ink);
+  background: transparent;
+}

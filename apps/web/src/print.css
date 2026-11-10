@@ -98,6 +98,18 @@
     break-after: avoid;
     page-break-after: avoid;
   }
+  /* break-after alone does not keep a heading off the bottom of a page in Chrome (the editor's and
+     the public page's headings sit inside nested block wrappers): a heading needs room for a few
+     lines under it, or it moves to the next page (docs/adr/2361-*) */
+  html.nd-printing [data-content-type='heading'] > :is(h1, h2, h3, h4, h5, h6) {
+    break-inside: avoid;
+  }
+  html.nd-printing [data-content-type='heading'] > :is(h1, h2, h3, h4, h5, h6)::after {
+    content: '';
+    display: block;
+    height: 4.5em;
+    margin-bottom: -4.5em;
+  }
   html.nd-printing img,
   html.nd-printing figure,
   html.nd-printing video,
@@ -162,6 +174,89 @@
   html.nd-printing a {
     color: inherit !important;
     text-decoration: underline;
+  }
+}
+
+/*
+ * Public page (docs/adr/2361-*). PublicView keeps its article marked with [data-print-root] while it
+ * is shown, so the browser's own Print command and "Save as PDF" both print it alone with the rules
+ * above (light palette, no toolbar, folder list or presentation). The page's own prose styles
+ * (index.css .nd-public-body) are made fit for paper here.
+ */
+@media print {
+  /* the column takes the paper's width whatever the screen width setting */
+  html.nd-printing .nd-public-column {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  html.nd-printing .nd-public-cover {
+    height: 45mm !important;
+    margin-bottom: 6mm;
+  }
+  /* dark mode keeps a light text colour on .nd-public-body; paper is always the light palette */
+  html.nd-printing .nd-public-body {
+    color: var(--color-ink) !important;
+    font-size: 11pt;
+    word-break: normal;
+  }
+  html.nd-printing .nd-public-article h1 {
+    color: var(--color-ink) !important;
+  }
+  html.nd-printing .nd-public-body h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  /* a heading's block stays with the block after it */
+  html.nd-printing .nd-public-body .bn-block-outer:has(> .bn-block > [data-content-type='heading']) {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  /* tables: a real table again (the screen makes it a scroll box), cells wrap inside the paper;
+     wide ones (7+ columns) use a smaller type */
+  html.nd-printing .nd-public-body table {
+    display: table !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    table-layout: auto;
+  }
+  html.nd-printing .nd-public-body .tableWrapper {
+    overflow: visible !important;
+  }
+  html.nd-printing .nd-public-body :is(th, td) {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  html.nd-printing .nd-public-body table:has(tr > :nth-child(7)) {
+    font-size: 8.5pt;
+  }
+  html.nd-printing .nd-public-body pre {
+    background: #f7f7f5 !important;
+  }
+  /* toggles print open; their arrow is screen-only */
+  html.nd-printing .nd-public-body .bn-toggle-button {
+    display: none !important;
+  }
+  html.nd-printing .nd-public-body [data-content-type='toggleListItem'] ~ .bn-block-group {
+    display: block !important;
+  }
+  html.nd-printing .nd-public-body details::details-content {
+    content-visibility: visible;
+    display: block;
+  }
+  /* buttons do nothing on a public page and nothing on paper (docs/adr/2244-*) */
+  html.nd-printing .nd-public-body .bn-block-outer:has(> .bn-block > [data-content-type='button']),
+  html.nd-printing .nd-button {
+    display: none !important;
+  }
+  /* diagrams drawn in the dark theme are inverted for paper, as in the app's PDF export */
+  html.nd-printing.dark .nd-mermaid-public img {
+    filter: invert(1) hue-rotate(180deg);
+  }
+  html.nd-printing .nd-mermaid-public {
+    overflow: visible !important;
+    break-inside: avoid;
   }
 }
 

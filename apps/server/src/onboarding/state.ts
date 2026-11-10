@@ -59,6 +59,8 @@ export interface OnboardingState {
   samples?: Record<string, SampleRecord>
   /** The first admin's automatic sample: being made, made, failed, or not this account. Set once. */
   autoSample?: 'pending' | 'created' | 'failed' | 'none'
+  /** When autoSample became 'pending' (a crash in between must not leave it "being made" for good). */
+  autoSampleAt?: string
   /** Sample pages being made, by workspace id (start time): a second click waits for the first. */
   creating?: Record<string, string>
 }
@@ -113,6 +115,7 @@ export function parseState(raw: unknown): OnboardingState {
     out.samples = samples
   }
   if (r.autoSample === 'pending' || r.autoSample === 'created' || r.autoSample === 'failed' || r.autoSample === 'none') out.autoSample = r.autoSample
+  if (typeof r.autoSampleAt === 'string') out.autoSampleAt = r.autoSampleAt
   if (r.creating && typeof r.creating === 'object') {
     const creating: Record<string, string> = {}
     for (const [ws, v] of Object.entries(r.creating as Record<string, unknown>)) if (UUID_RE.test(ws) && typeof v === 'string') creating[ws] = v
@@ -247,6 +250,39 @@ function itemsFor(audience: OnboardingAudience): OnboardingItemId[] {
 
 const allSampleIds = (s: OnboardingState): string[] => Object.values(s.samples ?? {}).flatMap((x) => x.ids)
 
+/** How long a "sample being made" mark counts; an older one is left over from a crash. */
+const SAMPLE_MARK_MS = 60_000
+const freshMark = (at: string | undefined, now: number): boolean => !!at && now - Date.parse(at) < SAMPLE_MARK_MS
+
+/**
+ * A sample page is being made for this person (by the button, or the first admin's automatic one).
+ * Its pages exist before the state lists their ids, so facts read now would count the sample's own
+ * page, database and link as the person's.
+ */
+export function sampleInProgress(s: OnboardingState, now = Date.now()): boolean {
+  if (s.autoSample === 'pending' && freshMark(s.autoSampleAt, now)) return true
+  return Object.values(s.creating ?? {}).some((at) => freshMark(at, now))
+}
+
+/**
+ * Applies facts read with `sampleIdsUsed` left out to the state as it is now (under the row lock).
+ * null = nothing to store: a sample started or finished since the facts were read (its pages may be
+ * in them), or nothing new; the next read looks again.
+ */
+export function applySeenFacts(s: OnboardingState, seen: Set<OnboardingItemId>, sampleIdsUsed: string[], at: string, now = Date.now()): OnboardingState | null {
+  if (seen.size === 0 || sampleInProgress(s, now)) return null
+  const used = new Set(sampleIdsUsed)
+  if (allSampleIds(s).some((id) => !used.has(id))) return null
+  const done = { ...(s.done ?? {}) }
+  let changed = false
+  for (const id of seen) {
+    if (done[id]) continue
+    done[id] = at
+    changed = true
+  }
+  return changed ? { ...s, done } : null
+}
+
 // ---------------------------------------------------------------------------
 // sample pages
 // ---------------------------------------------------------------------------
@@ -271,8 +307,7 @@ export async function createSample(args: {
   const startedAt = new Date().toISOString()
   let busy = false
   await updateState(args.userId, (s) => {
-    const prev = s.creating?.[args.workspaceId]
-    if (prev && Date.now() - Date.parse(prev) < 60_000) {
+    if (freshMark(s.creating?.[args.workspaceId], Date.now())) {
       busy = true
       return null
     }
@@ -326,7 +361,7 @@ async function makeSample(args: {
 async function maybeAutoSample(user: { id: string; name: string; isAdmin: boolean }, locale: () => Promise<Locale>): Promise<void> {
   // Claim the one attempt atomically: of two first reads at once only one goes on.
   const claimed = (await db.execute(sql`
-    UPDATE user_onboarding SET state = state || '{"autoSample": "pending"}'::jsonb, updated_at = now()
+    UPDATE user_onboarding SET state = state || ${JSON.stringify({ autoSample: 'pending', autoSampleAt: new Date().toISOString() })}::jsonb, updated_at = now()
      WHERE user_id = ${user.id} AND state->'autoSample' IS NULL
     RETURNING user_id
   `)) as unknown as unknown[]
@@ -397,16 +432,14 @@ async function toDTO(user: { id: string; isAdmin: boolean }, state0: OnboardingS
   const items = itemsFor(audience)
   const dismissed = state.dismissed ?? !!(state.legacy || state.off)
   const pending = items.filter((id) => !state.done?.[id])
-  // Facts are only worth the queries while the card can show.
-  if (!dismissed && pending.length > 0) {
-    const seen = await serverFacts(user.id, allSampleIds(state), pending)
+  // Facts are only worth the queries while the card can show, and are not read while a sample page
+  // is being made (its pages are not yet listed as the sample's).
+  if (!dismissed && pending.length > 0 && !sampleInProgress(state)) {
+    const idsUsed = allSampleIds(state)
+    const seen = await serverFacts(user.id, idsUsed, pending)
     if (seen.size > 0) {
       const at = new Date().toISOString()
-      state = await updateState(user.id, (s) => {
-        const done = { ...(s.done ?? {}) }
-        for (const id of seen) done[id] ??= at
-        return { ...s, done }
-      })
+      state = await updateState(user.id, (s) => applySeenFacts(s, seen, idsUsed, at))
     }
   }
   const dtoItems = items.map((id) => ({ id, done: !!state.done?.[id] }))

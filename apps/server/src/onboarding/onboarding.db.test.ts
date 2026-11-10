@@ -141,6 +141,52 @@ describe('[db] onboarding', { skip: !HAS_DB }, async () => {
     assert.ok(done(await get(u2)).includes('share'))
   })
 
+  it('a sample page being made does not tick page, database or link for reads in between', async () => {
+    const { applySeenFacts, sampleInProgress } = await import('./state')
+    const u = await h.makeUser('racer')
+    const ws = await h.makeWorkspace(u)
+    await get(u)
+    const setState = (patchState: Record<string, unknown>) =>
+      db.update(schema.userOnboarding).set({ state: sql`state || ${JSON.stringify(patchState)}::jsonb` }).where(eq(schema.userOnboarding.userId, u.id))
+    const now = new Date().toISOString()
+    const old = new Date(Date.now() - 120_000).toISOString()
+
+    // While a mark says a sample is being made, pages of the person's (here: made by hand, standing in
+    // for the sample's pages that the state does not list yet) are not read as facts.
+    await setState({ creating: { [ws.id]: now } })
+    assert.equal((await call(u, 'POST', '/api/pages', { workspaceId: ws.id, title: 'Made meanwhile' })).statusCode, 200)
+    assert.equal((await call(u, 'POST', '/api/pages', { workspaceId: ws.id, title: 'DB meanwhile', kind: 'collection' })).statusCode, 200)
+    assert.deepEqual(done(await get(u)), [], 'button sample in progress: no facts')
+    await setState({ creating: {}, autoSample: 'pending', autoSampleAt: now })
+    assert.deepEqual(done(await get(u)), [], 'automatic sample in progress: no facts')
+    // A mark older than a minute is left over from a crash: facts are read again.
+    await setState({ creating: { [ws.id]: old }, autoSample: 'pending', autoSampleAt: old })
+    assert.deepEqual(done(await get(u)), ['database', 'page'])
+
+    // The check under the row lock: facts read before a sample started or finished are dropped.
+    const seen = new Set(['page'] as const)
+    assert.equal(applySeenFacts({}, seen, [], now)?.done?.page, now)
+    assert.equal(applySeenFacts({ creating: { [ws.id]: now } }, seen, [], now), null, 'a sample started meanwhile')
+    const finished = { samples: { [ws.id]: { root: u.id, ids: [u.id], at: now } } }
+    assert.equal(applySeenFacts(finished, seen, [], now), null, 'a sample finished meanwhile: its pages may be in the facts')
+    assert.equal(applySeenFacts(finished, seen, [u.id], now)?.done?.page, now, 'the same sample ids as the read: kept')
+    assert.equal(applySeenFacts({ done: { page: old } }, seen, [], now), null, 'nothing new: nothing stored')
+    assert.equal(sampleInProgress({ autoSample: 'pending' }), false, 'pending without a time (a hand-edited row) does not block facts for good')
+  })
+
+  it('reads racing the sample button never tick the sample’s own pages', async () => {
+    const u = await h.makeUser('racer2')
+    const ws = await h.makeWorkspace(u)
+    await get(u)
+    const reads = Array.from({ length: 12 }, (_, i) => new Promise((r) => setTimeout(r, i * 15)).then(() => get(u)))
+    const made = call(u, 'POST', '/api/me/onboarding/sample', { workspaceId: ws.id })
+    const [res, ...dtos] = await Promise.all([made, ...reads])
+    assert.equal(res.statusCode, 200, res.body)
+    for (const d of dtos) assert.deepEqual(done(d), [], 'a read during the sample ticked nothing')
+    assert.deepEqual(done(await get(u)), [])
+    assert.ok((await get(u)).samples[ws.id])
+  })
+
   it('a member of someone else’s workspace gets the member list; no sample by itself, one by button in private pages', async () => {
     const owner = await h.makeUser('teamowner')
     const m = await h.makeUser('member')

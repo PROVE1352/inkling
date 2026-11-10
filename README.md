@@ -5,8 +5,9 @@
 <h1 align="center">Inkling</h1>
 
 <p align="center">
-  Notion-style databases and Obsidian-style links, graph and JSON Canvas in one self-hosted app, with
-  real-time collaboration and a built-in MCP server for AI agents. MIT, everything free.
+  A self-hosted notes app that people and their AI agents read and write together: Notion-style
+  databases, Obsidian-style links, graph and canvas, real-time editing and a built-in MCP server.
+  MIT, every feature free.
 </p>
 
 <p align="center">
@@ -18,7 +19,15 @@
   English · <a href="README.ko.md">한국어</a>
 </p>
 
-Using an Inkling server someone else runs? Start with the [user guide](docs/GUIDE.md) ([한국어](docs/GUIDE.ko.md)).
+Inkling is for small teams, around three to five people who each work with their own AI agent, and for
+one person who wants their notes on their own server. What sets it apart from other note apps:
+
+1. **Agents read little and write carefully:** they read single sections within a token budget and edit one section against the version they read; their edits can be held as suggestions for people to accept, even in part, or reverted afterwards.
+2. **Work can go to an agent:** a comment or a person cell can hand a task to one member's agent, which finds it in its inbox, and a Team agents board shows what every agent is on.
+3. **Notion-style databases and Obsidian-style notes in one app:** table, board, calendar, timeline, chart and form views with formulas, next to `[[wikilinks]]`, backlinks, a graph and JSON Canvas.
+
+Using a server someone else runs? Start with the [user guide](docs/GUIDE.md) ([한국어](docs/GUIDE.ko.md)).
+A 40-second tour: [site/assets/promo.mp4](site/assets/promo.mp4).
 
 ![A document with the backlinks, outgoing links and tags panel](docs/images/1-doc-backlinks.png)
 
@@ -28,99 +37,38 @@ Using an Inkling server someone else runs? Start with the [user guide](docs/GUID
 | ![Workspace link graph](docs/images/3-graph.png) | ![JSON Canvas whiteboard](docs/images/4-canvas.png) |
 | ![Dataview-style query blocks: a table and open tasks](docs/images/5-query-block-tall.png) | ![Calendar of due dates](docs/images/6-calendar.png) |
 
-## Features
-
-**Write**
-- Block editor (BlockNote): slash menu, tables, code blocks with highlighting, checklists, callouts, images and file drops
-- Math with KaTeX, as display blocks or inline. Type `$x^2$` or press ⌘/Ctrl+Shift+E, then click an equation to edit its LaTeX with a live preview
-- `[[wikilinks]]` with autocomplete, `#tags`, `@mentions` and daily notes
-- Templates for a page or a whole structure (sub-pages, databases with views, canvases): variables, prompts and Obsidian Templater basics, a searchable gallery, .md/.zip import and export ([docs/TEMPLATES.md](docs/TEMPLATES.md))
-- Version history with named snapshots that you can compare with the current page, comments, trash with restore, PDF export (print CSS)
-- English and Korean UI; installable PWA; light and dark themes
-
-**Organize & databases**
-- Nested pages and folders, shared and private (🔒) pages per workspace, drag-and-drop ordering
-- Databases with table, board, calendar, gallery and timeline views; text, number, select, multi-select, date, checkbox, person, URL, relation and rollup properties; sort, filter and group
-- Due dates and tasks across the workspace (Due view, global calendar), ⌘K search over titles and bodies
-- Each person picks which sidebar menus (Search, Graph, Tags, Web shares, Due, Calendar, Activity, Today) to show and in what order. The choice is saved to the account, so every device matches
-
-**Connect**
-- Backlinks, unlinked mentions and outgoing links in the right panel
-- Workspace graph and local graph
-- Infinite canvas compatible with Obsidian's [JSON Canvas](https://jsoncanvas.org) (`.canvas`)
-- Query blocks: a Dataview subset (`TABLE` / `LIST` / `TASK`, `FROM`, `WHERE`, `SORT`, `LIMIT`) that stays live as pages change ([docs/QUERY.md](docs/QUERY.md))
-
-**Collaborate**
-- Real-time co-editing with Yjs: live cursors, presence; edits made while the connection drops merge on reconnect as long as the tab stays open (nothing is kept in the browser, so the tab warns before it closes with unsaved edits)
-- Workspaces with invite links and owner, admin and member roles. Read-only public share links for a page or a folder subtree, which an owner can switch off for the whole workspace
-- Edit lock for a page and everything under it: only its owner and chosen editors can edit, and agents can separately be limited to commenting or reading. It is checked on every write path, live editing included
-- Notifications for @mentions in pages and comments, replies, owner and person-cell assignments, and edits of pages you follow. Each page or subtree can be set to all activity, mentions (the default), nothing or mute. With SMTP, mentions and replies are mailed right away and the rest arrives in a daily or weekly digest
-- An Activity screen with people's and AI changes, newest first, filters and a diff per change
-- Workspace settings (general, members, public links, connected agents, audit log, review, Slack & Discord, danger zone) and an append-only audit log of admin actions
-- Page owners and review dates, with a list of the documents most likely to be out of date
-- Workspace ownership transfer, and workspace deletion that owners can undo for 30 days
-
-**AI & integrations**
-- Built-in MCP server with OAuth 2.1 + PKCE: connect Claude Code, claude.ai or any MCP client per user, seeing only what that user can see ([docs/MCP.md](docs/MCP.md)). Each connection is read only or read and write, and there is no permanent-delete tool. Using it next to other MCP servers (a game engine, a design tool, a code host): [docs/RECIPES.md](docs/RECIPES.md)
-- Section-level tools so agents spend fewer tokens: `find_context` returns the most relevant sections within a token budget (about 72% fewer tokens per question on a 5,000-page benchmark), `read_page` can read an outline or one section, `patch_section` edits one section with a version check and keeps what a person is typing there, and `changes_since` is a cursor-based change feed. Also `query_rows` / `create_row` / `update_row` for databases, comment tools and an agent inbox
-- Edits, comments and pages made through an agent are labelled "<you> (via <app>)" in history, comments, the change feed and the Activity screen
-- Agent instruction pages: workspace rules written in locked pages, which agents read with `get_instructions`
-- Page text reaches agents marked as untrusted data, and injection-like text is flagged. This is a mitigation; the actual limits are edit locks, connection scopes and per-workspace agent blocks
-- Link previews and embeds (YouTube, Vimeo, Loom, Figma, Spotify, CodePen, Google Docs) through an SSRF-filtered fetcher
-- Slack and Discord webhooks for mentions, comments, due dates and new pages
-- iCal feed of due dates, CSV/XLSX import and export for databases, read-only Google Sheets sync (experimental)
-- Markdown and zip import/export (front matter, attachments, `[[links]]` resolved), upload to Notion
-- Notion export import (Markdown & CSV zip): page tree, links, images and files, CSV databases as collections with typed fields; equations arrive as math and callouts as quotes, and size caps apply (25 MB upload / 50 MB unpacked by default)
-
-**Self-hosting & operations**
-- One `docker compose` stack: Postgres, the app, and a backup sidecar; optional Caddy overlay for automatic HTTPS
-- Scheduled, verified, optionally encrypted backups with GFS retention, weekly restore tests and rclone off-site copies ([docs/BACKUP.md](docs/BACKUP.md))
-- Admin page: users, signup keys, password reset queue, IP bans from brute-force protection, backups
-- Open tabs show a notice when a new version is deployed; an optional check for newer GitHub releases
-- Optional SMTP for invitations, password resets and email verification; delegated login against an external auth server
-
-**Experimental** (off unless listed in `EXPERIMENTAL_FEATURES`)
-- Two-way Obsidian vault sync with the `inklingctl` CLI ([docs/VAULT-SYNC.md](docs/VAULT-SYNC.md))
-- Plugin API v0: sandboxed iframe plugins, approved by an admin ([docs/PLUGINS.md](docs/PLUGINS.md))
-- Google Sheets sync: a database that mirrors a sheet, read-only
-
 ## Quick start
 
-You need Docker with the Compose plugin and, for HTTPS, a domain whose DNS points at the server
-(ports 80 and 443 open).
+You need Docker with the Compose plugin. To try it on your own computer:
 
 ```bash
 git clone https://github.com/PROVE1352/inkling.git
 cd inkling
-cp .env.example .env
-# edit .env: PUBLIC_URL=https://notes.example.com, DOMAIN=notes.example.com,
-#            POSTGRES_PASSWORD=<long random string>, BACKUP_PASSPHRASE=<keep a copy off the server>
-
-docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
+cp .env.example .env              # set POSTGRES_PASSWORD, e.g. from: openssl rand -base64 24
+docker compose up -d
+./deploy/signup-key.sh new "first admin"
 ```
 
-This pulls the prebuilt image `ghcr.io/prove1352/inkling` (amd64 and arm64), so even a 1 GB server
-does not have to build anything. Set `INKLING_VERSION=0.3.1` in `.env` to pin a release (empty =
-`latest`). To build from the checked-out source instead, add `-f compose.build.yaml` and `--build`
-(see [deploy/DEPLOY.md](deploy/DEPLOY.md)).
+Open http://localhost:3000/register and paste the key (the stack runs in production mode, so signup needs a
+key even locally). The first account becomes the site admin; further keys are issued on the **Admin** page.
 
-Caddy obtains and renews the certificate. Then create a signup key for the first account. The
-first account to register becomes the site admin:
+On a server, point a domain at it (ports 80 and 443 open) and add the Caddy overlay, which obtains and renews
+the certificate and keeps the app and database ports private:
 
 ```bash
-./deploy/signup-key.sh new "first admin"
-#   Signup key : ABCD-EFGH-JKMN-PQRS
-#   Signup link: https://notes.example.com/register
+# in .env: PUBLIC_URL=https://notes.example.com   DOMAIN=notes.example.com
+#          POSTGRES_PASSWORD=<long random string>  BACKUP_PASSPHRASE=<keep a copy off the server>
+#          APP_SECRET_KEY=<openssl rand -base64 32>
+docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
+./deploy/signup-key.sh new "first admin"   # prints https://notes.example.com/register
 ```
 
-Open the signup link, paste the key, and you are in. Further keys can be issued from the **Admin** page.
+The app is the prebuilt image `ghcr.io/prove1352/inkling` (amd64 and arm64); a 1 GB server builds nothing. `INKLING_VERSION` in `.env` pins a release (`X.Y.Z` or `X.Y`; empty = `latest`). To build
+from the checked-out source, add `-f compose.build.yaml` and `--build`
+([deploy/DEPLOY.md](deploy/DEPLOY.md#image-or-source-build)).
 
-To try it locally without a domain, copy `.env.example` to `.env`, set `POSTGRES_PASSWORD`, run `docker compose up -d` and open http://localhost:3000
-(production mode still asks for a signup key, so run the same `signup-key.sh` command).
-
-To upgrade: take a backup, pull the new image, restart the app (migrations run on boot). Details,
-including how to move from source builds to the published image, are in
-[docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades):
+To upgrade, take a backup, pull the new image and restart; migrations run on boot, and downgrades are not
+supported ([docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades)):
 
 ```bash
 ./deploy/backup.sh
@@ -129,8 +77,8 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 ```
 
-The compose project, volumes and database role are named `nodian` for historical reasons; keep
-them as they are, or existing data volumes will not be found after an upgrade.
+The compose project, volumes and database role are named `nodian` for historical reasons; keep them, or
+existing data volumes will not be found after an upgrade.
 
 ### Configuration
 
@@ -139,39 +87,16 @@ The essentials, all in `.env`:
 | Variable | Default | What it does |
 |---|---|---|
 | `PUBLIC_URL` | empty | Public origin, e.g. `https://notes.example.com`. Used for mail links, the OAuth issuer and share previews; the `Host` header is never trusted. An `https://` value also turns on Secure cookies. |
-| `POSTGRES_PASSWORD` | none, required | Database password, e.g. `openssl rand -base64 24`. Set it **before the first start**; Postgres only reads it when it creates the data volume. Compose refuses to start without it. |
+| `POSTGRES_PASSWORD` | none, required | Database password. Set it **before the first start**; Postgres only reads it when it creates the data volume. Compose refuses to start without it. |
+| `APP_SECRET_KEY` | empty | At least 32 characters. Encrypts two-step verification and Slack secrets; without it nobody can turn on two-step verification. Keep it out of backups. |
 | `SIGNUP_REQUIRE_KEY` | required in production | Leave empty: signup then needs a key. `0` opens public signup. |
 | `DEFAULT_LOCALE` | `en` | `en` or `ko`: language of emails and built-in templates for users who have not chosen one, and the UI default before the browser language. |
 | `TZ` | `UTC` | Time zone that decides "today" for due dates, daily notes, reminders and backup schedules. |
-| `COOKIE_SECURE` | automatic | Secure cookies turn on by themselves when `PUBLIC_URL` is `https://` (the Caddy overlay also sets it). Set `1` only for a different HTTPS setup without `PUBLIC_URL`. |
 
-Everything else (backups, brute-force limits, delegated login, embeds, experimental features,
-memory limits, Postgres tuning) is documented in [.env.example](.env.example) and
-[docs/OPERATIONS.md](docs/OPERATIONS.md). Deployment details, including running behind your own
-reverse proxy: [deploy/DEPLOY.md](deploy/DEPLOY.md).
-
-<details>
-<summary>Outgoing mail with Gmail (optional)</summary>
-
-Mail is off until both `SMTP_HOST` and `MAIL_FROM` are set. With a Google account that has 2-step
-verification, create an app password (Google Account › Security › App passwords) and put it in `.env`:
-
-```dotenv
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=0
-SMTP_USER=<your Gmail address>
-SMTP_PASS=<16-character app password>
-MAIL_FROM="Inkling <your Gmail address>"
-# optional: block login until the address is verified (only for accounts created afterwards)
-REQUIRE_EMAIL_VERIFICATION=0
-```
-
-Then `docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app`. Gmail rewrites the
-sender to the authenticated account, and has daily sending limits; for a larger team use a
-transactional mail provider instead.
-
-</details>
+Everything else is in [.env.example](.env.example) and [deploy/DEPLOY.md](deploy/DEPLOY.md): mail
+([3-E](deploy/DEPLOY.md#3-e-mail-optional)), OpenID Connect sign-in ([3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional)),
+semantic search ([3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)) and running behind your own reverse proxy.
+Memory limits and Postgres tuning: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ### Development
 
@@ -183,7 +108,86 @@ pnpm db:up      # Postgres on localhost:55432
 pnpm dev        # API + collab on :3001, web on :5173
 ```
 
-Tests, CI and conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding agents: [AGENTS.md](AGENTS.md).
+
+## Features
+
+**Writing**
+- Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, images, file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`
+- `[[wikilinks]]`, `#tags`, `@mentions`, daily notes, and templates for a page or a whole structure ([docs/TEMPLATES.md](docs/TEMPLATES.md)); pen and highlighter on documents
+- Nested pages and folders with drag-and-drop, ⌘K search over titles and bodies, version history with named versions, trash, PDF export
+- Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides
+- Command palette, shortcuts you can change, Later reminders and followed comment threads
+- English and Korean UI, installable PWA, light and dark themes
+
+**Databases**
+- Table, board, calendar, gallery, timeline, chart and form views, each with its own sort, filter and grouping
+- Text, number, select, multi-select, date, checkbox, person, URL, relation, rollup and formula properties; row templates; CSV/XLSX import and export
+- Charts in any page (`/chart`) from a database or a query; forms that members fill in, or anyone through a public link an owner or admin turns on
+
+**Links and canvas**
+- Backlinks, unlinked mentions and outgoing links; workspace and local graph
+- Infinite canvas compatible with Obsidian's [JSON Canvas](https://jsoncanvas.org) (`.canvas`)
+- Query blocks: a Dataview subset (`TABLE` / `LIST` / `TASK`) that stays live ([docs/QUERY.md](docs/QUERY.md))
+
+**Working together**
+- Real-time co-editing with Yjs: live cursors, presence; edits made while the connection drops merge on reconnect as long as the tab stays open (nothing is kept in the browser, so the tab warns before it closes with unsaved edits)
+- Invite links, owner, admin and member roles, private pages, per-page levels (view, comment, edit, full) and guests who see only the pages shared with them
+- Edit lock for a page tree; agents can be held separately to suggestions, comments or reading
+- Comments on pages and sections, notifications with mail digests, an Activity screen with a diff per change, page owners and review dates, and "Verify page", which marks a page correct until a date
+- Public links for a page or a folder, with expiry, password and a scheduled start
+- Member status (emoji, message, clear time) in the members panel, mentions and presence
+- Slack app per workspace (channel posts, `/inkling` search, link previews), and webhooks to Slack, Discord or any https endpoint ([docs/WEBHOOKS.md](docs/WEBHOOKS.md))
+
+**Self-hosting**
+- One `docker compose` stack: Postgres, the app and a backup sidecar; optional Caddy overlay for HTTPS
+- Scheduled, verified, optionally encrypted backups with GFS retention, weekly restore tests and rclone off-site copies ([docs/BACKUP.md](docs/BACKUP.md))
+- Signup keys, two-step verification, OpenID Connect sign-in and delegated login; an Admin page for users, keys, banned IPs, backups and server status
+- Import from Notion export zips and Markdown/zip; export to Markdown/zip and PDF; an iCal feed of due dates
+
+**Experimental** (off unless listed in `EXPERIMENTAL_FEATURES`): two-way Obsidian vault sync with the
+`inklingctl` CLI ([docs/VAULT-SYNC.md](docs/VAULT-SYNC.md)), sandboxed plugins ([docs/PLUGINS.md](docs/PLUGINS.md)),
+read-only Google Sheets sync.
+
+## AI agents (MCP)
+
+The MCP server is part of the app, at `https://<your domain>/mcp`. Each person connects their own client
+with OAuth 2.1 and sees only what they can see in the web app. A connection is read-only or read-write and can
+be limited to some workspaces or one page tree. There is no permanent-delete tool.
+
+```bash
+claude mcp add --transport http inkling https://notes.example.com/mcp
+# then in Claude Code: /mcp → inkling → Authenticate
+```
+
+In claude.ai: Settings → Connectors → Add custom connector, same URL. The 45 tools and a guide for agents
+are in [docs/MCP.md](docs/MCP.md). The usual flow:
+
+1. `find_context(query)` returns the sections that answer, ranked and packed into a token budget, each with its page id (8 characters, which every tool accepts), `§anchor` and version. `queries=[…]` searches several phrasings at once, such as a question and its translation.
+2. If that is not enough, `read_page(pageId, outline=true)` and then `read_page(pageId, section=…)`. `known=<version>` turns an unchanged re-read into one line.
+3. `patch_section(pageId, section, markdown, mode, baseVersion)` changes one section. A stale version returns the current text to merge instead of overwriting it (`replace` and `delete` require `baseVersion`), and a person typing in that section keeps their text.
+
+Around that flow, `claim_section` holds a section for up to 30 minutes, during which other agents' direct
+edits to it are refused (people are never blocked). `suggest=true`, or a workspace or lock setting, turns
+agent edits into suggestions. `inbox`, `catch_up` and the `changes_since` cursor tell an agent what happened,
+and `get_instructions` returns the workspace's rules from locked pages. Accepting suggestions and reverting
+agent edits are for people only. Agent changes are labelled "<person> (via <client>)". Page text reaches
+agents marked as untrusted data; that is a mitigation, and the actual limits are edit locks, connection
+scopes and per-workspace agent blocks.
+
+Measured, with methods, in [docs/PERFORMANCE.md](docs/PERFORMANCE.md):
+
+- Fixed cost per session (tool list and server instructions): about 12,390 tokens in 0.15.1, down from about 16,938 (−26.9%)
+- `find_context` on a 5,000-page benchmark, measured when it replaced search plus whole-page reads: 2,254 → 624 mean tokens per question, 3.68 → 1.00 tool calls
+- `read_page(outline=true)` 34% smaller in 0.15.1; re-reading an unchanged outline with `known` costs 93.5% less
+- Changing one sentence with `patch_section`: about 222 tokens instead of about 2,415 for read and replace
+- A person typing in the section an agent patches keeps their text in 6 of 6 test scenarios (was 1 of 6)
+
+Semantic search is optional and off by default. When the operator turns it on, `find_context` also ranks by
+meaning, and section text is sent to the embedding endpoint they configure, which can be a local Ollama
+([deploy/DEPLOY.md](deploy/DEPLOY.md#3-h-semantic-search-optional)).
+
+Next to other MCP servers (game engines, design tools, code hosts): [docs/RECIPES.md](docs/RECIPES.md).
 
 ## How it compares
 
@@ -193,7 +197,7 @@ A rough comparison as of November 2026, from each project's repository, document
 | | Inkling | [salt.md](https://github.com/saltmd/salt.md) | [Docmost](https://github.com/docmost/docmost) | [AFFiNE](https://github.com/toeverything/AFFiNE) | [Outline](https://github.com/outline/outline) |
 |---|---|---|---|---|---|
 | License | MIT | AGPL-3.0 | AGPL-3.0 core + paid EE | MIT; server code under an EE license that exempts the free self-hosted Community Edition | BSL 1.1 (becomes Apache 2.0 on 2030-10-23) |
-| Database views | table, board, calendar, gallery, timeline | table, board, list, gallery, calendar, timeline, form | EE | table, kanban, calendar | no |
+| Database views | table, board, calendar, gallery, timeline, chart, form | table, board, list, gallery, calendar, timeline, form | EE | table, kanban, calendar | no |
 | `[[wikilinks]]` / backlinks | yes / yes | `[[` opens the link menu / yes | no (`@` mentions) / yes | yes / yes | yes / yes |
 | Graph view | yes | yes | not found | not found | not found |
 | Canvas | JSON Canvas (`.canvas`) | no | Excalidraw, draw.io embeds | own whiteboard (Edgeless), not JSON Canvas | no (diagrams.net embed) |
@@ -203,81 +207,54 @@ A rough comparison as of November 2026, from each project's repository, document
 | Notion import | export zip (Markdown & CSV), no API import | yes | yes | yes | yes |
 | Self-host weight | app + PostgreSQL | one Go binary + SQLite | app + PostgreSQL + Redis | app + PostgreSQL (pgvector) + Redis | app + PostgreSQL + Redis, plus an SSO provider or SMTP for login |
 
-Where Inkling is weaker: it needs PostgreSQL (no SQLite mode), there are no native desktop or
-mobile apps (the web app installs as a PWA), it runs as a single instance (no horizontal
-scaling), and it is a young project with a small user base.
+## Limits
+
+- It needs PostgreSQL; there is no SQLite mode.
+- There are no native desktop or mobile apps (the web app installs as a PWA) and no web push notifications; notifications arrive in the app, by mail or in Slack.
+- It runs as a single instance: the server refuses to start while another process uses the same database, and there is no horizontal scaling.
+- Nothing is stored in the browser, so edits made while offline survive only as long as the tab stays open.
+- Inkling has no AI model of its own; writing and summarizing are done by the agents you connect.
+- Without semantic search, `find_context` matches words, so an English question does not find a note written only in Korean. Pass `queries=[question, translation]` or turn semantic search on.
+- It is a young project with a small user base. Open problems by area and severity: [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md); planned work: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Architecture
 
-- **Server** (`apps/server`): Node 22, Fastify 5 (REST under `/api`), Hocuspocus/Yjs WebSocket
-  collaboration on `/collab`, Drizzle ORM on PostgreSQL 16 (trigram search, migrations applied at
-  boot), the MCP endpoint at `/mcp` with its OAuth server
-- **Web** (`apps/web`): React 19, Vite, Tailwind CSS v4, BlockNote (ProseMirror) editor, React Flow
-  canvas, d3-force graph, installable PWA
-- **CLI** (`apps/cli`): `inklingctl` for vault sync
-- **Shared** (`packages/shared`): zod schemas and DTOs used by both server and web; the query
-  language parser
-- **Deploy** (`deploy/`): Caddy overlay, backup sidecar scripts, restore and admin helper scripts
+- **Server** (`apps/server`): Node 22, Fastify 5 (REST under `/api`), Hocuspocus/Yjs collaboration on `/collab`, Drizzle ORM on PostgreSQL 16 (migrations applied at boot), the MCP endpoint at `/mcp` with its OAuth server
+- **Web** (`apps/web`): React 19, Vite, Tailwind CSS v4, BlockNote editor, React Flow canvas, d3-force graph
+- **CLI** (`apps/cli`): `inklingctl` for vault sync. **Shared** (`packages/shared`): zod schemas, DTOs and the query parser
 
-Design notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Decisions and their reasons are
-recorded as ADRs in [docs/adr/](docs/adr/README.md). The REST contract is in [docs/API.md](docs/API.md).
-
-## Performance
-
-Performance changes are measured before and after on the same data. A few results:
-
-- `find_context` on a 5,000-page benchmark (28 questions): 2,254 → 624 mean tokens per question
-  (−72%), 3.68 → 1.00 tool calls, success rate 0.75 → 0.93
-  ([ADR 0927](docs/adr/0927-find-context-ranking-and-budget-packing.md))
-- `patch_section`: changing one sentence costs about 222 tokens instead of about 2,415 for read +
-  replace ([ADR 0930](docs/adr/0930-patch-section-yjs-splice-with-base-version.md))
-- A person typing in a section while an agent patches it keeps their text in 6/6 test scenarios
-  (was 1/6) ([ADR 0940](docs/adr/0940-patch-section-minimal-yjs-edit.md))
-- Collaboration store path, 1,000 saves of a ~300-block page: 40,006 → 1,042 SQL statements
-  ([ADR 0750](docs/adr/0750-collab-store-path-db-side-snapshot-debounced-diffed-indexing.md))
-
-Every measurement, with its method, and the changes that were measured and rejected:
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+Design notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Decisions and their reasons:
+[docs/adr/](docs/adr/README.md). The REST contract: [docs/API.md](docs/API.md). Performance changes, measured
+before and after on the same data, including rejected ones: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Security
 
-Inkling is designed for a single self-hosted instance shared by people who trust each other within
-a workspace. Before exposing it to the internet:
+Inkling is designed for one self-hosted instance shared by people who trust each other within a workspace. Before exposing it to the internet:
 
-- **Run it behind HTTPS.** Use `deploy/compose.caddy.yaml` (it also hides the app and database
-  ports), or terminate TLS in your own proxy.
-- **Set `PUBLIC_URL`** (and `APP_URL` if mail links should use a different origin). Links in
-  password-reset and verification emails, OAuth metadata and share previews are built from it, and
-  an `https://` value turns on Secure session cookies automatically.
-- **Keep signup keys required** (the production default) and create the first admin's key with
-  `./deploy/signup-key.sh`.
-- **Change `POSTGRES_PASSWORD`** and set `BACKUP_PASSPHRASE` (store it off the server).
+- **Run it behind HTTPS.** Use `deploy/compose.caddy.yaml` (it also hides the app and database ports), or terminate TLS in your own proxy.
+- **Set `PUBLIC_URL`** (and `APP_URL` if mail links should use a different origin). Mail links, OAuth metadata and share previews are built from it, and an `https://` value turns on Secure session cookies.
+- **Keep signup keys required** (the production default) and create the first admin's key with `./deploy/signup-key.sh`.
+- **Set a strong `POSTGRES_PASSWORD`**, set `BACKUP_PASSPHRASE` and `APP_SECRET_KEY`, and keep a copy of both off the server (the key also outside the backups).
 - Keep `TRUST_PROXY` limited to your actual reverse proxy.
-- Experimental features (`plugins`, `vault-sync`, `sheets-sync`) are off by default. Plugins run
-  sandboxed but are trusted once an admin approves them.
+- Experimental features (`plugins`, `vault-sync`, `sheets-sync`) are off by default. Plugins run sandboxed but are trusted once an admin approves them.
 
-Workspace members can read and edit all shared pages in that workspace; private pages are visible
-only to their author. To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## Known issues
-
-Open problems that did not block the first public release, grouped by area and severity:
-[docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md). Planned work: [docs/ROADMAP.md](docs/ROADMAP.md).
+By default every workspace member can read and edit the workspace's shared pages; page levels and edit locks
+narrow that, private pages are visible only to their author, and guests see only what was shared with them.
+Full checklist: [docs/OPERATIONS.md](docs/OPERATIONS.md#before-first-deploy). To report a vulnerability, see
+[SECURITY.md](SECURITY.md).
 
 ## Built with AI assistance
 
-Inkling was designed and implemented with heavy use of AI coding agents. The code then went through
-several rounds of review aimed at the places where generated code tends to be wrong: concurrency
-(races, lost updates, locking), resource use (memory, connections, unbounded growth) and security,
-followed by performance work driven by measurements rather than guesses. The decisions and
-trade-offs that came out of this are written up in [docs/adr/](docs/adr/README.md), and what is
-still unresolved is listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md). Review it with the same
-care you would give any young project before trusting it with important data.
+Inkling was designed and implemented with heavy use of AI coding agents. The code then went through several
+rounds of review aimed at where generated code tends to be wrong (concurrency, resource use and security),
+followed by performance work driven by measurements rather than guesses. The decisions are written up in [docs/adr/](docs/adr/README.md)
+and what is still unresolved is in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md). Review it with the same care
+you would give any young project before trusting it with important data.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first; larger
-changes are easier to land after a short discussion in an issue.
+Issues and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first; larger changes land
+more easily after a short discussion in an issue.
 
 ## License
 

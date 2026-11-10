@@ -114,3 +114,43 @@ template if it isn't there) and replace its "Pull requests" section with the lis
   (`patch_section(…, suggest=true)`), and every edit can be reverted from Activity.
 - Hand a follow-up to a teammate's agent with `add_comment(…, handoffTo=["g:…"])`, using the short connection id that
   `catch_up(team=true)` prints.
+
+## Team memory: keeping it usable
+
+When a team keeps its knowledge in Inkling and several agents write to it, the notes stay useful only if the next
+reader can find a fact and trust it. Four habits help. The numbers below are from Anthropic's write-up of its
+agent-memory experiments, [The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory).
+
+**One page per item, one writer per page.** Several agents writing into one table or one page at the same time lose
+facts. In Anthropic's test, a brief built from a wiki where agents had written contract terms into one shared table
+held 41 of 57 facts (72%): the agents had overwritten one another's work. With one page per contract, each written by
+a single agent quoting the terms word for word, all 57 survived. In Inkling that means a page per decision, customer,
+contract or experiment, made with `create_page(parentId=…)` under a parent page that lists them. When several agents
+have to work on one page, give each its own section and `claim_section` it before a longer rewrite. A log that keeps
+growing goes into child pages (one per week or per run), not into one page that is appended to forever.
+
+**Short instructions and an index.** Whatever is loaded into every session costs tokens every time, and a wrong note
+is carried into every session. The article points out that longer instruction files reduce adherence, so the top
+layer has to stay small, "moving some details down the hierarchy and leaving links behind"; Claude Code's own auto
+memory loads only the first 200 lines or 25 KB of its `MEMORY.md`, which works as an index of what it knows and
+where. In Inkling the instruction pages are that top layer: `get_instructions` returns the `always` pages in full.
+Keep them to the rules and an index of where things are ("Decisions: [[Decisions]]. Contracts: one page each under
+[[Customers]]."), and let `find_context` fetch the details when they are needed. The edit lock dialog warns when an
+instruction page passes the same 200 lines or 25 KB, and get_instructions ends with a note for the agent when what it returns is that long.
+
+**Check it now and then.** Notes decay: links to pages that were renamed or never written, the same fact on two
+pages, pages nobody has confirmed for months. In the article, a clean-up pass found nine links to a missing page and
+repointed them to the existing one, and the maintenance sessions merged duplicates and checked claims against the
+sources. In Inkling, have an agent go through one part of the workspace on a schedule, say weekly:
+`read_page(pageId, backlinks=true)` shows what links to a page, `find_context` on a topic shows two pages saying the
+same thing, and the `stale` and `verified, changed since` marks point at pages to re-confirm. People confirm a page
+with Verify in the app; agents cannot.
+
+**Write the source next to the fact.** A note that says how it knows something can be checked; one that does not
+just gets repeated. In the article the most useful notes held a rule together with how the agent knew it was true.
+Next to each fact, link where it came from: a `[[Page]]` link to the meeting notes, a pull request or ticket URL, the
+date it was checked. Quote exact terms (prices, limits, contract wording) instead of summarizing them.
+
+For Claude Code there is a skill with these habits and the reading and editing order above:
+[examples/claude-skill/inkling](../examples/claude-skill/inkling/SKILL.md). Copy the folder to
+`~/.claude/skills/inkling/` (all your projects) or `.claude/skills/inkling/` in a project.

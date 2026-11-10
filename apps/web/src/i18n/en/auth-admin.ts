@@ -162,7 +162,7 @@ export default {
   'connections.title': 'MCP connections',
   'connections.serverUrl': 'MCP server URL',
   'connections.claudeAiHint':
-    'Settings → Connectors → Add custom connector → enter the URL above. The first connection shows a consent screen on this site.',
+    'Customize › Connectors › + Add › Add custom connector, then paste the URL above (Team and Enterprise: an owner adds it under Organization settings › Connectors). The first connection shows a consent screen on this site.',
   'connections.apps': 'Connected apps',
   'connections.loadFailed': 'Could not load the list.',
   'connections.empty': 'No connected apps.',

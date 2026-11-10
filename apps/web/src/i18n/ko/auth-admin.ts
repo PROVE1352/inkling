@@ -162,7 +162,7 @@ export default {
   'connections.title': 'MCP 연결 관리',
   'connections.serverUrl': 'MCP 서버 주소',
   'connections.claudeAiHint':
-    '설정 → 커넥터 → 커스텀 커넥터 추가 → 위 주소 입력. 처음 연결할 때 이 사이트의 동의 화면이 뜹니다.',
+    'Customize › Connectors › + Add › Add custom connector에서 위 주소를 넣습니다(Team·Enterprise 플랜은 소유자가 Organization settings › Connectors에서 추가합니다). 처음 연결할 때 이 사이트의 동의 화면이 뜹니다.',
   'connections.apps': '연결된 앱',
   'connections.loadFailed': '목록을 불러오지 못했습니다.',
   'connections.empty': '연결된 앱이 없습니다.',

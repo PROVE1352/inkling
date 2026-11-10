@@ -12,8 +12,8 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 A patch release in two parts. The onboarding intro, redone after it was seen in production, is drawn with real
 content, a camera and ink wipes, ends on a screen of next steps (sample page, New page, Connect an AI agent) instead
 of closing, and no longer says "open source". Pictures in a page and on public links open large in a new image
-viewer. Web app only: no database migration, no new environment variable, no new dependency, no API change. The
-stored image block is unchanged, so tabs still on 0.19.0 and reloaded ones edit the same pages safely.
+viewer. Web app only: no database migration, no new environment variable, no new dependency, no API change; the
+stored image block, its HTML export and the server schema are unchanged.
 
 ### Added
 - **Image viewer** (docs/adr/2386-*). Pictures in a page open large over a dark backdrop: double-click an image in
@@ -22,7 +22,8 @@ stored image block is unchanged, so tabs still on 0.19.0 and reloaded ones edit 
   link). Zoom with the wheel, a trackpad or a two-finger pinch (about the pointer), `+`/`-`, `0` to fit and a
   double-click for 100% (a small image is never enlarged past 100% to fit); drag to move. ←/→ and the side buttons
   go through the page's images ("2 / 5"); the top bar shows the caption or file name, the zoom and "Open original"
-  (new tab). Esc, a click on the backdrop, the close button or the browser's Back returns to where you were. Keys
+  (new tab). Esc, a click on the backdrop or the close button returns to where you were; the browser's Back leaves
+  the page as before and closes the viewer with it, so it never stays over another screen. Keys
   typed while it is open never reach the page (⌘/Ctrl/Alt combinations stay the browser's). A one-click open in the
   editor was left out on purpose: a click still selects the image block for its toolbar, resize handles and drag.
   The shortcut help (`?`) lists the viewer's keys in a new group, Image viewer. There is no keyboard way to open it

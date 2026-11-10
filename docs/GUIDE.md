@@ -191,9 +191,9 @@ pointer stays put. `+` and `-` zoom in steps, `0` fits the picture to the screen
 between fitted and actual size (100%); a picture smaller than the screen is shown at 100% and is not enlarged to
 fit. When it is larger than the screen, drag to move around. If the page has several pictures, ← and → (or the
 arrows at the sides) go to the previous and next one; the top bar shows which one ("2 / 5"), its caption or file
-name, the zoom and **Open original**, which opens the picture in a new tab. Esc, a click outside the picture, the
-close button or the browser's Back button closes it and puts you back where you were. While it is open, keys go
-to the viewer only, never to the page behind it. The `?` window lists these keys under **Image viewer**.
+name, the zoom and **Open original**, which opens the picture in a new tab. Esc, a click outside the picture or the
+close button closes it and puts you back where you were. The browser's Back button goes back as usual and closes
+the viewer on the way. While it is open, keys go to the viewer only, never to the page behind it. The `?` window lists these keys under **Image viewer**.
 
 ### Verifying a page
 

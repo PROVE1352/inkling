@@ -263,6 +263,12 @@ describe('[db] workspace list: groups, archive and the default search scope', { 
         const r = await app.inject({ method, url: `/api${url}`, headers: { authorization: `Bearer ${token}` }, ...(payload ? { payload } : {}) })
         assert.equal(r.statusCode, 403, `${method} ${url}`)
       }
+      // a token whose range is "all" follows the person's archive (only a narrower range overrides it)
+      await archive(me, gamma.id, true)
+      const viaPat = await app.inject({ method: 'GET', url: `/api/search?q=${W}`, headers: { authorization: `Bearer ${token}` } })
+      assert.equal(viaPat.statusCode, 200, viaPat.body)
+      assert.deepEqual((viaPat.json() as { archived?: unknown }).archived, [{ id: gamma.id, name: 'Gamma Old Contest' }])
+      await archive(me, gamma.id, false)
       assert.equal((await asCookie(me, 'POST', '/me/workspace-groups', { name: '   ' })).statusCode, 400)
       assert.equal((await asCookie(me, 'POST', '/me/workspace-groups', { name: 'x'.repeat(41) })).statusCode, 400)
       assert.equal((await asCookie(me, 'PATCH', `/me/workspaces/${alpha.id}/listing`, {})).statusCode, 400)

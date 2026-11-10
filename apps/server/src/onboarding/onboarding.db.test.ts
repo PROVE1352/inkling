@@ -6,6 +6,7 @@
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 process.env.DATA_DIR ||= `${process.env.TMPDIR || '/tmp'}/inkling-onboarding-${process.pid}`
 delete process.env.ONBOARDING
+delete process.env.ONBOARDING_EXISTING_USERS
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -251,6 +252,56 @@ describe('[db] onboarding', { skip: !HAS_DB }, async () => {
     assert.equal((await call(g, 'POST', '/api/me/onboarding/sample', { workspaceId: ws.id })).statusCode, 403)
     const made = await db.select().from(schema.pages).where(and(eq(schema.pages.workspaceId, ws.id), eq(schema.pages.createdBy, g.id)))
     assert.equal(made.length, 0)
+  })
+
+  it('ONBOARDING_EXISTING_USERS=once: an existing account gets the intro once (checklist stays off, no sample); new accounts regardless', async () => {
+    const legacy = async (name: string) => {
+      const u = await h.makeUser(name)
+      await h.makeWorkspace(u)
+      await db.insert(schema.userOnboarding).values({ userId: u.id, state: { legacy: true } })
+      return u
+    }
+    const old1 = await legacy('old-one')
+    const old2 = await legacy('old-two')
+    const fresh = await h.makeUser('fresh-any')
+    await h.makeWorkspace(fresh)
+
+    // off (the default): no intro for existing accounts; new accounts get it
+    assert.equal((await get(old1)).intro, false)
+    assert.equal((await get(fresh)).intro, true)
+
+    process.env.ONBOARDING_EXISTING_USERS = 'once'
+    try {
+      const d = await get(old1)
+      assert.equal(d.intro, true, 'shown to an existing account')
+      assert.equal(d.checklist.show, false, 'the checklist stays off')
+      assert.equal(d.checklist.dismissed, true)
+      assert.deepEqual(d.samples, {}, 'no sample for an existing account')
+      assert.equal((await get(fresh)).intro, true)
+      // seen (watched or skipped) → never again, also after a restart with the variable still on:
+      // nothing is kept in memory, every read comes from the stored row
+      assert.equal((await patch(old1, { introSeen: true })).intro, false)
+      assert.equal((await get(old1)).intro, false)
+      assert.equal((await get(old1)).intro, false)
+      // a guest is still left out
+      const o = await h.makeUser('host2')
+      const g = await legacy('old-guest')
+      const ws = await h.makeWorkspace(o)
+      const pg = await h.makeDocPage(ws.id, o.id, 'Shared', [{ type: 'paragraph', content: [] }] as never)
+      await db.insert(schema.pageGrants).values({ pageId: pg.id, userId: g.id, level: 'view', createdBy: o.id })
+      assert.equal((await get(g)).intro, false)
+      // nothing made for them
+      const made = await db.select().from(schema.pages).where(eq(schema.pages.createdBy, old1.id))
+      assert.equal(made.length, 0)
+    } finally {
+      delete process.env.ONBOARDING_EXISTING_USERS
+    }
+    // turned off again: whoever saw it stays seen; whoever did not is not asked any more
+    assert.equal((await get(old1)).intro, false)
+    assert.equal((await get(old2)).intro, false)
+    assert.ok((await stored(old1))?.introSeenAt, 'kept')
+    // a new account still gets it with the variable off
+    assert.equal((await get(fresh)).intro, true)
   })
 
   it('ONBOARDING=off: nothing shows, nothing is made, and accounts first seen then count as existing later', async () => {

@@ -23,6 +23,13 @@ const loadIntro = () =>
     },
   ))
 
+/** The focus is in the editor or a text field: the person is writing. */
+function typingSomewhere(): boolean {
+  const el = document.activeElement as HTMLElement | null
+  if (!el || el === document.body) return false
+  return el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+}
+
 export function OnboardingHost({ wsId }: { wsId: string }) {
   const dto = useOnboarding()
   const update = useUpdateOnboarding()
@@ -30,6 +37,7 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
   const { pathname } = useLocation()
   const [Intro, setIntro] = useState<ComponentType<IntroProps> | null>(null)
   const autoTried = useRef(false)
+  const [recheck, setRecheck] = useState(0)
   const auto = useRef(false)
 
   const open = useCallback((isAuto: boolean) => {
@@ -39,12 +47,23 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
     })
   }, [])
 
-  // A new account's first visit: play it by itself, once per page load.
+  // Play it by itself once per page load when the server says so (a new account, or an existing one
+  // on a server with ONBOARDING_EXISTING_USERS=once). Never over someone typing: while a text field
+  // or the editor has the focus it waits for the next screen change (or the window regaining focus).
   useEffect(() => {
     if (!dto?.intro || autoTried.current) return
+    if (typingSomewhere()) return
     autoTried.current = true
     open(true)
-  }, [dto?.intro, open])
+  }, [dto?.intro, open, pathname, recheck])
+
+  // While it waits: look again when the window comes back to the front.
+  useEffect(() => {
+    if (!dto?.intro || autoTried.current) return
+    const again = () => setRecheck((n) => n + 1)
+    window.addEventListener('focus', again)
+    return () => window.removeEventListener('focus', again)
+  }, [dto?.intro])
 
   useEffect(() => {
     const onAsk = () => open(false)

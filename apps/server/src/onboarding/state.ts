@@ -73,6 +73,17 @@ export function onboardingEnabled(): boolean {
   return !(v === 'off' || v === '0' || v === 'false' || v === 'no')
 }
 
+/**
+ * ONBOARDING_EXISTING_USERS=once: accounts from before onboarding (migration 0060's `legacy` rows and
+ * rows first made while ONBOARDING=off) also get the intro once, on their next app load. Only the
+ * intro: their checklist stays off (Settings turns it on) and no sample page is made for them.
+ * Read per call (tests switch it). Turning it off later changes nothing for those who saw it.
+ */
+export function existingUsersOnce(): boolean {
+  const v = (process.env.ONBOARDING_EXISTING_USERS ?? '').trim().toLowerCase()
+  return v === 'once' || v === '1' || v === 'true' || v === 'on' || v === 'yes'
+}
+
 /** Reads a stored jsonb defensively (a hand-edited row must not break the app). */
 export function parseState(raw: unknown): OnboardingState {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
@@ -403,7 +414,9 @@ async function toDTO(user: { id: string; isAdmin: boolean }, state0: OnboardingS
   return {
     enabled: true,
     audience,
-    intro: !state.legacy && !state.off && !state.introSeenAt,
+    // New accounts always; accounts from before the feature only while the operator asks for it
+    // (ONBOARDING_EXISTING_USERS=once). Either way once: introSeenAt is kept for good.
+    intro: !state.introSeenAt && (!(state.legacy || state.off) || existingUsersOnce()),
     checklist: {
       show: !dismissed && (!complete || !!state.reopened),
       // folded by default in the sidebar (the empty workspace screen always shows it whole)

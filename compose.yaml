@@ -201,6 +201,7 @@ services:
       # default before the browser language (en | ko; default en). docs/adr/0901-*, 0903-*.
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-}
       ONBOARDING: ${ONBOARDING:-} # off = no intro, checklist or sample page (docs/adr/2380-*)
+      ONBOARDING_EXISTING_USERS: ${ONBOARDING_EXISTING_USERS:-} # once = accounts made before onboarding also see the intro once (docs/adr/2383-*)
       # Container time zone: decides "today" for due reminders, daily notes and the due view, and
       # the times shown in emails. Default UTC; set TZ in .env (e.g. Asia/Seoul) to match users.
       TZ: ${TZ:-UTC}

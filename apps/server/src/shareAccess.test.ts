@@ -60,6 +60,8 @@ describe('share link gate', async () => {
       hasPassword: true,
       startsAt: null,
       notStarted: false,
+      // the Markdown download is off unless the row says otherwise (docs/adr/2362-*)
+      allowDownload: false,
     })
   })
 

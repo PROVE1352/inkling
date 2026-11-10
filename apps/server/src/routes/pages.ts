@@ -661,6 +661,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareExpiresAt: pages.shareExpiresAt,
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
+          shareAllowDownload: pages.shareAllowDownload,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -692,6 +693,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareExpiresAt,
           shareStartsAt: requestedStart,
           sharePasswordHash: passwordHash,
+          // a new link never lets visitors download (docs/adr/2362-*)
+          shareAllowDownload: false,
         })
         .where(eq(pages.id, id))
       await recordAudit(tx, {
@@ -748,6 +751,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareExpiresAt: pages.shareExpiresAt,
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
+          shareAllowDownload: pages.shareAllowDownload,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -756,7 +760,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (!cur?.shareToken) throw new AppError(409, 'NOT_SHARED', 'This page has no public link')
       if (nextHash === null && policy.passwordRequired) throw sharePasswordPolicyError()
 
-      const set: { shareExpiresAt?: Date | null; shareStartsAt?: Date | null; sharePasswordHash?: string | null } = {}
+      const set: { shareExpiresAt?: Date | null; shareStartsAt?: Date | null; sharePasswordHash?: string | null; shareAllowDownload?: boolean } = {}
       const target = { type: 'page', id, label: page.title }
       // The window after this change: a start must stay before the expiry (docs/adr/1844-*).
       assertShareWindow(
@@ -799,11 +803,24 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           target,
         })
       }
+      // visitors' Markdown download (docs/adr/2362-*), audited like the other link settings
+      if (body.allowDownload !== undefined && body.allowDownload !== cur.shareAllowDownload) {
+        set.shareAllowDownload = body.allowDownload
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: 'share.download_changed',
+          target,
+          before: { allowDownload: cur.shareAllowDownload },
+          after: { allowDownload: body.allowDownload },
+        })
+      }
       if (Object.keys(set).length > 0) await tx.update(pages).set(set).where(eq(pages.id, id))
       const link = shareLinkFields({
         shareExpiresAt: set.shareExpiresAt !== undefined ? set.shareExpiresAt : cur.shareExpiresAt,
         shareStartsAt: set.shareStartsAt !== undefined ? set.shareStartsAt : cur.shareStartsAt,
         sharePasswordHash: set.sharePasswordHash !== undefined ? set.sharePasswordHash : cur.sharePasswordHash,
+        shareAllowDownload: set.shareAllowDownload !== undefined ? set.shareAllowDownload : cur.shareAllowDownload,
       })
       return { token: revealShareToken(id, cur.enc), link, policy }
     })
@@ -862,6 +879,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareExpiresAt: pages.shareExpiresAt,
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
+          shareAllowDownload: pages.shareAllowDownload,
         })
         .from(pages)
         .where(eq(pages.id, id))

@@ -414,6 +414,13 @@
       "when": 1794310038026,
       "tag": "0058_row_number_tid",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794315981038,
+      "tag": "0059_share_allow_download",
+      "breakpoints": true
     }
   ]
 }

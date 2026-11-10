@@ -48,6 +48,8 @@ export const updateShareSchema = z
     expiresInDays: expiresInDaysSchema.optional(),
     startsAt: startsAtSchema.nullable().optional(),
     password: passwordSchema.nullable().optional(),
+    /** Visitors may download the page as Markdown (docs/adr/2362-*); only here, never when a link is made. */
+    allowDownload: z.boolean().optional(),
   })
   .strict()
   .refine((v) => !(v.expiresAt !== undefined && v.expiresInDays !== undefined), {

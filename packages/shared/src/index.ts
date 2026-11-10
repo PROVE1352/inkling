@@ -831,6 +831,8 @@ export interface ShareStatusDTO {
   notStarted?: boolean
   /** Visitors must enter a password (docs/adr/1171-*). The password itself is never returned. */
   hasPassword?: boolean
+  /** Visitors may download the page as Markdown (docs/adr/2362-*). Off by default. */
+  allowDownload?: boolean
   /** Workspace rules for new links (docs/adr/1172-*). */
   policy?: import('./shareLinks').SharePolicyDTO
 }
@@ -843,6 +845,10 @@ export interface PublicPageDTO {
   /** Safe HTML rendered by the server (image URLs rewritten to public file paths) */
   html: string
   updatedAt: string
+  /** The page's own "Full width" setting: the default width of the public view (docs/adr/2360-*). */
+  fullWidth?: boolean
+  /** The link lets visitors download this page as Markdown (`…/export.md`, docs/adr/2362-*). */
+  download?: boolean
 }
 
 /**

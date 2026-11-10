@@ -1,0 +1,1 @@
+ALTER TABLE "pages" ADD COLUMN "share_allow_download" boolean DEFAULT false NOT NULL;

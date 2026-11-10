@@ -40,6 +40,8 @@ import {
   stateToBlocks,
 } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
+import { publicMarkdownFile } from '../md/publicMarkdown'
+import { configuredPublicOrigin } from '../origin'
 import { publicCustomBlocks } from './publicBlocks'
 
 // Public route rate limit: a gentle 60/min per route, separate from the global 300/min.
@@ -81,7 +83,12 @@ export interface SharedPage {
   icon: string | null
   coverUrl: string | null
   updatedAt: Date
+  /** the page's own "Full width" setting: the public view's default width (docs/adr/2360-*) */
+  fullWidth: boolean
 }
+
+/** pages.properties holds {id:'fullWidth', value:true} (same test as pageDto.ts). */
+const FULL_WIDTH_SQL = sql<boolean>`(${pages.properties} @> '[{"id":"fullWidth","value":true}]'::jsonb)`
 
 /**
  * Opaque identifier of a folder-share subpage. To keep the internal pageId out of public URLs we
@@ -96,6 +103,8 @@ function refFor(token: string, pageId: string): string {
 /** The page a token points at, with its expiry and password gate (docs/adr/1170-*, 1171-*). */
 export interface SharedRoot extends SharedPage {
   gate: ShareGate
+  /** visitors may download Markdown of the page (folder link: of its pages), docs/adr/2362-* */
+  allowDownload: boolean
 }
 
 /** One page of a folder share's subtree (the root folder itself excluded). */
@@ -125,7 +134,8 @@ export async function loadSharedSubtree(
         AND s.depth < 64
     )
     SELECT p.id, p.parent_id, p.workspace_id, p.kind, p.scope, p.title, p.icon,
-           p.cover_url, p.updated_at
+           p.cover_url, p.updated_at,
+           (p.properties @> '[{"id":"fullWidth","value":true}]'::jsonb) AS full_width
     FROM pages p JOIN sub s ON s.id = p.id
     WHERE p.id <> ${rootId}
     ORDER BY p.sort_order ASC, p.created_at ASC
@@ -139,6 +149,7 @@ export async function loadSharedSubtree(
     icon: string | null
     cover_url: string | null
     updated_at: Date | string
+    full_width: boolean | null
   }[]
   return rows.map((r) => ({
     id: r.id,
@@ -150,6 +161,7 @@ export async function loadSharedSubtree(
     icon: r.icon,
     coverUrl: r.cover_url,
     updatedAt: r.updated_at instanceof Date ? r.updated_at : new Date(r.updated_at),
+    fullWidth: r.full_width === true,
   }))
 }
 
@@ -265,6 +277,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
         // a scheduled link's start, compared the same way (docs/adr/1844-*)
         startsAt: pages.shareStartsAt,
         passwordHash: pages.sharePasswordHash,
+        fullWidth: FULL_WIDTH_SQL,
+        allowDownload: pages.shareAllowDownload,
       })
       .from(pages)
       .where(
@@ -280,8 +294,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
       .limit(1)
   )[0]
   if (!row) return null
-  const { expiresAt, startsAt, passwordHash, ...page } = row
-  return { ...page, gate: { tokenHash, expiresAt, startsAt, passwordHash } }
+  const { expiresAt, startsAt, passwordHash, fullWidth, ...page } = row
+  return { ...page, fullWidth: fullWidth === true, gate: { tokenHash, expiresAt, startsAt, passwordHash } }
 }
 
 /**
@@ -396,6 +410,79 @@ function setPagePublicHeaders(reply: FastifyReply): void {
 }
 
 /**
+ * The public blocks of a single-page link: what its HTML is rendered from, and its Markdown download
+ * (docs/adr/2362-*), so the two never show different data.
+ */
+async function singlePageBlocks(page: SharedPage, token: string): Promise<AnyBlock[]> {
+  let blocks = await loadPublicBlocks(page)
+  // embeds, database views and query blocks: only this page is inside the link (docs/adr/2121-*)
+  if (page.kind === 'doc') {
+    blocks = await publicCustomBlocks(blocks, {
+      workspaceId: page.workspaceId,
+      inShare: new Map([[page.id, page]]),
+      rootId: page.id,
+      hostId: page.id,
+      fileUrl: (pageId, fileId) => (pageId === page.id ? publicFileUrl(token, fileId) : null),
+    })
+  }
+  // Security: turn internal-path links such as wikilinks (/w/...) into text (no workspace/page id leaks).
+  neutralizeInternalLinksForPublic(blocks)
+  // Rewrite image/attachment URLs (/files/<id>) to the token-scoped public path (avoids auth 404s + access gate).
+  rewriteAssetUrlsForPublic(blocks, (fileId) => publicFileUrl(token, fileId))
+  return blocks
+}
+
+/** The public blocks of a page of a folder link (HTML and Markdown, as singlePageBlocks). */
+async function childPageBlocks(share: FolderShare, page: SubtreePage, token: string, ref: string): Promise<AnyBlock[]> {
+  // charts may show collections inside this folder share (the root excluded: a folder has no rows)
+  const inShare = new Map(share.pages.map((p) => [p.id, p]))
+  const charts = publicFor(share.root.workspaceId, (id) => inShare.get(id))
+  let blocks = await loadPublicBlocks(page, charts)
+  // embeds, database views and query blocks: data of pages inside this link only (docs/adr/2121-*)
+  if (page.kind === 'doc') {
+    blocks = await publicCustomBlocks(blocks, {
+      workspaceId: share.root.workspaceId,
+      inShare: new Map<string, SharedPage>([[share.root.id, share.root], ...inShare]),
+      rootId: share.root.id,
+      hostId: page.id,
+      fileUrl: (pageId, fileId) => {
+        const r = share.refById.get(pageId)
+        return r ? publicChildFileUrl(token, r, fileId) : null
+      },
+      charts,
+    })
+  }
+  // Keep only wikilinks pointing inside the subtree as public paths; turn the rest into text (no id leaks).
+  rewriteInternalLinksForPublic(blocks, (pageId) => {
+    if (pageId === share.root.id) return `/s/${token}`
+    const r = share.refById.get(pageId)
+    return r ? `/s/${token}/p/${r}` : null
+  })
+  rewriteAssetUrlsForPublic(blocks, (fileId) => publicChildFileUrl(token, ref, fileId))
+  return blocks
+}
+
+/**
+ * The Markdown download of a public page (docs/adr/2362-*): the same blocks as its HTML, written as
+ * a file. Answered like the page itself (no caching, kept out of search engines) and never inline.
+ */
+async function sendPublicMarkdown(req: FastifyRequest, reply: FastifyReply, title: string, blocks: AnyBlock[]) {
+  const file = await publicMarkdownFile(title, blocks, configuredPublicOrigin(req))
+  reply.header('Content-Type', 'text/markdown; charset=utf-8')
+  reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+  reply.header('Content-Security-Policy', "default-src 'none'; sandbox")
+  reply.header('X-Content-Type-Options', 'nosniff')
+  reply.header('X-Robots-Tag', 'noindex, nofollow')
+  reply.header('Cache-Control', 'no-store')
+  return reply.send(file.body)
+}
+
+/** View flags of a public page: its default width and whether its link allows the Markdown download. */
+function publicViewFlags(page: SharedPage, root: SharedRoot): Pick<PublicPageDTO, 'fullWidth' | 'download'> {
+  return { ...(page.fullWidth ? { fullWidth: true } : {}), ...(root.allowDownload ? { download: true } : {}) }
+}
+
+/**
  * Register the public routes, inside the /api group of index.ts without a preHandler.
  * (No session/membership involved; access is controlled only by token + scope + the reference gate.)
  */
@@ -430,24 +517,7 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
 
     const rk = revKey(page)
-    const html = await cachedHtml(rk && `p|${rk}|${token}`, async () => {
-      let blocks = await loadPublicBlocks(page)
-      // embeds, database views and query blocks: only this page is inside the link (docs/adr/2121-*)
-      if (page.kind === 'doc') {
-        blocks = await publicCustomBlocks(blocks, {
-          workspaceId: page.workspaceId,
-          inShare: new Map([[page.id, page]]),
-          rootId: page.id,
-          hostId: page.id,
-          fileUrl: (pageId, fileId) => (pageId === page.id ? publicFileUrl(token, fileId) : null),
-        })
-      }
-      // Security: turn internal-path links such as wikilinks (/w/...) into text (no workspace/page id leaks).
-      neutralizeInternalLinksForPublic(blocks)
-      // Rewrite image/attachment URLs (/files/<id>) to the token-scoped public path (avoids auth 404s + access gate).
-      rewriteAssetUrlsForPublic(blocks, (fileId) => publicFileUrl(token, fileId))
-      return blocksToFullHTML(blocks)
-    })
+    const html = await cachedHtml(rk && `p|${rk}|${token}`, async () => blocksToFullHTML(await singlePageBlocks(page, token)))
 
     setPagePublicHeaders(reply)
     const dto: PublicPageDTO = {
@@ -456,8 +526,24 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       coverUrl: publicizeAssetUrl(page.coverUrl, token),
       html,
       updatedAt: page.updatedAt.toISOString(),
+      ...publicViewFlags(page, page),
     }
     return dto
+  })
+
+  // Markdown download of a single-page link (docs/adr/2362-*). The link's gate first (an expired or
+  // locked link answers as for its page, whatever the setting), then 404 unless the link allows it.
+  app.get('/public/:token/export.md', { config: PUBLIC_RATE_LIMIT }, async (req, reply) => {
+    const { token } = tokenParamSchema.parse(req.params)
+    const page = await findSharedPageByToken(token)
+    if (!page) {
+      await recordFailure(req, 'share-token')
+      throw notFound()
+    }
+    assertShareOpen(req, reply, page.gate)
+    if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
+    if (!page.allowDownload) throw notFound()
+    return sendPublicMarkdown(req, reply, page.title, await singlePageBlocks(page, token))
   })
 
   // Stream only attachments the shared page references (unauthenticated). Gate: the file appears in
@@ -512,34 +598,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     const members = rk
       ? createHash('sha1').update([...share.refById.keys()].sort().join(',')).digest('base64')
       : ''
-    const html = await cachedHtml(rk && `c|${rk}|${token}|${ref}|${members}`, async () => {
-      // charts may show collections inside this folder share (the root excluded: a folder has no rows)
-      const inShare = new Map(share.pages.map((p) => [p.id, p]))
-      const charts = publicFor(share.root.workspaceId, (id) => inShare.get(id))
-      let blocks = await loadPublicBlocks(page, charts)
-      // embeds, database views and query blocks: data of pages inside this link only (docs/adr/2121-*)
-      if (page.kind === 'doc') {
-        blocks = await publicCustomBlocks(blocks, {
-          workspaceId: share.root.workspaceId,
-          inShare: new Map<string, SharedPage>([[share.root.id, share.root], ...inShare]),
-          rootId: share.root.id,
-          hostId: page.id,
-          fileUrl: (pageId, fileId) => {
-            const r = share.refById.get(pageId)
-            return r ? publicChildFileUrl(token, r, fileId) : null
-          },
-          charts,
-        })
-      }
-      // Keep only wikilinks pointing inside the subtree as public paths; turn the rest into text (no id leaks).
-      rewriteInternalLinksForPublic(blocks, (pageId) => {
-        if (pageId === share.root.id) return `/s/${token}`
-        const r = share.refById.get(pageId)
-        return r ? `/s/${token}/p/${r}` : null
-      })
-      rewriteAssetUrlsForPublic(blocks, (fileId) => publicChildFileUrl(token, ref, fileId))
-      return blocksToFullHTML(blocks)
-    })
+    const html = await cachedHtml(rk && `c|${rk}|${token}|${ref}|${members}`, async () =>
+      blocksToFullHTML(await childPageBlocks(share, page, token, ref)),
+    )
 
     setPagePublicHeaders(reply)
     const dto: PublicPageDTO = {
@@ -548,8 +609,21 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       coverUrl: publicizeChildAssetUrl(page.coverUrl, token, ref),
       html,
       updatedAt: page.updatedAt.toISOString(),
+      ...publicViewFlags(page, share.root),
     }
     return dto
+  })
+
+  // Markdown download of a page of a folder link (docs/adr/2362-*): the folder link's setting, the
+  // same gate and ref lookup as the page itself.
+  app.get('/public/:token/p/:ref/export.md', { config: PUBLIC_RATE_LIMIT }, async (req, reply) => {
+    const { token, ref } = refParamSchema.parse(req.params)
+    const share = await openFolderShare(req, reply, token)
+    if (!share.root.allowDownload) throw notFound()
+    const page = share.byRef.get(ref)
+    if (!page) throw notFound()
+    if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
+    return sendPublicMarkdown(req, reply, page.title, await childPageBlocks(share, page, token, ref))
   })
 
   // Attachments of a folder-share subpage. Gate: the ref is inside the subtree + the file appears in

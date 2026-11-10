@@ -460,9 +460,10 @@ export async function blocksToFullHTML(blocks: AnyBlock[]): Promise<string> {
 /**
  * Public HTML carries no internal ids (see neutralizeInternalLinksForPublic): page/link embeds and
  * plugin blocks are left out as before the server knew them (their children stay), and mention
- * chips become their `@label` text (docs/adr/1500-*).
+ * chips become their `@label` text (docs/adr/1500-*). The Markdown download of a public page runs
+ * the same filter (md/publicMarkdown.ts, docs/adr/2362-*).
  */
-function publicBlocks(blocks: AnyBlock[]): AnyBlock[] {
+export function publicBlocks(blocks: AnyBlock[]): AnyBlock[] {
   const out: AnyBlock[] = []
   for (const b of blocks) {
     // chart: public pages get a table from routes/public.ts (only for data inside the link) — never the config

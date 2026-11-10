@@ -344,6 +344,8 @@ export const pages = pgTable('pages', {
    * to this string, so setting, changing or removing it ends every visitor's unlock. Cleared on unpublish.
    */
   sharePasswordHash: text('share_password_hash'),
+  /** Visitors may download the page as Markdown (docs/adr/2362-*); off by default, cleared on unpublish. */
+  shareAllowDownload: boolean('share_allow_download').notNull().default(false),
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),

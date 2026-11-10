@@ -89,9 +89,9 @@ export const sharePasswordPolicyError = () =>
 
 /** The status fields of a link (the password itself never leaves the server). */
 export function shareLinkFields(
-  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null; shareStartsAt?: Date | null },
+  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null; shareStartsAt?: Date | null; shareAllowDownload?: boolean },
   now = Date.now(),
-): { expiresAt: string | null; expired: boolean; hasPassword: boolean; startsAt: string | null; notStarted: boolean } {
+): { expiresAt: string | null; expired: boolean; hasPassword: boolean; startsAt: string | null; notStarted: boolean; allowDownload: boolean } {
   const startsAt = row.shareStartsAt ?? null
   return {
     expiresAt: row.shareExpiresAt ? row.shareExpiresAt.toISOString() : null,
@@ -100,6 +100,8 @@ export function shareLinkFields(
     // scheduled links (docs/adr/1844-*)
     startsAt: startsAt ? startsAt.toISOString() : null,
     notStarted: startsAt !== null && startsAt.getTime() > now,
+    // visitors may download Markdown (docs/adr/2362-*)
+    allowDownload: row.shareAllowDownload === true,
   }
 }
 
@@ -110,4 +112,5 @@ export const CLEARED_SHARE_LINK = {
   shareExpiresAt: null,
   shareStartsAt: null,
   sharePasswordHash: null,
+  shareAllowDownload: false,
 } as const

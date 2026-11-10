@@ -422,7 +422,7 @@ export const hocuspocus = new Hocuspocus({
     const page = await runAsGuest(scope, async () =>
       (
         await db
-          .select({ workspaceId: pages.workspaceId })
+          .select({ workspaceId: pages.workspaceId, docGen: pages.docGen })
           .from(pages)
           .where(and(eq(pages.id, pageId), isNull(pages.deletedAt), visibleTo(user.id), liveWorkspace(pages.workspaceId)))
           .limit(1)
@@ -459,7 +459,19 @@ export const hocuspocus = new Hocuspocus({
     if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
 
     // sessionToken lets liveConnections close exactly the sockets of revoked sessions.
-    return { userId: user.id, sessionToken: token }
+    // docGen is read here, before any content is sent to this connection, and handed to it in
+    // `connected` (docs/adr/2201-*): a client never pairs a newer generation with older content.
+    return { userId: user.id, sessionToken: token, docGen: page.docGen }
+  },
+  // The page's document generation for device copies (docs/adr/2201-*). Older clients ignore it.
+  async connected({ context, connectionInstance }) {
+    const gen = (context as { docGen?: unknown } | undefined)?.docGen
+    if (typeof gen !== 'number') return
+    try {
+      connectionInstance.sendStateless(JSON.stringify({ t: 'gen', gen }))
+    } catch {
+      // the socket went away meanwhile
+    }
   },
 })
 

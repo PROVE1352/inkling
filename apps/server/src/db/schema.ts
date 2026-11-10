@@ -387,6 +387,12 @@ export const pages = pgTable('pages', {
   editedBy: uuid('edited_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   /** OAuth client name of that edit when it came through an agent connection (as page_changes.via_client). */
   editedVia: text('edited_via'),
+  /**
+   * Document generation (docs/adr/2201-*): bumped after a server write that takes content away
+   * wholesale (version restore, AI-edit revert, split, full-body replace fallback). A device copy
+   * whose unsent edits descend from an older generation is not merged but kept as a recovery item.
+   */
+  docGen: integer('doc_gen').notNull().default(0),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.

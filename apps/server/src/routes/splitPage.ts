@@ -20,6 +20,7 @@ import * as Y from 'yjs'
 import { getUser, requireUser } from '../auth'
 import type { AuthUser } from '../auth'
 import { broadcastToUser, hocuspocus } from '../collab'
+import { bumpDocGen } from '../docGen'
 import { actorOf, withEditActor } from '../context/attribution'
 import { stateBytesV1Sql } from '../context/largePage'
 import { db } from '../db/index'
@@ -328,6 +329,9 @@ async function runSplit(e: Editable, level: number, sections: string[] | undefin
         if (failure instanceof SplitError) throw new AppError(409, 'SPLIT_CONFLICT', failure.message)
         throw failure
       }
+      // the moved sections left this body: device copies with edits in them keep those as a
+      // recovery item instead of merging into deleted blocks (docs/adr/2201-*)
+      await bumpDocGen(pageId)
       indexChildren(e.user, children)
       for (const c of children) {
         if (c.scope === 'shared') emitWebhookEvent({ type: 'page_created', workspaceId: e.page.workspaceId, pageId: c.id, actorId: e.user.id })

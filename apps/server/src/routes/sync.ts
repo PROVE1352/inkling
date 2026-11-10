@@ -8,6 +8,7 @@ import { z } from 'zod'
 import type { PageScope } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { hocuspocus } from '../collab'
+import { bumpDocGen } from '../docGen'
 import { db } from '../db/index'
 import { pageDocs, pageLinks, pages, pageSyncHashes } from '../db/schema'
 import { AppError, badRequest, notFound } from '../errors'
@@ -480,6 +481,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
 
       // (3) compare-and-write on the live document in ONE synchronous Yjs section
       let mismatch = false
+      let rewrote = false
       const conn = await hocuspocus.openDirectConnection(id)
       try {
         // Echo of the current blocks (async, before the synchronous section): lets the minimal
@@ -506,6 +508,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
               console.warn(`[vault-sync] minimal replace not applied (${err instanceof Error ? err.message : String(err)}); rewriting the document`)
             }
           }
+          rewrote = frag.length > 0
           doc.transact(() => {
             frag.delete(0, frag.length)
             blocksToXmlFragment(incoming, frag)
@@ -515,6 +518,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
         await conn.disconnect()
       }
       if (mismatch) return stale()
+      // a full rewrite takes the body away wholesale: device copies must not merge blindly (docs/adr/2201-*)
+      if (rewrote) await bumpDocGen(id)
 
       // (4) metadata (frontmatter) — re-read what Postgres stored to hash its canonical jsonb
       const [updated] = await db

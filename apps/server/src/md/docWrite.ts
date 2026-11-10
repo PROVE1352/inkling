@@ -6,6 +6,7 @@ import { getServerEditor } from './editor'
 import { applyDocumentReplace, readBlocks } from '../context/sectionPatch'
 import type { EchoIndex } from '../context/sectionPatch'
 import type { DocGate } from '../docWriteGate'
+import { bumpDocGen } from '../docGen'
 
 type DirectConnection = Awaited<ReturnType<typeof hocuspocus.openDirectConnection>>
 
@@ -53,6 +54,8 @@ export async function writeBlocksToDoc(
   echo: EchoIndex | null = null,
 ): Promise<void> {
   const conn = await hocuspocus.openDirectConnection(pageId)
+  // a full rewrite of a non-empty body bumps the generation once it is applied (docs/adr/2201-*)
+  let rewrote = false
   try {
     const live = conn.document
     if (!live) throw new Error('Could not open the document')
@@ -79,6 +82,7 @@ export async function writeBlocksToDoc(
         }
       }
       // Delete + insert in one Yjs transaction so clients receive a single update
+      rewrote = frag.length > 0
       doc.transact(() => {
         frag.delete(0, frag.length)
         blocksToXmlFragment(next, frag)
@@ -87,6 +91,7 @@ export async function writeBlocksToDoc(
   } finally {
     await conn.disconnect()
   }
+  if (rewrote) await bumpDocGen(pageId)
 }
 
 function isBlockGroup(x: unknown): x is Y.XmlElement {

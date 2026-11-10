@@ -110,6 +110,7 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
         await r(import('./routes/bookmarks'), 'registerBookmarkRoutes')
         await r(import('./routes/snapshots'), 'registerSnapshotRoutes')
         await r(import('./routes/largePages'), 'registerLargePageRoutes')
+        await r(import('./routes/offlineSync'), 'registerOfflineSyncRoutes')
         await r(import('./routes/files'), 'registerFileRoutes')
         await r(import('./routes/splitPage'), 'registerSplitPageRoutes')
         await r(import('./routes/clip'), 'registerClipRoutes')
@@ -336,6 +337,7 @@ describe('[db] guests and page access', { skip: !HAS_DB }, async () => {
           `/api/pages/${target}/access`,
           `/api/pages/${target}/snapshots`,
           `/api/pages/${target}/size`,
+          `/api/pages/${target}/sync-check`,
           `/api/pages/${target}/outline`,
         ]) {
           const res = await as(G, 'GET', url)

@@ -1,0 +1,1 @@
+ALTER TABLE "pages" ADD COLUMN "doc_gen" integer DEFAULT 0 NOT NULL;

@@ -25,6 +25,7 @@ import { liveDoc } from '../liveConnections'
 import { pageEditGate } from '../docWriteGate'
 import { gatedTransact } from '../md/docWrite'
 import { actorOf, withEditActor } from '../context/attribution'
+import { bumpDocGen } from '../docGen'
 
 const snapshotParamsSchema = z.object({ id: z.uuid(), sid: z.uuid() })
 
@@ -171,6 +172,8 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
           await conn.disconnect()
         }
       })
+      // After the content (docs/adr/2201-*): device copies with unsent edits stop merging blindly.
+      await bumpDocGen(id)
     }
 
     // An agent's restore is one AI step (docs/adr/2180-*, 2181-*): the page before it is a version

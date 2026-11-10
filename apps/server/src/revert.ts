@@ -28,6 +28,7 @@ import { createSnapshot, currentSnapshotSource, snapshotBlocks } from './snapsho
 import { assertPerson } from './suggestions'
 import { pageInRangeSql } from './tokenRange'
 import { recordAudit } from './workspaceAdmin'
+import { bumpDocGen } from './docGen'
 
 /**
  * Reverting logged changes (docs/adr/1620-* .. 1624-*): one change of the page history, or every
@@ -478,7 +479,11 @@ export async function revertChanges(
           }
         })
         const res = outcome as BatchOutcome | null
-        if (res?.status === 'ok') break
+        // After the content (docs/adr/2201-*): a reverted section is gone for device copies too.
+        if (res?.status === 'ok') {
+          await bumpDocGen(pageId)
+          break
+        }
         if (attempt >= 1 || res?.failures.some((f) => f.reason !== 'version')) {
           throw new AppError(409, 'REVERT_CHANGED', 'The page changed while the revert was being written; nothing was changed. Try again.')
         }

@@ -78,6 +78,7 @@ import { registerPageRoutes } from './routes/pages'
 import { registerPublicRoutes } from './routes/public'
 import { registerSnapshotRoutes } from './routes/snapshots'
 import { registerLargePageRoutes } from './routes/largePages'
+import { registerOfflineSyncRoutes } from './routes/offlineSync'
 import { registerSplitPageRoutes } from './routes/splitPage'
 import { registerTemplateRoutes } from './routes/templates'
 import { registerWorkspaceRoutes } from './routes/workspaces'
@@ -558,6 +559,7 @@ async function main(): Promise<void> {
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)
+      await registerOfflineSyncRoutes(api) // device copies: generation and access before syncing (docs/adr/2201-*)
       await registerSplitPageRoutes(api)
       await registerInkRoutes(api)
       await registerTemplateRoutes(api)

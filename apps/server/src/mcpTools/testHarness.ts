@@ -65,6 +65,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/agentUploads')).registerAgentUploadRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
       await (await import('../routes/largePages')).registerLargePageRoutes(api)
+      await (await import('../routes/offlineSync')).registerOfflineSyncRoutes(api)
       await (await import('../routes/splitPage')).registerSplitPageRoutes(api)
       await (await import('../routes/templates')).registerTemplateRoutes(api)
       await (await import('../routes/collections')).registerCollectionRoutes(api)

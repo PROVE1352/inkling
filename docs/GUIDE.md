@@ -1018,7 +1018,7 @@ or split it, moved it to the trash or took away your edit right in the meantime,
 into it: they are kept under Settings → Offline → **Recovery**, where you can read them and copy what you need.
 Offline you cannot create, move or delete pages, open databases, attachments or the canvas, or search. If the
 browser's storage does not answer, the page opens from the server after about 5 seconds instead of waiting on
-"Connecting…". Logging out deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.
+"Connecting…"; that tab then keeps no device copies until you reload it. Logging out deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.
 
 ## FAQ
 

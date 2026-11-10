@@ -821,7 +821,8 @@ only route where a visitor without an account writes data.
 - A screen that fails to render shows "This screen could not be shown" with a Reload button and the error under
   Details. Ask people who report a blank or broken screen for that Details text.
 - In a browser whose IndexedDB never answers, a page with offline copies on opens from the server after 5 s instead
-  of waiting on "Connecting…".
+  of waiting on "Connecting…". That tab then works without device copies until it is reloaded, and Settings ›
+  Offline says the device storage is unavailable.
 
 ### Onboarding (docs/adr/2380-* .. 2383-*)
 
@@ -832,6 +833,25 @@ only route where a visitor without an account writes data.
 
 Both are read per request and passed through by `compose.yaml`; recreate the app container after changing them
 (`docker compose up -d app`). The routes are for browser sessions only; agents and tokens never see onboarding.
+
+After setting `ONBOARDING_EXISTING_USERS=once` in `.env` and recreating the container, check that it arrived:
+`docker compose exec app printenv ONBOARDING_EXISTING_USERS` prints `once` (an empty line means unset). How many
+accounts it will reach: existing accounts that have not closed the intro, minus guests, who never get it ("guest" is
+the rule of `audienceOf` in `apps/server/src/onboarding/state.ts`):
+
+```sql
+SELECT count(*) FROM user_onboarding o JOIN users u ON u.id = o.user_id
+ WHERE (o.state->>'legacy' = 'true' OR o.state->>'off' = 'true') AND o.state->'introSeenAt' IS NULL
+   AND NOT (NOT u.is_admin
+     AND NOT EXISTS (SELECT 1 FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
+                      WHERE m.user_id = u.id AND w.deleted_at IS NULL AND m.role <> 'owner')
+     AND EXISTS (SELECT 1 FROM page_grants g JOIN pages p ON p.id = g.page_id
+                  WHERE g.user_id = u.id AND NOT EXISTS (SELECT 1 FROM workspace_members m2
+                                                          WHERE m2.workspace_id = p.workspace_id AND m2.user_id = u.id)));
+```
+
+An account counts as having seen it only once it closes the intro (Skip, Esc or the last scene); closing the tab
+while it plays shows it again on the next app load (KNOWN-ISSUES ONBOARD-6).
 
 Onboarding state lives in `user_onboarding` (one row per account, deleted with the account). To show the intro
 again to one person, the simplest way is theirs: Settings › About › Watch the intro again. By SQL,

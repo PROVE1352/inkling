@@ -34,7 +34,7 @@ anything never comes up empty — can only be shown with the old release's own `
   names and the one servers run, and from v0.17.1, the `compose.yaml` before 0.18 added its environment
   lines (earlier releases had the same names; their schemas are the `upgrade` matrix's job), separate
   from that per-release matrix, which 0.18 extends. Both by commit. Step 3 also compares the migration
-  journal before and after the upgrade (`EXPECT_MIGRATIONS`, e.g. `59 60` from v0.18.0), and step 5
+  journal before and after the upgrade (`EXPECT_MIGRATIONS`, e.g. `59 61` from v0.18.0), and step 5
   checks that the rename leaves it as it was. Its paths include `compose.yaml`, `deploy/**` and
   `.env.example`. The renamed install is removed before step 7, because with the real names both
   installs are project `inkling`.

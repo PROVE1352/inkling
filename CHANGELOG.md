@@ -76,7 +76,11 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   load; closing or skipping it is stored per person, so it does not come back after restarts, and unsetting the
   variable later changes nothing for those who saw it; their checklist stays off and no sample page is made for
   them). Accounts first seen while `ONBOARDING=off` count as existing accounts if it is turned on later. Both are
-  passed through by `compose.yaml`; recreate the container after changing them (docs/adr/2383-*).
+  passed through by `compose.yaml`; recreate the container after changing them (docs/adr/2383-*), then check that
+  the value arrived: `docker compose exec app printenv ONBOARDING_EXISTING_USERS` prints `once` (an empty line means
+  unset). With `once`, an existing account that closes the tab while the intro is still playing (without Skip, Esc
+  or reaching the end) sees it again on its next app load; it counts as seen only once it is closed or finished.
+  Guests never get the intro.
 - **Templates with a database and an inline view of it**: a custom template that contains a database **and** an
   inline view (page embed) of that database now gives each new copy a view of its own copy; before, the view pointed
   at the original database. This applies to "Start from template" in the app and to `POST /api/pages/from-template`
@@ -113,10 +117,6 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   share dialog ("Let visitors download it as Markdown"); the file holds only what the public page shows
   (docs/adr/2362-*). Changes are in the audit log as "Public link download changed".
 - Public page actions fold into one "⋯" menu on narrow screens, with keyboard support (docs/adr/2363-*).
-- **A screen that cannot be drawn says so instead of going white.** It shows "This screen could not be shown" with
-  a Reload button (and the error under Details). A page that fails keeps the sidebar, and moving to another page
-  tries again. A route chunk that still fails after the one automatic reload (server restarting, flaky connection)
-  ends there too, and a start whose script never ran shows a reload notice after 12 s (docs/adr/2324-*).
 - **Onboarding for new accounts** (docs/adr/2380-* .. 2382-*). A new account sees a 26-second intro once (notes and
   `[[links]]`, databases and views, AI agents over MCP with suggestions and undo, your own server and offline), drawn
   in code, skippable, pausable, keyboard and screen-reader friendly, still pictures with reduced motion. A
@@ -127,7 +127,8 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   first admin of a new server gets a **sample page** in their private pages, in their language; anyone can make one
   from the card. Settings › About: "Watch the intro again" and a switch for the checklist. `ONBOARDING=off` turns it
   all off; `ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before the upgrade
-  (docs/adr/2383-*).
+  (docs/adr/2383-*). While a sample page is being made, its own pages do not tick "first page", "database" or
+  "link".
 
 ### Changed
 - **The data plumbing is called `inkling`, from one required setting.** Up to 0.18 the compose project, the
@@ -155,6 +156,11 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   32 ~7,533).
 
 ### Fixed
+- **A screen that cannot be drawn says so instead of going white.** It shows "This screen could not be shown" with
+  a Reload button (and the error under Details) instead of a blank white tab. A page that fails keeps the sidebar,
+  and moving to another page tries again. A route chunk that still fails after the one automatic reload (server
+  restarting, flaky connection) ends there too, and a start whose script never ran shows a reload notice after 12 s
+  (docs/adr/2324-*).
 - **`deploy/signup-key.sh new` makes a key that works at once.** Since 0.5 the server compares signup keys by their
   SHA-256 (docs/adr/1110-*), but the script still stored the key in plain text, so a key from the script was refused
   ("invalid or expired") until the next app restart hashed it. The script now stores the hash and the last four
@@ -177,14 +183,21 @@ run on GitHub Actions yet; the same script passed locally from v0.17.1 and from 
   making phones scroll sideways).
 - **Offline copies: a page no longer waits on "Connecting…" for a browser storage that never answers.** When
   `indexedDB.open` gave neither success nor error, a page waiting for its device copy stayed on "Connecting…"; after
-  5 s the device store now counts as unavailable and the page opens from the server.
+  5 s the device store now counts as unavailable and the page opens from the server. That tab then works without
+  device copies for the rest of its session, and Settings › Offline says the device storage is unavailable;
+  reloading the tab tries again. Turning offline copies off waits for `indexedDB.deleteDatabase`, which has no time
+  limit and was not tried on a stuck browser (KNOWN-ISSUES OFFLINE-11).
 
 ### Performance
-- Public page bundle: +822 B on the entry (i18n strings) and +6,278 B JS, +5,827 B CSS on the public page (≈ +3.4 KB
+- Public page bundle (11d0707 → the share branch, before the other 0.19 changes): +822 B on the entry (i18n strings) and +6,278 B JS, +5,827 B CSS on the public page (≈ +3.4 KB
   gzip in total) for the toolbar, the print styles shared with the app's PDF export and the view CSS
   ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
-- Onboarding: entry `index-*.js` +1,216 B gzip (most of it the en and ko strings), entry plus modulepreload +5,583 B
-  gzip, precache +24.66 KiB; the intro is a lazy chunk (7.59 kB gzip, not precached) loaded only when it plays.
+- Screen notices and the IndexedDB open limit (dd933e5 → 5ee9f3a): entry `index-*.js` +1,872 B (+553 B gzip), entry
+  plus modulepreload +2,852 B (+914 B gzip), precache +3,729 B (102 entries either way).
+- Onboarding (5ee9f3a → c6634d0): entry `index-*.js` +3,223 B (+1,248 B gzip, most of it the en and ko strings),
+  entry plus modulepreload 26 → 27 files, +14,107 B (+5,619 B gzip), precache 102 → 104 entries, +25,262 B; the
+  intro is a lazy chunk (20.63 kB, 7.60 kB gzip, not precached) loaded only when it plays. Measured on the merged
+  tree with gzip -9 ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 
 ### Database
 - Migration 0059: `pages.share_allow_download boolean not null default false` (docs/adr/2362-*).

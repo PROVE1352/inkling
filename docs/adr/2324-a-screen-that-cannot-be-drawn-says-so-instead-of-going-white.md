@@ -5,9 +5,10 @@
 
 ## Context
 A browser check of 0.18 twice found a tab that was completely white: no sidebar, no spinner, no text,
-`#root` empty. Neither run kept enough to name the trigger, and it did not come back in about twenty
-reruns. Injecting faults one at a time into a real Chrome showed which states leave the screen white,
-and that these paths are older than 0.18:
+`#root` empty. Neither run kept enough to name the trigger, and it did not come back in about thirty
+reruns (also under CPU throttling ×30, alongside the unit test suites, and with slow, failing or
+rate-limited API answers). Injecting faults one at a time into a real Chrome showed which states leave
+the screen white, and that these paths exist unchanged in 0.17.1:
 - **React unmounts everything on an error no boundary catches** (React 19, `createRoot`). The web app
   had no error boundary at all. A render or effect that throws anywhere (the editor, a block, the
   sidebar) took down the whole tab, sidebar included.
@@ -16,8 +17,12 @@ and that these paths are older than 0.18:
   is restarting, a flaky connection, a chunk gone after a deploy without a service worker), the tab
   stays white until the person thinks of reloading. Measured: a 404 on the `PageView` chunk → one
   automatic reload → white for good.
-- **The entry script graph fails** (any of the ~26 statically imported chunks: aborted or 404). Nothing
-  of React runs, so no boundary can help; `#root` stays as `index.html` left it, empty.
+- **The entry script graph fails** (each of the 20 statically imported chunks tried, aborted or 404).
+  Nothing of React runs, so no boundary can help; `#root` stays as `index.html` left it, empty.
+- **A 200 answer without the expected fields** made four screens throw while rendering (the sidebar's
+  due and shared lists, the page's subscription, the database view block); with no boundary, white.
+  The real server does not send such bodies, but any render bug ends the same way. 429, 500 and no
+  answer on each of the 24 API paths a page open uses did not leave the screen white.
 
 ## Decision
 - `AppErrorBoundary` (`components/AppErrorBoundary.tsx`) in two places:
@@ -48,7 +53,9 @@ and that these paths are older than 0.18:
 ## Consequences
 - Instead of a blank tab, a person sees what happened and a button. The error text is visible under Details,
   which helps bug reports.
-- The trigger of the two white tabs in the 0.18 browser check is still unknown (see the investigation
-  notes). The check now has steps that fail a route chunk, the entry script and a render on purpose and
-  expect the notice.
+- The trigger of the two white tabs in the 0.18 browser check is still unknown; whatever it was now
+  shows one of the two notices, and the notice's Details (or the boot notice) says which kind.
+- Checked in a real Chrome with the chunk, entry script and render failures injected on purpose: the
+  page-area notice with the sidebar, the boot notice after 12 s, the full-screen notice; moving to
+  another page from the sidebar clears the page-area notice; normal page opens never show either.
 - `index.html` carries a few lines of fallback text; crawlers of the app shell may index it.

@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { currentRange, guestOutside, outOfRange } from '../tokenRange'
-import { assertPageEditable } from '../editLock'
+import { assertPageEditable, suggestionRight } from '../editLock'
 import { createReadStream, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { rename, rm } from 'node:fs/promises'
+import { readFile, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
 import type { FileDTO } from '@inkling/shared'
@@ -17,6 +17,9 @@ import { idParam, requireMembership } from '../helpers'
 import { memberOrGuestSql } from '../pageGrants'
 import { findVisiblePage } from '../pageDto'
 import { streamToFile } from './exportImport'
+import { AGENT_UPLOAD_DAILY_BYTES, AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from '../uploadCheck'
+import { assertAgentUploadsAllowed, mbText } from '../agentUploads'
+import { currentConnectionKey } from '../agentAccess'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
@@ -46,6 +49,10 @@ const ALLOWED_MIME = new Set([
   'audio/mp4',
   'audio/wav',
   'text/plain',
+  // 0.16 (docs/adr/2045-*): agent results; attachments only, like every non-raster type
+  'text/csv',
+  'text/markdown',
+  'application/json',
 ])
 
 function isAllowedMime(mime: string): boolean {
@@ -55,6 +62,26 @@ function isAllowedMime(mime: string): boolean {
 function isTooLargeError(err: unknown): boolean {
   const e = err as { code?: string; statusCode?: number } | null
   return e?.code === 'FST_REQ_FILE_TOO_LARGE' || e?.statusCode === 413
+}
+
+/**
+ * Daily budget of a person's uploads through connections (docs/adr/2045-*, 2065-*): the files their
+ * connections uploaded in the last 24 hours (files.uploaded_via). Uploads in the browser do not count
+ * and have no budget. 429 past it; AGENT_UPLOAD_DAILY_MB=0 turns the budget off.
+ */
+async function assertDailyUploadBudget(userId: string): Promise<void> {
+  if (AGENT_UPLOAD_DAILY_BYTES === null) return
+  const [r] = (await db.execute(sql`
+    SELECT coalesce(sum(size), 0)::bigint AS bytes FROM files
+    WHERE created_by = ${userId} AND uploaded_via IS NOT NULL AND created_at > now() - interval '24 hours'
+  `)) as unknown as { bytes: string | number }[]
+  if (Number(r?.bytes ?? 0) >= AGENT_UPLOAD_DAILY_BYTES) {
+    throw new AppError(
+      429,
+      'UPLOAD_BUDGET',
+      `This account's connections uploaded ${mbText(AGENT_UPLOAD_DAILY_BYTES)} in the last 24 hours; uploads through connections wait until older ones fall out of that window`,
+    )
+  }
 }
 
 function uploadPath(id: string): string {
@@ -73,41 +100,62 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     // With a pageId, link the file only after checking the page is visible to the requester
     // (protects private attachments). If it is not visible or in another workspace, 404 to hide
     // that it exists. Without one, null (legacy compatibility).
+    // A connection (MCP upload_file, API token; docs/adr/2044-*, 2045-*) uploads into a page it may
+    // edit or suggest on — lock rules, people rows and its range apply — with a smaller cap, a daily
+    // budget, and a type the server decides from the name and the bytes.
+    const bearer = req.authVia === 'bearer'
+    if (bearer && !pageId) throw badRequest('Uploads through a connection go into a page: pass pageId')
+    // Server default and workspace switch (docs/adr/2065-*); people's uploads are not affected.
+    if (bearer) await assertAgentUploadsAllowed(workspaceId)
     let filePageId: string | null = null
     if (pageId) {
       const page = await findVisiblePage(pageId, user.id)
       if (!page || page.workspaceId !== workspaceId) throw notFound()
       if (role === 'guest') await assertPageEditable(pageId, user.id, { role })
+      if (bearer) {
+        if (!(await suggestionRight(db, pageId, user.id, role))) await assertPageEditable(pageId, user.id, { role })
+        await assertDailyUploadBudget(user.id)
+      }
       filePageId = pageId
     }
 
-    const mp = await req.file()
+    // a connection's cap may be above the browser's 25 MB (AGENT_UPLOAD_MAX_MB, docs/adr/2065-*)
+    const mp = await req.file(bearer ? { limits: { fileSize: AGENT_UPLOAD_MAX_BYTES } } : undefined)
     if (!mp) throw badRequest('No file to upload')
 
-    const mime = mp.mimetype
-    if (!isAllowedMime(mime)) {
+    let mime = mp.mimetype
+    if (!bearer && !isAllowedMime(mime)) {
       mp.file.resume() // drain so the request can finish
       throw new AppError(415, 'UNSUPPORTED_TYPE', 'This file type is not supported')
     }
 
     const name = path.basename(mp.filename || 'file').slice(0, 200)
+    const maxBytes = bearer ? AGENT_UPLOAD_MAX_BYTES : MAX_FILE_BYTES
+    const tooLarge = () =>
+      new AppError(413, 'PAYLOAD_TOO_LARGE', bearer ? `File is too large (max ${mbText(AGENT_UPLOAD_MAX_BYTES)} through a connection)` : 'File is too large (max 25MB)')
 
     // Stream straight to a temp file next to the final location, then rename (docs/adr/0751-*).
     // Previously toBuffer() held the whole file (up to 25 MB) per concurrent upload.
     const tmp = uploadPath(`.upload-${randomUUID()}`)
     let size: number
     try {
-      size = await streamToFile(mp.file, tmp, MAX_FILE_BYTES)
+      size = await streamToFile(mp.file, tmp, maxBytes)
     } catch (err) {
       await rm(tmp, { force: true })
-      if (isTooLargeError(err)) {
-        throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')
-      }
+      if (isTooLargeError(err)) throw tooLarge()
       throw err
     }
-    if (mp.file.truncated || size < 0) {
+    if (mp.file.truncated || size < 0 || size > maxBytes) {
       await rm(tmp, { force: true })
-      throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')
+      throw tooLarge()
+    }
+    if (bearer) {
+      const typed = agentUploadMime(name, await readFile(tmp))
+      if ('error' in typed) {
+        await rm(tmp, { force: true })
+        throw new AppError(415, 'UNSUPPORTED_TYPE', `Not uploaded: ${typed.error}`)
+      }
+      mime = typed.mime
     }
 
     let row: { id: string }
@@ -121,6 +169,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
           mime,
           size,
           createdBy: user.id,
+          uploadedVia: bearer ? (currentConnectionKey() ?? 'bearer') : null,
         })
         .returning({ id: files.id })
       await rename(tmp, uploadPath(row.id))

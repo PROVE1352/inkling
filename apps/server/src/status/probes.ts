@@ -11,6 +11,7 @@
  * The only outbound request is the opt-in release check (version.ts, UPDATE_CHECK=github).
  */
 import { readFile, stat, statfs } from 'node:fs/promises'
+import { agentUploadEnv } from '../agentUploads'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { BACKUP_DIR, currentAlert, isConfigured, isStale, readStatus } from '../backup/store'
@@ -162,6 +163,13 @@ export function securityEnvFacts(): Omit<StatusFacts['security'], 'plaintextSecr
     oidcOpenAutoCreate:
       !!(env.oidc.issuer && env.oidc.clientId && env.oidc.clientSecret) && env.oidc.autoCreate && env.oidc.allowedDomains.length === 0,
     dbPasswordWeak: dbPasswordWeakness(env.databaseUrl),
+    agentUploads: {
+      mode: agentUploadEnv.mode,
+      maxBytes: agentUploadEnv.maxBytes,
+      dailyBytes: agentUploadEnv.dailyBytes,
+      mcpBodyBytes: agentUploadEnv.mcpUploadBodyBytes,
+      warnings: agentUploadEnv.warnings.length,
+    },
   }
 }
 

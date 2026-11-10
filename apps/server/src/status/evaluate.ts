@@ -72,6 +72,8 @@ export interface StatusFacts {
     /** OIDC_AUTO_CREATE=1 without OIDC_ALLOWED_DOMAINS: any account at the provider can join. */
     oidcOpenAutoCreate: boolean
     dbPasswordWeak: DbPasswordReason | null
+    /** Uploads by AI agents (docs/adr/2065-*): server default and limits; warnings = values not taken as written. */
+    agentUploads?: { mode: 'on' | 'off' | 'never'; maxBytes: number; dailyBytes: number | null; mcpBodyBytes: number; warnings: number }
   }
   update: {
     enabled: boolean
@@ -402,6 +404,22 @@ function securityItems(f: StatusFacts): StatusItem[] {
     level: prodWarn(f, s.dbPasswordWeak !== null),
     data: { weak: s.dbPasswordWeak !== null, reason: s.dbPasswordWeak },
   })
+  if (s.agentUploads) {
+    const a = s.agentUploads
+    out.push({
+      key: 'security.agentUploads',
+      group: g,
+      level: a.warnings > 0 ? 'warn' : a.mode === 'on' ? 'ok' : 'off',
+      data: {
+        mode: a.mode,
+        maxMb: Math.round((a.maxBytes / 1048576) * 10) / 10,
+        // null = no daily budget (AGENT_UPLOAD_DAILY_MB=0)
+        dailyMb: a.dailyBytes === null ? null : Math.round((a.dailyBytes / 1048576) * 10) / 10,
+        mcpBodyMb: Math.round((a.mcpBodyBytes / 1048576) * 10) / 10,
+        warnings: a.warnings,
+      },
+    })
+  }
   return out
 }
 

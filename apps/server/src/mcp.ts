@@ -13,6 +13,7 @@ import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './o
 import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFailure } from './agentTokens'
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
+import { agentUploadEnv } from './agentUploads'
 import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
 import { reviewFactsFor } from './review'
@@ -1054,8 +1055,9 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
       earlyUsers.set(req, user)
       if (!user) return handler(req, reply) // 401 without reading or parsing the body
     }
-    // import_folder sends many files at once; the default 1 MB limit overflows even for small folders
-    inner.post('/mcp', { bodyLimit: 12 * 1024 * 1024, onRequest: authFirst }, handler)
+    // import_folder sends many files at once; the default 1 MB limit overflows even for small folders.
+    // Above 12 MB only upload_file calls get in (AGENT_UPLOAD_MAX_MB, mcpBody.ts, docs/adr/2065-*).
+    inner.post('/mcp', { bodyLimit: agentUploadEnv.mcpUploadBodyBytes, onRequest: authFirst }, handler)
     inner.get('/mcp', handler)
     inner.delete('/mcp', handler)
   })

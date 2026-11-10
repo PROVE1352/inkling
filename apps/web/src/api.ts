@@ -2254,6 +2254,19 @@ export function useSetAgentInk(wsId: string) {
   })
 }
 
+/** "Uploads by AI agents" (docs/adr/2065-*): owners and admins; 'default' follows the server's AGENT_UPLOADS. */
+export function useSetAgentUploads(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: import('@inkling/shared').SetAgentUploadsInput) =>
+      api<WorkspaceSettingsResponse>(`/api/workspaces/${wsId}/settings/agent-uploads`, { method: 'PUT', body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      qc.setQueryData<WorkspaceSettingsResponse>(qkAdmin.settings(wsId), (prev) => (prev ? { ...prev, settings: data.settings } : prev))
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
 /** "Suggest only after flagged content" (docs/adr/2043-*): owners and admins. */
 export function useSetAgentTaint(wsId: string) {
   const qc = useQueryClient()
@@ -2489,6 +2502,7 @@ function useLockMutation<V>(pageId: string, wsId: string, fn: (v: V) => Promise<
       qc.invalidateQueries({ queryKey: ['pageLock'] })
       qc.invalidateQueries({ queryKey: qk.pages(wsId) })
       qc.invalidateQueries({ queryKey: qkAdmin.agentInstructions(wsId) })
+      qc.invalidateQueries({ queryKey: ['agentInstructionLengths', wsId] }) // lib/instructionLengthApi.ts
       qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
     },
   })

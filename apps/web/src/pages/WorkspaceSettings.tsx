@@ -28,6 +28,7 @@ import {
   useReviewDue,
   useSetAgentInk,
   useSetAgentTaint,
+  useSetAgentUploads,
   useSetTwoFactorPolicy,
   useSharedList,
   useUnblockAgent,
@@ -723,6 +724,7 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
       <AgentPolicyGroup ws={ws} connections={connections.map((c) => ({ key: `grant:${c.grantId}`, label: `${c.client.name} · ${c.user.name}` }))} />
       <AgentInkGroup ws={ws} />
       <AgentTaintGroup ws={ws} />
+      <AgentUploadsGroup ws={ws} />
       <section className="mb-8">
         <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('agents.connections')}</h2>
         <div className="divide-y divide-line rounded-lg border border-line">
@@ -924,6 +926,48 @@ function AgentTaintGroup({ ws }: { ws: WorkspaceDTO }) {
           }}
         />
       </Row>
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
+  )
+}
+
+/**
+ * "Uploads by AI agents" (docs/adr/2065-*): follow the server default, on or off. Owners and admins;
+ * a server with AGENT_UPLOADS=never shows it disabled with the reason.
+ */
+function AgentUploadsGroup({ ws }: { ws: WorkspaceDTO }) {
+  const t = useT()
+  const settings = useWorkspaceSettings(ws.id)
+  const set = useSetAgentUploads(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const s = settings.data?.settings
+  const server = s?.agentUploadsServer ?? 'on'
+  const never = server === 'never'
+  const value: 'default' | 'on' | 'off' = never ? 'off' : (s?.agentUploads ?? 'default')
+  const options: { value: 'default' | 'on' | 'off'; label: string }[] = [
+    { value: 'default', label: t(server === 'off' ? 'agentUploads.defaultOff' : 'agentUploads.defaultOn') },
+    { value: 'on', label: t('agentUploads.on') },
+    { value: 'off', label: t('agentUploads.off') },
+  ]
+  return (
+    <Group title={t('agentUploads.group')}>
+      <Row id="agentUploads" title={t('agentUploads.title')} desc={t('agentUploads.desc')}>
+        <Select
+          value={value}
+          options={never ? options.filter((o) => o.value === 'off') : options}
+          label={t('agentUploads.title')}
+          disabled={never || !capsOf(ws).manage || !settings.data || set.isPending}
+          onChange={(v) => {
+            setError(null)
+            set.mutate({ value: v }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+          }}
+        />
+      </Row>
+      {never && (
+        <p className="px-4 py-2 text-xs text-sub" data-testid="agent-uploads-never">
+          {t('agentUploads.never')}
+        </p>
+      )}
       {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
     </Group>
   )

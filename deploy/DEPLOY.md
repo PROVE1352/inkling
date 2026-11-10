@@ -30,7 +30,7 @@ the server never has to run the build (which needs more than 1 GB of memory).
 | | Published image (default) | Source build |
 |---|---|---|
 | Start / update | `docker compose pull app && docker compose up -d app` | `docker compose -f compose.yaml -f compose.build.yaml up -d --build app` |
-| Version | `INKLING_VERSION` in `.env`: `0.3.1`, `0.3` or empty (= `latest`) | whatever is checked out |
+| Version | `INKLING_VERSION` in `.env`: a release as `X.Y.Z` (exact) or `X.Y` (newest patch), or empty (= `latest`) | whatever is checked out |
 | Image name | `ghcr.io/prove1352/inkling:<version>` | `inkling:local` (never pulled) |
 
 `compose.yaml` names the published image **and** keeps `build: .`, so `docker compose up -d --build`
@@ -321,6 +321,20 @@ Inside the container `localhost` is the container: for Ollama on the Docker host
 `http://host.docker.internal:11434/v1` (Docker Desktop) or the host's LAN address. Boot log, progress, memory and how
 to turn it off again: [docs/OPERATIONS.md](../docs/OPERATIONS.md) section 5.
 
+## 3-H2. Uploads by AI agents
+
+Agents attach files to pages with the MCP tool `upload_file`, and API tokens with `POST /api/files`
+(docs/adr/2044-*, 2065-*). Each workspace can follow the server default or turn it on or off (Workspace settings ›
+Connected agents › File uploads; owners and admins). People's uploads in the browser and agents reading
+attachments are never affected. Put the variables in `.env` only to change the defaults; Admin › Status shows the
+values in use.
+
+| env | Meaning | Default |
+|---|---|---|
+| `AGENT_UPLOADS` | `on` = allowed unless a workspace turns it off; `off` = refused unless a workspace turns it on; `never` = refused everywhere, workspaces cannot turn it on. Any other value counts as `off`, with a warning at boot | `on` |
+| `AGENT_UPLOAD_MAX_MB` | Largest file an agent may upload, in MB (at most 64; higher values are cut with a warning). Above 8, MCP requests that call upload_file may be as large as the file in base64 plus 1 MB; other MCP requests keep 12 MB. Memory per upload in flight is about four times the file | `5` |
+| `AGENT_UPLOAD_DAILY_MB` | Budget per account per 24 hours over the files that account's connections uploaded; `0` = no budget. Browser uploads do not count and have none | `200` |
+
 ## 3-I. One server process per database
 
 The server refuses to start while another Inkling process uses the same database, because two processes overwrite
@@ -361,7 +375,7 @@ database until then. Take a backup first, then (add your `-f` files to every com
 cd /opt/inkling
 ./deploy/backup.sh                 # ends with "ok set=<id> ..."
 git pull                           # compose files and deploy scripts
-# optional: pin the release in .env, e.g. INKLING_VERSION=0.3.1
+# optional: pin the release in .env as INKLING_VERSION=X.Y.Z (or X.Y)
 docker compose pull app
 docker compose up -d app
 docker compose logs --tail 50 app  # migration result and "Server listening"

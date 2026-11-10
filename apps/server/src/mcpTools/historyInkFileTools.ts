@@ -24,6 +24,8 @@ import { recordFlaggedFile } from '../agentTaint'
 import { getBearerUser } from '../oauth'
 import { scanInjection, suspiciousNote } from '../context/injectionScan'
 import { extractPdfText, parsePageRange, PDF_LIMITS } from '../pdfText'
+import { AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from '../uploadCheck'
+import { agentUploadEnv, assertAgentUploadsAllowed, mbText } from '../agentUploads'
 
 /**
  * MCP tools of 0.12 (docs/adr/1510-* .. 1514-*): handwriting as pictures (read_ink), version
@@ -475,6 +477,11 @@ async function readPdf(ctx: ToolCtx, meta: FileMeta, head: string, pages: string
   return text(`${head}\n${status}${flag}\n${wrapUntrusted(body, { source: 'file', id: meta.id })}`)
 }
 
+// The handler measures the decoded size and answers with the limit; the schema cap only bounds the
+// string (the request body limit is reached first).
+/** Longest text/base64 argument: what fits in the /mcp body that upload_file requests get (docs/adr/2065-*). */
+const UPLOAD_ARG_MAX = agentUploadEnv.mcpUploadBodyBytes
+
 export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
   server.registerTool(
     'read_file',
@@ -532,6 +539,96 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
         return text(`${head}${flag}\n${wrapUntrusted(body, { source: 'file', id: meta.id })}`)
       }
       return only('Content of this type is not extracted; only the metadata is shown.')
+    }),
+  )
+
+  server.registerTool(
+    'upload_file',
+    {
+      title: 'Upload attachment',
+      description:
+        `Attach a file you made (png, jpg, gif, webp, pdf, txt, csv, md, json; max ${mbText(AGENT_UPLOAD_MAX_BYTES)}) to a page ` +
+        'and link it at the end of the page or of section (images inline). The link follows the page\'s edit rules.',
+      inputSchema: {
+        pageId: idArg('page').describe('Page to attach to'),
+        name: z.string().trim().min(1).max(200).describe('File name with extension'),
+        text: z.string().max(UPLOAD_ARG_MAX).optional().describe('Text file content'),
+        base64: z.string().max(UPLOAD_ARG_MAX).optional().describe('Other files: base64'),
+        section: z.string().trim().min(1).max(500).optional().describe('Section anchor to link in'),
+        attachOnly: z.boolean().optional().describe('Store without a link'),
+      },
+    },
+    wrapWrite(ctx, async ({ pageId, name, text: body, base64, section, attachOnly }) => {
+      if ((body === undefined) === (base64 === undefined)) throw new ToolError('pass exactly one of text (text files) or base64')
+      // Off for this workspace (docs/adr/2065-*): say so before size or type, which would not help.
+      const target = await findVisiblePage(pageId, ctx.user.id)
+      if (!target) throw new ToolError('page not found or not visible to you; use find_context or list_pages to get a valid id')
+      await assertAgentUploadsAllowed(target.workspaceId).catch((err: unknown) => {
+        throw err instanceof AppError
+          ? new ToolError(`${err.message} (${err.code}). Nothing was stored; do not retry. Put the content into the page as Markdown, or tell the user`)
+          : err
+      })
+      const b64 = base64?.replace(/\s+/g, '')
+      const tooBig = (n: number) =>
+        new ToolError(
+          `the file is ${humanSize(n)}; upload_file takes at most ${humanSize(AGENT_UPLOAD_MAX_BYTES)} ` +
+            '(set by the server admin). Make it smaller (e.g. a lower-resolution image, fewer rows) or split it',
+        )
+      // measured before decoding: a 9 MB base64 string is not turned into a buffer to be refused
+      const size = body !== undefined ? Buffer.byteLength(body, 'utf8') : Math.floor((b64!.length * 3) / 4)
+      if (size > AGENT_UPLOAD_MAX_BYTES + 2) throw tooBig(size)
+      const bytes = body !== undefined ? Buffer.from(body, 'utf8') : Buffer.from(b64!, 'base64')
+      if (base64 !== undefined && bytes.length === 0 && base64.trim()) throw new ToolError('base64 is not valid base64')
+      if (bytes.length === 0) throw new ToolError('the file is empty')
+      if (bytes.length > AGENT_UPLOAD_MAX_BYTES) throw tooBig(bytes.length)
+      const fileName = name.replace(/[/\\\u0000-\u001f]/g, '_')
+      const typed = agentUploadMime(fileName, bytes)
+      if ('error' in typed) throw new ToolError(`Not uploaded: ${typed.error}`)
+      const page = target
+      const boundary = `----inkling${randomUUID().replace(/-/g, '')}`
+      const payload = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName.replace(/"/g, "'")}"\r\n` +
+            `Content-Type: ${typed.mime}\r\n\r\n`,
+          'utf8',
+        ),
+        bytes,
+        Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+      ])
+      const up = (
+        await call(ctx, 'POST', '/api/files', {
+          query: { workspaceId: page.workspaceId, pageId },
+          payload,
+          headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        })
+      ).json() as { file: { id: string; url: string; name: string; mime: string; size: number } }
+      const f = up.file
+      const done = `Uploaded "${cleanText(f.name)}" (${f.mime}, ${humanSize(f.size)}) as file ${f.id}: ${ctx.origin}${f.url}`
+      if (attachOnly) {
+        return text(`${done}\nNot linked anywhere: people will not see it until a page links ${f.url} (not in the change feed either).`)
+      }
+      const label = f.name.replace(/[[\]]/g, '')
+      const md = IMAGE_MIME.has(f.mime) ? `![${label}](${f.url})` : `[${label}](${f.url})`
+      let res: Awaited<ReturnType<typeof call>>
+      try {
+        res = section
+          ? await call(ctx, 'POST', `/api/pages/${pageId}/section`, { json: { ref: section, markdown: md, mode: 'append' } })
+          : await call(ctx, 'POST', `/api/pages/${pageId}/content`, { json: { markdown: md, mode: 'append' } })
+      } catch (err) {
+        if (!(err instanceof ToolError)) throw err
+        // The file is stored: say so, so a retry links it instead of uploading it again.
+        throw new ToolError(
+          `${done}\nBut the link was not written: ${err.message}\nDo not upload it again; link it with patch_section(pageId, section, mode="append", markdown="${md}") once that works.`,
+        )
+      }
+      if (res.statusCode === 202) {
+        return text(`${done}\nThe link was not written: ${suggestionMadeText((res.json() as { suggestion: SuggestionDTO }).suggestion)}`)
+      }
+      if (section) {
+        const r = res.json() as { section: { anchor: string; version: string } | null }
+        return text(`${done}\nLinked at the end of §${r.section?.anchor ?? section}${r.section ? ` (now v=${r.section.version})` : ''}.`)
+      }
+      return text(`${done}\nLinked at the end of page ${pageId}.`)
     }),
   )
 }

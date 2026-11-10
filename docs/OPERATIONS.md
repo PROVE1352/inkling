@@ -91,7 +91,7 @@ Releases are published as a multi-arch image, `ghcr.io/prove1352/inkling:<X.Y.Z>
 ```bash
 ./deploy/backup.sh                 # 1. backup (ends with "ok set=<id> ...")
 git pull                           # 2. compose files and deploy scripts of the new release
-#    optional: INKLING_VERSION=0.3.1 in .env to pin the release (empty = latest)
+#    optional: INKLING_VERSION=X.Y.Z (or X.Y) in .env to pin the release (empty = latest)
 docker compose pull app            # 3. fetch the image
 docker compose up -d app           # 4. restart; migrations run in one transaction at boot
 docker compose logs --tail 50 app  #    check the migration result and "Server listening"

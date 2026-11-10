@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { agentPropKey, agentRefOfCell } from '@inkling/shared'
-import type { TeamAgentsDTO, WorkspaceConnectionDTO } from '@inkling/shared'
+import type { SuggestOnlyDTO, TeamAgentsDTO, WorkspaceConnectionDTO } from '@inkling/shared'
 import { api, useMemberScope } from './api'
 
 // Team agents (docs/adr/1860-* .. 1866-*): the members' live agent connections (mention and assignee
@@ -38,6 +38,39 @@ export function useTeamAgents(wsId: string | undefined, since: string) {
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
+}
+
+/**
+ * Lift a connection's suggest-only state for this workspace's content (docs/adr/2042-*): workspace
+ * owners/admins, or the connection's owner. The answer's `suggestOnly` is still set when the flagged
+ * content was in another workspace.
+ */
+export function useReleaseConnectionHere(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (connection: string) =>
+      api<{ released: number; suggestOnly: SuggestOnlyDTO | null }>(`/api/workspaces/${wsId}/agent-connections/release`, {
+        method: 'POST',
+        body: JSON.stringify({ connection }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teamAgents', wsId] })
+      qc.invalidateQueries({ queryKey: qkTeamAgents.connections(wsId) })
+    },
+  })
+}
+
+/** The suggest-only state of an agent row: the first of its live connections that is suggest-only here. */
+export function suggestOnlyOf(
+  connections: string[],
+  states: Record<string, SuggestOnlyDTO> | undefined,
+): { key: string; state: SuggestOnlyDTO } | null {
+  if (!states) return null
+  for (const key of connections) {
+    const state = states[key]
+    if (state) return { key, state }
+  }
+  return null
 }
 
 /** "Bob · Claude Code" — the label a chip or a cell shows for a person's connection. */

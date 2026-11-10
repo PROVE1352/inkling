@@ -24,4 +24,10 @@ export default {
   'notifications.forAgent': 'For your {client}',
   'notifSettings.agentHandoffCopy': 'Show me what is handed to my agents',
   'notifSettings.agentHandoffCopyDesc': "When someone mentions or assigns one of your agent connections, it goes to that agent's inbox. On: you see a copy here too.",
+  'teamAgents.suggestOnly': 'Suggestions only until {time}',
+  'teamAgents.suggestOnlyTip': 'This agent read text that looks like a prompt injection. Its edits wait for review until then.',
+  'teamAgents.releaseHere': 'Allow edits here',
+  'teamAgents.releaseElsewhere': 'Only {name} can lift it (the text was elsewhere)',
+  'teamAgents.releaseElsewhereSelf': 'The text was in another workspace: lift it in Settings › Connections',
+  'teamAgents.releaseFailed': 'Could not lift it. Try again.',
 }

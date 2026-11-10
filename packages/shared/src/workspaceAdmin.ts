@@ -50,6 +50,13 @@ export interface WorkspaceSettingsDTO {
   agentInkRead?: boolean
   /** Connections that read flagged content write here only as suggestions for a while (docs/adr/2043-*). Additive; on by default. */
   agentTaintDemote?: boolean
+  /**
+   * Uploads through connections (upload_file, bearer POST /files; docs/adr/2065-*): null = follow the
+   * server default, 'on' / 'off' = this workspace's choice. Additive.
+   */
+  agentUploads?: 'on' | 'off' | null
+  /** The server's AGENT_UPLOADS default ('never' = off everywhere, the workspace cannot turn it on). Read-only, additive. */
+  agentUploadsServer?: 'on' | 'off' | 'never'
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */
@@ -116,6 +123,10 @@ export type SetTwoFactorPolicyInput = z.infer<typeof setTwoFactorPolicySchema>
 /** PUT /workspaces/:id/settings/agent-ink (owners and admins, docs/adr/1510-*). */
 export const setAgentInkSchema = z.object({ enabled: z.boolean() }).strict()
 export type SetAgentInkInput = z.infer<typeof setAgentInkSchema>
+
+/** PUT /workspaces/:id/settings/agent-uploads (owners and admins, docs/adr/2065-*). 'default' = follow the server. */
+export const setAgentUploadsSchema = z.object({ value: z.enum(['default', 'on', 'off']) }).strict()
+export type SetAgentUploadsInput = z.infer<typeof setAgentUploadsSchema>
 
 // --- Audit log --------------------------------------------------------------
 

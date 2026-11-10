@@ -130,6 +130,15 @@ export default {
   'agentTaint.desc':
     'On by default. When an agent reads text that looks like a prompt injection, its edits here wait for a person for an hour and other changes are refused. Turn it off if the warnings keep firing on harmless pages; the connection’s owner or an admin can also lift it for one agent.',
 
+  'agentUploads.group': 'File uploads',
+  'agentUploads.title': 'Uploads by AI agents',
+  'agentUploads.desc':
+    'Whether AI agents connected to this workspace may attach files to pages (upload_file, or an API token posting a file). Uploads by people in the browser and agents reading attachments are not affected.',
+  'agentUploads.defaultOn': 'Server default (on)',
+  'agentUploads.defaultOff': 'Server default (off)',
+  'agentUploads.on': 'On',
+  'agentUploads.off': 'Off',
+  'agentUploads.never': 'This server turns uploads by AI agents off everywhere (AGENT_UPLOADS=never); only the server admin can change that.',
 
   'audit.filterAction': 'Event type',
   'audit.filterActor': 'Person',

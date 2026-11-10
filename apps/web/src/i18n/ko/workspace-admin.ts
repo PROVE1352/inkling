@@ -123,6 +123,15 @@ export default {
   'agentTaint.desc':
     '기본은 켜져 있습니다. 에이전트가 프롬프트 인젝션처럼 보이는 글을 읽으면 한 시간 동안 이 워크스페이스에서의 편집은 사람의 승인을 기다리고 다른 변경은 거절됩니다. 멀쩡한 페이지에서 경고가 자주 뜨면 끄세요. 연결 주인이나 관리자가 에이전트 하나만 풀어 줄 수도 있습니다.',
 
+  'agentUploads.group': '파일 업로드',
+  'agentUploads.title': 'AI 에이전트의 파일 업로드',
+  'agentUploads.desc':
+    '이 워크스페이스에 연결된 AI 에이전트가 페이지에 파일을 첨부할 수 있는지 정합니다(upload_file, API 토큰으로 파일 올리기). 사람이 브라우저에서 올리는 것과 에이전트가 첨부 파일을 읽는 것에는 영향이 없습니다.',
+  'agentUploads.defaultOn': '서버 기본값 따름(켜짐)',
+  'agentUploads.defaultOff': '서버 기본값 따름(꺼짐)',
+  'agentUploads.on': '켬',
+  'agentUploads.off': '끔',
+  'agentUploads.never': '이 서버는 AI 에이전트의 업로드를 모든 워크스페이스에서 막아 두었습니다(AGENT_UPLOADS=never). 서버 관리자만 바꿀 수 있습니다.',
 
   'audit.filterAction': '이벤트 종류',
   'audit.filterActor': '사람',

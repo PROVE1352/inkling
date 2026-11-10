@@ -103,6 +103,17 @@ export function itemValue(it: StatusItem): string {
       return tk(`${k}.${String(d.policy)}`)
     case 'security.dbPassword':
       return tk(`${k}.${d.weak ? String(d.reason) : 'ok'}`)
+    case 'security.agentUploads': {
+      // the values in use, always; a value that was cut or ignored adds a warning (docs/adr/2065-*)
+      const parts = [
+        d.mode === 'never'
+          ? tk(`${k}.never`)
+          : tk(`${k}.${String(d.mode)}${d.dailyMb === null ? 'NoBudget' : ''}`, { max: num(d.maxMb), daily: num(d.dailyMb) }),
+      ]
+      if (d.mode !== 'never' && num(d.mcpBodyMb) > 12) parts.push(tk(`${k}.mcpBody`, { mb: num(d.mcpBodyMb) }))
+      if (num(d.warnings) > 0) parts.push(tk(`${k}.invalid`))
+      return parts.join(' · ')
+    }
     case 'update.check': {
       const p = { current: String(d.current ?? ''), latest: String(d.latest ?? '') }
       if (!d.enabled) return tk(`${k}.disabled`, p)

@@ -103,6 +103,8 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   PAGE_NOT_FOUND: NOT_FOUND_HINT.page,
   // docs/adr/2040-*: the message already says what still works and who lifts it
   CONNECTION_SUGGEST_ONLY: 'until then only suggestions (patch_section, patch_sections, update_page) and comments are accepted',
+  // docs/adr/2065-*: the server default or the workspace switch; the message says who can change it
+  AGENT_UPLOADS_OFF: 'nothing was stored; do not retry. Put the content into the page as Markdown, or tell the user',
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }

@@ -76,5 +76,17 @@ migrations + `pnpm test:db` against Postgres 16, then a Docker build.
   `get_instructions` and the `applies:` line are the only way rules reach agents.
 - **Untrusted content** ([ADR 0976](docs/adr/0976-data-instruction-boundary-in-mcp-output.md), [0977](docs/adr/0977-injection-signals-and-taint-record.md)):
   member-written text in a new MCP tool's text output goes through `wrapUntrusted`/`cleanText`
-  (`mcpTools/trust.ts`); injection heuristics are computed at indexing time only (`context/injectionScan.ts`).
+  (`mcpTools/trust.ts`); injection heuristics are computed at indexing time for sections and, for text a tool
+  returns from outside `page_chunks` (attachments, PDF text), when it is returned (`scanInjection` +
+  `recordFlaggedFile`, [ADR 2046](docs/adr/2046-read-file-text-by-extension-and-read-time-scan.md)). A new tool
+  (or resource) that hands page content to an agent passes `read: true` to `loadAgentContext`, or runs through
+  read_page as MCP resources do, so the taint record sees it ([ADR 2040](docs/adr/2040-suggest-only-after-flagged-content.md)).
   These are mitigations, not permission checks.
+- **Suggest-only connections** ([ADR 2040–2043](docs/adr/2042-suggest-only-window-and-releases.md)): a bearer
+  connection that read flagged content may write only through the routes in `OPEN_WHILE_SUGGEST_ONLY`
+  (`agentTaint.ts`) and the section/body writes that `suggestionMode` turns into suggestions. New write routes are
+  refused for it through `requireMembership` (`guardWriteRoute`) and `assertCan`; add a route to the open list only
+  if it changes no page content, and keep `agentTaint.db.test.ts`'s route sweep green.
+- **Tool profiles** ([ADR 2000](docs/adr/2000-tool-profiles-core-and-full-in-the-mcp-url.md)): every new tool goes
+  into exactly one of `CORE_TOOLS` or `HIDDEN_GROUPS` (`mcpTools/profiles.ts`; `toolProfiles.test.ts` fails
+  otherwise). Hidden tools run through `more_tools` on the same tools/call handler, so they need nothing extra.

@@ -155,6 +155,11 @@ services:
       EMBEDDING_QUERY_TIMEOUT_MS: ${EMBEDDING_QUERY_TIMEOUT_MS:-}
       EMBEDDING_MAX_CHARS: ${EMBEDDING_MAX_CHARS:-}
       EMBEDDING_CACHE_MB: ${EMBEDDING_CACHE_MB:-}
+      # Uploads by AI agents (upload_file, API tokens; see .env.example, docs/adr/2065-*). Empty = defaults:
+      # on unless a workspace turns them off, 5 MB per file, 200 MB per account per 24 hours.
+      AGENT_UPLOADS: ${AGENT_UPLOADS:-}
+      AGENT_UPLOAD_MAX_MB: ${AGENT_UPLOAD_MAX_MB:-}
+      AGENT_UPLOAD_DAILY_MB: ${AGENT_UPLOAD_DAILY_MB:-}
       # With NODE_ENV=production an unset/empty value REQUIRES a signup key; only an explicit
       # SIGNUP_REQUIRE_KEY=0 opens public signup.
       SIGNUP_REQUIRE_KEY: ${SIGNUP_REQUIRE_KEY:-}

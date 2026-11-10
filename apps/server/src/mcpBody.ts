@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { AppError } from './errors'
+import { MCP_BASE_BODY_BYTES } from './agentUploads'
 
 /**
  * Request bodies of POST /mcp (B-L10, docs/adr/1526-*).
@@ -71,6 +72,26 @@ export function registerMcpJsonParser(scope: FastifyInstance): void {
       )
       return
     }
-    parse(req, body.toString('utf8'), done)
+    if (body.length <= MCP_BASE_BODY_BYTES) {
+      parse(req, body.toString('utf8'), done)
+      return
+    }
+    // Bodies past 12 MB exist only for upload_file with a raised AGENT_UPLOAD_MAX_MB (docs/adr/2065-*).
+    parse(req, body.toString('utf8'), (err: Error | null, value?: unknown) => {
+      if (err) return done(err, undefined)
+      if (!isUploadCall(value)) {
+        done(new AppError(413, 'PAYLOAD_TOO_LARGE', `Request body is larger than ${MCP_BASE_BODY_BYTES / 1048576} MB; only upload_file calls may be larger`), undefined)
+        return
+      }
+      done(null, value)
+    })
   })
+}
+
+/** A single tools/call of upload_file, directly or through more_tools (core profile). */
+export function isUploadCall(v: unknown): boolean {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const m = v as { method?: unknown; params?: { name?: unknown; arguments?: { tool?: unknown } } }
+  if (m.method !== 'tools/call') return false
+  return m.params?.name === 'upload_file' || (m.params?.name === 'more_tools' && m.params?.arguments?.tool === 'upload_file')
 }

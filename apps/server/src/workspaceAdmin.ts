@@ -12,6 +12,7 @@ import { db } from './db/index'
 import { workspaceAuditEvents, workspaces } from './db/schema'
 import { forbidden, notFound } from './errors'
 import { revealInviteCode } from './helpers'
+import { agentUploadEnv } from './agentUploads'
 
 /**
  * Workspace roles, settings and the audit log (docs/adr/0945-*, 0946-*).
@@ -53,6 +54,7 @@ export const policyColumns = {
   guestInvitePolicy: workspaces.guestInvitePolicy,
   agentInkRead: workspaces.agentInkRead,
   agentTaintDemote: workspaces.agentTaintDemote,
+  agentUploads: workspaces.agentUploads,
 } as const
 
 export type WorkspacePolicy = WorkspaceSettingsDTO
@@ -61,7 +63,8 @@ export type WorkspacePolicy = WorkspaceSettingsDTO
 export async function loadPolicy(exec: Pick<Exec, 'select'>, workspaceId: string): Promise<WorkspacePolicy> {
   const [row] = await exec.select(policyColumns).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
   if (!row) throw notFound()
-  return row
+  // the server default rides along so the settings screen can show it (docs/adr/2065-*)
+  return { ...row, agentUploadsServer: agentUploadEnv.mode }
 }
 
 export function capabilitiesFor(role: WorkspaceRole, p: WorkspacePolicy): WorkspaceCapabilities {

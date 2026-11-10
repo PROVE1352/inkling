@@ -145,6 +145,13 @@ sources. In Inkling, have an agent go through one part of the workspace on a sch
 `read_page(pageId, backlinks=true)` shows what links to a page, `find_context` on a topic shows two pages saying the
 same thing, and the `stale` and `verified, changed since` marks point at pages to re-confirm. People confirm a page
 with Verify in the app; agents cannot.
+`check_notes` does the counting in one call: broken `[[links]]` and links to pages in the trash, duplicate titles,
+pages with no link in or out, lapsed or much-changed verifications, and large pages nobody touched for 180 days,
+for a workspace or one subtree (`check_notes(parentId=…)`). It changes nothing. The `memory-review` prompt (Claude
+Code: `/mcp__inkling__memory-review`) runs the whole pass: get_instructions, check_notes, then a plan of fixes
+that waits for your OK before anything is written. With the core tool list (`/mcp?profile=core`), check_notes is
+called as `more_tools(tool="check_notes", arguments={"parentId": "…"})`; the prompt writes the call that way
+itself.
 
 **Write the source next to the fact.** A note that says how it knows something can be checked; one that does not
 just gets repeated. In the article the most useful notes held a rule together with how the agent knew it was true.

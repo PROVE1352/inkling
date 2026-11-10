@@ -97,6 +97,9 @@ import {
 } from '../components/Icons'
 import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { reloadOnceForStaleChunk } from '../lib/pwa'
+import { instructionLengthOf } from '../lib/instructionLength'
+import { useInstructionLengths } from '../lib/instructionLengthApi'
+import { InstructionLengthWarning } from '../components/InstructionLengthWarning'
 import { t as tr, useT, type TKey } from '../i18n'
 
 
@@ -418,15 +421,21 @@ function PageHeading({
 // Edit lock line under the page icon (docs/adr/0970-*): who can edit, the agent rule, and whether
 // the viewer can edit. Clicking it opens the lock dialog (details, or management for managers).
 function LockBanner({
+  wsId,
+  pageId,
   lock,
   readOnly,
   onOpen,
 }: {
+  wsId: string | undefined
+  pageId: string | undefined
   lock: PageLockDTO | undefined
   readOnly: boolean
   onOpen: () => void
 }) {
   const agentRule = lock ? agentRuleLine(lock) : null
+  // "long" badge of an instruction page (docs/adr/2021-*): the server measures, members only
+  const lengths = useInstructionLengths(wsId, !!lock?.instructions)
   const inheritedFrom = lock && lock.locked && !lock.own && lock.lockRoot ? lock.lockRoot.title : null
   return (
     <button
@@ -443,6 +452,7 @@ function LockBanner({
       {agentRule && <span>· {agentRule}</span>}
       {inheritedFrom !== null && <span>· {tr('lock.inheritedFrom', { title: inheritedFrom || tr('common.untitled') })}</span>}
       {readOnly && <span className="text-ink">· {tr('lock.readOnlyHint')}</span>}
+      {lock?.instructions && <InstructionLengthWarning length={instructionLengthOf(lengths.data, pageId)} compact />}
       {lock?.canManage && <span className="text-accent">{tr('lock.manage')}</span>}
     </button>
   )
@@ -667,7 +677,7 @@ export function PageView() {
   const lockBanner = guest ? (
     <GuestAccessNote level={lockData?.level} />
   ) : isLocked ? (
-    <LockBanner lock={lockData} readOnly={lockReadOnly} onOpen={() => setLockOpen(true)} />
+    <LockBanner wsId={wsId} pageId={pageId} lock={lockData} readOnly={lockReadOnly} onOpen={() => setLockOpen(true)} />
   ) : null
   const handleEditorReady = useCallback((e: InklingEditor | null) => setEditor(e), [])
 

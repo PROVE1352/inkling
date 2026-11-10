@@ -29,6 +29,9 @@ import { Modal } from './Modal'
 import { Spinner } from './Spinner'
 import { Toggle } from './SettingsRows'
 import { LockIcon, XIcon } from './Icons'
+import { InstructionLengthWarning } from './InstructionLengthWarning'
+import { instructionLengthOf } from '../lib/instructionLength'
+import { useInstructionLengths } from '../lib/instructionLengthApi'
 
 // Edit lock (docs/adr/0970-*) and agent instruction designation (docs/adr/0975-*) of one page.
 // Opened from the page header, the lock banner and the sidebar row menu. The server decides who
@@ -299,12 +302,15 @@ function InstructionsSection({
   const navigate = useNavigate()
   const list = useWorkspaceAgentInstructions(wsId)
   const others = (list.data ?? []).filter((i) => i.pageId !== page.id)
+  // sizes of the instruction pages as agents get them (docs/adr/2004-*, 2021-*); refetched when the dialog opens
+  const lengths = useInstructionLengths(wsId, !!lock.instructions || others.length > 0)
   const eligible = page.kind === 'doc' && page.scope !== 'private'
 
   return (
     <section className="flex flex-col gap-2 border-t border-line pt-3 text-sm">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-sub">{t('instructions.title')}</h3>
       <p className="text-xs text-sub">{t('instructions.hint')}</p>
+      {lock.instructions && <InstructionLengthWarning length={instructionLengthOf(lengths.data, page.id)} />}
       {eligible ? (
         // Remount the form when the saved designation changes so it starts from the server state.
         <InstructionsForm
@@ -335,6 +341,7 @@ function InstructionsSection({
                   className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-hover"
                 >
                   <span className="min-w-0 flex-1 truncate text-ink">{i.title || t('common.untitled')}</span>
+                  <InstructionLengthWarning length={instructionLengthOf(lengths.data, i.pageId)} compact />
                   <span className="shrink-0 text-sub">{t(MODE_LABEL[i.mode])}</span>
                 </button>
               </li>

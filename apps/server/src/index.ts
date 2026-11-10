@@ -69,6 +69,8 @@ import { registerSuggestionRoutes } from './routes/suggestions'
 import { registerAgentPolicyRoutes } from './routes/agentPolicy'
 import { registerTeamAgentRoutes } from './routes/teamAgents'
 import { registerAgentTaintRoutes } from './routes/agentTaint'
+import { registerAgentUploadRoutes } from './routes/agentUploads'
+import { agentUploadEnv, agentUploadLimitsLine } from './agentUploads'
 import { startAutoAcceptTimer } from './autoAccept'
 import { registerTaskRoutes } from './routes/tasks'
 import { registerPageRoutes } from './routes/pages'
@@ -236,6 +238,10 @@ async function main(): Promise<void> {
   //    Optional semantic search (docs/adr/1740-*): a half-filled EMBEDDING_* set stays off with a warning.
   const semanticWarning = semanticConfigWarning()
   if (semanticWarning) console.warn(`[inkling] ${semanticWarning}`)
+  //    Uploads by AI agents (docs/adr/2065-*): an unknown AGENT_UPLOADS counts as off, a too large cap is cut.
+  for (const w of agentUploadEnv.warnings) console.warn(`[inkling] ${w}`)
+  const uploadLimits = agentUploadLimitsLine(agentUploadEnv)
+  if (uploadLimits) console.log(`[inkling] ${uploadLimits}`)
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
@@ -535,6 +541,7 @@ async function main(): Promise<void> {
       // Team agents board and member connections for hand-offs (docs/adr/1862-*)
       await registerTeamAgentRoutes(api)
       await registerAgentTaintRoutes(api) // suggest-only connections after flagged content (docs/adr/2040-*)
+      await registerAgentUploadRoutes(api) // uploads by AI agents on/off per workspace (docs/adr/2065-*)
       await registerTaskRoutes(api)
       await registerSnapshotRoutes(api)
       await registerLargePageRoutes(api)

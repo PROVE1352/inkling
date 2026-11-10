@@ -1,14 +1,15 @@
 import { useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import type { TeamAgentActivityDTO, TeamPersonDTO } from '@inkling/shared'
+import type { SuggestOnlyDTO, TeamAgentActivityDTO, TeamPersonDTO } from '@inkling/shared'
 import { useLayout } from '../components/AppLayout'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { NavButtons } from '../components/NavButtons'
 import { Spinner } from '../components/Spinner'
 import { EyeOffIcon, FileTextIcon, LockIcon, MenuIcon, PlugIcon } from '../components/Icons'
-import { startOfToday, useTeamAgents } from '../teamAgentsApi'
+import { startOfToday, suggestOnlyOf, useReleaseConnectionHere, useTeamAgents } from '../teamAgentsApi'
+import { useMe, useWorkspaces } from '../api'
 import { relativeTime } from '../lib/time'
-import { useT } from '../i18n'
+import { fmtDate, useT } from '../i18n'
 
 // Team agents board (docs/adr/1862-*): per person, the sections their agents claimed (with the time
 // left), their suggestions waiting for a person, and what each agent connection did today. Pages
@@ -37,8 +38,69 @@ function PageRef({ wsId, pageId, title, hidden }: { wsId: string; pageId: string
   )
 }
 
-function AgentRow({ wsId, a }: { wsId: string; a: TeamAgentActivityDTO }) {
+/**
+ * "Suggestions only until 14:05" (docs/adr/2040-*, 2042-*): the agent read flagged content and its edits wait
+ * for review. Workspace owners/admins (and the person themself) lift it for this workspace's content; when
+ * the content was elsewhere only the person can lift it (Settings › Connections).
+ */
+function SuggestOnlyBadge({
+  wsId,
+  connection,
+  state,
+  canRelease,
+  isSelf,
+  personName,
+}: {
+  wsId: string
+  connection: string
+  state: SuggestOnlyDTO
+  canRelease: boolean
+  isSelf: boolean
+  personName: string
+}) {
   const t = useT()
+  const release = useReleaseConnectionHere(wsId)
+  const here = state.sourcesHere ?? 0
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="team-agent-suggest-only">
+      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400" title={t('teamAgents.suggestOnlyTip')}>
+        {t('teamAgents.suggestOnly', { time: fmtDate(state.until, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })}
+      </span>
+      {canRelease && here > 0 ? (
+        <button
+          type="button"
+          disabled={release.isPending}
+          onClick={() => release.mutate(connection)}
+          className="rounded px-1.5 py-0.5 text-[11px] text-accent hover:bg-hover disabled:opacity-60"
+          data-testid="team-agent-release"
+        >
+          {t('teamAgents.releaseHere')}
+        </button>
+      ) : canRelease && here === 0 ? (
+        <span className="text-[11px] text-sub">{isSelf ? t('teamAgents.releaseElsewhereSelf') : t('teamAgents.releaseElsewhere', { name: personName })}</span>
+      ) : null}
+      {release.isError && <span className="text-[11px] text-red-600">{t('teamAgents.releaseFailed')}</span>}
+    </span>
+  )
+}
+
+function AgentRow({
+  wsId,
+  a,
+  states,
+  canRelease,
+  isSelf,
+  personName,
+}: {
+  wsId: string
+  a: TeamAgentActivityDTO
+  states?: Record<string, SuggestOnlyDTO>
+  canRelease: boolean
+  isSelf: boolean
+  personName: string
+}) {
+  const t = useT()
+  const so = suggestOnlyOf(a.connections, states)
   const counts = [
     a.edits ? t('teamAgents.edits', { count: a.edits }) : null,
     a.created ? t('teamAgents.created', { count: a.created }) : null,
@@ -52,6 +114,7 @@ function AgentRow({ wsId, a }: { wsId: string; a: TeamAgentActivityDTO }) {
         <span className="font-medium text-ink">{a.client}</span>
         {a.connections.length === 0 && <span className="text-[11px] text-sub">({t('teamAgents.gone')})</span>}
         <span className="text-xs text-sub">{counts.length ? counts.join(' · ') : t('teamAgents.idle')}</span>
+        {so && <SuggestOnlyBadge wsId={wsId} connection={so.key} state={so.state} canRelease={canRelease} isSelf={isSelf} personName={personName} />}
         {a.lastAt && <span className="ml-auto text-[11px] text-sub">{relativeTime(a.lastAt)}</span>}
       </div>
       {a.recentPages.length > 0 && (
@@ -65,8 +128,21 @@ function AgentRow({ wsId, a }: { wsId: string; a: TeamAgentActivityDTO }) {
   )
 }
 
-function PersonCard({ wsId, p }: { wsId: string; p: TeamPersonDTO }) {
+function PersonCard({
+  wsId,
+  p,
+  states,
+  manager,
+  meId,
+}: {
+  wsId: string
+  p: TeamPersonDTO
+  states?: Record<string, SuggestOnlyDTO>
+  manager: boolean
+  meId: string | undefined
+}) {
   const t = useT()
+  const isSelf = !!meId && meId === p.userId
   return (
     <section className="rounded-lg border border-line p-3" data-testid="team-person">
       <h2 className="flex items-center gap-2 text-sm font-medium text-ink">
@@ -118,7 +194,7 @@ function PersonCard({ wsId, p }: { wsId: string; p: TeamPersonDTO }) {
           <h3 className="px-2 text-[11px] font-medium uppercase tracking-wide text-sub">{t('teamAgents.today')}</h3>
           <ul className="mt-1 flex flex-col">
             {p.agents.map((a) => (
-              <AgentRow key={a.client} wsId={wsId} a={a} />
+              <AgentRow key={a.client} wsId={wsId} a={a} states={states} canRelease={manager || isSelf} isSelf={isSelf} personName={p.name} />
             ))}
           </ul>
         </div>
@@ -136,6 +212,9 @@ export function TeamAgentsView() {
   const since = useMemo(() => startOfToday(), [])
   const board = useTeamAgents(ws, since)
   const d = board.data
+  const role = useWorkspaces().data?.find((w) => w.id === ws)?.role
+  const manager = role === 'owner' || role === 'admin'
+  const meId = useMe().data?.id
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -173,7 +252,7 @@ export function TeamAgentsView() {
             ) : !d || d.people.length === 0 ? (
               <p className="px-2 py-6 text-center text-sm text-sub">{t('teamAgents.empty')}</p>
             ) : (
-              d.people.map((p) => <PersonCard key={p.userId} wsId={ws} p={p} />)
+              d.people.map((p) => <PersonCard key={p.userId} wsId={ws} p={p} states={d.suggestOnly} manager={manager} meId={meId} />)
             )}
           </div>
         </div>

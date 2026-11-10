@@ -39,6 +39,14 @@ The tool descriptions say what each tool does. This is the order to use them in.
   When a tool prints `large page:`, stop appending there; `split_page` cuts an existing page at its headings.
 - Link the source (`[[Page title]]`, a URL, a commit) next to each fact you record, so the next reader can check it.
 - Keep instruction and index pages short: what is where, with links, not the details themselves.
+- Tidying: `check_notes(parentId=…)` lists broken links, duplicate titles, unlinked and stale pages (read-only);
+  the `memory-review` prompt walks through it. Propose fixes first, then apply them as edits or suggestions.
+
+## Files
+- `read_file(file)` reads an attachment from a `/files/<id>` link; PDFs by page range (`pages="1-5"`), text only.
+- `upload_file(pageId, name, text | base64)` attaches a file you made and links it at the end of the page or of
+  `section`. A workspace or the server may turn uploads off (`AGENT_UPLOADS_OFF`): then write the content into
+  the page instead.
 
 ## Coming back and handing over
 - After a break: `catch_up()` for a ranked summary (`team=true` adds other agents' claims and recent work).

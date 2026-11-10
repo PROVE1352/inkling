@@ -75,6 +75,8 @@ describe('[db] admin status summary', { skip: !HAS_DB }, async () => {
     assert.equal(typeof items['storage.largePages'].data.count, 'number')
     assert.equal(items['app.migrations'].data.state, 'current', JSON.stringify(items['app.migrations']))
     assert.equal(items['update.check'].level, 'off') // UPDATE_CHECK is not set: no outbound request
+    // uploads by AI agents (docs/adr/2065-*): the server default and limits, AGENT_UPLOADS* unset here
+    assert.deepEqual(items['security.agentUploads'].data, { mode: 'on', maxMb: 5, dailyMb: 200, mcpBodyMb: 12, warnings: 0 })
     // nothing secret or path-like leaves the server
     const raw = res.body
     const url = new URL(process.env.DATABASE_URL!)

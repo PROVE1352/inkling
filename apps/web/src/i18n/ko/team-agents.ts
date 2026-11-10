@@ -23,4 +23,10 @@ export default {
   'notifications.forAgent': '내 {client}에게 온 것',
   'notifSettings.agentHandoffCopy': '내 에이전트에게 넘긴 일도 나에게 보이기',
   'notifSettings.agentHandoffCopyDesc': '누가 내 에이전트 연결을 멘션하거나 담당으로 지정하면 그 에이전트의 inbox로 갑니다. 켜면 여기에도 사본이 옵니다.',
+  'teamAgents.suggestOnly': '{time}까지 제안만',
+  'teamAgents.suggestOnlyTip': '이 에이전트가 프롬프트 인젝션처럼 보이는 글을 읽어 그때까지 편집이 검토를 기다립니다.',
+  'teamAgents.releaseHere': '여기서 편집 다시 허용',
+  'teamAgents.releaseElsewhere': '{name}만 풀 수 있습니다(다른 곳의 글)',
+  'teamAgents.releaseElsewhereSelf': '다른 워크스페이스의 글입니다. 설정 › 연결에서 풀 수 있습니다',
+  'teamAgents.releaseFailed': '풀지 못했습니다. 다시 시도해 주세요.',
 }

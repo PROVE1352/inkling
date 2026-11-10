@@ -277,6 +277,11 @@ export const workspaces = pgTable('workspaces', {
    * switch it off when the heuristics misfire on this workspace's pages.
    */
   agentTaintDemote: boolean('agent_taint_demote').notNull().default(true),
+  /**
+   * Uploads through connections (docs/adr/2065-*): null = the server's AGENT_UPLOADS default, 'on' /
+   * 'off' = this workspace's choice. AGENT_UPLOADS=never wins over 'on'. Owners and admins set it.
+   */
+  agentUploads: text('agent_uploads', { enum: ['on', 'off'] }),
 })
 
 export const workspaceMembers = pgTable(
@@ -812,7 +817,16 @@ export const files = pgTable('files', {
   size: bigint('size', { mode: 'number' }).notNull(),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index('files_workspace_idx').on(t.workspaceId), index('files_page_idx').on(t.pageId)])
+  /**
+   * The connection that uploaded it ('grant:<id>' / 'token:<id>'; docs/adr/2065-*), null for a person's
+   * upload in the browser. The daily budget of agent uploads sums these rows only.
+   */
+  uploadedVia: text('uploaded_via'),
+}, (t) => [
+  index('files_workspace_idx').on(t.workspaceId),
+  index('files_page_idx').on(t.pageId),
+  index('files_agent_uploads_idx').on(t.createdBy, t.createdAt).where(sql`${t.uploadedVia} IS NOT NULL`),
+])
 
 /**
  * Per-page handwriting layer (pen annotations), stored separately from the body Yjs document.

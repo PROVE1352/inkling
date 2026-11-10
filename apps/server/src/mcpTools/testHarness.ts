@@ -61,6 +61,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/teamAgents')).registerTeamAgentRoutes(api)
       // suggest-only connections after flagged content (docs/adr/2040-*)
       await (await import('../routes/agentTaint')).registerAgentTaintRoutes(api)
+      await (await import('../routes/agentUploads')).registerAgentUploadRoutes(api)
       await (await import('../routes/snapshots')).registerSnapshotRoutes(api)
       await (await import('../routes/largePages')).registerLargePageRoutes(api)
       await (await import('../routes/splitPage')).registerSplitPageRoutes(api)

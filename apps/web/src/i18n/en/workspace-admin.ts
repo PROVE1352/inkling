@@ -125,6 +125,11 @@ export default {
   'agentInk.title': 'Agents can read handwriting',
   'agentInk.desc':
     "Off by default. When on, AI agents connected to this workspace can ask for a picture of a page's pen and highlighter strokes (read_ink). Page text is not affected.",
+  'agentTaint.group': 'Suspicious content',
+  'agentTaint.title': 'Agents that read suspicious text only suggest for an hour',
+  'agentTaint.desc':
+    'On by default. When an agent reads text that looks like a prompt injection, its edits here wait for a person for an hour and other changes are refused. Turn it off if the warnings keep firing on harmless pages; the connection’s owner or an admin can also lift it for one agent.',
+
 
   'audit.filterAction': 'Event type',
   'audit.filterActor': 'Person',
@@ -167,6 +172,8 @@ export default {
   'audit.action.instructions.removed': 'Agent instructions removed',
   'audit.action.agent_policy.changed': 'Agent edit policy changed',
   'audit.action.content.suspicious': 'Possible prompt-injection text found',
+  'audit.action.agent.tainted': 'Agent read suspicious text (suggestions only)',
+  'audit.action.agent.taint_released': 'Agent allowed to edit again',
   'audit.unknownActor': 'Deleted account',
   'audit.via': '(via {client})',
   'audit.empty': 'No events yet.',

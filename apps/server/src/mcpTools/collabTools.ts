@@ -42,7 +42,9 @@ export function suggestionMadeText(s: SuggestionDTO): string {
     ].join('\n')
   }
   const why =
-    s.origin === 'asked'
+    s.origin === 'taint' // docs/adr/2041-*
+      ? 'this connection recently read content flagged as a possible prompt injection'
+      : s.origin === 'asked'
       ? 'you asked for a suggestion (suggest=true)'
       : s.origin === 'policy'
         ? "the workspace's agent edit policy applies"
@@ -62,7 +64,8 @@ export function suggestionsMadeText(list: SuggestionDTO[]): string {
   if (list.length === 1) return suggestionMadeText(list[0])
   const s = list[0]
   const why =
-    s.origin === 'lock' ? 'this page is locked to "agents: suggestions only"' : s.origin === 'policy' ? "the workspace's agent edit policy applies" : 'you asked for suggestions (suggest=true)'
+    s.origin === 'taint' ? 'this connection recently read content flagged as a possible prompt injection'
+    : s.origin === 'lock' ? 'this page is locked to "agents: suggestions only"' : s.origin === 'policy' ? "the workspace's agent edit policy applies" : 'you asked for suggestions (suggest=true)'
   const state = (x: SuggestionDTO) =>
     x.status === 'accepted' && x.rule
       ? `auto-accepted under ${ruleText(x.rule)}`

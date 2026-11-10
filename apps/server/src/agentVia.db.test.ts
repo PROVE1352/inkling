@@ -21,7 +21,7 @@ describe('[db] public form answers are not AI edits', { skip: !HAS_DB }, async (
   const h = await import('./mcpTools/testHarness')
   const { closeDb, db } = await import('./db/index')
   const schema = await import('./db/schema')
-  const { and, eq } = await import('drizzle-orm')
+  const { and, eq, sql } = await import('drizzle-orm')
   const { drainChangeLog } = await import('./context/changeLog')
   const { runAgentSummaries } = await import('./notify/digest')
   const { flushNotifications, notify } = await import('./notify/engine')
@@ -125,7 +125,12 @@ describe('[db] public form answers are not AI edits', { skip: !HAS_DB }, async (
 
   it('the daily AI summary names the agent page, never the form row', async () => {
     await db.insert(schema.notificationPrefs).values({ userId: bob.id, workspaceId: ws.id, rootPageId: null, level: 'mentions', agentDigest: true })
-    await runAgentSummaries(new Date(), { force: true })
+    // The summary window ends at `now` and page_changes.changed_at is the database's clock_timestamp():
+    // with the host clock behind the database's (Docker on a laptop drifts after sleep), a change made a
+    // few ms earlier fell after a host-clock `now` and the summary was empty. Close the window on the
+    // database clock, after the change was logged.
+    const [{ now }] = (await db.execute(sql`SELECT clock_timestamp() AS now`)) as unknown as { now: string | Date }[]
+    await runAgentSummaries(new Date(now), { force: true })
     await flushNotifications()
     const items = await db
       .select({ excerpt: schema.notifications.excerpt })

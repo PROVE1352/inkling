@@ -39,8 +39,11 @@ export interface SuggestionDTO {
   /** Heading block id of the section (null for the intro and the whole page). */
   blockId: string | null
   mode: SuggestionMode
-  /** 'asked' = suggest=true; 'lock' = a suggestions-only/auto lock; 'policy' = the workspace's agent edit policy. */
-  origin: 'asked' | 'lock' | 'policy'
+  /**
+   * 'asked' = suggest=true; 'lock' = a suggestions-only/auto lock; 'policy' = the workspace's agent edit
+   * policy; 'taint' = the connection read content flagged as injection-like (docs/adr/2041-*), never auto-accepted.
+   */
+  origin: 'asked' | 'lock' | 'policy' | 'taint'
   status: SuggestionStatus
   markdown: string
   baseVersion: string | null

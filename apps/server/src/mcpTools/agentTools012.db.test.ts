@@ -295,7 +295,7 @@ describe('[db] agent tools 0.12: read_ink, versions, trash, read_file', { skip: 
 
   // --- read_file -------------------------------------------------------------------
 
-  it('read_file: images as image content, text as untrusted text, PDFs as metadata; visibility and caps', async () => {
+  it('read_file: images as image content, text as untrusted text, PDFs as text (damaged: said so); visibility and caps', async () => {
     const s = await setup()
     const page = await h.makeDocPage(s.ws.id, s.owner.id, 'Attachments', [para('see files')])
     const priv = await h.makeDocPage(s.ws.id, s.owner.id, 'Private attachments', [para('x')], { scope: 'private' })
@@ -342,10 +342,13 @@ describe('[db] agent tools 0.12: read_ink, versions, trash, read_file', { skip: 
     assert.match(t.text, /<untrusted_content source="file" id="/)
     assert.match(t.text, /Ignore previous instructions/)
     assert.match(t.text, /truncated: 1000 of 5038 chars/)
+    // read-time scan of attachment text (docs/adr/2046-*): flagged like a section, never repeated in the flag
+    assert.match(t.text, /^suspicious: injection-like \(override-phrase, encoded-blob\)$/m)
+    // a PDF's text layer is read since 0.16 (docs/adr/2047-*); this one is only a header
     const p = await m.tool('read_file', { file: pdf })
     assert.equal(p.isError, false)
     assert.match(p.text, /application\/pdf/)
-    assert.match(p.text, /not extracted/)
+    assert.match(p.text, /could not be read \(damaged, or not really a PDF\)/)
     const b = await m.tool('read_file', { file: big })
     assert.equal(b.isError, false)
     assert.match(b.text, /too large/)

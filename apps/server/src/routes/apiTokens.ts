@@ -17,6 +17,7 @@ import {
 } from '../apiTokens'
 import { rangeToColumns, validateRange } from '../tokenRange'
 import { handBackConnections } from '../teamAgents'
+import { suggestOnlyStates } from '../agentTaint'
 
 /**
  * Personal API tokens (docs/adr/1201-*). Browser sessions only: a token never makes, lists or
@@ -40,7 +41,10 @@ async function requireCookieUser(req: FastifyRequest): Promise<void> {
 export async function registerApiTokenRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tokens', { preHandler: requireCookieUser }, async (req) => {
     const user = getUser(req)
-    return { tokens: await listApiTokens(user.id) }
+    const tokens = await listApiTokens(user.id)
+    // additive (docs/adr/2042-*): tokens that are suggest-only after reading flagged content
+    const states = await suggestOnlyStates(tokens.map((t) => `token:${t.id}`))
+    return { tokens: tokens.map((t) => ({ ...t, suggestOnly: states.get(`token:${t.id}`) ?? null })) }
   })
 
   app.post(

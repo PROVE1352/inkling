@@ -118,6 +118,11 @@ export default {
   'agentInk.title': '에이전트가 필기를 읽을 수 있음',
   'agentInk.desc':
     '기본은 꺼져 있습니다. 켜면 이 워크스페이스에 연결된 AI 에이전트가 페이지의 펜·형광펜 필기를 그림으로 받아 볼 수 있습니다(read_ink). 본문 텍스트에는 영향이 없습니다.',
+  'agentTaint.group': '의심 텍스트',
+  'agentTaint.title': '의심 텍스트를 읽은 에이전트는 한 시간 동안 제안만',
+  'agentTaint.desc':
+    '기본은 켜져 있습니다. 에이전트가 프롬프트 인젝션처럼 보이는 글을 읽으면 한 시간 동안 이 워크스페이스에서의 편집은 사람의 승인을 기다리고 다른 변경은 거절됩니다. 멀쩡한 페이지에서 경고가 자주 뜨면 끄세요. 연결 주인이나 관리자가 에이전트 하나만 풀어 줄 수도 있습니다.',
+
 
   'audit.filterAction': '이벤트 종류',
   'audit.filterActor': '사람',
@@ -160,6 +165,8 @@ export default {
   'audit.action.instructions.removed': '에이전트 지침 해제',
   'audit.action.agent_policy.changed': '에이전트 편집 정책 변경',
   'audit.action.content.suspicious': '프롬프트 인젝션 의심 텍스트 발견',
+  'audit.action.agent.tainted': '에이전트가 의심 텍스트를 읽음(제안만 가능)',
+  'audit.action.agent.taint_released': '에이전트 편집 제한 해제',
   'audit.unknownActor': '삭제된 계정',
   'audit.via': '({client} 경유)',
   'audit.empty': '아직 기록이 없습니다.',

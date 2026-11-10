@@ -12,6 +12,7 @@ import { db } from './db/index'
 import { agentInstructions, pageAccessOverrides, pages, users, workspaceMembers } from './db/schema'
 import { AppError, badRequest, forbidden, notFound } from './errors'
 import { currentAgent } from './agentAccess'
+import { assertNotDemoted } from './agentTaint'
 import { closePageConnections } from './liveConnections'
 import { descendantsCte, lockTree, TREE_MAX_DEPTH } from './pageTree'
 import { isManagerRole, recordAudit } from './workspaceAdmin'
@@ -357,7 +358,7 @@ export async function suggestionRight(
   acl?: AclState,
 ): Promise<'edit' | 'suggest' | null> {
   const person: AccessActor = { userId, role, agent: false }
-  await assertCan(exec, pageId, person, { acl })
+  await assertCan(exec, pageId, person, { acl, person: true })
   const actor = actorFor(userId, role)
   if (!actor.agent) return 'edit'
   const caps = (await capsFor(exec, [pageId], actor, acl ? new Map([[pageId, acl]]) : undefined)).get(pageId) ?? 0
@@ -394,10 +395,32 @@ export async function assertCan(
   exec: Exec,
   pageId: string,
   actor: AccessActor,
-  opts: { subtree?: boolean; bit?: number; acl?: AclState } = {},
+  opts: { subtree?: boolean; bit?: number; acl?: AclState; person?: boolean } = {},
+): Promise<void> {
+  const acl = opts.acl ?? (await aclForPages(exec, [pageId])).get(pageId)
+  await assertCanWalk(exec, pageId, actor, { ...opts, acl })
+  // A connection that read flagged content edits nothing directly for a while (docs/adr/2040-*):
+  // after the rights above (a write the person may not make keeps its own error). The person check
+  // of suggestionRight and every browser/background caller pass through.
+  if ((opts.bit ?? CAP_EDIT) & CAP_EDIT && !opts.person) {
+    const ws = acl?.workspaceId ?? (await workspaceOfPage(exec, pageId))
+    if (ws) await assertNotDemoted(ws)
+  }
+}
+
+async function workspaceOfPage(exec: Exec, pageId: string): Promise<string | null> {
+  const [r] = (await exec.execute(sql`SELECT workspace_id AS "ws" FROM pages WHERE id = ${pageId}`)) as unknown as { ws: string }[]
+  return r?.ws ?? null
+}
+
+async function assertCanWalk(
+  exec: Exec,
+  pageId: string,
+  actor: AccessActor,
+  opts: { subtree?: boolean; bit?: number; acl?: AclState },
 ): Promise<void> {
   const bit = opts.bit ?? CAP_EDIT
-  const acl = opts.acl ?? (await aclForPages(exec, [pageId])).get(pageId)
+  const acl = opts.acl
   // People rows in the workspace (docs/adr/1251-*); answered from memory per access version.
   const grants = knownWithoutRows(actor.userId) ? false : acl ? await workspaceHasGrants(exec, acl) : true
   // No locked page and no people row anywhere in the workspace: nothing to walk (docs/adr/1071-*).

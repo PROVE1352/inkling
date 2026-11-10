@@ -502,8 +502,9 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
     it('find_context and read_pages wrap and flag per fragment', async () => {
       const f = (await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text
       assert.match(f, /<untrusted_content source="find_context" hidden_chars="1">/)
-      // can: is printed once in the header when every result has the same (docs/adr/1906-*)
-      assert.match(f, /can: read,comment,edit/)
+      // can: is printed once in the header when every result has the same (docs/adr/1906-*); the
+      // connection read the flagged §footer above, so it may only suggest now (docs/adr/2040-*)
+      assert.match(f, /can: read,comment,suggest/)
       assert.match(f, /; edited by Member via Test Agent; suspicious: injection-like \(hidden-chars, override-phrase, tool-directive\)/)
       assert.equal((await mcpM.tool('find_context', { query: 'previous instructions trash_page', workspaceId: wsId })).text, f)
       const rp = (await mcpM.tool('read_pages', { pageIds: [P, X] })).text
@@ -523,13 +524,22 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       assert.deepEqual(s.sections.map((x: { anchor: string }) => x.anchor), ['footer'])
     })
 
-    it('reading flagged content records a taint on the connection (record only)', async () => {
+    it('reading flagged content makes the connection suggest-only until a person lifts it', async () => {
       const grants = (await db.execute(sql`
         SELECT g.tainted_at FROM oauth_grants g WHERE g.user_id = ${M.id} AND g.tainted_at IS NOT NULL
       `)) as unknown as unknown[]
       assert.ok(grants.length >= 1)
-      // writes still work for a tainted connection (behaviour unchanged)
-      assert.equal((await mcpM.tool('update_page', { pageId: X, markdown: 'still writes', mode: 'append' })).isError, false)
+      // docs/adr/2040-*, 2041-*: the write becomes a suggestion, the answer says why, not what was read
+      const w = await mcpM.tool('update_page', { pageId: X, markdown: 'still writes', mode: 'append' })
+      assert.equal(w.isError, false)
+      assert.match(w.text, /^Not written: kept as suggestion .* because this connection recently read content flagged as a possible prompt injection\./)
+      assert.doesNotMatch(w.text, /previous instructions|trash_page/)
+      // the person lifts it (browser), then writes land again; the same flagged section does not re-taint
+      const conn = (await req(M, 'GET', '/connections/suggest-only')).json().connections as { key: string }[]
+      assert.equal(conn.length, 1)
+      assert.equal((await req(M, 'POST', '/connections/release', { connection: conn[0].key })).statusCode, 200)
+      await mcpM.tool('read_page', { pageId: P })
+      assert.match((await mcpM.tool('update_page', { pageId: X, markdown: 'writes again', mode: 'append' })).text, /^Done|Appended/)
     })
 
     it('changes_since wraps the change list', async () => {

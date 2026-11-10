@@ -27,6 +27,7 @@ import { isManagerRole } from '../workspaceAdmin'
 import { connectionKey } from '../leases'
 import { resolveAgentRefs } from '../teamAgents'
 import { isAgentVia } from '../agentVia'
+import { assertNoHandoffWhileSuggestOnly } from '../agentTaint'
 
 /** Display name for a removed/deleted author (comments whose author_id was set null), in the viewer's locale. */
 const DELETED_AUTHOR: Record<Locale, string> = { en: '(deleted user)', ko: '(삭제된 사용자)' }
@@ -129,6 +130,9 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
       // from agents only (docs/adr/0970-*). No walk without a lock in the workspace (docs/adr/1071-*).
       await assertPageCommentable(id, user.id, role, acl)
+      // A suggest-only connection (docs/adr/2040-*) may comment but not hand work to another
+      // connection: that one would act on it without the limit.
+      if (body.mentionConnections?.length) await assertNoHandoffWhileSuggestOnly(page.workspaceId)
       // Hand-offs (docs/adr/1863-*): live connections of members only; a refused one writes nothing.
       const handoffs = body.mentionConnections?.length ? await resolveAgentRefs(page.workspaceId, body.mentionConnections, undefined, id) : []
 

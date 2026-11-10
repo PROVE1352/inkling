@@ -160,5 +160,48 @@ export function _resetAgentTouches(): void {
  * author's person, so the edit checks under the write gate must not apply the agent lock rules.
  */
 export function outsideAgent<T>(fn: () => T): T {
-  return store.exit(fn)
+  return store.exit(() => connectionStore.exit(fn))
+}
+
+// ---------------------------------------------------------------------------
+// The connection of a bearer request (docs/adr/2040-*)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every bearer request — an OAuth grant (MCP) and, unlike the agent scope above, a personal API token
+ * — runs inside this scope (entered by requireUser next to runAsAgent). The suggest-only rule after
+ * flagged content (agentTaint.ts) reads the connection key and the route from here.
+ */
+export interface ConnectionScope {
+  /** 'grant:<id>' | 'token:<id>' (leases.ts connectionKey). */
+  key: string
+  userId: string
+  /** The request changes data: not GET/HEAD and not a `bearerReadOnlyOk` route. */
+  writes: boolean
+  /** The route pattern (`/api/pages/:id/section`), for the routes that stay open while suggest-only. */
+  route: string
+  /** Per-request answers of the suggest-only check, by workspace. */
+  memo: Map<string, Promise<unknown>>
+}
+
+const connectionStore = new AsyncLocalStorage<ConnectionScope>()
+
+export function runAsConnection<T>(scope: ConnectionScope, fn: () => T): T {
+  return connectionStore.run(scope, fn)
+}
+
+/** The bearer connection of the current request (scope entered by requireUser), or null. */
+export function currentConnection(): ConnectionScope | null {
+  return connectionStore.getStore() ?? null
+}
+
+/**
+ * The connection key of the current request: the bearer scope, else the agent scope that MCP tools
+ * enter in process (loadAgentContext); null for browser sessions and background jobs.
+ */
+export function currentConnectionKey(): string | null {
+  const c = connectionStore.getStore()
+  if (c) return c.key
+  const a = store.getStore()
+  return a ? `grant:${a.grantId}` : null
 }

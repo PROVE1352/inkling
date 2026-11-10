@@ -4,6 +4,7 @@ import type { SuggestionDTO, SuggestionMode, SuggestionPreviewDTO, SuggestionSta
 import { gateWrite } from './aclVersion'
 import type { CheckedAccess } from './aclVersion'
 import { currentAgent } from './agentAccess'
+import { demotionIn, taintReviewReason } from './agentTaint'
 import type { AuthUser } from './auth'
 import { findSection, joinPath } from './context/chunker'
 import { diffOps } from './context/diff'
@@ -45,6 +46,9 @@ import type { PageRow } from './pageDto'
 
 export type SectionWriteMode = 'replace' | 'append' | 'prepend' | 'insert_after' | 'delete'
 
+/** Why a write became a suggestion: asked, the lock, the agent edit policy, or a suggest-only connection (docs/adr/2041-*). */
+export type SuggestionOrigin = 'asked' | 'lock' | 'policy' | 'taint'
+
 interface Row {
   id: string
   workspaceId: string
@@ -55,7 +59,7 @@ interface Row {
   baseVersion: string | null
   markdown: string
   mode: SuggestionMode
-  origin: 'asked' | 'lock' | 'policy'
+  origin: SuggestionOrigin
   status: SuggestionStatus
   authorId: string
   authorName: string
@@ -167,7 +171,7 @@ export interface SuggestInput {
   markdown: string
   mode: SuggestionMode
   baseVersion?: string
-  origin: 'asked' | 'lock' | 'policy'
+  origin: SuggestionOrigin
   policy?: EffectivePolicy | null
 }
 
@@ -238,7 +242,7 @@ export async function createSuggestions(
   user: AuthUser,
   page: PageRow,
   items: SuggestItem[],
-  origin: 'asked' | 'lock' | 'policy',
+  origin: SuggestionOrigin,
   policy: EffectivePolicy | null = null,
 ): Promise<SuggestionDTO[]> {
   if (page.kind !== 'doc') throw badRequest('Only document pages take suggestions')
@@ -262,8 +266,13 @@ export async function createSuggestions(
   // suggestion (suggest=true) is never auto-accepted.
   type Fate = { kind: 'now'; anchor: string } | { kind: 'later'; anchor: string } | { kind: 'review'; reason: string | null }
   const fates: Fate[] = []
+  // A suggest-only connection's suggestions wait for a person, whatever the policy (docs/adr/2041-*).
+  const taint = origin === 'taint' ? await demotionIn(page.workspaceId) : null
+  const taintReason = origin === 'taint' ? (taint ? taintReviewReason(taint) : 'this connection recently read content flagged as a possible prompt injection') : null
+  if (origin === 'taint') policy = null
   for (const p of prepared) {
-    if (origin === 'asked' || !policy) fates.push({ kind: 'review', reason: null })
+    if (origin === 'taint') fates.push({ kind: 'review', reason: taintReason })
+    else if (origin === 'asked' || !policy) fates.push({ kind: 'review', reason: null })
     else if (policy.level !== 'auto') {
       fates.push({ kind: 'review', reason: policy.source === 'workspace' ? 'this workspace sends every agent edit to a person' : null })
     } else {
@@ -378,7 +387,16 @@ export async function suggestionMode(
   page: PageRow,
   access: CheckedAccess,
   suggest: boolean | undefined,
-): Promise<{ origin: 'asked' | 'lock' | 'policy'; policy: EffectivePolicy | null } | null> {
+): Promise<{ origin: SuggestionOrigin; policy: EffectivePolicy | null } | null> {
+  // A connection that read flagged content (docs/adr/2040-*, 2041-*): what it may edit or suggest
+  // becomes a suggestion that no auto-accept rule takes — asked, under a lock or under a policy alike.
+  const taint = await demotionIn(page.workspaceId)
+  if (taint) {
+    const right = await suggestionRight(db, page.id, user.id, access.role, access.acl)
+    // Neither: the lock's / the person's own refusal (assertCan walks before the suggest-only check).
+    if (!right) await assertPageEditable(page.id, user.id, { role: access.role, acl: access.acl })
+    return { origin: 'taint', policy: null }
+  }
   if (suggest) {
     const right = await suggestionRight(db, page.id, user.id, access.role, access.acl)
     if (!right) await assertPageEditable(page.id, user.id, { role: access.role, acl: access.acl })

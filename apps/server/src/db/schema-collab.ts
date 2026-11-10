@@ -16,7 +16,8 @@ import { pages, users, workspaces } from './schema'
  *  - markdown:     the agent's Markdown (agent notation, docs/adr/1500-*), applied as written.
  *  - mode:         what the write meant to do (patch_section modes; page_replace / page_append
  *                  for update_page).
- *  - origin:       'asked' (suggest=true) or 'lock' (the lock turned a write into a suggestion).
+ *  - origin:       'asked' (suggest=true), 'lock' (the lock turned a write into a suggestion), 'policy'
+ *                  (the agent edit policy) or 'taint' (the connection read flagged content, docs/adr/2041-*).
  *  - connection:   'grant:<id>' / 'token:<id>' of the author's connection ('' = browser). A new
  *                  suggestion of the same author connection for the same section supersedes the
  *                  open one (the partial unique index keeps at most one open row per triple).
@@ -40,7 +41,7 @@ export const sectionSuggestions = pgTable(
       enum: ['replace', 'append', 'prepend', 'insert_after', 'delete', 'page_replace', 'page_append'],
     }).notNull(),
     /** asked (suggest=true) / lock (a suggestions-only lock) / policy (the agent edit policy, docs/adr/1544-*). */
-    origin: text('origin', { enum: ['asked', 'lock', 'policy'] }).notNull(),
+    origin: text('origin', { enum: ['asked', 'lock', 'policy', 'taint'] }).notNull(),
     status: text('status', { enum: ['open', 'accepted', 'rejected', 'superseded', 'withdrawn'] })
       .notNull()
       .default('open'),

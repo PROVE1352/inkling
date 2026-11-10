@@ -16,6 +16,7 @@ import { purgeStaleSuggestionBases } from './suggestionMerge'
 import { scanReviewDigests, scoreAllWorkspaces } from './review'
 import { flushReads, purgeOldReads } from './pageReads'
 import { runNotificationHousekeeping } from './notify/digest'
+import { pruneTaints } from './agentTaint'
 
 const AUDIT_PURGE_BATCH = 5_000
 
@@ -135,6 +136,8 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     await handBackConnections(null)
     // Stored suggestion bases whose suggestion was decided or deleted (docs/adr/1621-*)
     await purgeStaleSuggestionBases()
+    // Suggest-only records older than 30 days (docs/adr/2040-*): long past the window
+    await pruneTaints()
     if (s.length || n.length || t || w || o || a || c || e) {
       log(
         `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,

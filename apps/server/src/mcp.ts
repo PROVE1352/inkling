@@ -763,7 +763,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           ? await call(ctx, 'POST', `/api/pages/${pageId}/rotation/target`)
               .then((r) => r.json() as RotationTargetDTO)
               .catch((err: unknown) => {
-                if (err instanceof ToolError && err.message.includes('PAGE_LOCKED')) return null
+                if (err instanceof ToolError && /PAGE_LOCKED|CONNECTION_SUGGEST_ONLY/.test(err.message)) return null
                 throw err
               })
           : null

@@ -4,6 +4,7 @@ import { db } from './db/index'
 import { workspaceMembers, workspaces } from './db/schema'
 import { forbidden, notFound } from './errors'
 import { assertAgentAllowed, currentAgent } from './agentAccess'
+import { guardWriteRoute } from './agentTaint'
 import { aclColumns, toAcl } from './aclVersion'
 import type { AclState } from './aclVersion'
 import { newInviteCode } from './util'
@@ -151,7 +152,11 @@ async function membership(
   const row = rows[0]
   if (!row) {
     // Not a member: a guest of this workspace on a route that lets guests in, else 403 as always.
-    if (guests && isGuestIn(workspaceId, userId)) return guestMembership(workspaceId, userId, acl)
+    if (guests && isGuestIn(workspaceId, userId)) {
+      const g = await guestMembership(workspaceId, userId, acl)
+      await guardWriteRoute(workspaceId)
+      return g
+    }
     throw forbidden()
   }
   if (row.deletedAt) throw notFound()
@@ -160,6 +165,8 @@ async function membership(
   const state = acl === 'none' ? null : toAcl(workspaceId, row.version, row.hasLocks)
   // Agent (MCP) requests: per-workspace block + access record (docs/adr/0947-*). No-op for cookies.
   await assertAgentAllowed(workspaceId, state?.version)
+  // A write route of a connection that is suggest-only after flagged content (docs/adr/2040-*).
+  await guardWriteRoute(workspaceId)
   return { role: row.role, acl: acl === 'full' ? state : null }
 }
 

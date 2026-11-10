@@ -3,6 +3,7 @@ import { DEFAULT_AUTO_ACCEPT_RULES } from '@inkling/shared'
 import type { AgentEditLevel, AutoAcceptRules, SuggestionPreviewDTO } from '@inkling/shared'
 import { pageAccess } from './aclVersion'
 import { outsideAgent } from './agentAccess'
+import { demotionFor, taintReviewReason } from './agentTaint'
 import type { AuthUser } from './auth'
 import { patchSectionAs } from './context/sectionWrite'
 import { db } from './db/index'
@@ -252,6 +253,12 @@ export async function runAutoAccepts(limit = 20): Promise<number> {
     const policy = await effectivePolicy({ id: row.pageId, workspaceId: row.workspaceId })
     if (policy.level !== 'auto' || policy.label !== row.rule) {
       await hold('the auto-accept rule changed during the grace period')
+      continue
+    }
+    // The connection read flagged content during the grace period (docs/adr/2041-*): a person decides.
+    const taint = row.connection ? await demotionFor(row.connection, row.workspaceId) : null
+    if (taint) {
+      await hold(taintReviewReason(taint))
       continue
     }
     const preview = await previewOf(row, row.authorId)

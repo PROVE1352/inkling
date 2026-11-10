@@ -2254,6 +2254,19 @@ export function useSetAgentInk(wsId: string) {
   })
 }
 
+/** "Suggest only after flagged content" (docs/adr/2043-*): owners and admins. */
+export function useSetAgentTaint(wsId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: import('@inkling/shared').SetAgentTaintInput) =>
+      api<WorkspaceSettingsResponse>(`/api/workspaces/${wsId}/settings/agent-taint`, { method: 'PUT', body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      qc.setQueryData<WorkspaceSettingsResponse>(qkAdmin.settings(wsId), (prev) => (prev ? { ...prev, settings: data.settings } : prev))
+      qc.invalidateQueries({ queryKey: ['wsAudit', wsId] })
+    },
+  })
+}
+
 /** Rename / change the icon (owner). */
 export function useUpdateWorkspace(wsId: string) {
   const qc = useQueryClient()

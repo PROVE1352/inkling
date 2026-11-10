@@ -48,6 +48,8 @@ export interface WorkspaceSettingsDTO {
   guestInvitePolicy?: GuestInvitePolicy
   /** MCP connections may read page handwriting (read_ink, docs/adr/1510-*). Additive; off by default. */
   agentInkRead?: boolean
+  /** Connections that read flagged content write here only as suggestions for a while (docs/adr/2043-*). Additive; on by default. */
+  agentTaintDemote?: boolean
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */
@@ -158,6 +160,10 @@ export const AUDIT_ACTIONS = [
   'page.guest_invited',
   'guests.removed',
   'agent_policy.changed',
+  /** A connection was handed flagged content and became suggest-only (docs/adr/2040-*): after.source, after.rules, after.until; never the text. */
+  'agent.tainted',
+  /** A person lifted a connection's suggest-only state (docs/adr/2042-*): before.sources, after.scope ('workspace' | 'all'). */
+  'agent.taint_released',
   /** A person reverted logged changes on a page (docs/adr/1623-*): before.seqs reverted, after.seqs the revert's own edits. */
   'page.changes_reverted',
   /** A page was marked verified (after.expiresAt) or its verification removed (docs/adr/1840-*). */

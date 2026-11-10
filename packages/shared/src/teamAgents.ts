@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { SuggestOnlyDTO } from './taint'
 
 // ---------------------------------------------------------------------------
 // Team agents: a person's connection as a target (docs/adr/1860-*)
@@ -92,6 +93,8 @@ export interface WorkspaceConnectionDTO {
   client: string
   kind: 'grant' | 'token'
   lastUsedAt: string | null
+  /** Additive (docs/adr/2042-*): set while the connection writes here only as suggestions after flagged content. */
+  suggestOnly?: SuggestOnlyDTO | null
 }
 
 export interface TeamClaimDTO {
@@ -147,6 +150,8 @@ export interface TeamAgentsDTO {
   now: string
   people: TeamPersonDTO[]
   totals: { claims: number; openSuggestions: number; edits: number; created: number; suggestions: number; reverted: number }
+  /** Additive (docs/adr/2042-*): connection key → suggest-only state, for the live connections that are suggest-only here now. */
+  suggestOnly?: Record<string, SuggestOnlyDTO>
 }
 
 export const teamAgentsQuerySchema = z.object({

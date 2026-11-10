@@ -993,3 +993,5 @@ export * from './memberStatus'
 export * from './slack'
 // Team agents: board, hand-offs and assignments to a person's connection (docs/adr/1860-*)
 export * from './teamAgents'
+// Suggest-only connections after flagged content (docs/adr/2040-*)
+export * from './taint'

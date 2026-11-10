@@ -271,6 +271,12 @@ export const workspaces = pgTable('workspaces', {
    * all (read_ink refuses, page headers do not mention it). Owners and admins turn it on.
    */
   agentInkRead: boolean('agent_ink_read').notNull().default(false),
+  /**
+   * "Suggest only after flagged content" (docs/adr/2040-*, 2043-*): on (default) = a connection that
+   * was handed injection-like content writes here only as suggestions for a while. Owners and admins
+   * switch it off when the heuristics misfire on this workspace's pages.
+   */
+  agentTaintDemote: boolean('agent_taint_demote').notNull().default(true),
 })
 
 export const workspaceMembers = pgTable(
@@ -927,3 +933,5 @@ export * from './schema-memberStatus'
 export * from './schema-slack'
 // Public links of form views (docs/adr/1821-*)
 export * from './schema-forms'
+// Connections handed flagged content: suggest-only window and releases (docs/adr/2040-*)
+export * from './schema-taint'

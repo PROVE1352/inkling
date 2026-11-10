@@ -17,6 +17,8 @@ export default {
   'suggestions.mode.page_replace': 'Replace the whole page',
   'suggestions.mode.page_append': 'Add to the end of the page',
   'suggestions.origin.lock': 'The page lets agents only suggest',
+  'suggestions.origin.taint':
+    'This agent recently read text that looks like a prompt injection, so its edits wait for you. Check that the change is what you asked for.',
   'suggestions.changed': 'This section changed after the agent read it. The diff is against the current text; accepting applies the suggestion on top of it.',
   'suggestions.gone': 'The section no longer exists. Reject the suggestion or copy what you need by hand.',
   'suggestions.accept': 'Accept',

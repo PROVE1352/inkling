@@ -32,6 +32,7 @@ import {
   verifyPkce,
 } from '../oauth'
 import { resourceWithoutProfile } from '../mcpProfile'
+import { suggestOnlyStates } from '../agentTaint'
 
 /**
  * OAuth 2.1 for the remote MCP connector (MCP authorization spec 2025-06-18)
@@ -473,6 +474,7 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
       .innerJoin(oauthClients, eq(oauthClients.id, oauthGrants.clientId))
       .where(eq(oauthGrants.userId, user.id))
       .orderBy(desc(oauthGrants.createdAt))
+    const states = await suggestOnlyStates(rows.map((r) => `grant:${r.id}`))
     const grants = []
     for (const r of rows) {
       grants.push({
@@ -484,6 +486,8 @@ export async function registerOAuthApiRoutes(app: FastifyInstance): Promise<void
         range: await rangeView(user.id, r),
         createdAt: r.createdAt.toISOString(),
         lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+        // additive (docs/adr/2042-*): set while the connection is suggest-only after flagged content
+        suggestOnly: states.get(`grant:${r.id}`) ?? null,
       })
     }
     return { grants }

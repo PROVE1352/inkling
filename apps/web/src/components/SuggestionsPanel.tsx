@@ -227,6 +227,11 @@ function SuggestionItem({ s, pageId, canDecide, onDone }: { s: SuggestionDTO; pa
         </span>
       </header>
       {s.origin === 'lock' && !s.reviewReason && !s.autoAt && <p className="text-[11px] text-sub">{t('suggestions.origin.lock')}</p>}
+      {s.origin === 'taint' && (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="suggestion-origin-taint">
+          {t('suggestions.origin.taint')}
+        </p>
+      )}
       {s.autoAt && (
         <p className="rounded bg-accent/10 px-2 py-1 text-xs text-accent" data-testid="suggestion-auto-at">
           {t('suggestions.autoAt', { time: new Date(s.autoAt).toLocaleString() })}

@@ -101,6 +101,8 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
   SECTION_AMBIGUOUS: 'use one of the anchors listed',
   TEMPLATE_NOT_FOUND: 'list_templates (page templates) or query_rows(collectionId, describe=true) (row templates) show valid names and ids',
   PAGE_NOT_FOUND: NOT_FOUND_HINT.page,
+  // docs/adr/2040-*: the message already says what still works and who lifts it
+  CONNECTION_SUGGEST_ONLY: 'until then only suggestions (patch_section, patch_sections, update_page) and comments are accepted',
   OUT_OF_RANGE:
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }

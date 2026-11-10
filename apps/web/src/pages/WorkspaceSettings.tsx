@@ -27,6 +27,7 @@ import {
   useMembers,
   useReviewDue,
   useSetAgentInk,
+  useSetAgentTaint,
   useSetTwoFactorPolicy,
   useSharedList,
   useUnblockAgent,
@@ -721,6 +722,7 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
       <p className="mb-4 text-xs leading-relaxed text-sub">{t('agents.intro')}</p>
       <AgentPolicyGroup ws={ws} connections={connections.map((c) => ({ key: `grant:${c.grantId}`, label: `${c.client.name} · ${c.user.name}` }))} />
       <AgentInkGroup ws={ws} />
+      <AgentTaintGroup ws={ws} />
       <section className="mb-8">
         <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('agents.connections')}</h2>
         <div className="divide-y divide-line rounded-lg border border-line">
@@ -891,6 +893,31 @@ function AgentInkGroup({ ws }: { ws: WorkspaceDTO }) {
           checked={on}
           disabled={!capsOf(ws).manage || !settings.data || set.isPending}
           label={t('agentInk.title')}
+          onChange={(v) => {
+            setError(null)
+            set.mutate({ enabled: v }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+          }}
+        />
+      </Row>
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
+  )
+}
+
+/** "Suggest only after flagged content" (docs/adr/2040-*, 2043-*): on by default; owners and admins switch it. */
+function AgentTaintGroup({ ws }: { ws: WorkspaceDTO }) {
+  const t = useT()
+  const settings = useWorkspaceSettings(ws.id)
+  const set = useSetAgentTaint(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const on = settings.data?.settings.agentTaintDemote ?? true
+  return (
+    <Group title={t('agentTaint.group')}>
+      <Row id="agentTaintDemote" title={t('agentTaint.title')} desc={t('agentTaint.desc')}>
+        <Toggle
+          checked={on}
+          disabled={!capsOf(ws).manage || !settings.data || set.isPending}
+          label={t('agentTaint.title')}
           onChange={(v) => {
             setError(null)
             set.mutate({ enabled: v }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })

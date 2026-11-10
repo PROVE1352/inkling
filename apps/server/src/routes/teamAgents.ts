@@ -4,6 +4,7 @@ import type { TeamAgentsDTO, WorkspaceConnectionDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { idParam, requireMembership } from '../helpers'
 import { readTeamAgents, workspaceConnections } from '../teamAgents'
+import { suggestOnlyStates } from '../agentTaint'
 
 /**
  * Team agents (docs/adr/1862-*). Members only (guests are refused by requireMembership).
@@ -18,7 +19,10 @@ export async function registerTeamAgentRoutes(app: FastifyInstance): Promise<voi
     const user = getUser(req)
     const id = idParam(req.params)
     await requireMembership(id, user.id)
-    return { connections: await workspaceConnections(id) }
+    const connections = await workspaceConnections(id)
+    // additive (docs/adr/2042-*): suggest-only here now after flagged content
+    const states = await suggestOnlyStates(connections.map((c) => c.key), id)
+    return { connections: connections.map((c) => ({ ...c, suggestOnly: states.get(c.key) ?? null })) }
   })
 
   app.get(
@@ -31,7 +35,11 @@ export async function registerTeamAgentRoutes(app: FastifyInstance): Promise<voi
       await requireMembership(id, user.id)
       const now = Date.now()
       const since = q.since ? Date.parse(q.since) : now - 24 * 60 * 60 * 1_000
-      return readTeamAgents(id, user.id, Math.min(since, now), now)
+      const board = await readTeamAgents(id, user.id, Math.min(since, now), now)
+      // additive (docs/adr/2042-*): which of the members' live connections are suggest-only here now
+      const keys = board.people.flatMap((p) => p.agents.flatMap((a) => a.connections))
+      const states = await suggestOnlyStates([...new Set(keys)], id)
+      return { ...board, suggestOnly: Object.fromEntries([...states.entries()].sort(([a], [b]) => a.localeCompare(b))) }
     },
   )
 }

@@ -1,7 +1,7 @@
 import { hash, verify } from '@node-rs/argon2'
 import { eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
-import { runAsAgent } from './agentAccess'
+import { runAsAgent, runAsConnection } from './agentAccess'
 import { db } from './db/index'
 import { sessions, users } from './db/schema'
 import { env } from './env'
@@ -237,7 +237,23 @@ export function requireUser(
     (guest) => {
       const u = req.user
       const inner = u?.range ? () => runInRange(u.range!, () => done()) : () => done()
-      const next = guest ? () => runAsGuest(guest, inner) : inner
+      const viaGuest = guest ? () => runAsGuest(guest, inner) : inner
+      // Every bearer connection (grant or API token) runs in its connection scope: the suggest-only
+      // rule after flagged content reads it (docs/adr/2040-*).
+      const conn = req.authVia === 'bearer' && u ? (u.grantId ? `grant:${u.grantId}` : u.tokenId ? `token:${u.tokenId}` : null) : null
+      const next = conn
+        ? () =>
+            runAsConnection(
+              {
+                key: conn,
+                userId: u!.id,
+                writes: req.method !== 'GET' && req.method !== 'HEAD' && req.routeOptions?.config?.bearerReadOnlyOk !== true,
+                route: req.routeOptions?.url ?? '',
+                memo: new Map(),
+              },
+              viaGuest,
+            )
+        : viaGuest
       if (req.authVia === 'bearer' && u?.grantId && u.clientId) {
         runAsAgent({ userId: u.id, grantId: u.grantId, clientId: u.clientId, clientName: u.via ?? null }, next)
       } else {

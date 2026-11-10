@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { SuggestOnlyDTO } from './taint'
 
 // ---------------------------------------------------------------------------
 // Connection range and personal API tokens (docs/adr/1200-*, 1201-*, 1203-*)
@@ -81,6 +82,8 @@ export interface ApiTokenDTO {
   lastUsedAt: string | null
   /** Client IP of the last use (as the server saw it behind its trusted proxy). */
   lastUsedIp: string | null
+  /** Additive (docs/adr/2042-*): set while the token is suggest-only after reading flagged content. */
+  suggestOnly?: SuggestOnlyDTO | null
 }
 
 /** POST /tokens answer: the only time the raw token is shown. */

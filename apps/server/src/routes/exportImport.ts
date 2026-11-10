@@ -13,6 +13,7 @@ import { db } from '../db/index'
 import { workspaces } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, requireMembership } from '../helpers'
+import { recordTokenRead } from '../agentTaint'
 import { recordAudit, roleMeets } from '../workspaceAdmin'
 import { exportPageCanvas, exportPageMd, exportZip } from '../md/exporter'
 import { importEntries, importMarkdown, importZip } from '../md/importer'
@@ -150,6 +151,9 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     const page = await findVisiblePage(id, user.id)
     if (!page) throw notFound()
     await requireMembership(page.workspaceId, user.id)
+    // An API token handed flagged content becomes suggest-only for a while (docs/adr/2040-*); a zip
+    // export counts for its root page only.
+    await recordTokenRead(user.tokenId, [page.id])
 
     if (format === 'zip') {
       relaxSocketTimeout(req)

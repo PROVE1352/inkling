@@ -1,12 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { createHash, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
-import type { InkDTO, PageMetaDTO, SnapshotDiffDTO, SnapshotDTO } from '@inkling/shared'
+import type { InkDTO, PageMetaDTO, SnapshotDiffDTO, SnapshotDTO, SuggestionDTO } from '@inkling/shared'
 import { INK_CANVAS_WIDTH } from '@inkling/shared'
 import { db } from '../db/index'
 import { pages as pagesTable, workspaces } from '../db/schema'
 import { AGENT_INK_OFF_CODE } from '../agentInk'
+import { AppError } from '../errors'
 import { formatHunks } from '../context/diff'
 import type { DiffOp } from '../context/diff'
 import { INK_MAX_TILES, renderInk } from '../ink/render'
@@ -17,11 +19,16 @@ import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
 import { inferWorkspace } from './idArgs'
 import { attr, cleanText, wrapUntrusted } from './trust'
+import { suggestionMadeText } from './collabTools'
+import { recordFlaggedFile } from '../agentTaint'
+import { getBearerUser } from '../oauth'
+import { scanInjection, suspiciousNote } from '../context/injectionScan'
+import { extractPdfText, parsePageRange, PDF_LIMITS } from '../pdfText'
 
 /**
  * MCP tools of 0.12 (docs/adr/1510-* .. 1514-*): handwriting as pictures (read_ink), version
  * history (list_versions, diff_versions, restore_version), the trash (list_trash, restore_page)
- * and attachments (read_file). Each calls the web app's REST routes through call(), so visibility,
+ * and attachments (read_file; upload_file and PDF text since 0.16, docs/adr/2044-* .. 2048-*). Each calls the web app's REST routes through call(), so visibility,
  * membership, the two-step requirement, edit locks and the write gate are the web app's. There is
  * still no permanent-delete tool. Member-written text (titles, labels, diffs, file text) goes
  * through wrapUntrusted/cleanText (docs/adr/0976-*); output is deterministic (docs/adr/0937-*).
@@ -347,7 +354,7 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
 }
 
 // ---------------------------------------------------------------------------
-// read_file (docs/adr/1514-*)
+// read_file (docs/adr/1514-*, 2046-*, 2047-*) and upload_file (docs/adr/2044-*, 2045-*)
 // ---------------------------------------------------------------------------
 
 /** Raw bytes returned as MCP image content at most (clients cap images around 5 MB of base64). */
@@ -366,7 +373,24 @@ function looksLike(mime: string, b: Buffer): boolean {
   return false
 }
 
-const isTextMime = (m: string) => m.startsWith('text/') || m === 'application/json'
+/**
+ * Read as text (docs/adr/2046-*): text MIME types, and — because imports store unknown extensions as
+ * application/octet-stream and the web upload takes only text/plain — these extensions whatever the
+ * stored type. Markup (HTML, XML, SVG) comes back as its source, never rendered; the bytes must be
+ * UTF-8 without NUL either way.
+ */
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.log', '.md', '.markdown', '.csv', '.tsv', '.json', '.yaml', '.yml', '.xml', '.html', '.htm', '.svg',
+  '.ini', '.toml', '.cfg', '.conf', '.sql', '.rst', '.tex',
+])
+const extOf = (name: string) => {
+  const i = name.lastIndexOf('.')
+  return i > 0 ? name.slice(i).toLowerCase() : ''
+}
+export const isTextFile = (m: { mime: string; name: string }) =>
+  m.mime.startsWith('text/') || m.mime === 'application/json' || TEXT_EXTENSIONS.has(extOf(m.name))
+
+const isPdf = (m: { mime: string; name: string }) => m.mime === 'application/pdf' || (m.mime === 'application/octet-stream' && extOf(m.name) === '.pdf')
 
 function humanSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -387,21 +411,87 @@ interface FileMeta {
   createdAt: string
 }
 
+/**
+ * Text handed to the agent from an attachment is scanned now (files are not in page_chunks, so the
+ * indexing-time rule of docs/adr/0977-* cannot apply; docs/adr/2046-*): a flag is shown as for
+ * sections and makes the connection suggest-only (docs/adr/2040-*). Only the returned text is scanned.
+ */
+async function flagLine(ctx: ToolCtx, meta: FileMeta, body: string, bytes: Buffer): Promise<string> {
+  const rules = scanInjection(body)
+  if (!rules.length) return ''
+  const u = ctx.user.grantId ? ctx.user : await getBearerUser(ctx.token)
+  const conn = u?.grantId ? { key: `grant:${u.grantId}`, userId: u.id, via: u.via ?? null } : null
+  // the release memory is per file, whatever range was read (docs/adr/2042-*)
+  const whole = createHash('md5').update(bytes).digest('hex')
+  await recordFlaggedFile(conn, { id: meta.id, pageId: meta.pageId, workspaceId: meta.workspaceId }, body, rules, whole)
+  return `\n${suspiciousNote(rules)}`
+}
+
+const utf8 = new TextDecoder('utf-8', { fatal: true })
+
+async function readPdf(ctx: ToolCtx, meta: FileMeta, head: string, pages: string | undefined, maxChars: number): Promise<CallToolResult> {
+  const only = (why: string) => text(`${head}\n${why}`)
+  if (meta.size > PDF_LIMITS.maxBytes) {
+    return only(`PDF too large to read here (${humanSize(meta.size)}, limit ${humanSize(PDF_LIMITS.maxBytes)}); open the link in the app.`)
+  }
+  const range = parsePageRange(pages)
+  if (!range) return only(`pages must look like "3", "2-5" or "4-" (at most ${PDF_LIMITS.maxPages} pages per call).`)
+  const bytes = (await call(ctx, 'GET', `/files/${meta.id}`)).rawPayload
+  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return only('The content does not look like a PDF; not returned.')
+  const r = await extractPdfText(bytes, { first: range[0], last: range[1], maxChars })
+  if (!r.ok) {
+    return only(
+      r.reason === 'encrypted'
+        ? 'This PDF is password-protected; its text cannot be read here. Open the link in the app.'
+        : r.reason === 'invalid'
+          ? 'This PDF could not be read (damaged, or not really a PDF).'
+          : r.reason === 'time'
+            ? `Reading this PDF did not finish within ${PDF_LIMITS.timeoutMs / 1000} s (${r.message}); try again later or a smaller range with pages="1-3".`
+            : 'This PDF could not be read here. Open the link in the app.',
+    )
+  }
+  if (range[0] > r.numPages) return only(`The PDF has ${r.numPages} page${r.numPages === 1 ? '' : 's'}; nothing at page ${range[0]}.`)
+  const got = r.pages
+  const lastRead = got.length ? got[got.length - 1].page : range[0] - 1
+  if (got.length && got.every((p) => !p.text)) {
+    return only(
+      `pages ${range[0]}–${lastRead} of ${r.numPages}: no text (a scanned PDF has only images of text; reading those needs OCR, which Inkling does not do).`,
+    )
+  }
+  let body = got.map((p) => `--- page ${p.page} ---\n${p.text || '(no text on this page)'}`).join('\n\n')
+  let cut = false
+  if (body.length > maxChars) {
+    body = body.slice(0, maxChars)
+    cut = true
+  }
+  // Where to go on: the page after the last one read, or the same page when its text was cut.
+  const next = cut ? lastRead : lastRead < r.numPages ? lastRead + 1 : null
+  const status =
+    `pages ${range[0]}–${lastRead} of ${r.numPages}` +
+    (r.stopped === 'time' ? `; stopped after ${PDF_LIMITS.timeoutMs / 1000} s` : '') +
+    (cut || r.stopped === 'chars' ? `; text cut at ${maxChars} chars` : '') +
+    (next ? `; continue with read_file(file, pages="${next}-")` : '')
+  const flag = await flagLine(ctx, meta, body, bytes)
+  return text(`${head}\n${status}${flag}\n${wrapUntrusted(body, { source: 'file', id: meta.id })}`)
+}
+
 export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
   server.registerTool(
     'read_file',
     {
       title: 'Read attachment',
       description:
-        'Read an attachment: images (PNG, JPEG, WebP, GIF up to 3 MB) come back as images, text files as text (maxChars), PDFs ' +
-        'and other types as metadata only. file = the id, or the /files/<id> link read_page shows for image and file blocks.',
+        'Read an attachment: images (PNG, JPEG, WebP, GIF up to 3 MB) come back as images; text files (txt, csv, md, json, yaml, ' +
+        'xml, html, svg … as source) as text; PDFs as their text layer, by pages; other types as metadata only. ' +
+        'file = the id, or the /files/<id> link read_page shows.',
       inputSchema: {
         file: z.string().trim().min(1).max(500).describe('File id, or a /files/<id> link from read_page'),
         maxChars: z.number().int().min(200).max(100_000).optional().describe(`Cap on text (default ${READ_FILE_DEFAULT_CHARS})`),
+        pages: z.string().trim().max(20).optional().describe(`PDF pages, e.g. "1-5" (default 1-${PDF_LIMITS.defaultPages}, at most ${PDF_LIMITS.maxPages})`),
       },
       annotations: { readOnlyHint: true },
     },
-    wrap(async ({ file, maxChars = READ_FILE_DEFAULT_CHARS }): Promise<CallToolResult> => {
+    wrap(async ({ file, maxChars = READ_FILE_DEFAULT_CHARS, pages }): Promise<CallToolResult> => {
       const m = FILE_ID.exec(file)
       if (!m) throw new ToolError('file must be a file id or a /files/<id> link (as read_page shows attachments)')
       const id = m[1].toLowerCase()
@@ -424,21 +514,24 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
           ],
         }
       }
-      if (isTextMime(meta.mime)) {
+      if (isPdf(meta)) return readPdf(ctx, meta, head, pages, maxChars)
+      if (isTextFile(meta)) {
         if (meta.size > READ_FILE_TEXT_MAX_BYTES) {
           return only(`Text file too large to read here (${humanSize(meta.size)}, limit ${humanSize(READ_FILE_TEXT_MAX_BYTES)}).`)
         }
         const bytes = (await call(ctx, 'GET', `/files/${id}`)).rawPayload
         if (bytes.includes(0)) return only('The content is binary, not text; not returned.')
-        const all = bytes.toString('utf8')
+        let all: string
+        try {
+          all = utf8.decode(bytes)
+        } catch {
+          return only('The content is not UTF-8 text; not returned.')
+        }
         const body = all.length > maxChars ? `${all.slice(0, maxChars)}\n\n[truncated: ${maxChars} of ${all.length} chars]` : all
-        return text(`${head}\n${wrapUntrusted(body, { source: 'file', id: meta.id })}`)
+        const flag = await flagLine(ctx, meta, body, bytes)
+        return text(`${head}${flag}\n${wrapUntrusted(body, { source: 'file', id: meta.id })}`)
       }
-      return only(
-        meta.mime === 'application/pdf'
-          ? 'PDF content is not extracted (no PDF parser on the server); only the metadata is shown. Open the link in the app to read it.'
-          : 'Content of this type is not extracted; only the metadata is shown.',
-      )
+      return only('Content of this type is not extracted; only the metadata is shown.')
     }),
   )
 }

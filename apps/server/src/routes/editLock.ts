@@ -13,7 +13,8 @@ import { idParam, requireMembership } from '../helpers'
 import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { findVisiblePage, visibleTo } from '../pageDto'
 import { liveWorkspace } from '../workspaceLive'
-import { agentAllowedSql, currentAgent } from '../agentAccess'
+import { agentAllowedSql } from '../agentAccess'
+import { demotionIn, recordFlaggedPages } from '../agentTaint'
 import { aclColumns, toAcl } from '../aclVersion'
 import { actorFor, CAP_COMMENT, CAP_EDIT, CAP_SUGGEST, capsFor, pageLockStatus, setPageLock } from '../editLock'
 import { effectivePolicies } from '../autoAccept'
@@ -74,23 +75,6 @@ export async function suspiciousSections(pageIds: string[]): Promise<Map<string,
     out.set(r.pageId, list)
   }
   return out
-}
-
-/**
- * Taint record (docs/adr/0977-*): the agent connection was handed flagged content. Recorded only,
- * at most once a minute per grant; no write path reads it yet.
- */
-async function markTainted(): Promise<void> {
-  const agent = currentAgent()
-  if (!agent) return
-  try {
-    await db.execute(sql`
-      UPDATE oauth_grants SET tainted_at = now()
-       WHERE id = ${agent.grantId} AND (tainted_at IS NULL OR tainted_at < now() - interval '1 minute')
-    `)
-  } catch (err) {
-    console.error('[inkling] taint record failed', err)
-  }
 }
 
 async function guardPage(req: FastifyRequest) {
@@ -179,7 +163,11 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
   // How an agent's body edits land (docs/adr/1544-*): direct, auto-accept rules, or review.
   const policies = await effectivePolicies(ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })))
   const flags = await suspiciousSections(ordered.map((r) => r.id))
-  if (opts.read && flags.size) await markTainted()
+  // Flagged content handed to a connection makes it suggest-only for a while (docs/adr/0977-*, 2040-*).
+  if (opts.read && flags.size) await recordFlaggedPages([...flags.keys()])
+  // Where this connection is suggest-only now, its edits land as suggestions (docs/adr/2041-*).
+  const demoted = new Set<string>()
+  for (const ws of new Set(ordered.map((r) => r.workspaceId))) if (await demotionIn(ws)) demoted.add(ws)
   return {
     pages: ordered.map((r) => {
       const c = caps.get(r.id) ?? 0
@@ -188,7 +176,7 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
         // 'suggest': edits become suggestions under an "agents: suggestions only" lock (docs/adr/1532-*)
         // under an "auto"/"review" policy edits become suggestions: 'suggest' (+ 'auto' when rules may accept them)
         can: (() => {
-          const level = policies.get(r.id)?.level ?? 'direct'
+          const level = demoted.has(r.workspaceId) ? 'review' : (policies.get(r.id)?.level ?? 'direct')
           const edit = c & CAP_EDIT && level === 'direct' ? ['edit'] : c & (CAP_EDIT | CAP_SUGGEST) ? ['suggest', ...(level === 'auto' ? ['auto'] : [])] : []
           return ['read', ...(c & CAP_COMMENT ? ['comment'] : []), ...edit].join(',')
         })(),

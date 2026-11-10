@@ -17,6 +17,7 @@ export default {
   'suggestions.mode.page_replace': '페이지 전체 바꾸기',
   'suggestions.mode.page_append': '페이지 끝에 추가',
   'suggestions.origin.lock': '이 페이지는 에이전트가 제안만 할 수 있습니다',
+  'suggestions.origin.taint': '이 에이전트가 최근 프롬프트 인젝션으로 보이는 글을 읽어서 편집이 승인 대기로 바뀌었습니다. 요청한 변경이 맞는지 확인하세요.',
   'suggestions.changed': '에이전트가 읽은 뒤에 이 섹션이 바뀌었습니다. 차이는 지금 내용 기준이고, 수락하면 지금 내용 위에 제안이 적용됩니다.',
   'suggestions.gone': '섹션이 더 이상 없습니다. 제안을 거절하거나 필요한 부분을 직접 옮기세요.',
   'suggestions.accept': '수락',

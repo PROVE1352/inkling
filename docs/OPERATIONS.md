@@ -1095,8 +1095,9 @@ semantic search, OpenID Connect and mail. MCP stays on.
 - Live edits are counted when they arrive, before they are applied (docs/adr/2530-*). An edit that would take the
   page body past a quarter of the limit or the workspace past its limit, or that arrives while the instance storage
   fuse is tripped, is not applied and not stored: the connection becomes read-only and reconnects read-only, and
-  for the next 10 minutes (or until the server restarts) connections to that page are opened read-only. What the
-  person typed or pasted then stays only in their editor and on their device (KNOWN-ISSUES).
+  for the next 10 minutes (or until a count finds room in the workspace, or the server restarts) connections to that
+  page are opened read-only. What the person typed or pasted then stays only in their editor and on their device
+  (KNOWN-ISSUES LIMITS-24).
 - With `LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB` set, the collaboration socket also bounds what a
   client sends: the sockets of one client address share 16 MB, refilled at 4 MB a second, and one socket may hold
   at most 8 MB of messages for documents it has not opened yet; past either the socket is cut. With neither setting
@@ -1104,7 +1105,7 @@ semantic search, OpenID Connect and mail. MCP stays on.
 
 ### Instance storage fuse
 `LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2532-*) stops writes on a server that strangers could fill, such as a demo.
-It is weaker than a filesystem with a size limit; give a demo one of its own as well (below).
+It is weaker than a filesystem with a size limit (KNOWN-ISSUES LIMITS-27); give a demo one of its own as well (below).
 
 - **What it measures**: `pg_database_size` of the app's database plus the bytes of every file under the data folder
   (`DATA_DIR`: uploads, the import and export scratch folder, plugins), walked on disk. It measures at most once a
@@ -1188,7 +1189,7 @@ that whatever the fuse misses cannot fill the disk the main instance uses.
 - While `SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `SIGNUP_PER_HOUR` is set, the sign-up form also has a hidden
   field that must stay empty and must have been on screen for two seconds (400 `SIGNUP_CHECK_FAILED` otherwise).
   These checks stop only simple scripts; the caps are what bound the damage, and they slow filling the server
-  rather than prevent it (KNOWN-ISSUES).
+  rather than prevent it (KNOWN-ISSUES LIMITS-10, LIMITS-28).
 - `SIGNUP_PER_HOUR` counts the accounts the server made in the last hour (429 `SIGNUP_RATE_LIMIT`, "Try again in an
   hour"). The setup-code sign-up neither counts nor is refused.
 - While `SIGNUP_PER_IP_PER_DAY` is set, a sign-up refused because the email or ID is taken is recorded for the
@@ -1218,7 +1219,8 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
 - `OAUTH_UNUSED_CLIENT_MAX`: a registration that would pass this many never-used clients first deletes the oldest
   ones. It never deletes one registered in the last 15 minutes (someone may be on the sign-in or consent screen with
   it); when only those are left, the registration is refused with 503 `temporarily_unavailable` and `Retry-After`.
-- An app whose client was deleted gets `invalid_client` and has to register again (KNOWN-ISSUES).
+- An app whose client was deleted is refused at the authorization step (400 `INVALID_CLIENT`) and has to register
+  again (KNOWN-ISSUES LIMITS-30).
 - With the demo values (24 hours, 500) the never-used rows stay under about 500 × 23 KB.
 
 ### Account lifetime
@@ -1227,7 +1229,7 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
   have a date.
 - **Turning it off and on again** keeps the dates that accounts got earlier: at the next hourly run every account
   whose date passed while it was off is deleted at once. Before turning it back on, look at the dates in Admin ›
-  Users and move or lift the ones that should not apply.
+  Users and move or lift the ones that should not apply (KNOWN-ISSUES LIMITS-33).
 - Each hour up to 50 expired accounts are deleted, oldest date first, each in its own transaction; a failure is
   one log line and the next account still runs. Log lines carry the account id and counts, never a name or ID.
 - Start with `ACCOUNT_LIFETIME_DRY_RUN=1`: the job logs one line per account it would delete ("would delete user

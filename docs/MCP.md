@@ -117,7 +117,7 @@ project) or `.claude/skills/` in a project; Claude Code loads it when a task nee
 | `reply_comment` / `resolve_comment` | write | Reply in a thread; resolve (or reopen) a thread — agents may resolve only threads their person started. `reply_comment` takes `handoffTo` like `add_comment` |
 | `inbox` | read | Mentions, replies, comments on your person's pages, assignments and `approval_result` (a person accepted or rejected one of your suggestions, [ADR 1534](adr/1534-approval-request-and-result-notifications.md)), not yet acknowledged, after `cursor`; one line each with `can: edit/comment/read`; cursor on the last line. `kinds`, `budget` (default 2,000). Items handed to this connection itself (a person mentioned or assigned *this* agent, not the person) are marked `→ this connection` and counted in the header `(N handed to this connection)`; items handed to your person's other connections are not listed ([ADR 1863](adr/1863-hand-offs-go-to-one-connection.md)) |
 | `ack` | write | Acknowledge inbox items by `ids` or up to a `cursor` (does not mark them read for the person). A cursor acknowledges only what the listing it came from could show: the cursor of `inbox(workspaceId=…)` or `inbox(kinds=[…])` carries that filter ([ADR 1922](adr/1922-inbox-ack-follows-the-listing.md)) |
-| `catch_up` | read | **What happened while you were away**, in one call, most important first: mentions/replies/assignments for your person, tasks due within 7 days and overdue, due Later reminders, new comment threads and replies, then pages changed by others (who, via which client, how many edits, section diffs; new, trashed, moved pages, new collections and rows), then your person's own changes. A page counts as changed by others when another identified person changed it; edits nobody could be credited with (live typing) are shown as `unattributed edits N` and put a page there only when none of its changes are yours ([ADR 1653](adr/1653-catch-up-others-means-identified-people.md)). Without `since` it continues from this connection's last catch_up (else your person's last one, else 24 hours); `since` also takes a `changes_since` cursor or a time. `budget` default 4,000, max 12,000; `peek=true` keeps the marker. Acknowledges nothing; the line before the last names the due window (`due window: up to <date>`), the last line is `next since:` ([ADR 1520](adr/1520-catch-up-for-agents.md), [1521](adr/1521-catch-up-importance-packing.md), [1537](adr/1537-catch-up-markers-table.md)). `team=true` adds "Team agents": other connections' live section claims (`- claim §a · "Title" <8-char id> · Bob via Claude Code (g:1a2b3c4d) · until 10:12Z (12 min)`) and one line per other agent with what it did in the window (`- Bob via Claude Code (g:1a2b3c4d): 4 edits, 1 new, 2 suggested, 1 open, 1 reverted · last …`); pages you cannot open print `(hidden) <8-char id>`. Off by default ([ADR 1865](adr/1865-team-summary-in-catch-up.md)) |
+| `catch_up` | write (its marker) | **What happened while you were away**, in one call, most important first: mentions/replies/assignments for your person, tasks due within 7 days and overdue, due Later reminders, new comment threads and replies, then pages changed by others (who, via which client, how many edits, section diffs; new, trashed, moved pages, new collections and rows), then your person's own changes. A page counts as changed by others when another identified person changed it; edits nobody could be credited with (live typing) are shown as `unattributed edits N` and put a page there only when none of its changes are yours ([ADR 1653](adr/1653-catch-up-others-means-identified-people.md)). Without `since` it continues from this connection's last catch_up (else your person's last one, else 24 hours); `since` also takes a `changes_since` cursor or a time. `budget` default 4,000, max 12,000; `peek=true` keeps the marker. Moving the marker is its only write, so it is not marked read-only, and a read-only connection may still call it ([ADR 2460](adr/2460-mcp-tool-annotations-on-every-tool.md)). Acknowledges nothing; the line before the last names the due window (`due window: up to <date>`), the last line is `next since:` ([ADR 1520](adr/1520-catch-up-for-agents.md), [1521](adr/1521-catch-up-importance-packing.md), [1537](adr/1537-catch-up-markers-table.md)). `team=true` adds "Team agents": other connections' live section claims (`- claim §a · "Title" <8-char id> · Bob via Claude Code (g:1a2b3c4d) · until 10:12Z (12 min)`) and one line per other agent with what it did in the window (`- Bob via Claude Code (g:1a2b3c4d): 4 edits, 1 new, 2 suggested, 1 open, 1 reverted · last …`); pages you cannot open print `(hidden) <8-char id>`. Off by default ([ADR 1865](adr/1865-team-summary-in-catch-up.md)) |
 | `later` | read | Your person's Later list (pages, comment threads, notifications they saved) with reminders, newest first; `state` open (default) or done; items they can no longer open are listed without a title. `budget` (default 1,500). Read-only: saving and reminders stay in the app ([ADR 1413](adr/1413-later-list-for-agents-read-only.md)) |
 | `list_suggestions` | read | Suggested edits and their outcome. With `pageId`: that page's suggestions (open ones with their Markdown as untrusted data) and its live section claims; without: your person's own. `status`: `open` (default), `decided` (accepted, accepted_partial, rejected), `all`, or one status (withdrawn, superseded, …), the same filter on both paths. One line each: `id \| status \| page §section \| mode \| by (via client) \| time \| decided by … at …`; a superseded row says "replaced by <id>", an `accepted_partial` one "(n of m changes applied)" ([ADR 1530](adr/1530-suggestions-are-section-rows-until-a-person-decides.md), [1622](adr/1622-accepted-partial-status.md), [1626](adr/1626-one-status-filter-for-suggestion-lists.md)) |
 | `withdraw_suggestion` | write | Take back one of your open suggestions. A suggestion that is no longer open is answered with its state: replaced by which newer suggestion, already decided by whom, or already withdrawn; nothing to retry ([ADR 1626](adr/1626-one-status-filter-for-suggestion-lists.md)). Accepting and rejecting are for people only (web app or a personal API token); there is no tool for them ([ADR 1533](adr/1533-accept-applies-on-the-current-section-after-a-warning.md)) |
@@ -133,11 +133,79 @@ project) or `.claude/skills/` in a project; Claude Code loads it when a task nee
 | `read_file` | read | An attachment by id or by the `/files/<id>` link `read_page` shows: PNG/JPEG/WebP/GIF up to 3 MB as an image; text files as untrusted text (`maxChars`, default 20,000; up to 2 MB) — by MIME type or by extension (txt, log, md, csv, tsv, json, yaml, xml, html and svg as source, ini, toml, cfg, conf, sql, rst, tex); PDFs as their text layer by `pages` (`"2-5"`, default 1–20, at most 50 per call, files up to 20 MB, 10 s per call) with "pages A–B of N" and where to continue — scanned PDFs have no text (no OCR), password-protected and damaged ones say so; other types as metadata only. Returned text is scanned: a hit prints `suspicious: injection-like (…)` and makes the connection suggest-only (see below) ([ADR 1514](adr/1514-read-file-attachments-for-agents.md), [2046](adr/2046-read-file-text-by-extension-and-read-time-scan.md), [2047](adr/2047-pdf-text-with-unpdf.md), [2048](adr/2048-pdf-limits-in-a-worker-thread.md)) |
 | `upload_file` | write | Attach a file you made to a page you may edit: png, jpg, gif, webp, pdf (`base64`) or txt, log, tsv, csv, md, json (`text`), at most 5 MB (the default; the server admin can change it). Linked at the end of the page, or of `section`, as an image or a link — an ordinary agent edit: in changes_since and catch_up, revertable, a suggestion where edits are reviewed. `attachOnly: true` stores it without a link. SVG, HTML and other types are refused; the server checks the bytes against the name. Can be turned off per workspace or server (`AGENT_UPLOADS_OFF`, [ADR 2065](adr/2065-agent-uploads-switch-and-limits.md)). In the core profile: `more_tools(tool="upload_file", arguments={…})` ([ADR 2044](adr/2044-upload-file-for-agents.md), [2045](adr/2045-agent-upload-limits-and-types.md)) |
 | `check_notes` | read | Memory check of a workspace or subtree (`parentId`): broken `[[links]]` (`missing`, or `not linked, page <id> has that name now`), section links whose heading is gone (`[[Page#Heading]] heading not found in page <id>`, [ADR 2103](adr/2103-check-notes-reports-section-links-without-their-heading.md)) and links to pages in the trash, duplicate titles (case, punctuation, spacing and word order ignored), pages with no link in or out, lapsed or much-changed verifications, documents ≥ 3,000 tokens unchanged for 180 days. Totals per kind and the top `limit` (default 10) inside `<untrusted_content source="check">`, within `budget` (default 2,000). Decided over the pages you can see: a title that only another member's private page has is `missing` ([ADR 2003](adr/2003-check-notes-memory-check.md)). In the core profile: `more_tools(tool="check_notes", arguments={…})` |
-| `more_tools` | read | Core profile only: `more_tools()` lists the tools this connection does not list, `more_tools(tool)` prints one tool's arguments, `more_tools(tool, arguments)` runs it with the tool's own checks ([ADR 2000](adr/2000-tool-profiles-core-and-full-in-the-mcp-url.md)) |
+| `more_tools` | write (runs any hidden tool) | Core profile only: `more_tools()` lists the tools this connection does not list, `more_tools(tool)` prints one tool's arguments, `more_tools(tool, arguments)` runs it with the tool's own checks ([ADR 2000](adr/2000-tool-profiles-core-and-full-in-the-mcp-url.md)). Annotated as the worst case of what it runs (destructive); a read-only connection may call it, and a write tool it runs is refused as when called directly ([ADR 2460](adr/2460-mcp-tool-annotations-on-every-tool.md)) |
 
 Tokens are for `/mcp` only. Calling the REST API directly with the same token is rejected (no member management, public sharing or admin features).
 
-<!-- w20b:annotations -->
+### Tool annotations
+
+Every tool states the four MCP annotation hints, so a client can tell a read from a write and a write that only
+adds from one that overwrites or removes ([ADR 2460](adr/2460-mcp-tool-annotations-on-every-tool.md)).
+`destructive` is true when the call can remove or overwrite something that was there, even if version history or
+the trash can bring it back; `idempotent` is true when repeating the call with the same arguments changes nothing
+more. No tool is `openWorld`: they act on this server's notes and workspace members only (the mail, push and
+webhook notifications a change triggers go to members and to destinations owners set, as for an edit in the
+browser). `catch_up` is not read-only, because it moves this
+connection's "last catch_up" marker (`peek=true` does not); a read-only connection may still call it. Every tool a
+read-only connection refuses has `readOnly` false. `more_tools(tool=…)` prints a tool's true hints after its name.
+The table below is the decision for every hint; tools/list leaves out the hints that equal the MCP defaults, so
+a read-only tool lists `{"readOnlyHint":true,"openWorldHint":false}` and a write tool lists `destructiveHint`
+(always), `idempotentHint` (only when true) and `openWorldHint: false` (always).
+
+| Tool | readOnly | destructive | idempotent | openWorld |
+|---|---|---|---|---|
+| `list_workspaces` | true | false | false | false |
+| `list_pages` | true | false | false | false |
+| `search` | true | false | false | false |
+| `read_page` | true | false | false | false |
+| `create_page` | false | false | false | false |
+| `import_folder` | false | false | false | false |
+| `update_page` | false | true | false | false |
+| `rename_page` | false | true | true | false |
+| `move_page` | false | true | true | false |
+| `trash_page` | false | true | true | false |
+| `list_templates` | true | false | false | false |
+| `create_from_template` | false | false | false | false |
+| `list_comments` | true | false | false | false |
+| `add_comment` | false | false | false | false |
+| `reply_comment` | false | false | false | false |
+| `resolve_comment` | false | false | true | false |
+| `inbox` | true | false | false | false |
+| `ack` | false | false | true | false |
+| `later` | true | false | false | false |
+| `find_context` | true | false | false | false |
+| `read_pages` | true | false | false | false |
+| `patch_section` | false | true | false | false |
+| `patch_sections` | false | true | false | false |
+| `get_instructions` | true | false | false | false |
+| `changes_since` | true | false | false | false |
+| `query_rows` | true | false | false | false |
+| `update_row` | false | true | true | false |
+| `create_row` | false | false | false | false |
+| `create_chart` | false | false | false | false |
+| `create_view` | false | false | false | false |
+| `split_page` | false | true | false | false |
+| `read_ink` | true | false | false | false |
+| `list_versions` | true | false | false | false |
+| `diff_versions` | true | false | false | false |
+| `restore_version` | false | true | false | false |
+| `list_trash` | true | false | false | false |
+| `restore_page` | false | false | true | false |
+| `read_file` | true | false | false | false |
+| `upload_file` | false | false | false | false |
+| `import_zip` | false | false | false | false |
+| `catch_up` | false | false | false | false |
+| `list_suggestions` | true | false | false | false |
+| `withdraw_suggestion` | false | false | true | false |
+| `claim_section` | false | false | false | false |
+| `release_section` | false | false | true | false |
+| `create_collection` | false | false | false | false |
+| `update_fields` | false | true | false | false |
+| `check_notes` | true | false | false | false |
+| `more_tools` (core only) | false | true | false | false |
+
+For read-only tools `destructive` and `idempotent` mean nothing (MCP spec) and are not listed; the table shows
+false.
 
 ## Guide for agents
 
@@ -481,7 +549,7 @@ Settings → MCP connections and connecting again.
 ### Tool profiles
 
 Add `?profile=core` to the MCP URL (`https://notes.example.com/mcp?profile=core`) to list 32 tools instead of 48 —
-about 7,500 tokens instead of 12,800 in every session. Reports from agent builders put the point where models start
+about 7,900 tokens instead of 13,200 in every session. Reports from agent builders put the point where models start
 choosing tools less well at 30–50 tool definitions. core keeps reading, search, section writes, comments, inbox,
 catch_up, changes_since, section claims, suggestions, rows and read_file. The rest — collection structure and charts,
 templates, version history and the trash, check_notes, split_page, folder and zip import and file upload, handwriting — is
@@ -700,7 +768,10 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
   sessions only. `create_from_template`: an inline view of a database inside the same template now points at the new
   copy of that database ([ADR 2381](adr/2381-sample-page-first-admin-auto-members-by-button.md)).
 - **0.20**: one migration (`0061_share_include_charts`: `pages.share_include_charts`, `share_charts_by`,
-  `share_chart_sources`); none changes a tool. Same 48 tools (32 in core), same descriptions and sizes. Columns are
+  `share_chart_sources`); none changes a tool. Same 48 tools (32 in core) and descriptions; every tool now carries its annotation hints
+  ([ADR 2460](adr/2460-mcp-tool-annotations-on-every-tool.md), "Tool annotations" above): full 52,932 characters
+  (~13,245 tokens; 0.19: 51,059, ~12,777), core 31,391 (~7,857; 0.19: 30,093, ~7,533); server instructions unchanged
+  (1,965 characters, ~492 tokens). Columns are
   marker lines in every tool's Markdown (above). Charts on public links are a browser-only setting: the share routes
   are session-only, so no tool turns them on or approves a chart's source, and `read_page` keeps the chart token and
   its data line for the reader ([ADR 2440](adr/2440-public-link-charts-switch-per-link-off-by-default.md)).

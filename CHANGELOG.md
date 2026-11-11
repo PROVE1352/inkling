@@ -22,8 +22,8 @@ gives title words their real weight. A public link can now show the page's chart
 numbers, once an owner or admin turns it on for that link; public pages also draw callouts (icon, then text) and
 text and background colours as the editor does. One database migration, additive: `0061_share_include_charts` (three
 columns on `pages`; a 0.19 database goes from 61 to 62 applied migrations, and every existing link keeps charts off).
-No new dependency, two optional settings (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`). The MCP tool list is unchanged (48 tools,
-32 in core; same descriptions and sizes). Upgrade matrix adds v0.19.0 and v0.19.1.
+No new dependency, two optional settings (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`). The MCP tool list keeps its 48 tools
+(32 in core) and their descriptions; every tool now carries its annotation hints (+468 tokens full, +324 core). Upgrade matrix adds v0.19.0 and v0.19.1.
 
 Checked in Chrome only (desktop and a 390 px window): the columns check (31 steps), a 0.19.1 build against the 0.20
 server (10 steps), public charts (27 steps), public callouts and colours (16 steps) and the 0.19 browser checks passed; none of it was tried in Safari, Firefox or on a touch device
@@ -104,7 +104,6 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
 - **Korean deployment, operations and backup guides**: `deploy/DEPLOY.ko.md`, `docs/OPERATIONS.ko.md` and
   `docs/BACKUP.ko.md`, with the same sections, anchors and code blocks as the English files. The Korean README and
   user guide link to them; each English file links to its Korean one.
-<!-- w20b:annotations-changelog -->
 
 ### Changed
 - **find_context finds pages people describe with a longer word than the page uses** (docs/adr/2401-* .. 2403-*):
@@ -122,7 +121,21 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   rewriting the page (docs/adr/2424-*).
 - **find_context's section text writes columns with read_page's marker lines**, without indenting the blocks
   inside, so a section copied from find_context into patch_section keeps its group (docs/adr/2424-*).
-<!-- w20b:site-changelog -->
+- **Every MCP tool states all four annotation hints** (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  `openWorldHint`) from one table, so clients no longer fall back to the spec's defaults ("may be destructive",
+  "open world") for tools that only add (docs/adr/2460-*). Before, 21 of 48 tools were marked read-only and 11 had a
+  destructive hint. Now 20 are read-only; of the writes, 11 are destructive (including `more_tools`, which can run
+  any hidden tool) and 18 only add or flip a flag; none is open world. Two verdicts changed: `catch_up` is no longer
+  read-only (without `peek` it moves the connection's "last catch_up" marker; read-only connections still call it),
+  and `update_row` is destructive (it overwrites values; `null` clears). `more_tools(tool=…)` prints the tool's true
+  hints after its name (`readOnly`, `destructive`, `idempotent`). tools/list leaves out hints equal to the MCP
+  defaults (a read-only tool lists `readOnlyHint` and `openWorldHint`; a write tool `destructiveHint`, `openWorldHint`
+  and `idempotentHint` when true). Tool names, descriptions and schemas are unchanged.
+- **Project site** (`site/`) rewritten for 0.20. The first screen is about agents and MCP: quick start, connecting,
+  real `find_context` and `patch_section` output with the measured numbers, suggestions and ranges. The language
+  switch goes to a page per language and works from `file://` too. The version is read from
+  `apps/server/package.json` at build time. `llms.txt` and links to each document's Markdown source. 0.20
+  screenshots and a new intro video.
 
 ### Fixed
 - Public links: a callout shows as in the editor, its type's icon and then the text, with line breaks, inline code,
@@ -156,6 +169,10 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   (226 B), the chart adapter (961 B) and `ChartRender` (50,822 B, the app's chart chunk) only when the page has a
   chart; a page without charts requests none of them. The share dialog's chart count of a folder link with 300 large
   pages that all hold a chart takes about 0.36 s (26 ms with one chart page) ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- MCP tools/list with the annotations (`scripts/mcp-tools-list-cost.ts`, read-write connection, no database): full
+  48 tools 51,059 → 52,932 characters, ~12,777 → ~13,245 tokens (+468, +3.7%); core 32 tools 30,093 → 31,391
+  characters, ~7,533 → ~7,857 tokens (+324, +4.3%). Listing all four hints on every tool would have cost +960 / +641
+  tokens. Server instructions unchanged (1,965 characters, ~492 tokens) ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 - `find_context` latency with the new word rules is unchanged (p50 36.2 → 34.6 ms, p95 102.2 → 90.8 ms on 15.8k
   sections, interleaved runs). The document schema guard costs current clients one comparison per message; on the
   server a keystroke costs nothing measurable and a new block in a 2,000-block group about 50 µs

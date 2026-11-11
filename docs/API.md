@@ -1802,5 +1802,7 @@ Migration 0061 (`pages.share_include_charts boolean not null default false`, `pa
   table cells), and public pages now draw them in both themes. Only public pages use this server HTML.
 
 ### MCP tools
-No new tool and no description change: full 48 tools, core 32 (same sizes as 0.19). Details: [MCP.md](MCP.md).
+No new tool and no description change; every tool now carries its annotation hints (docs/adr/2460-*): full 48 tools
+(~13,245 tokens; 0.19: ~12,777), core 32 (~7,857; 0.19: ~7,533), server instructions unchanged (~492). `catch_up`
+is no longer marked read-only and `update_row` is marked destructive. Details: [MCP.md](MCP.md).
 

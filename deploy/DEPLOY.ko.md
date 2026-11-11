@@ -135,7 +135,7 @@ docker compose exec -T db psql \
 - 사용자 본인: 설정 > 계정(`Settings > Account`)에서 지금 비밀번호를 넣고 바꿉니다(다른 기기는 로그아웃되고 지금 쓰는 기기는 그대로입니다).
 - 위임 로그인 계정은 비밀번호가 외부 인증 서버에 있으므로 위 내용이 모두 해당되지 않습니다.
 
-**강제 탈퇴.** 관리자 화면의 사용자 행에서 '탈퇴'(`Remove`)를 누릅니다. users 행이 지워지면서 세션, 워크스페이스 멤버십, 북마크, 그 사람이 받은 알림, MCP 연결도 함께 지워집니다. 페이지, 파일, 코멘트, 스냅샷, 템플릿, 워크스페이스는 작성자 칸만 비운 채(SET NULL) 남습니다. 그 사람이 썼던 가입 키는 사용 횟수가 하나 돌아옵니다. 그 사람이 혼자 소유한 워크스페이스가 있으면 409 `SOLE_OWNER`와 해당 워크스페이스 목록을 돌려주며 거절합니다. 다른 멤버를 먼저 소유자로 올린 다음 다시 시도하세요. 그 사람의 개인 페이지는 작성자 없이 휴지통으로 가고, 관리자를 포함해 아무도 볼 수 없으며, 30일 뒤 영구 삭제됩니다. 본인이 원하면 탈퇴 전에 내보내기를 권해 주세요.
+**강제 탈퇴.** 관리자 화면의 사용자 행에서 '탈퇴'(`Remove`)를 누릅니다. users 행이 지워지면서 세션, 워크스페이스 멤버십, 즐겨찾기, 그 사람이 받은 알림, MCP 연결도 함께 지워집니다. 페이지, 파일, 코멘트, 스냅샷, 템플릿, 워크스페이스는 작성자 칸만 비운 채(SET NULL) 남습니다. 그 사람이 썼던 가입 키는 사용 횟수가 하나 돌아옵니다. 그 사람이 혼자 소유한 워크스페이스가 있으면 409 `SOLE_OWNER`와 해당 워크스페이스 목록을 돌려주며 거절합니다. 다른 멤버를 먼저 소유자로 올린 다음 다시 시도하세요. 그 사람의 개인 페이지는 작성자 없이 휴지통으로 가고, 관리자를 포함해 아무도 볼 수 없으며, 30일 뒤 영구 삭제됩니다. 본인이 원하면 탈퇴 전에 내보내기를 권해 주세요.
 
 <a id="3-d-delegated-login-optional"></a>
 ## 3-D. 위임 로그인 (선택)
@@ -144,7 +144,7 @@ docker compose exec -T db psql \
 
 | 변수 | 뜻 | 기본값 |
 |---|---|---|
-| `DELEGATED_AUTH_URL` | 외부 인증 서버의 origin(예: `https://auth.example.com`) | 없음(꺼짐) |
+| `DELEGATED_AUTH_URL` | 외부 인증 서버의 origin(경로 없이 스킴과 호스트까지만, 예: `https://auth.example.com`) | 없음(꺼짐) |
 | `DELEGATED_AUTH_NAME` | 로그인 화면과 관리자 화면에 보이는 이름 | "External account" |
 | `DELEGATED_EMAIL_DOMAIN` | Inkling 쪽에 만들어 두는 위임 계정의 이메일 도메인(`<id>@<domain>`, 실제로 메일을 보내지는 않습니다) | `delegated.local` |
 
@@ -205,7 +205,7 @@ docker compose restart app   # to clear the in-memory ban list as well
 
 | 변수 | 뜻 | 기본값 |
 |---|---|---|
-| `OIDC_ISSUER` | 발급자 URL. 제공자의 discovery 문서에 적힌 그대로 씁니다 | 없음(꺼짐) |
+| `OIDC_ISSUER` | 발급자 URL. 제공자의 discovery 문서(제공자가 자기 엔드포인트와 키 위치를 알리는 설정 문서)에 적힌 그대로 씁니다 | 없음(꺼짐) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 클라이언트 자격 증명. 시크릿은 토큰 엔드포인트에만 보내고, 로그에 남기거나 돌려주지 않습니다 | 없음 |
 | `OIDC_NAME` | 버튼 라벨("`<name>`로 로그인") | `SSO` |
 | `OIDC_ALLOWED_DOMAINS` | 로그인을 허용할 이메일 도메인, 쉼표로 구분. `email_verified`가 필요합니다 | 비어 있음(제공자가 발급하는 누구나) |
@@ -226,7 +226,7 @@ docker compose restart app   # to clear the in-memory ban list as well
 | Keycloak | `https://<host>/realms/<realm>` | `OIDC_REQUIRE_MFA`를 쓰려면 ACR 단계를 설정하고 `OIDC_ACR_VALUES`를 정하거나, `amr` 매퍼를 추가하세요. |
 | Authentik | `https://<host>/application/o/<slug>/` | 끝의 슬래시를 지우지 마세요. 발급자 주소의 일부입니다. |
 
-계정을 맞추는 방법(docs/adr/1161-*): 제공자의 발급자와 subject로 맞추고, 이메일만 보고 맞추는 일은 없습니다. 이미 Inkling 계정이 있는 사람은 설정 › 계정(`Settings › Account`)에서 제공자를 연결하는 것이 안전합니다. `OIDC_LINK_EXISTING=1`이면 제공자가 이메일을 인증된 것으로 표시했을 때 첫 로그인에서 같은 이메일의 계정에도 연결합니다. 계정이 없는 사람은 `OIDC_AUTO_CREATE=1`일 때만 계정이 생깁니다. 이때는 가입 키를 묻지 않으니 `OIDC_ALLOWED_DOMAINS`를 정해 두세요(비어 있으면 서버가 부팅할 때 경고합니다). 아무 계정도 없는 인스턴스에서는 다른 가입과 마찬가지로 첫 계정이 관리자가 됩니다.
+계정을 맞추는 방법(docs/adr/1161-*): 제공자의 발급자와 subject(제공자가 사용자마다 붙이는 고유 id)로 맞추고, 이메일만 보고 맞추는 일은 없습니다. 이미 Inkling 계정이 있는 사람은 설정 › 계정(`Settings › Account`)에서 제공자를 연결하는 것이 안전합니다. `OIDC_LINK_EXISTING=1`이면 제공자가 이메일을 인증된 것으로 표시했을 때 첫 로그인에서 같은 이메일의 계정에도 연결합니다. 계정이 없는 사람은 `OIDC_AUTO_CREATE=1`일 때만 계정이 생깁니다. 이때는 가입 키를 묻지 않으니 `OIDC_ALLOWED_DOMAINS`를 정해 두세요(비어 있으면 서버가 부팅할 때 경고합니다). 아무 계정도 없는 인스턴스에서는 다른 가입과 마찬가지로 첫 계정이 관리자가 됩니다.
 
 2단계 인증(docs/adr/1162-*): 제공자를 통해 만든 계정은 제공자의 두 번째 인증 수단을 쓰고, 2단계 인증을 요구하는 워크스페이스에서도 인증을 마친 것으로 칩니다. Inkling이 이를 직접 확인하게 하려면 `OIDC_REQUIRE_MFA=1`로 두세요. Inkling 자체 2단계 인증도 켠 계정은 제공자에서 로그인한 다음 코드를 한 번 더 묻습니다.
 
@@ -272,7 +272,7 @@ docker compose restart app   # to clear the in-memory ban list as well
 
 | 변수 | 뜻 | 기본값 |
 |---|---|---|
-| `SINGLE_INSTANCE` | `0`(또는 `false`/`off`/`no`)이면 이 보호 장치를 끄고 부팅할 때 경고합니다. 돌고 있는 데이터베이스에 일부러 프로세스를 하나 더 붙이거나 트랜잭션 모드 풀러 뒤에 둘 때만 쓰세요. 두 번째 웹 서버를 띄우는 용도로는 절대 쓰지 마세요 | 켜짐 |
+| `SINGLE_INSTANCE` | `0`(또는 `false`/`off`/`no`)이면 이 보호 장치를 끄고 부팅할 때 경고합니다. 돌고 있는 데이터베이스에 일부러 프로세스를 하나 더 붙이거나 트랜잭션 모드로 도는 커넥션 풀러(여러 연결을 몇 개의 DB 연결로 나눠 쓰게 하는 프록시) 뒤에 둘 때만 쓰세요. 두 번째 웹 서버를 띄우는 용도로는 절대 쓰지 마세요 | 켜짐 |
 | `SINGLE_INSTANCE_WAIT` | 시작하는 서버가 다른 프로세스(교체되면서 아직 문서를 저장하고 있는 컨테이너)가 멈추기를 기다리는 시간(초). 그래도 멈추지 않으면 종료합니다 | `60` |
 
 로그에 나오는 줄과 대처 방법은 [docs/OPERATIONS.ko.md](../docs/OPERATIONS.ko.md) 9절에 있습니다.
@@ -300,7 +300,9 @@ docker compose restart app   # to clear the in-memory ban list as well
 <a id="5-updating"></a>
 ## 5. 업데이트
 
-마이그레이션은 새 앱이 부팅할 때 트랜잭션 하나로 자동으로 돌고, 그때까지는 옛 버전이 데이터베이스를 그대로 씁니다. 먼저 백업을 받은 다음 아래 순서대로 하세요. compose 명령마다 쓰시는 `-f` 파일들을 붙여야 합니다. `backup.sh`는 `ok set=<id> ...`로 끝나고, `git pull`은 compose 파일과 배포 스크립트를 받아 옵니다. 원하면 이때 `.env`에 `INKLING_VERSION=X.Y.Z`(또는 `X.Y`)를 적어 릴리스를 고정합니다. 마지막 로그 명령으로 마이그레이션 결과와 "Server listening"이 찍혔는지 확인합니다.
+마이그레이션은 새 앱이 부팅할 때 트랜잭션 하나로 자동으로 돌고, 그때까지는 옛 버전이 데이터베이스를 그대로 씁니다. 먼저 백업을 받은 다음 아래 순서대로 하세요. compose 명령마다 쓰시는 `-f` 파일들을 붙여야 합니다.
+
+`backup.sh`는 `ok set=<id> ...`로 끝나고, `git pull`은 compose 파일과 배포 스크립트를 받아 옵니다. 원하면 이때 `.env`에 `INKLING_VERSION=X.Y.Z`(또는 `X.Y`)를 적어 릴리스를 고정합니다. 마지막 로그 명령으로 마이그레이션 결과와 "Server listening"이 찍혔는지 확인합니다.
 
 ```bash
 cd /opt/inkling
@@ -319,7 +321,9 @@ docker compose logs --tail 50 app  # migration result and "Server listening"
 <a id="upgrading-to-019-the-nodian--inkling-names"></a>
 ### 0.19로 올리기: nodian에서 inkling으로 바뀐 이름
 
-0.18까지는 compose 프로젝트, 볼륨, 데이터베이스 역할의 이름이 `nodian`이었습니다. 0.19부터는 `.env`의 `INKLING_DATA_NAME`을 따르고, 이 값에는 기본값이 없습니다. 새 `compose.yaml`을 쓰는데 이 줄이 없으면 모든 compose 명령이 무엇을 만들거나 멈추기 전에 "required variable INKLING_DATA_NAME is missing a value"를 내고 멈춥니다. 그래서 업그레이드한 서버가 새로 만든 빈 볼륨으로 뜨는 일은 없습니다. 0.18 이하를 돌리던 서버에서는 아래처럼 합니다. 두 번째 줄은 옛 이름을 그대로 쓰겠다는 설정이고, 업그레이드로 다른 것은 바뀌지 않습니다. 새 이름이 필요하면 나중에 `rename-from-nodian.sh`를 돌립니다. 이 스크립트는 볼륨을 복사하고, 옛 볼륨은 직접 지울 때까지 남겨 둡니다. `--dry-run`은 크기, 남은 디스크, 예상 중단 시간을 보여 주고, 중간 어느 단계에서든 `./deploy/rename-from-nodian.sh --rollback`으로 되돌릴 수 있습니다.
+0.18까지는 compose 프로젝트, 볼륨, 데이터베이스 역할의 이름이 `nodian`이었습니다. 0.19부터는 `.env`의 `INKLING_DATA_NAME`을 따르고, 이 값에는 기본값이 없습니다. 새 `compose.yaml`을 쓰는데 이 줄이 없으면 모든 compose 명령이 무엇을 만들거나 멈추기 전에 "required variable INKLING_DATA_NAME is missing a value"를 내고 멈춥니다. 그래서 업그레이드한 서버가 새로 만든 빈 볼륨으로 뜨는 일은 없습니다. 0.18 이하를 돌리던 서버에서는 아래처럼 합니다.
+
+두 번째 줄은 옛 이름을 그대로 쓰겠다는 설정이고, 업그레이드로 다른 것은 바뀌지 않습니다. 새 이름이 필요하면 나중에 `rename-from-nodian.sh`를 돌립니다. 이 스크립트는 볼륨을 복사하고, 옛 볼륨은 직접 지울 때까지 남겨 둡니다. `--dry-run`은 크기, 남은 디스크, 예상 중단 시간을 보여 주고, 중간 어느 단계에서든 `./deploy/rename-from-nodian.sh --rollback`으로 되돌릴 수 있습니다.
 
 ```bash
 ./deploy/backup.sh

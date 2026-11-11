@@ -51,7 +51,7 @@ docker compose logs backup            # "[backup] started: schedule=daily@03:00 
 | `db.dump` / `db.dump.enc` | 데이터베이스 전체의 `pg_dump -Fc` |
 | `data.tar.gz` / `data.tar.gz.enc` | 앱 데이터 볼륨(`/data`: `uploads/`, `plugins/`, …)의 tar |
 | `manifest.json` | 시각, 크기, sha256, 앱 버전, 가장 최근 마이그레이션, 테이블마다의 행 수 |
-| `SHA256SUMS` | 두 본체 파일의 체크섬(`sha256sum -c` 호환) |
+| `SHA256SUMS` | 두 본체 파일(덤프와 아카이브)의 체크섬(`sha256sum -c` 호환) |
 
 세트는 `sets/.tmp-<id>/`에서 만들어지고, 모든 단계가 성공한 다음에야 이름을 바꿔 제자리에 놓입니다. 그래서 실패하거나 중간에 끊긴 실행이 반쪽짜리 세트를 남기지 않습니다(남은 찌꺼기는 다음 실행이 지웁니다).
 
@@ -70,7 +70,7 @@ docker compose logs backup            # "[backup] started: schedule=daily@03:00 
 <a id="the-3-2-1-rule"></a>
 ## 3-2-1 규칙
 
-데이터 사본을 **3**개 두고, 저장 매체는 **2**가지 이상 쓰고, 그중 **1**개는 다른 장소에 두세요. 사이드카만으로는 두 번째 사본 하나만 생기고, 그것도 데이터베이스와 *같은 디스크*에 있습니다. 실수(지운 페이지, 잘못된 업그레이드)는 막아 주지만 서버나 디스크를 잃는 일은 막지 못합니다. 다음 중 하나를 더하세요.
+데이터 사본을 **3**개 두고, 서로 다른 저장 매체 **2**가지에 나눠 담고, 그중 **1**개는 다른 장소에 두세요. 사이드카만으로는 두 번째 사본 하나만 생기고, 그것도 데이터베이스와 *같은 디스크*에 있습니다. 실수(지운 페이지, 잘못된 업그레이드)는 막아 주지만 서버나 디스크를 잃는 일은 막지 못합니다. 다음 중 하나를 더하세요.
 
 - `BACKUP_RCLONE_REMOTE`(오브젝트 스토리지, SFTP로 붙는 다른 서버, 마운트한 드라이브)
 - `./deploy/backup.sh copy-out <latest> /some/other/disk`를 실행하는 호스트의 cron 작업
@@ -79,7 +79,7 @@ docker compose logs backup            # "[backup] started: schedule=daily@03:00 
 <a id="off-site-copies-with-rclone"></a>
 ## rclone으로 외부 사본 두기
 
-먼저 rclone이 설치된 아무 컴퓨터에서 설정을 만들고(예를 들어 "b2"라는 리모트) 그 파일을 서버로 복사합니다. 다음으로 `.env`에 리모트와 설정 파일 경로를 적습니다. 마지막으로 오버레이를 붙여 띄웁니다. 이 오버레이가 사이드카에 rclone 실행 파일을 더해 줍니다.
+먼저 rclone이 설치된 아무 컴퓨터에서 설정을 만들고(저장소 하나에 이름을 붙인 리모트를 만듭니다. 예를 들어 "b2") 그 파일을 서버로 복사합니다. 다음으로 `.env`에 리모트와 설정 파일 경로를 적습니다. 마지막으로 오버레이를 붙여 띄웁니다. 이 오버레이가 사이드카에 rclone 실행 파일을 더해 줍니다.
 
 ```bash
 # 1. create a config on any machine with rclone installed, then copy it to the server
@@ -127,7 +127,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in db.dump.enc -out
 <a id="restoring"></a>
 ## 복원
 
-복원은 CLI로만 합니다. `deploy/restore.sh`는 실행 중인 `backup` 서비스에 일을 맡기는데, 복원에 필요한 도구와 패스프레이즈가 그 서비스에 있기 때문입니다. `list`로 세트를 고르고, `--dry-run`으로 검증하면서 모든 단계를 보여 주되 아무것도 바꾸지 않습니다. 실제로 복원할 때는 세트 id를 직접 입력하라고 묻습니다.
+복원은 CLI로만 합니다. `deploy/restore.sh`는 실행 중인 `backup` 서비스에 일을 맡기는데, 복원에 필요한 도구와 패스프레이즈가 그 서비스에 있기 때문입니다. 먼저 `./deploy/backup.sh list`로 복원할 세트를 고릅니다. `--dry-run`을 붙이면 스크립트가 세트를 검증하고 모든 단계를 보여 주기만 할 뿐 아무것도 바꾸지 않습니다. 실제로 복원할 때는 스크립트가 세트 id를 직접 입력하라고 묻습니다.
 
 ```bash
 ./deploy/backup.sh list                         # pick a set
@@ -161,7 +161,7 @@ docker compose start app
 <a id="restore-rehearsal"></a>
 ### 복원 연습
 
-한 번도 복원해 보지 않은 백업은 백업이 아니라 바람일 뿐입니다. 주간 복원 테스트는 덤프가 제대로 들어가고 빠진 것이 없다는 것까지는 보여 주지만, *내가* 서비스를 되살릴 수 있다는 것까지 보여 주지는 않습니다. 몇 달에 한 번씩 이렇게 해 보세요.
+한 번도 복원해 보지 않은 백업은 백업이 아니라 희망 사항일 뿐입니다. 주간 복원 테스트는 덤프가 제대로 들어가고 빠진 것이 없다는 것까지는 보여 주지만, *내가* 서비스를 되살릴 수 있다는 것까지 보여 주지는 않습니다. 몇 달에 한 번씩 이렇게 해 보세요.
 
 1. 다른 컴퓨터에서, 또는 compose 프로젝트 이름을 바꿔서(`docker compose -p inkling-rehearsal …`, 호스트 포트도 다르게) 버려도 되는 사본을 띄웁니다.
 2. "새 서버에 복원하기"를 따라 가장 새 외부 세트를 그곳에 복원합니다.

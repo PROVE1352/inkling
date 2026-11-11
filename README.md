@@ -108,6 +108,7 @@ Web push (`WEB_PUSH`, `VAPID_*`) and OAuth Client ID Metadata Documents (`OAUTH_
 off until set: [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018).
 New accounts get a short intro and a Getting started checklist; `ONBOARDING=off` turns that off and
 `ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before 0.19 ([docs/OPERATIONS.md](docs/OPERATIONS.md#13-public-page-downloads-start-up-notices-and-onboarding-019)).
+Limits, features turned off and the other settings of restricted mode (0.22) are all optional: [docs/OPERATIONS.md](docs/OPERATIONS.md#17-limits-and-restricted-mode-022).
 Memory limits and Postgres tuning: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 The deployment, operations and backup guides are also in Korean: [deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md),
 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md), [docs/BACKUP.ko.md](docs/BACKUP.ko.md).
@@ -164,6 +165,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Scheduled, verified, optionally encrypted backups with GFS retention, weekly restore tests and rclone off-site copies ([docs/BACKUP.md](docs/BACKUP.md))
 - Signup keys, two-step verification, OpenID Connect sign-in and delegated login; an Admin page for users, keys, banned IPs, backups and server status
 - Import from Notion export zips and Markdown/zip; export to Markdown/zip and PDF; an iCal feed of due dates
+- Optional limits for a server you open to others (accounts, workspaces, members, pages, file size, storage), features turned off server-wide, sign-up with an ID and a nickname, terms and consent, accounts deleted after some days and a "Demo" label: [docs/OPERATIONS.md](docs/OPERATIONS.md#17-limits-and-restricted-mode-022), [docs/DEMO.md](docs/DEMO.md). Every account can delete itself
 
 **Experimental** (off unless listed in `EXPERIMENTAL_FEATURES`): two-way Obsidian vault sync with the
 `inklingctl` CLI ([docs/VAULT-SYNC.md](docs/VAULT-SYNC.md)), sandboxed plugins ([docs/PLUGINS.md](docs/PLUGINS.md)),

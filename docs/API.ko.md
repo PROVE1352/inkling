@@ -37,8 +37,8 @@
 
 | 메서드 | 경로 | 본문 | 응답 |
 |---|---|---|---|
-| GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }`(인증 필요 없음). `defaultLocale: 'en' \| 'ko' \| null`은 운영자가 `DEFAULT_LOCALE`을 설정했을 때만 값이 있습니다(아니면 `null`이고, 브라우저 언어로 정합니다) |
-| POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. 이메일은 소문자로 정규화합니다. 중복 → 409 `EMAIL_TAKEN`. 가입하면 사용자 이름을 딴 개인 워크스페이스가 자동으로 생깁니다(사용자가 소유자이고, 이름은 [요청 로케일](#localization)을 따릅니다). 아직 관리자가 없으면 이 사용자가 관리자가 됩니다(부트스트랩). 메일이 켜져 있으면 → 인증 메일을 보냅니다. 인증 강제 모드에서는 세션을 만들지 않고 `{ user, verificationRequired: true, mailSent }`를 돌려줍니다. 위임 도메인의 이메일 → 400 `EMAIL_RESERVED`. 가입 키가 틀리면 → 403 `INVALID_SIGNUP_KEY`. |
+| GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }`(인증 필요 없음). `defaultLocale: 'en' \| 'ko' \| null`은 운영자가 `DEFAULT_LOCALE`을 설정했을 때만 값이 있습니다(아니면 `null`이고, 브라우저 언어로 정합니다). 제한 모드(0.22)는 설정이 켜진 것마다 선택 필드를 더합니다: [v0.22.0 additions](#v0220-additions) |
+| POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. 이메일은 소문자로 정규화합니다. 중복 → 409 `EMAIL_TAKEN`. 가입하면 사용자 이름을 딴 개인 워크스페이스가 자동으로 생깁니다(사용자가 소유자이고, 이름은 [요청 로케일](#localization)을 따릅니다). 아직 관리자가 없으면 이 사용자가 관리자가 됩니다(부트스트랩). 메일이 켜져 있으면 → 인증 메일을 보냅니다. 인증 강제 모드에서는 세션을 만들지 않고 `{ user, verificationRequired: true, mailSent }`를 돌려줍니다. 위임 도메인의 이메일 → 400 `EMAIL_RESERVED`. 가입 키가 틀리면 → 403 `INVALID_SIGNUP_KEY`. 제한 모드(0.22): `email` 대신 `loginId`, 동의와 봇 검사 필드, 새 오류([v0.22.0 additions](#v0220-additions)). |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. 실패 → 401 `INVALID_CREDENTIALS`(이메일이 있는지 절대 드러내지 않고, 메시지도 같습니다). 인증 강제 모드에서 이메일 인증을 하지 않은 계정(비밀번호가 맞을 때만) → 403 `EMAIL_NOT_VERIFIED`. 관리자가 없으면 부트스트랩 승격이 적용됩니다. |
 | POST | `/api/auth/login/totp` | `{ challenge, code }` | 2단계 인증을 켠 계정의 두 번째 단계입니다. 이런 계정에서는 `POST /api/auth/login`이 쿠키 없이 `200 { totpRequired: true, challenge }`를 돌려줍니다. `code`는 앱의 6자리 코드나 복구 코드입니다. `{ user: UserDTO, recoveryCodeUsed }` + Set-Cookie. 401 `INVALID_TOTP_CODE` / `TOTP_CODE_REUSED` / `TOTP_CHALLENGE_EXPIRED`(5분이 지나거나 5번 실패). 분당 10회(docs/adr/1061-*) |
 | GET | `/api/auth/2fa` | - | `{ enabled, pending, recoveryCodesLeft, available }`. 브라우저 세션, 로컬 계정만 됩니다(다른 `/auth/2fa*` 라우트도 마찬가지입니다). |
@@ -47,7 +47,7 @@
 | POST | `/api/auth/2fa/disable` | `{ password, code }` | `{ ok: true }` |
 | POST | `/api/auth/2fa/recovery-codes` | `{ password, code }` | `{ recoveryCodes }`(이전 코드 묶음을 대체합니다). |
 | POST | `/api/auth/logout` | - | 204 + 쿠키 삭제. 세션 행을 지웁니다. |
-| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. `origin`, `emailVerified`(위임 계정은 true), `locale: 'en' \| 'ko' \| null`(저장한 화면·메일 언어, `null` = 자동), `twoFactor`(2단계 인증 켜짐), `sidebar: SidebarPrefsDTO`(사이드바 메뉴 순서와 숨긴 메뉴, [사이드바 메뉴](#sidebar-menus-per-user-docsadr1020-) 참고. 바꾼 적이 없으면 `{ order: [], hidden: [] }`)를 담고, 관리자에게는 `pendingResetRequests`도 담습니다. |
+| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. `origin`, `emailVerified`(위임 계정은 true), `locale: 'en' \| 'ko' \| null`(저장한 화면·메일 언어, `null` = 자동), `twoFactor`(2단계 인증 켜짐), `sidebar: SidebarPrefsDTO`(사이드바 메뉴 순서와 숨긴 메뉴, [사이드바 메뉴](#sidebar-menus-per-user-docsadr1020-) 참고. 바꾼 적이 없으면 `{ order: [], hidden: [] }`)를 담고, 관리자에게는 `pendingResetRequests`도 담습니다. 제한 모드(0.22)는 해당할 때 `expiresAt`과 `consentRequired`를 더합니다. |
 | PATCH | `/api/auth/me/locale` | `{ "locale": "en" \| "ko" \| null }` | `{ "locale": "en" \| "ko" \| null }`. 세션이 필요합니다. 계정의 화면·메일 언어를 저장합니다(`null` = 자동: 브라우저 언어 / `DEFAULT_LOCALE`). 그 밖의 값 → 400 `VALIDATION`. |
 | POST | `/api/auth/reset-password` | `resetPasswordSchema` `{ email, code, newPassword }` | `{ ok: true }`. 코드는 관리자나 자동 메일로 받은 초기화 코드(한 번만 쓸 수 있고 24시간 유효)이거나, 그 사람이 가입할 때 쓴 **maxUses=1** 가입 키입니다. 성공하면 그 계정의 세션을 모두 지우고, 남은 코드를 폐기하고, 대기 중인 요청을 처리됨으로 바꿉니다. 실패(없는 계정, 위임 계정, 틀린 코드 모두) → 같은 메시지로 400 `INVALID_RESET`. 분당 10회 + 실패가 쌓이면 차단합니다. |
 | POST | `/api/auth/forgot-password` | `forgotPasswordSchema` `{ email, note? }` | 언제나 `{ ok: true }`(계정이 있는지 절대 드러내지 않습니다). 있는 계정만 처리합니다. 인증된 이메일 + 메일 켜짐 → 초기화 코드 메일을 자동으로 보냅니다(백그라운드에서, 5분에 한 통까지). 그 밖(인증 안 됨, 메일 꺼짐, 위임 계정) → `password_reset_requests`의 대기 행 하나로 합칩니다(갱신은 1분에 한 번까지). `@`가 없는 입력은 위임 ID로 봅니다. 분당 5회. |
@@ -131,7 +131,7 @@
 | POST | `/api/files?workspaceId=<uuid>&pageId=<uuid>` | multipart 필드 `file`(하나) | `{ file: FileDTO }`: `url`은 `/files/<id>`입니다. bearer 토큰은 0.16부터 `pageId`가 필수입니다("v0.16.0 추가 사항" 참고) |
 | GET | `/files/:id` | - | 바이너리 스트림. 헤더: 행의 `mime`에서 가져온 Content-Type, 래스터 이미지에는 `Content-Disposition: inline; filename*=UTF-8''<encoded>`, 그 밖의 모든 타입(PDF, 텍스트, 동영상, 오디오)에는 `attachment; …`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. 인증하지 않으면 401. 파일이 속한 워크스페이스의 멤버나 게스트가 아니거나, 볼 수 없는 페이지의 파일이면 없는 id와 똑같이 404로 답합니다(docs/adr/1301-*). |
 
-- 실제 저장 위치: `DATA_DIR/uploads/<id>`(id 그대로, 확장자 없음). 크기 한도는 25MB입니다(넘으면 413).
+- 실제 저장 위치: `DATA_DIR/uploads/<id>`(id 그대로, 확장자 없음). 크기 한도는 25MB입니다(넘으면 413). `LIMIT_FILE_MB`를 더 작게 두면 그 값입니다(413 `LIMIT_FILE`, 0.22).
 - 허용하는 MIME 타입: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`. 그 밖은 415.
 
 <a id="collab-real-time-co-editing"></a>
@@ -287,7 +287,7 @@ Notion → Settings → Export(또는 페이지의 ⋯ → Export) → **Markdow
 <a id="members-roles-owner--admin--member-docsadr0945-"></a>
 ## 멤버(역할 `owner | admin | member`, docs/adr/0945-*)
 - `PATCH /api/workspaces/:id/members/:userId` 본문 `updateMemberSchema { role: 'owner'|'admin'|'member' }`(소유자만) → `{ member: MemberDTO }`. 마지막 소유자를 강등하면 400.
-- `DELETE /api/workspaces/:id/members/:userId` → 204. 소유자는 누구든 내보낼 수 있고, 관리자는 일반 멤버만 내보낼 수 있으며(대상이 owner/admin이면 403), 누구나 스스로 나갈 수 있습니다. 마지막 소유자가 나가려 하면 400. **멤버를 내보내면 이 워크스페이스에 있는 그 사용자의 개인 페이지를 소프트 삭제하고**(audit L3), 그 사람의 문서 소유권을 비우며, (다른 사람을 내보낸 경우) 초대 코드를 새로 만듭니다.
+- `DELETE /api/workspaces/:id/members/:userId` → 204. 소유자는 누구든 내보낼 수 있고, 관리자는 일반 멤버만 내보낼 수 있으며(대상이 owner/admin이면 403), 누구나 스스로 나갈 수 있습니다. 마지막 소유자가 나가려 하면 400입니다. 다만 그 사람이 유일한 멤버이고 브라우저 세션에서 `{ name }`(워크스페이스 이름)을 보내면 워크스페이스를 바로 삭제합니다(0.22, [v0.22.0 additions](#v0220-additions)). **멤버를 내보내면 이 워크스페이스에 있는 그 사용자의 개인 페이지를 소프트 삭제하고**(audit L3), 그 사람의 문서 소유권을 비우며, (다른 사람을 내보낸 경우) 초대 코드를 새로 만듭니다.
 - `GET /api/workspaces/:id/member-candidates`, `POST /api/workspaces/:id/members`: 멤버 추가 정책이 허용하는 호출자만 됩니다(기본은 소유자와 관리자, 아니면 403, docs/adr/0948-*).
 - `POST /api/workspaces/:id/invite/regenerate`(소유자 또는 관리자) → `{ workspace: WorkspaceDTO }`(새 코드).
 - `POST /api/workspaces/:id/transfer`(소유자) 본문 `transferOwnershipSchema { userId }` → `{ members: MemberDTO[] }`. `ws-members` 잠금 아래 한 트랜잭션에서 대상은 소유자가 되고 호출자는 member가 됩니다(docs/adr/0911-*). 대상이 멤버가 아니면 400(위임 계정도 평소와 똑같이 다룸), 호출자 자신이면 400, 호출자가 소유자가 아니면 403입니다(동시에 두 번 넘길 때 진 쪽도 403). 넘긴 뒤에는 이전 소유자가 보통 방법으로 나갈 수 있습니다.
@@ -296,9 +296,9 @@ Notion → Settings → Export(또는 페이지의 ⋯ → Export) → **Markdow
 ## 워크스페이스 삭제(소유자, 30일 안에 복원할 수 있는 소프트 삭제, docs/adr/0910-*)
 - `GET /api/workspaces/:id/delete-preview`(소유자) → 확인 대화상자에 쓰는 `WorkspaceDeletePreviewDTO { pages, files, publicLinks, members, restoreDays }`.
 - `DELETE /api/workspaces/:id` 본문 `deleteWorkspaceSchema { name }` → 204. `name`은 워크스페이스 이름과 같아야 하고(앞뒤 공백은 무시, 대소문자 구분) 아니면 400입니다. member는 403, 멤버가 아니거나 없거나 이미 삭제되었으면 404. 모든 사람에게 한꺼번에 적용됩니다. 워크스페이스가 `GET /api/workspaces`에서 사라지고, 모든 `/api/workspaces/:id/*`, 페이지, 댓글, 파일(`/files/:id`), 템플릿 라우트가 404로 답합니다. 공개 링크(`/api/public/*`. `/s/*`는 기본 앱 셸로 돌아감)와 초대 코드가 더는 동작하지 않고, iCal 피드에서 항목이 빠지며, 쿼리 블록, MCP 도구, 리마인더, 웹훅, 시트 동기화가 이 워크스페이스를 건너뛰고, 열려 있던 협업 소켓은 닫힙니다. 다른 멤버는 워크스페이스 이름이 담긴 `workspace_deleted` 알림을 받습니다(웹훅은 보내지 않음).
-- `GET /api/workspaces/deleted` → `{ workspaces: DeletedWorkspaceDTO[] }`. 호출자가 소유한 워크스페이스 가운데 삭제되었고 아직 복원할 수 있는 것입니다(`deletedAt`, `purgeAt` = deletedAt + 30일). 최신순입니다.
-- `POST /api/workspaces/:id/restore`(소유자) → `{ workspace: WorkspaceDTO }`. 모든 것이 원래대로 돌아옵니다(멤버, 역할, 페이지, 링크, 초대 코드). 삭제되지 않았거나 30일이 지났으면 404, member는 403. `workspace_deleted` 알림은 지웁니다.
-- 정리 작업(housekeeping)이 삭제된 지 30일이 넘은 워크스페이스를 지웁니다. 모든 행은 FK cascade로, 업로드 blob은 커밋 뒤에 지웁니다(계정 강제 삭제 때 개인 워크스페이스를 지우는 것과 같은 함수입니다).
+- `GET /api/workspaces/deleted` → `{ workspaces: DeletedWorkspaceDTO[] }`. 호출자가 소유한 워크스페이스 가운데 삭제되었고 아직 복원할 수 있는 것입니다(`deletedAt`, `purgeAt` = deletedAt + `WORKSPACE_RESTORE_DAYS`, 기본 30일). 최신순입니다. `DELETE /api/workspaces/:id/permanent`는 그중 하나를 바로 완전히 지웁니다(0.22).
+- `POST /api/workspaces/:id/restore`(소유자) → `{ workspace: WorkspaceDTO }`. 모든 것이 원래대로 돌아옵니다(멤버, 역할, 페이지, 링크, 초대 코드). 삭제되지 않았거나 복원 기간(`WORKSPACE_RESTORE_DAYS`, 기본 30일)이 지났으면 404, member는 403, 이미 `LIMIT_WORKSPACES_PER_USER`를 넘은 소유자는 403 `LIMIT_WORKSPACES`. `workspace_deleted` 알림은 지웁니다.
+- 정리 작업(housekeeping)이 삭제된 지 `WORKSPACE_RESTORE_DAYS`(기본 30)일이 넘은 워크스페이스를 지웁니다. 모든 행은 FK cascade로, 업로드 blob은 커밋 뒤에 지웁니다(계정 강제 삭제 때 개인 워크스페이스를 지우는 것과 같은 함수입니다).
 
 <a id="snapshots-version-history-doc-pages-visibleto-guard"></a>
 ## 스냅샷(버전 기록, doc 페이지, visibleTo 가드)
@@ -1682,3 +1682,145 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 <a id="mcp-tools-10"></a>
 ### MCP 도구
 새 도구도 설명 변경도 없습니다. 수치는 0.20과 같습니다. full 48개(~13,245 tokens), core 32개(~7,857), 서버 지침 ~492입니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).
+
+<a id="v0220-additions"></a>
+## v0.22.0 추가 사항
+
+마이그레이션 0062(추가만). 제한 모드의 설정은 운영자가 켜기 전에는 모두 꺼져 있고(docs/OPERATIONS.ko.md, 17절), 하나도
+설정하지 않으면 아래에서 설정에 따라 달라지는 응답은 모두 0.21.1과 같습니다. 계정 삭제, 혼자 남은 워크스페이스에서 나가기,
+"지금 완전히 삭제"는 모든 서버에 있습니다.
+
+<a id="settings-in-apiauthmode-and-apiauthme-docsadr25002503"></a>
+### `/api/auth/mode`와 `/api/auth/me`의 설정 (docs/adr/2500–2503)
+- `GET /api/auth/mode`는 설정이 켜져 있을 때만 그 필드를 더합니다(아니면 키 자체가 없고 `undefined`도 보내지 않습니다).
+  `loginId: 'username'`(`LOGIN_ID_MODE=username`), `signupFull: true`(계정 수가 `SIGNUP_MAX_USERS`에 닿음),
+  `signupChecks: true`(`SIGNUP_MAX_USERS`나 `SIGNUP_PER_IP_PER_DAY`가 있어서 가입 양식이 봇 검사 필드를 보냄),
+  `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]`(정렬), `legal: { version, docs: ('terms' |
+  'privacy')[] }`(`LEGAL_DIR`), `limits: { workspacesPerUser?, membersPerWorkspace?, pagesPerWorkspace?, fileMb?,
+  workspaceStorageMb? }`(설정된 한도만, MB는 설정한 값 그대로), `workspaceRestoreDays`(30이 아닐 때만)입니다.
+- `GET /api/auth/mode`는 `INSTANCE_NOTICE`가 있으면 `instanceNotice: string`을 더합니다.
+- `GET /api/auth/me`의 `UserDTO`는 `expiresAt`(ISO, `ACCOUNT_LIFETIME_DAYS`에 따른 계정 삭제일)과
+  `consentRequired: true`(현재 문서에 동의하지 않음)를 더합니다. 로그인, 2단계, 가입 응답의 `user`는 지금처럼 짧게
+  두고, 웹 앱은 이 필드를 `/auth/me`에서 읽습니다.
+- `AdminUserDTO`(`GET /api/admin/users`)는 만료일이 있는 계정에 `expiresAt`을 더합니다.
+- 공유 상수는 `@inkling/shared`(`packages/shared/src/limits.ts`)에 있습니다. `DISABLED_FEATURE_NAMES`,
+  `RESTRICTED_MODE_ERRORS`, `AuthModeLimitsDTO`, `AuthModeLegalDTO`, `WorkspaceUsageDTO`입니다.
+
+<a id="sign-up-docsadr2501-2512-2516-2519"></a>
+### 가입 (docs/adr/2501, 2512, 2516, 2519)
+- `POST /api/auth/register`는 새 선택 필드를 받습니다. `LEGAL_DIR`이 있으면 `consents: string[]`(체크한 항목 id,
+  32개까지)와 `legalVersion`(양식이 보여 준 버전), `signupChecks`가 켜져 있으면 `website`(비워 둬야 하는 숨은 입력란)와
+  `formMs`(양식이 화면에 떠 있던 밀리초, 2000 이상)입니다. `formMs`는 보낸 본문에서 그대로 읽고 `registerSchema`에는
+  없습니다.
+- `LOGIN_ID_MODE=username`이면 본문에 `email` 대신 `loginId`를 보냅니다. `email`을 보내면 400 `VALIDATION`, 아이디가
+  없거나 규칙에 맞지 않으면 400 `LOGIN_ID_INVALID`, 이미 쓰이면 409 `LOGIN_ID_TAKEN`입니다. 아이디는 소문자로 바꿔 계정의
+  이메일 열에 저장하므로 `UserDTO.email`에 아이디가 들어갑니다. 로그인은 지금처럼 `email`에 아이디를 넣어 보냅니다.
+  이메일 모드에서는 `loginId` 필드를 무시합니다.
+- 검사 순서: 본문, 예약된 위임 도메인, 설정 코드, 그다음 제한 모드 검사(봇 검사, 계정 수 상한, 주소별 상한, 동의)입니다.
+  모두 가입 키를 쓰거나 무엇을 쓰기 전에 합니다. 계정 수 상한과 주소별 상한은 계정을 만드는 트랜잭션 안에서 다시 세고,
+  동의 행도 거기서 씁니다. 설정 코드로 만드는 첫 관리자는 계정 수·주소별 상한과 봇 검사를 거치지 않지만 동의는 해야
+  합니다.
+- 제한 모드(`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY`, `ACCOUNT_LIFETIME_DAYS` 가운데 하나가 있거나
+  `LOGIN_ID_MODE=username`)에서 관리자가 없는 서버는 설정 코드 없는 가입을 403 `SETUP_REQUIRED`로 거절합니다.
+- `ACCOUNT_LIFETIME_DAYS`가 있을 때 만든 계정은 `users.expires_at` = 가입 시각 + N일을 받습니다. 관리자는 받지 않습니다.
+
+<a id="account-deletion-and-leaving-docsadr25132517"></a>
+### 계정 삭제와 나가기 (docs/adr/2513–2517)
+- `GET /api/me/delete-preview` → `{ deleted: { id, name, pages, files }[], transferred: { id, name, to: { id, name }
+  }[], kept: { id, name }[], privatePages, pages, files, needs: { password, code, recentSignIn }, confirm,
+  lastAdmin }`. 계정과 함께 지워지는 워크스페이스, 다른 멤버에게 넘어가는 워크스페이스, 나머지, 그리고 요청에 실어야
+  하는 것입니다. `confirm`은 입력할 확인 문구(로그인 이메일이나 아이디)입니다.
+- `DELETE /api/me` 본문 `{ confirm, password?, code? }` → `{ ok: true, deletedWorkspaces, transferredWorkspaces }`이고
+  세션 쿠키를 지웁니다. 브라우저 세션에서만 됩니다(bearer 토큰은 403). `confirm`은 대소문자를 무시하고 로그인 이메일이나
+  아이디와 같아야 합니다(400 `CONFIRM_MISMATCH`). 로컬 계정은 현재 비밀번호를 보내고(400 `INVALID_PASSWORD`),
+  2단계 인증이 켜져 있으면 `code`도 보냅니다(없으면 400 `TOTP_REQUIRED`, 틀리면 400 `INVALID_TOTP_CODE`). 실패는 로그인
+  보호 장치에 셉니다. 위임 로그인과 OIDC 계정은 최근 10분 안에 만든 세션이어야 합니다(401 `REAUTH_REQUIRED`). 유일한
+  관리자는 409 `LAST_ADMIN`. 분당 10회. 바로 지웁니다. 그 사람만 멤버인 워크스페이스와 그 사람이 혼자 소유한 삭제된(아직 복원할 수 있는) 워크스페이스는 파일까지
+  지우고, 그 사람이 혼자
+  소유한 공유 워크스페이스는 가장 오래된 관리자 역할 멤버, 없으면 가장 오래된 멤버에게 넘깁니다(알림 타입
+  `workspace_owner`). 개인 페이지는 지우고, 공유 페이지·댓글·버전은 작성자를 null로 두고 남깁니다.
+- `DELETE /api/workspaces/:id/members/:userId`를 자기 자신에게, 유일한 멤버이자 마지막 소유자로서, 워크스페이스 이름과
+  같은 `{ name }` 본문을 실어 브라우저 세션에서 보내면 204이고 워크스페이스를 파일까지 바로 지웁니다(복원 없음). 이름이
+  틀리면 400이고, `name`이 없거나 토큰으로 보냈거나 다른 멤버가 있으면 지금처럼 400입니다.
+- `DELETE /api/workspaces/:id/permanent` 본문 `{ name }` → 204. 소유자가 삭제된(아직 복원할 수 있는) 워크스페이스를 바로
+  완전히 지웁니다. 브라우저 세션에서만 되고(bearer 토큰은 403), 삭제되지 않았거나 없거나 멤버가 아니면 404, 소유자가
+  아니면 403, 워크스페이스의 2단계 인증 규칙은 복원과 같이 적용되고, 이름이 틀리면 400입니다.
+- `DELETE /api/admin/users/:id`는 0.21과 같이 답합니다(목록이 담긴 409 `SOLE_OWNER`, 개인 페이지는 휴지통으로).
+- `GET /api/admin/users/:id/expiry` → `{ expiresAt: string | null }`. `PATCH`에 `{ expiresAt: string | null }`(오프셋이
+  붙은 ISO)을 보내면 날짜를 옮기거나 풀고(`null`) `{ expiresAt }`을 돌려줍니다. 지난 날짜는 400, 날짜가 없는 계정에 여기서
+  날짜를 줄 수는 없고(400), 없는 계정은 404 `USER_NOT_FOUND`. 관리자, 브라우저 세션.
+
+<a id="usage-and-limits-docsadr25052506"></a>
+### 사용량과 한도 (docs/adr/2505–2506)
+- `GET /api/workspaces/:id/usage`(멤버) → `WorkspaceUsageDTO { members, pages, storageBytes, fileBytes, limits: {
+  members?, pages?, storageBytes? } }`. `pages`는 휴지통도 세고, `storageBytes`는 저장 용량 합계(파일 포함), `fileBytes`는
+  파일만입니다. `limits`에는 설정된 한도만 들어가고 저장 용량은 바이트입니다. 모든 서버에서 답합니다. 저장 용량 한도가
+  없으면 부를 때마다 세고, 있으면 캐시한 값을 쓰되 그 값이 1분보다 오래되었으면 먼저 다시 셉니다.
+- 한도를 넘는 생성은 만드는 트랜잭션 안에서 거절합니다. REST도, 그 REST를 부르는 MCP 도구도 같습니다. 페이지(만들기,
+  복제, 캔버스, 행과 행 일괄, 가져오기, 템플릿, 나누기, 클립, 빠른 할 일, 동기화, 폼 응답), 파일, 워크스페이스(만들기,
+  넘겨받기, 소유자로 승격, 복원), 멤버(초대 코드로 참여, 바로 추가)가 그렇습니다. 이미 멤버인 워크스페이스에 다시
+  참여하면 다시 세지 않습니다.
+- `LIMIT_WORKSPACE_STORAGE_MB`를 넘은 워크스페이스는 읽기 전용입니다. docs/OPERATIONS.ko.md(17절)에 적은 쓰기는 413
+  `LIMIT_STORAGE`로 답하고, 협업 연결은 읽기 전용 범위를 받습니다. 본문이 한도의 1/4을 넘은 페이지는 REST와 MCP 쓰기를
+  413 `LIMIT_STORAGE`로 거절합니다("This page is too large to grow further: move part of it to a new page", `limit`은 그
+  1/4).
+- 내장 상한(브라우저 25 MB, 토큰은 `AGENT_UPLOAD_MAX_MB`)보다 작은 `LIMIT_FILE_MB`가 있으면 `POST /api/files`는 413
+  `LIMIT_FILE`로 답합니다. 없으면 지금처럼 413 `PAYLOAD_TOO_LARGE`입니다.
+
+<a id="features-turned-off-docsadr2507"></a>
+### 기능 끄기 (docs/adr/2507)
+- `DISABLED_FEATURES`에 든 기능의 라우트는 인증보다 먼저 `details: { feature }`가 붙은 404 `FEATURE_DISABLED`로 답합니다.
+  기능별 라우트 목록은 `apps/server/src/quota/features.ts`에 있습니다. 이미 있는 것을 없애는 라우트(게시 취소, 웹훅 삭제,
+  Slack 연결이나 iCal 토큰 없애기, 기기 구독 해지)는 열려 있습니다. 기능이 꺼져 있는 동안 `/s/:token`은 빈 앱 화면을
+  돌려주고 `/ical/:file`은 404로 답합니다.
+- `notion-import`가 꺼져 있을 때 `source=notion`을 붙인 `POST /api/workspaces/:id/import`는 404 `FEATURE_DISABLED`이고,
+  Notion에서 내보낸 것처럼 보이는 zip은 일반 Markdown으로 가져옵니다(연결로 보낸 경우도 같습니다. 원래는 415
+  `NOTION_IMPORT_IN_APP`).
+
+<a id="terms-and-consent-docsadr25192520"></a>
+### 약관과 동의 (docs/adr/2519–2520)
+`LEGAL_DIR`이 있을 때만입니다. 없으면 이 라우트들은 404이고 아래 내용은 적용되지 않습니다.
+- `GET /api/legal`(로그인 불필요) → 한 언어로 된 `{ version, notice: string | null, items: { id, required, label, doc?,
+  details? }[] }`(`?locale=en|ko`, 없으면 `Accept-Language`, 없으면 `DEFAULT_LOCALE`). `Cache-Control: no-store`.
+- `GET /api/legal/:doc`(`terms` 또는 `privacy`, 로그인 불필요) → `{ doc, version, locale, markdown }`. 폴더에 한 언어로만
+  있는 문서는 그 언어로 돌려주고, 어느 언어인지는 `locale`이 알려 줍니다.
+- `POST /api/legal/consent` 본문 `{ consents, legalVersion }` → `{ ok: true, version }`. 로그인한 브라우저 세션에서만
+  됩니다(bearer 토큰은 403 `FORBIDDEN`). 다른 버전, 모르는 항목, 체크하지 않은 필수 항목은 `details: { version }`이 붙은
+  400 `CONSENT_REQUIRED`. 분당 20회.
+- 현재 버전의 필수 항목 전부에 동의하지 않은 사람은 인증이 필요한 모든 요청에서 403 `CONSENT_REQUIRED`(`details: {
+  version }`, 메시지에 어디서 동의하는지 적힘)로 거절됩니다. 쿠키, 개인 API 토큰, OAuth·에이전트 토큰, MCP 도구가 부르는
+  REST, `/mcp` 엔드포인트 자체(JSON-RPC 응답 전에 오류 본문이 담긴 일반 HTTP 403), 협업 소켓이 모두 그렇습니다. 예외:
+  `POST /api/auth/logout`, `GET /api/auth/me`, `/api/legal` 아래 전부, `DELETE /api/me`, `GET /api/me/delete-preview`.
+  `PATCH /api/auth/me/locale`은 예외가 아닙니다. 전에 만들어 둔 자동화 실행은 통과합니다.
+
+<a id="error-codes"></a>
+### 오류 코드
+| 상태 | 코드 | 언제 | `details` |
+|---|---|---|---|
+| 400 | `LOGIN_ID_INVALID` | 아이디 모드: `loginId`가 없거나 규칙에 맞지 않거나 예약어 | — |
+| 409 | `LOGIN_ID_TAKEN` | 아이디 모드: 이미 쓰이는 아이디(이메일 모드는 `EMAIL_TAKEN` 그대로) | — |
+| 403 | `SIGNUP_FULL` | 서버의 계정 수가 `SIGNUP_MAX_USERS`에 닿음 | — |
+| 429 | `SIGNUP_IP_LIMIT` | 그 주소에서 24시간 동안 `SIGNUP_PER_IP_PER_DAY`개를 만듦 | — |
+| 400 | `SIGNUP_CHECK_FAILED` | 가입 제한이 켜져 있는데 숨은 `website` 칸이 채워졌거나, `formMs`가 없거나 2000보다 작음 | — |
+| 403 | `SETUP_REQUIRED` | 제한 모드, 아직 관리자 없음, 설정 코드 없는 가입 | — |
+| 400 | `CONSENT_REQUIRED` | 가입이나 `POST /api/legal/consent`: 다른 버전, 모르는 항목, 체크하지 않은 필수 항목 | `{ version }` |
+| 403 | `CONSENT_REQUIRED` | 현재 버전에 동의하기 전의 다른 모든 게이트 대상 요청 | `{ version }` |
+| 404 | `FEATURE_DISABLED` | `DISABLED_FEATURES`에 든 기능의 라우트 | `{ feature }` |
+| 403 | `LIMIT_WORKSPACES` | 만들기, 넘겨받기, 소유자로 승격, 복원이 `LIMIT_WORKSPACES_PER_USER`를 넘음 | `{ limit, used }` |
+| 403 | `LIMIT_MEMBERS` | 참여나 바로 추가가 `LIMIT_MEMBERS_PER_WORKSPACE`를 넘음 | `{ limit, used }` |
+| 403 | `LIMIT_PAGES` | 페이지를 만드는 모든 경로가 `LIMIT_PAGES_PER_WORKSPACE`를 넘음(휴지통 포함) | `{ limit, used }` |
+| 413 | `LIMIT_STORAGE` | 워크스페이스가 `LIMIT_WORKSPACE_STORAGE_MB`를 넘었거나 이 쓰기로 넘음. 또는 페이지 본문이 그 1/4을 넘음 | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_FILE` | `LIMIT_FILE_MB`보다 큰 업로드 | `{ limit, used, unit: 'bytes' }`. `used`는 `limit` + 1(업로드를 거기서 끊으므로 실제 크기는 모름) |
+| 409 | `LAST_ADMIN` | 유일한 관리자의 `DELETE /api/me` | — |
+| 401 | `REAUTH_REQUIRED` | 세션이 10분보다 오래된 위임 로그인·OIDC 계정의 `DELETE /api/me` | — |
+| 400 | `CONFIRM_MISMATCH` | `DELETE /api/me`: `confirm`이 로그인 이메일이나 아이디와 다름 | — |
+| 400 | `TOTP_REQUIRED` | `DELETE /api/me`: 2단계 인증이 켜져 있는데 `code`가 없음 | — |
+
+`details`의 키는 오류 객체 안에 `code`, `message`와 나란히 들어갑니다: `{ "error": { "code", "message", "limit", "used",
+"unit" } }`. `limit`과 `used`는 숫자이고, 웹 앱은 이 값을 자기 문구에 넣어 보여 줍니다. `DELETE /api/me`는 틀린 2단계
+코드에 400 `INVALID_TOTP_CODE`로 답합니다(로그인은 401).
+
+<a id="mcp-tools-11"></a>
+### MCP 도구
+새 도구도, 설명이나 서버 지침의 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). 도구는 자기가 부르는 REST
+라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸립니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).

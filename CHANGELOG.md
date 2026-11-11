@@ -7,6 +7,128 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-12
+
+A minor release for operators who want to bound disk use and the number of people on their server, and for those
+who open a server to strangers as a demo. "Restricted mode" is a set of optional settings: limits on accounts,
+owned workspaces, members, pages, file size, storage and versions; features turned off on the whole server;
+sign-up with an ID and a nickname instead of an email address; terms and consent at sign-up; accounts deleted some
+days after sign-up; a label such as "Demo" on every screen. **A server that sets none of them behaves as 0.21.1,
+except for what is listed under "What changes on every server" below.** One database migration, additive
+(`0062_limits_accounts`; a 0.21 database goes from 62 to 63 applied migrations). No new dependency. The MCP tool list,
+its descriptions and the server instructions are unchanged. A preset for a demo server is in `deploy/demo/`, with the
+steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17.
+
+Not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
+
+### What changes on every server
+These change with no new setting, on every server that upgrades:
+- **Every account can delete itself** (Settings → Account → **Delete account**, `DELETE /api/me`), from a browser
+  session, with the current password (and two-step code), or within ten minutes of signing in for delegated and
+  OIDC accounts. It is immediate and **cannot be undone**: workspaces where the person is the only member, and
+  deleted workspaces they own alone that could still be restored, are deleted with their files; a shared workspace
+  they own alone passes to its oldest admin-role member, else its oldest member;
+  their private pages are deleted, and their shared pages, comments and versions stay without their name. The only
+  admin cannot (409 `LAST_ADMIN`). Backups keep the data until they rotate out.
+- **A sole owner who is the workspace's only member can leave it, and the workspace is deleted at once** with its
+  pages and files (no restore), after typing its name. Before, leaving was refused (400). A sole owner with other
+  members is still refused: transfer ownership first.
+- **An owner can delete a deleted workspace for good at once** ("Delete now" in Settings → Account → Deleted
+  workspaces, `DELETE /api/workspaces/:id/permanent`), instead of waiting for the end of its restore window.
+- **Housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago.** An active ban is never touched.
+  Before, nothing deleted them (KNOWN-ISSUES B-L7).
+- **The admin's account deletion runs through the same deletion code** as leaving and expiry. What it does and
+  answers is unchanged (409 `SOLE_OWNER` while the person is a sole owner, private pages to the trash, the signup
+  key's use given back).
+- **The first account to sign up on a server without an admin is made admin inside the sign-up transaction**, under
+  the admin lock, instead of right after it. The old call after the commit stays and does nothing then. The rule is
+  the same: with no admin, the first sign-up becomes the admin.
+- **Workspace settings → General shows the workspace's usage**: members, pages (the trash included) and storage. On
+  a server without limits it counts the storage each time the tab is opened (docs/PERFORMANCE.md).
+- **Admin → Server status** shows a new "Account cap" item under the security settings while anyone can sign up
+  (`SIGNUP_REQUIRE_KEY=0`); in production it is amber until `SIGNUP_MAX_USERS` is set.
+- A new notification, "You are now the owner of …: its previous owner deleted their account". The hourly
+  housekeeping also deletes sign-up address records older than 30 days (there are none without
+  `SIGNUP_PER_IP_PER_DAY`).
+
+### Added
+- **Limits** (docs/adr/2505-*, 2506-*): `LIMIT_WORKSPACES_PER_USER` (owned workspaces, deleted ones still restorable
+  included), `LIMIT_MEMBERS_PER_WORKSPACE` (page guests do not count), `LIMIT_PAGES_PER_WORKSPACE` (the trash
+  included), `LIMIT_FILE_MB` (one upload, at most 25; connections get the smaller of it and `AGENT_UPLOAD_MAX_MB`),
+  `LIMIT_WORKSPACE_STORAGE_MB` and `LIMIT_VERSIONS_PER_PAGE` (1–50). Checked in the transaction that creates the
+  row, under a lock, on every path that creates pages, files, members or workspaces (REST and the MCP tools that
+  call it); a test lists every insert site and fails on a new unchecked one. Errors 403 `LIMIT_WORKSPACES`,
+  `LIMIT_MEMBERS`, `LIMIT_PAGES` and 413 `LIMIT_STORAGE`, `LIMIT_FILE`, each with `{ limit, used }`.
+- **Storage and read-only workspaces** (docs/adr/2506-*): storage counts files, page bodies, version history,
+  handwriting, comments, page rows, database fields and views, templates, the change log's texts and agent
+  suggestions, the trash included. A workspace past its limit is read-only: new pages, uploads, imports, comments
+  and body writes are refused, live editing turns read-only, and a notice says what to delete. Deleting, emptying
+  the trash and exporting always work. One page body may hold at most a quarter of the limit.
+- **Features turned off** (docs/adr/2507-*): `DISABLED_FEATURES` takes `public-links`, `public-forms`, `webhooks`,
+  `slack`, `link-preview`, `web-clipper`, `ical`, `notion-import`, `web-push`, `password-reset`, `email-invites`,
+  `automations-webhooks`, `oauth-cimd`, `embeds` and `member-direct-add`. Their routes answer 404 `FEATURE_DISABLED`,
+  what exists stops working without being deleted, clean-up stays possible, and the app hides their menus.
+- **Sign-in IDs and sign-up limits** (docs/adr/2512-*, 2516-*): `LOGIN_ID_MODE=username` (an ID and a nickname
+  instead of an email; needs mail, OIDC and delegated sign-in off and `password-reset` turned off),
+  `SIGNUP_MAX_USERS` (403 `SIGNUP_FULL`), `SIGNUP_PER_IP_PER_DAY` (429 `SIGNUP_IP_LIMIT`), and with either cap a hidden
+  field and a two-second minimum on the form (400 `SIGNUP_CHECK_FAILED`). On a restricted server without an admin,
+  sign-up without the setup code is refused (403 `SETUP_REQUIRED`) so a stranger cannot become the first admin.
+- **Terms and consent** (docs/adr/2519-*, 2520-*): `LEGAL_DIR` holds the terms, the privacy policy and `signup.json`
+  (the notice and the tick boxes). Each ticked item is stored with the document version (a hash of the files). `/terms` and
+  `/privacy` open without signing in. Accounts without consent to the current version, including everyone after the
+  texts change, see a consent screen and are refused on every way in (browser, API tokens, MCP, the collaboration
+  socket) with 403 `CONSENT_REQUIRED` until they agree, sign out or delete their account. The documents are Markdown
+  drawn without any HTML.
+- **Instance label and notice**: `INSTANCE_LABEL` (up to 20 characters) on every screen, phones included.
+  `INSTANCE_NOTICE` (up to 500 characters of plain text) on the sign-in and sign-up screens and as a banner in the
+  app that cannot be closed.
+- **Account lifetime** (docs/adr/2515-*): `ACCOUNT_LIFETIME_DAYS` deletes accounts that signed up while it was set,
+  N days after sign-up, never admins and never accounts from before it; `ACCOUNT_LIFETIME_DRY_RUN=1` only logs. The
+  date is shown in the app with an Export link; admins lift or move it (Admin → Users, `PATCH
+  /api/admin/users/:id/expiry`).
+- **Restore and trash windows**: `WORKSPACE_RESTORE_DAYS` (30 by default) replaces the fixed 30 days of workspace
+  restore, and the screens say the number. `LIMIT_TRASH_DAYS` (at least 7) caps each workspace's trash retention.
+- **Demo preset** (docs/adr/2521-*): `deploy/demo/compose.demo.yaml` (an overlay that cannot start without its
+  settings, with its own project, volumes, network and port), `demo.env.example` and terms templates in
+  `deploy/demo/legal/`; [docs/DEMO.md](docs/DEMO.md).
+- API: `GET /api/workspaces/:id/usage`, `GET /api/me/delete-preview`, `DELETE /api/me`, `DELETE
+  /api/workspaces/:id/permanent`, `GET /api/legal`, `GET /api/legal/:doc`, `POST /api/legal/consent`, `GET` and `PATCH
+  /api/admin/users/:id/expiry`; optional fields in `/api/auth/mode`, `/api/auth/me`, the sign-up body and
+  `AdminUserDTO` (docs/API.md, "v0.22.0 additions").
+
+### Changed
+- The "restore within N days" texts take the number from the server (30 unless `WORKSPACE_RESTORE_DAYS` is set).
+- With `LOGIN_ID_MODE=username`, screens that showed an email show the ID without the "email" label (sign-in,
+  Settings → Account, Admin → Users, member and access search), and `inklingctl login` asks for an ID.
+- `compose.yaml` passes every 0.22 variable to the app and `.env.example` lists them; an empty value means unset.
+
+### Security
+- The consent gate runs on every authenticated way in: REST with a cookie or a token (MCP tools included), the
+  `/mcp` endpoint itself, and the collaboration socket (docs/adr/2502-*). Only sign-out, `/api/auth/me`, the legal
+  routes and account deletion are exempt.
+- Account deletion by the person or by expiry removes their name and sign-in ID from every column that copies them as
+  text (audit events, the change log, invitations, the workspace named after them), in the deletion's transaction;
+  a test scans every text and uuid column after a deletion. What stays is listed in KNOWN-ISSUES LIMITS-8.
+- `DELETE /api/me` needs a browser session and the password (and two-step code); failures count against the
+  sign-in guard. Deleting for good (leaving alone, "Delete now") is browser-only too: no token or agent can do it.
+- In ID mode, signing in with an unknown ID costs the same password check as a wrong password.
+- Open items for operators of public servers: `TRUST_PROXY` should name the proxy only, and the app port must not be
+  reachable from other hosts, or `SIGNUP_PER_IP_PER_DAY` can be passed with a made-up `X-Forwarded-For` (LIMITS-11);
+  `POST /oauth/register` stays open without sign-in and its rows are never cleaned up (LIMITS-9).
+
+### Upgrade notes
+- **Migration 0062** (the only one) adds the tables `signup_events` and `user_consents` and four columns:
+  `users.expires_at` (null), `workspaces.storage_bytes` (default 0), `workspaces.storage_checked_at` (null) and
+  `workspaces.over_storage` (default false). Additive; the SQL is in `apps/server/drizzle/0062_limits_accounts.sql`.
+- **Every new setting is optional** and off when unset or empty. A value the server cannot read as written stops
+  the boot with the variable and the reason (docs/OPERATIONS.md, section 17, "When the server refuses to start").
+- **Turning on `ACCOUNT_LIFETIME_DAYS` for the first time**: start with `ACCOUNT_LIFETIME_DRY_RUN=1` and read the
+  hourly log lines before letting it delete. Accounts that existed before the setting was turned on, and admins,
+  never expire, whatever the setting.
+- **Open sign-up with limits**: create your own admin account with the setup code before opening sign-up, and set
+  `TRUST_PROXY` to your proxy's address before relying on `SIGNUP_PER_IP_PER_DAY`.
+- Reload open tabs to get the new screens. Going back to 0.21.1 after the migration was not tried.
+
 ## [0.21.1] - 2026-11-12
 
 A patch release for a security advisory in the server's multipart parser, with a group of patch updates and a

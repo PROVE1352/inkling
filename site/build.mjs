@@ -175,6 +175,122 @@ function rewriteLink(href, kind, from) {
 }
 
 // ---------------------------------------------------------------------------
+// tables
+// ---------------------------------------------------------------------------
+// Tables. A Markdown table stays one <table> in the output (every cell's text is in the static HTML, in
+// source order), and a class picks how CSS lays it out:
+//   t-perf      "Area | Change | Before | After | Improvement | Cost | How measured | Source": one card per
+//               row, before and after side by side, the method folded into <details>
+//   t-endpoint  first two columns are Method and Path: one card per row with a method badge
+//   t-recs      five or more columns with long cells: one card per row, cells labelled by their header
+//   t-auto      a table that becomes cards only when its container is narrow
+//   t-keep      small tables that fit a phone as they are
+// Text the site adds on top of the source (the <summary> label) carries data-x, so a checker can drop it.
+const PERF_ROLES = [
+  ['before', /^(전|before)$/i],
+  ['after', /^(후|after)$/i],
+  ['gain', /^(개선|improvement|gain)$/i],
+  ['cost', /^(비용|cost)$/i],
+  ['method', /^(측정 방법|how measured)$/i],
+  ['source', /^(출처|source)$/i],
+]
+const plain = (s) => s.replace(/[`*]/g, '').trim()
+/** First "number unit" of a before/after cell, with the words in front of it. */
+function firstQuantity(text) {
+  const m = plain(text).match(/^(.{0,14}?)(?:≈ ?|~ ?)?(\d[\d,]*(?:\.\d+)?)\s?(ms|s|µs|tokens|tok|KB|MB|GB|kB|%|번|개|calls|bytes)(?![A-Za-z])/)
+  return m ? { pre: m[1].trim(), value: Number(m[2].replace(/,/g, '')), unit: m[3] } : null
+}
+/** Wraps the first percentage or multiplier of an HTML fragment (outside tags) in <b class="num">. */
+function markFirstFigure(html) {
+  let done = false
+  return html
+    .split(/(<[^>]+>)/)
+    .map((part) => {
+      if (done || part.startsWith('<')) return part
+      return part.replace(/[−+-]?\d[\d,.]*(?:[–-]\d[\d,.]*)?\s?(?:%|×)/, (m) => {
+        done = true
+        return `<b class="num">${m}</b>`
+      })
+    })
+    .join('')
+}
+
+function renderTable(token, parser, ctx) {
+  const heads = token.header.map((c) => ({ html: parser.parseInline(c.tokens), text: plain(c.text) }))
+  const cols = heads.length
+  const label = (i) => (heads[i].text ? ` data-label="${esc(heads[i].text)}"` : '')
+  const cell = (c) => parser.parseInline(c.tokens)
+  const empty = (c) => !c.text.trim()
+  const maxCell = Math.max(0, ...token.rows.flatMap((r) => r.map((c) => c.text.length)))
+  const thead = `<thead><tr>${heads.map((h) => `<th scope="col">${h.html}</th>`).join('')}</tr></thead>`
+
+  const roles = heads.map((h, i) => (PERF_ROLES.find(([, re]) => re.test(h.text)) ?? [i === 0 ? 'area' : i === 1 ? 'change' : 'extra'])[0])
+  const isPerf = cols >= 7 && ['before', 'after', 'gain'].every((r) => roles.includes(r)) && roles.indexOf('after') === roles.indexOf('before') + 1
+  const isEndpoint = cols >= 3 && /^(메서드|method)$/i.test(heads[0].text) && /^(경로|path)$/i.test(heads[1].text)
+
+  let kind
+  let body = ''
+  if (isPerf) {
+    kind = 't-perf'
+    const bi = roles.indexOf('before')
+    for (const row of token.rows) {
+      const a = firstQuantity(row[bi].text)
+      const b = firstQuantity(row[bi + 1].text)
+      // A bar only when both cells open with the same measure in the same unit.
+      const bars = a && b && a.unit === b.unit && a.pre === b.pre && a.value > 0 && b.value > 0 ? [a.value, b.value] : null
+      const top = bars ? Math.max(...bars) : 0
+      body += '<tr class="rec">'
+      row.forEach((c, i) => {
+        const role = roles[i]
+        let inner = cell(c)
+        // "none", "not claimed" and a dash are not improvements; rejected and regression sections never are.
+        const flat = role === 'gain' && (ctx.tone !== 'gain' || /^(—|–|-|없음|주장하지 않음|내세우지 않음|none|no claim|not claimed|n\/a)/i.test(plain(c.text)))
+        if (role === 'gain' && !flat) inner = markFirstFigure(inner)
+        if (role === 'method' && !empty(c)) inner = `<details><summary data-x>${heads[i].html}</summary><div class="fold">${inner}</div></details>`
+        if (bars && (role === 'before' || role === 'after')) {
+          const w = Math.max(2, Math.round((bars[role === 'before' ? 0 : 1] / top) * 100))
+          inner += `<span class="bar" aria-hidden="true" style="--w:${w}%"></span>`
+        }
+        body += `<td class="c-${role}${flat ? ' is-flat' : ''}${empty(c) ? ' is-empty' : ''}"${label(i)}>${inner}</td>`
+      })
+      body += '</tr>'
+    }
+  } else if (isEndpoint) {
+    kind = 't-endpoint'
+    for (const row of token.rows) {
+      const method = plain(row[0].text)
+      const m = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(method) ? method : 'MULTI'
+      body += `<tr class="rec" data-method="${m}">`
+      row.forEach((c, i) => {
+        const cls = i === 0 ? 'c-method' : i === 1 ? 'c-path' : 'c-field'
+        body += `<td class="${cls}${empty(c) ? ' is-empty' : ''}"${label(i)}>${cell(c)}</td>`
+      })
+      body += '</tr>'
+    }
+  } else {
+    kind = cols >= 5 && maxCell > 40 ? 't-recs' : cols <= 2 || (cols === 3 && maxCell <= 60) ? 't-keep' : 't-auto'
+    // Short cells (numbers, yes/no) keep their first column on one line.
+    if (maxCell <= 40) kind += ' t-short'
+    for (const row of token.rows) {
+      body += '<tr class="rec">'
+      row.forEach((c, i) => {
+        const align = token.align[i] ? ` style="text-align:${token.align[i]}"` : ''
+        // "0.848 → 0.897": the two values are marked up so the second one can stand out.
+        const pair = c.tokens.length === 1 && c.tokens[0].type === 'text' ? c.text.match(/^(\S+) → (\S+)$/) : null
+        const inner = pair ? `<span class="ba"><span class="ba-b">${esc(pair[1])} →</span> <span class="ba-a">${esc(pair[2])}</span></span>` : cell(c)
+        // As a card, short values sit side by side and a long one takes the full width.
+        const cls = i === 0 ? 'c-title' : c.text.length > 48 ? 'c-field c-wide' : 'c-field'
+        body += `<td class="${cls}${empty(c) ? ' is-empty' : ''}"${label(i)}${align}>${inner}</td>`
+      })
+      body += '</tr>'
+    }
+  }
+  const cards = /t-(perf|endpoint|recs)/.test(kind)
+  const tone = isPerf ? ` data-tone="${ctx.tone}"` : ''
+  return `<div class="table-wrap${cards ? ' has-cards' : ''}"${tone}><table class="${kind}${cards ? ' cards' : ''}" data-cols="${cols}">${thead}<tbody>${body}</tbody></table></div>\n`
+}
+
+// ---------------------------------------------------------------------------
 // render one doc
 // ---------------------------------------------------------------------------
 function renderDoc(name) {
@@ -183,6 +299,9 @@ function renderDoc(name) {
   const slug = slugger()
   const toc = []
   let title = null
+  let h1 = null
+  // How the "Improvement" column of a performance table reads in the current section.
+  const ctx = { tone: 'gain' }
   const marked = new Marked({ gfm: true })
   marked.use({
     renderer: {
@@ -192,20 +311,30 @@ function renderDoc(name) {
         const id = slug(text)
         if (depth === 1 && title === null) {
           title = text
-          return `<h1 id="${esc(id)}">${inner}</h1>\n`
+          h1 = `<h1 id="${esc(id)}">${inner}</h1>`
+          return ''
         }
-        if (depth === 2) toc.push({ id, html: inner })
+        if (depth === 2) {
+          toc.push({ id, html: inner })
+          ctx.tone = /회귀|regression/i.test(text) ? 'regress' : /채택하지 않음|효과 없음|rejected|not adopted|no effect/i.test(text) ? 'neutral' : 'gain'
+        }
         // No "#" link next to the heading: a link must have a visible text name (the TOC links every h2).
         return `<h${depth} id="${esc(id)}">${inner}</h${depth}>\n`
+      },
+      table(token) {
+        return renderTable(token, this.parser, ctx)
       },
     },
   })
   let html = marked.parse(src)
   html = html
-    .replace(/<table>/g, '<div class="table-wrap"><table>')
-    .replace(/<\/table>/g, '</table></div>')
+    // "- **Severity** (ID) text" lines (KNOWN-ISSUES): the severity becomes a badge and a filter key.
+    .replace(/<li>(<p>)?(<del>)?<strong>(High|Medium|Low|Info)<\/strong>( \(([^()<]{1,120})\))?/g, (_, p = '', del = '', sev, idPart = '', id) => {
+      const idHtml = idPart ? ` <span class="issue-id">(${id})</span>` : ''
+      return `<li class="issue" data-sev="${sev.toLowerCase()}"${del ? ' data-fixed' : ''}>${p}${del}<strong class="sev">${sev}</strong>${idHtml}`
+    })
     .replace(/\b(href|src)="([^"]*)"/g, (all, attr, val) => `${attr}="${esc(rewriteLink(decode(val), attr, from))}"`)
-  return { title: title ?? name, html, toc }
+  return { title: title ?? name, h1: h1 ?? `<h1>${esc(name)}</h1>`, html, toc }
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +429,7 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
 <body class="docs-body">
 <a class="skip" href="#main">${ko ? '본문으로 건너뛰기' : 'Skip to content'}</a>
 <header class="top">
-  <div class="wrap" style="max-width:1280px">
+  <div class="wrap wide">
     <a class="brand" href="${ko ? '../ko/index.html' : '../index.html'}"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
     <nav class="nav" aria-label="${ko ? '주 메뉴' : 'Main'}">
       <a href="${docsIndex}"${isIndex ? ' aria-current="page"' : ''}>${ko ? '문서' : 'Docs'}</a>
@@ -309,7 +438,7 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
     </nav>
   </div>
 </header>
-<div class="docs-layout">
+<div class="docs-layout${toc && toc.length > 1 ? ' has-toc' : ''}">
   <nav class="docs-side" aria-label="${ko ? '문서 목록' : 'Documentation'}">${sideNav(name, lang)}</nav>
   <main id="main" class="${isIndex ? 'doc-index' : 'prose'}">
     ${
@@ -326,12 +455,12 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
   </main>
   ${
     toc && toc.length > 1
-      ? `<nav class="docs-toc" aria-label="${ko ? '이 문서의 목차' : 'On this page'}"><h2>${ko ? '목차' : 'On this page'}</h2><ul>${toc.map((t) => `<li><a href="#${esc(t.id)}">${stripTags(t.html)}</a></li>`).join('')}</ul></nav>`
+      ? `<nav class="docs-toc" aria-label="${ko ? '이 문서의 목차' : 'On this page'}" data-toc><h2>${ko ? '목차' : 'On this page'}</h2><ul>${toc.map((t) => `<li><a href="#${esc(t.id)}">${stripTags(t.html)}</a></li>`).join('')}</ul></nav>`
       : ''
   }
 </div>
 <footer class="foot">
-  <div class="wrap" style="max-width:1280px">
+  <div class="wrap wide">
     <span>Inkling ${esc(`v${VERSION}`)}</span>
     <nav aria-label="${ko ? '바닥글' : 'Footer'}">
       <a href="${GH}">GitHub</a>
@@ -396,7 +525,7 @@ cpSync(join(SITE, 'assets'), join(OUT, 'assets'), { recursive: true, filter: (p)
 writeFileSync(join(OUT, '.nojekyll'), '')
 
 for (const name of SOURCES.keys()) {
-  const { title, html, toc } = renderDoc(name)
+  const { title, h1, html, toc } = renderDoc(name)
   const lang = isKo(name) ? 'ko' : 'en'
   const ko = lang === 'ko'
   const from = SOURCES.get(name)
@@ -405,7 +534,9 @@ for (const name of SOURCES.keys()) {
   const info = DOC_INFO.get(baseOf(name))
   const description = info ? (ko ? info[4] : info[2]) || undefined : undefined
   const meta = `<p class="doc-meta"><a href="${name}.md" type="text/markdown">${ko ? 'Markdown 원문' : 'Markdown source'}</a><a href="${GH}/blob/${BRANCH}/${from}">${ko ? 'GitHub에서 보기' : 'View on GitHub'}</a><a href="${ko ? 'index.ko.html' : 'index.html'}">${ko ? '전체 문서' : 'All docs'}</a></p>`
-  const top = `<p class="doc-meta doc-meta-top">${ko ? '이 문서는 저장소의' : 'Rendered from'} <code>${esc(from)}</code>${ko ? '을 그대로 옮겼습니다.' : ' in the repository.'} <a href="${name}.md" type="text/markdown">${ko ? 'Markdown 원문' : 'Markdown source'}</a></p>`
+  const group = GROUPS.find((g) => g.docs.some((d) => d[0] === baseOf(name)))
+  // Page head: the group as a small label, the title, the one-line description, then where the text comes from.
+  const top = `<header class="doc-head">${group ? `<p class="doc-kicker">${esc(ko ? group.ko : group.en)}</p>` : ''}${h1}${description ? `<p class="doc-desc">${esc(description)}</p>` : ''}<p class="doc-meta doc-meta-top">${ko ? '이 문서는 저장소의' : 'Rendered from'} <code>${esc(from)}</code>${ko ? '을 그대로 옮겼습니다.' : ' in the repository.'} <a href="${name}.md" type="text/markdown">${ko ? 'Markdown 원문' : 'Markdown source'}</a></p></header>`
   writeFileSync(join(OUT, 'docs', `${name}.html`), page({ lang, name, title, description, body: top + html + meta, toc, mdHref: `${name}.md` }))
 }
 

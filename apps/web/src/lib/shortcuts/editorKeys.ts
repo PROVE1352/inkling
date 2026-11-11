@@ -151,6 +151,9 @@ export function inklingShortcuts() {
         'keydown',
         (e) => {
           if (e.defaultPrevented || targetKind(e.target) === 'field') return
+          // a non-editable part of a block that takes its own keys (the PDF preview, docs/adr/2481-*):
+          // undo, indent, fold, … would act on the editor's selection behind it
+          if (e.target instanceof Element && e.target.closest('[data-own-keys]')) return
           const id = editorCommandFor(e)
           if (!id || !runOn(id, editor)) return
           e.preventDefault()

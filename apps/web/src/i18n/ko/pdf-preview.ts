@@ -27,4 +27,6 @@ export default {
   'pdfPreview.error.missing': '파일을 더 이상 찾을 수 없습니다.',
   'pdfPreview.error.network': '파일을 불러오지 못했습니다.',
   'pdfPreview.error.other': '이 PDF를 미리보기로 열지 못했습니다.',
+  'pdfPreview.error.tooManyPages': '이 PDF는 쪽이 너무 많아({count}쪽) 여기서 미리 볼 수 없습니다.',
+  'pdfPreview.error.stalled': '파일을 받다가 멈췄습니다.',
 }

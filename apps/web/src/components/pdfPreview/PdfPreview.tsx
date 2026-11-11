@@ -17,20 +17,24 @@ import { t, useT } from '../../i18n'
 import {
   autoLoads,
   browserStorage,
+  cappedWindow,
+  checkPageCount,
   fitWidthZoom,
   formatSize,
   isCollapsed,
   isPdfMime,
   layoutSlots,
   outputScale,
+  pageBox,
   parsePageNumber,
   percent,
   prefersSavingData,
-  renderWindow,
   safeLinkUrl,
   setCollapsed,
   stepZoom,
   visiblePages,
+  widestOf,
+  type PageBox,
 } from '../../lib/pdfPreview'
 import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, ExpandIcon, WidthIcon, XIcon } from '../Icons'
 import type { PdfHost } from './PdfFileBlock'
@@ -60,7 +64,7 @@ const saved = new Map<string, Saved>()
  * large files the reader already asked for.
  */
 const metaCache = new Map<string, { at: number; size: number | null; mime: string | null }>()
-const failedCache = new Map<string, { at: number; reason: LoadError }>()
+const failedCache = new Map<string, { at: number; reason: ErrorReason; count?: number }>()
 const asked = new Set<string>()
 const META_MS = 60_000
 const FAILED_MS = 30_000
@@ -71,13 +75,23 @@ const fresh = <T extends { at: number }>(m: Map<string, T>, k: string, ms: numbe
   return undefined
 }
 
+type ErrorReason = LoadError | 'chunk' | 'tooManyPages' | 'stalled'
 type Phase =
   | { kind: 'meta' }
   | { kind: 'none' }
   | { kind: 'gate'; size: number | null }
   | { kind: 'loading'; loaded: number; total: number }
-  | { kind: 'ready'; doc: PDFDocumentProxy }
-  | { kind: 'error'; reason: LoadError | 'chunk' }
+  | { kind: 'ready'; doc: PDFDocumentProxy; count: number }
+  /** far from the screen for a while: the document is let go, the box keeps its height */
+  | { kind: 'parked'; height: number }
+  | { kind: 'error'; reason: ErrorReason; count?: number }
+
+/** A download that has not moved for this long is given up (docs/adr/2483-*). */
+const STALL_MS = 30_000
+/** Further than this from the screen, a preview's canvases are let go… */
+const FAR_MARGIN = '1200px 0px'
+/** …and after this long far away, its document too. */
+const PARK_MS = 10_000
 
 const ERROR_TEXT = {
   password: 'pdfPreview.error.password',
@@ -86,6 +100,8 @@ const ERROR_TEXT = {
   network: 'pdfPreview.error.network',
   other: 'pdfPreview.error.other',
   chunk: 'pdfPreview.chunkFailed',
+  tooManyPages: 'pdfPreview.error.tooManyPages',
+  stalled: 'pdfPreview.error.stalled',
 } as const
 
 const BTN =
@@ -117,7 +133,7 @@ export function PdfPreview({ host }: PdfPreviewProps) {
       if (host.byName === 'unknown' && !isPdfMime(mime)) return setPhase({ kind: 'none' })
       setSize(sz)
       const failed = fresh(failedCache, url, FAILED_MS)
-      if (failed) return setPhase({ kind: 'error', reason: failed.reason })
+      if (failed) return setPhase({ kind: 'error', reason: failed.reason, count: failed.count })
       const go = wanted || asked.has(url) || autoLoads(sz, undefined, prefersSavingData())
       setPhase(go ? { kind: 'loading', loaded: 0, total: sz ?? 0 } : { kind: 'gate', size: sz })
     }
@@ -159,16 +175,43 @@ export function PdfPreview({ host }: PdfPreviewProps) {
     if (!loading || collapsed) return
     let live = true
     let acquired = false
+    // a download that stops moving (a server or proxy that holds the connection open) ends in an error
+    // with a retry instead of a progress bar forever
+    let stall: ReturnType<typeof setTimeout> | undefined
+    let seen = -1
+    const arm = () => {
+      clearTimeout(stall)
+      stall = setTimeout(() => {
+        if (live) setPhase({ kind: 'error', reason: 'stalled' })
+      }, STALL_MS)
+    }
+    arm()
     const onProgress = (loaded: number, total: number) => {
-      if (live) setPhase((p) => (p.kind === 'loading' ? { kind: 'loading', loaded, total: total || size || 0 } : p))
+      if (!live) return
+      if (loaded !== seen) {
+        seen = loaded
+        arm()
+      }
+      setPhase((p) => (p.kind === 'loading' ? { kind: 'loading', loaded, total: total || size || 0 } : p))
     }
     loadLib().then(
       (m) => {
         if (!live) return
         acquired = true
         m.acquire(url, onProgress).then(
-          (doc) => live && setPhase({ kind: 'ready', doc }),
+          (doc) => {
+            clearTimeout(stall)
+            if (!live) return
+            // the page count comes from the file: a hostile /Count must not size anything (docs/adr/2483-*)
+            const c = checkPageCount(doc.numPages)
+            if (!c.ok) {
+              failedCache.set(url, { at: Date.now(), reason: c.reason, count: c.count })
+              return setPhase({ kind: 'error', reason: c.reason, count: c.count })
+            }
+            setPhase({ kind: 'ready', doc, count: c.count })
+          },
           (e) => {
+            clearTimeout(stall)
             const reason = m.errorKind(e)
             // a file that is not a readable PDF stays so: do not fetch it again on every rebuild
             if (reason === 'password' || reason === 'invalid') failedCache.set(url, { at: Date.now(), reason })
@@ -176,10 +219,14 @@ export function PdfPreview({ host }: PdfPreviewProps) {
           },
         )
       },
-      () => live && setPhase({ kind: 'error', reason: 'chunk' }),
+      () => {
+        clearTimeout(stall)
+        if (live) setPhase({ kind: 'error', reason: 'chunk' })
+      },
     )
     return () => {
       live = false
+      clearTimeout(stall)
       if (acquired) lib?.release(url, onProgress)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,6 +241,33 @@ export function PdfPreview({ host }: PdfPreviewProps) {
     void m.acquire(url)
     return () => m.release(url)
   }, [doc, url])
+
+  // Far from the screen: canvases go at once, the document after PARK_MS (the box keeps its height, so
+  // nothing below moves). Coming back loads it again (from the shared document while it is still kept)
+  // at the page and zoom it had. A full-screen view is never parked.
+  const [near, setNear] = useState(true)
+  const fullRef = useRef(full)
+  fullRef.current = full
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver((entries) => {
+      const e = entries[entries.length - 1]
+      if (e) setNear(e.isIntersecting)
+    }, { rootMargin: FAR_MARGIN })
+    io.observe(host.el)
+    return () => io.disconnect()
+  }, [host.el])
+  useEffect(() => {
+    if (near || phase.kind !== 'ready') return
+    const timer = setTimeout(() => {
+      if (fullRef.current) return
+      setPhase({ kind: 'parked', height: Math.round(host.el.getBoundingClientRect().height) })
+    }, PARK_MS)
+    return () => clearTimeout(timer)
+  }, [near, phase.kind, host.el])
+  useEffect(() => {
+    if (near && phase.kind === 'parked') setPhase({ kind: 'loading', loaded: 0, total: size ?? 0 })
+  }, [near, phase.kind, size])
 
   const download = (
     <a href={url} download={name || ''} className={BTN} title={t('pdfPreview.download')} aria-label={t('pdfPreview.download')} data-testid="pdf-download">
@@ -218,12 +292,22 @@ export function PdfPreview({ host }: PdfPreviewProps) {
     )
   }
 
+  if (phase.kind === 'parked') {
+    // the frame stays as tall as the drawn preview was, so the page around it does not move
+    return <Shell state="parked" height={phase.height} />
+  }
+
+  const fatal = () => setPhase({ kind: 'error', reason: 'other' })
+
   if (phase.kind === 'ready') {
     return (
       <Shell state="ready">
         <PdfView
           key={viewKey}
           doc={phase.doc}
+          count={phase.count}
+          active={near || full}
+          onFatal={fatal}
           url={url}
           name={name}
           viewKey={viewKey}
@@ -243,6 +327,8 @@ export function PdfPreview({ host }: PdfPreviewProps) {
             {(close) => (
               <PdfView
                 doc={phase.doc}
+                count={phase.count}
+                onFatal={fatal}
                 url={url}
                 name={name}
                 viewKey={`${viewKey}|full`}
@@ -274,12 +360,12 @@ export function PdfPreview({ host }: PdfPreviewProps) {
       <Shell state="error">
         {bar}
         <div className="px-3 pb-3 text-sm" role="alert" data-testid="pdf-error" data-reason={phase.reason}>
-          <p className="text-ink">{t(ERROR_TEXT[phase.reason])}</p>
+          <p className="text-ink">{t(ERROR_TEXT[phase.reason], { count: (phase.count ?? 0).toLocaleString() })}</p>
           <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             <a href={url} download={name || ''} className="text-accent underline underline-offset-2" data-testid="pdf-error-download">
               {t('pdfPreview.downloadFile', { name: name || 'PDF' })}
             </a>
-            {(phase.reason === 'network' || phase.reason === 'chunk' || phase.reason === 'other') && (
+            {(phase.reason === 'network' || phase.reason === 'chunk' || phase.reason === 'other' || phase.reason === 'stalled') && (
               <button type="button" className="text-sub underline underline-offset-2 hover:text-ink" onClick={retry}>
                 {t('pdfPreview.retry')}
               </button>
@@ -342,12 +428,13 @@ export function PdfPreview({ host }: PdfPreviewProps) {
   )
 }
 
-function Shell({ state, children }: { state: string; children: ReactNode }) {
+function Shell({ state, children, height }: { state: string; children?: ReactNode; height?: number }) {
   return (
     <div
       className="nd-pdf rounded-md border border-line bg-app"
       data-testid="pdf-preview"
       data-state={state}
+      style={height ? { height } : undefined}
       role="region"
       aria-label={t('pdfPreview.region')}
       tabIndex={-1}
@@ -365,47 +452,67 @@ type Drawn = {
   task?: RenderTask
   text?: { layer: InstanceType<PdfLib['TextLayer']>; div: HTMLDivElement }
   links?: HTMLDivElement
+  linksStarted?: boolean
 }
 
 type PdfViewProps = {
   doc: PDFDocumentProxy
+  /** doc.numPages, checked against PDF_MAX_PAGES before the view is made */
+  count: number
   url: string
   name: string
   viewKey: string
   variant: 'inline' | 'overlay'
+  /** false while the preview is far from the screen: every canvas is let go, nothing is drawn */
+  active?: boolean
   initialPage?: number
   jumpTo?: { page: number } | null
   onCollapse?: () => void
   onFullscreen?: () => void
   onClose?: (page: number) => void
+  /** the document cannot be drawn at all (page 1 failed): the preview shows an error */
+  onFatal?: () => void
   download: ReactNode
 }
 
-function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFullscreen, onClose, download }: PdfViewProps) {
+/** A page that failed to draw is tried again after this long, on the next pass over it. */
+const RETRY_MS = 3000
+
+function PdfView({ doc, count, viewKey, variant, active = true, initialPage, jumpTo, onCollapse, onFullscreen, onClose, onFatal, download }: PdfViewProps) {
   const t = useT()
-  const count = doc.numPages
   const start = saved.get(viewKey)
   const scrollerRef = useRef<HTMLDivElement>(null)
-  const slotEls = useRef<(HTMLDivElement | null)[]>([])
+  const slotEls = useRef(new Map<number, HTMLDivElement>())
   const drawn = useRef(new Map<number, Drawn>())
   const pages = useRef(new Map<number, PDFPageProxy>())
-  // page sizes at 100% in CSS px; every page assumed as large as page 1 until it is fetched
-  const [sizes, setSizes] = useState<{ w: number; h: number }[] | null>(null)
+  const failedAt = useRef(new Map<number, number>())
+  // page boxes at 100% in CSS px (bounded, lib/pdfPreview.ts pageBox); every page assumed as large as
+  // page 1 until it is fetched
+  const [sizes, setSizes] = useState<PageBox[] | null>(null)
   const [zoomMode, setZoomMode] = useState<ZoomMode>(start?.zoom ?? 'fit')
   const [avail, setAvail] = useState(0)
   const [current, setCurrent] = useState(Math.max(1, Math.min(count, initialPage ?? start?.page ?? 1)))
   const [pageInput, setPageInput] = useState<string | null>(null)
+  // only the slots near the view are in the DOM (a 5,000-page file keeps a handful)
+  const [mounted, setMounted] = useState<[number, number]>([0, -1])
   const firstJump = useRef<number | null>(initialPage ?? start?.page ?? null)
+  const fatal = useRef(onFatal)
+  fatal.current = onFatal
 
   // page 1's size for every slot
   useEffect(() => {
     let live = true
-    void doc.getPage(1).then((p) => {
-      if (!live) return
-      pages.current.set(0, p)
-      const vp = p.getViewport({ scale: PDF_TO_CSS })
-      setSizes(Array.from({ length: count }, () => ({ w: vp.width, h: vp.height })))
-    })
+    doc.getPage(1).then(
+      (p) => {
+        if (!live) return
+        pages.current.set(0, p)
+        const box = pageBox(p.getViewport({ scale: PDF_TO_CSS }).width, p.getViewport({ scale: PDF_TO_CSS }).height)
+        const all: PageBox[] = new Array(count)
+        for (let i = 0; i < count; i++) all[i] = box
+        setSizes(all)
+      },
+      () => live && fatal.current?.(),
+    )
     return () => {
       live = false
     }
@@ -420,11 +527,16 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [sizes === null])
+  }, [])
 
-  const widest = useMemo(() => (sizes ? Math.max(...sizes.map((s) => s.w)) : 0), [sizes])
+  const widest = useMemo(() => (sizes ? widestOf(sizes) : 0), [sizes])
   const zoom = zoomMode === 'fit' ? fitWidthZoom(widest, avail) : zoomMode
-  const slots = useMemo(() => layoutSlots((sizes ?? []).map((s) => s.h * zoom), GAP, PAD), [sizes, zoom])
+  const slots = useMemo(() => {
+    const heights = new Array<number>(sizes?.length ?? 0)
+    if (sizes) for (let i = 0; i < sizes.length; i++) heights[i] = Math.floor(sizes[i].h * zoom)
+    return layoutSlots(heights, GAP, PAD)
+  }, [sizes, zoom])
+  const innerWidth = Math.max(avail + 2 * PAD, Math.floor(widest * zoom) + 2 * PAD)
 
   useEffect(() => {
     saved.set(viewKey, { page: current, zoom: zoomMode })
@@ -451,11 +563,13 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
 
   const drawPage = useCallback(
     async (i: number, z: number) => {
-      const slot = slotEls.current[i]
+      const slot = slotEls.current.get(i)
       const m = lib
       if (!slot || !m) return
       let d = drawn.current.get(i)
       if (d && d.zoom === z) return
+      const failed = failedAt.current.get(i)
+      if (!d && failed !== undefined && Date.now() - failed < RETRY_MS) return
       const gen = (d?.gen ?? 0) + 1
       if (d) {
         d.task?.cancel()
@@ -467,30 +581,44 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
       }
       const mine = d
       const stale = () => drawn.current.get(i) !== mine || mine.gen !== gen
+      // a page that could not be drawn is left for a later pass (not blank until scrolled away and back)
+      const fail = () => {
+        if (drawn.current.get(i) === mine && mine.gen === gen && !mine.canvas) {
+          drawn.current.delete(i)
+          failedAt.current.set(i, Date.now())
+          slot.setAttribute('data-failed', '')
+        }
+      }
       let page = pages.current.get(i)
       if (!page) {
         try {
           page = await doc.getPage(i + 1)
         } catch {
-          return
+          if (i === 0) fatal.current?.()
+          return fail()
         }
         pages.current.set(i, page)
       }
       if (stale()) return
-      const vp = page.getViewport({ scale: z * PDF_TO_CSS })
+      const at100 = page.getViewport({ scale: PDF_TO_CSS })
+      const box = pageBox(at100.width, at100.height)
+      const vp = page.getViewport({ scale: z * PDF_TO_CSS * box.k })
       // a page of another size than assumed: fix its slot (the next layout redraws it)
       setSizes((prev) => {
-        if (!prev) return prev
-        const w = vp.width / z
-        const h = vp.height / z
-        if (Math.abs(prev[i].w - w) < 0.5 && Math.abs(prev[i].h - h) < 0.5) return prev
+        if (!prev || !prev[i]) return prev
+        if (Math.abs(prev[i].w - box.w) < 0.5 && Math.abs(prev[i].h - box.h) < 0.5 && prev[i].k === box.k) return prev
         const next = prev.slice()
-        next[i] = { w, h }
+        next[i] = box
         return next
       })
       slot.style.setProperty('--scale-factor', String(vp.scale))
       slot.style.setProperty('--user-unit', String(page.userUnit || 1))
       const os = outputScale(vp.width, vp.height, window.devicePixelRatio || 1)
+      if (os === 0) {
+        // too large to draw at any sensible resolution: the page keeps its place, blank
+        slot.setAttribute('data-undrawn', '')
+        return
+      }
       const canvas = document.createElement('canvas')
       canvas.className = 'nd-pdf-canvas'
       canvas.width = Math.max(1, Math.floor(vp.width * os))
@@ -500,9 +628,11 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
       mine.task = task
       try {
         await task.promise
-      } catch {
+      } catch (e) {
         canvas.width = 0
         canvas.height = 0
+        // a cancelled render (zoom, release) is not a failure
+        if ((e as { name?: string } | null)?.name !== 'RenderingCancelledException') fail()
         return
       }
       if (stale()) {
@@ -516,6 +646,8 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
         mine.canvas.remove()
       }
       mine.canvas = canvas
+      failedAt.current.delete(i)
+      slot.removeAttribute('data-failed')
       slot.prepend(canvas)
       slot.setAttribute('data-drawn', String(z))
 
@@ -534,11 +666,14 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
           // cancelled (released) or a broken text stream: the picture stays
         }
       }
-      // links: positions in % of the page, so a zoom does not move them
-      if (!mine.links && !stale()) {
-        mine.links = await linkLayer(doc, page, (p) => jumpRef.current(p))
-        if (stale()) mine.links?.remove()
-        else if (mine.links) slot.appendChild(mine.links)
+      // links: positions in % of the page, so a zoom does not move them; built once per drawn entry
+      if (!mine.linksStarted) {
+        mine.linksStarted = true
+        const layer = await linkLayer(doc, page, (p) => jumpRef.current(p))
+        if (layer && drawn.current.get(i) === mine) {
+          mine.links = layer
+          slot.appendChild(layer)
+        }
       }
     },
     [doc],
@@ -548,17 +683,44 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
   // resize, a page found to have another size) shows the same place.
   const anchor = useRef<{ page: number; frac: number } | null>(firstJump.current && firstJump.current > 1 ? { page: firstJump.current, frac: 0 } : null)
   const laidOut = useRef<typeof slots | null>(null)
+  const activeRef = useRef(active)
+  activeRef.current = active
 
-  const sync = useCallback(() => {
+  /** Which pages are in view: the page number, the anchor and which slots are in the DOM. */
+  const measureView = useCallback(() => {
     const el = scrollerRef.current
-    if (!el || !sizes) return
+    if (!el || !sizes) return null
     const v = visiblePages(slots, el.scrollTop, el.clientHeight)
     if (v.current >= 0) setCurrent(v.current + 1)
     if (v.first >= 0) anchor.current = { page: v.first + 1, frac: (el.scrollTop - slots.tops[v.first]) / Math.max(1, slots.heights[v.first]) }
-    const w = renderWindow(v.first, v.last, count, 1)
+    const w = cappedWindow(v.first, v.last, count)
+    setMounted((prev) => (prev[0] === w.keep[0] && prev[1] === w.keep[1] ? prev : w.keep))
+    return w
+  }, [sizes, slots, count])
+
+  /** Draws what is in view and lets go of the rest (after the slots of `measureView` are in the DOM). */
+  const drawWindow = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el || !sizes) return
+    if (!activeRef.current) {
+      for (const i of Array.from(drawn.current.keys())) releasePage(i)
+      return
+    }
+    const v = visiblePages(slots, el.scrollTop, el.clientHeight)
+    const w = cappedWindow(v.first, v.last, count)
     for (let i = w.draw[0]; i <= w.draw[1]; i++) void drawPage(i, zoom)
     for (const i of Array.from(drawn.current.keys())) if (i < w.keep[0] || i > w.keep[1]) releasePage(i)
   }, [sizes, slots, count, zoom, drawPage, releasePage])
+
+  const sync = useCallback(() => {
+    measureView()
+    drawWindow()
+  }, [measureView, drawWindow])
+
+  // after React has put the slots of a new window in the DOM, draw into them
+  useLayoutEffect(() => {
+    drawWindow()
+  }, [mounted, drawWindow, active])
 
   // scroll: one sync per frame
   useEffect(() => {
@@ -650,6 +812,25 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
     if (n) goTo(n)
   }
 
+  const slotNodes: ReactNode[] = []
+  if (sizes) {
+    for (let i = Math.max(0, mounted[0]); i <= Math.min(count - 1, mounted[1]); i++) {
+      const w = Math.floor(sizes[i].w * zoom)
+      slotNodes.push(
+        <div
+          key={i}
+          ref={(el) => {
+            if (el) slotEls.current.set(i, el)
+            else slotEls.current.delete(i)
+          }}
+          className="nd-pdf-page"
+          data-page={i + 1}
+          style={{ width: w, height: slots.heights[i], top: slots.tops[i], left: Math.max(PAD, Math.floor((innerWidth - w) / 2)) }}
+        />,
+      )
+    }
+  }
+
   const overlay = variant === 'overlay'
   const tb = overlay ? `${BTN} !text-white/85 hover:!bg-white/15 hover:!text-white` : BTN
   return (
@@ -722,18 +903,8 @@ function PdfView({ doc, viewKey, variant, initialPage, jumpTo, onCollapse, onFul
         data-testid="pdf-scroller"
         data-current={current}
       >
-        <div className="nd-pdf-pages" style={{ height: slots.total || undefined, paddingTop: PAD }}>
-          {sizes?.map((s, i) => (
-            <div
-              key={i}
-              ref={(el) => {
-                slotEls.current[i] = el
-              }}
-              className="nd-pdf-page"
-              data-page={i + 1}
-              style={{ width: Math.floor(s.w * zoom), height: Math.floor(s.h * zoom), marginBottom: GAP }}
-            />
-          ))}
+        <div className="nd-pdf-pages" style={{ height: slots.total || undefined, width: innerWidth }}>
+          {slotNodes}
         </div>
       </div>
     </>

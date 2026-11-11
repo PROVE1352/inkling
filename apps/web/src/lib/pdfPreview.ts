@@ -151,16 +151,74 @@ export function parsePageNumber(input: string, count: number): number | null {
   return n >= 1 && n <= count ? n : null
 }
 
+/** One page canvas holds at most this many pixels (32 MiB of RGBA) and this many on a side. */
+export const MAX_CANVAS_PIXELS = 8_388_608
+export const MAX_CANVAS_SIDE = 8192
+/** Below this factor a canvas would show nothing readable: the page keeps its place, undrawn. */
+const MIN_OUTPUT_SCALE = 0.05
+
 /**
- * The canvas resolution factor: the device pixel ratio, lowered so one page canvas stays under
- * `maxPixels` (a 4x zoom of an A0 poster on a 3x phone would otherwise ask for gigabytes).
+ * The canvas resolution factor for a page drawn `cssWidth` x `cssHeight` CSS px: the device pixel ratio,
+ * lowered until the canvas fits MAX_CANVAS_PIXELS and MAX_CANVAS_SIDE. 0 means "do not draw" (the page
+ * would need a factor under 0.05, or its size is not a finite positive number).
  */
-export function outputScale(cssWidth: number, cssHeight: number, dpr: number, maxPixels = 16_777_216): number {
+export function outputScale(cssWidth: number, cssHeight: number, dpr: number, maxPixels = MAX_CANVAS_PIXELS, maxSide = MAX_CANVAS_SIDE): number {
+  if (!(cssWidth > 0) || !(cssHeight > 0) || !Number.isFinite(cssWidth) || !Number.isFinite(cssHeight)) return 0
   const want = Math.max(1, Number.isFinite(dpr) ? dpr : 1)
-  const area = cssWidth * cssHeight
-  if (!(area > 0)) return want
-  const cap = Math.sqrt(maxPixels / area)
-  return Math.max(0.25, Math.min(want, cap))
+  const s = Math.min(want, Math.sqrt(maxPixels / (cssWidth * cssHeight)), maxSide / cssWidth, maxSide / cssHeight)
+  return s >= MIN_OUTPUT_SCALE ? s : 0
+}
+
+/** A page is laid out at most this many CSS px on its longer side at 100% (A0 is about 4,500). */
+export const MAX_PAGE_CSS = 5000
+/** The size a page gets in the layout at 100%, and the factor `k` its drawing is scaled by to get there. */
+export type PageBox = { w: number; h: number; k: number }
+const LETTER: PageBox = { w: 816, h: 1056, k: 1 }
+
+/**
+ * Bounds a page's size at 100% (CSS px, user unit included): pages larger than MAX_PAGE_CSS on their
+ * longer side are scaled down as a whole, sides under 1 px become 1 px in the layout, and a size that is
+ * not a finite positive number becomes US Letter.
+ */
+export function pageBox(w: number, h: number): PageBox {
+  if (!(w > 0) || !(h > 0) || !Number.isFinite(w) || !Number.isFinite(h)) return { ...LETTER }
+  const k = Math.min(1, MAX_PAGE_CSS / Math.max(w, h))
+  return { w: Math.max(1, w * k), h: Math.max(1, h * k), k }
+}
+
+// ── page count ────────────────────────────────────────────────────────────────────────────────────
+/**
+ * The preview opens PDFs of at most this many pages. pdf.js takes the page count from the file's page
+ * tree (/Count), which a 1 KB file can set to millions; the layout keeps one size per page.
+ */
+export const PDF_MAX_PAGES = 5000
+
+export type PageCountCheck = { ok: true; count: number } | { ok: false; reason: 'invalid' | 'tooManyPages'; count: number }
+
+export function checkPageCount(n: unknown, max = PDF_MAX_PAGES): PageCountCheck {
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1) return { ok: false, reason: 'invalid', count: 0 }
+  if (n > max) return { ok: false, reason: 'tooManyPages', count: n }
+  return { ok: true, count: n }
+}
+
+/**
+ * At most this many pages are drawn per pass over the view. Pages of ordinary size never reach it (a view
+ * shows 1-3 of them, plus one each side); a file of hair-thin pages would otherwise start hundreds of
+ * renders at once. Pages past it stay blank until scrolled to.
+ */
+export const MAX_DRAW_PER_PASS = 8
+
+/** renderWindow with the drawn range cut to MAX_DRAW_PER_PASS pages from the first one in view. */
+export function cappedWindow(first: number, last: number, count: number, max = MAX_DRAW_PER_PASS): { draw: [number, number]; keep: [number, number] } {
+  // one page ahead on each side is part of the drawn range, so the pages in view are cut to max - 2
+  return renderWindow(first, Math.min(last, first + Math.max(1, max - 2) - 1), count, 1)
+}
+
+/** The widest page (no spread: the array may be thousands long). */
+export function widestOf(sizes: readonly { w: number }[]): number {
+  let m = 0
+  for (const s of sizes) if (s.w > m) m = s.w
+  return m
 }
 
 // ── per-viewer "collapsed" memory (localStorage, never the document) ───────────────────────────────

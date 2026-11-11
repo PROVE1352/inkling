@@ -6,6 +6,8 @@
   max-height: 70vh;
   max-height: 70dvh;
   overflow: auto;
+  /* the scrollbar's room is kept from the start, so fit width does not change when it appears */
+  scrollbar-gutter: stable;
   overscroll-behavior-x: contain;
   background: rgb(0 0 0 / 0.045);
   border-bottom-left-radius: inherit;
@@ -18,10 +20,9 @@
 .nd-pdf-scroll:focus-visible {
   box-shadow: inset 0 0 0 2px var(--color-accent, #2563eb);
 }
+/* only the pages near the view are in the DOM, each placed at its top (PdfPreview.tsx PdfView) */
 .nd-pdf-pages {
-  box-sizing: content-box;
-  min-width: max-content;
-  padding-inline: 12px;
+  position: relative;
 }
 .nd-pdf-page {
   --user-unit: 1;
@@ -29,8 +30,7 @@
   --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
   --scale-round-x: 1px;
   --scale-round-y: 1px;
-  position: relative;
-  margin-inline: auto;
+  position: absolute;
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
   overflow: hidden;

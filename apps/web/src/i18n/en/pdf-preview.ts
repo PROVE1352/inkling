@@ -27,4 +27,6 @@ export default {
   'pdfPreview.error.missing': 'The file is no longer available.',
   'pdfPreview.error.network': 'The file could not be loaded.',
   'pdfPreview.error.other': 'The preview could not open this PDF.',
+  'pdfPreview.error.tooManyPages': 'This PDF has too many pages ({count}) to preview here.',
+  'pdfPreview.error.stalled': 'The file stopped loading.',
 }

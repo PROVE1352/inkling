@@ -4,10 +4,19 @@
 // limit, the page window, zoom steps, the links that survive and the collapsed memory.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { fileIdOf, pdfByName } from './pdfFile'
+import { fileIdOf, pdfByName, previewsAllowed } from './pdfFile'
 import {
   AUTO_LOAD_MAX_BYTES,
   COLLAPSED_KEY,
+  MAX_CANVAS_PIXELS,
+  MAX_CANVAS_SIDE,
+  MAX_DRAW_PER_PASS,
+  MAX_PAGE_CSS,
+  PDF_MAX_PAGES,
+  cappedWindow,
+  checkPageCount,
+  pageBox,
+  widestOf,
   MAX_ZOOM,
   MIN_ZOOM,
   autoLoads,
@@ -179,8 +188,72 @@ describe('which pages are drawn', () => {
     assert.equal(outputScale(800, 1000, 0.5), 1)
     // a huge page at 3x would need 3264 x 4224 x 9 pixels: capped near 16.7 M
     const s = outputScale(3264, 4224, 3)
-    assert.ok(s < 3 && 3264 * s * 4224 * s <= 16_777_216 + 1)
-    assert.equal(outputScale(0, 0, 2), 2)
+    assert.ok(s < 3 && 3264 * s * 4224 * s <= MAX_CANVAS_PIXELS + 1)
+    // no floor: a page of 5000 x 5000 CSS px gets a canvas within the caps, not one at 0.25 of a huge size
+    const big = outputScale(5000, 5000, 2)
+    assert.ok(big > 0 && 5000 * big * 5000 * big <= MAX_CANVAS_PIXELS + 1)
+    // one side never past the cap either (a long strip)
+    const strip = outputScale(400, 5000, 2)
+    assert.ok(strip > 0 && 5000 * strip <= MAX_CANVAS_SIDE + 1e-9)
+    // sizes that cannot be drawn sensibly are not drawn
+    assert.equal(outputScale(0, 0, 2), 0)
+    assert.equal(outputScale(Number.NaN, 100, 2), 0)
+    assert.equal(outputScale(Number.POSITIVE_INFINITY, 100, 2), 0)
+    assert.equal(outputScale(1e9, 1e9, 2), 0)
+    assert.equal(outputScale(800, 1000, Number.NaN), 1)
+  })
+
+  it('bounds the page box', () => {
+    assert.deepEqual(pageBox(816, 1056), { w: 816, h: 1056, k: 1 })
+    // a 190,000 pt MediaBox (253,333 CSS px) is shown at most MAX_PAGE_CSS on its long side
+    const b = pageBox(253_333, 253_333)
+    assert.ok(b.w <= MAX_PAGE_CSS && b.h <= MAX_PAGE_CSS && b.k < 0.02)
+    // a hair-thin page keeps 1 px
+    const thin = pageBox(816, 0.001)
+    assert.ok(thin.h >= 1 && thin.w === 816)
+    // garbage gives a Letter page
+    assert.deepEqual(pageBox(Number.NaN, 10), { w: 816, h: 1056, k: 1 })
+    assert.deepEqual(pageBox(-5, 10), { w: 816, h: 1056, k: 1 })
+  })
+})
+
+describe('hostile page counts', () => {
+  it('accepts 1..PDF_MAX_PAGES and nothing else', () => {
+    assert.deepEqual(checkPageCount(1), { ok: true, count: 1 })
+    assert.deepEqual(checkPageCount(PDF_MAX_PAGES), { ok: true, count: PDF_MAX_PAGES })
+    assert.deepEqual(checkPageCount(PDF_MAX_PAGES + 1), { ok: false, reason: 'tooManyPages', count: PDF_MAX_PAGES + 1 })
+    assert.equal(checkPageCount(10_000_000).ok, false)
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '3', null, undefined]) {
+      assert.equal(checkPageCount(bad).ok, false, String(bad))
+      assert.equal(checkPageCount(bad).reason, 'invalid', String(bad))
+    }
+  })
+
+  it('draws a bounded number of pages per pass', () => {
+    // 2000 pages of 1 px: hundreds are "in view", a handful are drawn
+    const w = cappedWindow(100, 600, 2000)
+    assert.ok(w.draw[1] - w.draw[0] + 1 <= MAX_DRAW_PER_PASS)
+    assert.ok(w.keep[1] - w.keep[0] + 1 <= MAX_DRAW_PER_PASS + 2)
+    assert.deepEqual(cappedWindow(10, 11, 100), renderWindow(10, 11, 100))
+    assert.deepEqual(cappedWindow(-1, -1, 0), { draw: [0, -1], keep: [0, -1] })
+  })
+
+  it('finds the widest page without spreading the list', () => {
+    const many = Array.from({ length: 200_000 }, (_, i) => ({ w: i === 123_456 ? 999 : 10 }))
+    assert.equal(widestOf(many), 999)
+    assert.equal(widestOf([]), 0)
+  })
+})
+
+describe('previews and ink', () => {
+  it('shows previews only on pages without strokes, outside pen mode', () => {
+    assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 0 }), true)
+    assert.equal(previewsAllowed({ penMode: true, savingInk: false, ink: 0 }), false)
+    assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 3 }), false)
+    assert.equal(previewsAllowed({ penMode: false, savingInk: true, ink: 0 }), false)
+    assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 'loading' }), false)
+    // the ink request failing does not hide every PDF in the workspace
+    assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 'error' }), true)
   })
 })
 

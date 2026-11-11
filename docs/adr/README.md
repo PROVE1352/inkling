@@ -997,6 +997,23 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2501](2501-sign-up-hooks.md) | Sign-up hooks: checks before, records inside the account's transaction | Accepted |
 | [2502](2502-request-gates.md) | Request gates: one check list for every authenticated request | Accepted |
 | [2503](2503-restricted-mode-pieces-register-themselves.md) | Restricted mode: each piece registers itself from its own register.ts | Accepted |
+| [2505](2505-limits-checked-where-rows-are-inserted.md) | Limits: checked in the creating transaction, at every insert site | Accepted |
+| [2506](2506-storage-counted-cached-and-read-only-when-full.md) | Storage: counted from every member-grown column, cached, read-only when full | Accepted |
+| [2507](2507-features-turned-off-per-request.md) | Features turned off: decided per request, what exists stops too | Accepted |
+| [2512](2512-sign-in-ids-stored-in-the-email-column.md) | Sign-in IDs: stored in the email column, chosen by the server's mode | Accepted |
+| [2513](2513-workspaces-without-members-and-delete-now.md) | Workspaces without members are deleted; "delete now" for deleted workspaces | Accepted |
+| [2514](2514-leaving-delete-api-me.md) | Leaving: DELETE /api/me with a password or a recent sign-in | Accepted |
+| [2515](2515-account-lifetime.md) | Account lifetime: a date set at sign-up, an hourly job, a dry run | Accepted |
+| [2516](2516-sign-up-limits.md) | Sign-up limits: an account cap, a per-address cap and two bot checks | Accepted |
+| [2517](2517-account-deletion-plan-transaction-blobs.md) | Account deletion: one function, plan then one transaction, names scrubbed | Accepted |
+| [2519](2519-terms-and-consent-from-legal-dir.md) | Terms and consent from LEGAL_DIR: read once, versioned by hash, gated on every way in | Accepted |
+| [2520](2520-legal-screens-without-html.md) | Legal screens: Markdown without HTML, the consent screen around every route, the instance label | Accepted |
+| [2521](2521-demo-instance-preset.md) | Demo preset: an overlay on compose.yaml that cannot start without its limits | Accepted |
+| [2525](2525-trash-retention-capped-by-the-server.md) | Trash retention capped by the server (LIMIT_TRASH_DAYS) | Accepted |
+| [2526](2526-instance-notice.md) | Operator notice on every screen (INSTANCE_NOTICE) | Accepted |
+| [2527](2527-restricted-sign-up-waits-for-the-setup-code-admin.md) | Restricted sign-up waits for the setup-code administrator (SETUP_REQUIRED) | Accepted |
+| [2528](2528-restricted-mode-pieces-joined.md) | Restricted mode: where the three pieces meet | Accepted |
+| [2529](2529-sockets-of-purged-workspaces.md) | Closing the sockets of a workspace deleted for good | Accepted |
 
 ## 099x Client updates
 

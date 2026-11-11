@@ -160,4 +160,6 @@ export default {
   'errors.LIMIT_FILE_mb': '이 서버가 받는 크기보다 큰 파일입니다(파일 하나에 {limit}까지).',
   'errors.LAST_ADMIN': '이 서버의 유일한 관리자입니다. 먼저 다른 사람을 관리자로 지정하세요.',
   'errors.REAUTH_REQUIRED': '안전을 위해 다시 로그인한 뒤 한 번 더 시도하세요.',
+  'errors.SETUP_REQUIRED': '이 서버는 아직 운영자 계정이 없어 가입을 받지 않습니다. 운영자는 서버 기록에 나온 설정 링크로 먼저 계정을 만드세요.',
+  'errors.LIMIT_TRASH_DAYS': '이 서버는 휴지통의 페이지를 정해진 기간보다 오래 보관하지 않습니다. 설정 화면에 나온 상한 이하로 정하세요.',
 } satisfies Partial<Record<keyof typeof en, string>>

@@ -39,6 +39,7 @@ import { AppDnd } from './dnd/AppDnd'
 import { AppErrorBoundary } from './AppErrorBoundary'
 import { OnboardingHost } from '../onboarding/Host'
 import { InstanceBadge } from './InstanceBadge'
+import { InstanceNotice } from './InstanceNotice'
 import { AccountExpiry } from './AccountExpiry'
 
 export type LayoutContext = {
@@ -306,6 +307,7 @@ export function AppLayout() {
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* restricted mode (docs/adr/2500-*): instance label and account expiry, nothing when not set */}
         <InstanceBadge placement="banner" />
+        <InstanceNotice placement="banner" />
         <AccountExpiry placement="banner" />
         <StorageFullNotice wsId={wsId} />
         <AdminStatusBanner />

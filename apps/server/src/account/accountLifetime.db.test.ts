@@ -83,12 +83,19 @@ describe('[db] sign-up limits and account lifetime', { skip: !BASE_URL }, async 
   const past = () => new Date(Date.now() - 3_600_000)
 
   // --- contract principle 2, named test ③ (runs first: the database has no account yet) ---
-  it('③ the first sign-up, made admin by promoteIfNoAdmin, has no expires_at; the next one has', async () => {
+  it('③ the first admin (the setup code: restricted sign-up never promotes, SETUP_REQUIRED) has no expires_at; the next one has', async () => {
     assert.equal(await userCount(), 0)
     const restore = setLimitsForTests({ accountLifetimeDays: 14 })
     try {
+      // Integration (contract §13 SETUP_REQUIRED): with ACCOUNT_LIFETIME_DAYS set and no admin, a sign-up
+      // without the setup code is refused and nobody is promoted; the first admin is the setup-code one.
+      const refused = await register(person())
+      assert.equal(refused.statusCode, 403, refused.body)
+      assert.equal((refused.json() as { error: { code: string } }).error.code, 'SETUP_REQUIRED')
+      assert.equal(await userCount(), 0)
+      const setupCode = await (await import('../firstAdminSetup')).prepareFirstAdminSetup()
       const a = person()
-      const r1 = await register(a)
+      const r1 = await register({ ...a, setupCode })
       assert.equal(r1.statusCode, 200, r1.body)
       const first = await userBy(a.email)
       assert.equal(first.isAdmin, true)

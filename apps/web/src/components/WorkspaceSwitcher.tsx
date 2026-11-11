@@ -26,6 +26,7 @@ import {
 import { Modal } from './Modal'
 import { GuestBadge } from './GuestBadge'
 import { NotionImportModal } from './NotionImportModal'
+import { useFeatureOff } from './quota/features'
 import { WorkspaceSwitcherList } from './WorkspaceSwitcherList'
 import { WorkspaceOrganizer } from './WorkspaceOrganizer'
 import { Spinner } from './Spinner'
@@ -46,6 +47,7 @@ export function WorkspaceSwitcher({
   const [showJoin, setShowJoin] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [showNotion, setShowNotion] = useState(false)
+  const notionOff = useFeatureOff('notion-import')
   const [showOrganize, setShowOrganize] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -245,18 +247,21 @@ export function WorkspaceSwitcher({
             {importFolder.isPending ? <Spinner size={15} /> : <UploadIcon size={15} />}
             {t('workspace.importFolder')}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              setShowNotion(true)
-            }}
-            disabled={importing}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
-          >
-            <UploadIcon size={15} />
-            {t('notionImport.menu')}
-          </button>
+          {/* DISABLED_FEATURES=notion-import (docs/adr/2507-*): the server refuses a Notion import */}
+          {!notionOff && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setShowNotion(true)
+              }}
+              disabled={importing}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sub hover:bg-hover hover:text-ink disabled:opacity-60"
+            >
+              <UploadIcon size={15} />
+              {t('notionImport.menu')}
+            </button>
+          )}
           </>
           )}
           {importError && (

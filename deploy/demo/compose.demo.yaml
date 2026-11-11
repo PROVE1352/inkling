@@ -11,7 +11,8 @@
 name: '${INKLING_DEMO_PROJECT:?run with --env-file deploy/demo/demo.env (see deploy/demo/README.md)}'
 
 x-demo-limits: &demo-limits
-  # The base passes only the variables it lists; the 0.22 settings go through here. Meanings: docs/DEMO.md.
+  # compose.yaml passes the 0.22 settings as optional (empty = off); here each one is required, so the demo
+  # cannot start with one missing. Meanings: docs/DEMO.md and .env.example.
   LOGIN_ID_MODE: ${LOGIN_ID_MODE:?set in deploy/demo/demo.env}
   SIGNUP_MAX_USERS: ${SIGNUP_MAX_USERS:?set in deploy/demo/demo.env}
   SIGNUP_PER_IP_PER_DAY: ${SIGNUP_PER_IP_PER_DAY:?set in deploy/demo/demo.env}
@@ -23,9 +24,12 @@ x-demo-limits: &demo-limits
   LIMIT_FILE_MB: ${LIMIT_FILE_MB:?set in deploy/demo/demo.env}
   LIMIT_WORKSPACE_STORAGE_MB: ${LIMIT_WORKSPACE_STORAGE_MB:?set in deploy/demo/demo.env}
   LIMIT_VERSIONS_PER_PAGE: ${LIMIT_VERSIONS_PER_PAGE:?set in deploy/demo/demo.env}
+  LIMIT_TRASH_DAYS: ${LIMIT_TRASH_DAYS:?set in deploy/demo/demo.env}
   WORKSPACE_RESTORE_DAYS: ${WORKSPACE_RESTORE_DAYS:?set in deploy/demo/demo.env}
   DISABLED_FEATURES: ${DISABLED_FEATURES:?set in deploy/demo/demo.env}
   INSTANCE_LABEL: ${INSTANCE_LABEL:?set in deploy/demo/demo.env}
+  # The operator's notice on every screen (changes, outages, incidents): optional, empty = none.
+  INSTANCE_NOTICE: ${INSTANCE_NOTICE:-}
   # The folder mounted below; the server refuses to boot when it is missing or malformed.
   LEGAL_DIR: /legal
   # Already passed by compose.yaml, repeated as required here so the demo cannot start without them.

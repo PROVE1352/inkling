@@ -25,6 +25,8 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   WORKSPACE_RESTORE_DAYS      integer ≥ 1      days a deleted workspace can be restored (default 30)
  *   LEGAL_DIR                   path             terms, privacy and sign-up consent texts
  *   INSTANCE_LABEL              ≤ 20 characters  a label every screen shows
+ *   LIMIT_TRASH_DAYS            integer ≥ 7      cap on the days trashed pages are kept (contract §13)
+ *   INSTANCE_NOTICE             ≤ 500 characters an operator notice on the sign-in, sign-up and app screens
  *
  * This module only reads the settings. Enforcing them is done where things are created.
  */
@@ -53,6 +55,14 @@ export interface Limits {
   workspaceRestoreDays: number
   legalDir: string | null
   instanceLabel: string | null
+  /**
+   * LIMIT_TRASH_DAYS (integration, docs/adr/2525-*): pages stay in the trash at most this many days,
+   * min(workspace setting, this). Absent (not even an undefined key) when unset, so a server without it
+   * compares equal to the 0.21.1-shaped settings object.
+   */
+  trashDays?: number
+  /** INSTANCE_NOTICE (docs/adr/2526-*): plain text, line breaks kept. Absent when unset. */
+  instanceNotice?: string
   /** Boot warnings for settings that are valid but do nothing as combined. */
   warnings: string[]
 }
@@ -63,6 +73,9 @@ export const FILE_MB_CEILING = 25
 export const VERSIONS_PER_PAGE_CEILING = 50
 export const DEFAULT_WORKSPACE_RESTORE_DAYS = 30
 export const INSTANCE_LABEL_MAX = 20
+/** The shortest trash retention a workspace can choose (TRASH_RETENTION_DAYS.min); the cap cannot go below it. */
+export const TRASH_DAYS_MIN = 7
+export const INSTANCE_NOTICE_MAX = 500
 
 const MB = 1024 * 1024
 export const mbToBytes = (mb: number): number => Math.floor(mb * MB)
@@ -144,6 +157,22 @@ export function parseLimitsEnv(e: Env): Limits {
     if (/\p{Cc}/u.test(label)) throw new LimitsConfigError('INSTANCE_LABEL contains a control character')
   }
 
+  const trashDays = int(e, 'LIMIT_TRASH_DAYS')
+  if (trashDays !== null && trashDays < TRASH_DAYS_MIN) {
+    throw new LimitsConfigError(`LIMIT_TRASH_DAYS=${trashDays} is below ${TRASH_DAYS_MIN} (the shortest trash retention a workspace can have)`)
+  }
+
+  // A notice may span lines (\n, or \r\n from a file edited on Windows); any other control character
+  // (tab, escape, NUL, …) refuses to boot. Shown as text, never as HTML or with links made from it.
+  const noticeRaw = raw(e, 'INSTANCE_NOTICE')
+  let instanceNotice: string | null = null
+  if (noticeRaw !== null) {
+    const n = noticeRaw.replace(/\r\n?/g, '\n')
+    if ([...n].length > INSTANCE_NOTICE_MAX) throw new LimitsConfigError(`INSTANCE_NOTICE is longer than ${INSTANCE_NOTICE_MAX} characters`)
+    if (/[^\P{Cc}\n]/u.test(n)) throw new LimitsConfigError('INSTANCE_NOTICE contains a control character other than a line break')
+    instanceNotice = n
+  }
+
   const limits: Limits = {
     loginIdMode,
     signupMaxUsers: int(e, 'SIGNUP_MAX_USERS'),
@@ -160,6 +189,8 @@ export function parseLimitsEnv(e: Env): Limits {
     workspaceRestoreDays: int(e, 'WORKSPACE_RESTORE_DAYS') ?? DEFAULT_WORKSPACE_RESTORE_DAYS,
     legalDir: raw(e, 'LEGAL_DIR'),
     instanceLabel: label,
+    ...(trashDays !== null ? { trashDays } : {}),
+    ...(instanceNotice !== null ? { instanceNotice } : {}),
     warnings,
   }
   if (accountLifetimeDryRun && limits.accountLifetimeDays === null) {
@@ -213,6 +244,8 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.workspaceRestoreDays !== DEFAULT_WORKSPACE_RESTORE_DAYS) on.push(`deleted workspaces restorable for ${l.workspaceRestoreDays} days`)
   if (l.legalDir !== null) on.push('sign-up consent (LEGAL_DIR)')
   if (l.instanceLabel !== null) on.push(`instance label "${l.instanceLabel}"`)
+  if (l.trashDays !== undefined) on.push(`trash kept at most ${l.trashDays} days`)
+  if (l.instanceNotice !== undefined) on.push(`instance notice (${[...l.instanceNotice].length} characters)`)
   const lines: string[] = []
   if (on.length > 0) lines.push(`restricted mode: ${on.join(', ')}`)
   if (l.disabledFeatures.length > 0) lines.push(`features turned off: ${l.disabledFeatures.join(', ')}`)
@@ -237,8 +270,31 @@ export function setLimitsForTests(partial: Partial<Limits>): () => void {
   const before = { ...limits, disabledFeatures: [...limits.disabledFeatures], warnings: [...limits.warnings] }
   Object.assign(limits, partial)
   return () => {
+    // the optional settings (trashDays, instanceNotice) are absent when unset: drop a key the
+    // partial added, so "unset" comes back as no key rather than a stale value
+    for (const k of Object.keys(limits) as (keyof Limits)[]) if (!(k in before)) delete limits[k]
     Object.assign(limits, before)
   }
+}
+
+/**
+ * "Restricted sign-up" (contract §13): any of the settings meant for a server open to strangers. While
+ * such a server has no admin, only the setup code signs up (403 SETUP_REQUIRED, docs/adr/2527-*), so
+ * the first stranger never becomes its admin.
+ */
+export function restrictedSignup(): boolean {
+  return (
+    limits.signupMaxUsers !== null ||
+    limits.signupPerIpPerDay !== null ||
+    limits.accountLifetimeDays !== null ||
+    limits.loginIdMode === 'username'
+  )
+}
+
+/** LIMIT_TRASH_DAYS applied to a workspace's own trash retention (contract §13, docs/adr/2525-*). */
+export function effectiveTrashDays(workspaceDays: number): number {
+  const cap = limits.trashDays
+  return cap !== undefined && cap < workspaceDays ? cap : workspaceDays
 }
 
 /** A feature the operator turned off with DISABLED_FEATURES. */

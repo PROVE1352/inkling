@@ -232,8 +232,6 @@ export default {
   'wsDanger.soleOwnerBody':
     '워크스페이스에는 소유자가 한 명 이상 있어야 합니다. 나가기 전에 다른 멤버에게 소유권을 넘기거나, 모두를 위해 워크스페이스를 삭제하세요.',
   'wsDanger.aloneTitle': '멤버가 나 혼자입니다',
-  'wsDanger.aloneBody':
-    '이 워크스페이스에는 다른 사람이 없어서 나가기는 곧 삭제입니다. 지금 삭제하고 {days}일 안에 설정에서 복원할 수 있습니다.',
   'wsDanger.goTransfer': '소유권 넘기기',
   'wsDanger.goDelete': '워크스페이스 삭제',
   'wsDanger.transferTitle': '소유권 넘기기',

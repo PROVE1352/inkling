@@ -9,7 +9,7 @@ and a "Demo" label on every screen. 한국어: [DEMO.ko.md](DEMO.ko.md).
 
 The files are in [`deploy/demo/`](../deploy/demo/): `compose.demo.yaml` (an overlay on `compose.yaml`),
 `demo.env.example` (the settings) and `legal/` (templates of the terms, privacy policy and sign-up texts).
-Design notes: ADR 2500–2524.
+Design notes: ADR 2500–2529.
 
 ## 1. Start it as a separate instance
 
@@ -17,31 +17,24 @@ On the server that runs your main instance, from the repository root:
 
 ```bash
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each); keep PUBLIC_URL=http://localhost:3100
+# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each),
+# and PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
 docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
 ```
 
 Always pass `--env-file deploy/demo/demo.env`. The overlay refuses to start without it (every demo setting
 is required), so the production `.env` can never start a demo with no limits, and the demo can never reuse
-the production volumes. The app listens on `127.0.0.1:3100` only; nothing is public until step 4.
+the production volumes. The app listens on `127.0.0.1:3100` only; nothing is public until step 3.
 
-## 2. Create the operator account before opening sign-up
+Until the operator account exists (step 4), the server takes no sign-up at all except the one made with
+the setup link: a server with sign-up limits, an account lifetime or sign-in IDs and no administrator
+answers every other sign-up with `SETUP_REQUIRED`, and its sign-up screen only says that it is waiting for
+its operator. So the first stranger can never become the administrator, whatever the order of the steps.
 
-`SIGNUP_REQUIRE_KEY=0` opens sign-up to everyone, and the first account of a server without an administrator
-becomes the administrator. So create your own account first, while the demo is still reachable only from
-this machine:
+## 2. Fill in the terms folder
 
-```bash
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml logs app | grep -A2 'No accounts yet'
-ssh -L 3100:127.0.0.1:3100 your-server     # from your computer, then open the /setup?code=… link on localhost:3100
-```
-
-The setup link works once, only while there are no accounts. It works through the tunnel only while
-`PUBLIC_URL` is `http://localhost:3100`: the server refuses sign-ups from any origin other than `PUBLIC_URL`.
-The setup form shows the same consent boxes as the sign-up form: the operator agrees to the terms too.
-Administrator accounts never expire.
-
-## 3. Fill in the terms folder
+Do this before anyone signs up, the operator included: everyone agrees to the folder's version, and an
+edit made later asks everyone to agree again.
 
 `deploy/demo/legal/` is a template with four placeholders: `{{OPERATOR_NAME}}`, `{{CONTACT_EMAIL}}`,
 `{{SERVICE_URL}}` and `{{EFFECTIVE_DATE}}`. Copy it out of the repository, fill it in, and point
@@ -70,11 +63,13 @@ What the folder holds:
 A document with only one language is shown in that language to everyone. Documents are Markdown; HTML in
 them is shown as text, and links work only for `http`, `https` and `mailto`.
 
-## 4. Proxy
+The templates describe what the app does with the settings of this page. If you change a setting, check
+the sentences about it (deletion after 14 days, trash 7 days, limits, features turned off).
 
-Put HTTPS in front of `127.0.0.1:3100`, then set `PUBLIC_URL` in `demo.env` to the public address (for
-example `https://demo.example.com`) and run `up -d app` again; with an https address the session cookie is
-Secure. With Caddy on the host:
+## 3. Proxy
+
+Put HTTPS for the address in `PUBLIC_URL` in front of `127.0.0.1:3100`. With an https address the session
+cookie is Secure. With Caddy on the host:
 
 ```
 demo.example.com {
@@ -90,14 +85,29 @@ demo.example.com {
 
 `TRUST_PROXY=loopback,uniquelocal` makes the server take the client address from `X-Forwarded-For` when the
 request comes from the proxy, which the per-IP sign-up limit needs. If the proxy keeps an access log, that
-log holds IP addresses too: keep it no longer than the privacy policy says (30 days in the template).
+log holds IP addresses too. The privacy policy template describes the app's own logs (three files of 10 MB,
+the oldest dropped first): keep the proxy's log on a rule no longer than that, or write its rule into the
+policy.
+
+## 4. Create the operator account with the setup link
+
+```bash
+docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml logs app | grep -A2 'No accounts yet'
+```
+
+Open the `/setup?code=…` link from the log. It is built from `PUBLIC_URL`, so it opens at the public address
+through the proxy. The server refuses form posts from any origin other than `PUBLIC_URL`, so use that address
+(not `localhost:3100` through a tunnel, unless `PUBLIC_URL` says so). The link works once, only while there
+are no accounts; a restart before that prints a new one. The setup form shows the same consent boxes as the
+sign-up form: the operator agrees to the terms too. Administrator accounts never expire. Once the account
+exists, the sign-up form opens to everyone.
 
 ## 5. Check before you announce it
 
 - The start log has a line for the limits that are on, one for the features that are off, one for
   `LEGAL_DIR` with its version, and no placeholder warning.
-- `curl -s https://demo.example.com/api/auth/mode` shows `loginId`, `instanceLabel`, `legal`, `limits` and
-  `disabledFeatures`.
+- `curl -s https://demo.example.com/api/auth/mode` shows `loginId`, `instanceLabel`, `legal`, `limits` (with
+  `trashDays`) and `disabledFeatures`, and `setupPending` is `false`.
 - In a private window: the sign-up form asks for an ID, shows the notice and six unticked boxes, and the
   button stays off until all are ticked. `/terms` and `/privacy` open without signing in.
 - After signing up, the deletion date is shown, and the "Demo" label is visible on a phone and on a computer.
@@ -123,11 +133,13 @@ One line each; the full reference is in the operations docs.
 | `LIMIT_FILE_MB` | `5` | Size of one uploaded file |
 | `LIMIT_WORKSPACE_STORAGE_MB` | `20` | Files, page bodies and version history of one workspace |
 | `LIMIT_VERSIONS_PER_PAGE` | `10` | Version history kept per page |
+| `LIMIT_TRASH_DAYS` | `7` | Trashed pages are deleted for good after at most this many days, whatever a workspace sets |
 | `WORKSPACE_RESTORE_DAYS` | `7` | Days a deleted workspace can be restored |
 | `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB` | `5`, `10` | Uploads by AI agents: per file, per account per day |
 | `DISABLED_FEATURES` | see `demo.env.example` | Features turned off on the whole server |
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
 | `INSTANCE_LABEL` | `Demo` | The label every screen shows |
+| `INSTANCE_NOTICE` | empty | A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | Backup sets kept |
 
 Mail, OIDC, semantic search and experimental features stay off by leaving their variables empty. MCP stays on.
@@ -144,6 +156,14 @@ To see what it would do before it deletes anything, start with `ACCOUNT_LIFETIME
 housekeeping then logs one line per account it would delete (the account id and how many workspaces would
 go) and deletes nothing. Once the first accounts pass their date and the log lists exactly those, empty the
 value and run `up -d app` again.
+
+### Posting a notice
+
+The demo sends no mail, and the terms template says that notices (changed terms, changes, outages, a data
+breach) appear in the app and on the sign-in screen. That is `INSTANCE_NOTICE`: set it in `demo.env`
+(double quotes, `\n` for a line break, at most 500 characters) and run `up -d app` again; empty it the same
+way. It is shown as plain text, without links, and nobody can close it. A restart closes open editing
+connections; they reconnect at once.
 
 ### Closing the demo without notice
 

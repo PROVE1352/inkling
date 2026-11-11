@@ -126,6 +126,74 @@ export async function closeWorkspaceConnections(workspaceId: string): Promise<nu
 }
 
 /**
+ * Read-only connections to documents of one workspace, closed with an ordinary close (no "permission
+ * changed" message) so the client connects again at once and is authorised anew: a workspace that came
+ * back under its storage limit (quota/storage.ts) lets them edit again. Connections that can edit are
+ * left alone. Returns how many sockets were closed.
+ */
+export async function reconnectReadOnlyWorkspaceConnections(workspaceId: string): Promise<number> {
+  if (!instance) return 0
+  const open = openPageDocNames()
+  if (!open.length) return 0
+  try {
+    const rows = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.workspaceId, workspaceId), inArray(pages.id, open)))
+    const inWs = new Set(rows.map((r) => r.id))
+    let n = 0
+    const sockets = new Set<{ close: (code?: number, reason?: string) => void }>()
+    for (const [name, doc] of instance.documents) {
+      if (!inWs.has(name)) continue
+      for (const conn of doc.getConnections()) {
+        if (!conn.readOnly) continue
+        // The socket itself, as collab.ts reconnectForSchema does: Connection.close only detaches the
+        // document on the server and tells the client nothing. One browser socket carries all its
+        // documents (and the inbox), and they all reconnect at once.
+        const ws = (conn as unknown as { webSocket?: { close: (code?: number, reason?: string) => void } }).webSocket
+        if (ws) sockets.add(ws)
+      }
+    }
+    for (const ws of sockets) {
+      try {
+        ws.close(RECONNECT_CODE, 'storage-room')
+        n++
+      } catch (err) {
+        console.error('[inkling] reconnecting collab socket failed', err)
+      }
+    }
+    return n
+  } catch (err) {
+    console.error('[inkling] reconnectReadOnlyWorkspaceConnections failed', err)
+    return 0
+  }
+}
+
+/** An ordinary close code (not 4401/4403): the provider reconnects at once (as collab.ts SCHEMA_RECONNECT_CODE). */
+const RECONNECT_CODE = 4000
+
+/**
+ * Every connection to a page document whose page row no longer exists: after a workspace was deleted
+ * for good (leaving as its last member, "delete now", an account deletion purging it). The workspace's
+ * pages are gone by then, so closeWorkspaceConnections, which finds them by workspace, would close
+ * nothing; this looks the other way round, from the open documents (0.22 integration).
+ */
+export async function closeConnectionsOfGonePages(): Promise<number> {
+  const open = openPageDocNames().filter((n) => UUID.test(n))
+  if (!open.length) return 0
+  try {
+    const rows = await db.select({ id: pages.id }).from(pages).where(inArray(pages.id, open))
+    const live = new Set(rows.map((r) => r.id))
+    return closeWhere((name) => UUID.test(name) && !live.has(name))
+  } catch (err) {
+    console.error('[inkling] closeConnectionsOfGonePages failed', err)
+    return 0
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * After pages became private: closes connections of everyone who can no longer see them
  * (private pages are visible to their creator only, ownerless ones to nobody; see pageDto.visibleTo).
  */

@@ -37,6 +37,7 @@ import {
 } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { idParam, lockWorkspaceMembers, memberRoleTx, requireMembership } from '../helpers'
+import { limits } from '../limits'
 import { bumpAcl } from '../aclVersion'
 import { canWriteFromScopes } from '../oauth'
 import { findVisiblePage } from '../pageDto'
@@ -249,6 +250,11 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
     const { unpublishExisting, ...patch } = body
     if (unpublishExisting && patch.publicSharingDisabled !== true) {
       throw badRequest('unpublishExisting needs publicSharingDisabled: true')
+    }
+    // LIMIT_TRASH_DAYS (docs/adr/2525-*): a longer retention than the server keeps is refused, not cut
+    const trashCap = limits.trashDays
+    if (trashCap !== undefined && patch.trashRetentionDays !== undefined && patch.trashRetentionDays > trashCap) {
+      throw new AppError(400, 'LIMIT_TRASH_DAYS', `This server keeps trashed pages at most ${trashCap} days`, undefined, { limit: trashCap })
     }
 
     const result = await db.transaction(async (tx) => {

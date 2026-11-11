@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { db } from '../db/index'
-import { closePageConnections, closeWorkspaceConnections } from '../liveConnections'
+import { closePageConnections, closeWorkspaceConnections, reconnectReadOnlyWorkspaceConnections } from '../liveConnections'
 import { pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
 
 /**
@@ -67,7 +67,8 @@ export async function countWorkspaceStorage(exec: QuotaExec, workspaceId: string
 export async function recountWorkspaceStorage(workspaceId: string): Promise<StorageCount & { over: boolean }> {
   const limit = storageLimitBytes()
   const count = await countWorkspaceStorage(db, workspaceId)
-  const over = limit != null && count.total > limit
+  // full = the limit is reached (>=), the same boundary as assertWorkspaceRoom and the web's isStorageFull
+  const over = limit != null && count.total >= limit
   const [prev] = (await db.execute(sql`
     WITH old AS (SELECT over_storage FROM workspaces WHERE id = ${workspaceId})
     UPDATE workspaces SET storage_bytes = ${count.total}, storage_checked_at = now(), over_storage = ${over}
@@ -75,6 +76,9 @@ export async function recountWorkspaceStorage(workspaceId: string): Promise<Stor
     RETURNING (SELECT over_storage FROM old) AS was
   `)) as unknown as { was: boolean | null }[]
   if (over && prev && !prev.was) await closeWorkspaceConnections(workspaceId)
+  // back under the limit (files or pages deleted, the trash emptied): the read-only connections
+  // reconnect and are authorised again, so editing comes back without reopening the page
+  else if (!over && prev?.was) await reconnectReadOnlyWorkspaceConnections(workspaceId)
   return { ...count, over }
 }
 
@@ -130,7 +134,7 @@ export async function noteBodyStore(pageId: string, bytes: number): Promise<void
     if (r.stale) {
       // after this store's upsert, so the recount sees the new body
       setImmediate(() => recountSoon(r.workspaceId))
-    } else if (!r.over && Number(r.used) > limit) {
+    } else if (!r.over && Number(r.used) >= limit) {
       await db.execute(sql`UPDATE workspaces SET over_storage = true WHERE id = ${r.workspaceId}`)
       await closeWorkspaceConnections(r.workspaceId)
     }
@@ -153,5 +157,5 @@ export async function collabStorageReadOnly(pageId: string, workspaceId: string)
       FROM workspaces w WHERE w.id = ${workspaceId}
   `)) as unknown as { over: boolean; used: string | number; body: number }[]
   if (!r) return false
-  return r.over || Number(r.used) > limit || Number(r.body) > pageCap
+  return r.over || Number(r.used) >= limit || Number(r.body) > pageCap
 }

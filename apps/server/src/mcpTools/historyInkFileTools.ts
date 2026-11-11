@@ -7,6 +7,8 @@ import type { InkDTO, PageMetaDTO, SnapshotDiffDTO, SnapshotDTO, SuggestionDTO }
 import { INK_CANVAS_WIDTH } from '@inkling/shared'
 import { db } from '../db/index'
 import { pages as pagesTable, workspaces } from '../db/schema'
+import { effectiveTrashDays } from '../limits'
+import { fileLimitApplies, uploadCapBytes } from '../quota/files'
 import { AGENT_INK_OFF_CODE } from '../agentInk'
 import { AppError } from '../errors'
 import { formatHunks } from '../context/diff'
@@ -346,7 +348,7 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
       const { pages } = (await call(ctx, 'GET', `/api/workspaces/${workspaceId}/trash`)).json() as { pages: PageMetaDTO[] }
       // Membership was checked by the route; the retention period is a workspace setting members see.
       const [ws] = await db.select({ days: workspaces.trashRetentionDays }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
-      const days = ws?.days ?? 30
+      const days = effectiveTrashDays(ws?.days ?? 30) // LIMIT_TRASH_DAYS caps it (docs/adr/2525-*)
       if (pages.length === 0) return text('Trash is empty.')
       const shown = pages.slice(0, TRASH_LIMIT)
       const lines = shown.map((p) => {
@@ -607,7 +609,8 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
     {
       title: 'Upload attachment',
       description:
-        `Attach a file you made (png, jpg, gif, webp, pdf, txt, csv, md, json; max ${mbText(AGENT_UPLOAD_MAX_BYTES)}) to a page ` +
+        // LIMIT_FILE_MB lowers the cap (docs/adr/2505-*); unset, the text is the 0.21.1 one
+        `Attach a file you made (png, jpg, gif, webp, pdf, txt, csv, md, json; max ${mbText(uploadCapBytes(AGENT_UPLOAD_MAX_BYTES))}) to a page ` +
         'and link it at the end of the page or of section (images inline). The link follows the page\'s edit rules.',
       inputSchema: {
         pageId: idArg('page').describe('Page to attach to'),
@@ -629,18 +632,22 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
           : err
       })
       const b64 = base64?.replace(/\s+/g, '')
+      const cap = uploadCapBytes(AGENT_UPLOAD_MAX_BYTES) // min(AGENT_UPLOAD_MAX_MB, LIMIT_FILE_MB)
       const tooBig = (n: number) =>
         new ToolError(
-          `the file is ${humanSize(n)}; upload_file takes at most ${humanSize(AGENT_UPLOAD_MAX_BYTES)} ` +
-            '(set by the server admin). Make it smaller (e.g. a lower-resolution image, fewer rows) or split it',
+          fileLimitApplies(AGENT_UPLOAD_MAX_BYTES)
+            ? `the file is too large for this server (LIMIT_FILE): ${humanSize(n)}, at most ${humanSize(cap)} per file. ` +
+                'Nothing was stored; do not retry with the same file. Make it smaller or split it, or put the content into the page as Markdown'
+            : `the file is ${humanSize(n)}; upload_file takes at most ${humanSize(cap)} ` +
+                '(set by the server admin). Make it smaller (e.g. a lower-resolution image, fewer rows) or split it',
         )
       // measured before decoding: a 9 MB base64 string is not turned into a buffer to be refused
       const size = body !== undefined ? Buffer.byteLength(body, 'utf8') : Math.floor((b64!.length * 3) / 4)
-      if (size > AGENT_UPLOAD_MAX_BYTES + 2) throw tooBig(size)
+      if (size > cap + 2) throw tooBig(size)
       const bytes = body !== undefined ? Buffer.from(body, 'utf8') : Buffer.from(b64!, 'base64')
       if (base64 !== undefined && bytes.length === 0 && base64.trim()) throw new ToolError('base64 is not valid base64')
       if (bytes.length === 0) throw new ToolError('the file is empty')
-      if (bytes.length > AGENT_UPLOAD_MAX_BYTES) throw tooBig(bytes.length)
+      if (bytes.length > cap) throw tooBig(bytes.length)
       const fileName = name.replace(/[/\\\u0000-\u001f]/g, '_')
       const typed = agentUploadMime(fileName, bytes)
       if ('error' in typed) throw new ToolError(`Not uploaded: ${typed.error}`)

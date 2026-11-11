@@ -238,8 +238,6 @@ export default {
   'wsDanger.soleOwnerBody':
     'A workspace needs at least one owner. Hand ownership to another member before you leave, or delete the workspace for everyone.',
   'wsDanger.aloneTitle': "You're the only member",
-  'wsDanger.aloneBody':
-    'Nobody else is in this workspace, so leaving it would mean deleting it. You can delete it now and restore it from Settings within {days} days.',
   'wsDanger.goTransfer': 'Transfer ownership',
   'wsDanger.goDelete': 'Delete workspace',
   'wsDanger.transferTitle': 'Transfer ownership',

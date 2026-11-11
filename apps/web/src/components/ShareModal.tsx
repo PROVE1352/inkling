@@ -101,6 +101,9 @@ export function ShareModal({
   }
 
   const busy = share.isPending || unshare.isPending
+  // With public links off there is nothing to publish, so the web section is left out; a link made
+  // before the switch still shows, so it can be stopped.
+  const hideWeb = publicOff && !shared && !status.isLoading
 
   return (
     <Modal open={open} onClose={onClose} title={t('share.dialogTitle')} size="md">
@@ -110,7 +113,7 @@ export function ShareModal({
           <SharePeople pageId={page.id} ws={ws} open={open} />
         </section>
       )}
-      {!isPrivate && (
+      {!isPrivate && !hideWeb && (
         <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('share.title')}</h3>
       )}
       {isPrivate ? (
@@ -180,7 +183,7 @@ export function ShareModal({
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
-      ) : (
+      ) : hideWeb ? null : (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-sub">
             {t(isFolder ? 'share.publishHintFolder' : 'share.publishHintPage')}

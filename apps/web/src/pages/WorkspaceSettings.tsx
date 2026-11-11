@@ -22,6 +22,7 @@ import {
 } from '@inkling/shared'
 import {
   ApiError,
+  useAuthMode,
   triggerDownload,
   useAuditLog,
   useBlockAgent,
@@ -119,7 +120,13 @@ export function WorkspaceSettings() {
     )
   }
   const can = capsOf(ws)
-  const visible = TABS.filter((x) => x.show(can) && !((x.id === 'webhooks' || x.id === 'slack') && off.has(x.id)))
+  const visible = TABS.filter(
+    (x) =>
+      x.show(can) &&
+      !((x.id === 'webhooks' || x.id === 'slack') && off.has(x.id)) &&
+      // the "Public links" tab, with public links turned off on this server
+      !(x.id === 'sharing' && off.has('public-links')),
+  )
   const requested = params.get('tab') as Tab | null
   const tab: Tab = visible.some((x) => x.id === requested) ? (requested as Tab) : 'general'
   const goBack = () => {
@@ -264,6 +271,8 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
   const [error, setError] = useState<string | null>(null)
   useEffect(() => setName(ws.name), [ws.name])
   const owner = can.editSettings
+  // LIMIT_TRASH_DAYS (docs/adr/2525-*): the retention in effect is min(this setting, the server's cap)
+  const trashCap = useAuthMode().data?.limits?.trashDays
 
   const save = (patch: Parameters<typeof update.mutate>[0]) => {
     setError(null)
@@ -413,12 +422,16 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
             </Row>
             <Row
               title={t('wsSettings.trashRetention')}
-              desc={t('wsSettings.trashRetentionDesc', { min: TRASH_RETENTION_DAYS.min, max: TRASH_RETENTION_DAYS.max })}
+              desc={
+                trashCap !== undefined
+                  ? t('limits.trashCapped', { min: TRASH_RETENTION_DAYS.min, cap: trashCap })
+                  : t('wsSettings.trashRetentionDesc', { min: TRASH_RETENTION_DAYS.min, max: TRASH_RETENTION_DAYS.max })
+              }
             >
               <DaysInput
-                value={s.trashRetentionDays}
+                value={trashCap !== undefined ? Math.min(s.trashRetentionDays, trashCap) : s.trashRetentionDays}
                 min={TRASH_RETENTION_DAYS.min}
-                max={TRASH_RETENTION_DAYS.max}
+                max={trashCap !== undefined ? Math.min(TRASH_RETENTION_DAYS.max, trashCap) : TRASH_RETENTION_DAYS.max}
                 disabled={!owner || update.isPending}
                 label={t('wsSettings.trashRetention')}
                 onCommit={(n) => save({ trashRetentionDays: n })}

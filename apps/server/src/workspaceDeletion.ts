@@ -12,6 +12,7 @@ import { workspaceRestoreMs } from './workspaceLive'
 import { recordAudit } from './workspaceAdmin'
 import type { AuditActor } from './workspaceAdmin'
 import { isTwoFactorBlocked, twoFactorRequired } from './twoFactorPolicy'
+import { assertUserRoom } from './quota/room'
 
 /**
  * Workspace deletion and ownership transfer (docs/adr/0910-*, 0911-*).
@@ -123,6 +124,9 @@ export async function restoreWorkspace(actor: AuditActor, workspaceId: string): 
     if (!role) throw notFound()
     if (role !== 'owner') throw forbidden('Only owners can restore the workspace')
     if (await isTwoFactorBlocked(workspaceId, actorId)) throw twoFactorRequired(workspaceId)
+    // LIMIT_WORKSPACES_PER_USER (docs/adr/2505-*): the owner must not already be over; the deleted
+    // workspace is counted already. In this transaction, after the member lock (members → user).
+    await assertUserRoom(tx, actorId, { workspaces: 0 })
     const cutoff = new Date(Date.now() - workspaceRestoreMs())
     const restored = await tx
       .update(workspaces)
@@ -236,6 +240,10 @@ export async function transferOwnership(actor: AuditActor, workspaceId: string, 
     if (actorId === targetId) throw badRequest('You already own this workspace')
     const target = await memberRoleTx(tx, workspaceId, targetId)
     if (!target) throw badRequest('The new owner must be a member of this workspace')
+    // The new owner's LIMIT_WORKSPACES_PER_USER (docs/adr/2505-*), in this transaction under the member
+    // lock (members → user), so two transfers to the same person cannot both take the last place.
+    // Account deletion hands workspaces over on its own path and does not look at the limit (contract §13).
+    if (target !== 'owner') await assertUserRoom(tx, targetId, { workspaces: 1 })
     await tx
       .update(workspaceMembers)
       .set({ role: 'owner' })

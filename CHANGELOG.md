@@ -88,7 +88,8 @@ These change with no new setting, on every server that upgrades:
   what exists stops working without being deleted, clean-up stays possible, and the app hides their menus.
 - **Sign-in IDs and sign-up limits** (docs/adr/2512-*, 2516-*): `LOGIN_ID_MODE=username` (an ID and a nickname
   instead of an email; needs mail, OIDC and delegated sign-in off and `password-reset` turned off),
-  `SIGNUP_MAX_USERS` (403 `SIGNUP_FULL`), `SIGNUP_PER_IP_PER_DAY` (429 `SIGNUP_IP_LIMIT`), and with either cap a hidden
+  `SIGNUP_MAX_USERS` (403 `SIGNUP_FULL`), `SIGNUP_PER_IP_PER_DAY` (429 `SIGNUP_IP_LIMIT`), and with either cap (or
+  `SIGNUP_PER_HOUR`) a hidden
   field and a two-second minimum on the form (400 `SIGNUP_CHECK_FAILED`). On a restricted server without an admin,
   sign-up without the setup code is refused (403 `SETUP_REQUIRED`, docs/adr/2527-*) and the sign-up screen says it
   waits for its operator, so a stranger cannot become the first admin by signing up.

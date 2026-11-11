@@ -141,8 +141,7 @@ exists, the sign-up form opens to everyone.
 - After signing up, the deletion date is shown, and the "Demo" label is visible on a phone and on a computer.
 - `deploy/demo/demo.sh config` prints only `ok` lines, and `deploy/demo/demo.sh ps` shows no published
   database port and only `127.0.0.1:3100` for the app.
-- Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets, and Admin › Status lists **Server storage limit**
-  with 3000 MB as the limit.
+- Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets, and Admin › Status lists **Server storage limit**.
 - From one network, a third sign-up in a day is refused (the proxy passes the real address).
 
 ## Settings
@@ -197,7 +196,7 @@ value and run `deploy/demo/demo.sh up` again.
 ### Disk and the storage fuse
 
 `LIMIT_INSTANCE_STORAGE_MB=3000` stops writes when the database and the uploads reach 3,000 MB: the demo then
-only reads, signs in, exports and deletes, and every screen says so. It usually stays that way until you make
+only reads, signs in, exports and deletes, and the app shows a strip saying so. It usually stays that way until you make
 room by hand, since deleting rows does not shrink the database file; what to do is in
 [OPERATIONS.md, "Instance storage fuse"](OPERATIONS.md#instance-storage-fuse). A few addresses writing at full
 speed for a minute or two can trip it on purpose; only the demo stops.

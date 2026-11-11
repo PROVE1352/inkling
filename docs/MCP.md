@@ -693,7 +693,9 @@ app, because they call the same REST routes; nothing is written when a call is r
 - **A full server.** While the instance storage fuse (`LIMIT_INSTANCE_STORAGE_MB`) is tripped, every tool that
   writes gets `INSTANCE_FULL` with the next step "nothing was written; this server's storage is full, so for now it
   only reads, exports and deletes. Do not retry, and do not try another tool to write the same thing. Tell the user:
-  the server operator has to make room; reading still works". Reading tools and `trash_page` keep working.
+  the server operator has to make room; reading still works". Tools that only read keep working, and so does
+  `trash_page` (a DELETE); a tool whose REST call is open on a full server (`quota/instanceGate.ts`, for example
+  withdrawing a suggestion or acknowledging the inbox) passes too. Every other write is refused.
 - **Connecting.** On a server with `OAUTH_UNUSED_CLIENT_HOURS` or `OAUTH_UNUSED_CLIENT_MAX`, a client that registered
   but never finished connecting can be deleted; the next attempt with its old id is refused as an unknown app, and
   the client has to register again (KNOWN-ISSUES LIMITS-30). A full server refuses new registrations for now (503

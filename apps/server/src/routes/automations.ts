@@ -23,6 +23,7 @@ import { maskedHookUrl } from '../webhooks'
 import { collectionFields, listRules, listRuns, toAutomationDTO, validateRule } from '../automations/rules'
 import { setAutomationApp } from '../automations/runner'
 import { requireCollectionPage } from './collections'
+import { assertWorkspaceWritable } from '../quota/room'
 
 /**
  * Database automations (docs/adr/2240-*) and the server side of button blocks (docs/adr/2244-*).
@@ -88,6 +89,7 @@ export async function registerAutomationRoutes(app: FastifyInstance): Promise<vo
     const id = idParam(req.params)
     const page = await editableCollection(id, user.id)
     const body = automationInputSchema.parse(req.body)
+    await assertWorkspaceWritable(db, page.workspaceId) // full workspace: LIMIT_STORAGE (docs/adr/2533-*)
     const fields = await collectionFields(id)
     await validateRule(body, { collectionId: id, workspaceId: page.workspaceId, userId: user.id, fields })
     const [{ n }] = (await db.execute(sql`SELECT count(*)::int AS n FROM collection_automations WHERE collection_id = ${id}`)) as unknown as { n: number }[]

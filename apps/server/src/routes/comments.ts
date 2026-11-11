@@ -1,3 +1,4 @@
+import { assertWorkspaceWritable } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { asc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
@@ -130,6 +131,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       // Comments are their own bit: people keep commenting on locked pages; a lock can take it away
       // from agents only (docs/adr/0970-*). No walk without a lock in the workspace (docs/adr/1071-*).
       await assertPageCommentable(id, user.id, role, acl)
+      await assertWorkspaceWritable(db, page.workspaceId) // full workspace: LIMIT_STORAGE (docs/adr/2506-*)
       // A suggest-only connection (docs/adr/2040-*) may comment but not hand work to another
       // connection: that one would act on it without the limit.
       if (body.mentionConnections?.length) await assertNoHandoffWhileSuggestOnly(page.workspaceId)

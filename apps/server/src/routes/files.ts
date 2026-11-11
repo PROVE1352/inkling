@@ -1,3 +1,5 @@
+import { assertWorkspaceRoom } from '../quota/room'
+import { fileLimitApplies, fileLimitError, uploadCapBytes } from '../quota/files'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { currentRange, guestOutside, outOfRange } from '../tokenRange'
@@ -99,8 +101,14 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
       filePageId = pageId
     }
 
+    // Storage (docs/adr/2505-*): a full workspace is refused before the body is read.
+    await assertWorkspaceRoom(db, workspaceId, { bytes: 1, reserve: false })
+    // LIMIT_FILE_MB lowers both caps (docs/adr/2505-*); without it the caps are as before
+    const defaultCap = bearer ? AGENT_UPLOAD_MAX_BYTES : MAX_FILE_BYTES
+    const cap = uploadCapBytes(defaultCap)
+    const capped = fileLimitApplies(defaultCap)
     // a connection's cap may be above the browser's 25 MB (AGENT_UPLOAD_MAX_MB, docs/adr/2065-*)
-    const mp = await req.file(bearer ? { limits: { fileSize: AGENT_UPLOAD_MAX_BYTES } } : undefined).catch((err: unknown) => {
+    const mp = await req.file(bearer || capped ? { limits: { fileSize: cap } } : undefined).catch((err: unknown) => {
       throw cutUploadError(err)
     })
     if (!mp) throw badRequest('No file to upload')
@@ -112,9 +120,9 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const name = path.basename(mp.filename || 'file').slice(0, 200)
-    const maxBytes = bearer ? AGENT_UPLOAD_MAX_BYTES : MAX_FILE_BYTES
+    const maxBytes = cap
     const tooLarge = () =>
-      new AppError(413, 'PAYLOAD_TOO_LARGE', bearer ? `File is too large (max ${mbText(AGENT_UPLOAD_MAX_BYTES)} through a connection)` : 'File is too large (max 25MB)')
+      capped ? fileLimitError(cap, cap + 1) : new AppError(413, 'PAYLOAD_TOO_LARGE', bearer ? `File is too large (max ${mbText(AGENT_UPLOAD_MAX_BYTES)} through a connection)` : 'File is too large (max 25MB)')
 
     // Stream straight to a temp file next to the final location, then rename (docs/adr/0751-*).
     // Previously toBuffer() held the whole file (up to 25 MB) per concurrent upload.
@@ -142,18 +150,21 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
 
     let row: { id: string }
     try {
-      ;[row] = await db
-        .insert(files)
-        .values({
-          workspaceId,
-          pageId: filePageId,
-          name,
-          mime,
-          size,
-          createdBy: user.id,
-          uploadedVia: bearer ? (currentConnectionKey() ?? 'bearer') : null,
-        })
-        .returning({ id: files.id })
+      ;[row] = await db.transaction(async (tx) => {
+        await assertWorkspaceRoom(tx, workspaceId, { bytes: size }) // LIMIT_STORAGE, reserves the bytes
+        return tx
+          .insert(files)
+          .values({
+            workspaceId,
+            pageId: filePageId,
+            name,
+            mime,
+            size,
+            createdBy: user.id,
+            uploadedVia: bearer ? (currentConnectionKey() ?? 'bearer') : null,
+          })
+          .returning({ id: files.id })
+      })
       await rename(tmp, uploadPath(row.id))
     } catch (err) {
       await rm(tmp, { force: true })

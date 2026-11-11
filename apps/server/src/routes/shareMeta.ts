@@ -18,6 +18,7 @@
  *
  * Only active when WEB_DIST is set (production). See docs/adr/0503-share-page-unfurl-meta.md.
  */
+import { isFeatureDisabled } from '../limits'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { readFile, stat } from 'node:fs/promises'
@@ -155,6 +156,8 @@ export async function registerShareMetaRoutes(app: FastifyInstance): Promise<voi
     const { token, ref } = req.params as { token?: string; ref?: string }
     const base = await shell()
     if (!token || !TOKEN_RE.test(token) || (ref !== undefined && !REF_RE.test(ref))) return send(reply, base)
+    // public links turned off (DISABLED_FEATURES, docs/adr/2507-*): the plain app shell, no page facts
+    if (isFeatureDisabled('public-links')) return send(reply, base)
 
     const origin = siteOrigin(req)
     try {

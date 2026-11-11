@@ -1,3 +1,5 @@
+import { assertWorkspaceWritable } from '../quota/room'
+import { assertWorkspaceRoom } from '../quota/room'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
@@ -69,6 +71,7 @@ async function findOrCreateTodoDoc(workspaceId: string, userId: string, locale: 
       .select({ maxSort: sql<number | null>`max(${pages.sortOrder})` })
       .from(pages)
       .where(and(eq(pages.workspaceId, workspaceId), isNull(pages.parentId)))
+    await assertWorkspaceRoom(tx, workspaceId, { pages: 1 }) // docs/adr/2505-*
     const [created] = await tx
       .insert(pages)
       .values({
@@ -144,6 +147,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       const pageId = await findOrCreateTodoDoc(wsId, user.id, await requestLocale(req, user.id))
       // The workspace Tasks document may be locked like any page (docs/adr/0970-*).
       await assertPageEditable(pageId, user.id)
+      await assertWorkspaceWritable(db, wsId, pageId) // full workspace: LIMIT_STORAGE (docs/adr/2506-*)
       const md = `- [ ] ${escapeMd(body.title)} 📅 ${body.date}\n`
       const incoming = await markdownToBlocks(md, () => null)
       if (incoming.length !== 1 || incoming[0].type !== 'checkListItem') {

@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -725,6 +726,8 @@ export async function instantiateTree(a: InstantiateArgs): Promise<InstantiateRe
       .where(and(eq(pages.workspaceId, a.workspaceId), parentCond))
     const rootSort = (maxSort ?? 0) + 1000
 
+    // Limits (docs/adr/2505-*): the whole tree and its bodies, or nothing
+    await assertWorkspaceRoom(tx, a.workspaceId, { pages: prepared.length, bytes: prepared.reduce((n, p) => n + (p.state?.length ?? 0), 0) })
     const inserted: PageRow[] = []
     // Parents precede children (walk order); FKs are checked per statement, chunks keep params bounded.
     for (let i = 0; i < prepared.length; i += 100) {

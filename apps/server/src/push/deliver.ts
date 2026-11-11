@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isFeatureDisabled } from '../limits'
 import { sql } from 'drizzle-orm'
 import { DEFAULT_PUSH_KINDS, PUSH_GROUP_OF_TYPE } from '@inkling/shared'
 import { db } from '../db/index'
@@ -82,6 +83,8 @@ export function noteSubscriptionAdded(): void {
 }
 
 async function hasSubscriptions(exec: Exec): Promise<boolean> {
+  // web push turned off (DISABLED_FEATURES, docs/adr/2507-*): nothing is queued; subscriptions are kept
+  if (isFeatureDisabled('web-push')) return false
   if (anySubs && Date.now() - anySubs.at < ANY_SUBS_TTL_MS) return anySubs.v
   const r = (await exec.execute(sql`SELECT EXISTS (SELECT 1 FROM push_subscriptions) AS v`)) as unknown as { v: boolean }[]
   anySubs = { v: !!r[0]?.v, at: Date.now() }
@@ -206,6 +209,7 @@ const running = new Set<Promise<void>>()
 export const pushStats = { sent: 0, failed: 0, removed: 0, skipped: 0 }
 
 export async function runPushPass(): Promise<number> {
+  if (isFeatureDisabled('web-push')) return 0 // docs/adr/2507-*
   const free = CONCURRENCY - inflight
   if (free <= 0) return 0
   const rows = (await db.execute(sql`

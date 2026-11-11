@@ -156,7 +156,9 @@ export default {
   'errors.LIMIT_PAGES': 'This workspace has as many pages as this server allows (pages in the trash count too). Empty the trash or delete pages to make room.',
   'errors.LIMIT_PAGES_counts': 'This workspace has as many pages as this server allows ({used} of {limit}, pages in the trash count too). Empty the trash or delete pages to make room.',
   'errors.LIMIT_STORAGE': "This workspace's storage is full. Delete files or pages to edit again.",
+  'errors.LIMIT_STORAGE_mb': "This workspace's storage is full ({used} of {limit}). Delete files or pages, and empty the trash, to edit again.",
   'errors.LIMIT_FILE': 'This file is larger than this server allows.',
+  'errors.LIMIT_FILE_mb': 'This file is larger than this server allows (at most {limit} per file).',
   'errors.LAST_ADMIN': 'You are the only admin of this server. Make someone else an admin first.',
   'errors.REAUTH_REQUIRED': 'For your safety, sign in again and then try once more.',
 } satisfies Record<string, string>

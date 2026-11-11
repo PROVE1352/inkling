@@ -32,8 +32,18 @@ function byCode(code: string, msg: string, details?: Record<string, unknown>): s
   const limit = details?.limit
   const used = details?.used
   if (typeof limit === 'number' && typeof used === 'number') {
-    const counted = tMaybe(`errors.${code}_counts`, { message: msg, limit, used })
+    // storage and file size come in bytes, marked `unit: 'bytes'` (docs/adr/2505-*): their own `_mb` text, in MB
+    const bytes = (code === 'LIMIT_STORAGE' || code === 'LIMIT_FILE') && details?.unit === 'bytes'
+    const counted = bytes
+      ? tMaybe(`errors.${code}_mb`, { message: msg, limit: formatMb(limit), used: formatMb(used) })
+      : tMaybe(`errors.${code}_counts`, { message: msg, limit, used })
     if (counted) return counted
   }
   return tMaybe(`errors.${code}`, { message: msg })
+}
+
+/** Bytes as MB for limit messages: two decimals under 1 MB, one under 10 MB, whole above ("0.05 MB", "4.8 MB", "20 MB"). */
+export function formatMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  return `${mb < 1 ? Math.round(mb * 100) / 100 : mb < 10 ? Math.round(mb * 10) / 10 : Math.round(mb)} MB`
 }

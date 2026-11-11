@@ -1,3 +1,4 @@
+import { assertUserRoom, assertWorkspaceRoom } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { currentGuest, dropWorkspaceRowsTx } from '../pageGrants'
@@ -230,6 +231,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const body = createWorkspaceSchema.parse(req.body)
 
     const ws = await db.transaction(async (tx) => {
+      await assertUserRoom(tx, user.id, { workspaces: 1 }) // LIMIT_WORKSPACES (docs/adr/2505-*)
       const id = randomUUID()
       const [created] = await tx
         .insert(workspaces)
@@ -286,6 +288,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         )
         .limit(1)
       if (!ws) throw notFound('INVALID_CODE', 'Invalid invite code')
+      await assertWorkspaceRoom(tx, ws.id, { members: 1, memberId: user.id }) // LIMIT_MEMBERS (docs/adr/2505-*)
       const inserted = await tx
         .insert(workspaceMembers)
         .values({ workspaceId: ws.id, userId: user.id, role: 'member' })
@@ -435,6 +438,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       if (!roleMeets(myRole, (await loadPolicy(tx, id)).memberAddPolicy)) {
         throw forbidden('The workspace settings do not allow you to add members')
       }
+      await assertWorkspaceRoom(tx, id, { members: 1, memberId: userId }) // LIMIT_MEMBERS (docs/adr/2505-*)
       const rows = await tx
         .insert(workspaceMembers)
         .values({ workspaceId: id, userId, role: 'member' })
@@ -616,6 +620,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.post('/workspaces/:id/restore', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
+    await assertUserRoom(db, user.id, { workspaces: 0 }) // not already over LIMIT_WORKSPACES (docs/adr/2505-*)
     const res = await restoreWorkspace(user, id)
     invalidateWebhookCache(id)
     for (const uid of res.memberIds) broadcastToUser(uid, { t: 'notifications' })
@@ -631,6 +636,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const id = idParam(req.params)
     const { userId } = transferOwnershipSchema.parse(req.body)
     await requireMembership(id, user.id)
+    await assertUserRoom(db, userId, { workspaces: 1 }) // the new owner's LIMIT_WORKSPACES (docs/adr/2505-*)
     await transferOwnership(user, id, userId)
     broadcastToUser(userId, { t: 'notifications' })
     const rows = await db
@@ -955,6 +961,7 @@ export async function changeMemberRole(
       throw badRequest('The last owner cannot be demoted')
     }
     if (target === role) return
+    if (role === 'owner') await assertUserRoom(tx, userId, { workspaces: 1 }) // the new owner's LIMIT_WORKSPACES (docs/adr/2505-*)
     await tx
       .update(workspaceMembers)
       .set({ role })

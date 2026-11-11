@@ -1,3 +1,4 @@
+import { FeatureOn } from '../components/quota/FeatureOn'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { loginSchema } from '@inkling/shared'
@@ -303,14 +304,14 @@ export function Login() {
         </form>
         )}
 
-        <p className="mt-4 text-center text-xs text-sub">
+        <FeatureOn name="password-reset"><p className="mt-4 text-center text-xs text-sub">
           <Link
             to={`/reset${email.includes('@') ? `?email=${encodeURIComponent(email.trim())}` : ''}`}
             className="text-accent hover:underline"
           >
             {t('login.forgot')}
           </Link>
-        </p>
+        </p></FeatureOn>
 
         <p className="mt-2 text-center text-xs text-sub">
           {t('login.noAccount')}{' '}

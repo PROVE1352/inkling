@@ -1,3 +1,5 @@
+import { assertWorkspaceRoom, pageBodyBytes } from '../quota/room'
+import { recountSoon } from '../quota/storage'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
 import { guestCacheKey, isGuestIn, memberOrGuestSql } from '../pageGrants'
@@ -397,6 +399,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           ? { properties: [{ id: 'date', name: names.date, type: 'date', value: body.date }] }
           : {}),
       }
+      await assertWorkspaceRoom(tx, body.workspaceId, { pages: 1 }) // LIMIT_PAGES / LIMIT_STORAGE (docs/adr/2505-*)
       const [page] = await tx.insert(pages).values(insertValues).returning(pageColumns)
       // A collection page gets its scaffolding (default fields + a default table view) in the same transaction
       if (kind === 'collection') {
@@ -1268,6 +1271,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         }
       }
     }
+    recountSoon(target.workspaceId) // freed storage counts at once (docs/adr/2506-*)
 
     return reply.code(204).send()
   })
@@ -1360,6 +1364,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         }
         // 1) Insert pages first (satisfies child-table FKs). FKs are checked at statement end, so a
         //    child referencing its parent within one multi-row VALUES is safe; BFS order is kept anyway.
+        // the whole copy or nothing (docs/adr/2505-*)
+        await assertWorkspaceRoom(tx, rootRow.workspaceId, { pages: pageInserts.length, bytes: await pageBodyBytes(tx, oldIds) })
         const inserted = await tx.insert(pages).values(pageInserts).returning(pageColumns)
 
         // 2) page_docs.state + 3) page_texts — copied inside Postgres (INSERT … SELECT over
@@ -1486,6 +1492,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
             publicRule: false,
           })
         }
+        await assertWorkspaceRoom(tx, page.workspaceId, { pages: 1, bytes: state.length }) // docs/adr/2505-*
         const [created] = await tx
           .insert(pages)
           .values({

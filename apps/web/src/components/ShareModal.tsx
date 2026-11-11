@@ -1,3 +1,4 @@
+import { useFeatureOff } from './quota/features'
 import { useState } from 'react'
 import type { PageMetaDTO } from '@inkling/shared'
 import { ApiError, useShare, useShareStatus, useUnshare, useWorkspaces } from '../api'
@@ -35,7 +36,9 @@ export function ShareModal({
   // Owners and admins manage public links; publishing also needs public sharing allowed (docs/adr/0945-*, 0949-*).
   const ws = (workspaces.data ?? []).find((w) => w.id === page.workspaceId)
   const isOwner = ws?.can?.manage ?? ws?.role === 'owner'
-  const canPublish = ws?.can?.publish ?? isOwner
+  // public links turned off by the server (DISABLED_FEATURES public-links, docs/adr/2507-*): nothing to publish
+  const publicOff = useFeatureOff('public-links')
+  const canPublish = (ws?.can?.publish ?? isOwner) && !publicOff
   const isPrivate = page.scope === 'private'
   const isFolder = page.kind === 'folder'
 

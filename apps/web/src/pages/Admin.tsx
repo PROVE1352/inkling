@@ -1,3 +1,4 @@
+import { useFeatureOff } from '../components/quota/features'
 import { useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import type { AdminUserDTO, ResetRequestDTO, SignupKeyDTO } from '@inkling/shared'
@@ -481,7 +482,10 @@ export function Admin() {
 
   const keys = useSignupKeys(isAdmin)
   const users = useAdminUsers(isAdmin)
-  const requests = useResetRequests(isAdmin)
+  // password reset and invitation mail turned off by the server (DISABLED_FEATURES, docs/adr/2507-*)
+  const resetOff = useFeatureOff('password-reset')
+  const inviteOff = useFeatureOff('email-invites')
+  const requests = useResetRequests(isAdmin && !resetOff)
   const createKey = useCreateSignupKey()
   const revokeKey = useRevokeSignupKey()
   const setAdmin = useSetAdmin()
@@ -719,7 +723,7 @@ export function Admin() {
       <AdminStatusCards />
 
       {/* ---- password reset requests ---- */}
-      <section className="mb-10">
+      <section className="mb-10" hidden={resetOff}>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
           {t('admin.resetRequests')}
           {pendingCount > 0 && (
@@ -901,7 +905,7 @@ export function Admin() {
                 {copied?.includes('/register') ? t('common.copied') : t('admin.copySignupLink')}
               </button>
             </div>
-            {mailEnabled && (
+            {mailEnabled && !inviteOff && (
               <MailSender
                 key={issuedKey}
                 defaultTo=""
@@ -1049,6 +1053,8 @@ export function Admin() {
                       <span className="ml-auto text-xs text-sub">{fmtDate(u.createdAt)}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-0.5">
+                      {!resetOff && (
+                      <>
                       <button
                         type="button"
                         disabled={!!pwDisabledReason || busyIssuing}
@@ -1067,6 +1073,8 @@ export function Admin() {
                       >
                         {t('admin.tempPasswordShort')}
                       </button>
+                      </>
+                      )}
                       {u.twoFactor && !isMe && (
                         <button
                           type="button"

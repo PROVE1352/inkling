@@ -12,6 +12,7 @@
  * Single process: the cache, the fetch budget and the in-flight map live in this module (one
  * instance per deployment, like the other caches, docs/adr/0753-*).
  */
+import { isFeatureDisabled } from './limits'
 import { isAllowedRedirectUri, sanitizeClientName } from './oauth'
 import { safeFetch, SafeFetchError } from './safeFetch'
 import type { SafeFetchErrorCode } from './safeFetch'
@@ -30,7 +31,8 @@ export interface CimdConfig {
 
 export function cimdConfig(): CimdConfig {
   return {
-    enabled: process.env.OAUTH_CIMD?.trim() === '1',
+    // DISABLED_FEATURES oauth-cimd wins over OAUTH_CIMD=1 (docs/adr/2507-*)
+    enabled: process.env.OAUTH_CIMD?.trim() === '1' && !isFeatureDisabled('oauth-cimd'),
     allowedHosts: (process.env.OAUTH_CIMD_ALLOWED_HOSTS ?? '')
       .split(/[\s,]+/)
       .map((s) => s.trim().toLowerCase())

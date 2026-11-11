@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { and, asc, eq, isNull, max, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -172,6 +173,8 @@ async function insertChildren(
     .from(pages)
     .where(and(eq(pages.workspaceId, e.page.workspaceId), eq(pages.parentId, e.page.id)))
   let sortOrder = maxSort ?? 0
+  // Limits (docs/adr/2505-*): all the subpages or none
+  await assertWorkspaceRoom(tx, e.page.workspaceId, { pages: items.length, bytes: items.reduce((n, it) => n + (it.state?.length ?? 0), 0) })
   // A new leaf changes no lock chain, owner or parent of an existing page: no bumpAcl (like POST /pages).
   const rows = await tx
     .insert(pages)

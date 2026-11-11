@@ -155,7 +155,9 @@ export default {
   'errors.LIMIT_PAGES': '이 워크스페이스의 페이지 수가 서버 상한에 닿았습니다(휴지통에 있는 페이지도 셉니다). 휴지통을 비우거나 페이지를 지우면 자리가 생깁니다.',
   'errors.LIMIT_PAGES_counts': '이 워크스페이스의 페이지 수가 서버 상한에 닿았습니다({limit}개 중 {used}개, 휴지통에 있는 페이지도 셉니다). 휴지통을 비우거나 페이지를 지우면 자리가 생깁니다.',
   'errors.LIMIT_STORAGE': '저장 용량이 찼습니다. 파일이나 페이지를 지우면 다시 편집할 수 있습니다.',
+  'errors.LIMIT_STORAGE_mb': '저장 용량이 찼습니다({limit} 중 {used}). 파일이나 페이지를 지우고 휴지통을 비우면 다시 편집할 수 있습니다.',
   'errors.LIMIT_FILE': '이 서버가 받는 크기보다 큰 파일입니다.',
+  'errors.LIMIT_FILE_mb': '이 서버가 받는 크기보다 큰 파일입니다(파일 하나에 {limit}까지).',
   'errors.LAST_ADMIN': '이 서버의 유일한 관리자입니다. 먼저 다른 사람을 관리자로 지정하세요.',
   'errors.REAUTH_REQUIRED': '안전을 위해 다시 로그인한 뒤 한 번 더 시도하세요.',
 } satisfies Partial<Record<keyof typeof en, string>>

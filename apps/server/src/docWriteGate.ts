@@ -1,4 +1,6 @@
 import { underWriteGate } from './aclVersion'
+import { assertWorkspaceWritable } from './quota/room'
+import { db } from './db/index'
 import type { CheckedAccess } from './aclVersion'
 import { assertAgentAllowed } from './agentAccess'
 import { assertPageEditable, CAP_EDIT } from './editLock'
@@ -24,8 +26,11 @@ export function pageEditGate(
   checked: CheckedAccess,
   bit: number = CAP_EDIT,
 ): DocGate {
-  return (apply) =>
-    underWriteGate(
+  return async (apply) => {
+    // A full workspace or an oversized page takes no body write (LIMIT_STORAGE, docs/adr/2506-*);
+    // checked on every write, not only when the access version moved. No limit → no read.
+    await assertWorkspaceWritable(db, workspaceId, pageId)
+    return underWriteGate(
       workspaceId,
       userId,
       checked,
@@ -35,4 +40,5 @@ export function pageEditGate(
       },
       apply,
     )
+  }
 }

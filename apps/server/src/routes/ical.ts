@@ -10,6 +10,7 @@
  * collection date properties, page date properties, daily notes and dated tasks — the same
  * module (collectDateItems) and the same visibility rules (visibleTo) as the in-app calendar.
  */
+import { isFeatureDisabled } from '../limits'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -200,6 +201,10 @@ export async function registerIcalFeedRoute(app: FastifyInstance): Promise<void>
       config: { rateLimit: { max: 30, timeWindow: '1 minute', allowList: () => false } },
     },
     async (req, reply) => {
+      // iCal feeds turned off (DISABLED_FEATURES, docs/adr/2507-*): existing tokens stop answering
+      if (isFeatureDisabled('ical')) {
+        return reply.code(404).send({ error: { code: 'FEATURE_DISABLED', message: 'This server has turned off ical' } })
+      }
       const file = String((req.params as { file?: string }).file ?? '')
       const m = TOKEN_RE.exec(file)
       const notFound = () =>

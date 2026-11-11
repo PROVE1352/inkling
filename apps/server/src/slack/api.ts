@@ -1,3 +1,4 @@
+import { isFeatureDisabled } from '../limits'
 import { safeFetch, SafeFetchError } from '../safeFetch'
 
 /**
@@ -90,6 +91,8 @@ export async function slackApi<T = Record<string, unknown>>(
   opts: { timeoutMs?: number } = {},
 ): Promise<SlackResult<T>> {
   if (!/^[a-z]+(\.[a-zA-Z]+)+$/.test(method)) return { ok: false, error: 'invalid_method', retryable: false }
+  // Slack turned off (DISABLED_FEATURES, docs/adr/2507-*): no call leaves the server
+  if (isFeatureDisabled('slack')) return { ok: false, error: 'feature_disabled', retryable: false }
   const { base, loopback } = apiBase()
   try {
     const res = await safeFetch(`${base}/${method}`, {

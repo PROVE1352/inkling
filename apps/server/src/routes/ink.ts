@@ -1,3 +1,4 @@
+import { assertWorkspaceWritable } from '../quota/room'
 import { eq, sql } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
@@ -73,6 +74,8 @@ export async function registerInkRoutes(app: FastifyInstance): Promise<void> {
 
       const body = saveInkSchema.parse(req.body)
       const { expectedUpdatedAt } = expectedSchema.parse(req.body)
+      // full workspace (docs/adr/2506-*): clearing the handwriting is still allowed
+      if (body.strokes.length) await assertWorkspaceWritable(db, page.workspaceId)
 
       const dto = await db.transaction(async (tx) => {
         // One writer per page at a time: the read of the current version and the write are one step.

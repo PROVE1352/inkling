@@ -1,3 +1,5 @@
+import { assertWorkspaceWritable } from '../quota/room'
+import { assertWorkspaceRoom } from '../quota/room'
 import { createHash } from 'node:crypto'
 import { assertPlacement, withTreeLock } from '../pageTree'
 import { assertPageEditable } from '../editLock'
@@ -479,6 +481,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       // (2) metadata half of the token — properties/aliases
       if (expected.meta !== (await pageMetaHash(page))) return stale()
 
+      // a full workspace takes no body write (LIMIT_STORAGE, docs/adr/2506-*)
+      await assertWorkspaceWritable(db, page.workspaceId, id)
       // (3) compare-and-write on the live document in ONE synchronous Yjs section
       let mismatch = false
       let rewrote = false
@@ -607,6 +611,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
           .select({ maxSort: max(pages.sortOrder) })
           .from(pages)
           .where(and(eq(pages.workspaceId, workspaceId), parentCond))
+        await assertWorkspaceRoom(tx, workspaceId, { pages: 1 }) // docs/adr/2505-*
         const [row] = await tx
           .insert(pages)
           .values({

@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Builds the GitHub Pages site into site/_site/:
 //   - copies the landing pages (index.html, ko/index.html) and assets/, filling in {{…}} placeholders
-//     (the version from apps/server/package.json, links to the Korean or English version of a doc)
+//     (the version from apps/server/package.json, links to the Korean or English version of a doc,
+//     the drawings in figures.mjs, the strip of section links)
 //   - renders docs/*.md and deploy/DEPLOY*.md into docs/*.html with the site layout (English or Korean
-//     chrome by the file name: NAME.ko.md is Korean) and copies each source next to it as docs/NAME.md
+//     chrome by the file name: NAME.ko.md is Korean) and copies each source next to it as docs/NAME.md.
+//     Tables keep every cell in the HTML; a class picked from the header row lets CSS show wide ones
+//     as cards (see "tables" below), so no page needs sideways scrolling
 //   - writes llms.txt from site/llms.txt
 //   - checks that every local href/src in the output points at a file (and heading) that exists, and that
 //     no local link ends at a folder (file:// would show a directory listing there)
@@ -17,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { createRequire } from 'node:module'
 import { dirname, join, posix, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { figure, iconSvg } from './figures.mjs'
 
 const SITE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(SITE, '..')
@@ -483,9 +487,19 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
 //   {{DOC:NAME}}         href of a doc in this page's language (the Korean version on ko/ when it exists)
 //   {{MD:NAME}}          the same doc's Markdown source (docs/NAME.ko.md or docs/NAME.md)
 //   {{EN:NAME}}          on ko/: " (영어)" when the link above goes to an English doc, else nothing
+//   {{FIG:name}}         a drawing from figures.mjs in this page's language
+//   {{ICON:name}}        a small icon from figures.mjs
+//   {{SECTIONS}}         links to the page's sections, named by each section's kicker
 // ---------------------------------------------------------------------------
+function sectionStrip(src, lang) {
+  const links = [...src.matchAll(/<section class="block[^"]*" id="([a-z-]+)"[\s\S]*?<p class="kicker">([^<]+)<\/p>/g)].map(([, id, label]) => `<a href="#${id}">${label}</a>`)
+  return `<nav class="sections" data-sections aria-label="${lang === 'ko' ? '이 쪽의 절' : 'Sections of this page'}"><div class="wrap">${links.join('')}</div></nav>`
+}
 function fillLanding(src, lang, prefix, where) {
   const out = src
+    .replace(/\{\{SECTIONS\}\}/g, () => sectionStrip(src, lang))
+    .replace(/\{\{FIG:([a-z]+)\}\}/g, (all, n) => figure(n, lang) ?? all)
+    .replace(/\{\{ICON:([a-z]+)\}\}/g, (all, n) => iconSvg(n) ?? all)
     .replace(/\{\{VERSION\}\}/g, `v${VERSION}`)
     .replace(/\{\{VERSION_NUMBER\}\}/g, VERSION)
     .replace(/\{\{DOCS_INDEX\}\}/g, `${prefix}${lang === 'ko' ? 'index.ko.html' : 'index.html'}`)

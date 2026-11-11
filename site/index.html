@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="no-js">
+<html lang="en" class="no-js landing">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -45,18 +45,18 @@
   <div class="wrap">
     <a class="brand" href="index.html"><img src="assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
     <nav class="nav" aria-label="Main">
-      <a class="hide-sm" href="#start">Quick start</a>
-      <a class="hide-sm" href="#install">Install</a>
       <a href="{{DOCS_INDEX}}">Docs</a>
       <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
       <span class="langs" role="group" aria-label="Language"><a href="ko/index.html" hreflang="ko" lang="ko">한국어</a><a href="index.html" hreflang="en" lang="en" aria-current="true">English</a></span>
     </nav>
   </div>
+  {{SECTIONS}}
 </header>
 
 <main id="main">
   <section class="hero" aria-labelledby="hero-title">
-    <div class="wrap">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
       <p class="eyebrow"><b>{{VERSION}}</b> self-hosted</p>
       <h1 id="hero-title">AI agents read and edit the notes your team writes</h1>
       <p class="lede">
@@ -74,16 +74,22 @@
       </div>
 
       <p class="agent-links">For agents: <a href="llms.txt">summary for agents (llms.txt)</a> · <a href="{{MD:MCP}}">MCP guide as Markdown</a> · <a href="{{MD:DEPLOY}}">deployment guide as Markdown</a></p>
+      </div>
+      {{FIG:hero}}
     </div>
+    <div class="wrap">{{FIG:stats}}</div>
   </section>
 
-  <section class="block start" id="start" aria-labelledby="start-title">
-    <div class="wrap">
+  <section class="block start side" id="start" aria-labelledby="start-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
       <div class="section-head">
         <p class="kicker">Quick start</p>
         <h2 id="start-title">Try it on your computer with an agent</h2>
         <p>Needs Docker Compose v2.24 or newer, bash and curl. The commands below are for a local trial; a server with a domain and HTTPS is under <a href="#install">Install</a>.</p>
       </div>
+      </div>
+      <div class="side-body">
       <ol class="steps">
         <li class="step"><div>
           <h3>Start Inkling</h3>
@@ -116,12 +122,14 @@
           <p>Ask the agent to create a page, or to <code>find_context</code> something. In Inkling, its edits show "you (via Claude Code)".</p>
         </div></li>
       </ol>
+      </div>
     </div>
   </section>
 
 
-  <section class="block" id="connect" aria-labelledby="connect-title">
-    <div class="wrap">
+  <section class="block side" id="connect" aria-labelledby="connect-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
       <div class="section-head">
         <p class="kicker">Connect</p>
         <h2 id="connect-title">One address, signed in as each person</h2>
@@ -130,6 +138,9 @@
           own client with OAuth 2.1, and the agent sees only what that person can see in the web app. There are 48 tools.
         </p>
       </div>
+      {{FIG:connect}}
+      </div>
+      <div class="side-body">
 
       <ol class="steps">
         <li class="step"><div>
@@ -162,6 +173,9 @@
         generic <code>mcpServers</code> JSON. Details: <a href="{{DOC:MCP}}">MCP connector</a>.
       </div>
       <p class="protocol"><b>Transport and sign-in.</b> MCP Streamable HTTP (stateless, JSON responses) at <code>/mcp</code>. Sign-in is OAuth 2.1 (dynamic client registration, and Client ID Metadata Documents when the server sets <code>OAUTH_CIMD=1</code>), or an agent connection token sent as <code>Authorization: Bearer</code>.</p>
+      </div>
+    </div>
+    <div class="wrap">
       <h3 class="table-title">Tools agents use most</h3>
       <div class="table-scroll"><table class="tools"><thead><tr><th>Tool</th><th>Kind</th><th>What it does</th></tr></thead><tbody><tr><td><code>find_context</code></td><td>read</td><td>Ranked sections across your workspaces, packed into a token budget, each with page id, §anchor and version. Start here.</td></tr><tr><td><code>read_page</code></td><td>read</td><td>A page as Markdown; <code>outline=true</code> lists sections, <code>section=…</code> reads one.</td></tr><tr><td><code>patch_section</code></td><td>write</td><td>Change one section with <code>baseVersion</code>; a stale version returns a conflict with the current text.</td></tr><tr><td><code>claim_section</code></td><td>write</td><td>"Working on this section" for this connection, up to 30 minutes.</td></tr><tr><td><code>list_suggestions</code></td><td>read</td><td>Suggested edits and their outcome.</td></tr><tr><td><code>inbox</code></td><td>read</td><td>Mentions, replies, assignments and answers to suggestions, not yet acknowledged.</td></tr><tr><td><code>catch_up</code></td><td>read</td><td>What happened while the agent was away, most important first.</td></tr><tr><td><code>changes_since</code></td><td>read</td><td>What changed since a cursor, with per-section diffs.</td></tr><tr><td><code>get_instructions</code></td><td>read</td><td>The workspace's rules for agents from locked instruction pages.</td></tr><tr><td><code>trash_page</code></td><td>write</td><td>Move to trash, restorable for 30 days. There is no permanent-delete tool.</td></tr></tbody></table></div>
       <p class="method">48 tools in all; 32 with <code>?profile=core</code>. The full list with arguments: <a href="{{DOC:MCP}}#what-it-can-do-tools">MCP connector</a> (<a href="{{MD:MCP}}">Markdown</a>).</p>
@@ -169,7 +183,7 @@
   </section>
 
 
-  <section class="block promo" id="watch" aria-labelledby="watch-title">
+  <section class="block promo band-dark" id="watch" aria-labelledby="watch-title">
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Video</p>
@@ -179,11 +193,11 @@
       <figure class="shot promo-shot">
         <video src="assets/promo.mp4" poster="assets/promo-poster.png" width="1920" height="1080" controls preload="none" playsinline muted aria-describedby="watch-scenes"></video>
       </figure>
-      <ol class="points video-scenes" id="watch-scenes">
-        <li><b>Notes you write together.</b> Two people edit the same page with live cursors, a <code>[[link]]</code> connects two pages, and a database inside a page shows as a board.</li>
-        <li><b>Your AI agents read the notes.</b> Someone asks the agent when the launch is and who sends the email. <code>find_context</code> lights up only the two sections that answer it, one in each of two pages, <code>read_page</code> reads them, and the answer cites both. The screen shows "48 MCP tools" and "−72% tokens", the numbers under <a href="#connect">Connect</a> and <a href="#find">Find</a>.</li>
-        <li><b>Agents edit, you decide.</b> <code>patch_section</code> leaves a suggested edit on the page; a person opens Review and accepts it, and the version line offers Revert for the accepted edit. Then <code>update_row</code> moves a card on the database board from To do to In progress.</li>
-        <li><b>On your own server.</b> A laptop and a phone stay connected to your server; the laptop goes offline, still shows its page, and syncs again when it reconnects.</li>
+      <ol class="scenes" id="watch-scenes">
+        <li class="scene"><b>Notes you write together.</b> Two people edit the same page with live cursors, a <code>[[link]]</code> connects two pages, and a database inside a page shows as a board.</li>
+        <li class="scene"><b>Your AI agents read the notes.</b> Someone asks the agent when the launch is and who sends the email. <code>find_context</code> lights up only the two sections that answer it, one in each of two pages, <code>read_page</code> reads them, and the answer cites both. The screen shows "48 MCP tools" and "−72% tokens", the numbers under <a href="#connect">Connect</a> and <a href="#find">Find</a>.</li>
+        <li class="scene"><b>Agents edit, you decide.</b> <code>patch_section</code> leaves a suggested edit on the page; a person opens Review and accepts it, and the version line offers Revert for the accepted edit. Then <code>update_row</code> moves a card on the database board from To do to In progress.</li>
+        <li class="scene"><b>On your own server.</b> A laptop and a phone stay connected to your server; the laptop goes offline, still shows its page, and syncs again when it reconnects.</li>
       </ol>
     </div>
   </section>
@@ -221,7 +235,8 @@ Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, ou
           </div>
         </div>
         <div class="metrics">
-          <div class="card"><p class="num">2,254 → 624 <small>tokens</small></p><p>per question, −72%, and 3.68 → 1.00 tool calls</p></div>
+          {{FIG:budget}}
+          <div class="card"><p class="num">2,254 → 624 <small>tokens</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:28%"></span></span><p>per question, −72%, and 3.68 → 1.00 tool calls</p></div>
           <p class="method">
             Measured when <code>find_context</code> replaced search plus whole-page reads: 28 questions in English and
             Korean over a 25-page wiki padded to 1–2k tokens a page, plus 5,000 unrelated pages. Ranking by words only.
@@ -246,7 +261,7 @@ Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, ou
         </p>
       </div>
 
-      <div class="split">
+      <div class="split flip">
         <div class="transcript">
           <p class="quick-label">Sam ticked a box after the agent read the section, so the first edit is refused and the retry goes through. Real output.</p>
           <div class="term">
@@ -266,7 +281,8 @@ Current §checklist (v=96198f73e6eb):
           </div>
         </div>
         <div class="metrics">
-          <div class="card"><p class="num">~2,415 → ~222 <small>tokens</small></p><p>to change one sentence: read and replace the page, or <code>patch_section</code></p></div>
+          {{FIG:patch}}
+          <div class="card"><p class="num">~2,415 → ~222 <small>tokens</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:9%"></span></span><p>to change one sentence: read and replace the page, or <code>patch_section</code></p></div>
           <div class="card"><p class="num">6 of 6</p><p>test scenarios where a person typing in the patched section keeps their text (was 1 of 6)</p></div>
           <p class="method">
             One sentence changed on the padded evaluation page; the typing scenarios run against the section patch code.
@@ -277,12 +293,14 @@ Current §checklist (v=96198f73e6eb):
     </div>
   </section>
 
-  <section class="block" id="decide" aria-labelledby="decide-title">
+  <section class="block band" id="decide" aria-labelledby="decide-title">
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">People decide</p>
         <h2 id="decide-title">Suggestions, history and locks stay with people</h2>
       </div>
+
+      {{FIG:flow}}
 
       <figure class="shot wide-shot">
         <picture>
@@ -330,13 +348,17 @@ Current §checklist (v=96198f73e6eb):
   </section>
 
 
-  <section class="block" id="scope" aria-labelledby="scope-title">
-    <div class="wrap">
+  <section class="block side" id="scope" aria-labelledby="scope-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
       <div class="section-head">
         <p class="kicker">Scope</p>
         <h2 id="scope-title">What limits an agent</h2>
         <p>An agent acts as the person who connected it and sees only what that person can see in the web app. On top of that:</p>
       </div>
+      {{FIG:scope}}
+      </div>
+      <div class="side-body">
       <ul class="points">
         <li><b>Read only, or read and write.</b> Chosen per connection on the consent screen; a read-only connection's write tools refuse.</li>
         <li><b>A range.</b> Everything the person can see, only some workspaces, or one page and the pages under it. It can be changed later without reconnecting.</li>
@@ -350,6 +372,7 @@ Current §checklist (v=96198f73e6eb):
         suggest-only for an hour. Both are mitigations, not permission checks: detection can be evaded and a model can still
         be misled.
       </p>
+      </div>
     </div>
   </section>
 
@@ -378,7 +401,7 @@ Current §checklist (v=96198f73e6eb):
     </div>
   </section>
 
-  <section class="block fit" id="fit" aria-labelledby="fit-title">
+  <section class="block fit band" id="fit" aria-labelledby="fit-title">
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Who it is for</p>
@@ -401,12 +424,12 @@ Current §checklist (v=96198f73e6eb):
         <p>The pages agents read are ordinary team notes, edited in real time in the browser.</p>
       </div>
       <div class="grid">
-        <div class="card"><h3>Databases</h3><p>Table, board, calendar, gallery, timeline, chart, form and list views, with relations, rollups, formulas and automations.</p></div>
-        <div class="card"><h3>Links, graph and canvas</h3><p><code>[[wikilinks]]</code>, backlinks, a workspace and local graph, and a canvas compatible with JSON Canvas.</p></div>
-        <div class="card"><h3>Tasks and calendar</h3><p>A checklist item with a date is a task, listed in the Due view and on the workspace calendar.</p></div>
-        <div class="card"><h3>Real-time editing</h3><p>Co-editing with Yjs, comments on pages and sections, version history and the trash.</p></div>
-        <div class="card"><h3>Sharing</h3><p>Roles, per-page levels and guests; public links with expiry, password and a scheduled start.</p></div>
-        <div class="card"><h3>English and Korean</h3><p>The interface comes in both languages, installs as a PWA and has light and dark themes.</p></div>
+        <div class="card has-icon">{{ICON:table}}<h3>Databases</h3><p>Table, board, calendar, gallery, timeline, chart, form and list views, with relations, rollups, formulas and automations.</p></div>
+        <div class="card has-icon">{{ICON:link}}<h3>Links, graph and canvas</h3><p><code>[[wikilinks]]</code>, backlinks, a workspace and local graph, and a canvas compatible with JSON Canvas.</p></div>
+        <div class="card has-icon">{{ICON:check}}<h3>Tasks and calendar</h3><p>A checklist item with a date is a task, listed in the Due view and on the workspace calendar.</p></div>
+        <div class="card has-icon">{{ICON:people}}<h3>Real-time editing</h3><p>Co-editing with Yjs, comments on pages and sections, version history and the trash.</p></div>
+        <div class="card has-icon">{{ICON:share}}<h3>Sharing</h3><p>Roles, per-page levels and guests; public links with expiry, password and a scheduled start.</p></div>
+        <div class="card has-icon">{{ICON:globe}}<h3>English and Korean</h3><p>The interface comes in both languages, installs as a PWA and has light and dark themes.</p></div>
       </div>
       <div class="pair" style="margin-top:32px">
         <figure class="fig"><div class="shot"><picture><source srcset="assets/en/doc-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/doc-light.png" width="1440" height="900" loading="lazy" alt="A meeting-notes page with wiki links and tasks; the right panel shows the outline, backlinks, outgoing links and tags"></picture></div><figcaption>A page with its backlinks and outgoing links in the right panel.</figcaption></figure>
@@ -415,13 +438,17 @@ Current §checklist (v=96198f73e6eb):
     </div>
   </section>
 
-  <section class="block" id="install" aria-labelledby="install-title">
-    <div class="wrap">
+  <section class="block side" id="install" aria-labelledby="install-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
       <div class="section-head">
         <p class="kicker">Install</p>
         <h2 id="install-title">Run it on a server</h2>
         <p>You need Docker with the Compose plugin. The app is the prebuilt image <code>ghcr.io/prove1352/inkling</code> (amd64 and arm64), so a 1 GB server builds nothing.</p>
       </div>
+      {{FIG:stack}}
+      </div>
+      <div class="side-body">
 
       <ol class="steps">
         <li class="step"><div>
@@ -447,10 +474,11 @@ Current §checklist (v=96198f73e6eb):
           <li>It is a young project with a small user base, written with heavy use of AI coding agents and then reviewed for concurrency, resource use and security. Open problems: <a href="{{DOC:KNOWN-ISSUES}}">Known issues</a>.</li>
         </ul>
       </div>
+      </div>
     </div>
   </section>
 
-  <section class="block" id="docs" aria-labelledby="docs-title">
+  <section class="block band" id="docs" aria-labelledby="docs-title">
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Documentation</p>

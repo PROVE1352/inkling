@@ -91,7 +91,10 @@
     }
     $$('.term[data-copy]').forEach((box) => {
       const pre = $('pre', box)
-      if (pre) addButton(box, pre, true)
+      if (!pre) return
+      // Several lines: the button gets a row of its own instead of narrowing every line.
+      if (pre.textContent.trim().split(/\n/).length > 2) box.classList.add('copy-top')
+      addButton(box, pre, true)
     })
     $$('.prose pre').forEach((pre) => {
       const wrap = el('div', { class: 'pre-wrap' })
@@ -245,19 +248,20 @@
     })
   })
 
-  // Landing pages: the section links in the header and in the section strip.
+  // Landing pages: the strip of section links under the header.
   feature('landing-spy', () => {
     const strip = $('[data-sections]')
     if (!strip) return
-    spy($$('a[href^="#"]', strip), { scrollers: [] , onChange: (it) => {
-      // keep the marked link in view inside the strip without touching the page scroll
-      if (!it || strip.scrollWidth <= strip.clientWidth + 1) return
-      const r = it.a.getBoundingClientRect()
-      const b = strip.getBoundingClientRect()
-      if (r.left < b.left + 24 || r.right > b.right - 24) strip.scrollLeft += r.left - b.left - strip.clientWidth / 2 + r.width / 2
-    } })
-    const head = $$('.top .nav a[href^="#"]')
-    if (head.length > 1) spy(head)
+    const row = $('.wrap', strip) || strip
+    spy($$('a[href^="#"]', strip), {
+      onChange: (it) => {
+        // On a narrow window the strip scrolls sideways: keep the marked link in view (the page is not moved).
+        if (!it || row.scrollWidth <= row.clientWidth + 1) return
+        const r = it.a.getBoundingClientRect()
+        const b = row.getBoundingClientRect()
+        if (r.left < b.left + 24 || r.right > b.right - 24) row.scrollLeft += r.left - b.left - row.clientWidth / 2 + r.width / 2
+      },
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -277,9 +281,9 @@
       ? { ph: '이 쪽에서 걸러 보기', all: '전체', count: (n, m) => (n === m ? `${m}개` : `${m}개 중 ${n}개`), none: '맞는 항목이 없습니다.', clear: '지우기', table: '표로 보기', open: '측정 방법 펼치기', label: '쪽 안 필터' }
       : { ph: 'Filter this page', all: 'All', count: (n, m) => (n === m ? `${m} items` : `${n} of ${m}`), none: 'Nothing matches.', clear: 'Clear', table: 'Show as tables', open: 'Open every method', label: 'Filter this page' }
 
-    const bar = el('div', { class: 'tools', role: 'search', 'aria-label': t.label })
-    const anchor = el('div', { class: 'tools-anchor', 'aria-hidden': 'true' })
-    const empty = el('p', { class: 'tools-empty', hidden: '' }, `${t.none}<button type="button">${t.clear}</button>`)
+    const bar = el('div', { class: 'filterbar', role: 'search', 'aria-label': t.label })
+    const anchor = el('div', { class: 'filter-anchor', 'aria-hidden': 'true' })
+    const empty = el('p', { class: 'filter-empty', hidden: '' }, `${t.none}<button type="button">${t.clear}</button>`)
     let input = null
     let count = null
     let sev = ''
@@ -288,7 +292,7 @@
     if (searchable) {
       const box = el(
         'label',
-        { class: 'tools-search' },
+        { class: 'filter-search' },
         `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
       )
       input = el('input', { type: 'search', placeholder: t.ph, 'aria-label': t.ph, autocomplete: 'off', spellcheck: 'false' })
@@ -312,7 +316,7 @@
       }
     }
     if (folds.length) {
-      const btn = el('button', { type: 'button', class: 'tools-btn', 'aria-pressed': 'false' })
+      const btn = el('button', { type: 'button', class: 'filter-btn', 'aria-pressed': 'false' })
       btn.textContent = t.open
       btn.addEventListener('click', () => {
         const on = btn.getAttribute('aria-pressed') !== 'true'
@@ -323,7 +327,7 @@
       bar.appendChild(btn)
     }
     if (cardTables.length) {
-      const btn = el('button', { type: 'button', class: 'tools-btn', 'aria-pressed': 'false' })
+      const btn = el('button', { type: 'button', class: 'filter-btn', 'aria-pressed': 'false' })
       btn.textContent = t.table
       btn.addEventListener('click', () => {
         const asTable = btn.getAttribute('aria-pressed') !== 'true'
@@ -337,7 +341,7 @@
       bar.appendChild(btn)
     }
     if (searchable) {
-      count = el('span', { class: 'tools-count', 'aria-live': 'polite' })
+      count = el('span', { class: 'filter-count', 'aria-live': 'polite' })
       count.textContent = t.count(items.length, items.length)
       bar.appendChild(count)
     }
@@ -430,9 +434,11 @@
   // Blocks rise into place as they are scrolled to. Blocks already on screen at load stay as they are.
   feature('reveal', () => {
     if (!canAnimate()) return
-    const nodes = $$('[data-reveal], .section-head, .step, .grid > .card, .stat, .shot, .fig, .split > *, .points > li, .callout, .ill, .scene, .feature > *').filter(
+    const picked = $$('[data-reveal], .section-head, .step, .grid > .card, .stat, .shot, .fig, .split > *, .points > li, .callout, .ill, .scene, .feature > *').filter(
       (n) => !n.closest('.hero') && n.getBoundingClientRect().top > window.innerHeight * 0.92,
     )
+    // A block inside a block that already moves does not move a second time.
+    const nodes = picked.filter((n) => !picked.some((m) => m !== n && m.contains(n)))
     inView(nodes, (n) => {
       const sibs = n.parentElement ? [...n.parentElement.children].filter((c) => nodes.includes(c)) : [n]
       const delay = Math.min(sibs.indexOf(n), 5) * 55

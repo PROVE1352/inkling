@@ -80,7 +80,8 @@ describe('deploy/demo/demo.sh', { skip: !usable && 'needs docker compose, python
   })
 
   it('a production shell (COMPOSE_PROJECT_NAME, COMPOSE_FILE or INKLING_DATA_NAME set): every command stops before Docker', () => {
-    for (const env of [{ COMPOSE_PROJECT_NAME: 'inkling' }, { INKLING_DATA_NAME: 'inkling' }, { COMPOSE_FILE: 'compose.yaml' }, prodShell]) {
+    const shells: Record<string, string>[] = [{ COMPOSE_PROJECT_NAME: 'inkling' }, { INKLING_DATA_NAME: 'inkling' }, { COMPOSE_FILE: 'compose.yaml' }, prodShell]
+    for (const env of shells) {
       for (const cmd of [['config'], ['up'], ['down'], ['destroy'], ['ps']]) {
         const r = run(cmd, env, 'inkling-demo\n')
         assert.equal(r.code, 2, `${JSON.stringify(env)} ${cmd}: ${r.out}${r.err}`)

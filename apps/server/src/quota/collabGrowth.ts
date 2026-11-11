@@ -23,9 +23,14 @@ import { instanceFullNow } from './instance'
  * so the client reconnects and is authorised read-only (this module remembers the page for
  * REFUSED_PAGE_MS, so the reconnect does not loop through write-refuse-close).
  *
- * The unsaved growth is the byte length of the update messages (an upper bound of what they add to the
- * stored state), re-based on every successful store to the stored length and the workspace's cached use.
- * Only Sync frames count: awareness never reaches a store.
+ * The unsaved growth is what applied updates really added (0.22.1 N4: the length of the document's own
+ * update event, which leaves out what the document already held; until an admitted update is applied its
+ * frame length stands in, an upper bound), re-based on every successful store to the stored length and the
+ * workspace's cached use. Only Sync frames count: awareness never reaches a store.
+ *
+ * With a storage limit or the fuse a page also has a struct cap (0.22.1 N1(a), DOC_STRUCTS_CAP): memory
+ * follows Yjs structs, not bytes, and an update's struct bound is read from its bytes before it is applied
+ * (collabUpdateShape.ts).
  *
  * Nothing here runs without LIMIT_WORKSPACE_STORAGE_MB or LIMIT_INSTANCE_STORAGE_MB: collab.ts asks
  * collabGuardsOn() first, so a server without them has no new read, close or refusal on its editing path.
@@ -40,8 +45,18 @@ interface PageAcc {
   ws: string
   /** Stored body bytes (state + state vector) at load or at the last successful store. */
   base: number
-  /** Update bytes applied since then. */
+  /**
+   * Unsaved growth since then: what applied updates added (0.22.1 N4: the length of the document's own
+   * update event, so an update it already held adds nothing) plus the frame length of updates admitted
+   * but not yet settled (`held`, an upper bound until they are applied).
+   */
   pending: number
+  /** Frame bytes admitted since the last settle (part of `pending`). */
+  held: number
+  /** What the document's update events carried since the last settle. */
+  applied: number
+  /** Bytes the document holds back as updates waiting for missing structs, at the last settle. */
+  waiting: number
   /** Bytes reserved for the auto version copy the next store may take (0 or `base`). */
   reserve: number
 }
@@ -59,7 +74,7 @@ const pageAcc = new Map<string, PageAcc>()
 /** Kept after the workspace's last live page unloads, so a reload never starts from `used: 0`. */
 const wsAcc = new Map<string, WsAcc>()
 /** Pages refused lately: until when, and their workspace (a recount that finds room clears them). */
-const refusedPages = new Map<string, { until: number; ws: string }>()
+const refusedPages = new Map<string, { until: number; ws: string; why: Admission }>()
 
 /** Recount hook (quota/storage.ts recountSoon), kicked when an update is refused for the workspace. */
 let recountHook: ((workspaceId: string) => void) | null = null
@@ -89,7 +104,7 @@ function wsOf(workspaceId: string): WsAcc {
 function pageOf(pageId: string, workspaceId: string, base: () => number): PageAcc {
   let p = pageAcc.get(pageId)
   if (!p) {
-    p = { ws: workspaceId, base: base(), pending: 0, reserve: 0 }
+    p = { ws: workspaceId, base: base(), pending: 0, held: 0, applied: 0, waiting: 0, reserve: 0 }
     pageAcc.set(pageId, p)
     wsOf(workspaceId).pages++
   }
@@ -138,6 +153,7 @@ export function collabFullInMemory(pageId: string, workspaceId: string): boolean
     if (r.until > Date.now()) return true
     refusedPages.delete(pageId)
   }
+  if ((shapeAcc.get(pageId)?.live ?? 0) >= DOC_STRUCTS_CAP) return true
   const limit = storageLimit()
   if (limit == null) return false
   const w = wsAcc.get(workspaceId)
@@ -146,27 +162,68 @@ export function collabFullInMemory(pageId: string, workspaceId: string): boolean
   return !!p && p.base + p.pending > Math.floor(limit / 4)
 }
 
-export type Admission = 'ok' | 'page' | 'workspace' | 'instance'
+/** 'structs': past the page's struct cap (DOC_STRUCTS_CAP), a kind of 'page'. */
+export type Admission = 'ok' | 'page' | 'structs' | 'workspace' | 'instance'
 
 /** Test and log hook: updates admitted and refused since the process started. */
-export const collabGrowthStats = { admitted: 0, refused: 0 }
+export const collabGrowthStats = { admitted: 0, refused: 0, refusedForStructs: 0 }
+
+/**
+ * Structs one live page may hold (0.22.1 N1(a), docs/adr/2540-*): Items and GCs, the unit Yjs keeps in
+ * memory (measured 250–520 bytes of heap each). Ordinary large pages measured far below it: this
+ * repository's API, CHANGELOG and OPERATIONS documents pasted three times into one page (1.7 MB of
+ * Markdown, 4.1 MB stored) hold 207k; a 1000-row table 91k; 20 people making 5000 single-character
+ * edits each in a long page 91k; a canvas of 3000 nodes and edges moved five times 21k. A map of tiny
+ * entries packs ~10 bytes per struct, so the byte limits alone let one page hold ~480k of them (210 MB
+ * of heap) inside a 5 MB page cap.
+ */
+export const DOC_STRUCTS_CAP = 300_000
+
+/** The struct side of an update about to be applied: its bound (collabUpdateShape.ts) and the page's live count. */
+export interface UpdateStructs {
+  growth: number
+  /** Structs the live document holds now, plus what it holds back waiting for missing structs. */
+  live: () => number
+}
+
+interface ShapeAcc {
+  /** Struct bound of updates admitted but not settled yet. */
+  held: number
+  /** The live count at the last settle. */
+  live: number
+}
+const shapeAcc = new Map<string, ShapeAcc>()
 
 /**
  * May an update of `bytes` be applied to the live page now? Synchronous (no await between the
  * decision and the reservation). `liveBody` gives the page's size when it has no counters yet (a
- * connection authorised before a limit was set in tests). On 'ok' the bytes are reserved.
+ * connection authorised before a limit was set in tests). On 'ok' the bytes are reserved (held until
+ * settleCollabPage replaces them with what the update really added). `structs`: the page's struct
+ * cap is checked too (servers with a storage limit or the fuse).
  */
-export function admitCollabUpdate(pageId: string, workspaceId: string, bytes: number, liveBody: () => number): Admission {
-  const verdict = admit(pageId, workspaceId, bytes, liveBody)
+export function admitCollabUpdate(pageId: string, workspaceId: string, bytes: number, liveBody: () => number, structs?: UpdateStructs): Admission {
+  const verdict = admit(pageId, workspaceId, bytes, liveBody, structs)
   if (verdict === 'ok') collabGrowthStats.admitted++
   else collabGrowthStats.refused++
   return verdict
 }
 
-function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () => number): Admission {
+function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () => number, structs?: UpdateStructs): Admission {
   if (instanceFullNow()) return 'instance'
+  let s: ShapeAcc | undefined
+  if (structs) {
+    s = shapeAcc.get(pageId)
+    if (!s) shapeAcc.set(pageId, (s = { held: 0, live: 0 }))
+    if (structs.live() + s.held + structs.growth > DOC_STRUCTS_CAP) {
+      collabGrowthStats.refusedForStructs++
+      return 'structs'
+    }
+  }
   const limit = storageLimit()
-  if (limit == null) return 'ok'
+  if (limit == null) {
+    if (s && structs) s.held += structs.growth
+    return 'ok'
+  }
   const p = pageOf(pageId, workspaceId, liveBody)
   const w = wsOf(p.ws)
   refreshSoon(p.ws, w)
@@ -174,7 +231,9 @@ function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () 
   // the next store copies the stored body into the version history when the throttle is open
   const reserve = p.reserve === 0 && p.base > 0 && autoSnapshotMayBeDue(pageId) ? p.base : 0
   if (w.used + w.pending + w.reserve + reserve + bytes > limit) return 'workspace'
+  if (s && structs) s.held += structs.growth
   p.pending += bytes
+  p.held += bytes
   w.pending += bytes
   if (reserve > 0) {
     p.reserve = reserve
@@ -184,16 +243,51 @@ function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () 
 }
 
 /**
+ * The live page's document applied an update from a socket connection (collab.ts, the document's
+ * `update` event): `bytes` is what it really added (Yjs encodes only the new structs and deletions; an
+ * update the document already held emits nothing).
+ */
+export function noteCollabApplied(pageId: string, bytes: number): void {
+  const p = pageAcc.get(pageId)
+  if (p) p.applied += bytes
+}
+
+/**
+ * The updates admitted for the page have been applied (collab.ts runs this on the next turn of the
+ * event loop after an admission: Hocuspocus applies an admitted frame in the same turn). The held
+ * upper bounds are replaced by what the document's update events carried and by the change in what it
+ * holds back for missing structs (`waiting`), so re-sending an update the page already holds adds
+ * nothing (0.22.1 N4). `structs`: the live count now.
+ */
+export function settleCollabPage(pageId: string, waiting: number, structs: number): void {
+  const s = shapeAcc.get(pageId)
+  if (s) {
+    s.held = 0
+    s.live = structs
+  }
+  const p = pageAcc.get(pageId)
+  if (!p) return
+  const next = Math.max(0, p.pending - p.held + p.applied + (waiting - p.waiting))
+  const w = wsOf(p.ws)
+  w.pending = Math.max(0, w.pending + (next - p.pending))
+  p.pending = next
+  p.held = 0
+  p.applied = 0
+  p.waiting = waiting
+}
+
+/**
  * The page refused an update: connections to it authorise read-only for REFUSED_PAGE_MS, or until a
  * recount of its workspace finds room (clearCollabRefusals). A refusal for the workspace's use kicks
  * that recount (at most every 10 s per workspace): the cached use may hold upper bounds that only a
  * recount corrects (quota/room.ts assertWorkspaceGrowth), and a stale number must not keep a
  * workspace's editing closed.
  */
-export function noteCollabRefused(pageId: string, why: Admission = 'page'): void {
-  const ws = pageAcc.get(pageId)?.ws
+export function noteCollabRefused(pageId: string, why: Admission = 'page', workspaceId?: string): void {
+  // with only the instance fuse set a page has no byte counters: the caller names its workspace
+  const ws = pageAcc.get(pageId)?.ws ?? workspaceId
   if (!ws) return
-  refusedPages.set(pageId, { until: Date.now() + REFUSED_PAGE_MS, ws })
+  refusedPages.set(pageId, { until: Date.now() + REFUSED_PAGE_MS, ws, why })
   if (refusedPages.size > 10_000) {
     const oldest = refusedPages.keys().next().value
     if (oldest !== undefined) refusedPages.delete(oldest)
@@ -211,11 +305,15 @@ export function noteCollabRefused(pageId: string, why: Admission = 'page'): void
   }
 }
 
-/** A recount found room in the workspace: its refused pages authorise normally again. Returns how many there were. */
+/**
+ * A recount found room in the workspace: its refused pages authorise normally again. Returns how many
+ * there were. A page refused for its structs stays refused (a recount counts bytes, which say nothing
+ * about them: without this the provider's reconnect would send the refused update again and loop).
+ */
 export function clearCollabRefusals(workspaceId: string): number {
   let n = 0
   for (const [page, r] of refusedPages) {
-    if (r.ws !== workspaceId) continue
+    if (r.ws !== workspaceId || r.why === 'structs') continue
     refusedPages.delete(page)
     n++
   }
@@ -249,6 +347,7 @@ export function noteCollabStored(pageId: string, stored: number, pendingAtEncode
 
 /** The page left memory: its counters go (what it stored is in the cached use). */
 export function noteCollabUnloaded(pageId: string): void {
+  shapeAcc.delete(pageId)
   const p = pageAcc.get(pageId)
   if (!p) return
   pageAcc.delete(pageId)
@@ -280,6 +379,7 @@ export function collabUnsavedBytes(workspaceId: string): number {
 /** Test hook: forget every counter. */
 export function _resetCollabGrowth(): void {
   pageAcc.clear()
+  shapeAcc.clear()
   wsAcc.clear()
   refusedPages.clear()
   recountKickedAt.clear()

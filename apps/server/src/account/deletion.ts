@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { and, count, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, ne, sql, type SQL } from 'drizzle-orm'
 import { withAdminLock } from '../accounts'
 import { bumpAcl } from '../aclVersion'
 import { db } from '../db/index'
@@ -291,7 +291,8 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
  *   workspace_audit_events  actor_name of its rows (actor_id), target_label of rows about it
  *                           (target_id), and the JSON values the write sites keep beside an id
  *                           (AUDIT_NAME_ID_PAIRS; the ownership transfer's owners by actor/target)
- *   workspaces              the workspace it made at sign-up ("<name>'s workspace", created_by)
+ *   workspaces              the workspace it made at sign-up ("<name>'s workspace", created_by), and
+ *                           that name in the workspace's own audit rows (label, a rename's `name`)
  *
  * A name copied without an id (audit rows written before 0.22's fix: a lock's editor list, an agent
  * block's member) cannot be told apart from a namesake's and stays.
@@ -318,12 +319,29 @@ async function scrubCopiedNames(tx: Tx, userId: string, who: { name: string }): 
   }
   // The workspace made at sign-up carries the name; with other members it stays, renamed. Only the
   // ones this account made (created_by is its id): a namesake's "<name>'s workspace" keeps its name.
+  // Their audit rows copied that name too (workspace label of delete/restore/export rows, the
+  // `name` of a rename's before/after): replaced the same way, in those workspaces only.
   if (who.name.length > 0) {
+    const ko = `${who.name}의 워크스페이스`
+    const en = `${who.name}'s workspace`
+    const made = (await tx.execute(sql`SELECT id FROM workspaces WHERE created_by = ${userId}`)) as unknown as { id: string }[]
+    const repl = (v: SQL) => sql`CASE WHEN ${v} = ${ko} THEN '워크스페이스' ELSE 'Workspace' END`
+    for (const { id } of made) {
+      await tx.execute(sql`
+        UPDATE workspace_audit_events SET target_label = ${repl(sql`target_label`)}
+         WHERE workspace_id = ${id} AND target_type = 'workspace' AND target_id = ${id} AND target_label IN (${ko}, ${en})
+      `)
+      await tx.execute(sql`
+        UPDATE workspace_audit_events
+           SET before = CASE WHEN before->>'name' IN (${ko}, ${en}) THEN jsonb_set(before, '{name}', to_jsonb(${repl(sql`before->>'name'`)}::text)) ELSE before END,
+               after = CASE WHEN after->>'name' IN (${ko}, ${en}) THEN jsonb_set(after, '{name}', to_jsonb(${repl(sql`after->>'name'`)}::text)) ELSE after END
+         WHERE workspace_id = ${id} AND action = 'workspace.updated'
+           AND (before->>'name' IN (${ko}, ${en}) OR after->>'name' IN (${ko}, ${en}))
+      `)
+    }
     await tx.execute(sql`
-      UPDATE workspaces
-         SET name = CASE WHEN name = ${`${who.name}의 워크스페이스`} THEN '워크스페이스' ELSE 'Workspace' END
-       WHERE created_by = ${userId}
-         AND name IN (${`${who.name}의 워크스페이스`}, ${`${who.name}'s workspace`})
+      UPDATE workspaces SET name = ${repl(sql`name`)}
+       WHERE created_by = ${userId} AND name IN (${ko}, ${en})
     `)
   }
 }

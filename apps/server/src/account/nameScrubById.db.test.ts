@@ -206,6 +206,13 @@ describe('[db] account deletion scrubs names by id only', { skip: !BASE_URL }, a
       workspaceId: ow.id, actorId: olga.id, actorName: olga.name, action: 'page.locked',
       targetType: 'page', targetId: page.page.id, targetLabel: 'locked', after: { people: 'editors', agents: 'same', editors: ['Alice', 'Bob'] },
     })
+    // rows that copy a sign-up workspace's name: an export (label) and a rename and back (before/after
+    // `name`), in Mallory's own workspace and in the real Alice's identically named one
+    for (const [w, by] of [[mw, mallory], [aw, alice]] as const) {
+      await recordAudit(db, { workspaceId: w.id, actor: by, action: 'export.downloaded', target: { type: 'workspace', id: w.id, label: w.name }, after: { format: 'zip' } })
+      await recordAudit(db, { workspaceId: w.id, actor: by, action: 'workspace.updated', target: { type: 'workspace', id: w.id, label: 'Team' }, before: { name: w.name }, after: { name: 'Team' } })
+      await recordAudit(db, { workspaceId: w.id, actor: by, action: 'workspace.updated', target: { type: 'workspace', id: w.id, label: w.name }, before: { name: 'Team' }, after: { name: w.name } })
+    }
     return { alice, mallory, bob, olga, aw, mw, ow, tw, pageId: page.page.id }
   }
 
@@ -256,6 +263,15 @@ describe('[db] account deletion scrubs names by id only', { skip: !BASE_URL }, a
       else if (namesAfter.has(id)) assert.equal(namesAfter.get(id), name, id)
     }
     assert.equal(namesAfter.get(s.aw.id), "Alice's workspace")
+    // Mallory's own workspace (handed to Bob): its audit rows no longer carry the name it was made with
+    const mine = await auditOf([s.mw.id])
+    assert.ok(mine.length >= 3)
+    assert.ok(!JSON.stringify(mine).includes("Alice's workspace"), JSON.stringify(mine))
+    assert.deepEqual(
+      mine.filter((r) => r.action === 'workspace.updated').map((r) => [(r.before as { name: string }).name, (r.after as { name: string }).name]),
+      [['Workspace', 'Team'], ['Team', 'Workspace']],
+    )
+    assert.ok(mine.some((r) => r.action === 'export.downloaded' && r.target_label === 'Workspace'))
   }
 
   it('leaving: rows and workspace names about other people (same display name included) never change; her own values go', async () => {

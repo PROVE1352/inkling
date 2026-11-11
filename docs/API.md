@@ -1831,9 +1831,10 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   `SIGNUP_MAX_USERS`), `signupChecks: true` (`SIGNUP_MAX_USERS` or `SIGNUP_PER_IP_PER_DAY` is set: the sign-up form
   sends the bot-check fields), `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]` (sorted),
   `legal: { version, docs: ('terms' | 'privacy')[] }` (`LEGAL_DIR`), `limits: { workspacesPerUser?,
-  membersPerWorkspace?, pagesPerWorkspace?, fileMb?, workspaceStorageMb? }` (only the limits that are set; MB as set)
+  membersPerWorkspace?, pagesPerWorkspace?, fileMb?, workspaceStorageMb?, trashDays? }` (only the limits that are set;
+  MB as set)
   and `workspaceRestoreDays` (only when it is not 30).
-- `GET /api/auth/mode` adds `instanceNotice: string` while `INSTANCE_NOTICE` is set.
+- `GET /api/auth/mode` adds `instanceNotice: string` while `INSTANCE_NOTICE` is set (plain text, line breaks as `\n`).
 - `UserDTO` from `GET /api/auth/me` adds `expiresAt` (ISO, the account's deletion date under
   `ACCOUNT_LIFETIME_DAYS`) and `consentRequired: true` (no consent to the current documents). The login, second-step
   and sign-up answers keep their short `user`; the web app reads these from `/auth/me`.
@@ -1857,7 +1858,8 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   but must consent.
 - In restricted mode (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
   `LOGIN_ID_MODE=username`), a server with no admin refuses a sign-up without the setup code with 403
-  `SETUP_REQUIRED`.
+  `SETUP_REQUIRED`, before the other restricted-mode checks, and checks it again inside the account's transaction;
+  such a sign-up is never made admin. `setupPending` in `/api/auth/mode` keeps its meaning (no account yet).
 - Accounts made while `ACCOUNT_LIFETIME_DAYS` is set get `users.expires_at` = sign-up + N days, admins excepted.
 
 ### Account deletion and leaving (docs/adr/2513–2517)
@@ -1890,16 +1892,19 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
 - `GET /api/workspaces/:id/usage` (members) → `WorkspaceUsageDTO { members, pages, storageBytes, fileBytes, limits:
   { members?, pages?, storageBytes? } }`. `pages` counts the trash; `storageBytes` is the storage total (files
   included), `fileBytes` the files alone; `limits` holds only the limits that are set, storage in bytes. It answers
-  on every server. Without a storage limit the storage is counted on each call; with one the cached count is used,
-  counted again first when it is more than a minute old.
+  on every server, from the cached count, which it counts again first when it is more than a minute old (so at most
+  once a minute per workspace, with or without a limit).
 - Creating past a limit is refused in the creating transaction, by REST and by the MCP tools that call it: pages
   (create, duplicate, canvas, rows and row batches, imports, templates, split, clip, quick tasks, sync, form
   answers), files, workspaces (create, take over, promotion to owner, restore) and members (join by invite code,
   direct add). Joining a workspace you are already a member of is not counted again.
-- A workspace past `LIMIT_WORKSPACE_STORAGE_MB` is read-only: the writes listed in docs/OPERATIONS.md (section 17)
+- A workspace that has reached `LIMIT_WORKSPACE_STORAGE_MB` (used ≥ limit) is read-only: the writes listed in docs/OPERATIONS.md (section 17)
   answer 413 `LIMIT_STORAGE`, and collaboration connections get the read-only scope. A page body over a quarter of
   the limit refuses REST and MCP writes with 413 `LIMIT_STORAGE` ("This page is too large to grow further: move
   part of it to a new page", `limit` = the quarter).
+- `LIMIT_TRASH_DAYS` (docs/adr/2525-*): trashed pages are purged after min(`trashRetentionDays`, the cap) days.
+  `PATCH /api/workspaces/:id/settings` refuses a `trashRetentionDays` above the cap with 400 `LIMIT_TRASH_DAYS`
+  (`{ limit }`); other fields still save while the stored value is above it, and `GET` returns the stored value.
 - `POST /api/files` with `LIMIT_FILE_MB` below the built-in cap (25 MB in the browser, `AGENT_UPLOAD_MAX_MB` for
   tokens): 413 `LIMIT_FILE`. Without it the answer stays 413 `PAYLOAD_TOO_LARGE`.
 
@@ -1943,8 +1948,9 @@ Only while `LEGAL_DIR` is set; otherwise these routes are 404 and nothing below 
 | 403 | `LIMIT_WORKSPACES` | Creating, taking over, promotion to owner or restoring past `LIMIT_WORKSPACES_PER_USER` | `{ limit, used }` |
 | 403 | `LIMIT_MEMBERS` | Joining or direct add past `LIMIT_MEMBERS_PER_WORKSPACE` | `{ limit, used }` |
 | 403 | `LIMIT_PAGES` | Any page-creating path past `LIMIT_PAGES_PER_WORKSPACE` (trash included) | `{ limit, used }` |
-| 413 | `LIMIT_STORAGE` | The workspace is past `LIMIT_WORKSPACE_STORAGE_MB` or the write would pass it; or a page body past a quarter of it | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_STORAGE` | The workspace has reached `LIMIT_WORKSPACE_STORAGE_MB` or the write would pass it; or a page body past a quarter of it | `{ limit, used, unit: 'bytes' }` |
 | 413 | `LIMIT_FILE` | An upload larger than `LIMIT_FILE_MB` | `{ limit, used, unit: 'bytes' }`; `used` is `limit` + 1 (the upload is cut there, its size is not known) |
+| 400 | `LIMIT_TRASH_DAYS` | `PATCH /api/workspaces/:id/settings` with `trashRetentionDays` above `LIMIT_TRASH_DAYS` | `{ limit }` |
 | 409 | `LAST_ADMIN` | `DELETE /api/me` by the only admin | — |
 | 401 | `REAUTH_REQUIRED` | `DELETE /api/me` by a delegated or OIDC account whose session is older than 10 minutes | — |
 | 400 | `CONFIRM_MISMATCH` | `DELETE /api/me`: `confirm` is not the sign-in email or ID | — |
@@ -1955,6 +1961,7 @@ The `details` keys are sent inside the error object, next to `code` and `message
 401).
 
 ### MCP tools
-No new tool and no description or server instruction change: the same numbers as 0.21 (full 48 tools, core 32). The
-tools are refused by the same limits, features and consent through the REST routes they call. Details:
-[MCP.md](MCP.md).
+No new tool and no server instruction change: the same numbers as 0.21 (full 48 tools, core 32); with
+`LIMIT_FILE_MB` below `AGENT_UPLOAD_MAX_MB`, `upload_file`'s description names the smaller size. The tools are refused
+by the same limits, features and consent through the REST routes they call, and the errors of these codes carry a
+next step of their own. `list_trash` dates follow `LIMIT_TRASH_DAYS`. Details: [MCP.md](MCP.md).

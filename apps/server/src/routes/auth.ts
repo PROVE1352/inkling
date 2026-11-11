@@ -58,7 +58,7 @@ import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
 import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i18n'
 import { toSidebarPrefsDTO } from './sidebarPrefs'
-import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits } from '../limits'
+import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits, restrictedSignup } from '../limits'
 import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
 import { authModeExtraFields, meExtraFields } from '../restrictedExtras'
 import { linkedLogins } from './oidc'
@@ -202,6 +202,16 @@ async function refundSignupKey(key: string): Promise<void> {
     .where(eq(signupKeys.key, hashSignupKey(key)))
 }
 
+/** 403 SETUP_REQUIRED: restricted sign-up on a server without an admin (contract §13). */
+const setupRequired = () =>
+  new AppError(403, 'SETUP_REQUIRED', 'This server has no operator account yet. The operator signs up first with the setup link from the server log.')
+
+/** Whether any admin exists (bare db or the sign-up transaction). */
+async function anyAdmin(exec: Pick<typeof db, 'select'>): Promise<boolean> {
+  const rows = await exec.select({ id: users.id }).from(users).where(eq(users.isAdmin, true)).limit(1)
+  return rows.length > 0
+}
+
 /**
  * The restricted-mode fields of GET /auth/mode (docs/adr/2500-*): each one only when its setting is
  * on, so a server without them answers exactly as 0.21.1 (no key, not even an undefined one).
@@ -223,8 +233,10 @@ async function restrictedAuthMode(): Promise<Partial<AuthModeDTO>> {
   if (limits.pagesPerWorkspace !== null) l.pagesPerWorkspace = limits.pagesPerWorkspace
   if (limits.fileMb !== null) l.fileMb = limits.fileMb
   if (limits.workspaceStorageMb !== null) l.workspaceStorageMb = limits.workspaceStorageMb
+  if (limits.trashDays !== undefined) l.trashDays = limits.trashDays
   if (Object.keys(l).length > 0) out.limits = l
   if (limits.workspaceRestoreDays !== DEFAULT_WORKSPACE_RESTORE_DAYS) out.workspaceRestoreDays = limits.workspaceRestoreDays
+  if (limits.instanceNotice !== undefined) out.instanceNotice = limits.instanceNotice
   return out
 }
 
@@ -283,6 +295,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         await recordFailure(req, 'setup-code')
         throw new AppError(403, 'INVALID_SETUP_CODE', 'The setup code does not match the one in the server log (a restart makes a new one)')
       }
+    } else if (restrictedSignup() && !(await anyAdmin(db))) {
+      // Restricted sign-up with no admin yet (contract §13, docs/adr/2527-*): only the setup code,
+      // refused here before the hooks so nothing is spent and no other error hides this one.
+      throw setupRequired()
     }
 
     // Language of the default workspace name and the verification mail: the browser's
@@ -359,6 +375,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         // New-install bootstrap: with no admin yet, the first user to sign up becomes admin. Decided
         // here, in the account's transaction, so the sign-up hooks below see the final isAdmin
         // (docs/adr/2501-*); the setup-code account is admin already.
+        // Restricted sign-up never promotes: with no admin it refuses instead (checked again here, in
+        // the account's transaction, after the cheap refusal above; docs/adr/2527-*).
+        if (!setupCode && restrictedSignup() && !(await anyAdmin(tx))) throw setupRequired()
         const created = !setupCode && !u.isAdmin && (await promoteIfNoAdminInTx(tx, u.id)) ? { ...u, isAdmin: true } : u
 
         await runOnSignup(tx, { ...created, workspaceId: ws.id }, hookCtx)

@@ -261,6 +261,11 @@ export interface AuthModeDTO {
   limits?: AuthModeLimitsDTO
   /** WORKSPACE_RESTORE_DAYS when set: days an owner can restore a deleted workspace (absent = 30). */
   workspaceRestoreDays?: number
+  /**
+   * INSTANCE_NOTICE: the operator's notice, plain text (line breaks kept, no HTML, no links made from
+   * it), shown on the sign-in and sign-up screens and above every app screen.
+   */
+  instanceNotice?: string
 }
 
 export const createWorkspaceSchema = z.object({

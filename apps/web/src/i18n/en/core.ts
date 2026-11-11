@@ -161,4 +161,6 @@ export default {
   'errors.LIMIT_FILE_mb': 'This file is larger than this server allows (at most {limit} per file).',
   'errors.LAST_ADMIN': 'You are the only admin of this server. Make someone else an admin first.',
   'errors.REAUTH_REQUIRED': 'For your safety, sign in again and then try once more.',
+  'errors.SETUP_REQUIRED': 'This server has no operator account yet, so it does not take sign-ups. The operator first creates an account with the setup link in the server log.',
+  'errors.LIMIT_TRASH_DAYS': 'This server does not keep trashed pages that long. Pick a number up to the limit shown in the settings.',
 } satisfies Record<string, string>

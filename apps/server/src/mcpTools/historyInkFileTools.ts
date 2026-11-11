@@ -7,6 +7,7 @@ import type { InkDTO, PageMetaDTO, SnapshotDiffDTO, SnapshotDTO, SuggestionDTO }
 import { INK_CANVAS_WIDTH } from '@inkling/shared'
 import { db } from '../db/index'
 import { pages as pagesTable, workspaces } from '../db/schema'
+import { effectiveTrashDays } from '../limits'
 import { AGENT_INK_OFF_CODE } from '../agentInk'
 import { AppError } from '../errors'
 import { formatHunks } from '../context/diff'
@@ -346,7 +347,7 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
       const { pages } = (await call(ctx, 'GET', `/api/workspaces/${workspaceId}/trash`)).json() as { pages: PageMetaDTO[] }
       // Membership was checked by the route; the retention period is a workspace setting members see.
       const [ws] = await db.select({ days: workspaces.trashRetentionDays }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
-      const days = ws?.days ?? 30
+      const days = effectiveTrashDays(ws?.days ?? 30) // LIMIT_TRASH_DAYS caps it (docs/adr/2525-*)
       if (pages.length === 0) return text('Trash is empty.')
       const shown = pages.slice(0, TRASH_LIMIT)
       const lines = shown.map((p) => {

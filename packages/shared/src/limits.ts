@@ -53,6 +53,13 @@ export const RESTRICTED_MODE_ERRORS = {
   LIMIT_FILE: 413,
   LAST_ADMIN: 409,
   REAUTH_REQUIRED: 401,
+  /**
+   * Restricted sign-up (SIGNUP_MAX_USERS, SIGNUP_PER_IP_PER_DAY, ACCOUNT_LIFETIME_DAYS or
+   * LOGIN_ID_MODE=username) while the server has no admin: only the setup code can sign up.
+   */
+  SETUP_REQUIRED: 403,
+  /** LIMIT_TRASH_DAYS: a workspace asked for a longer trash retention than the server keeps (`{ limit }`). */
+  LIMIT_TRASH_DAYS: 400,
 } as const
 
 export type RestrictedModeErrorCode = keyof typeof RESTRICTED_MODE_ERRORS
@@ -64,6 +71,8 @@ export interface AuthModeLimitsDTO {
   pagesPerWorkspace?: number
   fileMb?: number
   workspaceStorageMb?: number
+  /** LIMIT_TRASH_DAYS: trashed pages are kept at most this many days, whatever a workspace sets. */
+  trashDays?: number
 }
 
 /** `GET /api/auth/mode` → `legal`: the document version and which documents exist (LEGAL_DIR). */

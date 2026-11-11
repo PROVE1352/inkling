@@ -11,7 +11,7 @@ import { purgeExpiredApiTokens } from './apiTokens'
 import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
-import { workspaceRestoreDays } from './limits'
+import { limits, workspaceRestoreDays } from './limits'
 import { runRegisteredHousekeepingTasks } from './restrictedExtras'
 import { purgeOldChanges } from './context/changeLog'
 import { purgeStaleSuggestionBases } from './suggestionMerge'
@@ -64,16 +64,20 @@ export async function purgeOldAuditEvents(now: Date, maxBatches = 20): Promise<n
 const READ_NOTIFICATION_TTL_MS = 90 * 24 * 60 * 60 * 1_000
 /**
  * Permanently delete trash pages (+ descendants) older than their workspace's trash retention
- * (workspaces.trash_retention_days); returns the number of pages deleted.
+ * (workspaces.trash_retention_days, at most LIMIT_TRASH_DAYS when set); returns the number of pages deleted.
  */
 export async function purgeOldTrash(now: Date, log: (msg: string) => void): Promise<number> {
   // Per workspace, under its tree lock; only rows that are themselves in the trash are walked
   // (a live page under a trashed parent is moved to the root, never purged — A-M10).
+  // LIMIT_TRASH_DAYS (docs/adr/2525-*) caps the workspace's own retention; unset, the query is the
+  // 0.21.1 one, untouched.
+  const cap = limits.trashDays
+  const days = cap === undefined ? sql`w.trash_retention_days` : sql`LEAST(w.trash_retention_days, ${cap}::int)`
   const roots = (await db.execute(sql`
     SELECT p.workspace_id AS "workspaceId", string_agg(p.id::text, ',') AS ids
       FROM pages p JOIN workspaces w ON w.id = p.workspace_id
      WHERE p.deleted_at IS NOT NULL
-       AND p.deleted_at < ${now.toISOString()}::timestamptz - make_interval(days => w.trash_retention_days)
+       AND p.deleted_at < ${now.toISOString()}::timestamptz - make_interval(days => ${days})
      GROUP BY p.workspace_id
   `)) as unknown as { workspaceId: string; ids: string }[]
   let purged = 0

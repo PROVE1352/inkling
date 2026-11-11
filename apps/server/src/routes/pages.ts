@@ -440,14 +440,6 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const visible = await findVisiblePage(id, user.id)
     if (!visible) throw notFound()
-    // Title, icon, cover, aliases and the date property are stored with the page; moving, reordering and
-    // the other switches are not refused // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
-    {
-      const grows = jsonBytes([body.title, body.icon, body.coverUrl, body.aliases, body.dateProperty])
-      if (body.title !== undefined || body.icon || body.coverUrl || body.aliases !== undefined || body.dateProperty !== undefined) {
-        await assertWorkspaceGrowth(db, visible.workspaceId, grows)
-      }
-    }
     // A guest (docs/adr/1252-*) may rename and decorate pages shared with them, nothing that moves,
     // re-scopes, reorders or re-labels them for the workspace.
     const guest = isGuestIn(visible.workspaceId, user.id)
@@ -489,6 +481,14 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // below as well (moves under a parent are checked by assertPlacement).
       const carriesSubtree = (body.parentId === null && page.parentId !== null) || body.scope !== undefined
       await assertEditable(tx, id, user.id, role, { subtree: carriesSubtree, acl: gate.acl })
+      // Title, icon, cover, aliases and the date property are stored with the page; moving, reordering and
+      // the other switches are not refused // full workspace: LIMIT_STORAGE, and the bytes count at once
+      // (docs/adr/2533-*). Only after the edit check (0.22.1, review N7): someone who may only read the
+      // page neither moves the workspace's cached use nor learns it from the 413. With the bare `db`, as
+      // everywhere (a recount writes the workspace row, which this transaction does not hold).
+      if (body.title !== undefined || body.icon || body.coverUrl || body.aliases !== undefined || body.dateProperty !== undefined) {
+        await assertWorkspaceGrowth(db, visible.workspaceId, jsonBytes([body.title, body.icon, body.coverUrl, body.aliases, body.dateProperty]))
+      }
 
       const updates: Partial<typeof pages.$inferInsert> = { updatedAt: new Date() }
 

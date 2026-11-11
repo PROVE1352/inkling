@@ -3,20 +3,24 @@ import { db } from '../db/index'
 import { closePageConnections, closeWorkspaceConnections, reconnectReadOnlyWorkspaceConnections } from '../liveConnections'
 import { clearCollabRefusals, collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed, setCollabRecountHook } from './collabGrowth'
 import { instanceFullNow, instanceStorageLimitBytes } from './instance'
-import { pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
+import { fileStorageSql, pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
 
 /**
  * Storage use of a workspace (LIMIT_WORKSPACE_STORAGE_MB, docs/adr/2506-*).
  *
  * Counted: every column a member can grow without bound through the app or an agent —
- * upload files (`files.size`, the blobs on disk), page bodies (`page_docs` state and state vector),
+ * upload files (`files.size`; with a limit at least 4 KB + 1 KB each, quota/room.ts fileStorageBytes,
+ * review N2), page bodies (`page_docs` state and state vector),
  * version history (`page_snapshots` state, state vector, step), handwriting (`page_ink.strokes`),
  * comments, page rows themselves (title, row properties, page properties, aliases; trashed pages
  * included), collection schemas, views and row templates, custom templates, the change log's kept
  * texts (`page_changes`) and agent suggestions (`section_suggestions`).
  *
- * Not counted (derived from the above or bounded elsewhere, listed in the ADR): search and section
- * indexes, audit events, notifications, outbox and webhook deliveries, per-user tables.
+ * With a storage limit, the search and section indexes derived from those bodies too (page_texts,
+ * page_chunks, page_chunk_vectors, page_tasks, page_links, page_tags, page_former_titles; review N3,
+ * docs/adr/2545-*). Not counted (bounded elsewhere, listed in the ADRs): Postgres index entries and dead
+ * rows (the instance fuse and the demo's filesystem), audit events, notifications, outbox and webhook
+ * deliveries, per-user tables.
  *
  * `workspaces.storage_bytes` caches the sum: recounted by the hourly housekeeping, by the usage
  * route when it is older than a minute, after purges, and moved by cheap deltas on the write paths
@@ -28,10 +32,26 @@ export interface StorageCount {
   fileBytes: number
 }
 
+/**
+ * Search and section indexes a member grows by writing (0.22.1, review N3): rows derived from the
+ * bodies, counted with a storage limit only (without one the count is that of 0.22.0). Their Postgres
+ * index entries (GIN, trigram) and dead rows are not counted: the instance fuse and the demo's own
+ * filesystem bound those (docs/adr/2545-*).
+ */
+const DERIVED_SQL = (workspaceId: string) => sql`
+    + (SELECT coalesce(sum(pg_column_size(t.*)), 0) FROM page_texts t WHERE page_id IN (SELECT id FROM p))
+    + (SELECT coalesce(sum(pg_column_size(c.*)), 0) FROM page_chunks c WHERE workspace_id = ${workspaceId})
+    + (SELECT coalesce(sum(pg_column_size(v.*)), 0) FROM page_chunk_vectors v WHERE workspace_id = ${workspaceId})
+    + (SELECT coalesce(sum(pg_column_size(k.*)), 0) FROM page_tasks k WHERE workspace_id = ${workspaceId})
+    + (SELECT coalesce(sum(pg_column_size(l.*)), 0) FROM page_links l WHERE source_page_id IN (SELECT id FROM p))
+    + (SELECT coalesce(sum(pg_column_size(g.*)), 0) FROM page_tags g WHERE page_id IN (SELECT id FROM p))
+    + (SELECT coalesce(sum(pg_column_size(f.*)), 0) FROM page_former_titles f WHERE workspace_id = ${workspaceId})
+`
+
 const RECOUNT_SQL = (workspaceId: string) => sql`
   WITH p AS (SELECT id FROM pages WHERE workspace_id = ${workspaceId})
   SELECT
-    (SELECT coalesce(sum(size), 0) FROM files WHERE workspace_id = ${workspaceId})::bigint AS files,
+    (SELECT coalesce(sum(${fileStorageSql(sql`size`)}), 0) FROM files WHERE workspace_id = ${workspaceId})::bigint AS files,
     (
       (SELECT coalesce(sum(octet_length(state) + coalesce(octet_length(state_vector), 0)), 0)
          FROM page_docs WHERE page_id IN (SELECT id FROM p))
@@ -51,6 +71,7 @@ const RECOUNT_SQL = (workspaceId: string) => sql`
     + (SELECT coalesce(sum(coalesce(octet_length(before_text), 0) + coalesce(octet_length(after_text), 0)), 0)
          FROM page_changes WHERE workspace_id = ${workspaceId})
     + (SELECT coalesce(sum(octet_length(markdown)), 0) FROM section_suggestions WHERE workspace_id = ${workspaceId})
+    ${storageLimitBytes() == null ? sql`` : DERIVED_SQL(workspaceId)}
     )::bigint AS other
 `
 
@@ -115,6 +136,34 @@ export async function recountAllWorkspaces(): Promise<number> {
 export const STORE_RECOUNT_MS = 10 * 60 * 1000
 
 /**
+ * Bytes of index rows (page_texts, page_chunks with their tsvector, tasks, links, tags) per byte a
+ * stored body grows, reserved at store time until the recount sees the real rows (review N3). Measured
+ * for 0.22.1 with 1 MB appends: 2.2 on prose-like text, 2.3 on the review's random words; the lower
+ * whole number, so the estimate does not shut a workspace that has room (the recount 40 s later puts
+ * the real number in either way, docs/adr/2545-*).
+ */
+export const INDEX_BYTES_PER_BODY_BYTE = 2
+
+/** The recount after a body grew waits this long: past the index pass's longest wait (30 s, docIndexer.ts). */
+export const INDEX_SETTLE_MS = 40_000
+
+const settling = new Map<string, NodeJS.Timeout>()
+
+/**
+ * One recount of the workspace INDEX_SETTLE_MS from now (none if one is pending already): replaces the
+ * index estimates with the rows the index pass wrote. No storage limit → nothing.
+ */
+export function recountAfterIndex(workspaceId: string): void {
+  if (storageLimitBytes() == null || settling.has(workspaceId)) return
+  const t = setTimeout(() => {
+    settling.delete(workspaceId)
+    recountSoon(workspaceId)
+  }, INDEX_SETTLE_MS)
+  t.unref?.()
+  settling.set(workspaceId, t)
+}
+
+/**
  * The collab store is about to write `bytes` (state + state vector) for a page (collab.ts
  * storeDocument, before the upsert): moves the workspace's cached use by the body's growth (and by the
  * auto version copy the store just took, `snapshotBytes`), flips the workspace read-only when that
@@ -128,16 +177,24 @@ export async function noteBodyStore(pageId: string, bytes: number, snapshotBytes
   const limit = storageLimitBytes()
   if (limit == null) return null
   try {
+    // The search and section indexes of the new text are written 8–30 s later (docIndexer.ts, debounced):
+    // their bytes are reserved now as an estimate, INDEX_BYTES_PER_BODY_BYTE per byte the body grew, and a
+    // recount once the index pass has landed puts the real number in (review N3, docs/adr/2545-*).
     const [r] = (await db.execute(sql`
+      WITH old AS (
+        SELECT coalesce((SELECT octet_length(d.state) + coalesce(octet_length(d.state_vector), 0) FROM page_docs d WHERE d.page_id = ${pageId}), 0) AS n
+      )
       UPDATE workspaces w
-         SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} + ${snapshotBytes} - coalesce(
-               (SELECT octet_length(d.state) + coalesce(octet_length(d.state_vector), 0) FROM page_docs d WHERE d.page_id = ${pageId}), 0))
-        FROM pages p
+         SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} + ${snapshotBytes} - old.n
+                                         + ${INDEX_BYTES_PER_BODY_BYTE} * greatest(0, ${bytes} - old.n))
+        FROM pages p, old
        WHERE p.id = ${pageId} AND w.id = p.workspace_id
       RETURNING w.id AS "workspaceId", w.storage_bytes AS used, w.over_storage AS over,
-                (w.storage_checked_at IS NULL OR w.storage_checked_at < now() - make_interval(secs => ${STORE_RECOUNT_MS / 1000})) AS stale
-    `)) as unknown as { workspaceId: string; used: string | number; over: boolean; stale: boolean }[]
+                (w.storage_checked_at IS NULL OR w.storage_checked_at < now() - make_interval(secs => ${STORE_RECOUNT_MS / 1000})) AS stale,
+                (${bytes} - old.n) AS growth
+    `)) as unknown as { workspaceId: string; used: string | number; over: boolean; stale: boolean; growth: string | number }[]
     if (!r) return null
+    if (Number(r.growth) > 0) recountAfterIndex(r.workspaceId)
     const pageCap = pageBodyLimitBytes()
     if (pageCap != null && bytes > pageCap) closePageConnections([pageId])
     if (r.stale) {

@@ -290,15 +290,24 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
  *
  *   workspace_audit_events  actor_name of its rows (actor_id), target_label of rows about it
  *                           (target_id), and the JSON values the write sites keep beside an id
- *                           (AUDIT_NAME_ID_PAIRS; the ownership transfer's owners by actor/target)
+ *                           (AUDIT_NAME_ID_PAIRS; the ownership transfer's owners by actor/target),
+ *                           and the address of guest invitations sent to its own sign-in address
  *   workspaces              the workspace it made at sign-up ("<name>'s workspace", created_by), and
  *                           that name in the workspace's own audit rows (label, a rename's `name`)
  *
  * A name copied without an id (audit rows written before 0.22's fix: a lock's editor list, an agent
  * block's member) cannot be told apart from a namesake's and stays.
  */
-async function scrubCopiedNames(tx: Tx, userId: string, who: { name: string }): Promise<void> {
+async function scrubCopiedNames(tx: Tx, userId: string, who: { name: string; email?: string }): Promise<void> {
   await tx.execute(sql`UPDATE workspace_audit_events SET actor_name = '' WHERE actor_id = ${userId}`)
+  // Guest invitations name the invited address (or sign-in ID) without an id: the account's own address,
+  // which no other account has, finds them (0.22.1, review N6). The invitation rows themselves are deleted above.
+  if (who.email) {
+    await tx.execute(sql`
+      UPDATE workspace_audit_events SET after = jsonb_set(after, '{email}', 'null'::jsonb)
+       WHERE action = 'page.guest_invited' AND lower(after->>'email') = ${who.email.toLowerCase()}
+    `)
+  }
   await tx.execute(sql`
     UPDATE workspace_audit_events SET target_label = NULL
      WHERE target_id IS NOT NULL AND position(${userId} in target_id) > 0

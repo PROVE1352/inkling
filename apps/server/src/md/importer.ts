@@ -1,4 +1,4 @@
-import { assertWorkspaceRoom, fileLimitBytes } from '../quota/room'
+import { assertWorkspaceRoom, fileLimitBytes, fileStorageOverhead } from '../quota/room'
 import { dropFiles } from '../quota/files'
 import { and, asc, eq, isNull, max } from 'drizzle-orm'
 import JSZip from 'jszip'
@@ -392,6 +392,8 @@ export async function importEntries(
   if (totalUncompressed > MAX_UNCOMPRESSED) {
     throw badRequest(`Archive is too large when unpacked (max ${mbLabel(MAX_UNCOMPRESSED)})`)
   }
+  // with a storage limit each attachment counts at least a block and its entry (review N2): reserved as an upper bound
+  totalUncompressed += fileStorageOverhead(fileEntries.filter((e) => isAssetPath(e.name)).length)
 
   const entryByName = new Map(fileEntries.map((e) => [e.name, e]))
   // Limits (docs/adr/2505-*): a first check before anything is written; the real one, under the

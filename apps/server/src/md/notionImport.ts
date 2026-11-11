@@ -8,7 +8,7 @@
 //   C) one document at a time: Markdown → blocks, relative/Notion links → internal links, referenced
 //      attachments uploaded, indexes rebuilt. A failure here deletes everything created so far
 //      (pages cascade, uploaded files are removed), so an import either lands whole or not at all.
-import { assertWorkspaceRoom } from '../quota/room'
+import { assertWorkspaceRoom, fileStorageOverhead } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -812,7 +812,9 @@ export async function importNotionZip(args: NotionImportArgs): Promise<{ pages: 
       }
     })
     // Limits (docs/adr/2505-*): every page and the archive's bytes, before the first insert
-    const bytes = [...new Set([...plan.entryByPath.values(), ...plan.assetByPath.values()])].reduce((t, e) => t + e.size, 0)
+    const bytes =
+      [...new Set([...plan.entryByPath.values(), ...plan.assetByPath.values()])].reduce((t, e) => t + e.size, 0) +
+      fileStorageOverhead(plan.assetByPath.size) // each attachment's smallest counted size (review N2), an upper bound
     await assertWorkspaceRoom(tx, workspaceId, { pages: values.length, bytes })
     const rows: PageRow[] = []
     for (let i = 0; i < values.length; i += 500) {

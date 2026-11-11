@@ -50,22 +50,46 @@ export function instanceStorageLimitBytes(): number | null {
   return limits.instanceStorageMb === undefined ? null : mbToBytes(limits.instanceStorageMb)
 }
 
-async function folderBytes(dir: string): Promise<number> {
-  let total = 0
+/**
+ * What one file or folder takes on disk (0.22.1, review N2): the blocks it holds (`st_blocks × 512`),
+ * not its apparent size, so a one-byte upload counts as the 4 KB block it fills; never less than the
+ * apparent size (a filesystem that reports no blocks, or a sparse file, counts as 0.22.0 did).
+ */
+export function diskBytes(st: { size: number; blocks?: number }): number {
+  const blocks = typeof st.blocks === 'number' && Number.isFinite(st.blocks) ? st.blocks * 512 : 0
+  return Math.max(st.size, blocks)
+}
+
+/** lstat calls in flight at once while walking DATA_DIR (a folder of 100k uploads, measured in the 0.22.1 report). */
+const WALK_BATCH = 64
+
+/**
+ * Bytes on disk under `dir`: every file's blocks and the folders' own blocks (a folder with many
+ * entries grows too). Missing folder → 0.
+ */
+export async function folderDiskBytes(dir: string): Promise<number> {
   let entries: import('node:fs').Dirent[]
+  let total = 0
   try {
+    total = diskBytes(await lstat(dir))
     entries = await readdir(dir, { withFileTypes: true })
   } catch {
     return 0 // missing folder (a test, a fresh install)
   }
-  for (const e of entries) {
-    const p = path.join(dir, e.name)
-    try {
-      if (e.isDirectory()) total += await folderBytes(p)
-      else if (e.isFile()) total += (await lstat(p)).size
-    } catch {
-      // removed meanwhile
-    }
+  for (let i = 0; i < entries.length; i += WALK_BATCH) {
+    const sizes = await Promise.all(
+      entries.slice(i, i + WALK_BATCH).map(async (e) => {
+        const p = path.join(dir, e.name)
+        try {
+          if (e.isDirectory()) return await folderDiskBytes(p)
+          if (e.isFile()) return diskBytes(await lstat(p))
+        } catch {
+          // removed meanwhile
+        }
+        return 0
+      }),
+    )
+    for (const n of sizes) total += n
   }
   return total
 }
@@ -76,7 +100,7 @@ export async function measureInstanceStorage(): Promise<InstanceStorage> {
   const { db } = await import('../db/index') // lazily: the collab path imports this module
   const [r] = (await db.execute(sql`SELECT pg_database_size(current_database())::bigint AS n`)) as unknown as { n: string | number }[]
   const dbBytes = Number(r?.n ?? 0)
-  const fileBytes = await folderBytes(path.resolve(env.dataDir))
+  const fileBytes = await folderDiskBytes(path.resolve(env.dataDir))
   const total = dbBytes + fileBytes
   const was = last?.full ?? false
   last = { dbBytes, fileBytes, total, limit, full: total >= limit, at: Date.now() }
@@ -111,18 +135,23 @@ function stale(): boolean {
 }
 
 /**
- * Is the instance full? With the setting, measures when the last measurement is older than a minute
- * (one measurement at a time); a failed measurement keeps the last answer. Without it: false, no read.
- * Called by the sign-up and the OAuth registration paths too (contract §14).
+ * Is the instance full? With the setting: the last measurement answers; one older than a minute is
+ * measured again in the background (one measurement at a time), so a write never waits for the walk of
+ * DATA_DIR (0.22.1, review N2: 100k files take seconds). Only the first answer after boot (or after the
+ * limit changed) waits for a measurement. A failed measurement keeps the last answer. Without the
+ * setting: false, no read. Called by the sign-up and the OAuth registration paths too (contract §14).
  */
 export async function isInstanceFull(): Promise<boolean> {
-  if (instanceStorageLimitBytes() == null) return false
-  if (stale()) {
+  const limit = instanceStorageLimitBytes()
+  if (limit == null) return false
+  if (!last || last.limit !== limit) {
     try {
       await refresh()
     } catch (err) {
       console.warn('[inkling] instance storage measurement failed', err)
     }
+  } else if (stale()) {
+    void refresh().catch((err: unknown) => console.warn('[inkling] instance storage measurement failed', err))
   }
   return last?.full ?? false
 }

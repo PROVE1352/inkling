@@ -13,6 +13,12 @@
 # (0.22 security fix F7, docs/adr/2538-*). The secrets have demo-only variable names (DEMO_*).
 # Every demo setting below is required (`:?`): with a missing line, or with the production .env, compose
 # refuses to start instead of opening an unlimited public server.
+#
+# 0.22.1 (contract §15, review N8, docs/adr/2546-*): the app runs the demo's own image name (DEMO_IMAGE,
+# e.g. inkling-demo:local), so building or pulling for the demo never replaces the image production's
+# next `up` would use; and every demo volume is a folder under DEMO_VOLUME_ROOT, where the operator mounts
+# a filesystem with its own size and inode limits (docs/DEMO.md, "A filesystem for the demo's data"):
+# what a demo user writes cannot fill the disk production lives on.
 name: inkling-demo
 
 x-demo-limits: &demo-limits
@@ -58,6 +64,10 @@ x-demo-limits: &demo-limits
 
 services:
   app:
+    # The demo's own image name (never production's ghcr.io/prove1352/inkling tag): `up` builds it from this
+    # checkout when it is not on the machine, `demo.sh build` rebuilds it (demo.sh refuses a name without
+    # "demo" in it).
+    image: ${DEMO_IMAGE:?set in deploy/demo/demo.env}
     environment: *demo-limits
     # The demo's own host port (production's default is 3000; demo.sh refuses 3000).
     ports: !override
@@ -95,15 +105,25 @@ services:
       BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:?set in deploy/demo/demo.env}
       BACKUP_KEEP_MONTHLY: ${BACKUP_KEEP_MONTHLY:?set in deploy/demo/demo.env}
 
+# Each volume is a bind of a folder under DEMO_VOLUME_ROOT (an absolute path on a filesystem of its own;
+# demo.sh checks it and makes the four folders before `up`). The names stay the demo's own.
 volumes:
   db:
     name: inkling-demo_db
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DEMO_VOLUME_ROOT:?set in deploy/demo/demo.env}/db" }
   data:
     name: inkling-demo_data
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DEMO_VOLUME_ROOT:?set in deploy/demo/demo.env}/data" }
   backups:
     name: inkling-demo_backups
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DEMO_VOLUME_ROOT:?set in deploy/demo/demo.env}/backups" }
   backup-ctl:
     name: inkling-demo_backup-ctl
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${DEMO_VOLUME_ROOT:?set in deploy/demo/demo.env}/backup-ctl" }
 
 networks:
   default:

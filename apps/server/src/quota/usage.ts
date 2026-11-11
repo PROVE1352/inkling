@@ -5,7 +5,7 @@ import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { idParam, requireMembership } from '../helpers'
 import { limits } from '../limits'
-import { storageLimitBytes } from './room'
+import { fileStorageSql, storageLimitBytes } from './room'
 import { recountWorkspaceStorage } from './storage'
 
 /** The usage route recounts storage when the cached count is older than this (limit set). */
@@ -33,7 +33,7 @@ export async function workspaceUsage(workspaceId: string): Promise<WorkspaceUsag
     ;({ total: storageBytes, fileBytes } = await recountWorkspaceStorage(workspaceId))
   } else {
     const [c] = (await db.execute(sql`
-      SELECT storage_bytes AS used, (SELECT coalesce(sum(size), 0) FROM files WHERE workspace_id = ${workspaceId})::bigint AS files
+      SELECT storage_bytes AS used, (SELECT coalesce(sum(${fileStorageSql(sql`size`)}), 0) FROM files WHERE workspace_id = ${workspaceId})::bigint AS files
         FROM workspaces WHERE id = ${workspaceId}
     `)) as unknown as { used: string | number; files: string | number }[]
     storageBytes = Number(c?.used ?? 0)

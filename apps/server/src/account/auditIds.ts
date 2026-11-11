@@ -5,12 +5,14 @@
 
 /**
  * Audit JSON keys that hold people's names, each with the key that holds their ids in the same
- * object (same index for lists). Written by editLock.ts (a lock's editors) and routes/workspaceAdmin.ts
- * (an agent block's member). The id keys are not shown on the audit screen (hideAuditIds below).
+ * object (same index for lists). Written by editLock.ts (a lock's editors), routes/workspaceAdmin.ts
+ * (an agent block's member) and routes/pageAccess.ts (the person a page access row is about). The id keys are not shown on the audit screen (hideAuditIds below).
  */
 export const AUDIT_NAME_ID_PAIRS: readonly { name: string; ids: string }[] = [
   { name: 'editors', ids: 'editorIds' },
   { name: 'user', ids: 'userId' },
+  // page access rows (routes/pageAccess.ts: granted, changed, removed, accepted invitation), 0.22.1 review N6
+  { name: 'person', ids: 'personId' },
 ]
 
 /** The audit screen's copy of a JSON value: the id keys of AUDIT_NAME_ID_PAIRS left out. */

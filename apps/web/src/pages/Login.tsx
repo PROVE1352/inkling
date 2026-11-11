@@ -5,6 +5,8 @@ import { ApiError, useAuthMode, useLogin, useLoginTotp, useMe, useResendVerifica
 import { safeNext } from '../lib/nav'
 import { Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
+import { InstanceBadge } from '../components/InstanceBadge'
+import { LegalLinks } from '../components/legal/LegalLinks'
 import { t as tr, tMaybe, useT } from '../i18n'
 
 /**
@@ -170,6 +172,7 @@ export function Login() {
         <div className="mb-6 flex flex-col items-center gap-2">
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
+          <InstanceBadge placement="auth" />
         </div>
 
         {challenge ? (
@@ -332,7 +335,8 @@ export function Login() {
           </p>
         )}
 
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <LegalLinks />
           <LanguageSelect compact />
         </div>
       </div>

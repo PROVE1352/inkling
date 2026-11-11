@@ -47,6 +47,7 @@ import { PushSettings } from '../components/PushSettings'
 import { SidebarSettings } from '../components/SidebarSettings'
 import { WorkspaceListSettings } from '../components/WorkspaceOrganizer'
 import { VersionInfo } from '../components/VersionInfo'
+import { LegalSettingsRows } from '../components/legal/LegalLinks'
 import { DeletedWorkspacesList } from '../components/WorkspaceDanger'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { getLocale, useT, type TKey } from '../i18n'
@@ -578,6 +579,7 @@ function AboutSection() {
       <Row title={t('settings.github')} desc={t('settings.githubDesc')}>
         {link(REPO_URL)}
       </Row>
+      <LegalSettingsRows />
     </Group>
   )
 }

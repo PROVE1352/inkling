@@ -7,24 +7,52 @@ account cap, a per-IP sign-up limit, accounts deleted 14 days after sign-up, lim
 pages and storage, server-wide switches for features that send data outside, terms and consent at sign-up,
 and a "Demo" label on every screen. 한국어: [DEMO.ko.md](DEMO.ko.md).
 
-The files are in [`deploy/demo/`](../deploy/demo/): `compose.demo.yaml` (an overlay on `compose.yaml`),
-`demo.env.example` (the settings) and `legal/` (templates of the terms, privacy policy and sign-up texts).
-Design notes: ADR 2500–2529.
+The files are in [`deploy/demo/`](../deploy/demo/): `demo.sh` (the only way to start, stop and check the
+demo), `compose.demo.yaml` (an overlay on `compose.yaml`), `demo.env.example` (the settings) and `legal/`
+(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2529 and 2535–2539.
 
 ## 1. Start it as a separate instance
 
-On the server that runs your main instance, from the repository root:
+Deploy the demo from a folder of its own: a second checkout of the same release, not the folder your main
+instance runs from (that folder's `.env` and its usual commands belong to production). It can run on the
+same machine:
 
 ```bash
+git clone <the Inkling repository> /srv/inkling-demo/inkling    # a second copy, at the release you run
+cd /srv/inkling-demo/inkling
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each),
+# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below)
 # and PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
+deploy/demo/demo.sh config     # check what would run; changes nothing
+deploy/demo/demo.sh up
 ```
 
-Always pass `--env-file deploy/demo/demo.env`. The overlay refuses to start without it (every demo setting
-is required), so the production `.env` can never start a demo with no limits, and the demo can never reuse
-the production volumes. The app listens on `127.0.0.1:3100` only; nothing is public until step 3.
+Run every demo command through `deploy/demo/demo.sh` (`config`, `up`, `down`, `destroy`, `ps`, `logs`,
+`exec`), never plain `docker compose`. The script always uses the project name `inkling-demo`, both compose
+files and `deploy/demo/demo.env` (another file with `--env-file`), and passes nothing from your shell but
+`PATH`, `HOME` and Docker's connection variables. It stops at once when `COMPOSE_PROJECT_NAME`,
+`COMPOSE_FILE` or `INKLING_DATA_NAME` is set in the shell. Before `up`, `down` and `destroy` it reads the
+resolved configuration and refuses, doing nothing, unless the project is `inkling-demo`, every volume and
+the network are named `inkling-demo_…`, the database and its role are `inkling_demo` and no port is 3000
+(production's default); `config` prints the same checks, and `up` also refuses secrets still marked
+`CHANGE-ME`. These names are written out in `compose.demo.yaml` itself, so no variable your main instance
+uses can point the demo at production's data, and plain `docker compose` with the overlay stops with a
+message. Every demo setting is required, so the production `.env` can never start a demo with no limits.
+`down` keeps the demo's volumes; `destroy` deletes them after you type the project name. The app listens on
+`127.0.0.1:3100` only (`DEMO_PORT`); nothing is public until step 3.
+
+### Secrets
+
+Make new secrets for the demo; never copy the main instance's values. Sessions and tokens of one instance
+do not work on the other only while these differ.
+
+```bash
+openssl rand -base64 32    # DEMO_POSTGRES_PASSWORD
+openssl rand -base64 32    # DEMO_APP_SECRET_KEY
+openssl rand -base64 32    # DEMO_BACKUP_PASSPHRASE, only if BACKUP_RCLONE_REMOTE is set
+```
+
+They have demo-only names, so a production value exported in your shell is never picked up.
 
 Until the operator account exists (step 4), the server takes no sign-up at all except the one made with
 the setup link: a server with sign-up limits, an account lifetime or sign-in IDs and no administrator
@@ -44,7 +72,7 @@ edit made later asks everyone to agree again.
 sudo mkdir -p /srv/inkling-demo && sudo cp -r deploy/demo/legal /srv/inkling-demo/legal
 # edit the four placeholders in /srv/inkling-demo/legal/*.md, then in demo.env:
 #   DEMO_LEGAL_DIR=/srv/inkling-demo/legal
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d app
+deploy/demo/demo.sh up
 ```
 
 The server reads the folder once at start. A malformed `signup.json` stops it with the file and the reason
@@ -92,7 +120,7 @@ policy.
 ## 4. Create the operator account with the setup link
 
 ```bash
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml logs app | grep -A2 'No accounts yet'
+deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 ```
 
 Open the `/setup?code=…` link from the log. It is built from `PUBLIC_URL`, so it opens at the public address
@@ -111,7 +139,8 @@ exists, the sign-up form opens to everyone.
 - In a private window: the sign-up form asks for an ID, shows the notice and six unticked boxes, and the
   button stays off until all are ticked. `/terms` and `/privacy` open without signing in.
 - After signing up, the deletion date is shown, and the "Demo" label is visible on a phone and on a computer.
-- `docker compose … ps` shows no published database port and only `127.0.0.1:3100` for the app.
+- `deploy/demo/demo.sh config` prints only `ok` lines, and `deploy/demo/demo.sh ps` shows no published
+  database port and only `127.0.0.1:3100` for the app.
 - Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets.
 - From one network, a third sign-up in a day is refused (the proxy passes the real address).
 
@@ -141,6 +170,11 @@ One line each; the full reference is in the operations docs.
 | `INSTANCE_LABEL` | `Demo` | The label every screen shows |
 | `INSTANCE_NOTICE` | empty | A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | Backup sets kept |
+| `SIGNUP_PER_HOUR` | `10` | Accounts the whole server makes in one hour (the setup link's account does not count) |
+| `OAUTH_UNUSED_CLIENT_HOURS` | `24` | Self-registered OAuth clients that were never used are deleted this many hours after registering |
+| `OAUTH_UNUSED_CLIENT_MAX` | `500` | Most never-used self-registered OAuth clients kept; a new one removes the oldest (never one younger than 15 minutes) |
+| `DEMO_PORT` | `127.0.0.1:3100` | The demo's host port (not 3000) |
+| `DEMO_POSTGRES_PASSWORD`, `DEMO_APP_SECRET_KEY`, `DEMO_BACKUP_PASSPHRASE` | new values | The demo's own secrets ("Secrets" above) |
 
 Mail, OIDC, semantic search and experimental features stay off by leaving their variables empty. MCP stays on.
 
@@ -155,14 +189,14 @@ made before the setting was on, and administrators, are never deleted by it.
 To see what it would do before it deletes anything, start with `ACCOUNT_LIFETIME_DRY_RUN=1`. The hourly
 housekeeping then logs one line per account it would delete (the account id and how many workspaces would
 go) and deletes nothing. Once the first accounts pass their date and the log lists exactly those, empty the
-value and run `up -d app` again.
+value and run `deploy/demo/demo.sh up` again.
 
 ### Posting a notice
 
 The demo sends no mail, and the terms template says that notices (changed terms, changes, outages, a data
 breach) appear in the app and on the sign-in screen. That is `INSTANCE_NOTICE`: set it in `demo.env`
-(double quotes, `\n` for a line break, at most 500 characters) and run `up -d app` again; empty it the same
-way. It is shown as plain text, without links, and nobody can close it. A restart closes open editing
+(double quotes, `\n` for a line break, at most 500 characters) and run `deploy/demo/demo.sh up` again;
+empty it the same way. It is shown as plain text, without links, and nobody can close it. A restart closes open editing
 connections; they reconnect at once.
 
 ### Closing the demo without notice
@@ -171,10 +205,11 @@ If you shut the demo down, the privacy policy template promises that the databas
 backups are deleted without delay:
 
 ```bash
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml down -v
+deploy/demo/demo.sh destroy    # asks you to type inkling-demo
 ```
 
-`down -v` removes the demo's volumes, backups included; the main instance is not touched. Also delete
+`destroy` removes the demo's volumes, backups included, after the same checks as `up`; the main instance is
+not touched. Also delete
 remote backup copies if `BACKUP_RCLONE_REMOTE` was set, the proxy's access log for the demo host, the
 filled terms folder and `demo.env`. If the server stopped suddenly, do this as soon as you can reach it.
 

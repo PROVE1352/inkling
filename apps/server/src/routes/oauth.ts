@@ -31,6 +31,7 @@ import {
   SUPPORTED_SCOPES,
   verifyPkce,
 } from '../oauth'
+import { insertDynamicClient } from '../oauthClientCleanup'
 import { resourceWithoutProfile } from '../mcpProfile'
 import { suggestOnlyStates } from '../agentTaint'
 import { CimdError, cimdClientUsable, cimdConfig, isUrlClientId, resolveCimdClient } from '../oauthCimd'
@@ -196,10 +197,13 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       )
     }
     const id = `ink_c_${randomBytes(16).toString('base64url')}`
-    const [row] = await db
-      .insert(oauthClients)
-      .values({ id, name, redirectUris: uris as string[] })
-      .returning({ createdAt: oauthClients.createdAt })
+    // OAUTH_UNUSED_CLIENT_MAX (0.22 security fix F3, docs/adr/2536-*): room is made by deleting the oldest
+    // never-used registration; a plain insert without the setting
+    const row = await insertDynamicClient({ id, name, redirectUris: uris as string[] })
+    if (!row.ok) {
+      reply.header('Retry-After', String(row.retryAfterSec))
+      return oauthError(reply, 503, 'temporarily_unavailable', 'Too many new registrations right now. Try again in a minute.')
+    }
 
     return reply
       .code(201)
@@ -228,56 +232,65 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       if (!code || !verifier) {
         return oauthError(reply, 400, 'invalid_request', 'code and code_verifier are required')
       }
-      // single use: deleted as it is read (only one of two concurrent exchanges succeeds)
-      const [row] = await db
-        .delete(oauthCodes)
-        .where(eq(oauthCodes.codeHash, sha256(code)))
-        .returning()
-      if (!row || row.expiresAt.getTime() <= Date.now()) {
-        await recordFailure(req, 'oauth-token')
-        return oauthError(reply, 400, 'invalid_grant', 'Authorization code is invalid or expired')
-      }
-      if (clientId && clientId !== row.clientId) {
-        return oauthError(reply, 400, 'invalid_grant', 'Client mismatch')
-      }
-      // A metadata-document client (docs/adr/2280-*): no fetch here (the code was issued after one, and
-      // a transient failure must not burn the single-use code); only "still switched on and allowed".
-      if (isUrlClientId(row.clientId) && !cimdClientUsable(row.clientId, publicOrigin(req))) {
-        return oauthError(reply, 400, 'invalid_client', 'This client is not accepted by this server')
-      }
-      if (redirectUri !== row.redirectUri) {
-        return oauthError(reply, 400, 'invalid_grant', 'redirect_uri mismatch')
-      }
-      if (!verifyPkce(verifier, row.codeChallenge)) {
-        return oauthError(reply, 400, 'invalid_grant', 'PKCE verification failed')
-      }
+      // single use: deleted as it is read (only one of two concurrent exchanges succeeds). The code's
+      // deletion and the grant's insert are one transaction (0.22 security fix F3): at no moment does
+      // the client have neither, so the never-used-client cleanup cannot take it in between. A refused
+      // exchange still commits (the code is spent, as before); the answer is sent after the commit.
+      type Exchange = { err: [number, string, string]; failure?: true } | { tokens: Record<string, unknown> }
+      const out = await db.transaction(async (tx): Promise<Exchange> => {
+        const [row] = await tx
+          .delete(oauthCodes)
+          .where(eq(oauthCodes.codeHash, sha256(code)))
+          .returning()
+        if (!row || row.expiresAt.getTime() <= Date.now()) {
+          return { err: [400, 'invalid_grant', 'Authorization code is invalid or expired'], failure: true }
+        }
+        if (clientId && clientId !== row.clientId) {
+          return { err: [400, 'invalid_grant', 'Client mismatch'] }
+        }
+        // A metadata-document client (docs/adr/2280-*): no fetch here (the code was issued after one, and
+        // a transient failure must not burn the single-use code); only "still switched on and allowed".
+        if (isUrlClientId(row.clientId) && !cimdClientUsable(row.clientId, publicOrigin(req))) {
+          return { err: [400, 'invalid_client', 'This client is not accepted by this server'] }
+        }
+        if (redirectUri !== row.redirectUri) {
+          return { err: [400, 'invalid_grant', 'redirect_uri mismatch'] }
+        }
+        if (!verifyPkce(verifier, row.codeChallenge)) {
+          return { err: [400, 'invalid_grant', 'PKCE verification failed'] }
+        }
 
-      const accessToken = newOpaqueToken('ink_at_')
-      const refreshToken = newOpaqueToken('ink_rt_')
-      const now = Date.now()
-      await db.insert(oauthGrants).values({
-        clientId: row.clientId,
-        userId: row.userId,
-        scope: row.scope,
-        accessHash: sha256(accessToken),
-        accessExpiresAt: new Date(now + ACCESS_TOKEN_TTL_MS),
-        refreshHash: sha256(refreshToken),
-        refreshExpiresAt: new Date(now + REFRESH_TOKEN_TTL_MS),
-        // the range chosen on the consent screen (docs/adr/1200-*); refresh never changes it
-        rangeKind: row.rangeKind,
-        rangeWorkspaceIds: row.rangeWorkspaceIds,
-        rangePageId: row.rangePageId,
-      })
-      return reply
-        .header('Cache-Control', 'no-store')
-        .header('Pragma', 'no-cache')
-        .send({
-          access_token: accessToken,
-          token_type: 'Bearer',
-          expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
-          refresh_token: refreshToken,
-          scope: row.scope ?? OAUTH_SCOPE,
+        const accessToken = newOpaqueToken('ink_at_')
+        const refreshToken = newOpaqueToken('ink_rt_')
+        const now = Date.now()
+        await tx.insert(oauthGrants).values({
+          clientId: row.clientId,
+          userId: row.userId,
+          scope: row.scope,
+          accessHash: sha256(accessToken),
+          accessExpiresAt: new Date(now + ACCESS_TOKEN_TTL_MS),
+          refreshHash: sha256(refreshToken),
+          refreshExpiresAt: new Date(now + REFRESH_TOKEN_TTL_MS),
+          // the range chosen on the consent screen (docs/adr/1200-*); refresh never changes it
+          rangeKind: row.rangeKind,
+          rangeWorkspaceIds: row.rangeWorkspaceIds,
+          rangePageId: row.rangePageId,
         })
+        return {
+          tokens: {
+            access_token: accessToken,
+            token_type: 'Bearer',
+            expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+            refresh_token: refreshToken,
+            scope: row.scope ?? OAUTH_SCOPE,
+          },
+        }
+      })
+      if ('err' in out) {
+        if (out.failure) await recordFailure(req, 'oauth-token')
+        return oauthError(reply, ...out.err)
+      }
+      return reply.header('Cache-Control', 'no-store').header('Pragma', 'no-cache').send(out.tokens)
     }
 
     if (grantType === 'refresh_token') {

@@ -60,6 +60,7 @@ import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i
 import { toSidebarPrefsDTO } from './sidebarPrefs'
 import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits, restrictedSignup } from '../limits'
 import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
+import { noteTakenSignup } from '../account/signupGuards'
 import { authModeExtraFields, meExtraFields } from '../restrictedExtras'
 import { linkedLogins } from './oidc'
 import { parseRegisterBody, spendPasswordCheck } from '../account/loginId'
@@ -388,6 +389,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       if (env.signupRequireKey && signupKey) await refundSignupKey(signupKey)
       if (setupCode && err instanceof AppError && err.code === 'SETUP_CLOSED') closeFirstAdminSetup()
       if (isUniqueViolation(err)) {
+        // counted per address while SIGNUP_PER_IP_PER_DAY is set (0.22 security fix F10)
+        await noteTakenSignup(hookCtx)
         throw limits.loginIdMode === 'username' ? conflict('LOGIN_ID_TAKEN', 'This ID is already taken') : conflict('EMAIL_TAKEN', 'Email already in use')
       }
       throw err

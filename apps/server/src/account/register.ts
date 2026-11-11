@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { registerAuthModeExtra, registerHousekeepingTask } from '../restrictedExtras'
+import { purgeUnusedOAuthClients } from '../oauthClientCleanup'
 import { registerSignupHook } from '../signupHooks'
 import { expireAccounts, purgeAccountRecords } from './housekeeping'
 import { registerAccountRoutes } from './routes'
@@ -32,6 +33,11 @@ export async function registerAccount(api: FastifyInstance): Promise<void> {
   })
   registerHousekeepingTask('account-records-retention', async () => {
     await purgeAccountRecords()
+  })
+  // never-used self-registered OAuth clients (security fix F3; nothing unless OAUTH_UNUSED_CLIENT_* is set)
+  registerHousekeepingTask('oauth-unused-clients', async () => {
+    const n = await purgeUnusedOAuthClients()
+    if (n > 0) console.warn(`[inkling] deleted ${n} never-used OAuth client registration(s)`)
   })
   const w = proxyWarning()
   if (w) console.warn(w)

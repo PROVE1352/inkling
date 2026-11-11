@@ -188,6 +188,9 @@ services:
       LEGAL_DIR: ${LEGAL_DIR:-}
       INSTANCE_LABEL: ${INSTANCE_LABEL:-}
       INSTANCE_NOTICE: ${INSTANCE_NOTICE:-}
+      SIGNUP_PER_HOUR: ${SIGNUP_PER_HOUR:-}
+      OAUTH_UNUSED_CLIENT_HOURS: ${OAUTH_UNUSED_CLIENT_HOURS:-}
+      OAUTH_UNUSED_CLIENT_MAX: ${OAUTH_UNUSED_CLIENT_MAX:-}
       # MCP connectors that identify themselves with a Client ID Metadata Document (see .env.example,
       # docs/adr/2280-*). Empty = off.
       OAUTH_CIMD: ${OAUTH_CIMD:-}

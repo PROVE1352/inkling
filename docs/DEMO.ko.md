@@ -2,21 +2,37 @@
 
 데모 인스턴스는 처음 보는 사람도 가입해서 써 볼 수 있게 따로 띄우는 Inkling 서버입니다. 운영 중인 서버 옆에서 돌지만 나눠 쓰는 것은 없습니다. compose 프로젝트, 데이터베이스, 볼륨, 네트워크, 포트가 모두 따로입니다. 0.22의 제한 모드가 이런 서버에 필요한 것을 켭니다. 이메일 대신 아이디로 가입, 전체 계정 수 상한, IP별 가입 횟수 제한, 가입 14일 뒤 계정 삭제, 워크스페이스·멤버·페이지·저장 용량 한도, 밖으로 데이터를 보내는 기능을 서버 전체에서 끄는 스위치, 가입할 때 약관 동의, 모든 화면의 "Demo" 표시가 그것입니다. English: [DEMO.md](DEMO.md).
 
-파일은 [`deploy/demo/`](../deploy/demo/)에 있습니다. `compose.demo.yaml`(`compose.yaml`에 덧씌우는 파일), `demo.env.example`(설정), `legal/`(이용약관, 개인정보 처리방침, 가입 화면 문구의 틀)입니다. 설계 설명은 ADR 2500–2529에 있습니다.
+파일은 [`deploy/demo/`](../deploy/demo/)에 있습니다. `demo.sh`(데모를 띄우고 내리고 확인하는 유일한 방법), `compose.demo.yaml`(`compose.yaml`에 덧씌우는 파일), `demo.env.example`(설정), `legal/`(이용약관, 개인정보 처리방침, 가입 화면 문구의 틀)입니다. 설계 설명은 ADR 2500–2529와 2535–2539에 있습니다.
 
 <a id="1-start-it-as-a-separate-instance"></a>
 ## 1. 별도 인스턴스로 띄우기
 
-운영 인스턴스가 도는 서버에서, 저장소 최상위 폴더에서 실행합니다.
+데모는 따로 만든 폴더에서 배포합니다. 같은 릴리스를 한 번 더 받은 사본이어야 하고, 운영 인스턴스를 실행하는 폴더를 쓰면 안 됩니다(그 폴더의 `.env`와 평소 명령은 운영용입니다). 같은 서버에서 돌려도 됩니다.
 
 ```bash
+git clone <the Inkling repository> /srv/inkling-demo/inkling    # a second copy, at the release you run
+cd /srv/inkling-demo/inkling
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each),
+# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below)
 # and PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
+deploy/demo/demo.sh config     # check what would run; changes nothing
+deploy/demo/demo.sh up
 ```
 
-`--env-file deploy/demo/demo.env`는 항상 붙입니다. 이 값이 없으면 덧씌우는 파일이 시작을 거부합니다(데모 설정이 모두 필수입니다). 그래서 운영용 `.env`로 한도 없는 데모가 뜨는 일도, 데모가 운영 볼륨을 쓰는 일도 생기지 않습니다. 앱은 `127.0.0.1:3100`에서만 듣습니다. 3단계 전까지는 밖에서 열 수 없습니다.
+데모 명령은 모두 `deploy/demo/demo.sh`(`config`, `up`, `down`, `destroy`, `ps`, `logs`, `exec`)로 실행하고, `docker compose`를 직접 부르지 않습니다. 스크립트는 언제나 프로젝트 이름 `inkling-demo`, compose 파일 두 개, `deploy/demo/demo.env`(다른 파일은 `--env-file`로)를 쓰고, 셸의 변수는 `PATH`, `HOME`, Docker 연결 변수 말고는 넘기지 않습니다. 셸에 `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`, `INKLING_DATA_NAME`이 있으면 바로 멈춥니다. `up`, `down`, `destroy` 전에는 해석된 설정을 읽어서, 프로젝트가 `inkling-demo`이고 모든 볼륨과 네트워크 이름이 `inkling-demo_…`이고 데이터베이스와 그 역할이 `inkling_demo`이고 3000번 포트(운영의 기본값)가 없을 때만 진행합니다. 하나라도 어긋나면 아무것도 하지 않고 거절합니다. `config`는 같은 검사 결과를 보여 주고, `up`은 `CHANGE-ME`가 남은 비밀 값도 거절합니다. 이 이름들은 `compose.demo.yaml`에 글자로 적혀 있어서 운영 인스턴스가 쓰는 변수로는 데모를 운영 데이터로 돌릴 수 없고, 덧씌우는 파일을 `docker compose`로 직접 쓰면 안내와 함께 멈춥니다. 데모 설정은 모두 필수라서 운영용 `.env`로 한도 없는 데모가 뜨는 일도 없습니다. `down`은 데모의 볼륨을 남기고, `destroy`는 프로젝트 이름을 직접 입력해야 볼륨까지 지웁니다. 앱은 `127.0.0.1:3100`(`DEMO_PORT`)에서만 듣습니다. 3단계 전까지는 밖에서 열 수 없습니다.
+
+<a id="secrets"></a>
+### 비밀 값
+
+데모의 비밀 값은 새로 만들고, 운영 인스턴스의 값을 복사하지 않습니다. 두 인스턴스의 로그인과 토큰이 서로 통하지 않는 것은 이 값들이 다를 때뿐입니다.
+
+```bash
+openssl rand -base64 32    # DEMO_POSTGRES_PASSWORD
+openssl rand -base64 32    # DEMO_APP_SECRET_KEY
+openssl rand -base64 32    # DEMO_BACKUP_PASSPHRASE, only if BACKUP_RCLONE_REMOTE is set
+```
+
+데모 전용 이름이라서 셸에 내보내 둔 운영 값이 섞여 들어가지 않습니다.
 
 운영자 계정이 생기기 전(4단계)에는 설정 링크로 하는 가입 말고는 어떤 가입도 받지 않습니다. 가입 상한, 계정 수명, 아이디 가입 가운데 하나라도 켜져 있고 관리자가 없는 서버는 다른 가입을 모두 `SETUP_REQUIRED`로 거절하고, 가입 화면에는 운영자를 기다린다는 안내만 보입니다. 그래서 단계의 순서와 상관없이 처음 온 낯선 사람이 관리자가 되는 일은 없습니다.
 
@@ -31,7 +47,7 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 sudo mkdir -p /srv/inkling-demo && sudo cp -r deploy/demo/legal /srv/inkling-demo/legal
 # edit the four placeholders in /srv/inkling-demo/legal/*.md, then in demo.env:
 #   DEMO_LEGAL_DIR=/srv/inkling-demo/legal
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d app
+deploy/demo/demo.sh up
 ```
 
 서버는 시작할 때 폴더를 한 번 읽습니다. `signup.json` 형식이 틀리면 로그에 파일 이름과 이유를 남기고 멈춥니다. 문서에 자리표시자가 남아 있으면 시작할 때마다 경고합니다. 폴더의 버전은 파일 내용의 해시라서, 파일을 고치고 다시 시작하면 운영자를 포함한 모든 계정이 다음 요청에서 다시 동의해야 합니다. 다시 시작하면 열려 있던 편집 연결도 끊기므로, 옛 약관으로 계속 쓰는 사람은 없습니다.
@@ -71,7 +87,7 @@ demo.example.com {
 ## 4. 설정 링크로 운영자 계정 만들기
 
 ```bash
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml logs app | grep -A2 'No accounts yet'
+deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 ```
 
 로그에 나온 `/setup?code=…` 링크를 엽니다. 링크는 `PUBLIC_URL`로 만들어지므로 프록시를 거쳐 공개 주소에서 열립니다. 서버는 `PUBLIC_URL`이 아닌 출처에서 보낸 양식을 거절하므로 그 주소를 씁니다(`PUBLIC_URL`을 그렇게 바꾸지 않았다면 터널로 연 `localhost:3100`에서는 안 됩니다). 링크는 계정이 하나도 없을 때 한 번만 쓸 수 있고, 그 전에 다시 시작하면 새 링크가 나옵니다. 설정 화면에도 가입 화면과 같은 동의 항목이 나옵니다. 운영자도 약관에 동의합니다. 관리자 계정은 만료되지 않습니다. 계정이 생기면 가입 화면이 모두에게 열립니다.
@@ -83,7 +99,7 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 - `curl -s https://demo.example.com/api/auth/mode`에 `loginId`, `instanceLabel`, `legal`, `limits`(`trashDays` 포함), `disabledFeatures`가 보이고 `setupPending`이 `false`입니다.
 - 시크릿 창에서 가입 화면이 아이디를 묻고, 고지와 체크되지 않은 항목 여섯 개를 보여 주며, 모두 체크하기 전에는 가입 단추가 꺼져 있습니다. `/terms`와 `/privacy`는 로그인하지 않아도 열립니다.
 - 가입한 뒤 삭제 예정일이 보이고, 휴대폰과 컴퓨터 모두에서 "Demo" 표시가 보입니다.
-- `docker compose … ps`에 공개된 데이터베이스 포트가 없고, 앱은 `127.0.0.1:3100`만 있습니다.
+- `deploy/demo/demo.sh config`가 `ok` 줄만 보여 주고, `deploy/demo/demo.sh ps`에 공개된 데이터베이스 포트가 없으며 앱은 `127.0.0.1:3100`만 있습니다.
 - 관리자 › 백업에 일 7, 주 0, 월 0이 보입니다.
 - 한 네트워크에서 하루에 세 번째 가입은 거절됩니다(프록시가 실제 주소를 넘깁니다).
 
@@ -114,6 +130,11 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 | `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시 |
 | `INSTANCE_NOTICE` | 비움 | 로그인·가입·동의 화면과 모든 앱 화면 위에 보이는 공지(글자만, 500자까지) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | 남기는 백업 세트 수 |
+| `SIGNUP_PER_HOUR` | `10` | 서버 전체에서 한 시간에 만들 수 있는 계정 수(설정 링크로 만든 계정은 세지 않음) |
+| `OAUTH_UNUSED_CLIENT_HOURS` | `24` | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을 등록 후 이 시간이 지나면 삭제 |
+| `OAUTH_UNUSED_CLIENT_MAX` | `500` | 한 번도 쓰이지 않은 OAuth 클라이언트를 남기는 최대 수. 새 등록이 가장 오래된 것부터 지움(15분이 안 된 것은 지우지 않음) |
+| `DEMO_PORT` | `127.0.0.1:3100` | 데모의 호스트 포트(3000은 안 됨) |
+| `DEMO_POSTGRES_PASSWORD`, `DEMO_APP_SECRET_KEY`, `DEMO_BACKUP_PASSPHRASE` | 새로 만든 값 | 데모 전용 비밀 값(위 "비밀 값") |
 
 메일, OIDC, 의미 검색, 실험 기능은 변수를 비워 두어 꺼 둡니다. MCP는 켜 둡니다.
 
@@ -125,12 +146,12 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 
 `ACCOUNT_LIFETIME_DAYS=14`는 가입 14일 뒤에 계정과 그 사람의 비공개 페이지와 파일, 그 사람만 있던 워크스페이스를 접속 여부와 상관없이 지웁니다. 백업에는 최대 7일 더 남습니다. 이 설정을 켜기 전에 만든 계정과 관리자 계정은 이 설정으로 지워지지 않습니다.
 
-실제로 지우기 전에 무엇을 지울지 보려면 `ACCOUNT_LIFETIME_DRY_RUN=1`로 시작합니다. 그러면 매시간 도는 정리 작업이 지울 계정마다 로그 한 줄(계정 id와 함께 지워질 워크스페이스 수)을 남기고 아무것도 지우지 않습니다. 첫 계정들의 삭제 예정일이 지나고 로그에 정확히 그 계정들만 나오면, 값을 비우고 `up -d app`을 다시 실행합니다.
+실제로 지우기 전에 무엇을 지울지 보려면 `ACCOUNT_LIFETIME_DRY_RUN=1`로 시작합니다. 그러면 매시간 도는 정리 작업이 지울 계정마다 로그 한 줄(계정 id와 함께 지워질 워크스페이스 수)을 남기고 아무것도 지우지 않습니다. 첫 계정들의 삭제 예정일이 지나고 로그에 정확히 그 계정들만 나오면, 값을 비우고 `deploy/demo/demo.sh up`을 다시 실행합니다.
 
 <a id="posting-a-notice"></a>
 ### 공지 올리기
 
-데모는 메일을 보내지 않고, 약관 틀은 공지(약관 변경, 서비스 변경, 중단, 개인정보 유출)를 앱 안과 로그인 화면에 올린다고 적었습니다. 그 수단이 `INSTANCE_NOTICE`입니다. `demo.env`에 적고(큰따옴표 안에서 `\n`이 줄바꿈, 500자까지) `up -d app`을 다시 실행합니다. 내릴 때도 값을 비우고 같은 방법으로 합니다. 공지는 링크 없이 글자로만 보이고 닫을 수 없습니다. 다시 시작하면 열려 있던 편집 연결이 끊겼다가 바로 다시 붙습니다.
+데모는 메일을 보내지 않고, 약관 틀은 공지(약관 변경, 서비스 변경, 중단, 개인정보 유출)를 앱 안과 로그인 화면에 올린다고 적었습니다. 그 수단이 `INSTANCE_NOTICE`입니다. `demo.env`에 적고(큰따옴표 안에서 `\n`이 줄바꿈, 500자까지) `deploy/demo/demo.sh up`을 다시 실행합니다. 내릴 때도 값을 비우고 같은 방법으로 합니다. 공지는 링크 없이 글자로만 보이고 닫을 수 없습니다. 다시 시작하면 열려 있던 편집 연결이 끊겼다가 바로 다시 붙습니다.
 
 <a id="closing-the-demo-without-notice"></a>
 ### 예고 없이 데모를 닫을 때
@@ -138,10 +159,10 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 데모를 닫으면 데이터베이스, 파일, 백업을 지체 없이 지운다고 처리방침 틀에 적혀 있습니다.
 
 ```bash
-docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml down -v
+deploy/demo/demo.sh destroy    # asks you to type inkling-demo
 ```
 
-`down -v`는 백업을 포함한 데모의 볼륨을 지우고, 운영 인스턴스는 건드리지 않습니다. `BACKUP_RCLONE_REMOTE`를 썼다면 원격 백업 사본도, 데모 주소의 프록시 접근 로그도, 채운 약관 폴더와 `demo.env`도 지웁니다. 서버가 갑자기 멈췄다면 다시 접속할 수 있게 되는 대로 이 일을 합니다.
+`destroy`는 `up`과 같은 검사를 거친 뒤 백업을 포함한 데모의 볼륨을 지우고, 운영 인스턴스는 건드리지 않습니다. `BACKUP_RCLONE_REMOTE`를 썼다면 원격 백업 사본도, 데모 주소의 프록시 접근 로그도, 채운 약관 폴더와 `demo.env`도 지웁니다. 서버가 갑자기 멈췄다면 다시 접속할 수 있게 되는 대로 이 일을 합니다.
 
 <a id="these-files-are-not-legal-advice"></a>
 ### 이 파일들은 법률 자문이 아닙니다

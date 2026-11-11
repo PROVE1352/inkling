@@ -62,6 +62,7 @@ import {
 import { CLEARED_SHARE_LINK } from '../shareSettings'
 import { usageSince, workspaceUsageFor } from '../connectionUsage'
 import type { AgentConnectionUsageDTO } from '@inkling/shared'
+import { hideAuditIds } from '../account/auditIds'
 
 /**
  * Workspace settings screen API (docs/adr/0945-* .. 0952-*): settings, audit log, connected
@@ -117,8 +118,8 @@ function toAuditDTO(r: typeof workspaceAuditEvents.$inferSelect): AuditEventDTO 
     actor: { id: r.actorId, name: r.actorName },
     viaClient: r.viaClient,
     target: r.targetType ? { type: r.targetType, id: r.targetId, label: r.targetLabel } : null,
-    before: (r.before as Record<string, unknown> | null) ?? null,
-    after: (r.after as Record<string, unknown> | null) ?? null,
+    before: hideAuditIds((r.before as Record<string, unknown> | null) ?? null),
+    after: hideAuditIds((r.after as Record<string, unknown> | null) ?? null),
     createdAt: r.createdAt.toISOString(),
   }
 }
@@ -447,7 +448,8 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
           actor: user,
           action: 'agent.blocked',
           target: { type: 'agent', id: clientId, label: clientName ?? 'all agents' },
-          after: { user: target?.name ?? null, client: clientName ?? 'all' },
+          // userId: account deletion removes the name by id (account/deletion.ts); not shown on the audit screen
+          after: { user: target?.name ?? null, userId: body.userId, client: clientName ?? 'all' },
         })
         return inserted[0]
       }
@@ -493,7 +495,7 @@ export async function registerWorkspaceAdminRoutes(app: FastifyInstance): Promis
         actor: user,
         action: 'agent.unblocked',
         target: { type: 'agent', id: b.clientId, label: b.clientName ?? 'all agents' },
-        before: { user: target?.name ?? null, client: b.clientName ?? 'all' },
+        before: { user: target?.name ?? null, userId: b.userId, client: b.clientName ?? 'all' },
       })
     })
     return reply.code(204).send()

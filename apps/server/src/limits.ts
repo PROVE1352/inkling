@@ -27,6 +27,9 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   INSTANCE_LABEL              ≤ 20 characters  a label every screen shows
  *   LIMIT_TRASH_DAYS            integer ≥ 7      cap on the days trashed pages are kept (contract §13)
  *   INSTANCE_NOTICE             ≤ 500 characters an operator notice on the sign-in, sign-up and app screens
+ *   SIGNUP_PER_HOUR             integer ≥ 1      accounts the whole server makes in one hour (contract §14)
+ *   OAUTH_UNUSED_CLIENT_HOURS   integer ≥ 1      dynamic OAuth clients never used are deleted this long after registering
+ *   OAUTH_UNUSED_CLIENT_MAX     integer ≥ 1      cap on dynamic OAuth clients never used (oldest go first)
  *
  * This module only reads the settings. Enforcing them is done where things are created.
  */
@@ -63,6 +66,12 @@ export interface Limits {
   trashDays?: number
   /** INSTANCE_NOTICE (docs/adr/2526-*): plain text, line breaks kept. Absent when unset. */
   instanceNotice?: string
+  /** SIGNUP_PER_HOUR (security fix, docs/adr/2537-*): accounts per hour on the whole server. Absent when unset. */
+  signupPerHour?: number
+  /** OAUTH_UNUSED_CLIENT_HOURS (docs/adr/2536-*): never-used dynamic clients go after this many hours. Absent when unset. */
+  oauthUnusedClientHours?: number
+  /** OAUTH_UNUSED_CLIENT_MAX (docs/adr/2536-*): cap on never-used dynamic clients. Absent when unset. */
+  oauthUnusedClientMax?: number
   /** Boot warnings for settings that are valid but do nothing as combined. */
   warnings: string[]
 }
@@ -173,6 +182,10 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceNotice = n
   }
 
+  const signupPerHour = int(e, 'SIGNUP_PER_HOUR')
+  const oauthUnusedClientHours = int(e, 'OAUTH_UNUSED_CLIENT_HOURS')
+  const oauthUnusedClientMax = int(e, 'OAUTH_UNUSED_CLIENT_MAX')
+
   const limits: Limits = {
     loginIdMode,
     signupMaxUsers: int(e, 'SIGNUP_MAX_USERS'),
@@ -191,6 +204,9 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceLabel: label,
     ...(trashDays !== null ? { trashDays } : {}),
     ...(instanceNotice !== null ? { instanceNotice } : {}),
+    ...(signupPerHour !== null ? { signupPerHour } : {}),
+    ...(oauthUnusedClientHours !== null ? { oauthUnusedClientHours } : {}),
+    ...(oauthUnusedClientMax !== null ? { oauthUnusedClientMax } : {}),
     warnings,
   }
   if (accountLifetimeDryRun && limits.accountLifetimeDays === null) {
@@ -246,6 +262,9 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.instanceLabel !== null) on.push(`instance label "${l.instanceLabel}"`)
   if (l.trashDays !== undefined) on.push(`trash kept at most ${l.trashDays} days`)
   if (l.instanceNotice !== undefined) on.push(`instance notice (${[...l.instanceNotice].length} characters)`)
+  if (l.signupPerHour !== undefined) on.push(`${l.signupPerHour} sign-ups per hour`)
+  if (l.oauthUnusedClientHours !== undefined) on.push(`unused OAuth clients deleted after ${l.oauthUnusedClientHours} hours`)
+  if (l.oauthUnusedClientMax !== undefined) on.push(`at most ${l.oauthUnusedClientMax} unused OAuth clients`)
   const lines: string[] = []
   if (on.length > 0) lines.push(`restricted mode: ${on.join(', ')}`)
   if (l.disabledFeatures.length > 0) lines.push(`features turned off: ${l.disabledFeatures.join(', ')}`)
@@ -270,7 +289,7 @@ export function setLimitsForTests(partial: Partial<Limits>): () => void {
   const before = { ...limits, disabledFeatures: [...limits.disabledFeatures], warnings: [...limits.warnings] }
   Object.assign(limits, partial)
   return () => {
-    // the optional settings (trashDays, instanceNotice) are absent when unset: drop a key the
+    // the optional settings (trashDays, instanceNotice, …) are absent when unset: drop a key the
     // partial added, so "unset" comes back as no key rather than a stale value
     for (const k of Object.keys(limits) as (keyof Limits)[]) if (!(k in before)) delete limits[k]
     Object.assign(limits, before)

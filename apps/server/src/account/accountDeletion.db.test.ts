@@ -165,6 +165,8 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
     const ownBlob = await blob(own.id, ownPage, person.id)
     // the workspace made at sign-up keeps the name; carol (plain, joined first) and bob (admin) are in it
     const soleOwned = await makeWs(person, [{ id: carol.id }, { id: bob.id, role: 'admin' }], `${unique}'s workspace`)
+    // made at sign-up: created_by is the person (the rename finds it by that id, docs/adr/2535-*)
+    await db.update(schema.workspaces).set({ createdBy: person.id }).where(eq(schema.workspaces.id, soleOwned.id))
     const soleOwnedPage = await newPage(person, soleOwned.id, 'team page')
     const theirs = await makeWs(bob, [{ id: person.id }, { id: carol.id }], `Bob's team ${tag()}`)
     const shared = await newPage(person, theirs.id, 'shared by the person')
@@ -176,7 +178,7 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
     // audit rows that copy the name: a lock's editor list, an earlier ownership transfer of a workspace
     await db.insert(schema.workspaceAuditEvents).values({
       workspaceId: theirs.id, actorId: bob.id, actorName: bob.name, action: 'page.locked',
-      targetType: 'page', targetId: bobPage, targetLabel: 'bob page', after: { editors: [unique, bob.name] },
+      targetType: 'page', targetId: bobPage, targetLabel: 'bob page', after: { editors: [unique, bob.name], editorIds: [person.id, bob.id] },
     })
     const left = await makeWs(bob, [{ id: person.id }], `Left ${tag()}`)
     assert.equal((await call(person.cookie, 'DELETE', `/workspaces/${left.id}/members/${person.id}`)).statusCode, 204)
@@ -411,7 +413,8 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
     const ws = await makeWs(bob, [{ id: p.id }])
     await db.insert(schema.workspaceAuditEvents).values([
       { workspaceId: ws.id, actorId: bob.id, actorName: bob.name, action: 'member.role_changed', targetType: 'user', targetId: bob.id, targetLabel: bob.name, before: { role: 'member' }, after: { role: 'admin' } },
-      { workspaceId: ws.id, actorId: bob.id, actorName: bob.name, action: 'workspace.transferred', targetType: 'user', targetId: bob.id, targetLabel: bob.name, before: { owner: 'member', targetRole: 'member' }, after: { owner: bob.name } },
+      // the person handed a workspace to Bob: its name is the transfer's `before.owner` (tied by actor_id)
+      { workspaceId: ws.id, actorId: p.id, actorName: p.name, action: 'workspace.transferred', targetType: 'user', targetId: bob.id, targetLabel: bob.name, before: { owner: 'member', targetRole: 'member' }, after: { owner: bob.name } },
     ])
     assert.equal((await deleteAccount(p.id, { by: 'self' })).deleted, true)
     const rows = await db.select().from(schema.workspaceAuditEvents).where(eq(schema.workspaceAuditEvents.workspaceId, ws.id))

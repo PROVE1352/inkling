@@ -163,4 +163,5 @@ export default {
   'errors.REAUTH_REQUIRED': 'For your safety, sign in again and then try once more.',
   'errors.SETUP_REQUIRED': 'This server has no operator account yet, so it does not take sign-ups. The operator first creates an account with the setup link in the server log.',
   'errors.LIMIT_TRASH_DAYS': 'This server does not keep trashed pages that long. Pick a number up to the limit shown in the settings.',
+  'errors.SIGNUP_RATE_LIMIT': 'This server has taken as many sign-ups as it allows for now. Try again in an hour.',
 } satisfies Record<string, string>

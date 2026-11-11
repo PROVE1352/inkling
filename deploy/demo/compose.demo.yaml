@@ -1,14 +1,19 @@
 # Demo instance overlay (restricted mode, 0.22; docs/DEMO.md). A separate Inkling server for strangers to
 # try: its own compose project, database, volumes, network and port, with the demo limits switched on.
-# Run it from the repository root, always with the demo env file (never the production .env):
+# Start, stop and check it only with deploy/demo/demo.sh (it fixes the project name, ignores the shell's
+# variables and refuses to act when the result does not look like the demo):
 #
 #   cp deploy/demo/demo.env.example deploy/demo/demo.env      # then fill in the secrets and the URL
-#   docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
+#   deploy/demo/demo.sh up
 #
 # compose.yaml stays the base (same image, backups and health checks); this file only adds to it.
+# Every name the production instance also has (compose project, volumes, network, database role and
+# database) is written out here as the demo's own and never read from a variable: an exported
+# COMPOSE_PROJECT_NAME or INKLING_DATA_NAME in the shell cannot point the demo at production's data
+# (0.22 security fix F7, docs/adr/2538-*). The secrets have demo-only variable names (DEMO_*).
 # Every demo setting below is required (`:?`): with a missing line, or with the production .env, compose
 # refuses to start instead of opening an unlimited public server.
-name: '${INKLING_DEMO_PROJECT:?run with --env-file deploy/demo/demo.env (see deploy/demo/README.md)}'
+name: inkling-demo
 
 x-demo-limits: &demo-limits
   # compose.yaml passes the 0.22 settings as optional (empty = off); here each one is required, so the demo
@@ -38,10 +43,23 @@ x-demo-limits: &demo-limits
   AGENT_UPLOAD_DAILY_MB: ${AGENT_UPLOAD_DAILY_MB:?set in deploy/demo/demo.env}
   PUBLIC_URL: ${PUBLIC_URL:?set in deploy/demo/demo.env}
   TRUST_PROXY: ${TRUST_PROXY:?set in deploy/demo/demo.env}
+  # The demo's own database and secret (never production's: docs/DEMO.md, "Secrets").
+  DATABASE_URL: postgres://inkling_demo:${DEMO_POSTGRES_PASSWORD:?set in deploy/demo/demo.env}@db:5432/inkling_demo
+  APP_SECRET_KEY: ${DEMO_APP_SECRET_KEY:?set in deploy/demo/demo.env}
+  # Set only by deploy/demo/demo.sh: plain `docker compose` with this file stops here, because the shell's
+  # COMPOSE_PROJECT_NAME would still name the project (and replace production's containers on `up`).
+  DEMO_VIA_SCRIPT: ${DEMO_VIA_SCRIPT:?start, stop and check the demo with deploy/demo/demo.sh (docs/DEMO.md)}
+  # Settings added after the security review (contract §14).
+  SIGNUP_PER_HOUR: ${SIGNUP_PER_HOUR:?set in deploy/demo/demo.env}
+  OAUTH_UNUSED_CLIENT_HOURS: ${OAUTH_UNUSED_CLIENT_HOURS:?set in deploy/demo/demo.env}
+  OAUTH_UNUSED_CLIENT_MAX: ${OAUTH_UNUSED_CLIENT_MAX:?set in deploy/demo/demo.env}
 
 services:
   app:
     environment: *demo-limits
+    # The demo's own host port (production's default is 3000; demo.sh refuses 3000).
+    ports: !override
+      - "${DEMO_PORT:?set in deploy/demo/demo.env}:3000"
     volumes:
       # Terms, privacy policy and sign-up texts (deploy/demo/legal is the template with placeholders).
       - ${DEMO_LEGAL_DIR:?set in deploy/demo/demo.env}:/legal:ro
@@ -50,6 +68,12 @@ services:
     pids_limit: ${APP_PIDS_LIMIT:?set in deploy/demo/demo.env}
 
   db:
+    environment:
+      POSTGRES_USER: inkling_demo
+      POSTGRES_DB: inkling_demo
+      POSTGRES_PASSWORD: ${DEMO_POSTGRES_PASSWORD:?set in deploy/demo/demo.env}
+      PGUSER: inkling_demo
+      PGDATABASE: inkling_demo
     mem_limit: ${PG_MEM_LIMIT:?set in deploy/demo/demo.env}
     cpus: ${PG_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${PG_PIDS_LIMIT:?set in deploy/demo/demo.env}
@@ -60,11 +84,25 @@ services:
     cpus: ${BACKUP_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${BACKUP_PIDS_LIMIT:?set in deploy/demo/demo.env}
     environment:
+      PGUSER: inkling_demo
+      PGDATABASE: inkling_demo
+      PGPASSWORD: ${DEMO_POSTGRES_PASSWORD:?set in deploy/demo/demo.env}
+      BACKUP_PASSPHRASE: ${DEMO_BACKUP_PASSPHRASE:-}
       # Backups follow the privacy policy: daily sets for 7 days, no weekly or monthly sets.
       BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:?set in deploy/demo/demo.env}
       BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:?set in deploy/demo/demo.env}
       BACKUP_KEEP_MONTHLY: ${BACKUP_KEEP_MONTHLY:?set in deploy/demo/demo.env}
 
+volumes:
+  db:
+    name: inkling-demo_db
+  data:
+    name: inkling-demo_data
+  backups:
+    name: inkling-demo_backups
+  backup-ctl:
+    name: inkling-demo_backup-ctl
+
 networks:
   default:
-    name: ${INKLING_DEMO_PROJECT}_net
+    name: inkling-demo_net

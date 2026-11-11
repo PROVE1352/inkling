@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { and, count, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, ne, sql, type SQL } from 'drizzle-orm'
 import { withAdminLock } from '../accounts'
 import { bumpAcl } from '../aclVersion'
 import { db } from '../db/index'
@@ -13,6 +13,7 @@ import { closeConnectionsOfGonePages, closeUserConnections } from '../liveConnec
 import { broadcastToUser } from '../collab'
 import { lockTree, purgeDeletedSubtrees, type Tx } from '../pageTree'
 import { recordAudit } from '../workspaceAdmin'
+import { AUDIT_NAME_ID_PAIRS } from './auditIds'
 import { purgeWorkspacesTx } from '../workspaceDeletion'
 
 /**
@@ -32,7 +33,7 @@ import { purgeWorkspacesTx } from '../workspaceDeletion'
  *           (who gets an in-app notification, even past LIMIT_WORKSPACES_PER_USER); its private
  *           pages and private templates are deleted at once; its name and sign-in ID are scrubbed
  *           from the rows that copied them as text (audit log, change log, auto-made workspace
- *           names, invitations to its address). Sessions, tokens, OAuth links, push subscriptions,
+ *           names, invitations to its address), found by its id only (scrubCopiedNames). Sessions, tokens, OAuth links, push subscriptions,
  *           2FA and consent records go with the users row (ON DELETE CASCADE).
  */
 
@@ -264,7 +265,7 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
     // Invitations addressed to the account's email.
     await tx.execute(sql`DELETE FROM page_invites WHERE email = ${target.email.toLowerCase()}`)
 
-    await scrubCopiedNames(tx, userId, staying, target)
+    await scrubCopiedNames(tx, userId, target)
 
     await tx.delete(users).where(eq(users.id, userId))
     return { deleted: true, deletedWorkspaces: purgeIds.length, transferredWorkspaces: plan.transfer.length }
@@ -283,74 +284,105 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
 }
 
 /**
- * Rows of the surviving workspaces that copied the account's name or sign-in ID as text
- * (docs/adr/2517-*, the survey table): the audit log's actor name, target label and before/after
- * values, and the workspace name made at sign-up ("<name>'s workspace").
+ * Rows that copied the account's name or sign-in ID as text (docs/adr/2517-*, 2535-*), found **by the
+ * account's id only** (contract §14): a row or value about anyone else, even someone with the same
+ * display name, never changes.
+ *
+ *   workspace_audit_events  actor_name of its rows (actor_id), target_label of rows about it
+ *                           (target_id), and the JSON values the write sites keep beside an id
+ *                           (AUDIT_NAME_ID_PAIRS; the ownership transfer's owners by actor/target)
+ *   workspaces              the workspace it made at sign-up ("<name>'s workspace", created_by), and
+ *                           that name in the workspace's own audit rows (label, a rename's `name`)
+ *
+ * A name copied without an id (audit rows written before 0.22's fix: a lock's editor list, an agent
+ * block's member) cannot be told apart from a namesake's and stays.
  */
-async function scrubCopiedNames(tx: Tx, userId: string, staying: string[], who: { name: string; email: string }): Promise<void> {
-  // Workspaces the account left earlier keep audit rows about it too ("member.left", its name as label).
-  const referenced = (await tx.execute(sql`
-    SELECT DISTINCT workspace_id AS id FROM workspace_audit_events
-     WHERE actor_id = ${userId} OR (target_id IS NOT NULL AND position(${userId} in target_id) > 0)
-  `)) as unknown as { id: string }[]
-  const wsIds = [...new Set([...staying, ...referenced.map((r) => r.id)])]
+async function scrubCopiedNames(tx: Tx, userId: string, who: { name: string }): Promise<void> {
   await tx.execute(sql`UPDATE workspace_audit_events SET actor_name = '' WHERE actor_id = ${userId}`)
   await tx.execute(sql`
     UPDATE workspace_audit_events SET target_label = NULL
      WHERE target_id IS NOT NULL AND position(${userId} in target_id) > 0
   `)
-  const needles = [...new Set([who.name, who.email].filter((s) => s.length > 0))]
-  if (wsIds.length > 0 && needles.length > 0) {
-    // JSON-quoted exact values only ("Alice" matches "Alice", not "Alice Kim").
-    const likes = needles.map((s) => `%${escapeLike(JSON.stringify(s))}%`)
-    const rows = (await tx.execute(sql`
-      SELECT id, before, after, target_label AS "targetLabel" FROM workspace_audit_events
-       WHERE workspace_id = ANY(${pgUuids(wsIds)}::uuid[])
-         AND (before::text LIKE ANY(${pgTexts(likes)}::text[]) OR after::text LIKE ANY(${pgTexts(likes)}::text[])
-              OR target_label = ANY(${pgTexts(needles)}::text[]))
-    `)) as unknown as { id: string; before: unknown; after: unknown; targetLabel: string | null }[]
-    const set = new Set(needles)
-    for (const r of rows) {
+  const idLike = `%${userId}%`
+  const rows = (await tx.execute(sql`
+    SELECT id, action, actor_id AS "actorId", target_id AS "targetId", before, after FROM workspace_audit_events
+     WHERE (action = 'workspace.transferred' AND (actor_id = ${userId} OR target_id = ${userId}))
+        OR before::text LIKE ${idLike} OR after::text LIKE ${idLike}
+  `)) as unknown as AuditJsonRow[]
+  for (const r of rows) {
+    const before = scrubAuditValue(r, 'before', userId)
+    const after = scrubAuditValue(r, 'after', userId)
+    if (JSON.stringify(before) === JSON.stringify(r.before) && JSON.stringify(after) === JSON.stringify(r.after)) continue
+    await tx.execute(sql`
+      UPDATE workspace_audit_events SET before = ${jsonOrNull(before)}::jsonb, after = ${jsonOrNull(after)}::jsonb WHERE id = ${r.id}
+    `)
+  }
+  // The workspace made at sign-up carries the name; with other members it stays, renamed. Only the
+  // ones this account made (created_by is its id): a namesake's "<name>'s workspace" keeps its name.
+  // Their audit rows copied that name too (workspace label of delete/restore/export rows, the
+  // `name` of a rename's before/after): replaced the same way, in those workspaces only.
+  if (who.name.length > 0) {
+    const ko = `${who.name}의 워크스페이스`
+    const en = `${who.name}'s workspace`
+    const made = (await tx.execute(sql`SELECT id FROM workspaces WHERE created_by = ${userId}`)) as unknown as { id: string }[]
+    const repl = (v: SQL) => sql`CASE WHEN ${v} = ${ko} THEN '워크스페이스' ELSE 'Workspace' END`
+    for (const { id } of made) {
+      await tx.execute(sql`
+        UPDATE workspace_audit_events SET target_label = ${repl(sql`target_label`)}
+         WHERE workspace_id = ${id} AND target_type = 'workspace' AND target_id = ${id} AND target_label IN (${ko}, ${en})
+      `)
       await tx.execute(sql`
         UPDATE workspace_audit_events
-           SET before = ${jsonOrNull(scrubJson(r.before, set))}::jsonb,
-               after = ${jsonOrNull(scrubJson(r.after, set))}::jsonb,
-               target_label = ${r.targetLabel !== null && set.has(r.targetLabel) ? null : r.targetLabel}
-         WHERE id = ${r.id}
+           SET before = CASE WHEN before->>'name' IN (${ko}, ${en}) THEN jsonb_set(before, '{name}', to_jsonb(${repl(sql`before->>'name'`)}::text)) ELSE before END,
+               after = CASE WHEN after->>'name' IN (${ko}, ${en}) THEN jsonb_set(after, '{name}', to_jsonb(${repl(sql`after->>'name'`)}::text)) ELSE after END
+         WHERE workspace_id = ${id} AND action = 'workspace.updated'
+           AND (before->>'name' IN (${ko}, ${en}) OR after->>'name' IN (${ko}, ${en}))
       `)
     }
-    // The workspace made at sign-up carries the name; with other members it stays, renamed.
     await tx.execute(sql`
-      UPDATE workspaces
-         SET name = CASE WHEN name = ${`${who.name}의 워크스페이스`} THEN '워크스페이스' ELSE 'Workspace' END
-       WHERE id = ANY(${pgUuids(wsIds)}::uuid[])
-         AND name IN (${`${who.name}의 워크스페이스`}, ${`${who.name}'s workspace`})
+      UPDATE workspaces SET name = ${repl(sql`name`)}
+       WHERE created_by = ${userId} AND name IN (${ko}, ${en})
     `)
   }
 }
 
-/**
- * Audit before/after keys whose values are people's names (workspace.transferred `owner`, the lock's
- * `editors`, …). Only these are scrubbed: a nickname such as "member" must not wipe a role value.
- */
-export const NAME_KEYS: ReadonlySet<string> = new Set(['owner', 'editors', 'name', 'user', 'users', 'by', 'author', 'actor', 'email', 'label'])
+export interface AuditJsonRow {
+  id: string
+  action: string
+  actorId: string | null
+  targetId: string | null
+  before: unknown
+  after: unknown
+}
 
-/** Replace string values equal to one of `needles` with null, under NAME_KEYS only (recursively). */
-export function scrubJson(v: unknown, needles: Set<string>, underName = false): unknown {
-  if (typeof v === 'string') return underName && needles.has(v) ? null : v
-  if (Array.isArray(v)) return v.map((x) => scrubJson(x, needles, underName))
-  if (v && typeof v === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [k, x] of Object.entries(v)) out[k] = scrubJson(x, needles, underName || NAME_KEYS.has(k))
-    return out
+/**
+ * One audit JSON value with the deleted account's entries set to null, by id only (pure, for tests):
+ * a name beside the account's id, and the transfer row's `owner` on the side the account was on
+ * (before = the actor, after = the target; that row's shape since 0.13, so older rows are covered).
+ */
+export function scrubAuditValue(r: AuditJsonRow, side: 'before' | 'after', userId: string): unknown {
+  const v = r[side]
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return v
+  const out: Record<string, unknown> = { ...(v as Record<string, unknown>) }
+  if (r.action === 'workspace.transferred' && 'owner' in out) {
+    if ((side === 'before' && r.actorId === userId) || (side === 'after' && r.targetId === userId)) out.owner = null
   }
-  return v
+  for (const { name, ids } of AUDIT_NAME_ID_PAIRS) {
+    const n = out[name]
+    const i = out[ids]
+    if (Array.isArray(n) && Array.isArray(i) && n.length === i.length) {
+      out[name] = n.map((x, k) => (i[k] === userId ? null : x))
+      out[ids] = i.map((x) => (x === userId ? null : x))
+    } else if (i === userId) {
+      if (name in out) out[name] = null
+      out[ids] = null
+    }
+  }
+  return out
 }
 
 const jsonOrNull = (v: unknown) => (v === null || v === undefined ? null : JSON.stringify(v))
-const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 const pgUuids = (ids: string[]) => `{${ids.join(',')}}`
-const pgTexts = (xs: string[]) => `{${xs.map((x) => `"${x.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')}}`
 
 /**
  * Unlink upload blobs after the commit. A blob that cannot be removed stays as an orphan file (no

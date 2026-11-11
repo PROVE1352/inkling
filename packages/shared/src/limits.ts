@@ -60,6 +60,8 @@ export const RESTRICTED_MODE_ERRORS = {
   SETUP_REQUIRED: 403,
   /** LIMIT_TRASH_DAYS: a workspace asked for a longer trash retention than the server keeps (`{ limit }`). */
   LIMIT_TRASH_DAYS: 400,
+  /** SIGNUP_PER_HOUR: the server made as many accounts in the last hour as it allows. */
+  SIGNUP_RATE_LIMIT: 429,
 } as const
 
 export type RestrictedModeErrorCode = keyof typeof RESTRICTED_MODE_ERRORS

@@ -656,6 +656,8 @@ export async function applyLockChange(tx: Tx, target: LockTarget, input: SetPage
   let changed = false
   const names = await peopleNames([...new Set([...prev.editorIds, ...next.editorIds])])
   const nm = (ids: string[]) => ids.map((id) => names.get(id) ?? id)
+  // editorIds beside the names: account deletion removes a person's name from these rows by id only
+  // (account/deletion.ts AUDIT_NAME_ID_PAIRS); the audit screen does not show them.
   if (input.locked !== target.editLocked) {
     await tx.update(pages).set({ editLocked: input.locked }).where(eq(pages.id, target.id))
     await recountLockedPages(tx, ws)
@@ -664,7 +666,7 @@ export async function applyLockChange(tx: Tx, target: LockTarget, input: SetPage
       actor,
       action: input.locked ? 'page.locked' : 'page.unlocked',
       target: { type: 'page', id: target.id, label },
-      ...(input.locked ? { after: { people: next.people, agents: next.agents, editors: nm(next.editorIds) } } : {}),
+      ...(input.locked ? { after: { people: next.people, agents: next.agents, editors: nm(next.editorIds), editorIds: next.editorIds } } : {}),
     })
     changed = true
     if (!input.locked) {
@@ -697,8 +699,8 @@ export async function applyLockChange(tx: Tx, target: LockTarget, input: SetPage
       actor,
       action: 'page.lock_editors_changed',
       target: { type: 'page', id: target.id, label },
-      before: { people: prev.people, agents: prev.agents, editors: nm(prev.editorIds) },
-      after: { people: next.people, agents: next.agents, editors: nm(next.editorIds) },
+      before: { people: prev.people, agents: prev.agents, editors: nm(prev.editorIds), editorIds: prev.editorIds },
+      after: { people: next.people, agents: next.agents, editors: nm(next.editorIds), editorIds: next.editorIds },
     })
     changed = true
   }

@@ -31,16 +31,22 @@ import {
   newSocketQueueGuard,
   SOCKET_BURST_BYTES,
   takeBytes,
+  noteCollabApplied,
   noteCollabRefused,
   noteCollabStored,
   noteCollabUnloaded,
   noteSocketConnected,
   noteSocketDisconnected,
+  settleCollabPage,
   syncGrowthBytes,
+  collabFullInMemory,
   type ByteBucket,
   type SocketQueueGuard,
 } from './quota/collabGrowth'
 import { onInstanceFullChange } from './quota/instance'
+import { liveStructCount, pendingUpdateBytes, structGrowthBound, syncUpdateBounds, updateShape } from './collabUpdateShape'
+import { admitAwarenessFrame, frameMessageType, newSocketAwareness, releaseAwareness, type SocketAwareness } from './collabAwareness'
+import { ipPrefixKey } from './ipPrefix'
 import { liveDocChangedSinceStore, liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
@@ -406,6 +412,12 @@ export const hocuspocus = new Hocuspocus({
     loadedStamps.delete(documentName)
     trackLiveDoc(document, loaded?.stamp ?? null)
     loadedDocs.add(document)
+    // What an update from a socket really added (0.22.1 N4, quota/collabGrowth.ts): Yjs encodes only the
+    // new structs and deletions, and emits nothing for an update the document already held. Hocuspocus
+    // listens to the same event, so the encoding is shared. A no-op without a storage limit.
+    document.on('update', (u: Uint8Array, origin: unknown) => {
+      if (origin && typeof origin === 'object' && 'webSocket' in origin) noteCollabApplied(documentName, u.length)
+    })
     // Document schema (docs/adr/2425-*): connections of older clients become read-only the moment
     // the page gains a node type they do not know.
     watchDocSchema(document, onSchemaRaised)
@@ -429,28 +441,56 @@ export const hocuspocus = new Hocuspocus({
   async afterUnloadDocument({ documentName }) {
     if (isPageDocument(documentName)) noteCollabUnloaded(documentName)
   },
-  async onDisconnect({ documentName, context }) {
-    const guard = (context as { queueGuard?: SocketQueueGuard } | undefined)?.queueGuard
-    if (guard) noteSocketDisconnected(guard, documentName)
+  async onDisconnect({ documentName, context, document }) {
+    const ctx = context as { queueGuard?: SocketQueueGuard; awareness?: SocketAwareness } | undefined
+    if (ctx?.queueGuard) noteSocketDisconnected(ctx.queueGuard, documentName)
+    if (ctx) releaseAwareness(ctx, ctx.awareness, (document as unknown as { awareness?: { states: Map<number, unknown>; meta: Map<number, unknown> } }).awareness)
   },
   // Document schema guard (docs/adr/2425-*), before every message a connection sends: a client older
   // than the page's newest node type never writes it. Hocuspocus checks `readOnly` when it applies the
   // message, after this hook, so an update sent after the page gained such a node is dropped
   // (SyncStatus false) even when the connection was authorised before. Cheap for current clients.
   async beforeHandleMessage({ connection, context, document, documentName, update }) {
+    // Awareness (0.22.1 N1(c), collabAwareness.ts, every server): a message past the caps on client ids
+    // or sizes is never applied, and the socket is closed. Read-only connections included: Hocuspocus
+    // applies their awareness too.
+    if (frameMessageType(update) === AWARENESS_MESSAGE) {
+      const ctx = (context ?? {}) as { awareness?: SocketAwareness }
+      const why = admitAwarenessFrame(update, ctx, ctx.awareness)
+      if (why) refuseFrame(connection, `awareness ${why}`)
+    }
+    // The inbox (0.22.1 N1(b)): the server only sends on it (stateless notices) and the web app never
+    // writes its empty document, but Hocuspocus applied whatever a client sent, and nothing ever stored or
+    // dropped it. The connection is read-only (onAuthenticate), and any update that carries something is
+    // refused here, before Hocuspocus decodes it (a read-only step 2 is decoded in full to compare).
+    if (documentName.startsWith(INBOX_PREFIX)) {
+      const b = syncUpdateBounds(update)
+      if (b) {
+        const shape = updateShape(update, b.start, b.end)
+        if (!shape.parsed || shape.structs > 0 || shape.deleteRanges > 0) refuseFrame(connection, 'an update to the inbox')
+      }
+      return
+    }
     // Storage limit and instance fuse (contract §14, docs/adr/2530-*): an update that does not fit is
     // never applied. Decided synchronously, before anything else here awaits.
     if (!connection.readOnly && collabGuardsOn() && isPageDocument(documentName) && loadedDocs.has(document)) {
       const bytes = syncGrowthBytes(update)
       const ws = (context as { workspaceId?: unknown } | undefined)?.workspaceId
       if (bytes > 0 && typeof ws === 'string') {
-        const verdict = admitCollabUpdate(documentName, ws, bytes, () => encodeStoredState(document).length)
+        // the structs it may add (0.22.1 N1(a)): read from its bytes, without decoding it
+        const b = syncUpdateBounds(update)
+        const growth = b ? structGrowthBound(updateShape(update, b.start, b.end)) : bytes
+        const verdict = admitCollabUpdate(documentName, ws, bytes, () => encodeStoredState(document).length, {
+          growth,
+          live: () => liveStructCount(document) + pendingUpdateBytes(document),
+        })
         if (verdict !== 'ok') {
           connection.readOnly = true
-          if (verdict !== 'instance') noteCollabRefused(documentName, verdict)
+          if (verdict !== 'instance') noteCollabRefused(documentName, verdict, ws)
           reconnectForStorage(connection as unknown as SchemaConnection & { sendStateless?: (p: string) => void }, verdict)
           return
         }
+        settleSoon(documentName, document)
       }
     }
     const client = (context as { schema?: unknown } | undefined)?.schema
@@ -477,6 +517,8 @@ export const hocuspocus = new Hocuspocus({
     if (data.documentName.startsWith(INBOX_PREFIX)) {
       const inboxUserId = data.documentName.slice(INBOX_PREFIX.length)
       if (inboxUserId !== user.id) throw new Error('Forbidden')
+      // nothing a client sends is applied to it (0.22.1 N1(b), beforeHandleMessage)
+      data.connection.readOnly = true
       return { userId: user.id, sessionToken: token }
     }
 
@@ -530,6 +572,8 @@ export const hocuspocus = new Hocuspocus({
     if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
     // Storage limit (docs/adr/2506-*): a full workspace, or a page past its body cap, is read-only.
     if (!data.connection.readOnly && (await collabStorageReadOnly(pageId, page.workspaceId))) data.connection.readOnly = true
+    // A page refused lately or past its struct cap (0.22.1 N1(a)), also with only the instance fuse set
+    if (!data.connection.readOnly && collabGuardsOn() && collabFullInMemory(pageId, page.workspaceId)) data.connection.readOnly = true
 
     // Document schema (docs/adr/2425-*): the client's version comes with the socket URL; 0.19 and
     // older send none (1). An older client than the page needs gets a read-only connection, decided
@@ -610,6 +654,45 @@ function reconnectForSchema(conns: SchemaConnection[]): void {
     }
   })
 }
+/** Hocuspocus's message type of awareness frames. */
+const AWARENESS_MESSAGE = 1
+
+/** Close code of a socket that sent what no client of ours sends (an awareness flood, an update to the inbox). */
+export const REFUSED_FRAME_CODE = 4400
+
+/**
+ * A frame past the caps (0.22.1 N1): never applied. The socket is terminated (not closed: the frames it
+ * already sent must not be handled while a close handshake runs), and the thrown error stops Hocuspocus
+ * from handling this one (it closes the document's connection).
+ */
+function refuseFrame(connection: unknown, why: string): never {
+  console.warn(`[inkling] collab socket closed: ${why}`)
+  try {
+    ;(connection as { webSocket?: { terminate?: () => void } }).webSocket?.terminate?.()
+  } catch {
+    // already gone
+  }
+  throw Object.assign(new Error(why), { code: REFUSED_FRAME_CODE, reason: 'refused' })
+}
+
+/** Pages with admitted updates waiting to be settled (quota/collabGrowth.ts settleCollabPage). */
+const settling = new Set<string>()
+
+/**
+ * After an admitted update: Hocuspocus applies it in this turn of the event loop (its hook chain is
+ * promises only), so on the next turn the page's counters can swap the frame's upper bounds for what the
+ * document really holds (0.22.1 N1(a), N4).
+ */
+function settleSoon(documentName: string, document: Y.Doc): void {
+  if (settling.has(documentName)) return
+  settling.add(documentName)
+  setImmediate(() => {
+    settling.delete(documentName)
+    if (hocuspocus.documents.get(documentName) !== document) return
+    settleCollabPage(documentName, pendingUpdateBytes(document), liveStructCount(document))
+  })
+}
+
 /** Close code of the storage reconnect: ordinary, so the provider connects again and is authorised read-only. */
 export const STORAGE_RECONNECT_CODE = 4000
 
@@ -744,14 +827,17 @@ export function attachCollab(httpServer: HttpServer): void {
   })
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
+    // the awareness each socket keeps (0.22.1 N1(c), every server)
+    const awareness = newSocketAwareness()
     if (!collabGuardsOn()) {
-      hocuspocus.handleConnection(socket, request)
+      hocuspocus.handleConnection(socket, request, { awareness })
       return
     }
     // Storage limit or instance fuse set (docs/adr/2530-*): bound the bytes a socket sends per second
     // and the frames Hocuspocus queues for documents not connected on it (it keeps them without
     // limit). Listening before Hocuspocus does, so this runs first for every frame.
-    const ip = clientIp(request)
+    // IPv6 per /64 (0.22.1 N1): one subscriber holds at least a /64
+    const ip = ipPrefixKey(clientIp(request), 64)
     // kept after the last socket closes (a reconnect must not refill it); a bucket that has refilled
     // completely says nothing and goes when the map grows
     if (bucketByIp.size > 1024) for (const [k, b] of bucketByIp) if (!connCountByIp.has(k) && takeBytes(b, 0) && b.tokens >= SOCKET_BURST_BYTES) bucketByIp.delete(k)
@@ -768,7 +854,7 @@ export function attachCollab(httpServer: HttpServer): void {
       // terminate, not close: the frames already received must not be handled while a close handshake runs
       socket.terminate()
     })
-    hocuspocus.handleConnection(socket, request, { queueGuard })
+    hocuspocus.handleConnection(socket, request, { queueGuard, awareness })
   })
 
   const reject = (socket: Duplex, status: string): void => {
@@ -796,6 +882,9 @@ export function attachCollab(httpServer: HttpServer): void {
       }
 
       const ip = clientIp(req)
+      // The connection cap counts an IPv6 client per /64 (0.22.1 N1, every server: the cap is), like the
+      // global request limit (rateLimitKey.ts) and the byte bucket above; IPv4 (mapped ones too) per address.
+      const connKey = ipPrefixKey(ip, 64)
 
       // 0) Audit F3: sliding-window throttle on upgrade attempts (regardless of auth,
       //    blocked before any DB round trip; mitigates auth floods).
@@ -839,25 +928,25 @@ export function attachCollab(httpServer: HttpServer): void {
       }
 
       // 2) Per-IP connection cap: reject beyond it
-      if ((connCountByIp.get(ip) ?? 0) >= MAX_CONN_PER_IP) {
+      if ((connCountByIp.get(connKey) ?? 0) >= MAX_CONN_PER_IP) {
         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
         socket.destroy()
         return
       }
 
       wss.handleUpgrade(req, socket, head, (ws) => {
-        connCountByIp.set(ip, (connCountByIp.get(ip) ?? 0) + 1)
+        connCountByIp.set(connKey, (connCountByIp.get(connKey) ?? 0) + 1)
         // Always attach a listener so socket-level errors such as exceeding maxPayload don't kill
         // the process as an unhandled 'error' (prevents one-shot crashes from malicious clients).
         ws.on('error', (err) => {
           console.error('[inkling] collab ws error', err)
         })
         ws.on('close', () => {
-          const n = (connCountByIp.get(ip) ?? 1) - 1
-          if (n <= 0) connCountByIp.delete(ip)
-          else connCountByIp.set(ip, n)
+          const n = (connCountByIp.get(connKey) ?? 1) - 1
+          if (n <= 0) connCountByIp.delete(connKey)
+          else connCountByIp.set(connKey, n)
           // Keep the upgradeHits map from growing without bound: clear expired records of IPs with no connections
-          if (!connCountByIp.has(ip)) {
+          if (!connCountByIp.has(connKey)) {
             const fresh = (upgradeHits.get(ip) ?? []).filter(
               (t) => Date.now() - t < UPGRADE_WINDOW_MS,
             )

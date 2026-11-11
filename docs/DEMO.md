@@ -255,9 +255,9 @@ for them. Measured for 0.22.1 with the production build: about 880 MB of WAL aft
 
 What one workspace can make the database grow by, measured for 0.22.1: a workspace's storage counts its files,
 page bodies, version history and the rows of its search indexes, but not Postgres's index entries and the space
-that rewriting leaves. Filled once with text, a workspace grew the database by about 1.6 × its limit with prose
-and about 7 × with random words written on purpose. 100 workspaces of 10 MB filled with prose come to about
-1.6 GB, under the 3,000 MB fuse; a few accounts writing random text can still trip the fuse on purpose. That
+that rewriting leaves. Filled once with text, a 10 MB workspace grew the database by about 1.3–1.5 × its limit
+with prose and about 3.7–7.3 × with random words written on purpose. 100 workspaces of 10 MB filled with prose
+come to about 1.5 GB, under the 3,000 MB fuse; a few accounts writing random text can still trip the fuse on purpose. That
 stops only the demo, and the filesystem keeps it off your main disk.
 
 ### Posting a notice

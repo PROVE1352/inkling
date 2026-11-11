@@ -30,34 +30,41 @@ These rules apply only on a server with `LIMIT_WORKSPACE_STORAGE_MB` (or, for th
   again in the background; only the first answer after boot (or after the limit changes) waits.
 - **Indexes**: the recount adds the rows of `page_texts`, `page_chunks`, `page_chunk_vectors`, `page_tasks`,
   `page_links`, `page_tags` and `page_former_titles` (`pg_column_size` of each row). The index pass runs
-  8–30 s after a body is stored, so the store (`noteBodyStore`, the one point every body store passes)
-  reserves `INDEX_BYTES_PER_BODY_BYTE` (2) per byte the body grew. Measured with 1 MB appends: 2.2 on
-  prose-like text, 2.3 on random words. A recount 40 s after a body grew (`recountAfterIndex`, one pending
-  per workspace) puts the real number in. Paths that create pages with bodies (import, duplicate, templates,
-  clipping) schedule the same recount.
+  8–30 s after a body is stored. So the store (`noteBodyStore`, the one point every body store passes)
+  reserves `INDEX_BYTES_PER_BODY_BYTE` (3) per byte the body grew. Measured with 1 MB appends, the index rows
+  are 2.2 per body byte on prose-like text and 2.3 on random words, and the change log keeps a copy of the
+  new text (about 1). A recount 40 s after a body grew (`recountAfterIndex`, one pending per workspace) puts
+  the real number in. Paths that create pages with bodies (import, duplicate, templates, clipping) schedule
+  the same recount.
 - Not counted: Postgres index entries (GIN, trigram) and dead rows. The fuse and the demo's own filesystem
   bound those.
 
-## Measured (production build, the demo preset, local Docker, 2 GB APFS disk image as DEMO_VOLUME_ROOT)
-- One-byte uploads into a 20 MB workspace: 4,095 taken plus one empty, then `LIMIT_STORAGE`, exactly
-  20 MB / 5 KB = 4,096 files. On disk: 16 MB of 4 KB blocks and 4,096 inodes. The database grew 0.8 MB.
-- The review's appends (1 MB of random words, 20 MB workspace): 7 taken, then `LIMIT_STORAGE`. Counted
-  23.0 MB after the recount. The database grew 142.7 MB (0.22.0: 21 taken, 432 MB). Of that, `page_chunks`
-  was 121 MB: 1.2 MB of heap, 59 MB of TOAST and 61 MB of GIN indexes, while its rows counted 15.5 MB.
-- Prose-like text (a 2,000-word vocabulary drawn by rank): 6 taken. Counted 19.4 MB after the recount; the
-  database grew 30.3 MB (1.56 × the count).
+## Measured (production build, demo preset, local Docker, 2 GB APFS disk image as DEMO_VOLUME_ROOT)
+- One-byte uploads into a 10 MB workspace: 2,047 taken plus one empty, then `LIMIT_STORAGE`. That is exactly
+  10 MB / 5 KB = 2,048 files. On disk: 8,188 KB of 4 KB blocks and 2,048 inodes. The database grew 0.5 MB.
+  At 20 MB: 4,096 files, 16 MB on disk.
+- The review's appends (1 MB of random words; the review's own run: 21 into 20 MB, database +432 MB):
+  - Into 10 MB: 4 taken, then `LIMIT_STORAGE`. Counted 13.7 MB after the recount; the database grew 36.5 MB.
+  - With an estimate of 2 (tried first): 5 taken, counted 17.7 MB, database +72.8 MB.
+  - At 20 MB with 3: 7 taken, counted 23.0 MB, database +142.7 MB. Of that, `page_chunks` was 121 MB:
+    1.2 MB of heap, 59 MB of TOAST and 61 MB of GIN indexes, while its rows counted 15.5 MB.
+- Prose-like text (a 2,000-word vocabulary drawn by rank) into 10 MB: 4 taken. Counted 13.4 MB; the database
+  grew 12.6 MB (14.9 MB in the run with 2).
+- A body write is checked against "full", not against its size, so one write still passes at the limit. The
+  count can end above the limit by about one write's body, index and change-log copy (here about 3.5 MB).
 - The walk of 100,000 one-byte files on APFS took 341–350 ms and saw 412.8 MB. The 0.22.0 walk took 882 ms
   and saw 100,000 B.
 
-So one workspace can grow the database by about 7 × its limit with adversarial text and about 1.6 × with
-prose. The demo preset is now 10 MB per workspace: 100 full workspaces of prose come to about 1.6 GB, under
-the 3,000 MB fuse. A few accounts writing random text on purpose can still trip the fuse. That stops only
-the demo, and its filesystem bounds the disk (ADR 2546).
+So one 10 MB workspace can grow the database by about 1.3–1.5 × its limit with prose and about 3.7–7.3 × with
+random text written on purpose (dead rows and GIN entries, which the count leaves out). The demo preset is
+now 10 MB per workspace, and 100 workspaces full of prose come to about 1.5 GB, under the 3,000 MB fuse. A few
+accounts writing random text can still trip the fuse. That stops only the demo, and the demo's filesystem
+bounds the disk (ADR 2546).
 
 ## Consequences
 - A workspace near its limit on a server with a limit can become read-only when it upgrades, because the
   indexes now count. Without a limit nothing changes.
-- The store-time estimate can overshoot for up to 40 s (on prose 24.2 MB was estimated and 19.4 MB
+- The store-time estimate can overshoot for up to 40 s (on prose at 20 MB, 24.2 MB was estimated and 19.4 MB
   recounted), so for that time a workspace near its limit can refuse a write it has room for.
 - Overshoot past the limit is bounded by the writes accepted before the recount lands, at most about 30 s
   of index passes.

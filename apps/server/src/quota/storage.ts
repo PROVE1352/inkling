@@ -136,13 +136,13 @@ export async function recountAllWorkspaces(): Promise<number> {
 export const STORE_RECOUNT_MS = 10 * 60 * 1000
 
 /**
- * Bytes of index rows (page_texts, page_chunks with their tsvector, tasks, links, tags) per byte a
- * stored body grows, reserved at store time until the recount sees the real rows (review N3). Measured
- * for 0.22.1 with 1 MB appends: 2.2 on prose-like text, 2.3 on the review's random words; the lower
- * whole number, so the estimate does not shut a workspace that has room (the recount 40 s later puts
- * the real number in either way, docs/adr/2545-*).
+ * Bytes the recount will find, besides the body itself, per byte a stored body grows: the index rows
+ * (page_texts, page_chunks with their tsvector, tasks, links, tags; 2.2 on prose-like text and 2.3 on the
+ * review's random words, measured for 0.22.1 with 1 MB appends) and the change log's copy of the new text
+ * (about 1). Reserved at store time until the recount sees the real rows (review N3); the recount 40 s
+ * later puts the real number in either way (docs/adr/2545-*).
  */
-export const INDEX_BYTES_PER_BODY_BYTE = 2
+export const INDEX_BYTES_PER_BODY_BYTE = 3
 
 /** The recount after a body grew waits this long: past the index pass's longest wait (30 s, docIndexer.ts). */
 export const INDEX_SETTLE_MS = 40_000

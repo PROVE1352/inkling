@@ -37,6 +37,16 @@ lists both.
   **I have a code**. If not, **I don't have a code** sends a request: you get an email if the server sends mail,
   otherwise your admin sends you a code.
 - The language follows your browser. Change it in Settings → Appearance → **Language**.
+- **Servers set up differently.** The person who runs a server (a demo server, for example) can change how you sign
+  up. You may sign up with an **ID** and a **Nickname** instead of an email address (3 to 30 lower-case letters,
+  digits, `.`, `_` or `-`); keep your real name, email address and phone number out of both. You may have to tick the
+  server's notices and terms before **Sign up**; `/terms` and `/privacy` open without signing in, and Settings links
+  to them. A label such as "Demo" can be shown on every screen.
+- **When the terms change**, you see **Agree to the terms to continue** after signing in, before anything else: read
+  them and **Agree and continue**, or **Sign out without agreeing**. The same screen has **Delete my account**.
+- **A deletion date.** On a server that deletes accounts some days after sign-up, "This account will be deleted on
+  YYYY-MM-DD." is shown under the workspace switcher (above the page on a phone, and on every screen in the last
+  three days), with an **Export** link. Export what you want to keep before that date.
 
 ### The intro and the Getting started card
 
@@ -75,6 +85,13 @@ Each workspace has two sections in the sidebar:
 To move a page between them, open the right panel → Properties → **Move to private** / **Move to shared**.
 
 Roles are **Owner**, **Admin** and **Member**. Owners change workspace settings; owners and admins publish pages to the web and manage edit locks.
+
+**Usage.** Workspace settings → General shows the workspace's members, pages (the trash included) and storage (files,
+page bodies, version history, handwriting, comments and the trash). On a server with limits it shows "used of limit".
+Creating past a limit (pages, members, the workspaces you own, the size of one file) shows a message that names it;
+deleted workspaces count toward the ones you own until they are deleted for good. When the storage is full, the
+workspace is read-only for everyone and a notice above the page says so. Delete files or pages and empty the trash,
+then open the usage again; a page that was already open stays read-only until you open it again.
 
 **Groups and archive.** Open the workspace menu at the top of the sidebar and choose **Organize workspaces…**. Make
 groups such as "Contests" or "Classes", choose a group for each workspace, and drag (or use the arrows) to change the
@@ -923,7 +940,9 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
   is saved first).
 - Every change an AI agent writes is its own version, **AI edit · step n**, with what it changed (which sections,
   how many lines). Restore the step before a bad one to undo just that part; later steps stay in the list.
-- A deleted workspace can be restored by its owner from Settings → Account → **Deleted workspaces** for 30 days.
+- A deleted workspace can be restored by its owner from Settings → Account → **Deleted workspaces** for 30 days (a
+  server can set another number; the screens show it). **Delete now** next to it deletes it for good at once, with
+  its pages and files; it cannot be restored after that.
 
 ## Settings and the sidebar
 
@@ -934,7 +953,15 @@ under Security; the app version, a link to this guide, the intro and the Getting
 
 Saved to your account (the same on every device):
 
-- **Account**: email verification, **Change password**, deleted workspaces.
+- **Account**: email verification, **Change password**, deleted workspaces, **Delete account**.
+
+**Delete account** (Settings → Account) first lists what goes: the workspaces where you are the only member, with their
+pages and files, your private pages in other workspaces, your account, sign-ins, tokens and connected apps. It also lists
+what stays for the other members: a shared workspace you own alone passes to another member, and your shared pages
+and comments stay without your name. Type the confirmation it shows (your email or ID) and your password, plus the
+two-step code when that is on; an account that signs in through another service must have signed in within the last
+ten minutes. It cannot be undone, and nothing is kept for restoring. The only admin of a server cannot delete their
+account.
 - **Security** (two-step verification), **Notifications**, **Sidebar**, **Calendar subscription (iCal)**.
 - **Language** (in the Appearance group).
 
@@ -1135,4 +1162,6 @@ with a reload link appears after 12 seconds.
 
 **How do I leave a workspace?**
 Workspace settings → **Danger zone** → **Leave workspace**. Your private pages there go to the trash. If you are
-the only owner, transfer ownership first.
+the only owner and there are other members, transfer ownership first. If you are the only member, leaving deletes the
+workspace with its pages and files and cannot be undone: type its name and press **Leave and delete**, or choose
+**Delete, restorable for N days** instead.

@@ -28,3 +28,7 @@ Start with the README for features and installation. For AI agents using a runni
 ## Optional
 - [Roadmap](docs/ROADMAP.md)
 - [README (Korean)](README.ko.md)
+- [User guide (Korean)](docs/GUIDE.ko.md)
+- [Deployment (Korean)](deploy/DEPLOY.ko.md)
+- [Operations (Korean)](docs/OPERATIONS.ko.md)
+- [Backups (Korean)](docs/BACKUP.ko.md)

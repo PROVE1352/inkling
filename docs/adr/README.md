@@ -974,6 +974,12 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2443](2443-public-render-cache-keyed-by-whose-charts.md) | The public render cache is keyed by whose access its charts use | Accepted |
 | [2444](2444-public-charts-only-of-approved-sources.md) | Public charts only of sources a manager approved | Accepted |
 
+## MCP tool annotations (0.20)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2460](2460-mcp-tool-annotations-on-every-tool.md) | MCP tool annotations on every tool | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

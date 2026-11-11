@@ -109,6 +109,8 @@ off until set: [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-pus
 New accounts get a short intro and a Getting started checklist; `ONBOARDING=off` turns that off and
 `ONBOARDING_EXISTING_USERS=once` shows the intro once to accounts from before 0.19 ([docs/OPERATIONS.md](docs/OPERATIONS.md#13-public-page-downloads-start-up-notices-and-onboarding-019)).
 Memory limits and Postgres tuning: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+The deployment, operations and backup guides are also in Korean: [deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md),
+[docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md), [docs/BACKUP.ko.md](docs/BACKUP.ko.md).
 
 ### Development
 

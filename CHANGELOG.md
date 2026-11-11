@@ -101,6 +101,10 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
 - Developers: a recall evaluation set for `find_context` (32 questions written the way people remember pages, over
   three workspaces) with page@1, page@3 and page MRR in `apps/server/scripts/context-bench.ts` and
   `context-tune.ts` (docs/adr/2400-*).
+- **Korean deployment, operations and backup guides**: `deploy/DEPLOY.ko.md`, `docs/OPERATIONS.ko.md` and
+  `docs/BACKUP.ko.md`, with the same sections, anchors and code blocks as the English files. The Korean README and
+  user guide link to them; each English file links to its Korean one.
+<!-- w20b:annotations-changelog -->
 
 ### Changed
 - **find_context finds pages people describe with a longer word than the page uses** (docs/adr/2401-* .. 2403-*):
@@ -118,6 +122,7 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   rewriting the page (docs/adr/2424-*).
 - **find_context's section text writes columns with read_page's marker lines**, without indenting the blocks
   inside, so a section copied from find_context into patch_section keeps its group (docs/adr/2424-*).
+<!-- w20b:site-changelog -->
 
 ### Fixed
 - Public links: a callout shows as in the editor, its type's icon and then the text, with line breaks, inline code,
@@ -129,21 +134,37 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   the light and dark themes; printed or saved as PDF they use the light colours (docs/adr/2387-*).
 - A section patch that the server refuses no longer shows up as an unhandled promise rejection in the server log
   (`gatedTransact`, docs/adr/2424-*).
+- Documentation: deploy/DEPLOY.md gives the language menu as Settings › Appearance › Language and the sign-in link
+  as "Forgot your password?", writes every menu path with ›, says plainly why plain HTTP (3-A) is for testing only,
+  and ties `deploy/local.sh`'s missing setup link to an image older than 0.17 instead of an unpublished one.
+  docs/BACKUP.md names `SHA256SUMS` as the file a tamperer would have to rewrite. docs/OPERATIONS.md points at the
+  BACKUP.md sections that exist, gives `effective_cache_size` as at most `PG_MEM_LIMIT` minus `shared_buffers` (as
+  both example columns already were), says that edits made offline are kept on the device when offline copies are
+  on, that it is a new VAPID key (not `APP_SECRET_KEY`) that voids push subscriptions, who a "manager" of public
+  charts is (a workspace owner or admin), and that `deploy/local.sh` makes a hex `POSTGRES_PASSWORD` and a base64
+  `APP_SECRET_KEY`. The user guide and docs/MCP.md say what the untrusted-content marking does not do: it helps an
+  agent tell notes from instructions but does not stop an injection by itself; read-only connections, ranges, edit
+  locks, suggestions and version history are what limit an agent. The Korean files carry the same fixes.
 
 ### Performance
-- Web bundle against 0.19.1 (365b664), measured on the columns tree (c356b62) before the public chart and public
-  page commits were added: entry `index-*.js` 447,198 → 447,036 B (122,992 → 122,969 B gzip); entry
-  plus modulepreload 1,374,102 → 1,376,227 B (404,600 → 404,970 B gzip); entry CSS 19,717 → 20,063 B gzip; the
-  column code sits in the editor chunk (CollabEditor, 126,072 → 130,874 B gzip); precache 107 → 105 entries,
-  +19,107 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
-- Public charts (docs/adr/2442-*): a public page with charts loads `PublicChartMount` (1,395 B gzip) and its CSS
-  (226 B), the chart adapter (962 B) and `ChartRender` (50,822 B, the app's chart chunk) only when the page has a
+- Web bundle against 0.19.1 (365b664), both built from `git archive` and measured back to back: entry `index-*.js`
+  447,198 → 449,412 B (122,995 → 123,356 B gzip); entry plus modulepreload 1,374,102 → 1,381,039 B (404,604 →
+  406,213 B gzip); entry CSS 19,717 → 20,944 B gzip (column, public callout and colour styles); the column code sits
+  in the editor chunk (CollabEditor, 126,070 → 130,001 B gzip, after the chart adapter left it); precache 107 → 109
+  entries, +36,890 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- Public charts (docs/adr/2442-*): a public page with charts loads `PublicChartMount` (1,392 B gzip) and its CSS
+  (226 B), the chart adapter (961 B) and `ChartRender` (50,822 B, the app's chart chunk) only when the page has a
   chart; a page without charts requests none of them. The share dialog's chart count of a folder link with 300 large
   pages that all hold a chart takes about 0.36 s (26 ms with one chart page) ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 - `find_context` latency with the new word rules is unchanged (p50 36.2 → 34.6 ms, p95 102.2 → 90.8 ms on 15.8k
   sections, interleaved runs). The document schema guard costs current clients one comparison per message; on the
   server a keystroke costs nothing measurable and a new block in a 2,000-block group about 50 µs
   ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- Measured and not adopted: semantic search with `multilingual-e5-small` and the role prefixes above, fused by the
+  0.20 code as it is. With 5,000 extra pages, page@1 on the held-out questions went 0.848 → 0.939 but on the tuning
+  questions 0.867 → 0.844; on the private check 0.944 → 0.917 (page@3 0.972 → 1.000). Answers took 1.7× (private) to
+  7.5× (benchmark) the tokens, and each question 33–40 ms more at p50. Nothing changes in the code or the defaults
+  (docs/PERFORMANCE.md, "Rejected / no effect").
 
 ## [0.19.1] - 2026-11-11
 

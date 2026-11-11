@@ -201,6 +201,8 @@ export interface AdminUserDTO {
   createdAt: string
   /** Two-step verification is on (docs/adr/1061-*). Optional: older servers omit it. */
   twoFactor?: boolean
+  /** ACCOUNT_LIFETIME_DAYS: when the account is deleted (ISO). Only on accounts that have a date. */
+  expiresAt?: string
 }
 
 /** Admin: password reset request queue */
@@ -245,6 +247,8 @@ export interface AuthModeDTO {
   loginId?: 'username'
   /** SIGNUP_MAX_USERS is reached: sign-up is closed for now. */
   signupFull?: true
+  /** SIGNUP_MAX_USERS or SIGNUP_PER_IP_PER_DAY is set: the sign-up form sends the bot-check fields (`website`, `formMs`, docs/adr/2516-*). */
+  signupChecks?: true
   /** INSTANCE_LABEL: a label every screen shows (e.g. "Demo"). */
   instanceLabel?: string
   /** ACCOUNT_LIFETIME_DAYS: accounts created from now on are deleted this many days after sign-up. */
@@ -818,6 +822,8 @@ export type NotificationType =
   | 'large_page'
   /** A reminder you set on an item of your Later list came due (docs/adr/1411-*). */
   | 'later_reminder'
+  /** You became the owner of a workspace because its only owner deleted their account (0.22, docs/adr/2512-*). */
+  | 'workspace_owner'
 export interface NotificationDTO {
   id: string
   type: NotificationType

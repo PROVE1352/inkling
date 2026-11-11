@@ -22,6 +22,8 @@ function describe(n: NotificationDTO, restoreDays: number): string {
     case 'workspace_deleted':
       // no navigation target: the workspace is gone for members (owners restore it in Settings)
       return t('notifications.workspaceDeleted', { actor, workspace, days: restoreDays })
+    case 'workspace_owner':
+      return t('accountLifecycle.notifOwner', { workspace })
     case 'backup_failed':
       return t('notifications.backupFailed')
     case 'reminder':
@@ -96,7 +98,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
     if (!n.read) markRead.mutate([n.id])
     setOpen(false)
     // NotificationDTO has no workspaceId for page notifications, so navigate within the current workspace (see report).
-    if ((n.type === 'workspace_added' || n.type === 'webhook_disabled') && n.workspaceId) navigate(`/w/${n.workspaceId}`)
+    if ((n.type === 'workspace_added' || n.type === 'webhook_disabled' || n.type === 'workspace_owner') && n.workspaceId) navigate(`/w/${n.workspaceId}`)
     else if (n.type === 'backup_failed' && wsId) navigate(`/w/${wsId}/admin`)
     else if (n.type === 'large_page' && n.pageId && wsId) navigate(`/w/${wsId}/p/${n.pageId}?split=1`)
     else if (n.pageId && wsId) navigate(`/w/${wsId}/p/${n.pageId}`)

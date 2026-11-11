@@ -36,7 +36,6 @@ import {
   widestOf,
   type PageBox,
 } from '../../lib/pdfPreview'
-import { isUndoKey } from '../../lib/pdfFile'
 import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, ExpandIcon, WidthIcon, XIcon } from '../Icons'
 import type { PdfHost } from './PdfFileBlock'
 import type { LoadError, PDFDocumentProxy, PDFPageProxy, RenderTask } from './pdfDocument'
@@ -1026,8 +1025,9 @@ function Overlay({ onClose, children }: { onClose: (page: number | null) => void
     const onKey = (e: KeyboardEvent) => {
       e.stopPropagation()
       if (e.isComposing) return
-      // the browser's undo would reach the page body under the dialog
-      if (isUndoKey(e)) {
+      // the browser's undo would reach the page body under the dialog (same test as lib/pdfFile.ts
+      // isUndoKey, written out so this lazy chunk does not import the editor's module)
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && /^[zy]$/i.test(e.key)) {
         e.preventDefault()
         return
       }

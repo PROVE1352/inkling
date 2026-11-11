@@ -11,13 +11,15 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 A minor release for operators who want to bound disk use and the number of people on their server, and for those
 who open a server to strangers as a demo. "Restricted mode" is a set of optional settings: limits on accounts,
-owned workspaces, members, pages, file size, storage and versions; features turned off on the whole server;
+owned workspaces, members, pages, file size, storage and versions, and on the server's workspaces and sign-ups per
+hour; a storage fuse for the whole server; features turned off on the whole server;
 sign-up with an ID and a nickname instead of an email address; terms and consent at sign-up; accounts deleted some
 days after sign-up; a label such as "Demo" on every screen. **A server that sets none of them behaves as 0.21.1,
 except for what is listed under "What changes on every server" below.** One database migration, additive
 (`0062_limits_accounts`; a 0.21 database goes from 62 to 63 applied migrations). No new dependency. The MCP tool list
 and the server instructions are unchanged; tool errors for the new codes say what to do next. Design notes are
-docs/adr/2500-* .. 2529-*. A preset for a demo server is in `deploy/demo/`, with the
+docs/adr/2500-* .. 2539-*; 2530-* .. 2539-* are the fixes of an independent security review before release (below).
+A preset for a demo server is in `deploy/demo/`, run through `deploy/demo/demo.sh`, with the
 steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17.
 
 Not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
@@ -53,6 +55,16 @@ These change with no new setting, on every server that upgrades:
 - A new notification, "You are now the owner of …: its previous owner deleted their account". The hourly
   housekeeping also deletes sign-up address records older than 30 days (there are none without
   `SIGNUP_PER_IP_PER_DAY`).
+- **The request rate limit counts an IPv6 client by its /64** instead of its full address, so one subscriber's
+  addresses share one budget (docs/adr/2537-*). IPv4 is unchanged; the sign-in failure bans are unchanged.
+- **Account deletion and expiry find the copied names by the account's id only** (docs/adr/2535-*): the audit rows
+  it acted in or was the target of, the names write sites keep beside an id, and the workspace it made at sign-up.
+  Records of another person with the same name are not changed. Names in four kinds of audit rows written before
+  this release (locking a page, changing a lock's editors, blocking and unblocking an agent) have no id and stay.
+- **Audit JSON keeps ids beside names**: `page.locked` and `page.lock_editors_changed` store `editorIds`,
+  `agent.blocked` and `agent.unblocked` store `userId`. The audit screen and route do not show them.
+- **The OAuth token exchange is one transaction**: consuming the authorization code and storing the grant commit
+  together. The answers are unchanged.
 
 ### Added
 - **Limits** (docs/adr/2505-*, 2506-*): `LIMIT_WORKSPACES_PER_USER` (owned workspaces, deleted ones still restorable
@@ -62,10 +74,12 @@ These change with no new setting, on every server that upgrades:
   row (transfer of ownership and restore included, docs/adr/2528-*), under a lock, on every path that creates pages, files, members or workspaces (REST and the MCP tools that
   call it); a test lists every insert site and fails on a new unchecked one. Errors 403 `LIMIT_WORKSPACES`,
   `LIMIT_MEMBERS`, `LIMIT_PAGES` and 413 `LIMIT_STORAGE`, `LIMIT_FILE`, each with `{ limit, used }`.
-- **Storage and read-only workspaces** (docs/adr/2506-*): storage counts files, page bodies, version history,
-  handwriting, comments, page rows, database fields and views, templates, the change log's texts and agent
-  suggestions, the trash included. A workspace that has reached its limit is read-only: new pages, uploads, imports,
-  comments and body writes are refused, live editing turns read-only, and a notice says what to delete. Deleting,
+- **Storage and read-only workspaces** (docs/adr/2506-*, 2530-*, 2533-*): storage counts files, page bodies, version
+  history, handwriting, comments, page rows, database fields and views, templates, the change log's texts and agent
+  suggestions, the trash included. A workspace that has reached its limit is read-only: every write that can grow
+  it is refused (a test lists every POST, PUT and PATCH route as checked or open with its reason), live edits are
+  counted when they arrive and one that does not fit is not stored, live editing turns read-only, and a notice says
+  what to delete. Deleting,
   emptying the trash and exporting always work. When a count finds the workspace back under its limit, open editors
   reconnect and can edit again. One page body may hold at most a quarter of the limit.
 - **Features turned off** (docs/adr/2507-*): `DISABLED_FEATURES` takes `public-links`, `public-forms`, `webhooks`,
@@ -96,9 +110,20 @@ These change with no new setting, on every server that upgrades:
   restore, and the screens say the number. `LIMIT_TRASH_DAYS` (at least 7, docs/adr/2525-*) caps each workspace's
   trash retention: pages go after min(the workspace's setting, the cap) days, Workspace settings take nothing above
   it (400 `LIMIT_TRASH_DAYS`), and `list_trash` gives the same date.
-- **Demo preset** (docs/adr/2521-*): `deploy/demo/compose.demo.yaml` (an overlay that cannot start without its
-  settings, with its own project, volumes, network and port), `demo.env.example` and terms templates in
-  `deploy/demo/legal/`; [docs/DEMO.md](docs/DEMO.md).
+- **Server-wide limits** (docs/adr/2531-*, 2532-*, 2536-*, 2537-*): `LIMIT_WORKSPACES_TOTAL` (workspaces on the
+  whole server, deleted ones still restorable included; 403 `LIMIT_WORKSPACES_TOTAL`, and `SIGNUP_FULL` at
+  sign-up), `LIMIT_INSTANCE_STORAGE_MB` (a fuse over the database size and the data folder, measured once a minute:
+  at it the server only reads, signs in, exports and deletes, 503 `INSTANCE_FULL`; it usually stays tripped until
+  the operator makes room, docs/OPERATIONS.md, "Instance storage fuse"), `SIGNUP_PER_HOUR` (accounts the server
+  makes in one hour, 429 `SIGNUP_RATE_LIMIT`), and `OAUTH_UNUSED_CLIENT_HOURS` and `OAUTH_UNUSED_CLIENT_MAX`
+  (self-registered OAuth clients nothing ever used are deleted after N hours, and at most N are kept). Each is off
+  when unset.
+- **Demo preset** (docs/adr/2521-*, 2538-*): `deploy/demo/demo.sh` (the only way to start, stop and check the demo:
+  it fixes the project `inkling-demo`, its volumes, network and database names, runs Compose with a clean
+  environment, refuses a shell that sets `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE` or `INKLING_DATA_NAME`, keeps the
+  volumes on `down` and asks for the name on `destroy`; it needs python3 on the host),
+  `deploy/demo/compose.demo.yaml` (an overlay that refuses to start outside the script, with the demo's own
+  secrets and port), `demo.env.example` and terms templates in `deploy/demo/legal/`; [docs/DEMO.md](docs/DEMO.md).
 - API: `GET /api/workspaces/:id/usage`, `GET /api/me/delete-preview`, `DELETE /api/me`, `DELETE
   /api/workspaces/:id/permanent`, `GET /api/legal`, `GET /api/legal/:doc`, `POST /api/legal/consent`, `GET` and `PATCH
   /api/admin/users/:id/expiry`; optional fields in `/api/auth/mode`, `/api/auth/me`, the sign-up body and
@@ -108,9 +133,9 @@ These change with no new setting, on every server that upgrades:
 - The "restore within N days" texts take the number from the server (30 unless `WORKSPACE_RESTORE_DAYS` is set).
 - With `LOGIN_ID_MODE=username`, screens that showed an email show the ID without the "email" label (sign-in,
   Settings → Account, Admin → Users, member and access search), and `inklingctl login` asks for an ID.
-- `compose.yaml` passes all seventeen 0.22 variables to the app and `.env.example` has a commented example of each;
+- `compose.yaml` passes all twenty-two 0.22 variables to the app and `.env.example` has a commented example of each;
   an empty value means unset for every one of them (docs/adr/2528-*).
-- MCP tool errors for `LIMIT_*`, `FEATURE_DISABLED` and `CONSENT_REQUIRED` carry their own next step instead of the
+- MCP tool errors for `LIMIT_*`, `FEATURE_DISABLED`, `INSTANCE_FULL` and `CONSENT_REQUIRED` carry their own next step instead of the
   status hint ("not a member" for a 403, "not found" for a 404), and `upload_file` states and checks
   min(`AGENT_UPLOAD_MAX_MB`, `LIMIT_FILE_MB`).
 
@@ -119,14 +144,46 @@ These change with no new setting, on every server that upgrades:
   `/mcp` endpoint itself, and the collaboration socket (docs/adr/2502-*). Only sign-out, `/api/auth/me`, the legal
   routes and account deletion are exempt.
 - Account deletion by the person or by expiry removes their name and sign-in ID from every column that copies them as
-  text (audit events, the change log, invitations, the workspace named after them), in the deletion's transaction;
-  a test scans every text and uuid column after a deletion. What stays is listed in KNOWN-ISSUES LIMITS-8.
+  text (audit events, the change log, invitations, the workspace named after them), found by the account's id, in
+  the deletion's transaction; a test scans every text and uuid column after a deletion. What stays is listed in
+  KNOWN-ISSUES LIMITS-8.
 - `DELETE /api/me` needs a browser session and the password (and two-step code); failures count against the
   sign-in guard. Deleting for good (leaving alone, "Delete now") is browser-only too: no token or agent can do it.
 - In ID mode, signing in with an unknown ID costs the same password check as a wrong password.
 - Open items for operators of public servers: `TRUST_PROXY` should name the proxy only, and the app port must not be
   reachable from other hosts, or `SIGNUP_PER_IP_PER_DAY` can be passed with a made-up `X-Forwarded-For` (LIMITS-11);
-  `POST /oauth/register` stays open without sign-in and its rows are never cleaned up (LIMITS-9).
+  `POST /oauth/register` stays open without sign-in, and its rows are cleaned up only with the
+  `OAUTH_UNUSED_CLIENT_*` settings (LIMITS-9).
+- **Found and fixed in an independent security review before release** (docs/adr/2530-* .. 2539-*). Marked
+  "earlier versions too" where 0.21.1 behaves the same; the others concern what 0.22.0 adds.
+  - Account deletion handed shared workspaces to a member without looking at their workspace limit, and freed a
+    sign-up place, so one account could collect workspaces without end. Now `LIMIT_WORKSPACES_TOTAL` bounds the
+    server's workspaces; the handover still does not look at the per-person limit.
+  - Writing over the collaboration socket passed the storage limit (33.5 MB stored under a 20 MB limit), and 40
+    pages × 8 MB on one socket could exhaust the server's memory: read-only was decided only at connection. Now each
+    update is counted when it arrives and one that does not fit is not stored, and the bytes a client address may
+    send are bounded. These checks run only with a storage setting; without one a document's size has no bound, as
+    in earlier versions too.
+  - `POST /oauth/register` stored a row of about 23 KB per call without sign-in, nothing removed them, and the rate
+    limit keyed IPv6 by the full address (earlier versions too). Now the rate key groups IPv6 by /64 on every server,
+    the `OAUTH_UNUSED_CLIENT_*` settings delete never-used clients, and the storage fuse refuses registrations.
+  - The demo's volumes had no size limit and several tables grow outside the workspace count. Now the
+    `LIMIT_INSTANCE_STORAGE_MB` fuse; a filesystem with a size limit stays the recommendation (it is stronger).
+  - A full workspace still took `PATCH /api/pages/:id/props` writes (five of about 800 KB). Now every write that can
+    grow a workspace is checked.
+  - The sign-up address cap counted IPv6 per /64 and the bot checks were easy to pass, so the account cap could be
+    filled cheaply. Now the sign-up key is the /56 and `SIGNUP_PER_HOUR` bounds the rate; filling it is slowed, not
+    prevented (KNOWN-ISSUES).
+  - With `COMPOSE_PROJECT_NAME` or `INKLING_DATA_NAME` set in the shell, the demo overlay pointed at the main
+    instance's project and volumes, and the documented `down -v` would have deleted them. Now `demo.sh` fixes the
+    names and refuses such a shell.
+  - Name removal at account deletion matched the display name as text and changed records and workspace names of
+    another person with the same name. Now by id only.
+  - `GET /api/me/delete-preview` answered scoped API tokens with workspace and member names outside their range.
+    Now browser sessions only.
+  - A sign-up answered "taken" without counting against the address's sign-ups, so IDs could be probed (email
+    addresses in email mode too, as in earlier versions). Now, while `SIGNUP_PER_IP_PER_DAY` is set, an address gets
+    at most 10 such answers in 24 hours.
 
 ### Upgrade notes
 - **Migration 0062** (the only one) adds the tables `signup_events` and `user_consents` and four columns:
@@ -139,6 +196,10 @@ These change with no new setting, on every server that upgrades:
   never expire, whatever the setting.
 - **Open sign-up with limits**: create your own admin account with the setup code before opening sign-up, and set
   `TRUST_PROXY` to your proxy's address before relying on `SIGNUP_PER_IP_PER_DAY`.
+- **Turning `ACCOUNT_LIFETIME_DAYS` off and on again** deletes at the next hourly run every account whose date
+  passed while it was off (docs/OPERATIONS.md, "Account lifetime").
+- **A demo** runs only through `deploy/demo/demo.sh`, from a checkout of its own, with new secrets; give its volumes
+  a filesystem with a size limit (docs/DEMO.md).
 - Reload open tabs to get the new screens. Going back to 0.21.1 after the migration was not tried.
 
 ## [0.21.1] - 2026-11-12

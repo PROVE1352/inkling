@@ -509,7 +509,9 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
 
       await requireMembership(id, user.id)
       // The only member may leave with the workspace's name as confirmation: it is deleted (docs/adr/2513-*).
-      const confirmName = typeof (req.body as { name?: unknown } | undefined)?.name === 'string' ? (req.body as { name: string }).name : undefined
+      // (browser sessions only: tokens and agents never delete a workspace this way)
+      const confirmName =
+        req.authVia === 'cookie' && typeof (req.body as { name?: unknown } | undefined)?.name === 'string' ? (req.body as { name: string }).name : undefined
       const purged = await removeMember(user, id, userId, { confirmName })
       // The removed member's open collab sockets in this workspace stop receiving/sending now
       // (authorisation is otherwise only checked at connect time — docs/adr/0754-*).

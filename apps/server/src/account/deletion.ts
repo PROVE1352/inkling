@@ -328,13 +328,19 @@ async function scrubCopiedNames(tx: Tx, userId: string, staying: string[], who: 
   }
 }
 
-/** Replace every string value equal to one of `needles` with null (objects and arrays, recursively). */
-export function scrubJson(v: unknown, needles: Set<string>): unknown {
-  if (typeof v === 'string') return needles.has(v) ? null : v
-  if (Array.isArray(v)) return v.map((x) => scrubJson(x, needles))
+/**
+ * Audit before/after keys whose values are people's names (workspace.transferred `owner`, the lock's
+ * `editors`, …). Only these are scrubbed: a nickname such as "member" must not wipe a role value.
+ */
+export const NAME_KEYS: ReadonlySet<string> = new Set(['owner', 'editors', 'name', 'user', 'users', 'by', 'author', 'actor', 'email', 'label'])
+
+/** Replace string values equal to one of `needles` with null, under NAME_KEYS only (recursively). */
+export function scrubJson(v: unknown, needles: Set<string>, underName = false): unknown {
+  if (typeof v === 'string') return underName && needles.has(v) ? null : v
+  if (Array.isArray(v)) return v.map((x) => scrubJson(x, needles, underName))
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, x] of Object.entries(v)) out[k] = scrubJson(x, needles)
+    for (const [k, x] of Object.entries(v)) out[k] = scrubJson(x, needles, underName || NAME_KEYS.has(k))
     return out
   }
   return v

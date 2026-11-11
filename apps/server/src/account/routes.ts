@@ -1,4 +1,4 @@
-import { and, count, eq, ne } from 'drizzle-orm'
+import { and, count, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { clearSessionCookie, getUser, requireAdmin, requireUser, SESSION_COOKIE, verifyPassword } from '../auth'
@@ -121,6 +121,7 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
 
   /** "Delete now": a deleted workspace (still restorable) goes for good (docs/adr/2513-*). */
   api.delete('/workspaces/:id/permanent', { preHandler: requireUser }, async (req, reply) => {
+    if (req.authVia !== 'cookie') throw forbidden('A workspace can only be deleted for good from a browser sign-in')
     const me = getUser(req)
     const { id } = z.object({ id: z.uuid() }).parse(req.params)
     const { name } = nameSchema.parse(req.body ?? {})
@@ -131,7 +132,7 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
 
   /**
    * An account's expiry date (ACCOUNT_LIFETIME_DAYS, docs/adr/2515-*): read it, lift it
-   * (`expiresAt: null`) or move it. Admins only.
+   * (`expiresAt: null`) or move one it has (an account without a date never gets one here). Admins only.
    */
   api.get('/admin/users/:id/expiry', { preHandler: requireAdmin }, async (req) => {
     const { id } = z.object({ id: z.uuid() }).parse(req.params)
@@ -145,8 +146,16 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
     const body = z.object({ expiresAt: z.iso.datetime({ offset: true }).nullable() }).parse(req.body)
     const at = body.expiresAt === null ? null : new Date(body.expiresAt)
     if (at && at.getTime() <= Date.now()) throw badRequest('Pick a date in the future, or lift the expiry')
-    const [u] = await db.update(users).set({ expiresAt: at }).where(eq(users.id, id)).returning({ expiresAt: users.expiresAt })
-    if (!u) throw notFound('USER_NOT_FOUND', 'User not found')
+    const [cur] = await db.select({ expiresAt: users.expiresAt }).from(users).where(eq(users.id, id)).limit(1)
+    if (!cur) throw notFound('USER_NOT_FOUND', 'User not found')
+    // the double lock (docs/adr/2515-*): only sign-up gives an account a date; admins lift or move it
+    if (at && !cur.expiresAt) throw badRequest('This account has no expiry date to move')
+    const [u] = await db
+      .update(users)
+      .set({ expiresAt: at })
+      .where(and(eq(users.id, id), at ? isNotNull(users.expiresAt) : sql`true`))
+      .returning({ expiresAt: users.expiresAt })
+    if (!u) throw badRequest('This account has no expiry date to move')
     return { expiresAt: u.expiresAt ? u.expiresAt.toISOString() : null }
   })
 }

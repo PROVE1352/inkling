@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 process.env.SIGNUP_REQUIRE_KEY = '0'
+process.env.APP_SECRET_KEY ||= 'test-app-secret-key-0123456789-abcdefghij' // 2FA secrets are sealed with it
 process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), 'inkling-accdel-'))
 for (const k of ['DELEGATED_AUTH_URL', 'SMTP_HOST', 'MAIL_FROM', 'REQUIRE_EMAIL_VERIFICATION', 'OIDC_ISSUER']) delete process.env[k]
 
@@ -41,6 +42,8 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
   const { deleteAccount } = await import('./deletion')
   const { expireAccounts } = await import('./housekeeping')
   const { createApiToken } = await import('../apiTokens')
+  const { beginSetup, confirmSetup } = await import('../twoFactor')
+  const { totpAt, base32Decode } = await import('../totp')
 
   const Fastify = (await import('fastify')).default
   const app = Fastify()
@@ -400,5 +403,72 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
     assert.equal(await exists('workspaces', ws.id), false)
     assert.equal(existsSync(path.join(uploads, f)), false)
     assert.equal((await now(p, ws.name)).statusCode, 404)
+  })
+
+  it('the audit scrub touches name fields only: a nickname like "member" leaves role values alone', async () => {
+    const p = await makeUser('member')
+    const bob = await makeUser(`Bob${tag()}`)
+    const ws = await makeWs(bob, [{ id: p.id }])
+    await db.insert(schema.workspaceAuditEvents).values([
+      { workspaceId: ws.id, actorId: bob.id, actorName: bob.name, action: 'member.role_changed', targetType: 'user', targetId: bob.id, targetLabel: bob.name, before: { role: 'member' }, after: { role: 'admin' } },
+      { workspaceId: ws.id, actorId: bob.id, actorName: bob.name, action: 'workspace.transferred', targetType: 'user', targetId: bob.id, targetLabel: bob.name, before: { owner: 'member', targetRole: 'member' }, after: { owner: bob.name } },
+    ])
+    assert.equal((await deleteAccount(p.id, { by: 'self' })).deleted, true)
+    const rows = await db.select().from(schema.workspaceAuditEvents).where(eq(schema.workspaceAuditEvents.workspaceId, ws.id))
+    const role = rows.find((r) => r.action === 'member.role_changed')!
+    assert.deepEqual(role.before, { role: 'member' })
+    const tr = rows.find((r) => r.action === 'workspace.transferred')!
+    assert.deepEqual(tr.before, { owner: null, targetRole: 'member' })
+  })
+
+  it('two-step verification: the code is required, a wrong one counts as a failure, a recovery code works', async () => {
+    const p = await makeUser(`Totp${tag()}`)
+    const setup = await beginSetup(p.id, p.email)
+    assert.ok(setup)
+    const codes = await confirmSetup(p.id, totpAt(base32Decode(setup!.secret), Math.floor(Date.now() / 1000)))
+    assert.ok(codes && codes.length > 0)
+    const pre = (await call(p.cookie, 'GET', '/me/delete-preview')).json() as import('./routes').DeletePreviewDTO
+    assert.deepEqual(pre.needs, { password: true, code: true, recentSignIn: false })
+    const del = (body: Record<string, unknown>) => call(p.cookie, 'DELETE', '/me', { confirm: p.email, password: p.password, ...body })
+    assert.equal((await del({})).json().error.code, 'TOTP_REQUIRED')
+    assert.equal((await del({ code: 'AAAAA-BBBBB' })).json().error.code, 'INVALID_TOTP_CODE')
+    assert.equal(await exists('users', p.id), true)
+    const ok = await del({ code: codes![0] })
+    assert.equal(ok.statusCode, 200, ok.body)
+    assert.equal(await exists('users', p.id), false)
+  })
+
+  it('admin expiry routes: read, move an existing date, lift it; never give a date to an account without one', async () => {
+    const p = await makeUser(`Exp${tag()}`)
+    const q = await makeUser(`NoExp${tag()}`)
+    const later = new Date(Date.now() + 5 * 86_400_000)
+    await db.update(schema.users).set({ expiresAt: later }).where(eq(schema.users.id, p.id))
+    const get = async (id: string) => (await call(root.cookie, 'GET', `/admin/users/${id}/expiry`)).json().expiresAt
+    assert.equal(await get(p.id), later.toISOString())
+    assert.equal((await call(p.cookie, 'GET', `/admin/users/${p.id}/expiry`)).statusCode, 403)
+    const moved = new Date(Date.now() + 20 * 86_400_000).toISOString()
+    assert.equal((await call(root.cookie, 'PATCH', `/admin/users/${p.id}/expiry`, { expiresAt: moved })).statusCode, 200)
+    assert.equal(await get(p.id), moved)
+    assert.equal((await call(root.cookie, 'PATCH', `/admin/users/${p.id}/expiry`, { expiresAt: new Date(Date.now() - 1000).toISOString() })).statusCode, 400)
+    assert.equal((await call(root.cookie, 'PATCH', `/admin/users/${q.id}/expiry`, { expiresAt: moved })).statusCode, 400)
+    assert.equal(await get(q.id), null)
+    assert.equal((await call(root.cookie, 'PATCH', `/admin/users/${p.id}/expiry`, { expiresAt: null })).statusCode, 200)
+    assert.equal(await get(p.id), null)
+    const list = (await call(root.cookie, 'GET', '/admin/users')).json().users as { id: string; expiresAt?: string }[]
+    assert.ok(list.every((u) => !('expiresAt' in u)))
+  })
+
+  it('delete now and leaving-to-delete are for browser sessions only', async () => {
+    const p = await makeUser(`Tok${tag()}`)
+    const ws = await makeWs(p, [], `Tok ws ${tag()}`)
+    const { secret } = await createApiToken(p.id, { name: 't', expiresInDays: 30, access: 'write', range: { kind: 'all' } })
+    const bearer = (method: string, url: string, payload: object) =>
+      app.inject({ method: method as 'DELETE', url: `/api${url}`, headers: { authorization: `Bearer ${secret}` }, payload })
+    assert.equal((await call(p.cookie, 'DELETE', `/workspaces/${ws.id}`, { name: ws.name })).statusCode, 204)
+    assert.ok([401, 403].includes((await bearer('DELETE', `/workspaces/${ws.id}/permanent`, { name: ws.name })).statusCode))
+    assert.equal(await exists('workspaces', ws.id), true)
+    const ws2 = await makeWs(p, [], `Tok ws2 ${tag()}`)
+    assert.notEqual((await bearer('DELETE', `/workspaces/${ws2.id}/members/${p.id}`, { name: ws2.name })).statusCode, 204)
+    assert.equal(await exists('workspaces', ws2.id), true)
   })
 })

@@ -15,7 +15,8 @@ runs the same code with real accounts, so deleting must need two independent con
 - The hourly job (`account/housekeeping.ts`) takes up to 50 accounts, oldest date first, each in its
   own transaction; a failure is one log line (the error code only) and the next account runs. Log
   lines carry user ids and counts, never a name or ID. ACCOUNT_LIFETIME_DRY_RUN=1 logs the plans only.
-- Admins read, lift or move a date with `GET`/`PATCH /api/admin/users/:id/expiry`; Admin › Users shows
+- Admins read, lift or move a date with `GET`/`PATCH /api/admin/users/:id/expiry` (only a date the
+  account already has: the route never gives one to an account without it); Admin › Users shows
   the date with "Lift expiry". `/admin/users` carries `expiresAt` only on accounts that have one.
 - The app shows "This account will be deleted on YYYY-MM-DD" with an export link under the workspace
   switcher, and as a banner on phones and, in the last three days, on every screen.

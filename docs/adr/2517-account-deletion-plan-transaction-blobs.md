@@ -19,7 +19,8 @@ tables copy them as text, and some uuid columns have no foreign key.
   comments and versions stay with their author columns set to null (the foreign keys).
 - Scrubbed in the same transaction: `page_changes` (private-page entries deleted, `actor_id` nulled:
   no foreign key), `workspace_audit_events` (`actor_name`, labels of rows about the person, JSON values
-  equal to the name or ID in workspaces the person was in or appears in), the workspace made at
+  equal to the name or ID under name-carrying keys such as `owner` and `editors`, so a nickname like
+  "member" leaves role values alone, in workspaces the person was in or appears in), the workspace made at
   sign-up named after the person (renamed "Workspace"), invitations addressed to the person.
 - Sessions, tokens, OAuth grants, push subscriptions, 2FA, consent records and the rest cascade with
   the users row. Open collaboration sockets and the inbox channel are closed after the commit.

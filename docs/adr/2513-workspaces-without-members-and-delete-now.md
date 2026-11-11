@@ -17,6 +17,7 @@ workspace keeps its place until the purge.
 - `DELETE /workspaces/:id/permanent` `{ name }`: owner only, already deleted only (404 otherwise, a
   restore that won the race included), the workspace's 2FA rule as for restore, the name as
   confirmation; then the same purge.
+- Both are for browser sessions only: a token or an agent never deletes a workspace this way.
 - Blobs are unlinked after the commit; a failure leaves an orphan file and one log line.
 
 ## Consequences

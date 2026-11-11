@@ -24,6 +24,7 @@ import {
   UserMinusIcon,
 } from './Icons'
 import { Spinner } from './Spinner'
+import { useIdMode } from './account/useIdMode'
 
 // Members tab of the workspace settings screen (docs/adr/0945-*, 0948-*). Owners change roles;
 // owners and admins remove people (admins: plain members only) and handle the invite link;
@@ -52,6 +53,7 @@ export function RoleBadge({ role }: { role: WorkspaceAccessRole }) {
 
 export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: WorkspaceDTO }) {
   useT()
+  const idMode = useIdMode()
 
   const navigate = useNavigate()
   const me = useMe()
@@ -244,7 +246,7 @@ export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: Wor
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('members.searchPlaceholder')}
+              placeholder={idMode ? t('accountLifecycle.membersSearch') : t('members.searchPlaceholder')}
               aria-label={t('members.searchLabel')}
               className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-sub focus:outline-none"
             />

@@ -59,6 +59,8 @@ export function Login() {
   // In delegated mode one field accepts either an Inkling email or an external account username.
   // The server checks Inkling's own accounts first and delegates to the external auth server only if none match.
   const delegated = mode.data?.delegated ?? false
+  // LOGIN_ID_MODE=username: the field is the sign-in ID (docs/adr/2512-*)
+  const idMode = mode.data?.loginId === 'username'
   const delegatedName = delegatedDisplayName(mode.data?.delegatedName)
   const resend = useResendVerification()
 
@@ -132,9 +134,11 @@ export function Login() {
       for (const issue of parsed.error.issues) {
         const field = issue.path[0]
         if (field === 'email' && !next.email)
-          next.email = delegated
-            ? t('login.emailOrIdRequired', { name: delegatedName })
-            : t('auth.emailInvalid')
+          next.email = idMode
+            ? t('accountLifecycle.loginIdRequired')
+            : delegated
+              ? t('login.emailOrIdRequired', { name: delegatedName })
+              : t('auth.emailInvalid')
         if (field === 'password' && !next.password)
           next.password = t('auth.passwordRequired')
       }
@@ -153,7 +157,7 @@ export function Login() {
       },
       onError: (err) => {
         if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
-          setServerError(t('login.invalidCredentials'))
+          setServerError(idMode ? t('accountLifecycle.invalidCredentials') : t('login.invalidCredentials'))
         } else if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
           setServerError(err.message)
           setNeedsVerify(true)
@@ -233,13 +237,14 @@ export function Login() {
         >
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-sub">
-              {delegated ? t('auth.emailOrId', { name: delegatedName }) : t('common.email')}
+              {idMode ? t('accountLifecycle.loginId') : delegated ? t('auth.emailOrId', { name: delegatedName }) : t('common.email')}
             </span>
             <input
-              type={delegated ? 'text' : 'email'}
+              type={delegated || idMode ? 'text' : 'email'}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              autoComplete={delegated ? 'username' : 'email'}
+              autoComplete={delegated || idMode ? 'username' : 'email'}
+              {...(idMode ? { autoCapitalize: 'none', spellCheck: false } : {})}
               className="rounded-md border border-line bg-app px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
             {errors.email && <span className="text-xs text-red-600">{errors.email}</span>}
@@ -321,6 +326,10 @@ export function Login() {
             {mode.data?.signupKeyRequired ? t('login.registerWithKey') : t('login.register')}
           </Link>
         </p>
+
+        {params.get('deleted') === '1' && (
+          <p className="mt-2 text-center text-xs text-sub" role="status">{t('accountLifecycle.deletedNotice')}</p>
+        )}
 
         {mode.data?.setupPending && (
           <p className="mt-2 text-center text-xs text-sub">{t('setup.loginHint')}</p>

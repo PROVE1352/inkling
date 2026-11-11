@@ -54,6 +54,7 @@ import { delegatedDisplayName, oidcErrorText } from './Login'
 import { Group, Row, Select, SettingsFlat, Toggle } from '../components/SettingsRows'
 import { OfflineSettings } from '../lib/offline/OfflineSettings'
 import { StatusRow } from '../components/MemberStatus'
+import { DeleteAccount } from '../components/account/DeleteAccount'
 import { noteOnboarding } from '../onboarding/api'
 import { OnboardingSettings } from '../onboarding/OnboardingSettings'
 
@@ -167,7 +168,9 @@ function AccountGroup() {
         desc={
           delegated
             ? t('settings.delegatedAccount', { name: delegatedName })
-            : !mode.data?.mailEnabled
+            : mode.data?.loginId === 'username'
+              ? t('accountLifecycle.signInIdDesc')
+              : !mode.data?.mailEnabled
               ? t('settings.mailDisabled')
               : user.emailVerified
                 ? t('settings.emailVerified')
@@ -241,6 +244,7 @@ function AccountGroup() {
         </form>
       )}
       <LinkedLogins />
+      <DeleteAccount />
     </Group>
   )
 }

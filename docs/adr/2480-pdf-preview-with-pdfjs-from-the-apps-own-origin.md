@@ -38,7 +38,7 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
   files have no content hash. `assets/lazy/` keeps all of it out of the PWA precache (`globIgnores`);
   the service worker caches what is used, in a cache of its own (`inkling-pdfjs`, 60 entries, 30 days), so a
   CJK PDF's cMaps do not push Shiki grammars or exceljs out of `inkling-lazy-assets` or the other way round.
-  pdf.js's own `LICENSE` is copied to the same folder (the minified worker keeps no licence header). No CDN.
+  pdf.js's own `LICENSE` is copied to the same folder (the worker keeps pdf.js's licence header, the bundled `pdfDocument-*.js` chunk does not). No CDN.
 - **CSP**: unchanged. The SPA policy has `worker-src 'self' blob:` and `script-src 'self'`; the worker is a
   same-origin module worker. The worker's response carries no CSP of its own (only `text/html` gets the
   SPA policy, `embedCsp.ts`), so pdf.js compiles its wasm decoders there (checked in Chrome 157: openjpeg,

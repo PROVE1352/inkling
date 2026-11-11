@@ -57,7 +57,7 @@ function pdfjsAssets(): Plugin {
       for (const rel of pdfjsDataFiles()) {
         this.emitFile({ type: 'asset', fileName: PDFJS_PREFIX + rel, source: readFileSync(path.join(PDFJS_DIR, rel)) })
       }
-      // pdf.js's license (Apache-2.0) next to the files it covers; the minified worker keeps no header
+      // pdf.js's license (Apache-2.0) next to the files it covers; the bundled pdfDocument chunk keeps no header
       this.emitFile({ type: 'asset', fileName: `${PDFJS_PREFIX}LICENSE`, source: readFileSync(path.join(PDFJS_DIR, 'LICENSE')) })
     },
     configureServer(server) {

@@ -85,11 +85,10 @@ function walk(
     }
     let t = top
     let b = blockId
-    if (c.nodeName === 'blockContainer') {
-      b = attrString(c, 'id') || null
-      // depth 1 = children of the top-level blockGroup (fragment › blockGroup › blockContainer)
-      if (depth === 1) t = i
-    }
+    if (c.nodeName === 'blockContainer') b = attrString(c, 'id') || null
+    // depth 1 = children of the top-level blockGroup (fragment › blockGroup › blockContainer, or a
+    // columnList whose columns hold blockContainers, docs/adr/2420-*)
+    if (depth === 1) t = i
     walk(c, depth + 1, t, b, out)
   }
 }

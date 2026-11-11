@@ -1,6 +1,24 @@
 import { randomBytes } from 'node:crypto'
 import * as Y from 'yjs'
-import { BUTTON_COLORS, buttonActionsJson, CALLOUT_TYPES, canonicalChartConfig, canonicalChartJson, chartBlockConfigSchema, parseButtonActions, parseChartBlockConfig, parseHttpUrl } from '@inkling/shared'
+import {
+  BUTTON_COLORS,
+  buttonActionsJson,
+  CALLOUT_TYPES,
+  canonicalChartConfig,
+  canonicalChartJson,
+  chartBlockConfigSchema,
+  COLUMN_LIST_TYPE,
+  COLUMN_TYPE,
+  columnWeight,
+  equalWeights,
+  MAX_COLUMNS,
+  MIN_COLUMNS,
+  parseButtonActions,
+  parseChartBlockConfig,
+  parseHttpUrl,
+  pctToWeights,
+  weightsToPct,
+} from '@inkling/shared'
 import type { AnyBlock, Inline, LinkInline, StyledText } from './convert'
 import { getServerEditor } from './editor'
 
@@ -15,6 +33,11 @@ import { getServerEditor } from './editor'
  *                    Markdown — a link paragraph, an HTML figure — does not read back as the same block).
  *                    A chart token carries its config object itself (`<!-- inkling:chart {"groupBy":…} -->`,
  *                    docs/adr/1604-*), not the JSON string the block stores.
+ *   columns          `<!-- inkling:columns -->` (or `<!-- inkling:columns {"widths":[60,40]} -->`), then
+ *                    `<!-- inkling:column -->` before each column's blocks, then `<!-- /inkling:columns -->`
+ *                    (docs/adr/2422-*). Written in every mode: a tool that does not know the markers
+ *                    shows the columns' blocks one after another. Only top-level markers make columns;
+ *                    unpaired, nested or out-of-range ones are dropped and their blocks stay as they are.
  *
  * Three modes. `agent` (read_page, read_pages, section reads, patch_section's echo, conflict bodies)
  * writes every form above so that what an agent sends back can be turned into the same nodes.
@@ -43,6 +66,33 @@ export const SNAPSHOT_OPEN = '<!-- inkling:snapshot -->'
 export const SNAPSHOT_CLOSE = '<!-- /inkling:snapshot -->'
 const SNAPSHOT_OPEN_RE = /^[ \t>]*<!--[ \t]*inkling:snapshot[ \t]*-->[ \t]*$/
 const SNAPSHOT_CLOSE_RE = /^[ \t>]*<!--[ \t]*\/inkling:snapshot[ \t]*-->[ \t]*$/
+
+/** Column markers (docs/adr/2422-*). */
+export const COLUMNS_CLOSE = '<!-- /inkling:columns -->'
+export const COLUMN_MARK = '<!-- inkling:column -->'
+const COLUMN_MARK_RE = /^([ \t>]*)<!--[ \t]*(\/?)inkling:(columns|column)(?:[ \t]+(\{.*\}))?[ \t]*-->[ \t]*$/
+type ColumnMark = { kind: 'open'; widths: number[] | null } | { kind: 'column' } | { kind: 'close' }
+
+/** `<!-- inkling:columns -->`, with the widths in percent when the columns are not equal. */
+function columnsOpen(columns: AnyBlock[]): string {
+  const weights = columns.map((c) => columnWeight(c.props?.width))
+  return equalWeights(weights) ? '<!-- inkling:columns -->' : `<!-- inkling:columns ${commentJson({ widths: weightsToPct(weights) })} -->`
+}
+
+function parseColumnMark(m: RegExpExecArray): ColumnMark | null {
+  const [, , slash, word, json] = m
+  if (word === 'column') return slash || json ? null : { kind: 'column' }
+  if (slash) return json ? null : { kind: 'close' }
+  if (!json) return { kind: 'open', widths: null }
+  try {
+    const raw = JSON.parse(json) as { widths?: unknown }
+    const w = raw && typeof raw === 'object' && Array.isArray(raw.widths) ? raw.widths : null
+    const ok = w && w.length >= MIN_COLUMNS && w.length <= MAX_COLUMNS && w.every((x) => typeof x === 'number' && Number.isFinite(x) && x > 0 && x <= 100)
+    return { kind: 'open', widths: ok ? (w as number[]) : null }
+  } catch {
+    return { kind: 'open', widths: null }
+  }
+}
 
 /** Block types written as `<!-- inkling:<type> {props} -->` in agent mode. */
 const TOKEN_BLOCKS = new Set(['pageEmbed', 'linkEmbed', 'pluginBlock', 'chart', 'file', 'audio', 'button'])
@@ -194,6 +244,20 @@ export function prepareNotationExport(blocks: AnyBlock[], mode: NotationMode): (
       if (type === SNAPSHOT_BLOCK) {
         // numbers next to the block they were computed from (file export, docs/adr/2122-*)
         out.push(lineBlock(SNAPSHOT_OPEN), ...replaceBlocks(b.children ?? []), lineBlock(SNAPSHOT_CLOSE))
+        continue
+      }
+      if (type === COLUMN_LIST_TYPE) {
+        // columns (docs/adr/2422-*): markers around each column's blocks, in every mode
+        const columns = (b.children ?? []).filter((c) => c.type === COLUMN_TYPE)
+        if (!columns.length) continue
+        out.push(lineBlock(columnsOpen(columns)))
+        for (const c of columns) out.push(lineBlock(COLUMN_MARK), ...replaceBlocks(c.children ?? []))
+        out.push(lineBlock(COLUMNS_CLOSE))
+        continue
+      }
+      if (type === COLUMN_TYPE) {
+        // a column outside a group (never stored that way): its blocks
+        out.push(...replaceBlocks(b.children ?? []))
         continue
       }
       if (type === 'callout') {
@@ -357,6 +421,7 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
   if (!hasTokens && !hasCallout) return { markdown: md, restore: (b) => b }
   const s = newSentinels(md)
   const blockSources = new Map<string, AnyBlock>()
+  const columnMarks = new Map<string, ColumnMark>()
   const mentionSources = new Map<string, { kind: string; id: string; label: string; literal: string }>()
 
   let out = md
@@ -397,6 +462,17 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
           prevLine = 'other'
           continue
         }
+      }
+      const cm = line.includes('inkling:column') ? COLUMN_MARK_RE.exec(line) : null
+      const mark = cm && !cm[1] ? parseColumnMark(cm) : null
+      if (cm && mark) {
+        // a paragraph of its own; only top-level markers (no indent or quote) make columns, the others
+        // stay comments, which BlockNote's parser drops
+        const key = sentinel(s, 'B')
+        columnMarks.set(key, mark)
+        next.push(cm[1].trimEnd(), cm[1] + key, cm[1].trimEnd())
+        prevLine = 'other'
+        continue
       }
       const bt = line.includes('<!--') ? BLOCK_TOKEN_RE.exec(line) : null
       if (bt) {
@@ -439,7 +515,8 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
     opts.mentions === 'all' || (opts.mentions instanceof Set ? opts.mentions.has(`${kind}:${id}`) : false)
   const anyMention = new RegExp(`${s.nonce}M\\d+Q`, 'g')
 
-  const restore = (blocks: AnyBlock[]): AnyBlock[] => {
+  const restore = (blocks0: AnyBlock[]): AnyBlock[] => {
+    const blocks = columnMarks.size ? groupColumns(blocks0, (b) => markOf(b, columnMarks)) : blocks0
     const restoreBlocks = (list: AnyBlock[]) => {
       for (let i = 0; i < list.length; i++) {
         const b = list[i]
@@ -499,6 +576,84 @@ export function extractNotation(md: string, opts: ParseNotationOptions = {}): No
     return blocks
   }
   return { markdown: out, restore }
+}
+
+/** The column marker a sentinel paragraph stands for, if it is one. */
+function markOf(b: AnyBlock, marks: Map<string, ColumnMark>): ColumnMark | null {
+  const c = b.content
+  if (b.type !== 'paragraph' || !Array.isArray(c) || c.length !== 1 || c[0].type !== 'text') return null
+  return marks.get((c[0] as StyledText).text.trim()) ?? null
+}
+
+/**
+ * Top-level column markers → `columnList` blocks (docs/adr/2422-*). A group is an open marker, a
+ * column marker right after it, 2–4 columns and a close marker. Anything else loses its markers and
+ * keeps its blocks: an open marker with no close, a nested group (all markers from the outer open to
+ * its close), stray column or close markers, blocks before the first column, too few or too many
+ * columns. Markers below the top level (inside a list item, a quote) are always dropped.
+ */
+export function groupColumns(list: AnyBlock[], markOf: (b: AnyBlock) => ColumnMark | null): AnyBlock[] {
+  const out: AnyBlock[] = []
+  const strip = (bs: AnyBlock[]): AnyBlock[] =>
+    bs.flatMap((b) => (markOf(b) ? [] : [Array.isArray(b.children) && b.children.length ? { ...b, children: strip(b.children) } : b]))
+  for (let i = 0; i < list.length; ) {
+    const m = markOf(list[i])
+    if (!m) {
+      out.push(...strip([list[i]]))
+      i++
+      continue
+    }
+    if (m.kind !== 'open') {
+      i++
+      continue
+    }
+    // the matching close, counting nested groups
+    let depth = 1
+    let nested = false
+    let end = -1
+    for (let j = i + 1; j < list.length; j++) {
+      const k = markOf(list[j])?.kind
+      if (k === 'open') {
+        depth++
+        nested = true
+      } else if (k === 'close' && --depth === 0) {
+        end = j
+        break
+      }
+    }
+    if (end < 0) {
+      i++ // no close: only this marker goes
+      continue
+    }
+    const inner = list.slice(i + 1, end)
+    const columns: AnyBlock[][] = []
+    let valid = !nested && inner.length > 0 && markOf(inner[0])?.kind === 'column'
+    if (valid) {
+      for (const b of inner) {
+        if (markOf(b)?.kind === 'column') columns.push([])
+        else columns[columns.length - 1].push(...strip([b]))
+      }
+      valid = columns.length >= MIN_COLUMNS && columns.length <= MAX_COLUMNS
+    }
+    if (!valid) {
+      out.push(...strip(inner))
+      i = end + 1
+      continue
+    }
+    const widths = m.widths && m.widths.length === columns.length ? pctToWeights(m.widths) : null
+    const equal = !widths || equalWeights(widths)
+    out.push({
+      type: COLUMN_LIST_TYPE,
+      props: {},
+      children: columns.map((blocks, k) => ({
+        type: COLUMN_TYPE,
+        props: equal ? {} : { width: widths![k] },
+        children: blocks.length ? blocks : [{ type: 'paragraph', props: {}, content: [], children: [] }],
+      })),
+    })
+    i = end + 1
+  }
+  return out
 }
 
 /** `> [!type] text` read back by BlockNote as a quote → the callout, or null for an ordinary quote. */

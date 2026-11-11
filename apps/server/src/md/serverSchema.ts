@@ -6,6 +6,9 @@ import {
   calloutConfig,
   buttonBlockConfig,
   chartBlockConfig,
+  columnListPropSchema,
+  columnNodes,
+  columnPropSchema,
   inlineMathConfig,
   linkEmbedConfig,
   mathBlockConfig,
@@ -36,6 +39,7 @@ interface BlockNoteCore {
   defaultInlineContentSpecs: Record<string, unknown>
   createBlockSpec(config: object, implementation: object): () => unknown
   createInlineContentSpec(config: object, implementation: object): unknown
+  createBlockSpecFromTiptapNode(config: { node: unknown; type: string; content: 'none' }, propSchema: object): unknown
 }
 
 async function loadCore(): Promise<BlockNoteCore> {
@@ -147,10 +151,26 @@ const mentionSpec = core.createInlineContentSpec(mentionConfig, {
   },
 })
 
+/**
+ * Columns (docs/adr/2420-*): the same `columnList` / `column` nodes as the web editor, built from the
+ * shared configs with Tiptap's Node class taken from a default block (core does not re-export it and
+ * @tiptap/core is not a server dependency). Their HTML is the nodes' own `div`s; the public page CSS
+ * lays them out.
+ */
+const defaultSchema = core.BlockNoteSchema.create({ blockSpecs: core.defaultBlockSpecs, inlineContentSpecs: core.defaultInlineContentSpecs }) as {
+  blockSpecs: { paragraph: { implementation: { node: { constructor: unknown } } } }
+}
+const TiptapNode = defaultSchema.blockSpecs.paragraph.implementation.node.constructor as Parameters<typeof columnNodes>[0]
+const columnPm = columnNodes(TiptapNode)
+const columnListSpec = core.createBlockSpecFromTiptapNode({ node: columnPm.columnList, type: 'columnList', content: 'none' }, columnListPropSchema)
+const columnSpec = core.createBlockSpecFromTiptapNode({ node: columnPm.column, type: 'column', content: 'none' }, columnPropSchema)
+
 /** The schema passed to `ServerBlockNoteEditor.create`. */
 export const serverSchema = core.BlockNoteSchema.create({
   blockSpecs: {
     ...core.defaultBlockSpecs,
+    columnList: columnListSpec,
+    column: columnSpec,
     [mathBlockConfig.type]: mathBlockSpec(),
     [calloutConfig.type]: calloutSpec(),
     [pageEmbedConfig.type]: pageEmbedSpec(),

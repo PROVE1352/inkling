@@ -1020,6 +1020,8 @@ export * from './later'
 export * from './math'
 // Callout / embed / plugin block / mention configs shared with the server schema (docs/adr/1500-*)
 export * from './blocks'
+// Columns: the columnList / column nodes and width helpers (docs/adr/2420-*)
+export * from './columns'
 
 // Per-user sidebar menu order / visibility (docs/adr/1020-*)
 export * from './sidebar'

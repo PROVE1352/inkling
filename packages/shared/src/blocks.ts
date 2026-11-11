@@ -111,6 +111,9 @@ export const CUSTOM_BLOCK_TYPES = [
   mathBlockConfig.type,
   chartBlockConfig.type,
   buttonBlockConfig.type,
+  // columns (docs/adr/2420-*): bnBlock nodes built from columns.ts, not block configs
+  'columnList',
+  'column',
 ] as const
 export type CustomBlockType = (typeof CUSTOM_BLOCK_TYPES)[number]
 

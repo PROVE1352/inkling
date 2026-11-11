@@ -22,6 +22,9 @@ export async function gatedTransact(conn: DirectConnection, fn: (doc: Y.Doc) => 
   try {
     await gate(() => {
       stored = conn.transact(fn)
+      // an edit that throws (a refused section patch) rejects `stored` while the gate is still
+      // settling: mark it handled now; `await stored` below still throws the error to the caller
+      stored.catch(() => undefined)
     })
   } catch (err) {
     // The gate refused (nothing applied), or failed after the apply: settle the store either way.
@@ -114,7 +117,8 @@ async function appendOnConnection(conn: DirectConnection, incoming: AnyBlock[], 
   try {
     const tmpGroup = tmp.getXmlFragment('document').get(0)
     if (!isBlockGroup(tmpGroup)) throw new Error('Failed to convert the blocks to append')
-    const els = tmpGroup.toArray().filter((c): c is Y.XmlElement => c instanceof Y.XmlElement && c.nodeName === 'blockContainer')
+    // a top-level block is a blockContainer or a group of columns (docs/adr/2420-*)
+    const els = tmpGroup.toArray().filter((c): c is Y.XmlElement => c instanceof Y.XmlElement && (c.nodeName === 'blockContainer' || c.nodeName === 'columnList'))
     if (els.length !== incoming.length) throw new Error('Append check failed (block count)')
     // The new blocks must read back through BlockNote (throws on content the server cannot read).
     readBlocks(tmp)

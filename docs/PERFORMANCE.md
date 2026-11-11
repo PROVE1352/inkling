@@ -337,6 +337,23 @@ DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench npx tsx scri
 | Web clipper, pathological markup (0.18) | A linear pre-scan refuses nesting deeper than 400 levels; the HTML is cut at 20,000 tags | 3,000-deep nested `div`: parsing alone 8.7 s, extraction 53 s | refused in 5 ms | — | A page past the cut keeps the article text before it; a page nested deeper than 400 has no article text (saved as a link) | same conditions as the row above | [ADR 2261](adr/2261-article-extraction-on-the-server-dom-without-readability.md) |
 | Onboarding checklist facts (0.19) | One statement of EXISTS subqueries per `GET /api/me/onboarding` while the card is open (`pages_created_by_idx` for pages, collections and links) | — | one statement per read; refetched on window focus, staleTime 30 s | — (feature cost) | one indexed statement per read | Not measured at scale | [ADR 2380](adr/2380-onboarding-state-per-person-new-accounts-only.md) |
 
+Restricted mode (0.22, not measured; a description of the structure from the code). With a limit set, every
+transaction that creates pages takes a transaction-scoped advisory lock per workspace (`ws-quota:<workspace>`) and
+counts the workspace's `pages` rows under it; adding a member counts `workspace_members` under the member lock;
+creating or taking over a workspace counts the person's owned workspaces under `user-ws:<user>`. With
+`LIMIT_WORKSPACE_STORAGE_MB` an upload reads and updates the workspace's cached count in its transaction, each save of
+a page body runs one `UPDATE … RETURNING` on the workspace row, a REST or MCP body write reads the workspace row and
+the page's stored body size, and a full count (one statement over about a dozen tables of the workspace) runs every
+hour for every workspace in turn, at a save when the cached count is more than 10 minutes old, when Workspace
+settings › General finds it more than a minute old, and after a purge. With `LEGAL_DIR` each authenticated request
+asks whether the person agreed: "agreed" is cached for 10 minutes (at most 20,000 entries), "not agreed" is read
+from `user_consents` each time. With none of the settings the checks return before any SQL (a test passes them an
+executor that throws), and a request costs one length check for the features turned off and one size check for
+the request gates. Two things run without any setting: `GET /api/workspaces/:id/usage`, which Workspace settings ›
+General calls on every server, counts the workspace's storage with the full statement on each call (the browser
+keeps the answer for a minute), and the hourly housekeeping runs two more `DELETE` statements (old sign-up
+records and old `ip_bans` rows).
+
 ## Sync & collaboration
 
 | Area | Change (what algorithm or structure) | Before | After | Improvement | Cost | How measured | Source |

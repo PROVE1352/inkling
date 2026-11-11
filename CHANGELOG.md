@@ -102,9 +102,10 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   three workspaces) with page@1, page@3 and page MRR in `apps/server/scripts/context-bench.ts` and
   `context-tune.ts` (docs/adr/2400-*).
 - **Korean guides**: `deploy/DEPLOY.ko.md`, `docs/OPERATIONS.ko.md`, `docs/BACKUP.ko.md`, `docs/MCP.ko.md`,
-  `docs/QUERY.ko.md`, `docs/TEMPLATES.ko.md`, `docs/ARCHITECTURE.ko.md`, `docs/WEBHOOKS.ko.md`, `docs/VAULT-SYNC.ko.md`
-  and `docs/PLUGINS.ko.md`, with the same sections, anchors and code blocks as the English files. The Korean README and
-  user guide link to them; each English file links to its Korean one.
+  `docs/QUERY.ko.md`, `docs/TEMPLATES.ko.md`, `docs/ARCHITECTURE.ko.md`, `docs/WEBHOOKS.ko.md`, `docs/VAULT-SYNC.ko.md`,
+  `docs/PLUGINS.ko.md`, `docs/API.ko.md`, `docs/KNOWN-ISSUES.ko.md`, `docs/PERFORMANCE.ko.md` and `docs/ROADMAP.ko.md`,
+  with the same sections, anchors and code blocks as the English files. The Korean README and user guide link to them;
+  each English file links to its Korean one.
 
 ### Changed
 - **find_context finds pages people describe with a longer word than the page uses** (docs/adr/2401-* .. 2403-*):

@@ -208,6 +208,6 @@ pages/p5.canvas
 <a id="api-and-mcp"></a>
 ## API와 MCP
 
-REST 경로는 [API.md의 Templates](API.md#templates)에 정리되어 있습니다. MCP 클라이언트는 `list_templates`와 `create_from_template` 도구를 씁니다([MCP.ko.md](MCP.ko.md)).
+REST 경로는 [API.ko.md의 Templates](API.ko.md#templates)에 정리되어 있습니다. MCP 클라이언트는 `list_templates`와 `create_from_template` 도구를 씁니다([MCP.ko.md](MCP.ko.md)).
 
 행 템플릿에는 `GET`/`POST /api/pages/:id/collection/row-templates`, `GET`/`PATCH`/`DELETE /api/collection-row-templates/:id`가 있고, 행 하나를 만들 때는 `POST /api/pages/:id/collection/rows`를 씁니다(`template`을 빼면 기본 템플릿, `null`이면 빈 행). MCP의 `create_row`는 `template`(이름이나 id, 또는 `"none"`)과 `inputs`를 받습니다. `query_rows`에 `describe: true`를 주면 템플릿 목록이 함께 나옵니다.

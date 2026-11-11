@@ -1,6 +1,6 @@
 # Known issues
 
-These are known issues that were triaged out of the ship-blocking fix phase and accepted for now. Each entry gives a severity (High / Medium / Low / Info) and the audit or follow-up ID it came from: `A-*` sync and concurrency audit, `B-*` resource and OS audit, `C-*` security code review, `TODO` the follow-up ledger, `P-*` the performance-phase reports.
+These are known issues that were triaged out of the ship-blocking fix phase and accepted for now. Each entry gives a severity (High / Medium / Low / Info) and the audit or follow-up ID it came from: `A-*` sync and concurrency audit, `B-*` resource and OS audit, `C-*` security code review, `TODO` the follow-up ledger, `P-*` the performance-phase reports. 한국어: [KNOWN-ISSUES.ko.md](KNOWN-ISSUES.ko.md).
 
 Add new items to the matching section, one line per item in the same shape: `- **Severity** (ID) description`. "Editor" covers the editor and content fidelity (export, public share, round trips). When an item is fixed, delete it and mention the fix in the changelog or ADR.
 

@@ -150,7 +150,7 @@ inkling.blocks.register('counter', {
 <a id="rest-endpoints-used-by-the-app-not-by-plugins"></a>
 ### REST 엔드포인트 (플러그인이 아니라 앱이 씀)
 
-[API.md](API.md#plugins-experimental)를 보세요. 플러그인은 서버를 부를 수 없습니다. 앱(부모 창)이 승인된 권한을 확인한 뒤, 사용자 자신의 세션으로 이 엔드포인트들을 부릅니다.
+[API.ko.md](API.ko.md#plugins-experimental)를 보세요. 플러그인은 서버를 부를 수 없습니다. 앱(부모 창)이 승인된 권한을 확인한 뒤, 사용자 자신의 세션으로 이 엔드포인트들을 부릅니다.
 
 <a id="limits"></a>
 ## 제한

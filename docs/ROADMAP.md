@@ -1,7 +1,7 @@
 # Inkling Roadmap
 
 > Goal: a self-hosted notes app that combines Notion (team collaboration, database views) with Obsidian (lightweight, Markdown, your own data).
-> The server runs in Docker; you use it through the web/PWA. No per-block or per-member limits.
+> The server runs in Docker; you use it through the web/PWA. No per-block or per-member limits. 한국어: [ROADMAP.ko.md](ROADMAP.ko.md).
 
 ## M1 — Core skeleton ✅ Done (2026-07-12)
 

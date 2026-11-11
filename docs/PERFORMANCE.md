@@ -4,7 +4,7 @@ This file records every algorithm or data-structure change made for performance,
 before and after and how they were measured. It also records changes that were measured and
 rejected, changes that had no effect, and regressions, so the same idea is not tried twice and a
 slowdown is never silent. The reasoning behind each change lives in its ADR (`docs/adr/`); this file
-is the index of the numbers.
+is the index of the numbers. 한국어: [PERFORMANCE.ko.md](PERFORMANCE.ko.md).
 
 ## Measurement principles
 

@@ -152,7 +152,7 @@ claude.ai에서는 설정 › 커넥터 › Add custom connector에 같은 주�
 
 여러 에이전트가 같이 일할 때는 `claim_section`으로 섹션을 최대 30분 잡아 둘 수 있고, 그동안 다른 에이전트가 그 섹션을 직접 고치려 하면 거절됩니다. 사람은 막지 않습니다. `suggest=true`를 주거나 워크스페이스·잠금 설정을 바꾸면 에이전트의 수정이 제안으로 남습니다. 무슨 일이 있었는지는 `inbox`, `catch_up`, `changes_since` 커서로 알 수 있고, 워크스페이스 규칙은 잠긴 페이지에 적어 두면 `get_instructions`로 읽어 갑니다. 첨부 파일은 `read_file`로 읽고(PDF는 글자까지), 에이전트가 만든 파일은 `upload_file`로 붙입니다. 제안을 받아들이는 일과 에이전트 편집을 되돌리는 일은 사람만 할 수 있습니다. 에이전트가 한 일은 '사용자 (앱 경유)'로 남습니다. 페이지 내용은 신뢰하지 않는 데이터로 감싸서 넘기는데, 프롬프트 인젝션을 완전히 막을 방법은 없다고 봐서 이건 완화책으로만 두었습니다. 실제 경계는 편집 잠금과 연결 권한, 워크스페이스별 에이전트 차단입니다.
 
-토큰은 같은 데이터로 전후를 재서 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)에 측정 방법과 함께 적어 두었습니다. 세션마다 고정으로 드는 비용(도구 목록과 서버 안내문)은 0.15.1에서 약 16,938토큰에서 약 12,390토큰으로 26.9% 줄었습니다. `find_context`를 처음 넣었을 때 5,000페이지 벤치마크에서 재 보니, 검색 후 페이지를 통째로 읽던 방식보다 질문당 평균 토큰이 2,254에서 624로, 도구 호출이 3.68번에서 1.00번으로 줄었습니다. `read_page(outline=true)`의 목차는 0.15.1에서 34% 작아졌고, 바뀌지 않은 목차를 `known`으로 다시 읽으면 93.5% 덜 듭니다. 문장 하나를 `patch_section`으로 고치면 약 222토큰이 들고, 읽고 통째로 바꾸면 약 2,415토큰이 듭니다. 에이전트가 섹션을 고치는 동안 같은 섹션을 사람이 치고 있으면, 예전에는 6개 시나리오 중 1개에서만 사람의 글이 남았는데 지금은 6개 모두에서 남습니다.
+토큰은 같은 데이터로 전후를 재서 [docs/PERFORMANCE.ko.md](docs/PERFORMANCE.ko.md)에 측정 방법과 함께 적어 두었습니다. 세션마다 고정으로 드는 비용(도구 목록과 서버 안내문)은 0.15.1에서 약 16,938토큰에서 약 12,390토큰으로 26.9% 줄었습니다. `find_context`를 처음 넣었을 때 5,000페이지 벤치마크에서 재 보니, 검색 후 페이지를 통째로 읽던 방식보다 질문당 평균 토큰이 2,254에서 624로, 도구 호출이 3.68번에서 1.00번으로 줄었습니다. `read_page(outline=true)`의 목차는 0.15.1에서 34% 작아졌고, 바뀌지 않은 목차를 `known`으로 다시 읽으면 93.5% 덜 듭니다. 문장 하나를 `patch_section`으로 고치면 약 222토큰이 들고, 읽고 통째로 바꾸면 약 2,415토큰이 듭니다. 에이전트가 섹션을 고치는 동안 같은 섹션을 사람이 치고 있으면, 예전에는 6개 시나리오 중 1개에서만 사람의 글이 남았는데 지금은 6개 모두에서 남습니다.
 
 의미 검색은 선택 기능이고 기본으로 꺼져 있습니다. 운영자가 켜면 `find_context`가 뜻으로도 순위를 매기고, 이때 섹션 내용이 설정한 임베딩 주소로 나갑니다. 로컬 Ollama를 쓰면 노트가 내 네트워크 밖으로 나가지 않습니다([deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md#3-h-semantic-search-optional)).
 
@@ -183,7 +183,7 @@ Inkling이 약한 점도 분명히 있습니다. PostgreSQL이 꼭 있어야 하
 
 테스트는 주로 Chrome에서 했습니다. 새로 들어간 화면은 Safari, Firefox, 터치 기기에서 아직 확인하지 못했고, iPhone·iPad의 웹 푸시와 안드로이드 공유 메뉴도 실제 기기에서는 확인하지 못했습니다.
 
-아직 쓰는 사람이 적은 새 프로젝트라서 부족한 부분이 많고, 피드백과 기여를 기다리고 있습니다. 첫 공개를 막을 정도는 아니라서 남겨 둔 문제들을 영역과 심각도별로 [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md)에 적어 두었고, 앞으로 할 일은 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다.
+아직 쓰는 사람이 적은 새 프로젝트라서 부족한 부분이 많고, 피드백과 기여를 기다리고 있습니다. 첫 공개를 막을 정도는 아니라서 남겨 둔 문제들을 영역과 심각도별로 [docs/KNOWN-ISSUES.ko.md](docs/KNOWN-ISSUES.ko.md)에 적어 두었고, 앞으로 할 일은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
 
 ## 구조
 
@@ -191,7 +191,7 @@ Inkling이 약한 점도 분명히 있습니다. PostgreSQL이 꼭 있어야 하
 - 웹(`apps/web`): React 19, Vite, Tailwind CSS v4, BlockNote 에디터, React Flow 캔버스, d3-force 그래프
 - CLI(`apps/cli`)는 볼트 동기화용 `inklingctl`이고, 공용 패키지(`packages/shared`)에 zod 스키마와 DTO, 쿼리 파서가 있습니다
 
-설계 설명은 [docs/ARCHITECTURE.ko.md](docs/ARCHITECTURE.ko.md)에, 결정과 그 이유는 [docs/adr/](docs/adr/README.md)의 ADR에, REST 계약은 [docs/API.md](docs/API.md)에 있습니다. 성능을 손볼 때는 같은 데이터로 전후를 재서, 효과가 없어 버린 변경까지 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)에 남깁니다. 이 문서들은 영어로만 쓰여 있습니다.
+설계 설명은 [docs/ARCHITECTURE.ko.md](docs/ARCHITECTURE.ko.md)에, 결정과 그 이유는 [docs/adr/](docs/adr/README.md)의 ADR에, REST 계약은 [docs/API.ko.md](docs/API.ko.md)에 있습니다. 성능을 손볼 때는 같은 데이터로 전후를 재서, 효과가 없어 버린 변경까지 [docs/PERFORMANCE.ko.md](docs/PERFORMANCE.ko.md)에 남깁니다. ADR은 영어로만 쓰여 있습니다.
 
 ## 보안
 
@@ -208,7 +208,7 @@ Inkling은 서로 믿는 사람들이 워크스페이스 단위로 함께 쓰는
 
 ## AI 도움을 받아 만들었습니다
 
-Inkling은 설계와 구현에 AI 코딩 에이전트를 많이 썼습니다. 생성된 코드는 동시성, 자원, 보안 쪽에서 잘 틀린다고 봐서 이 부분을 겨냥해 여러 차례 따로 검토했고, 성능은 추측하지 않고 측정한 결과를 보고 고쳤습니다. 그 과정에서 내린 결정과 절충은 [docs/adr/](docs/adr/README.md)에, 아직 못 고친 문제는 [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md)에 공개해 두었습니다. 중요한 데이터를 맡기시기 전에는 다른 새 프로젝트와 마찬가지로 충분히 살펴보시기 바랍니다.
+Inkling은 설계와 구현에 AI 코딩 에이전트를 많이 썼습니다. 생성된 코드는 동시성, 자원, 보안 쪽에서 잘 틀린다고 봐서 이 부분을 겨냥해 여러 차례 따로 검토했고, 성능은 추측하지 않고 측정한 결과를 보고 고쳤습니다. 그 과정에서 내린 결정과 절충은 [docs/adr/](docs/adr/README.md)에, 아직 못 고친 문제는 [docs/KNOWN-ISSUES.ko.md](docs/KNOWN-ISSUES.ko.md)에 공개해 두었습니다. 중요한 데이터를 맡기시기 전에는 다른 새 프로젝트와 마찬가지로 충분히 살펴보시기 바랍니다.
 
 ## 기여
 

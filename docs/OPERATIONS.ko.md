@@ -1,6 +1,6 @@
 # 운영: 배포 점검 목록, 성능, 캐시, 데이터베이스 튜닝
 
-[deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md), [docs/BACKUP.ko.md](BACKUP.ko.md)와 함께 보는 문서입니다. 설계 기록은 `docs/adr/0750`–`0759`에 있고, 알고 있지만 그대로 두기로 한 문제는 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)에 있습니다. English: [OPERATIONS.md](OPERATIONS.md).
+[deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md), [docs/BACKUP.ko.md](BACKUP.ko.md)와 함께 보는 문서입니다. 설계 기록은 `docs/adr/0750`–`0759`에 있고, 알고 있지만 그대로 두기로 한 문제는 [KNOWN-ISSUES.ko.md](KNOWN-ISSUES.ko.md)에 있습니다. English: [OPERATIONS.md](OPERATIONS.md).
 
 <a id="0-deployment-checklist"></a>
 ## 0. 배포 점검 목록

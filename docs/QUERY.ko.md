@@ -93,4 +93,4 @@ TABLE [WITHOUT ID] <expr> [AS "Label"], …   |   LIST [<expr>]   |   TASK
 <a id="api"></a>
 ## API
 
-`POST /api/workspaces/:id/query`입니다. 자세한 내용은 [API.md](API.md#query-blocks)를 보세요.
+`POST /api/workspaces/:id/query`입니다. 자세한 내용은 [API.ko.md](API.ko.md#query-blocks)를 보세요.

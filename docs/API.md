@@ -1,7 +1,7 @@
 # Inkling API Contract (M1)
 
 The shared contract between the server and web agents. **This document is the source of truth**: implementations must not diverge from it.
-Request validation schemas and DTO types are defined in `@inkling/shared` (packages/shared/src/index.ts), and both sides import them.
+Request validation schemas and DTO types are defined in `@inkling/shared` (packages/shared/src/index.ts), and both sides import them. 한국어: [API.ko.md](API.ko.md).
 
 ## Common rules
 

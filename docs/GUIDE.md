@@ -91,7 +91,7 @@ page bodies, version history, handwriting, comments and the trash). On a server 
 Creating past a limit (pages, members, the workspaces you own, the size of one file) shows a message that names it;
 deleted workspaces count toward the ones you own until they are deleted for good. When the storage is full, the
 workspace is read-only for everyone and a notice above the page says so. Delete files or pages and empty the trash,
-then open the usage again; a page that was already open stays read-only until you open it again.
+then open the usage again: once the server counts the workspace under its limit, open pages can be edited again.
 
 **Groups and archive.** Open the workspace menu at the top of the sidebar and choose **Organize workspaces…**. Make
 groups such as "Contests" or "Classes", choose a group for each workspace, and drag (or use the arrows) to change the
@@ -933,7 +933,8 @@ The same menu also has **Import (.md/.zip)** for Markdown files and **Import fol
 
 - Deleting a page moves it to the **Trash** (bottom of the sidebar). Open it to **Restore** a page or
   **Delete forever**.
-- The trash keeps pages for 30 days unless an owner changed it (Workspace settings → General → **Keep trash for**).
+- The trash keeps pages for 30 days unless an owner changed it (Workspace settings → General → **Keep trash for**). A
+  server can set a shorter ceiling; the setting then says so and takes nothing above it.
 - Settings → Files & links → **Confirm before deleting**: when off, pages go straight to the trash with an "Undo" toast.
 - **History** in the right panel lists saved versions. **View all** opens **Version history**: preview a version,
   **Compare with current**, **Snapshot now** to save one yourself, or **Restore this version** (the current state

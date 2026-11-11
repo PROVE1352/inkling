@@ -356,6 +356,16 @@ search는 이름과 정확한 문자열을 찾는 도구이고, find_context는 
 
 MCP로 한 편집, 코멘트, 만든 페이지는 버전 히스토리, 코멘트, 변경 피드, 활동 화면에 "<나> (<앱 이름> 경유)"로 표시됩니다. 내가 만든 페이지에는 "AI가 작성 (<앱 이름> 경유)"가 나옵니다. 워크스페이스의 다른 멤버와 이름이 똑같은 연결은 그 워크스페이스에서 거절됩니다(`CLIENT_NAME_CLASH`). 흔한 앱 이름이면 예외입니다. 에이전트의 쓰기는 한 번마다 버전 하나, "AI 단계"가 되고 클라이언트, 섹션, 바뀐 줄이 함께 표시됩니다. "AI 편집 전" 버전은 가장 최근 버전 뒤로 페이지가 바뀌었을 때만 저장합니다([ADR 2180](adr/2180-one-version-per-agent-write.md)). 사람이 수락한 제안은 그 사람으로서 적용되고, 규칙으로 수락된 제안은 페이지 기록과 활동에 "<앱 이름> · 자동 수락"으로 나옵니다.
 
+<a id="servers-with-limits-features-turned-off-or-terms-022"></a>
+### 한도, 기능 끄기, 약관이 있는 서버 (0.22)
+
+서버는 제한 모드로 돌 수 있습니다(docs/OPERATIONS.ko.md, 17절). 그러면 도구도 웹 앱과 같은 REST 라우트를 부르므로 같은 거절을 받습니다. 거절된 호출은 아무것도 쓰지 않습니다.
+
+- **한도.** 한도를 넘겨 무엇을 만들려는 도구는 서버의 메시지와 코드를 받습니다. 예를 들어 `Error: This workspace already has 300 of 300 pages (the trash counts too) (LIMIT_PAGES)`나 `Error: File is too large (max 5.0 MB on this server) (LIMIT_FILE)`입니다. 403 한도 오류 뒤에는 403 일반 안내("you are not a member of that workspace or lack permission; …")가 붙는데, 이 오류에는 맞지 않습니다. 다시 시도하지 말고 워크스페이스가 찼다고 사용자에게 알리세요(KNOWN-ISSUES LIMITS-7). 저장 용량 한도를 넘은 워크스페이스는 읽기 전용이라서 페이지 쓰기, 댓글, 업로드, 가져오기가 `Error: This workspace has used up its storage. Delete files or pages (and empty the trash) to edit again (LIMIT_STORAGE)`로 답합니다. 본문이 한도의 1/4을 넘은 페이지는 `Error: This page is too large to grow further: move part of it to a new page (LIMIT_STORAGE)`로 답합니다. `upload_file`은 `min(AGENT_UPLOAD_MAX_MB, LIMIT_FILE_MB)`까지 받지만 설명에는 앞의 값만 적혀 있습니다. `LIMIT_VERSIONS_PER_PAGE`가 있으면 페이지마다 남는 버전이 줄고, 에이전트 몫도 함께 줄어듭니다.
+- **약관.** 약관이 있는 서버(`LEGAL_DIR`)에서 현재 버전에 동의하지 않은 사람은 어떤 연결도 쓸 수 없습니다. `/mcp`로 가는 모든 요청이 MCP 대화가 시작되기 전에 HTTP 403 `CONSENT_REQUIRED`로 거절되고, 메시지는 "You must agree to the terms of this server first. Sign in on the web and agree: <서버 주소>/"입니다. 클라이언트에는 요청이나 연결 실패로 보입니다. 브라우저에서 동의하면 바로 풀리고, 토큰이 그 사람 대신 동의할 수는 없습니다.
+- **기능 끄기.** `DISABLED_FEATURES`로 끌 수 있는 기능에 속한 도구는 없습니다. `notion-import`가 꺼져 있으면 `import_zip`은 Notion에서 내보낸 것처럼 보이는 zip을 `NOTION_IMPORT_IN_APP`으로 거절하지 않고 일반 Markdown 파일로 가져옵니다.
+- **아이디 로그인.** `LOGIN_ID_MODE=username`이면 사람들은 이메일 주소 대신 아이디와 별명을 씁니다. 도구는 이메일을 보여 주던 자리에 아이디를 보여 줍니다.
+
 <a id="disconnecting-and-api-tokens"></a>
 ## 연결 끊기와 API 토큰
 
@@ -385,6 +395,7 @@ MCP가 아니라 REST API를 직접 부르는 스크립트는 같은 화면에�
 - **0.19**: 마이그레이션 두 개(`0059_share_allow_download`: `pages.share_allow_download`, `0060_onboarding`: `user_onboarding`). 바뀐 도구는 없습니다. 세션마다 드는 고정 비용은 0.18과 같습니다(full 48개 ~12,777 토큰, core 32개 ~7,533). 공개 페이지의 Markdown 내려받기는 도구가 아니라 공개 경로이고, 온보딩은 브라우저 세션에만 있습니다. `create_from_template`: 같은 템플릿 안에 있는 데이터베이스의 인라인 뷰가 이제 새로 복사된 그 데이터베이스를 가리킵니다([ADR 2381](adr/2381-sample-page-first-admin-auto-members-by-button.md)).
 - **0.20**: 마이그레이션 하나(`0061_share_include_charts`: `pages.share_include_charts`, `share_charts_by`, `share_chart_sources`). 바뀐 도구는 없습니다. 도구는 같은 48개(core 32개)이고 설명도 같습니다. 이제 모든 도구가 주석 힌트를 답니다([ADR 2460](adr/2460-mcp-tool-annotations-on-every-tool.md), 위의 "도구 주석"). full은 52,932자(~13,245 토큰. 0.19: 51,059, ~12,777), core는 31,391자(~7,857. 0.19: 30,093, ~7,533), 서버 지침은 그대로입니다(1,965자, ~492 토큰). 단은 모든 도구의 Markdown에서 표시 줄로 나옵니다(위 참고). 공개 링크의 차트는 브라우저에서만 정하는 설정입니다. 공유 경로는 세션에서만 쓸 수 있어서, 차트를 켜거나 차트의 데이터 원본을 승인하는 도구는 없습니다. `read_page`는 읽는 쪽을 위해 차트 토큰과 데이터 줄을 그대로 보여 줍니다([ADR 2440](adr/2440-public-link-charts-switch-per-link-off-by-default.md)).
 - **0.21**: 마이그레이션은 없습니다. 도구, 설명, 서버 지침이 바뀌지 않았으므로 세션마다 드는 고정 비용은 0.20과 같습니다. PDF 미리보기는 웹 앱에만 있는 기능이고, 에이전트는 지금처럼 `read_file`로 PDF의 글자를 읽습니다([ADR 2480](adr/2480-pdf-preview-with-pdfjs-from-the-apps-own-origin.md)).
+- **0.22**: 마이그레이션은 하나입니다(`0062_limits_accounts`). 도구, 설명, 서버 지침이 바뀌지 않았으므로 세션마다 드는 고정 비용은 0.21과 같습니다(full 48개, core 32개). 제한 모드 설정이 하나도 없으면 에이전트에게 달라지는 것은 없습니다. 설정이 있으면 도구는 자기가 부르는 REST 라우트를 거쳐 한도, 동의 게이트, 기능 끄기에 걸립니다(위의 "한도, 기능 끄기, 약관이 있는 서버"). 약관에 동의하지 않은 사람은 `/mcp`를 아예 열 수 없습니다. 계정 삭제, "지금 완전히 삭제", 유일한 멤버로서 워크스페이스에서 나가기는 브라우저에서만 됩니다. 어떤 도구나 토큰도 할 수 없습니다.
 
 <a id="checking-connections-with-real-clients-dcr-and-client-id-metadata-documents"></a>
 ## 실제 클라이언트로 연결 확인하기 (DCR과 Client ID Metadata Documents)

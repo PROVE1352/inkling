@@ -671,6 +671,32 @@ sections and the lines it changed; a "Before AI edit" version is stored only whe
 version ([ADR 2180](adr/2180-one-version-per-agent-write.md)). A suggestion a person accepts is applied as that person; one accepted by
 a rule shows "<app name> · auto-accepted" in page history and activity.
 
+### Servers with limits, features turned off or terms (0.22)
+
+A server can run in restricted mode (docs/OPERATIONS.md, section 17). Tools then meet the same refusals as the web
+app, because they call the same REST routes; nothing is written when a call is refused.
+
+- **Limits.** A tool that would create past a limit gets the server's message and code, for example
+  `Error: This workspace already has 300 of 300 pages (the trash counts too) (LIMIT_PAGES)` or `Error: File is too
+  large (max 5.0 MB on this server) (LIMIT_FILE)`. A 403 limit error is followed by the generic 403 hint ("you are not a member of that workspace or
+  lack permission; …"), which is wrong for it: do not retry, and tell the user that the workspace is full
+  (KNOWN-ISSUES LIMITS-7). A workspace past its storage limit is read-only: page writes, comments, uploads and imports
+  answer `Error: This workspace has used up its storage. Delete files or pages (and empty the trash) to edit again
+  (LIMIT_STORAGE)`. One page past a quarter of the limit answers `Error: This page is too large to grow further: move
+  part of it to a new page (LIMIT_STORAGE)`. `upload_file` takes at most `min(AGENT_UPLOAD_MAX_MB, LIMIT_FILE_MB)`, although
+  its description names only the first. `LIMIT_VERSIONS_PER_PAGE` keeps fewer versions per page; the agents' share
+  of them shrinks with it.
+- **Terms.** On a server with terms (`LEGAL_DIR`), a person who has not agreed to the current version cannot use
+  any connection: every request to `/mcp` is refused with HTTP 403 `CONSENT_REQUIRED` before the MCP exchange starts,
+  with the message "You must agree to the terms of this server first. Sign in on the web and agree: <server
+  address>/". The client shows it as a failed request or connection. Agreeing in the browser lifts it at once; a token
+  cannot agree for the person.
+- **Features turned off.** No tool belongs to a feature that `DISABLED_FEATURES` turns off. With `notion-import` off,
+  `import_zip` imports a zip that looks like a Notion export as plain Markdown files instead of refusing it with
+  `NOTION_IMPORT_IN_APP`.
+- **Sign-in IDs.** With `LOGIN_ID_MODE=username` people have an ID and a nickname instead of an email address;
+  tools show the ID where they showed the email.
+
 ## Disconnecting and API tokens
 
 On the web, open the command palette (⌘P, or Ctrl+P on Windows and Linux; ⌘K is search) → **Manage MCP connections** (`/settings/connections`), or Settings → Connections → **Manage connections**, then **Disconnect** next to the app.
@@ -778,6 +804,12 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
 - **0.21**: no migration; no tool, description or server instruction changes, so the fixed cost per session is the
   same as 0.20. The PDF preview is a web app feature only: agents read a PDF's text with `read_file` as before
   ([ADR 2480](adr/2480-pdf-preview-with-pdfjs-from-the-apps-own-origin.md)).
+- **0.22**: one migration (`0062_limits_accounts`); no tool, description or server instruction changes, so the
+  fixed cost per session is the same as 0.21 (full 48 tools, core 32). With none of the restricted-mode settings
+  nothing changes for agents. With them, tools are refused by the limits, the consent gate and the features turned
+  off through the REST routes they call ("Servers with limits, features turned off or terms" above); a person who
+  has not agreed to the terms cannot open `/mcp` at all. Account deletion, "delete now" and leaving a workspace as
+  its only member are browser-only: no tool and no token can do them.
 
 ## Checking connections with real clients (DCR and Client ID Metadata Documents)
 

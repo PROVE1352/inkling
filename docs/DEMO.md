@@ -30,6 +30,7 @@ sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
 sudo mkdir -p /srv/inkling-demo-data
 echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec 0 2' | sudo tee -a /etc/fstab
 sudo mount /srv/inkling-demo-data
+sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
 findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
 ```
 

@@ -973,8 +973,10 @@ server (CHANGELOG, "What changes on every server"): every account can delete its
 member can leave a workspace (it is deleted at once), an owner can delete a deleted workspace for good, and the
 hourly housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago.
 
-`compose.yaml` passes every 0.22 variable to the app as `${VAR:-}`, and `.env.example` lists them commented out, so
-setting one in `.env` is enough. An empty value means the same as an unset one.
+`compose.yaml` passes all seventeen 0.22 variables to the app as `${VAR:-}`, and `.env.example` has a commented
+example of each, so setting one in `.env` is enough. An empty value means the same as an unset one, for every one of
+them. `LEGAL_DIR` is a path inside the container, so the folder has to be mounted as well (the demo overlay,
+`deploy/demo/compose.demo.yaml`, shows how).
 
 ### Limits and restricted mode (docs/adr/2500-* .. 2521-*)
 Restricted mode is a set of settings for two kinds of servers: an install whose operator wants to cap disk use and
@@ -998,13 +1000,15 @@ the number of people, and a demo server that strangers can sign up to. Setting u
 | `WORKSPACE_RESTORE_DAYS` | whole number ≥ 1 | `30` | Days an owner can restore a deleted workspace; housekeeping deletes it for good after that | — |
 | `LEGAL_DIR` | path of a folder | none | Terms, privacy policy and sign-up consent (below) | 400 `CONSENT_REQUIRED` at sign-up, 403 `CONSENT_REQUIRED` on other requests |
 | `INSTANCE_LABEL` | up to 20 characters, no control characters | none | A label every screen shows, for example `Demo` | — |
-| `LIMIT_TRASH_DAYS` | whole number ≥ 7 | none | Upper bound of page trash retention: pages stay in the trash min(the workspace's "Keep trash for", this value) days. Workspace settings show the bound and do not take a larger value | — |
-| `INSTANCE_NOTICE` | up to 500 characters of plain text (not HTML) | none | An operator notice on the sign-in and sign-up screens and as a banner in the app, which nobody can close. For servers that send no mail: changes, interruptions, incidents | — |
+| `LIMIT_TRASH_DAYS` | whole number ≥ 7 | none | Upper bound of page trash retention: pages stay in the trash min(the workspace's "Keep trash for", this value) days, and MCP `list_trash` gives the same date. The stored workspace value is not rewritten; Workspace settings show the bound and do not take a larger value | 400 `LIMIT_TRASH_DAYS` when a workspace asks for more |
+| `INSTANCE_NOTICE` | up to 500 characters of plain text (not HTML); line breaks allowed | none | An operator notice under the title of the sign-in, sign-up, consent and setup-waiting screens and as a strip above every app screen, which nobody can close. Shown as text, without links. For servers that send no mail: changes, interruptions, incidents | — |
 
 - Megabytes are 1,048,576 bytes. A value that is unset or empty means "no limit" (or off); with nothing set the
   server answers as 0.21.1 and runs none of the checks below.
 - The limits are checked by the server inside the transaction that creates the page, row, file, member or
-  workspace, under a lock, so concurrent requests cannot pass a limit together. MCP tools call the same REST routes
+  workspace, under a lock, so concurrent requests cannot pass a limit together. Transferring ownership and restoring
+  a workspace check the new owner's owned workspaces in their own transaction; the handover when an account is
+  deleted does not look at the limit. MCP tools call the same REST routes
   and are refused the same way. Every limit error carries `{ limit, used }` (API.md, "v0.22.0 additions").
 - `LIMIT_FILE_MB` without `LIMIT_WORKSPACE_STORAGE_MB` still lets a workspace grow without bound; with both, the worst
   case on disk is about the number of accounts × owned workspaces × the storage limit, plus what is not counted
@@ -1015,7 +1019,8 @@ The log names the variable and the reason. The server does not start when:
 - a value cannot be read as written: not a whole number where one is needed, below 1, a decimal written with an
   exponent, `LIMIT_FILE_MB` above 25, `LIMIT_VERSIONS_PER_PAGE` above 50, `ACCOUNT_LIFETIME_DRY_RUN` other than `1`
   or `0`, `LOGIN_ID_MODE` other than `email` or `username`, an unknown name in `DISABLED_FEATURES`, an
-  `INSTANCE_LABEL` over 20 characters or with a control character;
+  `INSTANCE_LABEL` over 20 characters or with a control character, `LIMIT_TRASH_DAYS` below 7, an
+  `INSTANCE_NOTICE` over 500 characters or with a control character other than a line break;
 - `LOGIN_ID_MODE=username` is set together with `DELEGATED_AUTH_URL`, OpenID Connect or SMTP mail, or without
   `password-reset` in `DISABLED_FEATURES` (an ID is not an address that mail can reach);
 - `LEGAL_DIR` is not a readable folder, has no `signup.json`, or a file in it is malformed (below).
@@ -1059,15 +1064,16 @@ semantic search, OpenID Connect and mail. MCP stays on.
   and backups do not count.
 - The count is kept in `workspaces.storage_bytes`. Uploads add their bytes in their own transaction; each save of a
   page body adds the body's growth; housekeeping counts every workspace again each hour; Workspace settings ›
-  General counts it again when the stored count is more than a minute old; deleting for good counts it again.
-- A workspace past its limit is read-only. New pages, uploads, imports, templates, comments, handwriting, manual
+  General counts it again when the stored count is more than a minute old (at most once a minute per workspace);
+  deleting for good counts it again.
+- A workspace that has reached its limit is read-only. New pages, uploads, imports, templates, comments, handwriting, manual
   versions, body writes by REST and MCP, quick tasks and vault sync are refused with 413 `LIMIT_STORAGE`, and live
   editing connections become read-only. Members see a notice above the page ("This workspace has used up its storage,
   so it is read-only. …"). Deleting pages and files,
   emptying the trash, clearing handwriting and exporting always work.
 - To make it writable again, delete files or pages and empty the trash, then open Workspace settings › General
-  (which counts again) or wait for the hourly count. A page that is already open stays read-only until it is opened
-  again (KNOWN-ISSUES LIMITS-3).
+  (which counts again) or wait for the hourly count. The count that finds the workspace under its limit closes its
+  read-only editing connections; they reconnect at once and can edit (KNOWN-ISSUES LIMITS-3).
 - One page body may hold at most a quarter of the limit. Past that, REST and MCP writes to that page are refused
   and its live connections become read-only; splitting it into subpages is the way out (KNOWN-ISSUES LIMITS-2).
 - Between saves of live typing the count can pass the limit by what one save carries (saves come every 2–10 s).
@@ -1085,8 +1091,9 @@ semantic search, OpenID Connect and mail. MCP stays on.
   made another way (delegated sign-in, OIDC) and everyone after a change see a consent screen
   instead of the app. Until they agree, every request of theirs is refused with 403 `CONSENT_REQUIRED`: the browser,
   personal API tokens, MCP connections (the `/mcp` request itself is refused with HTTP 403) and the collaboration
-  socket. Signing out, reading the documents, agreeing, and deleting the account still work. Automation rules
-  set up earlier keep running.
+  socket. Signing out, reading the documents, agreeing, and deleting the account still work: the consent screen
+  has **Delete my account**, without export (export is not open before consent, and the dialog says so).
+  Automation rules set up earlier keep running.
 - `/terms` and `/privacy` open without signing in; the sign-in and sign-up screens and Settings link to them.
 
 ### Sign-up limits and `TRUST_PROXY`
@@ -1102,10 +1109,13 @@ semantic search, OpenID Connect and mail. MCP stays on.
 - Sign-up address records are deleted after 30 days. The hourly housekeeping also deletes `ip_bans` rows whose ban
   ended more than 30 days ago, on every server; an active ban is never touched.
 - Open sign-up (`SIGNUP_REQUIRE_KEY=0`) on a server without an admin: the first account becomes the admin. Under
-  restricted mode (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
+  restricted sign-up (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
   `LOGIN_ID_MODE=username`) a server without an admin refuses sign-ups without the setup code (403
-  `SETUP_REQUIRED`) and the sign-up screen shows only the setup code hint, so create the operator account with the
-  setup code first.
+  `SETUP_REQUIRED`, before any other check) and its sign-up screen only says it is waiting for its operator. Create
+  the operator account with the setup link from the log (`/setup?code=…`, opened at the `PUBLIC_URL` address); after
+  that, sign-up is open as configured. Sign-in still promotes: with OIDC or delegated sign-in on (possible with the
+  caps or the lifetime, not with sign-in IDs), and on a server that has accounts but no admin, the first account to
+  sign in becomes the admin (KNOWN-ISSUES LIMITS-19, LIMITS-20).
 
 ### Account lifetime
 - `ACCOUNT_LIFETIME_DAYS` gives an expiry date only to accounts that sign up while it is set, and never to admins.

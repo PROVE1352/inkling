@@ -54,6 +54,25 @@ function isTooLargeError(err: unknown): boolean {
   return e?.code === 'FST_REQ_FILE_TOO_LARGE' || e?.statusCode === 413
 }
 
+/**
+ * A multipart body that ended before its closing boundary (GHSA-5849-5m6q-9632). Since
+ * @fastify/multipart 10.1.7 the parser reports it instead of ending the part quietly: req.file() or
+ * req.parts() rejects with busboy's "Unexpected end of multipart data", the open file stream fails
+ * with "Part terminated early …" (or a premature close once it is destroyed), and a request closed
+ * mid-body is FST_MP_PREMATURE_CLOSE. Callers pass only errors from reading a multipart body, so the
+ * stream's own premature close is counted here too. It is the client's fault: answer 400, not 500.
+ */
+export function cutUploadError(err: unknown): unknown {
+  const e = err as { code?: string; message?: unknown } | null
+  const message = typeof e?.message === 'string' ? e.message : ''
+  const cut =
+    e?.code === 'FST_MP_PREMATURE_CLOSE' ||
+    e?.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+    message === 'Unexpected end of multipart data' ||
+    message.endsWith('terminated early due to unexpected end of multipart data')
+  return cut ? badRequest('The upload ended before the file was complete; send it again') : err
+}
+
 function attachHeader(reply: { header: (k: string, v: string) => void }, filename: string): void {
   reply.header(
     'Content-Disposition',
@@ -325,7 +344,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           if (isTooLargeError(err)) {
             throw new AppError(413, 'PAYLOAD_TOO_LARGE', `A file is too large (max ${mbLabel(MAX_FOLDER_FILE_BYTES)})`)
           }
-          throw err
+          throw cutUploadError(err)
         }
         if (count === 0) throw badRequest('No files to upload')
 
@@ -404,7 +423,9 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     if (!parentId) assertTopLevelInRange(id, user.id)
 
     // Per-request cap overrides the global multipart fileSize (IMPORT_MAX_UPLOAD_MB).
-    const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } })
+    const mp = await req.file({ limits: { fileSize: MAX_FILE_BYTES } }).catch((err: unknown) => {
+      throw cutUploadError(err)
+    })
     if (!mp) throw badRequest('No files to upload')
 
     const filename = mp.filename || 'import'
@@ -444,7 +465,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
         size = await streamToFile(mp.file, diskPath, maxBytes)
       } catch (err) {
         if (isTooLargeError(err)) throw tooLarge()
-        throw err
+        throw cutUploadError(err)
       }
       if (mp.file.truncated || size < 0) throw tooLarge()
 

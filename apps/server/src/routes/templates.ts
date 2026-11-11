@@ -17,6 +17,7 @@ import { memberOrGuestSql } from '../pageGrants'
 import { requestLocale } from '../i18n'
 import type { Locale } from '../i18n'
 import { findVisiblePage, toPageDTO } from '../pageDto'
+import { cutUploadError } from './exportImport'
 import { markCreatedVia } from '../notify/provenance'
 import { builtinTemplates, builtinTree, getBuiltinTemplate, isBuiltinKey } from '../templates/builtins'
 import { exportTemplate, importTemplateFile, TEMPLATE_FILE_MAX_BYTES } from '../templates/io'
@@ -314,7 +315,9 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
       await requireMembership(id, user.id)
       const q = z.object({ private: z.enum(['0', '1', 'true', 'false']).optional() }).parse(req.query)
 
-      const mp = await req.file()
+      const mp = await req.file().catch((err: unknown) => {
+        throw cutUploadError(err)
+      })
       if (!mp) throw badRequest('No files to upload')
       let buffer: Buffer
       try {
@@ -324,7 +327,7 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
         if (e?.code === 'FST_REQ_FILE_TOO_LARGE' || e?.statusCode === 413) {
           throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')
         }
-        throw err
+        throw cutUploadError(err)
       }
       if (mp.file.truncated || buffer.length > TEMPLATE_FILE_MAX_BYTES) {
         throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'File is too large (max 25MB)')

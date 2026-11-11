@@ -16,7 +16,7 @@ import { env } from '../env'
 import { idParam, requireMembership } from '../helpers'
 import { memberOrGuestSql } from '../pageGrants'
 import { findVisiblePage } from '../pageDto'
-import { streamToFile } from './exportImport'
+import { cutUploadError, streamToFile } from './exportImport'
 import { AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from '../uploadCheck'
 import { assertAgentUploadsAllowed, assertDailyUploadBudget, mbText } from '../agentUploads'
 import { currentConnectionKey } from '../agentAccess'
@@ -100,7 +100,9 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // a connection's cap may be above the browser's 25 MB (AGENT_UPLOAD_MAX_MB, docs/adr/2065-*)
-    const mp = await req.file(bearer ? { limits: { fileSize: AGENT_UPLOAD_MAX_BYTES } } : undefined)
+    const mp = await req.file(bearer ? { limits: { fileSize: AGENT_UPLOAD_MAX_BYTES } } : undefined).catch((err: unknown) => {
+      throw cutUploadError(err)
+    })
     if (!mp) throw badRequest('No file to upload')
 
     let mime = mp.mimetype
@@ -123,7 +125,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       await rm(tmp, { force: true })
       if (isTooLargeError(err)) throw tooLarge()
-      throw err
+      throw cutUploadError(err)
     }
     if (mp.file.truncated || size < 0 || size > maxBytes) {
       await rm(tmp, { force: true })

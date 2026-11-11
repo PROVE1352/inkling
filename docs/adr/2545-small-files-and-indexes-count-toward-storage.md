@@ -22,7 +22,9 @@ These rules apply only on a server with `LIMIT_WORKSPACE_STORAGE_MB` (or, for th
 - **Files**: an upload counts `max(size, 4096) + 1024` bytes (`quota/room.ts fileStorageBytes`,
   `fileStorageSql`). The recount, the upload's reservation and the usage route all use it. The importers
   reserve 5 KB more per attachment as an upper bound, and the recount corrects that. Empty uploads stay
-  allowed on every server; they are no longer free.
+  allowed on every server; they are no longer free. On 4 KB blocks the disk a workspace's files take stays
+  under about 1.6 × its limit: a file of 4,097 bytes counts 5,121 and takes 8,192. One-byte files take
+  4,096 of every 5,120 counted. The files are bounded at limit / 5 KB, and so are their inodes.
 - **Fuse**: every file and folder under DATA_DIR counts `max(size, st_blocks × 512)`. The walk runs 64
   `lstat` calls at a time. Once there is a first measurement, a stale one is answered at once and measured
   again in the background; only the first answer after boot (or after the limit changes) waits.

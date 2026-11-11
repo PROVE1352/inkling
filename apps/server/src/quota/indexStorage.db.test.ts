@@ -48,19 +48,23 @@ describe('[db] indexes count toward workspace storage', { skip: !process.env.DAT
       )[0].n,
     )
 
-  it('200 KB appends into a 2 MB workspace stop after a few (bodies alone would take about nine); the recount counts the index rows', async () => {
+  it('200 KB appends (one page each) into a 2 MB workspace stop after a few (bodies alone would take about nine); the recount counts the index rows', async () => {
     const u = await h.makeUser('idx-n3')
     const ws = await h.makeWorkspace(u)
     const restore = L.setLimitsForTests({ workspaceStorageMb: 2 })
     let pageId = ''
     try {
-      const c = await app.inject({ method: 'POST', url: '/api/pages', headers: { cookie: u.cookie }, payload: { workspaceId: ws.id, title: 'amp' } })
-      assert.equal(c.statusCode, 200, c.body)
-      pageId = (c.json() as { page: { id: string } }).page.id
       await S.recountWorkspaceStorage(ws.id)
       let ok = 0
       let code = ''
+      // one page per append, as the review did: each body stays under the per-page cap (a quarter of the limit)
       for (let i = 0; i < 15 && !code; i++) {
+        const c = await app.inject({ method: 'POST', url: '/api/pages', headers: { cookie: u.cookie }, payload: { workspaceId: ws.id, title: `amp ${i}` } })
+        if (c.statusCode !== 200) {
+          code = (c.json() as { error?: { code?: string } }).error?.code ?? String(c.statusCode)
+          break
+        }
+        pageId = (c.json() as { page: { id: string } }).page.id
         const r = await app.inject({ method: 'POST', url: `/api/pages/${pageId}/content`, headers: { cookie: u.cookie }, payload: { markdown: text(200_000), mode: 'append' } })
         if (r.statusCode === 200) ok++
         else code = (r.json() as { error?: { code?: string } }).error?.code ?? String(r.statusCode)
@@ -71,8 +75,8 @@ describe('[db] indexes count toward workspace storage', { skip: !process.env.DAT
     } finally {
       restore()
     }
-    const { flushDocIndex } = await import('../docIndexer')
-    await flushDocIndex(pageId)
+    const { flushDocIndexes } = await import('../docIndexer')
+    await flushDocIndexes()
     const rows = await indexRows(ws.id)
     assert.ok(rows > 100_000, `index rows were written: ${rows}`)
     const plain = await S.countWorkspaceStorage(db, ws.id)

@@ -23,8 +23,11 @@ The second review found two problems in the audit and rename paths.
 - Every place that writes audit rows was checked (the table is in the 0.22.1 report). The other names written
   as text are matched by an id in the same row (actor, target, the transfer's owners), by the pairs of
   ADR 2535, or are the account's own sign-up workspace.
-- `PATCH /pages/:id` checks storage inside its transaction, after `assertEditable`. It still uses the bare
-  `db`, because a recount writes the workspace row, which this transaction does not hold.
+- `PATCH /pages/:id` checks storage only after an edit check. With a storage limit, it first runs the
+  membership and `assertPageEditable` checks (as the props route does), then `assertWorkspaceGrowth`, all
+  before the transaction. The transaction then checks edit rights again under the write gate. The storage
+  check stays outside the transaction because it takes its own pooled connection and may recount (pool
+  of 10). Without a limit nothing extra runs.
 - A 413 `LIMIT_STORAGE` to a page guest of that workspace carries the code and the message but not `used`
   and `limit` (`quota/room.ts storageError`, read from the request's guest scope). Members still get the
   numbers, as `GET /workspaces/:id/usage` gives them anyway.

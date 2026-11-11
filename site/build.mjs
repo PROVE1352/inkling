@@ -255,7 +255,9 @@ function renderTable(token, parser, ctx) {
           const w = Math.max(2, Math.round((bars[role === 'before' ? 0 : 1] / top) * 100))
           inner += `<span class="bar" aria-hidden="true" style="--w:${w}%"></span>`
         }
-        body += `<td class="c-${role}${flat ? ' is-flat' : ''}${empty(c) ? ' is-empty' : ''}"${label(i)}>${inner}</td>`
+        // A source that is a sentence, not a link or two, goes under the card instead of beside its title.
+        const long = role === 'source' && plain(c.text).replace(/\]\([^)]*\)/g, ']').length > 60
+        body += `<td class="c-${role}${flat ? ' is-flat' : ''}${long ? ' is-long' : ''}${empty(c) ? ' is-empty' : ''}"${label(i)}>${inner}</td>`
       })
       body += '</tr>'
     }
@@ -272,7 +274,12 @@ function renderTable(token, parser, ctx) {
       body += '</tr>'
     }
   } else {
-    kind = cols >= 5 && maxCell > 40 ? 't-recs' : cols <= 2 || (cols === 3 && maxCell <= 60) ? 't-keep' : 't-auto'
+    // A table whose one column reads like paragraphs (the MCP tool list: name, kind, a long description) is
+    // easier to read as cards at any width: the name as the title, the short cells as badges, the text below.
+    const avg = heads.map((_, i) => token.rows.reduce((n, r) => n + r[i].text.length, 0) / Math.max(1, token.rows.length))
+    const bodyCol = avg.indexOf(Math.max(...avg))
+    const isDoc = cols >= 3 && avg[bodyCol] >= 400
+    kind = isDoc ? 't-recs t-doc' : cols >= 5 && maxCell > 40 ? 't-recs' : (cols <= 2 && maxCell <= 24) || (cols === 3 && maxCell <= 12) ? 't-keep' : 't-auto'
     // Short cells (numbers, yes/no) keep their first column on one line.
     if (maxCell <= 40) kind += ' t-short'
     for (const row of token.rows) {
@@ -283,7 +290,8 @@ function renderTable(token, parser, ctx) {
         const pair = c.tokens.length === 1 && c.tokens[0].type === 'text' ? c.text.match(/^(\S+) → (\S+)$/) : null
         const inner = pair ? `<span class="ba"><span class="ba-b">${esc(pair[1])} →</span> <span class="ba-a">${esc(pair[2])}</span></span>` : cell(c)
         // As a card, short values sit side by side and a long one takes the full width.
-        const cls = i === 0 ? 'c-title' : c.text.length > 48 ? 'c-field c-wide' : 'c-field'
+        // A short name in the first column (a tool, a variable, a field) is never folded: c-name.
+        const cls = i === 0 ? (plain(c.text).length <= 24 ? 'c-title c-name' : 'c-title') : isDoc && i === bodyCol ? 'c-field c-wide c-body' : c.text.length > 48 || /\S{17,}/.test(plain(c.text)) ? 'c-field c-wide' : 'c-field'
         body += `<td class="${cls}${empty(c) ? ' is-empty' : ''}"${label(i)}${align}>${inner}</td>`
       })
       body += '</tr>'
@@ -337,6 +345,9 @@ function renderDoc(name) {
       const idHtml = idPart ? ` <span class="issue-id">(${id})</span>` : ''
       return `<li class="issue" data-sev="${sev.toLowerCase()}"${del ? ' data-fixed' : ''}>${p}${del}<strong class="sev">${sev}</strong>${idHtml}`
     })
+    // Inline code wraps at spaces and stays whole otherwise; only a token too long to fit a column
+        // (over 30 characters: a URL, a long path) may be broken anywhere.
+    .replace(/<code>([^<]*)<\/code>/g, (all, inner) => (/\S{31,}/.test(decode(inner)) ? `<code class="long">${inner}</code>` : all))
     .replace(/\b(href|src)="([^"]*)"/g, (all, attr, val) => `${attr}="${esc(rewriteLink(decode(val), attr, from))}"`)
   return { title: title ?? name, h1: h1 ?? `<h1>${esc(name)}</h1>`, html, toc }
 }

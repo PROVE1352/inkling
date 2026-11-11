@@ -1021,8 +1021,14 @@ a.card:hover {
   border-radius: 5px;
   padding: 0.1em 0.35em;
   font-size: 0.86em;
-  overflow-wrap: anywhere;
+  /* A piece of code wraps at its spaces and each line keeps a whole box. */
+  overflow-wrap: break-word;
   word-break: normal;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.prose :not(pre) > code.long {
+  overflow-wrap: anywhere;
 }
 .prose pre {
   background: var(--code-bg);
@@ -1103,6 +1109,14 @@ a.card:hover {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   overflow-wrap: break-word;
+  line-height: 1.65;
+}
+/* Short names in a first column (tools, variables, fields) stay on one line; the long column takes the rest. */
+.prose td.c-name {
+  white-space: nowrap;
+}
+:lang(ko) .prose :not(pre) > code {
+  word-break: keep-all;
 }
 .prose th {
   background: var(--side);
@@ -3410,5 +3424,56 @@ table.tools td:nth-child(2) {
   }
   .t-perf.cards td.c-source {
     text-align: left;
+  }
+}
+
+/* Name, kind, long description (the MCP tool list): the name is the title, short cells are badges. */
+table.cards.t-doc tr.rec {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 8px;
+  padding: 14px 18px 16px;
+}
+table.cards.t-doc td.c-title {
+  margin-right: 4px;
+  font-size: 16px;
+}
+table.cards.t-doc td.c-title code {
+  padding: 2px 8px;
+  font-size: 14.5px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+table.cards.t-doc td.c-field:not(.c-body) {
+  padding: 1px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 560;
+  line-height: 1.6;
+  color: var(--sub);
+  white-space: nowrap;
+}
+table.cards.t-doc td.c-field:not(.c-body)::before,
+table.cards.t-doc td.c-body::before {
+  display: none;
+}
+table.cards.t-doc td.c-body {
+  flex: 0 0 100%;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+/* Cards on a narrow column: the path gets its own line, a long source goes under the card. */
+.t-perf.cards td.c-source.is-long {
+  grid-area: auto;
+  grid-column: 1 / -1;
+  text-align: left;
+}
+@container (max-width: 520px) {
+  .t-endpoint.cards td.c-path {
+    grid-column: 1 / -1;
   }
 }

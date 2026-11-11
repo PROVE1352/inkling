@@ -16,7 +16,7 @@
  *  3. nothing: the chart is left out, with no title.
  */
 import { randomBytes } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { chartDataOfPublic, chartTableMarkdown, parseChartBlockConfig, publicChartOf } from '@inkling/shared'
 import type { ChartBlockConfig, PublicChartDTO } from '@inkling/shared'
 import { db } from '../db/index'
@@ -135,7 +135,12 @@ function chartConfigs(blocks: AnyBlock[], out: (ChartBlockConfig | null)[]): voi
 export async function shareChartCounts(docIds: string[], src: PublicChartSources): Promise<{ total: number; hidden: number } | undefined> {
   const ids = docIds.slice(0, COUNT_PAGE_CAP)
   if (!ids.length) return undefined
-  const rows = await db.select({ state: pageDocs.state }).from(pageDocs).where(inArray(pageDocs.pageId, ids))
+  // only documents whose bytes hold the block name: the Yjs state stores it as plain UTF-8 (a page that
+  // merely says "chart" in its text is decoded for nothing, which is still correct)
+  const rows = await db
+    .select({ state: pageDocs.state })
+    .from(pageDocs)
+    .where(and(inArray(pageDocs.pageId, ids), sql`position(convert_to('chart', 'UTF8') in ${pageDocs.state}) > 0`))
   const configs: (ChartBlockConfig | null)[] = []
   for (const r of rows) {
     try {

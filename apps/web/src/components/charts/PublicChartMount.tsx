@@ -21,10 +21,11 @@ function measureName(c: PublicChartDTO): string {
   return `${name} · ${c.measure.name ?? ''}`
 }
 
-function PublicChartFigure({ chart, dark, locale, height }: { chart: PublicChartDTO; dark: boolean; locale: string; height: number }) {
+function PublicChartFigure({ chart, dark, locale, height, still }: { chart: PublicChartDTO; dark: boolean; locale: string; height: number; still: boolean }) {
   const labels = { noValue: t('chart.noValue'), checked: t('chart.checked'), unchecked: t('chart.unchecked'), measure: measureName(chart) }
-  // drawn at once rather than when scrolled into view: a printed page or PDF must show every chart
-  const options = { animateOnView: false }
+  // drawn at once rather than when scrolled into view: a printed page or PDF must show every chart;
+  // while printing, without any animation (the snapshot is taken right away)
+  const options: Record<string, boolean> = still ? { animateOnView: false, animate: false } : { animateOnView: false }
   const spec = toChartSpec({ kind: chart.kind, options, ...(chart.title ? { title: chart.title } : {}) }, chartDataOfPublic(chart), labels, locale)
   const notes: string[] = []
   if (chart.omittedGroups) notes.push(t('chart.omitted', { count: chart.omittedGroups }))
@@ -51,15 +52,21 @@ export function drawn(): Promise<void> {
   return lastDraw
 }
 
-/** Draw each chart in front of its table and hide the table from the screen. Returns the undo. */
+/**
+ * Draw each chart in front of its table and hide the table from the screen. While printing (the print
+ * dialog, "Save as PDF", a print-media PDF) the charts are drawn again in the light palette without
+ * animation: print.css puts the page on white paper whatever the theme. Returns the undo.
+ */
 export function mountPublicCharts(
   found: { chart: PublicChartDTO; table: HTMLElement; title: HTMLElement | null }[],
   theme: 'light' | 'dark',
 ): () => void {
   const locale = getLocale() === 'ko' ? 'ko-KR' : 'en-US'
+  const printMedia = typeof window !== 'undefined' ? window.matchMedia?.('print') : undefined
   const narrow = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 480px)').matches
   const height = narrow ? 260 : 300
   const undo: (() => void)[] = []
+  const draws: ((printing: boolean) => void)[] = []
   for (const { chart, table, title } of found) {
     // nothing to draw: the table (a header) says so as it is
     if (!chart.groups.length) continue
@@ -69,13 +76,18 @@ export function mountPublicCharts(
     host.setAttribute('data-public-chart', chart.kind)
     first.before(host)
     const root = createRoot(host)
+    const draw = (printing: boolean) =>
+      flushSync(() =>
+        root.render(<PublicChartFigure chart={chart} dark={theme === 'dark' && !printing} locale={locale} height={height} still={printing} />),
+      )
     try {
-      flushSync(() => root.render(<PublicChartFigure chart={chart} dark={theme === 'dark'} locale={locale} height={height} />))
+      draw(printMedia?.matches ?? false)
     } catch {
       root.unmount()
       host.remove()
       continue
     }
+    draws.push(draw)
     const hidden = [title, table].filter((el): el is HTMLElement => !!el)
     for (const el of hidden) el.classList.add(SOURCE_CLASS)
     undo.push(() => {
@@ -85,7 +97,24 @@ export function mountPublicCharts(
     })
   }
   lastDraw = new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  let printing = printMedia?.matches ?? false
+  const redraw = (next: boolean) => {
+    if (next === printing) return
+    printing = next
+    for (const d of draws) d(next)
+  }
+  const onMedia = () => redraw(printMedia?.matches ?? false)
+  const onBefore = () => redraw(true)
+  const onAfter = () => redraw(printMedia?.matches ?? false)
+  if (draws.length) {
+    printMedia?.addEventListener('change', onMedia)
+    window.addEventListener('beforeprint', onBefore)
+    window.addEventListener('afterprint', onAfter)
+  }
   return () => {
+    printMedia?.removeEventListener('change', onMedia)
+    window.removeEventListener('beforeprint', onBefore)
+    window.removeEventListener('afterprint', onAfter)
     for (const u of undo) u()
   }
 }

@@ -31,7 +31,9 @@ workspace, so a report shared as one page lost all of its charts, and the person
   300) and how many the public page leaves out with the current setting. GET answers it before a link exists
   (the setting is off then), POST and PATCH with their responses, so the dialog's count follows the switch.
   It is counted from the configs and whether their sources resolve (`exportTarget` / `publicTarget`), never
-  by aggregating.
+  by aggregating; only documents whose stored bytes contain the block name are decoded. Measured on 300 doc
+  pages of 60 kB: 26 ms with one chart, 75 ms with 30 pages holding a chart, 361 ms when all 300 do (median of
+  6, local Postgres; 330 ms for the 30-chart folder before the byte filter).
 - **Dialog**: "N charts on this page do not show on the public link", the switch (managers) and what it
   publishes ("labels and numbers; the rows behind them are not shared; worked out with the access of whoever
   turns this on; up to 10 minutes old"), `components/ShareChartsOption.tsx`.

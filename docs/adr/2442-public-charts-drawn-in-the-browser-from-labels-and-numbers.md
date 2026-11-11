@@ -27,7 +27,10 @@ need the numbers as text.
   table, inside a bordered figure with title and caption, and hides title and table with a clip (not
   `display: none`), so screen readers keep the table. A chart that cannot be drawn leaves its table visible.
   Charts are drawn at once (`animateOnView: false`), not when scrolled into view, so printing shows every one;
-  "Save as PDF" waits for charts still loading (`printWhenReady` → `publicChartsIdle`).
+  "Save as PDF" waits for charts still loading (`printWhenReady` → `publicChartsIdle`). While printing
+  (`beforeprint`, or the print media query, which Chrome also matches for its own PDF) every chart is drawn
+  again in the light palette without animation, because print.css puts the page on white paper in either
+  theme; `afterprint` restores the page's theme.
 - **Presentation**: `Presentation` takes `charts` and draws them on the slide copies (the same call).
 - **Print**: the SVG has a viewBox and 100% width; print CSS removes the clip of the plot box and caps the
   SVG at the paper width, so a chart drawn in wide view is scaled, not cut.
@@ -45,11 +48,11 @@ need the numbers as text.
   revision; a separate root per placeholder (as the diagrams) has a clear cleanup and serves the slides too.
 
 ## Consequences
-- Bundle (PERFORMANCE.md, gzip, against 0.19.1): entry +269 B (its static closure +89 B), PublicView chunk
+- Bundle (PERFORMANCE.md, gzip, against 0.19.1): entry +267 B (its static closure +84 B), PublicView chunk
   +33 B and its static closure +802 B (the Presentation chunk carries `lib/publicCharts.ts` and the chart
-  chunk's preload list); a page with charts additionally loads `PublicChartMount` 1.2 kB, its CSS 0.2 kB, the
+  chunk's preload list); a page with charts additionally loads `PublicChartMount` 1.4 kB, its CSS 0.2 kB, the
   adapter 1.0 kB and `ChartRender` 50.8 kB (byte-identical to 0.19.1); a page without charts loads none of the
-  chart code. The adapter is now its own chunk shared by the editor (CollabEditor −768 B) and the public chart
+  chart code. The adapter is now its own chunk shared by the editor (CollabEditor −770 B) and the public chart
   chunk; the app's idle warm-up of the editor chunk fetches it on every page, as it fetched the editor before.
 - Tests: `apps/web/src/components/charts/publicChart.test.ts` (public form keeps labels and numbers only;
   every kind gives the app's spec and passes the library's validateSpec; the table equals the export table;

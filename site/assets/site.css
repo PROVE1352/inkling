@@ -3071,12 +3071,12 @@ table.tools td:nth-child(2) {
   border-radius: 6px;
   background: repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, var(--accent) 22%, transparent) 5px 6px);
 }
-.ill-seg.is-out {
+.ill-seg.is-over {
   height: 44px;
   border: 1.5px dashed color-mix(in srgb, var(--sub) 50%, transparent);
   background: none;
 }
-.ill-seg.is-out b {
+.ill-seg.is-over b {
   color: var(--sub);
 }
 .ill-legend {
@@ -3356,5 +3356,12 @@ table.tools td:nth-child(2) {
   .ill-sec {
     grid-template-columns: 64px minmax(0, 1fr) auto;
     gap: 6px 8px;
+  }
+}
+@media (max-width: 600px) {
+  /* The copy button gets its own row so a command is not squeezed into half the width. */
+  .js .step .term[data-copy] pre {
+    padding-top: 44px;
+    padding-right: 16px;
   }
 }

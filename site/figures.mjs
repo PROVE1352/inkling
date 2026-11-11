@@ -198,7 +198,7 @@ const FIGS = {
   },
 
   budget(t) {
-    const seg = (n, w, out = false) => `<span class="ill-seg${out ? ' is-out' : ''}" style="flex:${w}"><b>${esc(t.rank)} ${n}</b></span>`
+    const seg = (n, w, out = false) => `<span class="ill-seg${out ? ' is-over' : ''}" style="flex:${w}"><b>${esc(t.rank)} ${n}</b></span>`
     return `<div class="ill ill-budget" role="img" aria-label="${esc(t.budgetAlt)}">
   <div class="ill-row"><span class="ill-chip">${esc(t.question)}</span>${ARROW}<span class="ill-chip is-code">find_context</span></div>
   <div class="ill-pack"><div class="ill-fit">${seg(1, 5)}${seg(2, 3)}${seg(3, 2)}<span class="ill-free" style="flex:1"></span></div>${seg(4, 3, true)}</div>

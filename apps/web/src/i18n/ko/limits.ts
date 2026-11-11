@@ -14,4 +14,5 @@ export default {
   'limits.fullSettings': '사용량 보기',
   'limits.trashCapped': '휴지통의 페이지는 이 기간이 지나면 영구 삭제됩니다. 이 서버는 {cap}일보다 오래 보관하지 않습니다({min}~{cap}일).',
   'limits.featureOff': '이 서버에서는 이 기능을 꺼 두었습니다.',
+  'limits.instanceFull': '이 서버의 저장 공간이 가득 찼습니다. 지금은 읽기와 삭제만 됩니다.',
 } as const

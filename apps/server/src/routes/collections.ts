@@ -53,6 +53,7 @@ import { normalizeAgentProps } from '../teamAgents'
 import { autoSourceColumns, fillAutoInto } from '../collectionQuery/autoValues'
 import { assertNoSubItemCycle } from '../collectionQuery/rowFields'
 import { guestPeopleNames, redactHiddenTargets, stripAgentKeys } from '../collectionQuery/guestView'
+import { assertWorkspaceGrowth, jsonBytes } from '../quota/room'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -219,6 +220,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     await assertPageEditable(id, user.id, { role, acl })
 
     const body = updateFieldsSchema.parse(req.body)
+    await assertWorkspaceGrowth(db, page.workspaceId, jsonBytes(body.fields)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
     const ids = body.fields.map((f) => f.id)
     if (new Set(ids).size !== ids.length) {
       throw badRequest('Duplicate field IDs')
@@ -276,10 +278,11 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
   app.post('/pages/:id/collection/views', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await requireCollectionPage(id, user.id)
+    const coll = await requireCollectionPage(id, user.id)
     await assertPageEditable(id, user.id)
 
     const body = createViewSchema.parse(req.body)
+    await assertWorkspaceGrowth(db, coll.workspaceId, jsonBytes(body)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
     const [{ maxSort }] = await db
       .select({ maxSort: max(collectionViews.sortOrder) })
       .from(collectionViews)
@@ -307,6 +310,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     await assertPageEditable(view.pageId, user.id)
 
     const body = updateViewSchema.parse(req.body)
+    await assertWorkspaceGrowth(db, page.workspaceId, jsonBytes(body)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
     const updates: Partial<typeof collectionViews.$inferInsert> = {}
     if (body.name !== undefined) updates.name = body.name
     if (body.config !== undefined) updates.config = body.config
@@ -377,6 +381,7 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
 
     const body = updatePropsSchema.parse(req.body)
     const { baseVersion } = baseVersionSchema.parse(req.body)
+    await assertWorkspaceGrowth(db, target.workspaceId, jsonBytes(body.props)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
 
     // Parent collection fields: rollups are computed (never stored), relations are validated
     // and two-way relations mirror their diff onto the paired field.

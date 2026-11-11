@@ -62,6 +62,13 @@ export const RESTRICTED_MODE_ERRORS = {
   LIMIT_TRASH_DAYS: 400,
   /** SIGNUP_PER_HOUR: the server made as many accounts in the last hour as it allows. */
   SIGNUP_RATE_LIMIT: 429,
+  /** LIMIT_WORKSPACES_TOTAL: the server holds as many workspaces as it allows (`{ limit, used }`). */
+  LIMIT_WORKSPACES_TOTAL: 403,
+  /**
+   * LIMIT_INSTANCE_STORAGE_MB: the server's storage fuse has tripped. Reading, signing in, exporting and
+   * deleting still work; everything that writes is refused until the operator makes room.
+   */
+  INSTANCE_FULL: 503,
 } as const
 
 export type RestrictedModeErrorCode = keyof typeof RESTRICTED_MODE_ERRORS

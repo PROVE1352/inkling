@@ -40,6 +40,7 @@ import {
 import type { RowTemplateRow } from '../rowTemplates'
 import { requireCollectionPage } from './collections'
 import { stripAgentKeys } from '../collectionQuery/guestView'
+import { assertWorkspaceGrowth, jsonBytes } from '../quota/room'
 
 async function loadFields(pageId: string): Promise<CollectionField[]> {
   const [row] = await db.select({ fields: collections.fields }).from(collections).where(eq(collections.pageId, pageId)).limit(1)
@@ -81,9 +82,10 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
     async (req) => {
       const user = getUser(req)
       const id = idParam(req.params)
-      await requireCollectionPage(id, user.id)
+      const coll = await requireCollectionPage(id, user.id)
       await assertPageEditable(id, user.id)
       const body = createRowTemplateSchema.parse(req.body)
+      await assertWorkspaceGrowth(db, coll.workspaceId, jsonBytes(body)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
       const fields = await loadFields(id)
 
       let title = body.title ?? ''
@@ -148,6 +150,7 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
       const found = await requireTemplate(tid, user.id)
       await assertPageEditable(found.collectionId, user.id)
       const body = updateRowTemplateSchema.parse(req.body)
+      await assertWorkspaceGrowth(db, (await requireCollectionPage(found.collectionId, user.id)).workspaceId, jsonBytes(body)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
       const fields = body.props !== undefined ? await loadFields(found.collectionId) : []
 
       const row = await db.transaction(async (tx) => {

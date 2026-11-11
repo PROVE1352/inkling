@@ -38,6 +38,8 @@ import {
   verifyIdToken,
 } from '../oidc'
 import { createLoginChallenge, twoFactorEnabled } from '../twoFactor'
+import { assertWorkspacesTotalRoom } from '../quota/room'
+import { instanceFullError, isInstanceFull } from '../quota/instance'
 
 /**
  * Sign-in with an OpenID Connect provider (docs/adr/1160-*, 1161-*, 1162-*).
@@ -227,6 +229,8 @@ async function resolveAccount(req: FastifyRequest, claims: IdTokenClaims): Promi
   if (!env.oidc.autoCreate) throw new OidcError('OIDC_NO_ACCOUNT')
   if (isDelegatedEmail(email)) throw new OidcError('OIDC_EMAIL_TAKEN', 'email in the delegated mirror domain')
   if (!emailVerifiedClaim(claims) && !env.oidc.trustEmail) throw new OidcError('OIDC_EMAIL_UNVERIFIED')
+  // LIMIT_INSTANCE_STORAGE_MB (docs/adr/2532-*): a full server makes no new account, here as at sign-up
+  if (await isInstanceFull()) throw instanceFullError()
 
   const name = displayNameClaim(claims, email)
   const locale = await requestLocale(req)
@@ -247,6 +251,7 @@ async function resolveAccount(req: FastifyRequest, claims: IdTokenClaims): Promi
         createdBy: u.id,
       })
       await tx.insert(workspaceMembers).values({ workspaceId: wsId, userId: u.id, role: 'owner' })
+      await assertWorkspacesTotalRoom(tx, 0, 'signup') // LIMIT_WORKSPACES_TOTAL (docs/adr/2531-*): SIGNUP_FULL
       return u as AccountRow
     })
     req.log.info(`[oidc] created account ${created.id}`)

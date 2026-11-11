@@ -30,6 +30,8 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   SIGNUP_PER_HOUR             integer ≥ 1      accounts the whole server makes in one hour (contract §14)
  *   OAUTH_UNUSED_CLIENT_HOURS   integer ≥ 1      dynamic OAuth clients never used are deleted this long after registering
  *   OAUTH_UNUSED_CLIENT_MAX     integer ≥ 1      cap on dynamic OAuth clients never used (oldest go first)
+ *   LIMIT_WORKSPACES_TOTAL      integer ≥ 1      workspaces on the whole server, deleted-but-restorable included (contract §14)
+ *   LIMIT_INSTANCE_STORAGE_MB   number > 0       fuse: database size + upload folder; at it the server is read-only (contract §14)
  *
  * This module only reads the settings. Enforcing them is done where things are created.
  */
@@ -72,6 +74,16 @@ export interface Limits {
   oauthUnusedClientHours?: number
   /** OAUTH_UNUSED_CLIENT_MAX (docs/adr/2536-*): cap on never-used dynamic clients. Absent when unset. */
   oauthUnusedClientMax?: number
+  /**
+   * LIMIT_WORKSPACES_TOTAL (contract §14): workspaces on the whole server, live and deleted-but-restorable.
+   * Absent when unset (like trashDays).
+   */
+  workspacesTotal?: number
+  /**
+   * LIMIT_INSTANCE_STORAGE_MB (contract §14): the instance storage fuse (quota/instance.ts), in MB (may be
+   * fractional). Absent when unset.
+   */
+  instanceStorageMb?: number
   /** Boot warnings for settings that are valid but do nothing as combined. */
   warnings: string[]
 }
@@ -185,6 +197,8 @@ export function parseLimitsEnv(e: Env): Limits {
   const signupPerHour = int(e, 'SIGNUP_PER_HOUR')
   const oauthUnusedClientHours = int(e, 'OAUTH_UNUSED_CLIENT_HOURS')
   const oauthUnusedClientMax = int(e, 'OAUTH_UNUSED_CLIENT_MAX')
+  const workspacesTotal = int(e, 'LIMIT_WORKSPACES_TOTAL')
+  const instanceStorageMb = megabytes(e, 'LIMIT_INSTANCE_STORAGE_MB')
 
   const limits: Limits = {
     loginIdMode,
@@ -207,6 +221,8 @@ export function parseLimitsEnv(e: Env): Limits {
     ...(signupPerHour !== null ? { signupPerHour } : {}),
     ...(oauthUnusedClientHours !== null ? { oauthUnusedClientHours } : {}),
     ...(oauthUnusedClientMax !== null ? { oauthUnusedClientMax } : {}),
+    ...(workspacesTotal !== null ? { workspacesTotal } : {}),
+    ...(instanceStorageMb !== null ? { instanceStorageMb } : {}),
     warnings,
   }
   if (accountLifetimeDryRun && limits.accountLifetimeDays === null) {
@@ -265,6 +281,8 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.signupPerHour !== undefined) on.push(`${l.signupPerHour} sign-ups per hour`)
   if (l.oauthUnusedClientHours !== undefined) on.push(`unused OAuth clients deleted after ${l.oauthUnusedClientHours} hours`)
   if (l.oauthUnusedClientMax !== undefined) on.push(`at most ${l.oauthUnusedClientMax} unused OAuth clients`)
+  if (l.workspacesTotal !== undefined) on.push(`${l.workspacesTotal} workspaces on the server`)
+  if (l.instanceStorageMb !== undefined) on.push(`instance storage fuse at ${l.instanceStorageMb} MB`)
   const lines: string[] = []
   if (on.length > 0) lines.push(`restricted mode: ${on.join(', ')}`)
   if (l.disabledFeatures.length > 0) lines.push(`features turned off: ${l.disabledFeatures.join(', ')}`)

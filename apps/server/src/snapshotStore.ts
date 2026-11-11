@@ -559,11 +559,13 @@ export function forgetSnapshotThrottle(pageId: string): void {
  * about to overwrite it). The throttle is decided in Postgres without reading the state; only a
  * snapshot that is due ships the stored state to Node, where it becomes a diff from the previous
  * snapshot (docs/adr/1100-*). Must run before the store hook overwrites page_docs. Never throws.
+ * Returns the bytes of the state it copied (0 when none), an upper bound of what the version adds
+ * (it may be kept as a diff): the storage limit's cache moves by it (quota/storage.ts noteBodyStore).
  */
-export async function maybeAutoSnapshotStored(pageId: string): Promise<void> {
+export async function maybeAutoSnapshotStored(pageId: string): Promise<number> {
   try {
     const known = lastSnapshotAt.get(pageId)
-    if (known !== undefined && Date.now() - known < AUTO_SNAPSHOT_THROTTLE_MS) return
+    if (known !== undefined && Date.now() - known < AUTO_SNAPSHOT_THROTTLE_MS) return 0
     const throttleSec = Math.floor(AUTO_SNAPSHOT_THROTTLE_MS / 1000)
     const due = async (tx: Exec): Promise<boolean> => {
       const [r] = (await tx.execute(sql`
@@ -574,7 +576,8 @@ export async function maybeAutoSnapshotStored(pageId: string): Promise<void> {
       if (!r?.due && r?.at) noteSnapshot(pageId, new Date(r.at).getTime())
       return !!r?.due
     }
-    if (!(await due(db))) return
+    if (!(await due(db))) return 0
+    let added = 0
     const inserted = await db.transaction(async (tx) => {
       await lockPage(tx, pageId)
       if (!(await due(tx))) return false
@@ -589,10 +592,23 @@ export async function maybeAutoSnapshotStored(pageId: string): Promise<void> {
       if ((await newestRow(tx, pageId))?.digest === digest) return true
       await insertSnapshot(tx, pageId, src, null, null, null, { digest })
       await pruneSnapshots(pageId, tx)
+      added = doc.state.length + (doc.sv?.length ?? 0)
       return true
     })
     if (inserted) noteSnapshot(pageId, Date.now())
+    return added
   } catch (err) {
     console.error('[inkling] auto snapshot failed', pageId, err)
+    return 0
   }
+}
+
+/**
+ * The next store of this page may take an auto snapshot (the 10-minute throttle is not known to be
+ * closed). Read from memory only: the collab storage check (quota/collabGrowth.ts) reserves the stored
+ * body for that copy while it is possible.
+ */
+export function autoSnapshotMayBeDue(pageId: string): boolean {
+  const known = lastSnapshotAt.get(pageId)
+  return known === undefined || Date.now() - known >= AUTO_SNAPSHOT_THROTTLE_MS
 }

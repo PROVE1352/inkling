@@ -52,6 +52,11 @@ export interface StatusFacts {
   dbBytes: number | null
   uploads: { bytes: number; files: number } | null
   largePages: number | null
+  /**
+   * The instance storage fuse (LIMIT_INSTANCE_STORAGE_MB, docs/adr/2532-*): what it measured, its limit,
+   * whether it tripped. Absent when the setting is not set.
+   */
+  instanceFuse?: { usedBytes: number; limitBytes: number; dbBytes: number; fileBytes: number; full: boolean; measuredAt: number }
   uptimeSec: number
   version: string
   restarts: RestartStats
@@ -359,6 +364,17 @@ function storageItems(f: StatusFacts): StatusItem[] {
   // Large pages (docs/adr/1103-*): a fact with a pointer to workspace settings, never a warning —
   // it is how people write, not a server fault.
   out.push({ key: 'storage.largePages', group: g, level: f.largePages === null ? 'off' : 'ok', data: { count: f.largePages } })
+  // The instance fuse (docs/adr/2532-*), only where it is set: tripped is an error (the server only
+  // reads and deletes), 90 % a warning.
+  if (f.instanceFuse) {
+    const z = f.instanceFuse
+    out.push({
+      key: 'storage.instanceFuse',
+      group: g,
+      level: z.full ? 'error' : z.usedBytes >= 0.9 * z.limitBytes ? 'warn' : 'ok',
+      data: { used: z.usedBytes, limit: z.limitBytes, db: z.dbBytes, files: z.fileBytes, full: z.full },
+    })
+  }
   return out
 }
 

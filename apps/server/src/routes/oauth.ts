@@ -33,6 +33,7 @@ import {
 } from '../oauth'
 import { insertDynamicClient } from '../oauthClientCleanup'
 import { resourceWithoutProfile } from '../mcpProfile'
+import { isInstanceFull } from '../quota/instance'
 import { suggestOnlyStates } from '../agentTaint'
 import { CimdError, cimdClientUsable, cimdConfig, isUrlClientId, resolveCimdClient } from '../oauthCimd'
 import type { CimdClient } from '../oauthCimd'
@@ -160,6 +161,11 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Dynamic client registration (public clients only) ─────────────────
   app.post('/oauth/register', { config: strictRateLimit }, async (req, reply) => {
+    // Instance storage fuse (docs/adr/2532-*): a server that is out of storage registers no new
+    // client, since this route needs no account and every call writes a row.
+    if (await isInstanceFull()) {
+      return oauthError(reply, 503, 'temporarily_unavailable', 'This server is out of storage; no new client can be registered now')
+    }
     const body = (req.body ?? {}) as Record<string, unknown>
     const uris = body.redirect_uris
     if (

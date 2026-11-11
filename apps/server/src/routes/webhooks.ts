@@ -29,6 +29,7 @@ import {
   WebhookUrlError,
 } from '../webhooks'
 import { recordAudit } from '../workspaceAdmin'
+import { assertWorkspaceWritable } from '../quota/room'
 
 const eventsSchema = z
   .array(z.enum(WEBHOOK_EVENTS as unknown as [WebhookEvent, ...WebhookEvent[]]))
@@ -100,6 +101,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       const workspaceId = idParam(req.params)
       await requireWebhookAdmin(workspaceId, user)
       const body = createSchema.parse(req.body)
+      await assertWorkspaceWritable(db, workspaceId) // full workspace: LIMIT_STORAGE (docs/adr/2533-*)
       let parsed
       try {
         parsed = parseWebhookUrl(body.url, body.kind)

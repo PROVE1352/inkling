@@ -28,6 +28,7 @@ import { writePageContentAs } from './pageContentWrite'
 import { dropSuggestionBases, mergedBlocks, parsePartial, recordPartial, storeSuggestionBase, SUGGESTION_BASE_STORE, suggestionMerge } from './suggestionMerge'
 import { findVisiblePage } from './pageDto'
 import type { PageRow } from './pageDto'
+import { assertWorkspaceGrowth, jsonBytes } from './quota/room'
 
 /**
  * Suggested edits (docs/adr/1530-* .. 1534-*).
@@ -247,6 +248,8 @@ export async function createSuggestions(
 ): Promise<SuggestionDTO[]> {
   if (page.kind !== 'doc') throw badRequest('Only document pages take suggestions')
   if (!items.length) return []
+  // suggestions are workspace storage: a full workspace takes none, and their text counts at once (docs/adr/2533-*)
+  await assertWorkspaceGrowth(db, page.workspaceId, items.reduce((n, i) => n + jsonBytes(i.markdown), 0))
   const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
   const prepared: Prepared[] = []
   for (const i of items) prepared.push(await prepare(user, page, i, resolveTitle))

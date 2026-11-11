@@ -1,4 +1,4 @@
-import { assertWorkspaceWritable } from '../quota/room'
+import { assertWorkspaceGrowth, assertWorkspaceWritable, jsonBytes } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { asc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
@@ -226,6 +226,8 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
     if (!page) throw notFound()
     const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id, { guests: true })
     await assertPageCommentable(comment.pageId, user.id, role, acl)
+    // an edited body may grow (resolving does not) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
+    if (patch.body !== undefined) await assertWorkspaceGrowth(db, page.workspaceId, jsonBytes(patch.body))
 
     const updates: { resolved?: '0' | '1'; body?: string } = {}
 

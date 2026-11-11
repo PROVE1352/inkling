@@ -1,4 +1,4 @@
-import { assertWorkspaceRoom } from '../quota/room'
+import { assertWorkspaceGrowth, assertWorkspaceRoom, jsonBytes } from '../quota/room'
 import { assertPlacement, lockTree } from '../pageTree'
 import { assertPageEditable, roleForPage } from '../editLock'
 /**
@@ -255,6 +255,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
       // Rows are the collection's subtree; a row may carry a lock of its own.
       await assertPageEditable(id, user.id, { subtree: true })
       const body = batchUpdateRowsSchema.parse(req.body)
+      await assertWorkspaceGrowth(db, page.workspaceId, jsonBytes(body.rows)) // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
       const fieldList = await loadFields(id)
       const fields = new Map(fieldList.map((f) => [f.id, f]))
       const payload = body.rows.map((r) => {

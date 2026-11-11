@@ -33,6 +33,8 @@ export const SETTINGS_022 = [
   'SIGNUP_PER_HOUR',
   'OAUTH_UNUSED_CLIENT_HOURS',
   'OAUTH_UNUSED_CLIENT_MAX',
+  'LIMIT_WORKSPACES_TOTAL',
+  'LIMIT_INSTANCE_STORAGE_MB',
 ] as const
 
 const here = path.dirname(fileURLToPath(import.meta.url))

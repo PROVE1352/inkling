@@ -1,4 +1,5 @@
 import { StorageFullNotice } from './quota/StorageFullNotice'
+import { InstanceFullNotice } from './quota/InstanceFullNotice'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Navigate,
@@ -310,6 +311,7 @@ export function AppLayout() {
         <InstanceNotice placement="banner" />
         <AccountExpiry placement="banner" />
         <StorageFullNotice wsId={wsId} />
+        <InstanceFullNotice />
         <AdminStatusBanner />
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />

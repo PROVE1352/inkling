@@ -148,6 +148,11 @@ export function restrictedModeHint(code: string, e: { limit?: unknown; used?: un
       return `nothing was stored; the file is larger than this server allows${limit != null ? ` (at most ${mb(limit)} per file)` : ''}. Do not retry with the same file: make it smaller, split it, or put the content into the page as Markdown`
     case 'FEATURE_DISABLED':
       return `this server has turned ${typeof e.feature === 'string' ? `"${e.feature}"` : 'this feature'} off for everyone; it is not a missing id or a permission. Do not retry or look for another way to do it; tell the user it is not available on this server`
+    case 'INSTANCE_FULL':
+      return (
+        "nothing was written; this server's storage is full, so for now it only reads, exports and deletes. " +
+        'Do not retry, and do not try another tool to write the same thing. Tell the user: the server operator has to make room; reading still works'
+      )
     case 'CONSENT_REQUIRED':
       return 'nothing was done; the user has not agreed to the current terms of this server. Do not retry. Tell the user to sign in on the web app and agree (the message says where); this connection works again after that'
     default:

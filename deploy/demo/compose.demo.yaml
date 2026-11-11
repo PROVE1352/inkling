@@ -53,6 +53,8 @@ x-demo-limits: &demo-limits
   SIGNUP_PER_HOUR: ${SIGNUP_PER_HOUR:?set in deploy/demo/demo.env}
   OAUTH_UNUSED_CLIENT_HOURS: ${OAUTH_UNUSED_CLIENT_HOURS:?set in deploy/demo/demo.env}
   OAUTH_UNUSED_CLIENT_MAX: ${OAUTH_UNUSED_CLIENT_MAX:?set in deploy/demo/demo.env}
+  LIMIT_WORKSPACES_TOTAL: ${LIMIT_WORKSPACES_TOTAL:?set in deploy/demo/demo.env}
+  LIMIT_INSTANCE_STORAGE_MB: ${LIMIT_INSTANCE_STORAGE_MB:?set in deploy/demo/demo.env}
 
 services:
   app:

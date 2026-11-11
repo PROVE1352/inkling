@@ -3381,3 +3381,34 @@ table.tools td:nth-child(2) {
     animation: none;
   }
 }
+
+/* Performance cards: the source sits on the title row, which keeps a long page a little shorter. */
+.t-perf.cards tr.rec {
+  grid-template-areas:
+    'area area source'
+    'change change change'
+    'before arrow after'
+    'gain gain gain'
+    'cost cost cost'
+    'method method method';
+}
+.t-perf.cards td.c-source {
+  align-self: start;
+  padding-left: 0;
+  text-align: right;
+  font-size: 13px;
+}
+.t-perf.cards td.c-source::before {
+  position: static;
+  display: inline;
+  width: auto;
+  margin: 0 6px 0 0;
+}
+@container (max-width: 520px) {
+  .t-perf.cards tr.rec {
+    grid-template-areas: 'area' 'change' 'before' 'arrow' 'after' 'gain' 'cost' 'method' 'source';
+  }
+  .t-perf.cards td.c-source {
+    text-align: left;
+  }
+}

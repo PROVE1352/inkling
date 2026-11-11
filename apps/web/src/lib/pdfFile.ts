@@ -33,3 +33,15 @@ export function pdfByName(name: string | undefined | null): 'pdf' | 'other' | 'u
   if (!/^[a-z0-9]{1,8}$/.test(ext)) return 'unknown'
   return ext === 'pdf' ? 'pdf' : 'other'
 }
+
+// ── pages with ink ────────────────────────────────────────────────────────────────────────────────
+/**
+ * Whether a page body may hold PDF previews (docs/adr/2481-*): not in pen mode, not while ink is being
+ * saved, and only once the page's ink is known to have no strokes (a failed ink read does not block it).
+ */
+export function previewsAllowed(s: { penMode: boolean; savingInk: boolean; ink: 'loading' | 'error' | number }): boolean {
+  if (s.penMode || s.savingInk) return false
+  if (s.ink === 'loading') return false
+  if (s.ink === 'error') return true
+  return s.ink === 0
+}

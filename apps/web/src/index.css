@@ -717,16 +717,13 @@ html[data-resizing] .nd-sidebar-shell {
 .nd-pdf-pending {
   min-height: 48px;
 }
+/* nothing rendered into it (a page with ink or in pen mode, docs/adr/2481-*): the block is as tall as before */
+.bn-container .bn-editor .nd-pdf-host:empty {
+  display: none;
+}
 /* a name without an extension whose file turned out not to be a PDF */
 .bn-container .bn-editor .nd-pdf-host:has(> .nd-pdf-none) {
   display: none;
-}
-/* Pen mode: the ink layer (z-30, absolutely placed in the scroll container) covers the body and takes the
-   pointer; the preview sits above it so it stays scrollable and its buttons answer. Ink is not drawn over
-   a PDF that scrolls inside its own area. */
-:has(> svg[data-ink-layer]) .nd-pdf-host {
-  position: relative;
-  z-index: 31;
 }
 @media print {
   .nd-pdf-host,

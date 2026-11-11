@@ -108,6 +108,8 @@ type CollabEditorProps = {
   onEditorReady?: (editor: InklingEditor | null) => void
   /** Ink mode or an edit lock — the body is not editable */
   readOnly?: boolean
+  /** Pen mode is on: no PDF previews in the body (docs/adr/2481-*) */
+  penMode?: boolean
 }
 
 /**
@@ -145,6 +147,7 @@ function CollabEditorSession({
   onCollabChange,
   onEditorReady,
   readOnly = false,
+  penMode = false,
   onReopen,
 }: CollabEditorProps & { onReopen: (why: BlockedNotice | null, delayMs?: number) => void }) {
   // M16: on a stateless broadcast ({t:'comments'}) invalidate the comments cache so it shows at once.
@@ -382,6 +385,7 @@ function CollabEditorSession({
       deviceCopy={hadCopy}
       onEditorReady={onEditorReady}
       readOnly={readOnly || schemaNeeds !== null}
+      penMode={penMode}
     />
     </>
   )
@@ -397,6 +401,7 @@ function CollabEditorBody({
   deviceCopy,
   onEditorReady,
   readOnly,
+  penMode,
 }: {
   pageId: string
   wsId: string
@@ -408,6 +413,7 @@ function CollabEditorBody({
   deviceCopy: boolean
   onEditorReady?: (editor: InklingEditor | null) => void
   readOnly: boolean
+  penMode: boolean
 }) {
   const { resolved } = useTheme()
   const navigate = useNavigate()
@@ -611,7 +617,7 @@ function CollabEditorBody({
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />
         <MermaidPortals editor={editor} />
-        <PdfPortals editor={editor} readOnly={readOnly} />
+        <PdfPortals editor={editor} readOnly={readOnly} pageId={pageId} penMode={penMode} />
       </BlockNoteView>
     </div>
   )

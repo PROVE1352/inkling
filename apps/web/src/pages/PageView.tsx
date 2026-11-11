@@ -1087,6 +1087,7 @@ export function PageView() {
                 onCollabChange={handleCollab}
                 onEditorReady={handleEditorReady}
                 readOnly={penMode || lockReadOnly}
+                penMode={penMode}
               />
             </EditorDropZone>
           )}

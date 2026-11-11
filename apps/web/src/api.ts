@@ -1,6 +1,7 @@
 import {
   replaceEqualDeep,
   useInfiniteQuery,
+  useIsMutating,
   useMutation,
   useQuery,
   useQueryClient,
@@ -2027,12 +2028,34 @@ export function usePageInk(pageId: string | undefined, enabled = true) {
   })
 }
 
+/**
+ * Whether the page has ink strokes, for the PDF preview's rule (docs/adr/2481-*): the same query as the
+ * ink layer, read only while `enabled` (a page body with PDF blocks, pen mode off) and then refreshed every
+ * minute and on window focus, since the server does not announce another member's first stroke. `saving`
+ * is true while this tab is still saving ink (the layer flushes when pen mode turns off).
+ */
+export function usePageInkPresence(pageId: string, enabled: boolean): { state: 'loading' | 'error' | number; saving: boolean } {
+  const q = useQuery({
+    queryKey: qk.ink(pageId),
+    queryFn: () => api<{ ink: InkDTO }>(`/api/pages/${pageId}/ink`).then((r) => r.ink),
+    enabled: !!pageId && enabled,
+    refetchInterval: enabled ? 60_000 : false,
+    refetchOnWindowFocus: enabled,
+    staleTime: 30_000,
+  })
+  const saving = useIsMutating({ mutationKey: ['inkSave', pageId] }) > 0
+  const state = q.isSuccess ? q.data.strokes.length : q.isError ? 'error' : 'loading'
+  return { state, saving }
+}
+
 // Save by full replacement (debounced by the caller). On success the cache is set from the response.
 // `expectedUpdatedAt`: the server version the strokes are based on (null = no ink yet). On a
 // mismatch the server answers 412 INK_CONFLICT with `details.ink` (docs/adr/0815-*).
 export function useSaveInk(pageId: string) {
   const qc = useQueryClient()
   return useMutation({
+    // usePageInkPresence waits for a save in flight (docs/adr/2481-*)
+    mutationKey: ['inkSave', pageId],
     mutationFn: ({ strokes, expectedUpdatedAt }: { strokes: InkStroke[]; expectedUpdatedAt?: string | null }) =>
       api<{ ink: InkDTO }>(`/api/pages/${pageId}/ink`, {
         method: 'PUT',

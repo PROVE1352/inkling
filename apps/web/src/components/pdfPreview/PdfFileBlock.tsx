@@ -4,11 +4,12 @@
 // <PdfPortals> (inside BlockNoteView, like MermaidPortals) renders the preview into it. The preview
 // itself (PdfPreview.tsx) and pdf.js (pdfDocument.ts) are lazy chunks, fetched only when a PDF block
 // comes near the screen.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from 'react'
+import { Component, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { defaultBlockSpecs, type BlockNoteEditor } from '@blocknote/core'
-import { fileIdOf, pdfByName } from '../../lib/pdfFile'
-import { useT } from '../../i18n'
+import { usePageInkPresence } from '../../api'
+import { fileIdOf, pdfByName, previewsAllowed } from '../../lib/pdfFile'
+import { t, useT } from '../../i18n'
 import type { PdfPreviewProps } from './PdfPreview'
 
 export type PdfHost = {
@@ -40,6 +41,26 @@ const OWN_EVENTS = new Set([
   'copy', 'cut', 'paste', 'focus', 'blur', 'focusin', 'focusout', 'wheel', 'selectstart', 'dragstart',
 ])
 
+/**
+ * A drag that starts with a press inside a preview never moves anything: when the file block is selected
+ * ProseMirror makes the block draggable, and the dragstart of a press on the PDF can then target the block
+ * rather than the host. One capture listener for the tab looks at where the press began.
+ */
+let pressInPreview = false
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', (e) => {
+    pressInPreview = e.target instanceof Element && !!e.target.closest('[data-pdf-host]')
+  }, true)
+  document.addEventListener('dragstart', (e) => {
+    const t = e.target instanceof Node ? e.target : null
+    const inside = t && (t instanceof Element ? t : t.parentElement)?.closest('[data-pdf-host]')
+    if (pressInPreview || inside) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  }, true)
+}
+
 type RenderFn = (typeof baseFile)['render']
 const baseRender: RenderFn = baseFile.render
 
@@ -68,8 +89,8 @@ export const pdfFileSpec = {
       host.className = 'nd-pdf-host'
       host.contentEditable = 'false'
       host.setAttribute('data-pdf-host', '')
-      // a text drag out of the preview would drop the text into the document
-      host.addEventListener('dragstart', (e) => e.preventDefault())
+      // the editor's own key commands (undo, indent, fold, …) leave keys typed in the preview alone
+      host.setAttribute('data-own-keys', '')
       // under the file name line, above a caption
       const nameLine = wrapper.querySelector(':scope > .bn-file-name-with-icon')
       if (nameLine) nameLine.after(host)
@@ -82,8 +103,10 @@ export const pdfFileSpec = {
       return {
         ...view,
         // React renders into the host, pdf.js draws canvases and text there, and selecting the PDF's
-        // text is the reader's own selection: none of it is an edit or a document selection
-        ignoreMutation: (m: { target: Node; type: string }) => host.contains(m.target),
+        // text is the reader's own selection: none of it is an edit or a document selection. Outside the
+        // host the answer is ProseMirror's default for a node view without contentDOM (prosemirror-view
+        // 1.42.4 ViewDesc.ignoreMutation: everything but a selection change)
+        ignoreMutation: (m: { target: Node; type: string }) => host.contains(m.target) || m.type !== 'selection',
         stopEvent: (e: Event) => e.target instanceof Node && host.contains(e.target) && OWN_EVENTS.has(e.type),
         destroy: () => {
           hostsByEditor.set(key, (hostsByEditor.get(key) ?? []).filter((h) => h !== entry))
@@ -95,8 +118,13 @@ export const pdfFileSpec = {
   },
 } as typeof defaultBlockSpecs.file
 
-/** Renders the PDF previews of `editor`'s file blocks into their hosts. */
-export function PdfPortals({ editor, readOnly }: { editor: BlockNoteEditor<any, any, any>; readOnly: boolean }) {
+/**
+ * Renders the PDF previews of `editor`'s file blocks into their hosts — on pages whose body may hold them
+ * (lib/pdfFile.ts previewsAllowed, docs/adr/2481-*): never in pen mode or on a page with ink strokes, whose
+ * strokes are placed by the body's height. Otherwise every host stays empty (and hidden by CSS), so the
+ * block is exactly as tall as before 0.21 and nothing is fetched.
+ */
+export function PdfPortals({ editor, readOnly, pageId, penMode }: { editor: BlockNoteEditor<any, any, any>; readOnly: boolean; pageId: string; penMode: boolean }) {
   const key = editor as object
   const subscribe = useCallback(
     (cb: () => void) => {
@@ -111,7 +139,50 @@ export function PdfPortals({ editor, readOnly }: { editor: BlockNoteEditor<any, 
   )
   const getSnapshot = useCallback(() => hostsByEditor.get(key) ?? EMPTY, [key])
   const hosts = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  return <>{hosts.map((h) => createPortal(<PdfHostView host={h} readOnly={readOnly} />, h.el, `${h.blockId}:${h.url}`))}</>
+  const ink = usePageInkPresence(pageId, hosts.length > 0 && !penMode)
+  const allowed = previewsAllowed({ penMode, savingInk: ink.saving, ink: ink.state })
+  if (!allowed) return null
+  return (
+    <>
+      {hosts.map((h) =>
+        createPortal(
+          <PreviewBoundary host={h}>
+            <PdfHostView host={h} readOnly={readOnly} />
+          </PreviewBoundary>,
+          h.el,
+          `${h.blockId}:${h.url}`,
+        ),
+      )}
+    </>
+  )
+}
+
+/**
+ * Anything a preview throws while rendering stays in that block: it shows a message and the download
+ * link, and the page and the editor go on (docs/adr/2483-*).
+ */
+class PreviewBoundary extends Component<{ host: PdfHost; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown) {
+    console.warn('PDF preview failed:', error)
+  }
+  render() {
+    if (!this.state.failed) return this.props.children
+    const { url, name } = this.props.host
+    return (
+      <div className="nd-pdf rounded-md border border-line bg-app px-3 py-3 text-sm" data-testid="pdf-preview" data-state="error" role="alert">
+        <p className="text-ink" data-testid="pdf-error" data-reason="crashed">
+          {t('pdfPreview.error.other')}
+        </p>
+        <a href={url} download={name || ''} className="mt-1.5 inline-block text-accent underline underline-offset-2" data-testid="pdf-error-download">
+          {t('pdfPreview.downloadFile', { name: name || 'PDF' })}
+        </a>
+      </div>
+    )
+  }
 }
 
 let chunk: Promise<ComponentType<PdfPreviewProps>> | null = null

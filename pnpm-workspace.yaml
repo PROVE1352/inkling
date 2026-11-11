@@ -13,3 +13,8 @@ patchedDependencies:
 
 overrides:
   prosemirror-view: "1.42.4"
+
+# pdfjs-dist (web, docs/adr/2480-*) lists @napi-rs/canvas as an optional dependency for rendering in
+# Node; the browser never uses it, and installing it would also satisfy unpdf's optional peer on the server.
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"

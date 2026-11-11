@@ -3,7 +3,10 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { createHash, randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import type { Plugin } from 'vite'
 
 // Modules that are only ever loaded on demand (syntax-highlighting grammars/themes, xlsx import,
 // KaTeX for pages with math — lib/katex.ts, Mermaid and the libraries only it uses — lib/mermaid.ts,
@@ -19,7 +22,55 @@ const LAZY_ONLY = [
   /[\\/]node_modules[\\/]d3-(?:color|interpolate)[\\/]src[\\/]cubehelix\.js$/,
   // the onboarding intro motion: once per new account, fetched when it plays (docs/adr/2382-*)
   /[\\/]src[\\/]onboarding[\\/]intro[\\/]/,
+  // pdf.js for the PDF preview: fetched when a preview starts loading a file (docs/adr/2480-*)
+  /[\\/]pdfjs-dist[\\/]/,
 ]
+
+// pdf.js data files (docs/adr/2480-*): the Adobe cMaps (CJK text needs them), the standard fonts, the
+// wasm image decoders with their no-wasm fallbacks, and the ICC profiles, served from the app's own
+// origin under assets/lazy/pdfjs-<version>/ (the version in the path keeps the year-long immutable
+// cache of assets/ honest; under lazy/ they stay out of the precache). The scripting sandbox
+// (quickjs-eval.*) is left out: the preview runs nothing from a PDF.
+const PDFJS_DIR = path.dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'))
+const PDFJS_VERSION = (JSON.parse(readFileSync(path.join(PDFJS_DIR, 'package.json'), 'utf8')) as { version: string }).version
+const PDFJS_PREFIX = `assets/lazy/pdfjs-${PDFJS_VERSION}/`
+const PDFJS_DATA_DIRS = ['cmaps', 'standard_fonts', 'wasm', 'iccs']
+const pdfjsDataFile = (rel: string) => !/quickjs/i.test(rel)
+
+function pdfjsDataFiles(): string[] {
+  const out: string[] = []
+  for (const dir of PDFJS_DATA_DIRS) {
+    const abs = path.join(PDFJS_DIR, dir)
+    if (!existsSync(abs)) continue
+    for (const f of readdirSync(abs)) {
+      const rel = `${dir}/${f}`
+      if (statSync(path.join(abs, f)).isFile() && pdfjsDataFile(rel)) out.push(rel)
+    }
+  }
+  return out
+}
+
+function pdfjsAssets(): Plugin {
+  return {
+    name: 'inkling-pdfjs-assets',
+    generateBundle() {
+      for (const rel of pdfjsDataFiles()) {
+        this.emitFile({ type: 'asset', fileName: PDFJS_PREFIX + rel, source: readFileSync(path.join(PDFJS_DIR, rel)) })
+      }
+    },
+    configureServer(server) {
+      const allowed = new Set(pdfjsDataFiles())
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? '').split('?')[0]
+        if (!url.startsWith('/' + PDFJS_PREFIX)) return next()
+        const rel = decodeURIComponent(url.slice(PDFJS_PREFIX.length + 1))
+        if (!allowed.has(rel)) return next()
+        res.setHeader('Content-Type', rel.endsWith('.wasm') ? 'application/wasm' : rel.endsWith('.js') ? 'text/javascript' : 'application/octet-stream')
+        res.end(readFileSync(path.join(PDFJS_DIR, rel)))
+      })
+    },
+  }
+}
 
 // Build id (docs/adr/0990-build-id-and-version-header.md): INKLING_BUILD (e.g. a commit hash passed as
 // a Docker build-arg) or a hash of the build time — works without git. It is compiled into the
@@ -49,6 +100,7 @@ export default defineConfig({
         })
       },
     },
+    pdfjsAssets(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -145,6 +197,9 @@ export default defineConfig({
           chunk.moduleIds.some((id) => LAZY_ONLY.some((re) => re.test(id)))
             ? 'assets/lazy/[name]-[hash].js'
             : 'assets/[name]-[hash].js',
+        // pdf.js's worker (imported with ?url, docs/adr/2480-*) is an asset, not a chunk: lazy too
+        assetFileNames: (asset) =>
+          (asset.names ?? []).some((n) => /^pdf\.worker/.test(n)) ? 'assets/lazy/[name]-[hash][extname]' : 'assets/[name]-[hash][extname]',
       },
     },
   },

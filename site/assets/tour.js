@@ -16,7 +16,7 @@
       h1: '에이전트가 노트를 고치는 과정을 직접 눌러 보기',
       lede: 'Inkling에서 AI 에이전트는 필요한 섹션만 찾아 읽고, 읽은 버전을 확인한 뒤 섹션 하나만 고칩니다. 아래 다섯 장면을 차례로 실행해 보세요. 계정도 서버도 필요 없습니다.',
       notice: '브라우저 안에서만 도는 시연입니다. 실제 서버나 AI에 연결되지 않고, 입력한 내용은 저장되지 않습니다.',
-      made: '도구 이름, 인자, 응답의 모양은 실제 Inkling MCP 서버와 같습니다. 노트 내용, 버전 값(v=…), 토큰 수는 이 시연이 만든 예시 값입니다.',
+      made: '도구 이름, 인자, 응답의 모양은 실제 Inkling MCP 서버와 같습니다. 노트 내용, 버전 값(v=…), 토큰 수는 이 시연이 만든 예시 값이고, 페이지와 제안의 id는 짧게 줄였습니다.',
       startTitle: '시연에 쓰는 노트',
       startText: '가짜 워크스페이스의 페이지 하나입니다. 섹션이 넷이고, 장면마다 에이전트는 체크리스트 섹션을 다룹니다.',
       scriptLabel: '이 장면에서 오가는 도구 호출과 응답',
@@ -34,7 +34,7 @@
         ['담당', '담당', '- 출시 총괄: 박서준\n- 상태 페이지: 이지원'],
       ],
       query: '출시 체크리스트 상태 페이지',
-      newLine: '- [ ] 변경 사항 공지',
+      newLine: { patch: '- [ ] 변경 사항 공지', conflict: '- [ ] 고객 안내 메일 초안', suggest: '- [ ] 출시 후 회고 일정 잡기', lock: '- [ ] 요금제 비교표 갱신' },
       editFrom: '- [ ] 상태 페이지',
       editTo: '- [x] 상태 페이지',
       sc: {
@@ -99,7 +99,7 @@
       h1: 'Press the buttons and watch an agent edit a note',
       lede: 'In Inkling an AI agent finds only the sections it needs, checks the version it read, and changes one section. Run the five scenes below in order. No account and no server needed.',
       notice: 'This is a demonstration that runs in your browser only. It is not connected to a real server or an AI, and nothing you type is saved.',
-      made: 'Tool names, arguments and the shape of each answer are those of the real Inkling MCP server. The note, the version values (v=…) and the token counts are examples made up by this tour.',
+      made: 'Tool names, arguments and the shape of each answer are those of the real Inkling MCP server. The note, the version values (v=…) and the token counts are examples made up by this tour, and page and suggestion ids are shortened.',
       startTitle: 'The note used in the tour',
       startText: 'One page of a made-up workspace. It has four sections, and in every scene the agent works on the Checklist section.',
       scriptLabel: 'Tool calls and answers in this scene',
@@ -117,7 +117,7 @@
         ['owners', 'Owners', '- Launch lead: Priya Nair\n- Status page: Sam Ortiz'],
       ],
       query: 'launch checklist status page',
-      newLine: '- [ ] Changelog post',
+      newLine: { patch: '- [ ] Changelog post', conflict: '- [ ] Draft the customer email', suggest: '- [ ] Schedule the launch retro', lock: '- [ ] Update the plan comparison table' },
       editFrom: '- [ ] Status page',
       editTo: '- [x] Status page',
       sc: {
@@ -250,10 +250,10 @@
     }
   }
 
-  function patch(S, base) {
+  function patch(S, base, line) {
     const t = S.t
     const s = sec(S)
-    const call = `patch_section(pageId: "${PAGE_ID}", section: "${s.anchor}", mode: "append",\n    markdown: "${t.newLine}", baseVersion: "${base}")`
+    const call = `patch_section(pageId: "${PAGE_ID}", section: "${s.anchor}", mode: "append",\n    markdown: "${line}", baseVersion: "${base}")`
     if (S.lock === 'comment')
       return {
         call,
@@ -271,7 +271,7 @@
       }
     }
     if (S.lock === 'suggest') {
-      S.sug = { id: SUG_ID, anchor: s.anchor, line: t.newLine }
+      S.sug = { id: SUG_ID, anchor: s.anchor, line }
       return {
         call,
         sug: true,
@@ -282,7 +282,7 @@
         ].join('\n'),
       }
     }
-    const old = write(S, s, `${s.body}\n${t.newLine}`, 'ai')
+    const old = write(S, s, `${s.body}\n${line}`, 'ai')
     return { call, wrote: [old, s.v], out: `Done (append): §${s.anchor} is now v=${s.v}.` }
   }
 
@@ -305,10 +305,11 @@
       S.sug = null
     }
     if (id === 'find') return [() => (free(), findContext(S)), () => ({ cmp: [tokens(pageMd(S)), S.lastFind] })]
-    if (id === 'patch') return [() => (free(), findContext(S)), () => patch(S, base())]
-    if (id === 'conflict') return [() => (free(), findContext(S)), () => ({ wait: 'edit' }), () => patch(S, base()), () => ({ note: t.nMerge }), () => patch(S, S.conflictV || sec(S).v)]
-    if (id === 'suggest') return [() => ((S.lock = 'suggest'), { note: t.nSuggestLock }), () => findContext(S), () => patch(S, base()), () => ({ wait: 'decide' })]
-    if (id === 'lock') return [() => (S.lock === 'comment' ? { note: t.nLock } : ((S.lock = 'none'), (S.sug = null), { wait: 'lock' })), () => findContext(S), () => patch(S, base())]
+    const line = t.newLine[id]
+    if (id === 'patch') return [() => (free(), findContext(S)), () => patch(S, base(), line)]
+    if (id === 'conflict') return [() => (free(), findContext(S)), () => ({ wait: 'edit' }), () => patch(S, base(), line), () => ({ note: t.nMerge }), () => patch(S, S.conflictV || sec(S).v, line)]
+    if (id === 'suggest') return [() => ((S.lock = 'suggest'), { note: t.nSuggestLock }), () => findContext(S), () => patch(S, base(), line), () => ({ wait: 'decide' })]
+    if (id === 'lock') return [() => (S.lock === 'comment' ? { note: t.nLock } : ((S.lock = 'none'), (S.sug = null), { wait: 'lock' })), () => findContext(S), () => patch(S, base(), line)]
     return []
   }
   const exampleEdit = (S) => {
@@ -376,6 +377,7 @@
         <nav class="tour-tree" aria-label="${esc(t.aTree)}"><b>${esc(t.ws)}</b><ul>${t.tree.map((p, i) => `<li${i ? '' : ' aria-current="page"'}>${esc(p)}</li>`).join('')}</ul></nav>
         <div class="tour-note-body">
           <div class="tour-note-head"><h3>${esc(t.pageTitle)}</h3><span class="tour-lock"></span><button type="button" class="tour-lockbtn" aria-pressed="false"></button></div>
+          <div class="tour-inline"></div>
           <div class="tour-secs"></div>
           <div class="tour-hist"><h4>${esc(t.hist)}</h4><ol></ol></div>
         </div>
@@ -390,7 +392,9 @@
   panels[0].before(bar)
   bar.after(stage, status)
   stage.querySelector('.tour-side').append(...panels)
-  for (const p of panels) p.append(h(`<div class="tour-run"><button type="button" class="btn primary tour-go"></button><button type="button" class="btn tour-example" hidden>${esc(t.example)}</button><span class="tour-hint"></span></div>`), h('<div class="tour-result" aria-live="polite"></div>'))
+  // The button, its prompt and the outcome come right after the first paragraph, above the background
+  // paragraph and the links, so they stay on screen however long the text is.
+  for (const p of panels) p.querySelector('.tour-does').after(h(`<div class="tour-run"><span class="tour-hint"></span><button type="button" class="btn primary tour-go"></button><button type="button" class="btn tour-example" hidden>${esc(t.example)}</button></div>`), h('<div class="tour-result"></div>'))
 
   const $ = (sel, el = root) => el.querySelector(sel)
   const secsBox = $('.tour-secs', stage)
@@ -410,7 +414,7 @@
       .map((s) => {
         const target = s.anchor === t.target
         const body = target
-          ? `<textarea class="tour-edit" spellcheck="false" rows="${s.body.split('\n').length}" aria-label="${esc(t.editLabel)}">${esc(s.body)}</textarea><p class="tour-edit-hint">${esc(t.editHint)}</p>`
+          ? `<textarea class="tour-edit" spellcheck="false" rows="${s.body.split('\n').length}" aria-label="${esc(t.editLabel)}">${esc(s.body)}</textarea><p class="tour-edit-hint">${esc(t.editHint)}</p>${waiting === 'edit' ? `<div class="tour-wait"><span>${esc(t.waitEdit)}</span><button type="button" class="btn tour-example">${esc(t.example)}</button><button type="button" class="btn primary tour-go">${esc(t.cont)}</button></div>` : ''}`
           : `<div class="tour-lines">${lines(s.body)}</div>`
         const sug =
           target && S.sug
@@ -466,8 +470,22 @@
       $('.tour-example', p).hidden = waiting !== 'edit'
       $('.tour-hint', p).textContent = waiting === 'edit' ? t.waitEdit : waiting === 'lock' ? t.waitLock : waiting === 'decide' ? t.waitDecide : ''
     })
+    // the same prompt (or the outcome) inside the note; CSS shows it only where the scene panel is not beside the note
+    $('.tour-inline', stage).innerHTML =
+      waiting === 'lock'
+        ? `<span>${esc(t.waitLock)}</span><button type="button" class="btn primary tour-go">${esc(t.cont)}</button>`
+        : waiting === 'decide'
+          ? `<span>${esc(t.waitDecide)}</span>`
+          : said
+            ? `<span>${esc(said)}</span>`
+            : ''
+    for (const g of stage.querySelectorAll('.tour-note .tour-go')) g.disabled = !ready()
   }
+  // The continue button the visitor can see: the one in the note on a narrow window, else the scene's.
+  const focusGo = () => ([...stage.querySelectorAll('.tour-note .tour-go')].find((g) => g.offsetParent !== null) || $('.tour-go', panel())).focus()
+  let said = ''
   const say = (text, extra = '') => {
+    said = text
     $('.tour-result', panel()).innerHTML = text ? `<p>${esc(text)}</p>${extra}` : ''
     status.textContent = text
   }
@@ -538,6 +556,7 @@
       say(`${t.doneFind} ${t.cmp(last.cmp[0], last.cmp[1])}`, `<span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:${pct}%"></span></span>`)
     } else if (last && last.err === 'locked') say(t.doneLock)
     else if (last && last.wrote) say(current === 'conflict' && conflicts ? t.doneConflict : t.donePatch(t.target, last.wrote[0], last.wrote[1]))
+    renderRun()
   }
 
   function choose(id) {
@@ -547,6 +566,7 @@
     queue = null
     waiting = ''
     busy = false
+    said = ''
     renderRun()
   }
   function reset() {
@@ -558,6 +578,7 @@
     hit = fresh = ''
     log.textContent = ''
     panels.forEach((p) => ($('.tour-result', p).innerHTML = ''))
+    said = ''
     renderSecs()
     status.textContent = t.resetDone
   }
@@ -572,13 +593,13 @@
     else if (e.target.closest('.tour-example')) {
       humanEdit(S, exampleEdit(S))
       renderSecs()
-      $('.tour-go', panel()).focus()
+      focusGo()
     } else if (e.target.closest('.tour-lockbtn')) {
       S.lock = S.lock === 'none' ? 'comment' : 'none'
       if (S.lock === 'none') S.sug = null
       print('tl-note', `# ${S.lock === 'comment' ? t.nLock : `(${t.you}) ${t.lockOff}`}`)
       renderSecs()
-      if (waiting === 'lock' && ready()) $('.tour-go', panel()).focus()
+      if (waiting === 'lock' && ready()) focusGo()
     } else if (e.target.closest('[data-decide]')) {
       const accept = e.target.closest('[data-decide]').dataset.decide === 'accept'
       const e2 = decide(S, accept)
@@ -589,7 +610,8 @@
       waiting = ''
       renderSecs()
       say(accept ? t.doneAccept : t.doneReject)
-      $('.tour-go', panel()).focus()
+      renderRun()
+      $('.tour-go', panel()).focus({ preventScroll: true })
     }
   })
   secsBox.addEventListener('input', (e) => {

@@ -3961,8 +3961,8 @@ table.cards.t-doc td.c-body {
   top: 76px;
 }
 .tour .tour-log {
-  height: 540px;
-  max-height: 68vh;
+  /* short enough that the last line (the answer) is on screen before any scrolling */
+  height: clamp(280px, calc(100vh - 480px), 540px);
   margin: 0;
   padding: 14px 16px;
   border: 0;
@@ -4033,4 +4033,49 @@ table.cards.t-doc td.c-body {
 }
 .tour-on .tour-bar {
   margin-top: 20px;
+}
+
+/* Prompts and the outcome inside the note, shown only where the scene panel is stacked above it */
+.tour-inline,
+.tour-wait {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .tour-inline:not(:empty),
+  .tour-wait {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 8px 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+    background: var(--accent-soft);
+    color: var(--strong);
+    font-size: 14px;
+    font-weight: 560;
+  }
+  .tour-inline span,
+  .tour-wait span {
+    flex: 1 1 100%;
+  }
+  .tour-inline .btn,
+  .tour-wait .btn {
+    height: 34px;
+  }
+  .tour-inline .btn:disabled,
+  .tour-wait .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+.tour-hint {
+  flex: 1 1 100%;
+}
+.tour-hint:empty {
+  display: none;
+}
+.tour-on .tour-sc .tour-real {
+  margin: 14px 0 0;
 }

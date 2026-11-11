@@ -1,4 +1,4 @@
-import { assertUserRoom, assertWorkspaceRoom, withUserRoom } from '../quota/room'
+import { assertUserRoom, assertWorkspaceRoom } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { currentGuest, dropWorkspaceRowsTx } from '../pageGrants'
@@ -473,9 +473,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const body = updateMemberSchema.parse(req.body)
 
     await requireMembership(id, user.id)
-    // making someone an owner counts toward their LIMIT_WORKSPACES (docs/adr/2505-*)
-    const promote = body.role === 'owner' && (await memberRoleTx(db, id, userId)) !== 'owner'
-    await (promote ? withUserRoom(userId, { workspaces: 1 }, () => changeMemberRole(user, id, userId, body.role)) : changeMemberRole(user, id, userId, body.role))
+    await changeMemberRole(user, id, userId, body.role)
 
     const row = (
       await db
@@ -622,7 +620,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.post('/workspaces/:id/restore', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    const res = await withUserRoom(user.id, { workspaces: 0 }, () => restoreWorkspace(user, id)) // docs/adr/2505-*
+    await assertUserRoom(db, user.id, { workspaces: 0 }) // not already over LIMIT_WORKSPACES (docs/adr/2505-*)
+    const res = await restoreWorkspace(user, id)
     invalidateWebhookCache(id)
     for (const uid of res.memberIds) broadcastToUser(uid, { t: 'notifications' })
     const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1)
@@ -637,7 +636,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const id = idParam(req.params)
     const { userId } = transferOwnershipSchema.parse(req.body)
     await requireMembership(id, user.id)
-    await withUserRoom(userId, { workspaces: 1 }, () => transferOwnership(user, id, userId)) // the new owner's LIMIT_WORKSPACES
+    await assertUserRoom(db, userId, { workspaces: 1 }) // the new owner's LIMIT_WORKSPACES (docs/adr/2505-*)
+    await transferOwnership(user, id, userId)
     broadcastToUser(userId, { t: 'notifications' })
     const rows = await db
       .select({ id: users.id, name: users.name, email: users.email, role: workspaceMembers.role })
@@ -961,6 +961,7 @@ export async function changeMemberRole(
       throw badRequest('The last owner cannot be demoted')
     }
     if (target === role) return
+    if (role === 'owner') await assertUserRoom(tx, userId, { workspaces: 1 }) // the new owner's LIMIT_WORKSPACES (docs/adr/2505-*)
     await tx
       .update(workspaceMembers)
       .set({ role })

@@ -122,6 +122,36 @@ describe('[db] storage, file and version limits', { skip: !process.env.DATABASE_
     }
   })
 
+  it('MCP upload_file: refused past LIMIT_FILE_MB and in a full workspace', async () => {
+    const u = await h.makeUser('st-mcp-up')
+    const ws = await h.makeWorkspace(u)
+    const page = await h.makeDocPage(ws.id, u.id, 'doc', [{ type: 'paragraph', content: 'a' } as never])
+    const M = await h.connectMcp(app, { ...u, via: 'Claude' }, await h.mintToken(u, 'notes', 'Claude'))
+    try {
+      let restore = L.setLimitsForTests({ fileMb: 0.001 })
+      try {
+        const big = await M.tool('upload_file', { pageId: page.id, name: 'big.txt', text: 'x'.repeat(5000), attachOnly: true })
+        assert.equal(big.isError, true, big.text)
+        assert.match(big.text, /too large|LIMIT_FILE/i)
+        const small = await M.tool('upload_file', { pageId: page.id, name: 'small.txt', text: 'x'.repeat(100), attachOnly: true })
+        assert.equal(small.isError, false, small.text)
+      } finally {
+        restore()
+      }
+      await S.recountWorkspaceStorage(ws.id)
+      restore = L.setLimitsForTests({ workspaceStorageMb: 0.0001 })
+      try {
+        const full = await M.tool('upload_file', { pageId: page.id, name: 'more.txt', text: 'y', attachOnly: true })
+        assert.equal(full.isError, true, full.text)
+        assert.match(full.text, /storage|LIMIT_STORAGE/i)
+      } finally {
+        restore()
+      }
+    } finally {
+      await M.close()
+    }
+  })
+
   it('the collab store moves the cached use and flips a workspace read-only past its limit', async () => {
     const u = await h.makeUser('st-collab')
     const ws = await h.makeWorkspace(u)

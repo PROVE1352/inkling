@@ -21,8 +21,11 @@ uploads would let a workspace fill the disk with text.
   in their transaction) and by every collab store (the body's growth, before the upsert), recounted by
   the hourly housekeeping, by the store path when the count is older than 10 minutes, by the usage
   route when older than a minute, and after a purge.
-- **Full = read-only**: new pages, uploads, imports, templates, comments, handwriting, manual versions and
-  every REST/MCP body write (`docWriteGate.ts`, checked on each write) answer 413 `LIMIT_STORAGE`; live
+- **Full = read-only**: new pages, uploads, imports, templates, comments, handwriting, manual versions,
+  the REST/MCP body writes that go through `docWriteGate.ts` (page content, sections, section batches,
+  revert, version restore, accepted suggestions; checked on each write), quick tasks and vault sync
+  answer 413 `LIMIT_STORAGE`; ticking a task off and the parent rewrite of a split (which moves text into
+  new pages, checked as pages) are not refused; live
   editing connections are read-only (`collab.ts onAuthenticate`), and the open ones are closed when the
   workspace goes over so they come back read-only. Deleting, purging, clearing handwriting and export
   always work. Gated on the limit: a stale flag on a server without the limit is ignored.

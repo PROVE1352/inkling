@@ -21,9 +21,10 @@ concurrent requests must not both pass the last free place.
 - **Locks.** Pages and bytes: `ws-quota:<workspace>`; members: the existing member lock
   `ws-members:<workspace>`; owned workspaces: `user-ws:<user>`. All are transaction-scoped advisory locks,
   taken after the tree and member locks a path already holds, so the order is tree → members → quota.
-  Transfer, promotion to owner and restore run in B's / existing functions that open their own
-  transaction; `withUserRoom` takes the user lock in an outer transaction around them, so the order there
-  is user → members, the same as creating a workspace.
+  Promotion to owner checks inside `changeMemberRole`'s transaction (members → user). Transfer and
+  restore run in functions of `workspaceDeletion.ts` that open their own transaction, so the routes check
+  just before calling them, outside it (not race-safe; holding an outer transaction around them would
+  need two pooled connections per request and can exhaust the pool).
 - **Batches check once, for the whole batch, before the first insert**: duplicate (the subtree and its
   bodies), row batch, folder and Notion import, template trees, split, sheet sync. A refused batch
   creates nothing. Folder import writes its attachments before the page transaction: it checks first
@@ -63,5 +64,6 @@ concurrent requests must not both pass the last free place.
 ## Consequences
 - A new creating path fails the sweep test until it calls the check.
 - Page guests are not members and are not counted; a page can have at most 50 people of its own.
-- Calls with the bare `db` (the folder-import pre-check) are not race-safe; the transaction check after
-  them is.
+- Calls with the bare `db` are not race-safe: the folder-import pre-check (the transaction check after it
+  is), and the transfer and restore checks (until they move into those functions' transactions).
+- `LIMIT_FILE_MB` leaves larger attachments out of a folder import; the Notion importer does not apply it.

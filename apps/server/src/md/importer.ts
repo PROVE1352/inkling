@@ -1,4 +1,4 @@
-import { assertWorkspaceRoom } from '../quota/room'
+import { assertWorkspaceRoom, fileLimitBytes } from '../quota/room'
 import { dropFiles } from '../quota/files'
 import { and, asc, eq, isNull, max } from 'drizzle-orm'
 import JSZip from 'jszip'
@@ -409,6 +409,12 @@ export async function importEntries(
   if (agent && fileEntries.some((e) => isAssetPath(e.name))) await agent.beforeAttachments()
   for (const e of fileEntries) {
     if (!isAssetPath(e.name)) continue
+    // LIMIT_FILE_MB applies to imported attachments too (docs/adr/2505-*): a larger one is left out
+    const fileCap = fileLimitBytes()
+    if (fileCap != null && e.size > fileCap) {
+      ;(stats.skippedAttachments ??= []).push({ name: e.name, reason: `larger than ${mbLabel(fileCap)}, this server's per-file limit` })
+      continue
+    }
     const ext = path.extname(e.name)
     // Zip entries are decompressed (and measured) before the row exists. Through a connection the
     // bytes are always read: the type is decided from them (bounded by the per-entry cap).

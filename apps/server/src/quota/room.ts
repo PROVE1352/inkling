@@ -191,17 +191,3 @@ export async function pageBodyBytes(exec: QuotaExec, pageIds: string[]): Promise
   )
   return Number(r?.n ?? 0)
 }
-
-/**
- * Run `fn` (which opens its own transaction, like transferOwnership and restoreWorkspace) while
- * holding the user's owned-workspace lock in an outer transaction, after checking the room. The lock
- * order is then user → workspace members everywhere. No limit → `fn()` alone.
- */
-export async function withUserRoom<T>(userId: string, need: { workspaces: number }, fn: () => Promise<T>): Promise<T> {
-  if (limits.workspacesPerUser == null) return fn()
-  const { db } = await import('../db/index')
-  return db.transaction(async (tx) => {
-    await assertUserRoom(tx, userId, need)
-    return fn()
-  })
-}

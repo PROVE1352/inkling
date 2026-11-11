@@ -129,7 +129,7 @@
 | 메서드 | 경로 | 입력 | 응답 |
 |---|---|---|---|
 | POST | `/api/files?workspaceId=<uuid>&pageId=<uuid>` | multipart 필드 `file`(하나) | `{ file: FileDTO }`: `url`은 `/files/<id>`입니다. bearer 토큰은 0.16부터 `pageId`가 필수입니다("v0.16.0 추가 사항" 참고) |
-| GET | `/files/:id` | - | 바이너리 스트림. 헤더: 행의 `mime`에서 가져온 Content-Type, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. 인증하지 않으면 401. 파일이 속한 워크스페이스의 멤버나 게스트가 아니거나, 볼 수 없는 페이지의 파일이면 없는 id와 똑같이 404로 답합니다(docs/adr/1301-*). |
+| GET | `/files/:id` | - | 바이너리 스트림. 헤더: 행의 `mime`에서 가져온 Content-Type, 래스터 이미지에는 `Content-Disposition: inline; filename*=UTF-8''<encoded>`, 그 밖의 모든 타입(PDF, 텍스트, 동영상, 오디오)에는 `attachment; …`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. 인증하지 않으면 401. 파일이 속한 워크스페이스의 멤버나 게스트가 아니거나, 볼 수 없는 페이지의 파일이면 없는 id와 똑같이 404로 답합니다(docs/adr/1301-*). |
 
 - 실제 저장 위치: `DATA_DIR/uploads/<id>`(id 그대로, 확장자 없음). 크기 한도는 25MB입니다(넘으면 413).
 - 허용하는 MIME 타입: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`. 그 밖은 415.

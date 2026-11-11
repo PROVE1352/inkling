@@ -121,7 +121,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 | Method | Path | Input | Response |
 |---|---|---|---|
 | POST | `/api/files?workspaceId=<uuid>&pageId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>`. `pageId` is required for bearer tokens since 0.16 (see "v0.16.0 additions") |
-| GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401; not a member or guest of the file's workspace, or a page file you cannot see: 404, the same as an unknown id (docs/adr/1301-*). |
+| GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>` for raster images and `attachment; …` for every other type (PDF, text, video, audio), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401; not a member or guest of the file's workspace, or a page file you cannot see: 404, the same as an unknown id (docs/adr/1301-*). |
 
 - Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above).
 - Allowed MIME types: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`; anything else 415.

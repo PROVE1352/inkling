@@ -15,8 +15,13 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
 - **Library**: `pdfjs-dist` **6.5.438** (Apache-2.0), the one new dependency, in `apps/web` only, pinned
   without a caret. Published 2026-11-01 (10 days before this change; the latest release, pdf.js ships
   monthly and has no patch line, so the newest release carries the newest fixes). pnpm 11 here reports no
-  `minimumReleaseAge`, so no exception list was needed. The modern build (`build/pdf.mjs`), not `legacy/`:
-  the app already needs current browsers (React 19, `:has()`, `inert`). Its Node-only optional
+  `minimumReleaseAge`, so no exception list was needed. The **legacy build** (`legacy/build/pdf.mjs` and its
+  worker), not the modern `build/`: pdf.js 6's modern build calls `Promise.try`, `Map.prototype.getOrInsertComputed`,
+  `Math.sumPrecise` and `Uint8Array` base64/hex methods without polyfills, which only the newest browser
+  releases have (some not even in every current browser), while the rest of the app runs on older ones. The legacy build carries polyfills and is what pdf.js supports for older browsers: Firefox ESR,
+  Chrome 125+ (Edge and Opera on the same engine) and, as pdf.js puts it, "mostly" Safari 18+. Those are the
+  preview's minimum browsers; elsewhere the file block shows its name line and download as before (an
+  unsupported browser ends at the preview's error message). Its Node-only optional
   dependency `@napi-rs/canvas` is not installed (`ignoredOptionalDependencies` in `pnpm-workspace.yaml`):
   installing it would also have resolved unpdf's optional peer on the server, changing the server's
   dependency graph and pulling 12 native packages into the lockfile.
@@ -31,15 +36,22 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
   files to `assets/lazy/pdfjs-<version>/`, and serves the same paths from `node_modules` in `vite dev`.
   The version is in the path because `assets/` is served `immutable` for a year (`httpCache.ts`) and these
   files have no content hash. `assets/lazy/` keeps all of it out of the PWA precache (`globIgnores`);
-  the service worker caches what is used, as for Shiki and exceljs. No CDN.
+  the service worker caches what is used, in a cache of its own (`inkling-pdfjs`, 60 entries, 30 days), so a
+  CJK PDF's cMaps do not push Shiki grammars or exceljs out of `inkling-lazy-assets` or the other way round.
+  pdf.js's own `LICENSE` is copied to the same folder (the minified worker keeps no licence header). No CDN.
 - **CSP**: unchanged. The SPA policy has `worker-src 'self' blob:` and `script-src 'self'`; the worker is a
   same-origin module worker. The worker's response carries no CSP of its own (only `text/html` gets the
   SPA policy, `embedCsp.ts`), so pdf.js compiles its wasm decoders there (checked in Chrome 157: openjpeg,
   jbig2 and qcms compile inside the running pdf.js worker); the page itself never needs `wasm-unsafe-eval`
   or `unsafe-eval`.
 - **One worker per tab**: one `PDFWorker` serves every document; documents are shared by address and kept
-  30 s after the last preview lets go (a node view is rebuilt on every prop change, ADR 2481); the worker
-  goes when the last document does.
+  15 s after the last preview lets go (a node view is rebuilt on every prop change, ADR 2481). A download
+  whose last preview went away (the reader left the page) is cancelled after 1.5 s, and a load that failed
+  is dropped at once. Each loading task is destroyed and awaited; the worker goes when the last document
+  has gone.
+- **Images and canvases**: pdf.js leaves out images over 2^26 pixels (`maxImageSize`) and scales decoded
+  images over 64 MiB down in the worker (`canvasMaxAreaInBytes: 2^26`), so a small file cannot make the tab
+  decode a gigapixel picture. Page canvases have their own limits (ADR 2483).
 - **Nothing in a PDF runs or acts**:
   - The core API never runs PDF JavaScript; scripting is the viewer's QuickJS sandbox (`pdf.sandbox*`,
     `quickjs-eval.*`), which is not imported and not copied. `isEvalSupported` no longer exists in pdf.js 6
@@ -74,7 +86,8 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
   preview of a session; data files are fetched per need (two cMaps for a Korean PDF, 49 KB). The entry
   chunk is unchanged; strings add 2.6 KB to the modulepreloaded i18n chunk (PERFORMANCE.md).
 - pdf.js 6 is a month-old major line; an upgrade is a version bump and a browser check (the paths carry the
-  version). A browser without module workers falls back to pdf.js's main-thread "fake worker", which works
+  version). The legacy build is larger than the modern one (polyfills), and the browser check exercises
+  the polyfills on the page only (Chrome 157 with the newest built-ins removed), not inside the worker. A browser without module workers falls back to pdf.js's main-thread "fake worker", which works
   but blocks the page while it parses.
 - The wasm decoders (JPEG 2000, JBIG2, colour profiles) compile in the worker, but the browser check's test
   files hold no such images, so decoding itself is not exercised; the no-wasm fallbacks are copied too.
@@ -82,7 +95,7 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
 ## Consequences
 - `apps/web/package.json` gains `pdfjs-dist`; `pnpm-workspace.yaml` gains `ignoredOptionalDependencies`;
   `vite.config.ts` gains the asset plugin, a `LAZY_ONLY` entry and `assetFileNames`.
-- Third-party notices: pdf.js is Apache-2.0 (its JS carries the licence header). The copied data keeps each
+- Third-party notices: pdf.js is Apache-2.0 (`assets/lazy/pdfjs-<version>/LICENSE`). The copied data keeps each
   licence file next to it under `assets/lazy/pdfjs-<version>/`: Adobe cMaps (BSD-3-Clause, `cmaps/LICENSE`),
   Foxit fonts (PDFium BSD-3-Clause, `LICENSE_FOXIT`), Liberation Sans (GPL-2.0 with the font exception,
   `LICENSE_LIBERATION`, unmodified), the JBIG2 decoder (PDFium BSD-3-Clause + Mozilla Apache-2.0), OpenJPEG
@@ -91,4 +104,4 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
 ## References
 - `apps/web/src/components/pdfPreview/pdfDocument.ts`, `apps/web/vite.config.ts`, `apps/web/src/lib/pdfPreview.ts`
   (+ test), `apps/server/src/routes/files.ts`, `apps/server/src/embedCsp.ts`, `apps/server/src/httpCache.ts`,
-  ADR 0706, ADR 0752, ADR 0882, ADR 2481, ADR 2482
+  ADR 0706, ADR 0752, ADR 0882, ADR 2481, ADR 2482, ADR 2483

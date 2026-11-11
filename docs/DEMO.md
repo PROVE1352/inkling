@@ -3,13 +3,13 @@
 A demo instance is a second Inkling server that strangers can sign up to and try. It runs next to your own
 server but shares nothing with it: its own compose project, database, volumes, network and port. The
 restricted mode of 0.22 turns on what such a server needs: sign-in IDs instead of email addresses, an
-account cap, a per-IP sign-up limit, accounts deleted 14 days after sign-up, limits on workspaces, members,
-pages and storage, server-wide switches for features that send data outside, terms and consent at sign-up,
+account cap, per-IP and hourly sign-up limits, accounts deleted 14 days after sign-up, limits on workspaces, members,
+pages and storage, a storage fuse for the whole server, server-wide switches for features that send data outside, terms and consent at sign-up,
 and a "Demo" label on every screen. 한국어: [DEMO.ko.md](DEMO.ko.md).
 
 The files are in [`deploy/demo/`](../deploy/demo/): `demo.sh` (the only way to start, stop and check the
 demo), `compose.demo.yaml` (an overlay on `compose.yaml`), `demo.env.example` (the settings) and `legal/`
-(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2529 and 2535–2539.
+(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2539.
 
 ## 1. Start it as a separate instance
 
@@ -141,7 +141,8 @@ exists, the sign-up form opens to everyone.
 - After signing up, the deletion date is shown, and the "Demo" label is visible on a phone and on a computer.
 - `deploy/demo/demo.sh config` prints only `ok` lines, and `deploy/demo/demo.sh ps` shows no published
   database port and only `127.0.0.1:3100` for the app.
-- Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets.
+- Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets, and Admin › Status lists **Server storage limit**
+  with 3000 MB as the limit.
 - From one network, a third sign-up in a day is refused (the proxy passes the real address).
 
 ## Settings
@@ -165,6 +166,8 @@ One line each; the full reference is in the operations docs.
 | `LIMIT_TRASH_DAYS` | `7` | Trashed pages are deleted for good after at most this many days, whatever a workspace sets |
 | `WORKSPACE_RESTORE_DAYS` | `7` | Days a deleted workspace can be restored |
 | `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB` | `5`, `10` | Uploads by AI agents: per file, per account per day |
+| `LIMIT_WORKSPACES_TOTAL` | `100` | Workspaces on the whole server, deleted ones still restorable included; at it sign-up and new workspaces are refused |
+| `LIMIT_INSTANCE_STORAGE_MB` | `3000` | Storage fuse: database plus uploads, measured once a minute; at it the demo only reads and deletes ("Disk and the storage fuse" below) |
 | `DISABLED_FEATURES` | see `demo.env.example` | Features turned off on the whole server |
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
 | `INSTANCE_LABEL` | `Demo` | The label every screen shows |
@@ -190,6 +193,23 @@ To see what it would do before it deletes anything, start with `ACCOUNT_LIFETIME
 housekeeping then logs one line per account it would delete (the account id and how many workspaces would
 go) and deletes nothing. Once the first accounts pass their date and the log lists exactly those, empty the
 value and run `deploy/demo/demo.sh up` again.
+
+### Disk and the storage fuse
+
+`LIMIT_INSTANCE_STORAGE_MB=3000` stops writes when the database and the uploads reach 3,000 MB: the demo then
+only reads, signs in, exports and deletes, and every screen says so. It usually stays that way until you make
+room by hand, since deleting rows does not shrink the database file; what to do is in
+[OPERATIONS.md, "Instance storage fuse"](OPERATIONS.md#instance-storage-fuse). A few addresses writing at full
+speed for a minute or two can trip it on purpose; only the demo stops.
+
+The fuse does not see the WAL, the backups or the logs. Budget the disk for the worst case: 3,000 MB of live data,
+about 1 GB of WAL, 7 daily backup sets of up to 3,000 MB each (content that does not compress) and the logs, about
+3 + 1 + 7 × 3 = 25 GB. With 100 workspaces of at most 20 MB, the counted data stays under 2,000 MB; the rest of the
+3,000 MB is what is not counted and what deleting leaves inside the database.
+
+A separate filesystem with a size limit for the demo's data (its own disk, partition or virtual machine) is
+recommended: it is stronger than the fuse, and whatever the fuse misses then cannot fill the disk your main
+instance uses.
 
 ### Posting a notice
 

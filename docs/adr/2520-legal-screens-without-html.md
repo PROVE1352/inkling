@@ -17,8 +17,8 @@ server.
   not split. The parser is pure and tested in node; the browser check confirms no element is made.
 - **Consent screen**: `ConsentGate` wraps the routes in `App.tsx`. It watches the cached `/auth/me` (no
   request of its own) and, when it says `consentRequired`, shows `ConsentScreen` instead of any screen except
-  the signed-out ones, `/terms`, `/privacy` and public links. A 403 `CONSENT_REQUIRED` from any request
-  (`api.ts` fires an event) reloads `/auth/me`, so a version change shows the screen without a reload.
+  the signed-out ones, `/terms`, `/privacy` and public links. A `CONSENT_REQUIRED` answer to any request made
+  through `api()` (`api.ts` fires an event; uploads and a few direct `fetch` calls do not) reloads `/auth/me`, so a version change shows the screen without a reload.
 - **Sign-up**: `SignupConsent` shows the notice and the boxes, none ticked and no "agree to all", and reports
   `ready` only when every required box is ticked; a version change while the form is open clears the ticks.
 - **Instance label**: one component, three placements: the sidebar head, a thin strip above the page on

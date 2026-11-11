@@ -17,7 +17,7 @@ On the server that runs your main instance, from the repository root:
 
 ```bash
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in POSTGRES_PASSWORD, APP_SECRET_KEY (openssl rand -base64 32 each) and PUBLIC_URL
+# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each); keep PUBLIC_URL=http://localhost:3100
 docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
 ```
 
@@ -36,8 +36,10 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 ssh -L 3100:127.0.0.1:3100 your-server     # from your computer, then open the /setup?code=… link on localhost:3100
 ```
 
-The setup link works once, only while there are no accounts. The setup form shows the same consent boxes as
-the sign-up form: the operator agrees to the terms too. Administrator accounts never expire.
+The setup link works once, only while there are no accounts. It works through the tunnel only while
+`PUBLIC_URL` is `http://localhost:3100`: the server refuses sign-ups from any origin other than `PUBLIC_URL`.
+The setup form shows the same consent boxes as the sign-up form: the operator agrees to the terms too.
+Administrator accounts never expire.
 
 ## 3. Fill in the terms folder
 
@@ -70,7 +72,9 @@ them is shown as text, and links work only for `http`, `https` and `mailto`.
 
 ## 4. Proxy
 
-Put HTTPS in front of `127.0.0.1:3100`. With Caddy on the host:
+Put HTTPS in front of `127.0.0.1:3100`, then set `PUBLIC_URL` in `demo.env` to the public address (for
+example `https://demo.example.com`) and run `up -d app` again; with an https address the session cookie is
+Secure. With Caddy on the host:
 
 ```
 demo.example.com {

@@ -11,7 +11,7 @@
 
 ```bash
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in POSTGRES_PASSWORD, APP_SECRET_KEY (openssl rand -base64 32 each) and PUBLIC_URL
+# fill in POSTGRES_PASSWORD and APP_SECRET_KEY (openssl rand -base64 32 each); keep PUBLIC_URL=http://localhost:3100
 docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/compose.demo.yaml up -d
 ```
 
@@ -27,7 +27,7 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 ssh -L 3100:127.0.0.1:3100 your-server     # from your computer, then open the /setup?code=… link on localhost:3100
 ```
 
-설정 링크는 계정이 하나도 없을 때 한 번만 쓸 수 있습니다. 설정 화면에도 가입 화면과 같은 동의 항목이 나옵니다. 운영자도 약관에 동의합니다. 관리자 계정은 만료되지 않습니다.
+설정 링크는 계정이 하나도 없을 때 한 번만 쓸 수 있습니다. 서버는 `PUBLIC_URL`이 아닌 출처에서 온 가입을 거절하므로, 터널로 여는 동안에는 `PUBLIC_URL`이 `http://localhost:3100`이어야 합니다. 설정 화면에도 가입 화면과 같은 동의 항목이 나옵니다. 운영자도 약관에 동의합니다. 관리자 계정은 만료되지 않습니다.
 
 <a id="3-fill-in-the-terms-folder"></a>
 ## 3. 약관 폴더 채우기
@@ -56,7 +56,7 @@ docker compose --env-file deploy/demo/demo.env -f compose.yaml -f deploy/demo/co
 <a id="4-proxy"></a>
 ## 4. 프록시
 
-`127.0.0.1:3100` 앞에 HTTPS를 둡니다. 호스트에서 Caddy를 쓰면 다음과 같습니다.
+`127.0.0.1:3100` 앞에 HTTPS를 두고, `demo.env`의 `PUBLIC_URL`을 공개 주소(예: `https://demo.example.com`)로 바꾼 뒤 `up -d app`을 다시 실행합니다. https 주소면 로그인 쿠키에 Secure가 붙습니다. 호스트에서 Caddy를 쓰면 다음과 같습니다.
 
 ```
 demo.example.com {

@@ -746,8 +746,11 @@ pages it edited show the last AI edit. Before an AI replaces a whole page, a **B
   every agent connection and API token in Admin → **Server status**.
 - If an agent follows your notes as they change, tell it to call `changes_since` with `wait`: it then waits for the
   next change instead of asking again every few seconds.
-- AI agents receive page text marked as data, not as instructions. Pages with suspicious text show
-  **Possible prompt-injection text**. The warning may be a false positive.
+- AI agents receive page text marked as data, not as instructions. The mark helps an agent tell your notes from
+  its instructions, but on its own it cannot stop a cleverly written page from misleading the agent. What limits an
+  agent is what you allow it: a read-only connection, a narrower range, edit locks that keep agents to suggestions,
+  comments or reading, and version history to undo its edits. Pages with suspicious text show
+  **Possible prompt-injection text**. The warning may be a false positive, and some suspicious text is not caught.
 - An agent that reads such text (in a page or an attachment) only suggests for an hour: its edits wait for review and
   its other changes are refused. Its connection shows **Suggestions only until HH:MM**; **Allow edits again** lifts it.
   Workspace owners and admins can turn this off in Workspace settings → **Connected agents** → **Suspicious content**.

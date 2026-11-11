@@ -59,7 +59,7 @@ services:
 
 - `DEFAULT_LOCALE` (`en` | `ko`, default `en`): the language of emails and built-in templates for
   users who haven't picked one, and the web UI default before the browser language is applied.
-  Each user picks their own language in Settings → Language.
+  Each user picks their own language in Settings › Appearance › Language.
 - `TZ` (container time zone, default `UTC`): decides what "today" is for due dates, daily notes and
   reminders, and the times shown in emails.
 
@@ -77,9 +77,9 @@ docker compose up -d     # → http://<server-ip>:3000
 ```
 
 > ⚠️ **On any non-local (internet-facing) host, the Caddy overlay from 3-B is required.** Running
-> the base `compose.yaml` alone exposes the app over plain HTTP on port 3000, and the DB port is
-> bound to loopback only, so use it for local / internal testing only. A public server must sit
-> behind Caddy (HTTPS); only then do Secure cookies and the hidden app/DB ports apply.
+> the base `compose.yaml` alone serves the app over plain HTTP on port 3000 (the DB port is bound
+> to loopback only), so use it for local / internal testing only. A public server must sit behind
+> Caddy (HTTPS); only then do Secure cookies apply and the app and DB host ports go away.
 
 ## 3-B. Domain + HTTPS (recommended — PWA install and the clipboard API need it too)
 
@@ -154,7 +154,7 @@ and chooses an email, name and password.
 
 **Forgotten passwords.**
 
-- Login screen "Forgot password?" → `/reset`.
+- Login screen "Forgot your password?" → `/reset`.
   - *I have a code*: email + code + new password. The code is a single-use reset code issued by an
     admin (valid 24 hours), or the **single-person (1-use) signup key** that person signed up with.
     A signup key shared by several people cannot be used for a reset.
@@ -164,7 +164,7 @@ and chooses an email, name and password.
 - Admins: issue a [Reset code] / [Temporary password] from the request row or the user row → shown
   once on screen (copy or send by email). Either way, all of that person's existing logins are
   ended. Only a hash of the reset code is stored in the DB.
-- The user themself: change it in Settings > Account with the current password (other devices are
+- The user themself: change it in Settings › Account with the current password (other devices are
   logged out, this one stays).
 - Delegated-login accounts keep their password on the external auth server, so none of the above
   applies to them.
@@ -222,7 +222,7 @@ copy-and-paste remains.
   delegated accounts).
 - Links in mail: `/reset?email=&code=`, `/register?key=`, `/verify?token=` — the screens are prefilled.
 - Email verification: a verification email is sent right after signup, can be resent from
-  Settings > Account and the login screen, and admins have [Verification email] and [Mark verified]
+  Settings › Account and the login screen, and admins have [Verification email] and [Mark verified]
   on the admin screen. Existing accounts are only shown as unverified; their login is not blocked.
   With `REQUIRE_EMAIL_VERIFICATION=1`, people who sign up **after that** cannot log in before
   verifying.
@@ -448,8 +448,8 @@ Keeping `nodian` is supported. What the script does, the downtime, the way back 
 trials, `COMPOSE_PROJECT_NAME`, overrides, cron lines that name containers): docs/OPERATIONS.md "Upgrading to
 0.19", docs/adr/2340-*, 2341-*.
 
-On a server where Docker runs through sudo, run the script the same way: `sudo ./deploy/rename-from-nodian.sh
---dry-run`. It writes `.env` in place (owner and mode kept) and keeps its state in
+On a server where Docker runs through sudo, run the script the same way:
+`sudo ./deploy/rename-from-nodian.sh --dry-run`. It writes `.env` in place (owner and mode kept) and keeps its state in
 `./backups/rename-nodian-to-inkling/` (root-owned then). If `.env` belongs to root, add the line with
 `sudo sh -c "printf '\nINKLING_DATA_NAME=nodian\n' >> .env"`.
 
@@ -482,8 +482,8 @@ and an `APP_SECRET_KEY` from `openssl rand`, `PUBLIC_URL=http://localhost:<port>
 first-admin setup link and the MCP address. It never touches a `.env` it did not write.
 
 Without `--build` the script pulls the published image (`ghcr.io/prove1352/inkling`, the `INKLING_VERSION` tag,
-default `latest`). The setup link exists from 0.17 on: until the v0.17.0 image is published, the pulled image is an
-older release that prints no link, and the script says so and points to `./deploy/signup-key.sh new "first admin"`
+default `latest`). The setup link exists from 0.17 on: an image older than 0.17 (an `INKLING_VERSION` set to an earlier
+release) prints no link, and the script says so and points to `./deploy/signup-key.sh new "first admin"`
 (open `/register` and paste the key). `--build` builds the checkout you cloned and has the setup link either way; the
 first build takes a few minutes. A later `./deploy/local.sh` without `--build` keeps building from source once you
 chose it.

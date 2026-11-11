@@ -137,6 +137,8 @@ project) or `.claude/skills/` in a project; Claude Code loads it when a task nee
 
 Tokens are for `/mcp` only. Calling the REST API directly with the same token is rejected (no member management, public sharing or admin features).
 
+<!-- w20b:annotations -->
+
 ## Guide for agents
 
 Spend calls and tokens in this order (the server instructions say the same):
@@ -416,8 +418,9 @@ Token numbers in tool output are estimates (ASCII characters / 4, one per Korean
   Suspicious content, on by default); an agent cannot. MCP connections, agent connection tokens and personal API
   tokens are all covered.
 - **This is a mitigation, not a permission boundary.** Detection and markers can be evaded and a model can still be
-  misled; suggest-only helps only when the heuristics fire. The boundaries are the edit lock, read/write scopes and
-  per-workspace agent blocks.
+  misled; suggest-only helps only when the heuristics fire. The boundaries are the edit lock, read/write scopes, the
+  connection's range (some workspaces or one subtree) and per-workspace agent blocks; edits in suggestion mode wait
+  for a person, there is no permanent-delete tool, and version history keeps what an agent replaced.
 
 ### Saving tokens on repeated reads
 

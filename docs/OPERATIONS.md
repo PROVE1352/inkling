@@ -72,8 +72,8 @@ app when something needs attention (docs/adr/1230-*, 1233-*). The same data is
 |---|---|---|
 | Backups · Backup service | The sidecar's heartbeat (every 60 s). Red after 10 minutes of silence. | `docker compose ps backup`, `docker compose logs backup` (BACKUP.md "Troubleshooting"). |
 | Backups · Last backup | Amber when one scheduled run was missed (older than 2 × the schedule interval + 1 h), red when the last run failed or the newest set is over 7 days old. | Admin › Backups shows the failure message; fix it, then **Back up now**. |
-| Backups · Verification / Restore test | Red when the last check failed; the restore test is amber when older than 2 × `BACKUP_RESTORE_TEST_DAYS`. | `./deploy/backup.sh restore-test`, BACKUP.md "Restore test". |
-| Backups · Off-site copy / Encryption | Grey when no `BACKUP_RCLONE_REMOTE` (still worth fixing: 3-2-1 rule). Encryption is amber only when unencrypted sets are copied off-site. The passphrase itself is never shown. | BACKUP.md "Off-site copies", "Encryption". |
+| Backups · Verification / Restore test | Red when the last check failed; the restore test is amber when older than 2 × `BACKUP_RESTORE_TEST_DAYS`. | `./deploy/backup.sh restore-test`, BACKUP.md "What a backup set contains" (**Restore test**). |
+| Backups · Off-site copy / Encryption | Grey when no `BACKUP_RCLONE_REMOTE` (still worth fixing: 3-2-1 rule). Encryption is amber only when unencrypted sets are copied off-site. The passphrase itself is never shown. | BACKUP.md "Off-site copies with rclone", "Encryption". |
 | Storage · Data disk | Free space on the `DATA_DIR` volume. Amber below 2 × (database + uploads) or 10 %, red below 512 MB or 3 %. | Free space or grow the disk before the database runs out (section "Incidents"). |
 | Storage · Backup disk | Amber below 2 × the last set + `BACKUP_MIN_FREE_MB`, red when the next run would not fit. "Same disk as the data" means one disk holds both. | Lower `BACKUP_KEEP_*`, move the backup volume, add an off-site copy. |
 | Storage · Database / Uploads / Large pages | Facts. Large pages (≥ 1 MiB of state or ≥ 50k tokens, docs/adr/1103-*) are listed per workspace in its settings. | Split long logs into subpages. |
@@ -293,7 +293,7 @@ All settings are passed as `-c` arguments by the `db` service in `compose.yaml` 
 
 Notes
 - `shared_buffers` and `shared_preload_libraries` need `docker compose up -d db` (container restart). The others can also be changed live with `ALTER SYSTEM` + `SELECT pg_reload_conf()`, but the compose arguments win at the next restart.
-- The container's page cache counts against `mem_limit`. Keep `effective_cache_size` below `PG_MEM_LIMIT` minus `shared_buffers` headroom, otherwise the planner assumes cache that the cgroup will evict.
+- The container's page cache counts against `mem_limit`. Keep `effective_cache_size` at most `PG_MEM_LIMIT` minus `shared_buffers` (both columns above sit exactly there: `512m` − `128MB` = `384MB`, `2g` − `512MB` = `1536MB`), otherwise the planner assumes cache that the cgroup will evict.
 - If you use a `compose.override.yaml` that defines its own `command:` for `db`, it replaces this one entirely — merge the flags there.
 
 ### Query statistics (opt-in)
@@ -416,7 +416,9 @@ leave the machine. Turned off, nothing of it runs: no request, no timer, no quer
 `EMBEDDING_QUERY_PREFIX="query: "`, `EMBEDDING_PASSAGE_PREFIX="passage: "`; quote them in `.env` so the space is
 kept). Vectors are stored under the model name plus a short hash of the prefixes, so setting, changing or removing a
 prefix re-embeds every section and the clean-up deletes the old vectors, exactly as after a model change. The admin
-status keeps showing the model.
+status keeps showing the model. `multilingual-e5-small` with these prefixes was measured on 0.20 and not adopted:
+page@1 went up on some question sets and down on others, while answers took 1.7 to 7.5 times the tokens
+(docs/PERFORMANCE.md, "Rejected / no effect").
 
 `compose.yaml` passes all twelve through, so setting them in `.env` is enough (examples in `.env.example`). A half-filled
 set (URL without model or the reverse) stays off and logs one warning at boot. Multilingual models work best for mixed
@@ -556,8 +558,10 @@ only route where a visitor without an account writes data.
   save succeeded; the page stays loaded until one does.
 - At shutdown, `[inkling] shutting down with unsaved changes in N document(s): …` names what could not be saved.
 - In the browser, while edits have not reached the server the page's connection dot turns amber and reads "Not saved
-  yet", and the tab asks before it is closed or reloaded (docs/adr/1926-*). Nothing is kept in the browser's storage: edits made
-  offline survive only while the tab stays open.
+  yet", and the tab asks before it is closed or reloaded (docs/adr/1926-*). Without an offline copy of the page (the
+  per-device setting in section 12, off by default in a browser tab) nothing is kept in the browser's storage: edits
+  made offline survive only while the tab stays open. With the setting on, the edits are also written to the device;
+  the dot reads "Not uploaded yet" and they are sent on the next connection (docs/adr/2204-*).
 
 ### Vault sync revisions (docs/adr/1920-*)
 
@@ -647,7 +651,7 @@ only route where a visitor without an account writes data.
 
 - `./deploy/local.sh` (start; `--build` builds the checkout instead of pulling the image), `./deploy/local.sh stop`,
   `./deploy/local.sh destroy` (deletes the trial's containers and volumes; the `.env` stays). It writes a `.env` marked
-  `# made by deploy/local.sh` with a hex `POSTGRES_PASSWORD`, `APP_SECRET_KEY`, `PUBLIC_URL=http://localhost:<port>`,
+  `# made by deploy/local.sh` with a random hex `POSTGRES_PASSWORD`, a random base64 `APP_SECRET_KEY`, `PUBLIC_URL=http://localhost:<port>`,
   `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `INKLING_DATA_NAME=inkling`,
   `COMPOSE_FILE=compose.yaml:compose.local.yaml` and `COMPOSE_PROJECT_NAME=inkling-local`, so plain
   `docker compose …` and the other `deploy/*.sh` scripts act on that stack. A `.env` without the marker is never
@@ -734,8 +738,8 @@ only route where a visitor without an account writes data.
 | `PUSH_TEST_ALLOW_LOOPBACK` | off | tests only; ignored with `NODE_ENV=production` |
 
 - **The key.** The generated private key is sealed with `APP_SECRET_KEY` (rows written before the key was set are
-  sealed at the next boot), like subscription endpoints and their auth secrets. Changing the key voids every
-  subscription (deliveries to old ones are dropped and the rows removed; devices subscribe again when the person
+  sealed at the next boot), like subscription endpoints and their auth secrets. Changing the VAPID key (setting the
+  env pair later, or a new generated key) voids every subscription (deliveries to old ones are dropped and the rows removed; devices subscribe again when the person
   opens the app). The key lives in its database: pointing the server at a different database (another instance's,
   or a fresh one) or deleting the row means another key, while restoring this database's own backup keeps it, as
   long as the same `APP_SECRET_KEY` is set (keep a copy off the server, outside the backups). To start over with a new generated key: `DELETE FROM push_vapid_keys;` and restart. If Server status shows
@@ -875,7 +879,7 @@ gets one unless they press the card's button.
 ### Upgrading to 0.20
 One migration and no required setting: the usual procedure (Upgrades, above). Migration 0061 adds three columns to
 `pages` for charts on public links (section 15); a 0.19 database goes from 61 to 62 applied migrations. Every
-existing link keeps charts off, so public pages look as before until a manager turns them on. Afterwards, ask people
+existing link keeps charts off, so public pages look as before until a manager (a workspace owner or admin) turns them on. Afterwards, ask people
 to reload tabs they left open: a tab still running 0.19 or older can read pages with columns but not edit them
 (below). Going back to 0.19.1 should need no restore (0.19 does not read the three new columns; starting it on a database
 with 0061 was not tried), but 0.19's editor deletes a
@@ -906,7 +910,7 @@ use. A link that showed charts and is published again while 0.19 runs keeps its 
   who turned it on (`pages.share_charts_by`) while they are a workspace member. The public page answer is cached
   per page revision for up to 10 minutes; chart numbers can be that old. Membership and the switch are read on every
   request.
-- Only charts of sources approved by a manager (`pages.share_chart_sources`) are aggregated with that manager's
+- Only charts of sources approved by a manager (an owner or admin of the workspace; `pages.share_chart_sources`) are aggregated with that manager's
   access; turning charts on and "Publish these charts too" also read the link's documents (as the count below).
   Charts inside columns count and are approved like any other.
 - To find links with charts on: `SELECT id, title, share_charts_by FROM pages WHERE share_token IS NOT NULL AND share_include_charts;`

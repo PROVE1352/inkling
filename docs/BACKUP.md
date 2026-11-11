@@ -156,7 +156,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in db.dump.enc -out
 > sets; keep the old one as long as old sets are retained.
 
 CBC with a checksum is confidentiality, not tamper-proofing: someone who can write to your backup
-storage could corrupt a set (the sha256 check would notice, unless they rewrote the manifest too).
+storage could corrupt a set (the sha256 check would notice, unless they rewrote `SHA256SUMS` too).
 
 ## Admin › Backups
 

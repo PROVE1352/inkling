@@ -217,7 +217,7 @@ docker compose pull app && docker compose up -d  #    or `up -d --build` for sou
 
 알아 둘 점
 - `shared_buffers`와 `shared_preload_libraries`는 `docker compose up -d db`(컨테이너 재시작)를 해야 바뀝니다. 나머지는 `ALTER SYSTEM` + `SELECT pg_reload_conf()`로 돌고 있는 채로도 바꿀 수 있지만, 다음에 재시작하면 compose 인자 값이 이깁니다.
-- 컨테이너의 페이지 캐시도 `mem_limit`에 들어갑니다. `effective_cache_size`는 `PG_MEM_LIMIT`에서 `shared_buffers`가 쓸 몫을 뺀 값보다 작게 두세요. 그렇지 않으면 플래너는 cgroup이 결국 비워 버릴 캐시까지 있다고 보고 계획을 세웁니다.
+- 컨테이너의 페이지 캐시도 `mem_limit`에 들어갑니다. `effective_cache_size`는 `PG_MEM_LIMIT`에서 `shared_buffers`를 뺀 값을 넘지 않게 두세요. 위 표의 두 열이 모두 딱 그 값입니다(`512m` − `128MB` = `384MB`, `2g` − `512MB` = `1536MB`). 그렇지 않으면 플래너는 cgroup이 결국 비워 버릴 캐시까지 있다고 보고 계획을 세웁니다.
 - `db`에 자체 `command:`를 정의한 `compose.override.yaml`을 쓰면 여기 있는 명령이 통째로 바뀝니다. 그럴 때는 위 플래그들을 그 파일에 합쳐 넣으세요.
 
 <a id="query-statistics-opt-in"></a>
@@ -349,7 +349,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'If-None-Match: <etag from above>' -
 | `EMBEDDING_QUERY_PREFIX` | 비어 있음 | 모든 검색 쿼리 앞에 붙이는 역할 접두어(0.20, docs/adr/2404-*) |
 | `EMBEDDING_PASSAGE_PREFIX` | 비어 있음 | 임베딩하러 보내는 모든 섹션 앞에 붙이는 역할 접두어(0.20) |
 
-`EMBEDDING_QUERY_PREFIX` / `EMBEDDING_PASSAGE_PREFIX`는 역할 접두어를 붙여 학습한 모델을 위한 설정입니다. e5라면 `EMBEDDING_QUERY_PREFIX="query: "`, `EMBEDDING_PASSAGE_PREFIX="passage: "`로 두고, 끝의 공백이 남도록 `.env`에서 따옴표로 감싸세요. 벡터는 모델 이름에 접두어의 짧은 해시를 붙인 이름으로 저장됩니다. 그래서 접두어를 넣거나 바꾸거나 빼면 모델을 바꿨을 때와 똑같이 모든 섹션을 다시 임베딩하고, 정리 작업이 예전 벡터를 지웁니다. 관리자 상태 화면에는 계속 모델 이름이 나옵니다.
+`EMBEDDING_QUERY_PREFIX` / `EMBEDDING_PASSAGE_PREFIX`는 역할 접두어를 붙여 학습한 모델을 위한 설정입니다. e5라면 `EMBEDDING_QUERY_PREFIX="query: "`, `EMBEDDING_PASSAGE_PREFIX="passage: "`로 두고, 끝의 공백이 남도록 `.env`에서 따옴표로 감싸세요. 벡터는 모델 이름에 접두어의 짧은 해시를 붙인 이름으로 저장됩니다. 그래서 접두어를 넣거나 바꾸거나 빼면 모델을 바꿨을 때와 똑같이 모든 섹션을 다시 임베딩하고, 정리 작업이 예전 벡터를 지웁니다. 관리자 상태 화면에는 계속 모델 이름이 나옵니다. 0.20에서 이 접두어를 붙인 `multilingual-e5-small`을 재 봤지만 쓰지 않기로 했습니다. 질문 묶음에 따라 page@1이 오르기도 하고 내리기도 했고, 답의 토큰은 1.7배에서 7.5배까지 늘었습니다(docs/PERFORMANCE.md의 "Rejected / no effect").
 
 `compose.yaml`이 열두 개를 모두 넘겨 주므로 `.env`에 적기만 하면 됩니다(예시는 `.env.example`에 있습니다). 반만 채운 설정(URL만 있고 모델이 없거나 그 반대)은 꺼진 채로 있고 부팅 때 경고를 한 번 남깁니다. 한국어와 영어가 섞인 노트에는 다국어 모델이 가장 잘 맞습니다(예: `bge-m3`, `multilingual-e5-large`, `text-embedding-3-small`).
 
@@ -432,7 +432,7 @@ Slack은 매니페스트로 앱을 만들 때, 토큰과 비밀값이 Inkling에
 - `[inkling] collab store of <page> failed; retrying in the background`, 이어서 `collab store retry N of <page> failed`: 데이터베이스가 문서 저장을 거절한 것입니다. 5초 간격으로 시작해 두 배씩 늘리며 60초 간격까지 다시 시도합니다.
 - `[inkling] <page> has unsaved changes and the store failed; keeping it in memory`: 저장에 성공하기 전에 마지막 편집자가 나갔습니다. 저장에 성공할 때까지 그 페이지를 메모리에 올려 둡니다.
 - 종료할 때 `[inkling] shutting down with unsaved changes in N document(s): …`가 저장하지 못한 문서를 알려 줍니다.
-- 브라우저에서는 편집이 서버에 닿지 않은 동안 페이지의 연결 표시 점이 주황으로 바뀌고 "아직 저장되지 않음"(`Not saved yet`)이라고 나오며, 탭을 닫거나 새로고침하기 전에 한 번 묻습니다(docs/adr/1926-*). 브라우저 저장소에는 아무것도 남기지 않으므로, 오프라인에서 한 편집은 탭이 열려 있는 동안만 남습니다.
+- 브라우저에서는 편집이 서버에 닿지 않은 동안 페이지의 연결 표시 점이 주황으로 바뀌고 "아직 저장되지 않음"(`Not saved yet`)이라고 나오며, 탭을 닫거나 새로고침하기 전에 한 번 묻습니다(docs/adr/1926-*). 그 페이지의 오프라인 사본이 없으면(12절의 기기별 설정이고, 브라우저 탭에서는 기본으로 꺼져 있습니다) 브라우저 저장소에는 아무것도 남기지 않으므로, 오프라인에서 한 편집은 탭이 열려 있는 동안만 남습니다. 이 설정을 켜 두면 편집이 기기에도 저장됩니다. 그때 표시 점에는 "아직 올라가지 않음"(`Not uploaded yet`)이 나오고, 다음에 연결되면 서버로 보냅니다(docs/adr/2204-*).
 
 <a id="vault-sync-revisions-docsadr1920-"></a>
 ### 볼트 동기화 리비전 (docs/adr/1920-*)
@@ -496,7 +496,7 @@ Slack은 매니페스트로 앱을 만들 때, 토큰과 비밀값이 Inkling에
 <a id="local-trial-docsadr2161-"></a>
 ### 로컬 체험 (docs/adr/2161-*)
 
-- `./deploy/local.sh`(시작. `--build`를 붙이면 이미지를 받는 대신 받아 둔 소스를 빌드합니다), `./deploy/local.sh stop`, `./deploy/local.sh destroy`(체험용 컨테이너와 볼륨을 지웁니다. `.env`는 남습니다). 스크립트는 `# made by deploy/local.sh` 표시가 붙은 `.env`를 씁니다. 여기에는 `POSTGRES_PASSWORD`(16진수), `APP_SECRET_KEY`, `PUBLIC_URL=http://localhost:<port>`, `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `INKLING_DATA_NAME=inkling`, `COMPOSE_FILE=compose.yaml:compose.local.yaml`, `COMPOSE_PROJECT_NAME=inkling-local`이 들어갑니다. 그래서 그냥 `docker compose …`를 치거나 다른 `deploy/*.sh` 스크립트를 돌려도 그 스택에 적용됩니다. 표시가 없는 `.env`는 절대 고치지 않습니다. 표시가 있지만 0.19 전에 만든 `.env`에는 `INKLING_DATA_NAME=nodian`(예전 볼륨과 역할 이름)을 넣습니다.
+- `./deploy/local.sh`(시작. `--build`를 붙이면 이미지를 받는 대신 받아 둔 소스를 빌드합니다), `./deploy/local.sh stop`, `./deploy/local.sh destroy`(체험용 컨테이너와 볼륨을 지웁니다. `.env`는 남습니다). 스크립트는 `# made by deploy/local.sh` 표시가 붙은 `.env`를 씁니다. 여기에는 `POSTGRES_PASSWORD`(무작위 16진수), `APP_SECRET_KEY`(무작위 base64), `PUBLIC_URL=http://localhost:<port>`, `INKLING_PORT=127.0.0.1:<port>`, `BACKUP_ENABLED=0`, `INKLING_DATA_NAME=inkling`, `COMPOSE_FILE=compose.yaml:compose.local.yaml`, `COMPOSE_PROJECT_NAME=inkling-local`이 들어갑니다. 그래서 그냥 `docker compose …`를 치거나 다른 `deploy/*.sh` 스크립트를 돌려도 그 스택에 적용됩니다. 표시가 없는 `.env`는 절대 고치지 않습니다. 표시가 있지만 0.19 전에 만든 `.env`에는 `INKLING_DATA_NAME=nodian`(예전 볼륨과 역할 이름)을 넣습니다.
 - 다른 사람이 쓰는 서버용이 아닙니다. http만 되고, 이 기계에서만 접속할 수 있으며, 백업이 없고, 데이터베이스 호스트 포트도 열지 않습니다. bash, curl, Docker Compose v2.24 이상(`!override` 때문입니다)이 필요합니다. Windows에서는 WSL이나 Git Bash에서 실행하세요.
 - `--build` 없이 돌리면 `ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}`를 받습니다. 0.17보다 오래된 이미지는 설정 링크를 출력하지 않으므로, 이때 스크립트는 `./deploy/signup-key.sh`로 첫 가입 키를 만들라고 알려 줍니다.
 - `compose.yaml`은 `INKLING_PORT`(앱의 호스트 포트 또는 `ip:port`, 기본 `3000`)와 `INKLING_DB_PORT`(루프백 데이터베이스 포트, 기본 `55432`)를 읽습니다.
@@ -546,7 +546,7 @@ Slack은 매니페스트로 앱을 만들 때, 토큰과 비밀값이 Inkling에
 | `WEB_PUSH_ALLOWED_HOSTS` | 비어 있음 | 더 허용할 푸시 서비스 호스트입니다. 쉼표로 구분하고 `host` 또는 `*.suffix`로 씁니다 |
 | `PUSH_TEST_ALLOW_LOOPBACK` | 꺼짐 | 테스트 전용입니다. `NODE_ENV=production`이면 무시됩니다 |
 
-- **키.** 만들어진 개인 키는 구독 엔드포인트, 구독의 인증 비밀값과 마찬가지로 `APP_SECRET_KEY`로 암호화합니다(`APP_SECRET_KEY`를 넣기 전에 쓴 행은 다음 부팅 때 암호화합니다). 키를 바꾸면 모든 구독이 무효가 됩니다. 예전 구독으로 가는 전송은 버리고 그 행을 지우며, 기기는 사람이 앱을 열 때 다시 구독합니다. 키는 데이터베이스 안에 있습니다. 서버가 다른 데이터베이스(다른 인스턴스의 것이나 새 것)를 가리키게 하거나 그 행을 지우면 다른 키가 됩니다. 반대로 이 데이터베이스 자신의 백업을 복원하면, 같은 `APP_SECRET_KEY`를 넣어 두는 한 키가 그대로 유지됩니다(`APP_SECRET_KEY`는 서버 밖, 백업과도 다른 곳에 사본을 두세요). 새로 만든 키로 처음부터 다시 시작하려면 `DELETE FROM push_vapid_keys;`를 실행하고 재시작하세요. 서버 상태에 "VAPID 키 문제 (stored_unreadable)"(`VAPID key problem (stored_unreadable)`)가 나오면 `APP_SECRET_KEY`가 없거나 바뀐 것입니다. 원래 값을 되돌려 넣거나 그 행을 지우세요. `env_incomplete` / `env_invalid`가 나오면 환경 변수 한 쌍을 고치세요.
+- **키.** 만들어진 개인 키는 구독 엔드포인트, 구독의 인증 비밀값과 마찬가지로 `APP_SECRET_KEY`로 암호화합니다(`APP_SECRET_KEY`를 넣기 전에 쓴 행은 다음 부팅 때 암호화합니다). VAPID 키를 바꾸면(나중에 환경 변수 한 쌍을 넣거나 키를 새로 만들게 되면) 모든 구독이 무효가 됩니다. 예전 구독으로 가는 전송은 버리고 그 행을 지우며, 기기는 사람이 앱을 열 때 다시 구독합니다. 키는 데이터베이스 안에 있습니다. 서버가 다른 데이터베이스(다른 인스턴스의 것이나 새 것)를 가리키게 하거나 그 행을 지우면 다른 키가 됩니다. 반대로 이 데이터베이스 자신의 백업을 복원하면, 같은 `APP_SECRET_KEY`를 넣어 두는 한 키가 그대로 유지됩니다(`APP_SECRET_KEY`는 서버 밖, 백업과도 다른 곳에 사본을 두세요). 새로 만든 키로 처음부터 다시 시작하려면 `DELETE FROM push_vapid_keys;`를 실행하고 재시작하세요. 서버 상태에 "VAPID 키 문제 (stored_unreadable)"(`VAPID key problem (stored_unreadable)`)가 나오면 `APP_SECRET_KEY`가 없거나 바뀐 것입니다. 원래 값을 되돌려 넣거나 그 행을 지우세요. `env_incomplete` / `env_invalid`가 나오면 환경 변수 한 쌍을 고치세요.
 - **구독**은 그것을 만든 로그인 세션에 속하고, 세션과 함께 지워집니다(로그아웃, 비밀번호 변경, 관리자의 세션 취소, 30일 만료). 한 사람당 기기는 최대 20대입니다.
 - **전송:** outbox 토픽은 `push`이고, 프로세스당 동시에 요청 4개까지 보냅니다. 재시도는 10초 → 30초 → 90초 → … 순서로 간격을 늘립니다(최대 30분 간격, 5번 시도, 푸시 서비스가 보낸 Retry-After를 따름). 404/410을 받거나 10번 연달아 실패하면 그 기기를 지웁니다. 푸시 서비스에서의 TTL은 24시간입니다. 한 페이지나 스레드에서 30초 안에 몰려 생긴 알림은 기기마다 푸시 하나로 보냅니다. 한 사람에게 대기 중인 푸시는 최대 100개이고, 넘치면 새로 생긴 것을 버립니다. 서버 상태 › 웹 푸시(`Server status › Web push`)를 지켜보세요.
 - **무엇이 푸시되나.** 푸시는 알림 행을 따라갑니다. 보낼 때 그 사람의 푸시 종류 설정(멘션, 담당 지정, 답글, 코멘트, 승인, 리마인더. `updates`는 기본으로 꺼져 있습니다)과 페이지 공개 범위를 다시 확인합니다. 자동화 알림(규칙의 "알리기" 동작과 "다섯 번 실패해서 꺼짐")은 멘션으로 푸시되고, `Alice via automation: Ping reviewer mentioned you in "Draft 3"`처럼 적힙니다(실패한 규칙 알림에는 사람이 없어서 `automation: <rule> mentioned you in "<database>"`가 됩니다). 시스템 알림(`workspace_added`, `workspace_deleted`, `webhook_disabled`, `backup_failed`, `large_page`)은 종 모양 알림 목록에만 나옵니다. 자기 워크스페이스 목록에서 어떤 워크스페이스를 보관해도 그 워크스페이스의 푸시는 멈추지 않습니다.

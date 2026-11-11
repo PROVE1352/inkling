@@ -1775,7 +1775,8 @@ table:not(.cards) td .fold {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.is-out,
+/* Only inside a doc: is-out is what the filter puts on rows and sections it hides. */
+.prose .is-out,
 [hidden] {
   display: none !important;
 }
@@ -3363,5 +3364,20 @@ table.tools td:nth-child(2) {
   .js .step .term[data-copy] pre {
     padding-top: 44px;
     padding-right: 16px;
+  }
+}
+
+/* Reduced motion also stops the hover movements added above (the earlier block only covered a.card). */
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover,
+  .landing .grid > .card:hover,
+  .landing .shot:not(.promo-shot):hover,
+  .card:hover .card-icon,
+  .chip:active,
+  .filter-btn:active {
+    transform: none;
+  }
+  .caret {
+    animation: none;
   }
 }

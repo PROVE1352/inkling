@@ -7,6 +7,7 @@ import { sessions, users } from '../db/schema'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { assertAccount, assertNotBanned, recordFailure, recordSuccess } from '../guard'
 import { hashSessionToken } from '../sessionTokens'
+import { SESSION_ONLY_MESSAGE } from '../tokenPolicy'
 import { twoFactorEnabled, verifySecondFactor } from '../twoFactor'
 import { deleteAccount, planAccountDeletion } from './deletion'
 import { afterLastMemberLeft, purgeDeletedWorkspace } from './workspacePurge'
@@ -46,7 +47,13 @@ export interface DeletePreviewDTO {
 }
 
 export async function registerAccountRoutes(api: FastifyInstance): Promise<void> {
+  /**
+   * Browser sessions only (0.22 security fix F9, contract §14): the preview names every workspace of
+   * the account and the members who would take over, past any token's range. Checked here rather
+   * than in tokenPolicy.ts SESSION_ONLY, whose route-table test builds an app without these routes.
+   */
   api.get('/me/delete-preview', { preHandler: requireUser }, async (req): Promise<DeletePreviewDTO> => {
+    if (req.authVia !== 'cookie') throw forbidden(SESSION_ONLY_MESSAGE)
     const me = getUser(req)
     const [u] = await db.select({ origin: users.origin, isAdmin: users.isAdmin }).from(users).where(eq(users.id, me.id)).limit(1)
     if (!u) throw notFound()

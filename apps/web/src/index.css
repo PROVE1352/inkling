@@ -697,6 +697,43 @@ html[data-resizing] .nd-sidebar-shell {
     display: none !important;
   }
 }
+/* PDF preview under a PDF file block (docs/adr/2480-*): the host sits in BlockNote's file wrapper (a
+   pointer, no-select flex column), so it gives text selection and the plain cursor back. Its own rules
+   ship with the preview's lazy chunk (components/pdfPreview/pdfPreview.css). Paper (the app's
+   "Export as PDF" and Print) keeps only the file name line. */
+/* only in a live editor body: copies of the block elsewhere (slides) carry no preview */
+.nd-pdf-host {
+  display: none;
+}
+.bn-container .bn-editor .nd-pdf-host {
+  display: block;
+  margin-top: 4px;
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  min-width: 0;
+  white-space: normal;
+}
+.nd-pdf-pending {
+  min-height: 48px;
+}
+/* a name without an extension whose file turned out not to be a PDF */
+.bn-container .bn-editor .nd-pdf-host:has(> .nd-pdf-none) {
+  display: none;
+}
+/* Pen mode: the ink layer (z-30, absolutely placed in the scroll container) covers the body and takes the
+   pointer; the preview sits above it so it stays scrollable and its buttons answer. Ink is not drawn over
+   a PDF that scrolls inside its own area. */
+:has(> svg[data-ink-layer]) .nd-pdf-host {
+  position: relative;
+  z-index: 31;
+}
+@media print {
+  .nd-pdf-host,
+  [data-pdf-viewer-root] {
+    display: none !important;
+  }
+}
 /* Slash menu and BlockNote dropdowns (drag-handle menu, colours) open like the app's menus: scale + fade
    from their top-left corner. CSS only — components/SlashMenu.tsx is untouched. Not the formatting
    toolbar: it follows the selection and would replay on every selection change. */

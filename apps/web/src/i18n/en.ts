@@ -41,6 +41,7 @@ import publicCharts from './en/public-charts'
 import onboarding from './en/onboarding'
 import imageViewer from './en/image-viewer'
 import columns from './en/columns'
+import pdfPreview from './en/pdf-preview'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -88,6 +89,7 @@ export const en = {
   ...onboarding,
   ...imageViewer,
   ...columns,
+  ...pdfPreview,
 }
 
 export type MessageKey = keyof typeof en

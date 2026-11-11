@@ -108,6 +108,18 @@ describe('presentation slides (1843)', () => {
     assert.equal(copy.textContent, 'Add task')
   })
 
+  it('PDF file block copies (0.21): the preview is left out, the file name line stays', () => {
+    const file = block(
+      'file',
+      '<div class="bn-file-block-content-wrapper"><div class="bn-file-name-with-icon"><p class="bn-file-name">paper.pdf</p></div><div class="nd-pdf-host" contenteditable="false" data-pdf-host><div data-testid="pdf-preview"><canvas></canvas><span>Page 1</span></div></div></div>',
+    )
+    const d = doc(h(2, 'A'), file)
+    const [copy] = cloneForSlides([splitSlides(topLevelBlocks(d))[1][1]])
+    assert.equal(copy.querySelector('[data-pdf-host]'), null)
+    assert.equal(copy.querySelector('canvas'), null)
+    assert.equal(copy.querySelector('.bn-file-name').textContent, 'paper.pdf')
+  })
+
   it('Mermaid slides: server HTML code is drawn on the slide; an editor copy with its diagram is kept', async () => {
     setLocaleChoice('en')
     // public link: BlockNote's code block HTML with the source only

@@ -42,6 +42,7 @@ import publicCharts from './ko/public-charts'
 import onboarding from './ko/onboarding'
 import imageViewer from './ko/image-viewer'
 import columns from './ko/columns'
+import pdfPreview from './ko/pdf-preview'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -88,4 +89,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...onboarding,
   ...imageViewer,
   ...columns,
+  ...pdfPreview,
 }

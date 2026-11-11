@@ -484,6 +484,7 @@ export function InkLayer({
   const layer = (
     <svg
       aria-label={t('ink.layer')}
+      data-ink-layer=""
       width={box.width}
       height={box.height}
       viewBox={`0 0 ${INK_CANVAS_WIDTH} ${Math.max(1, viewHeight)}`}

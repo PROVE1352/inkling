@@ -121,6 +121,8 @@ export function cloneForSlides(blocks: Element[]): Element[] {
       if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') el.setAttribute('disabled', '')
     }
     for (const el of Array.from(c.querySelectorAll('[data-button-settings]'))) el.remove()
+    // a PDF file block's preview (docs/adr/2480-*) is live view state: the slide shows the file name line
+    for (const el of Array.from(c.querySelectorAll('[data-pdf-host]'))) el.remove()
     return c
   })
 }

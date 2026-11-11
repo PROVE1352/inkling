@@ -270,6 +270,7 @@ export function editorSchemaSpecs(renders: {
   pageEmbed: typeof pageEmbedShallowSpec
   codeBlock: ReturnType<typeof createCodeBlockSpec>
   image?: typeof defaultBlockSpecs.image
+  file?: typeof defaultBlockSpecs.file
 }) {
   const customBlockSpecs = {
     // Page embed `![[...]]` (M12).
@@ -299,7 +300,7 @@ export function editorSchemaSpecs(renders: {
   } satisfies Record<CustomInlineContentType, unknown>
   return {
     // Code block highlighting is injected via the schema, not an editor option (Appendix A).
-    blockSpecs: { ...defaultBlockSpecs, codeBlock: renders.codeBlock, image: renders.image ?? defaultBlockSpecs.image, ...customBlockSpecs },
+    blockSpecs: { ...defaultBlockSpecs, codeBlock: renders.codeBlock, image: renders.image ?? defaultBlockSpecs.image, file: renders.file ?? defaultBlockSpecs.file, ...customBlockSpecs },
     inlineContentSpecs: { ...defaultInlineContentSpecs, ...customInlineContentSpecs },
   }
 }

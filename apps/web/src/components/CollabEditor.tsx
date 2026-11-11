@@ -37,6 +37,7 @@ import { MentionMenu } from './MentionMenu'
 import { SlashMenu } from './SlashMenu'
 import { createZoomableImageSpec } from './imageViewer/zoomableImage'
 import { imageTarget, openFromImage } from './imageViewer/openImageViewer'
+import { PdfPortals, pdfFileSpec } from './pdfPreview/PdfFileBlock'
 import { getLocale, t, useT } from '../i18n'
 
 /** BlockNote's dictionary for the app locale, with our own empty-block hint (BlockNote's Korean one
@@ -78,9 +79,9 @@ export type CollabState = {
 // the custom nodes share their configs with the server schema (@inkling/shared, docs/adr/1500-*),
 // so server reads keep them. Here pageEmbed renders the target body and code blocks in language
 // `dataview` render live query results (docs/QUERY.md), in language `mermaid` a diagram (docs/adr/2104-*),
-// and images carry a "View larger" button (docs/adr/2386-*).
+// images carry a "View larger" button (docs/adr/2386-*) and PDF file blocks a preview (docs/adr/2480-*).
 const schema = BlockNoteSchema.create(
-  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec, image: createZoomableImageSpec() }),
+  editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec, image: createZoomableImageSpec(), file: pdfFileSpec }),
 )
 // LocalDocEditor (row templates, the offline recovery preview): the same nodes with BlockNote's plain
 // image, so the viewer's button appears only in page bodies (docs/adr/2386-*).
@@ -610,6 +611,7 @@ function CollabEditorBody({
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />
         <MermaidPortals editor={editor} />
+        <PdfPortals editor={editor} readOnly={readOnly} />
       </BlockNoteView>
     </div>
   )

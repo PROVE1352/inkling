@@ -68,7 +68,14 @@ function userOptions(o: ChartSettings['options']): Record<string, unknown> {
  * Settings + aggregate → library spec. `locale` is the app's ('ko-KR' / 'en-US'). The aggregate's
  * groups keep their order (the server sorted them); the library is told not to re-sort.
  */
-export function toChartSpec(settings: ChartSettings, data: ChartDataDTO, labels: AdapterLabels, locale: string): ChartSpec {
+export function toChartSpec(
+  // what is drawn reads only these (the rest of a block's settings may come along)
+  settings: Pick<ChartSettings, 'kind' | 'title' | 'options'> & Partial<ChartSettings>,
+  // the parts of an aggregate drawn; a public page's chart rebuilds them without keys (docs/adr/2440-*)
+  data: Pick<ChartDataDTO, 'groups' | 'seriesKeys' | 'values' | 'measure'>,
+  labels: AdapterLabels,
+  locale: string,
+): ChartSpec {
   const k = KIND[settings.kind] ?? KIND.bar
   const groups = uniqueLabels(data.groups, labels)
   const series = data.seriesKeys ? uniqueLabels(data.seriesKeys, labels) : null

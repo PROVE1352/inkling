@@ -2,6 +2,7 @@
 // Uses the browser's own print-to-PDF — no PDF library, nothing added to the bundle.
 import '../print.css'
 import { mermaidIdle } from './mermaid'
+import { publicChartsIdle } from './publicCharts'
 
 /** Longest wait for diagrams still rendering before the print dialog opens (docs/adr/2106-*). */
 const DIAGRAM_WAIT_MS = 4_000
@@ -46,7 +47,8 @@ export function printWhenReady(title?: string, done?: () => void): void {
   window.addEventListener('afterprint', cleanup)
   // Mermaid diagrams render asynchronously: wait (bounded) for any still in the queue, then let React
   // render windowed lists in full (beforeprint → flushSync) before the snapshot
-  const diagrams = Promise.race([mermaidIdle(), new Promise<void>((r) => window.setTimeout(r, DIAGRAM_WAIT_MS))])
+  // (public pages' charts too, docs/adr/2440-*)
+  const diagrams = Promise.race([Promise.all([mermaidIdle(), publicChartsIdle()]), new Promise<void>((r) => window.setTimeout(r, DIAGRAM_WAIT_MS))])
   void diagrams.then(() => requestAnimationFrame(() => {
     window.print()
     // Fallback for browsers that never fire afterprint (or whose print() does not block):

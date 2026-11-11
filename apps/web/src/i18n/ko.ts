@@ -38,6 +38,7 @@ import offline from './ko/offline'
 import workspaceGroups from './ko/workspace-groups'
 import integration018 from './ko/integration-018'
 import publicView from './ko/public-view'
+import publicCharts from './ko/public-charts'
 import onboarding from './ko/onboarding'
 import imageViewer from './ko/image-viewer'
 import columns from './ko/columns'
@@ -83,6 +84,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...workspaceGroups,
   ...integration018,
   ...publicView,
+  ...publicCharts,
   ...onboarding,
   ...imageViewer,
   ...columns,

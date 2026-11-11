@@ -11,6 +11,7 @@ import { findTreePath, usePublicChildPage } from '../lib/publicShare'
 import { safeUrl, sanitizeHtml } from '../lib/sanitizeHtml'
 import { renderMathIn } from '../lib/katex'
 import { renderMermaidIn } from '../lib/mermaidPublic'
+import { renderPublicChartsIn } from '../lib/publicCharts'
 import { useTheme } from '../lib/theme'
 import { topLevelBlocks } from '../lib/present'
 import { Presentation } from '../components/Presentation'
@@ -247,6 +248,12 @@ function PublicArticle({
   useEffect(() => {
     return body.current ? renderMermaidIn(body.current, theme) : undefined
   }, [html, theme])
+  // charts arrive as a table in the HTML and their numbers in `charts` (docs/adr/2440-*); the chart
+  // code loads only when the page has one
+  const charts = data.charts
+  useEffect(() => {
+    return body.current ? renderPublicChartsIn(body.current, charts, theme) : undefined
+  }, [html, charts, theme])
   // Presentation mode on a shared page (docs/adr/1843-*): slides from the same sanitized HTML.
   const [slides, setSlides] = useState<Element[] | null>(null)
   useEffect(() => setSlides(null), [html])
@@ -293,7 +300,7 @@ function PublicArticle({
         )}
         <h1 className="mb-6 text-4xl font-bold text-ink">{data.title || t('common.untitled')}</h1>
         {slides && (
-          <Presentation key="pres:public" title={data.title} icon={iconText} blocks={slides} renderMath onClose={() => setSlides(null)} />
+          <Presentation key="pres:public" title={data.title} icon={iconText} blocks={slides} renderMath charts={charts} onClose={() => setSlides(null)} />
         )}
 
         {/* Server-rendered HTML. .bn-container keeps a look similar to the editor. */}

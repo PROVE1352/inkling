@@ -6,6 +6,7 @@ import { Modal } from './Modal'
 import { Spinner } from './Spinner'
 import { CopyIcon, LinkIcon, LockIcon } from './Icons'
 import { LinkSettings, usePublishOptions } from './ShareLinkOptions'
+import { ShareChartsOption } from './ShareChartsOption'
 import { SharePeople } from './SharePeople'
 import { useT } from '../i18n'
 
@@ -158,6 +159,7 @@ export function ShareModal({
             </a>
           </div>
           <LinkSettings pageId={page.id} status={status.data!} canManage={isOwner} />
+          <ShareChartsOption pageId={page.id} status={status.data!} shared canManage={isOwner} />
           {isOwner ? (
             <button
               type="button"
@@ -181,6 +183,7 @@ export function ShareModal({
             {t(isFolder ? 'share.publishHintFolder' : 'share.publishHintPage')}
           </p>
           {folderNotice}
+          {status.data && <ShareChartsOption pageId={page.id} status={status.data} shared={false} canManage={isOwner} />}
           {canPublish && options.view}
           <button
             type="button"

@@ -37,6 +37,7 @@ import offline from './en/offline'
 import workspaceGroups from './en/workspace-groups'
 import integration018 from './en/integration-018'
 import publicView from './en/public-view'
+import publicCharts from './en/public-charts'
 import onboarding from './en/onboarding'
 import imageViewer from './en/image-viewer'
 import columns from './en/columns'
@@ -83,6 +84,7 @@ export const en = {
   ...workspaceGroups,
   ...integration018,
   ...publicView,
+  ...publicCharts,
   ...onboarding,
   ...imageViewer,
   ...columns,

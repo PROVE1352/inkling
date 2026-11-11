@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { PublicChartDTO } from '@inkling/shared'
 import { createPortal } from 'react-dom'
 import { prefersReducedMotion } from '../lib/motion'
 import { useTheme } from '../lib/theme'
 import { slideKey, splitSlides, swipeDirection } from '../lib/present'
 import { renderMathIn } from '../lib/katex'
+import { renderPublicChartsIn } from '../lib/publicCharts'
 import { renderMermaidIn } from '../lib/mermaidPublic'
 import { useT } from '../i18n'
 
@@ -29,6 +31,7 @@ export function Presentation({
   icon,
   blocks,
   renderMath = false,
+  charts,
   onClose,
 }: {
   title: string
@@ -37,6 +40,8 @@ export function Presentation({
   blocks: Element[]
   /** Server HTML carries equations as LaTeX source (public links); the editor's copies are rendered already. */
   renderMath?: boolean
+  /** A public page's charts, drawn on the slides that hold their tables (docs/adr/2440-*). */
+  charts?: PublicChartDTO[]
   onClose: () => void
 }) {
   const t = useT()
@@ -66,11 +71,13 @@ export function Presentation({
     el.scrollTop = 0
     const undoMath = renderMath ? renderMathIn(el) : undefined
     const undoMermaid = renderMermaidIn(el, resolved)
+    const undoCharts = renderPublicChartsIn(el, charts, resolved)
     return () => {
       undoMath?.()
       undoMermaid()
+      undoCharts()
     }
-  }, [slides, index, renderMath, resolved])
+  }, [slides, index, renderMath, resolved, charts])
 
   // Full screen where the browser allows it (iOS Safari: the fixed overlay is the fallback). Leaving
   // full screen from the browser (its own Esc) ends the presentation too.

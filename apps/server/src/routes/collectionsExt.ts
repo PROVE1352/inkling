@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { assertPlacement, lockTree } from '../pageTree'
 import { assertPageEditable, roleForPage } from '../editLock'
 /**
@@ -206,6 +207,7 @@ export async function registerCollectionExtRoutes(app: FastifyInstance): Promise
           .from(pages)
           .where(and(eq(pages.workspaceId, page.workspaceId), eq(pages.parentId, id)))
         const base = maxSort ?? 0
+        await assertWorkspaceRoom(tx, page.workspaceId, { pages: body.rows.length }) // all rows or none (docs/adr/2505-*)
         const values = body.rows.map((r, i) => ({
           workspaceId: page.workspaceId,
           parentId: id,

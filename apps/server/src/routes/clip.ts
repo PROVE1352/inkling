@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { createHash } from 'node:crypto'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -196,6 +197,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
           .select({ maxSort: sql<number | null>`max(${pages.sortOrder})` })
           .from(pages)
           .where(and(eq(pages.workspaceId, body.workspaceId), parentCond))
+        await assertWorkspaceRoom(tx, body.workspaceId, { pages: 1, bytes: state.length }) // docs/adr/2505-*
         const [page] = await tx
           .insert(pages)
           .values({

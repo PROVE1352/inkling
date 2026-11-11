@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { createHash } from 'node:crypto'
 import { assertPlacement, withTreeLock } from '../pageTree'
 import { assertPageEditable } from '../editLock'
@@ -607,6 +608,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
           .select({ maxSort: max(pages.sortOrder) })
           .from(pages)
           .where(and(eq(pages.workspaceId, workspaceId), parentCond))
+        await assertWorkspaceRoom(tx, workspaceId, { pages: 1 }) // docs/adr/2505-*
         const [row] = await tx
           .insert(pages)
           .values({

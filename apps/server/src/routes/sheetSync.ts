@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { assertPlacement, lockTree } from '../pageTree'
 import { assertCan, assertPageEditable } from '../editLock'
 /**
@@ -313,6 +314,7 @@ export async function runSheetSync(pageId: string): Promise<SyncStats | null> {
           sql`SELECT COALESCE(MAX(sort_order), 0) AS "maxSort" FROM pages WHERE parent_id = ${pageId}`,
         )) as unknown as { maxSort: number }[]
         let sort = Number(maxSort) || 0
+        await assertWorkspaceRoom(tx, page.workspaceId, { pages: plan.inserts.length }) // all new rows or none (docs/adr/2505-*)
         for (let i = 0; i < plan.inserts.length; i += BATCH_MAX_ROWS) {
           const part = plan.inserts.slice(i, i + BATCH_MAX_ROWS)
           await tx.insert(pages).values(

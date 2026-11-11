@@ -21,6 +21,7 @@ import { isTwoFactorBlocked } from './twoFactorPolicy'
 import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
+import { collabStorageReadOnly, noteBodyStore } from './quota/storage'
 import { liveDocChangedSinceStore, liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
@@ -297,6 +298,8 @@ async function storeDocument(
     // (no full-state SELECT into Node), skipped from memory while the 10-min throttle is open.
     // Never throws (docs/adr/0750-*).
     await maybeAutoSnapshotStored(documentName)
+    // Storage limit (docs/adr/2506-*): the cached use follows the body; never throws, never refuses.
+    await noteBodyStore(documentName, state.length + stateVector.length)
 
     // Persist the state and bump pages.updated_at in one round trip. A short database outage
     // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow. The store
@@ -478,6 +481,8 @@ export const hocuspocus = new Hocuspocus({
       capsFor(db, [pageId], { userId: user.id, role: member ? member.role : 'guest', agent: false }),
     )
     if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
+    // Storage limit (docs/adr/2506-*): a full workspace, or a page past its body cap, is read-only.
+    if (!data.connection.readOnly && (await collabStorageReadOnly(pageId, page.workspaceId))) data.connection.readOnly = true
 
     // Document schema (docs/adr/2425-*): the client's version comes with the socket URL; 0.19 and
     // older send none (1). An older client than the page needs gets a read-only connection, decided

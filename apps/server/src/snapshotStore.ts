@@ -1,3 +1,4 @@
+import { snapshotBudget } from './quota/versions'
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -285,6 +286,7 @@ export async function snapshotBlocks(pageId: string, sid: string): Promise<AnyBl
  * MAX_AI_STEPS_PER_PAGE per page (oldest first), then whatever is left beyond MAX_SNAPSHOTS_PER_PAGE.
  */
 export function pruneSet(rows: { id: string; via: string | null; isStep: boolean }[]): string[] {
+  const { total: maxKept, perClient: maxPerClient, perPage: maxPerPage } = snapshotBudget()
   const drop: string[] = []
   const perClient = new Map<string, number>()
   let steps = 0
@@ -294,13 +296,13 @@ export function pruneSet(rows: { id: string; via: string | null; isStep: boolean
       const n = (perClient.get(r.via ?? '') ?? 0) + 1
       perClient.set(r.via ?? '', n)
       steps++
-      if (n > MAX_AI_STEPS_PER_CLIENT || steps > MAX_AI_STEPS_PER_PAGE) {
+      if (n > maxPerClient || steps > maxPerPage) {
         drop.push(r.id)
         continue
       }
     }
     kept++
-    if (kept > MAX_SNAPSHOTS_PER_PAGE) drop.push(r.id)
+    if (kept > maxKept) drop.push(r.id)
   }
   return drop
 }

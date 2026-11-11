@@ -1,4 +1,5 @@
 import { underWriteGate } from './aclVersion'
+import { assertWorkspaceWritable } from './quota/room'
 import type { CheckedAccess } from './aclVersion'
 import { assertAgentAllowed } from './agentAccess'
 import { assertPageEditable, CAP_EDIT } from './editLock'
@@ -31,6 +32,7 @@ export function pageEditGate(
       checked,
       async (fresh, tx) => {
         await assertAgentAllowed(workspaceId, fresh.acl.version, tx)
+        await assertWorkspaceWritable(tx, workspaceId, pageId) // full workspace: LIMIT_STORAGE (docs/adr/2506-*)
         await assertPageEditable(pageId, userId, { role: fresh.role, acl: fresh.acl, exec: tx, bit })
       },
       apply,

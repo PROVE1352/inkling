@@ -1,3 +1,4 @@
+import { assertWorkspaceWritable } from '../quota/room'
 import { desc, eq, sql } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
 import type { FastifyInstance } from 'fastify'
@@ -55,6 +56,7 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
         .limit(1)
     )[0]
     if (!cur) throw badRequest('Nothing to snapshot')
+    await assertWorkspaceWritable(db, page.workspaceId) // a full workspace takes no new version (docs/adr/2506-*)
 
     const label =
       body.label && body.label.length > 0 ? body.label : LABELS[await requestLocale(req, user.id)].manual

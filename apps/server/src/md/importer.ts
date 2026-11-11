@@ -1,3 +1,5 @@
+import { assertWorkspaceRoom } from '../quota/room'
+import { dropFiles } from '../quota/files'
 import { and, asc, eq, isNull, max } from 'drizzle-orm'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
@@ -165,6 +167,7 @@ export async function importMarkdown(args: ImportArgs): Promise<PageRow[]> {
       ? (await assertPlacement(tx, { workspaceId, parentId, role, userId }))[0].scope
       : args.scope
     const sortOrder = await nextSortOrderBase(tx, workspaceId, parentId)
+    await assertWorkspaceRoom(tx, workspaceId, { pages: 1, bytes: buffer.length }) // docs/adr/2505-*
     const [row] = await tx
       .insert(pages)
       .values({ workspaceId, parentId, kind: 'doc', scope, title, sortOrder, createdBy: userId })
@@ -391,6 +394,9 @@ export async function importEntries(
   }
 
   const entryByName = new Map(fileEntries.map((e) => [e.name, e]))
+  // Limits (docs/adr/2505-*): a first check before anything is written; the real one, under the
+  // locks, is in the page transaction below (attachments written before it are removed if it fails).
+  await assertWorkspaceRoom(db, workspaceId, { pages: 1, bytes: totalUncompressed, reserve: false })
 
   // 1) upload assets/ → entryName → /files/<newId>
   //    Same bytes under two names (a picture pasted into several notes) are stored once: the first
@@ -536,6 +542,7 @@ export async function importEntries(
       const chain = await assertPlacement(tx, { workspaceId, parentId, role, userId, height: maxDepth })
       scope = chain[0].scope
     }
+    await assertWorkspaceRoom(tx, workspaceId, { pages: ordered.length, bytes: totalUncompressed }) // all pages or none
     const out: PageRow[] = []
     const sortCounters = new Map<string, number>()
     for (const node of ordered) {
@@ -563,6 +570,10 @@ export async function importEntries(
       out.push(row)
     }
     return out
+  }).catch(async (err: unknown) => {
+    // no page was made: the attachments written above would be orphans (rows and blobs)
+    await dropFiles(assetIds)
+    throw err
   })
 
   // 4) second pass: finalize doc blocks / canvas state + save + backlink index

@@ -1,3 +1,4 @@
+import { assertWorkspaceRoom } from '../quota/room'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -179,7 +180,10 @@ async function insertTemplate(args: {
     category: args.category,
     ...deriveMeta(args.root),
   }
-  const [row] = await db
+  // a saved template is workspace storage (docs/adr/2506-*); a full workspace saves none
+  const [row] = await db.transaction(async (tx) => {
+    await assertWorkspaceRoom(tx, args.workspaceId, { bytes: JSON.stringify(content).length })
+    return tx
     .insert(templates)
     .values({
       workspaceId: args.workspaceId,
@@ -192,6 +196,7 @@ async function insertTemplate(args: {
       createdBy: args.userId,
     })
     .returning()
+  })
   return row
 }
 

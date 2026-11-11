@@ -12,6 +12,7 @@
  * cap like the batch route, webhooks and createdVia like POST /pages, assignments for person
  * defaults, indexing after commit like instantiateTree.
  */
+import { assertWorkspaceRoom } from './quota/room'
 import { and, asc, eq, inArray, max, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import type { CollectionField, RowDTO, RowTemplateDTO, TemplateCursorDTO, TemplateInputDTO, WorkspaceAccessRole } from '@inkling/shared'
@@ -329,6 +330,7 @@ export async function createRow(a: CreateRowArgs): Promise<CreateRowResult> {
     }
     const mirrored = links.flatMap((l) => (l.field.relation?.twoWay ? l.ids : []))
     if (mirrored.length) await assertAllEditable(tx, mirrored, actorFor(a.user.id, a.role))
+    await assertWorkspaceRoom(tx, coll.workspaceId, { pages: 1, bytes: state?.length ?? 0 }) // docs/adr/2505-*
     const [created] = await tx
       .insert(pages)
       .values({

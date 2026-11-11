@@ -1,3 +1,4 @@
+import { isFeatureDisabled } from '../limits'
 import { createHash } from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { SlackEventKind } from '@inkling/shared'
@@ -140,6 +141,7 @@ function postKey(workspaceId: string, j: SlackPostJob, now = Date.now()): string
 
 /** Outbox rows for the events of one notify pass (cached config: no statement for workspaces without Slack). */
 export async function slackRowsForNotify(evs: readonly NotifyInput[]): Promise<OutboxRow[]> {
+  if (isFeatureDisabled('slack')) return [] // docs/adr/2507-*
   const rows: OutboxRow[] = []
   for (const ev of evs) {
     if (!ev.pageId) continue
@@ -209,6 +211,7 @@ let inflight = 0
 const running = new Set<Promise<void>>()
 
 export async function runSlackPass(): Promise<number> {
+  if (isFeatureDisabled('slack')) return 0 // docs/adr/2507-*: queued posts wait
   const free = CONCURRENCY - inflight
   if (free <= 0) return 0
   const rows = (await db.execute(sql`

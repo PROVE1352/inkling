@@ -1,4 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm'
+import { isFeatureDisabled } from '../limits'
 import type { FastifyInstance } from 'fastify'
 import {
   AUTOMATION_DISABLE_AFTER,
@@ -348,6 +349,8 @@ async function runAction(a: AutomationAction, c: RunCtx): Promise<void> {
       return
     }
     case 'webhook': {
+      // turned off by the operator (DISABLED_FEATURES, docs/adr/2507-*): skipped, never counted against the rule
+      if (isFeatureDisabled('automations-webhooks') || isFeatureDisabled('webhooks')) throw new SkipAction('webhooks are turned off on this server')
       const [hook] = (await db.execute(sql`SELECT workspace_id AS ws, enabled FROM workspace_webhooks WHERE id = ${a.webhookId}`)) as unknown as { ws: string; enabled: string }[]
       if (!hook || hook.ws !== c.row.workspaceId) throw new ActionError('the webhook was removed')
       if (hook.enabled !== '1') throw new ActionError('the webhook is turned off')

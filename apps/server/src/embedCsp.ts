@@ -13,6 +13,7 @@
  * (packages/shared/src/embeds.ts) or to EMBED_EXTRA_FRAME_SRC.
  * See docs/adr/0501-embed-providers-and-frame-src.md.
  */
+import { isFeatureDisabled } from './limits'
 import type { FastifyInstance } from 'fastify'
 import { EMBED_FRAME_ORIGINS } from '@inkling/shared'
 
@@ -42,12 +43,15 @@ export const SPA_CSP = [
   "manifest-src 'self'",
 ].join('; ')
 
+/** SPA_CSP with no outside frame origin: embeds turned off (DISABLED_FEATURES embeds, docs/adr/2507-*). */
+export const SPA_CSP_NO_EMBEDS = SPA_CSP.replace(FRAME_SRC_POLICY, "frame-src 'self'")
+
 export function registerEmbedCsp(app: FastifyInstance): void {
   app.addHook('onSend', async (_req, reply, payload) => {
     if (reply.hasHeader('content-security-policy')) return payload
     const ct = String(reply.getHeader('content-type') ?? '')
     if (!ct.startsWith('text/html')) return payload
-    reply.header('Content-Security-Policy', SPA_CSP)
+    reply.header('Content-Security-Policy', isFeatureDisabled('embeds') ? SPA_CSP_NO_EMBEDS : SPA_CSP)
     return payload
   })
 }

@@ -24,6 +24,7 @@
  *
  * See docs/adr/0504-workspace-webhooks.md.
  */
+import { isFeatureDisabled } from './limits'
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { WebhookDeliveryDTO, WebhookDTO, WebhookEvent, WebhookKind, WebhookPayloadV1 } from '@inkling/shared'
@@ -660,6 +661,8 @@ function takeToken(ws: string): number {
  * consumers take disjoint rows; an expired lease is taken again) and start their deliveries.
  */
 export async function runWebhookPass(): Promise<number> {
+  // webhooks turned off (docs/adr/2507-*): nothing is sent; queued deliveries wait (or expire) as they are
+  if (isFeatureDisabled('webhooks')) return 0
   const free = MAX_CONCURRENCY - inflight
   if (free <= 0) return 0
   const rows = (await db.execute(sql`
@@ -968,6 +971,8 @@ export function invalidateWebhookCache(workspaceId: string): void {
 
 /** `exec`: the caller's transaction when it has one (a cache miss must not wait for a second pool connection). */
 async function enabledHooks(workspaceId: string, exec: Pick<typeof db, 'select'> = db): Promise<CachedHooks['hooks']> {
+  // webhooks turned off (DISABLED_FEATURES, docs/adr/2507-*): no hook takes events; the hooks are kept
+  if (isFeatureDisabled('webhooks')) return []
   const hit = hookCache.get(workspaceId)
   if (hit && Date.now() - hit.at < HOOK_CACHE_TTL_MS) return hit.hooks
   const rows = await exec

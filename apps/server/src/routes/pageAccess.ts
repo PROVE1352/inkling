@@ -1,3 +1,4 @@
+import { isFeatureDisabled } from '../limits'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
@@ -565,7 +566,8 @@ async function createInvite(
   })
   const url = `${appOrigin(req)}/invite/page/${token}`
   let mailed = false
-  if (mailEnabled) {
+  // invitation mail turned off (DISABLED_FEATURES email-invites, docs/adr/2507-*): the link is handed back instead
+  if (mailEnabled && !isFeatureDisabled('email-invites')) {
     const [ws] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, ctx.page.workspaceId)).limit(1)
     try {
       await sendMail(email, pageInviteMail({ inviter: actor.name, pageTitle: ctx.page.title, workspaceName: ws?.name ?? '', url, expiresAt }))

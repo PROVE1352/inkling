@@ -1,3 +1,5 @@
+import { assertFeatureOn } from '../quota/features'
+import { isFeatureDisabled } from '../limits'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { createHash, randomUUID } from 'node:crypto'
@@ -489,7 +491,9 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
               throw badRequest('Not a readable zip archive')
             }
             const names = Object.values(zip.files).filter((e) => !e.dir).map((e) => e.name)
-            if (source === 'notion' || looksLikeNotionExport(names)) {
+            // Notion import turned off (DISABLED_FEATURES, docs/adr/2507-*): asked for → 404, detected → plain Markdown
+            if (source === 'notion') assertFeatureOn('notion-import')
+            if (!isFeatureDisabled('notion-import') && (source === 'notion' || looksLikeNotionExport(names))) {
               // Notion exports through a connection are refused (docs/adr/2162-*): that importer builds
               // databases and stores attachments on its own path, outside the upload rules above.
               if (viaConnection) {

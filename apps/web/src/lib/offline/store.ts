@@ -26,6 +26,11 @@ export type DocRecord = {
   pending: PendingClients
   /** Yjs clientIDs that made those edits (their ops may be missing on the server; lineage check skips them) */
   localClients: number[]
+  /**
+   * Lowest document schema among the apps that made the pending edits (docs/adr/2425-*); absent on
+   * copies written by 0.19 and older, which count as 1. Meaningless while nothing is pending.
+   */
+  schema?: number
   /** sum of the stored updates' byte lengths */
   bytes: number
   /** number of stored updates (compaction folds them into one) */
@@ -49,7 +54,7 @@ export type RecoveryItem = {
   createdAt: number
 }
 
-export type RecoveryReason = 'restored' | 'replaced' | 'trashed' | 'readonly'
+export type RecoveryReason = 'restored' | 'replaced' | 'trashed' | 'readonly' | 'outdated'
 
 export type StoredDoc = { record: DocRecord; updates: Uint8Array[] }
 
@@ -108,8 +113,11 @@ export type AppendMeta = {
   wsId: string
   title?: string
   gen?: number | null
-  /** a local edit: the session's counter after it, and the Yjs clientID that made it */
-  local?: { session: string; count: number; client: number }
+  /**
+   * a local edit: the session's counter after it, the Yjs clientID that made it and the document
+   * schema of the app that made it (docs/adr/2425-*)
+   */
+  local?: { session: string; count: number; client: number; schema?: number }
 }
 
 export function mergePending(a: PendingClients, b: PendingClients | undefined): PendingClients {
@@ -154,6 +162,9 @@ export const copyRecord = (r: DocRecord): DocRecord => ({ ...r, pending: { ...r.
 export function applyAppend(r: DocRecord, update: Uint8Array, meta: AppendMeta, at: number): void {
   applyPatch(r, meta)
   if (meta.local) {
+    // the copy's pending edits are as old as the oldest app that made one of them (absent = 1)
+    const schema = meta.local.schema ?? 1
+    r.schema = Object.keys(r.pending).length === 0 ? schema : Math.min(r.schema ?? 1, schema)
     r.pending = mergePending(r.pending, { [meta.local.session]: meta.local.count })
     if (!r.localClients.includes(meta.local.client)) r.localClients = [...r.localClients, meta.local.client]
   }
@@ -170,7 +181,10 @@ export function applyPatch(r: DocRecord, meta: { wsId: string; title?: string; g
 /** Compare-and-delete of acknowledged sessions; once nothing is pending the local clients are on the server too. */
 export function applyClear(r: DocRecord, acked: PendingClients): void {
   r.pending = subtractPending(r.pending, acked)
-  if (Object.keys(r.pending).length === 0) r.localClients = []
+  if (Object.keys(r.pending).length === 0) {
+    r.localClients = []
+    delete r.schema
+  }
 }
 
 let seq = 0

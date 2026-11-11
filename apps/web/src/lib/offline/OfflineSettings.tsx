@@ -17,6 +17,7 @@ const REASON: Record<RecoveryReason, TKey> = {
   replaced: 'offline.reason.replaced',
   readonly: 'offline.reason.readonly',
   trashed: 'offline.reason.trashed',
+  outdated: 'offline.reason.outdated',
 }
 
 const btn =

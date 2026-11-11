@@ -1,4 +1,5 @@
 import type * as Y from 'yjs'
+import { DOC_SCHEMA_VERSION, SCHEMA_PARAM } from '@inkling/shared'
 import {
   HocuspocusProvider,
   HocuspocusProviderWebsocket,
@@ -34,8 +35,10 @@ import { createUnsavedTracker, showUnsaved, UNSAVED_SHOW_AFTER_MS } from './unsa
 //   keyed by user id. A different user (logout → login without reload) never reuses it, and it
 //   is closed as soon as the last provider is released.
 
+// `schema`: the document schema this build knows (docs/adr/2425-*); the server makes the connection
+// read-only on a page that holds a node type this build does not know.
 export const collabUrl = () =>
-  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab`
+  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab?${SCHEMA_PARAM}=${DOC_SCHEMA_VERSION}`
 
 const REOPEN_GRACE_MS = 3_000
 

@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import * as Y from 'yjs'
 import { getUser, requireUser } from '../auth'
-import { hocuspocus } from '../collab'
+import { DOC_SCHEMA_VERSION, parseSchemaVersion, SCHEMA_PARAM } from '@inkling/shared'
+import { hocuspocus, pageSchemaNeeds } from '../collab'
 import { db } from '../db/index'
 import { pageDocs, pages } from '../db/schema'
 import { CAP_EDIT, capsFor } from '../editLock'
@@ -20,8 +21,11 @@ import { stateVectorOfStored } from '../yState'
  * e.g. a database restored from a backup). Read-only; same visibility as the collaboration socket,
  * except that a trashed page the caller could see answers `trashed: true` instead of 404, so the
  * browser can keep unsent edits as a recovery item (a page the caller cannot see is 404 either way).
+ * `?schema=N` (0.20, docs/adr/2425-*): the document schema of the client that made the copy's unsent
+ * edits; when it is below the server's, the answer carries `needs`, the schema the page needs now, so
+ * the browser does not send edits an older app made without seeing everything on the page.
  */
-export type SyncCheckDTO = { gen: number; canEdit: boolean; trashed: boolean; sv: string }
+export type SyncCheckDTO = { gen: number; canEdit: boolean; trashed: boolean; sv: string; needs?: number }
 
 export async function registerOfflineSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/pages/:id/sync-check', { preHandler: requireUser }, async (req, reply) => {
@@ -61,6 +65,8 @@ export async function registerOfflineSyncRoutes(app: FastifyInstance): Promise<v
     }
     reply.header('cache-control', 'no-store')
     const dto: SyncCheckDTO = { gen: page.docGen, canEdit, trashed, sv: Buffer.from(sv).toString('base64') }
+    const asked = (req.query as Record<string, unknown> | undefined)?.[SCHEMA_PARAM]
+    if (asked !== undefined && parseSchemaVersion(asked) < DOC_SCHEMA_VERSION) dto.needs = await pageSchemaNeeds(id)
     return dto
   })
 }

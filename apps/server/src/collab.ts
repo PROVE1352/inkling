@@ -26,6 +26,8 @@ import { parseCookies } from './util'
 import { trustedClientIp } from './guard'
 import { lifecycle, withRetry } from './lifecycle'
 import { applyStoredState, encodeStoredState, STATE_V1, STATE_V2, wholeStateFormat } from './yState'
+import { DOC_SCHEMA_VERSION, parseSchemaVersion, SCHEMA_PARAM } from '@inkling/shared'
+import { docSchemaNeeds, refreshDocSchema, schemaOfStoredState, watchDocSchema } from './docSchema'
 
 const uuidSchema = z.uuid()
 
@@ -376,6 +378,9 @@ export const hocuspocus = new Hocuspocus({
     loadedStamps.delete(documentName)
     trackLiveDoc(document, loaded?.stamp ?? null)
     loadedDocs.add(document)
+    // Document schema (docs/adr/2425-*): connections of older clients become read-only the moment
+    // the page gains a node type they do not know.
+    watchDocSchema(document, onSchemaRaised)
     if (loaded?.digest) persisted.set(document, { digest: loaded.digest, stamp: loaded.stamp, legacy: loaded.legacy })
     // A page never indexed (created without the indexer, or with no stored state yet) gets its
     // current state indexed before the first edit, so that edit is diffed against it in the change
@@ -391,6 +396,19 @@ export const hocuspocus = new Hocuspocus({
   async onChange(data) {
     const uid = (data.context as { userId?: unknown } | undefined)?.userId
     if (typeof uid === 'string' && isPageDocument(data.documentName)) noteLiveEdit(data.documentName, uid)
+  },
+  // Document schema guard (docs/adr/2425-*), before every message a connection sends: a client older
+  // than the page's newest node type never writes it. Hocuspocus checks `readOnly` when it applies the
+  // message, after this hook, so an update sent after the page gained such a node is dropped
+  // (SyncStatus false) even when the connection was authorised before. Cheap for current clients.
+  async beforeHandleMessage({ connection, context, document, documentName }) {
+    const client = (context as { schema?: unknown } | undefined)?.schema
+    if (typeof client !== 'number' || client >= DOC_SCHEMA_VERSION || connection.readOnly) return
+    if (!isPageDocument(documentName) || !loadedDocs.has(document)) return
+    if (docSchemaNeeds(document) > client) {
+      connection.readOnly = true
+      reconnectForSchema([connection as unknown as SchemaConnection])
+    }
   },
   async onAuthenticate(data) {
     // 1) Session -> user from the upgrade request cookie
@@ -458,17 +476,32 @@ export const hocuspocus = new Hocuspocus({
     )
     if (!((caps.get(pageId) ?? 0) & CAP_EDIT)) data.connection.readOnly = true
 
+    // Document schema (docs/adr/2425-*): the client's version comes with the socket URL; 0.19 and
+    // older send none (1). An older client than the page needs gets a read-only connection, decided
+    // here because the scope goes out before the document is loaded. Only older clients pay the walk.
+    const schema = parseSchemaVersion(data.requestParameters.get(SCHEMA_PARAM))
+    let schemaNeeds: number | undefined
+    if (schema < DOC_SCHEMA_VERSION) {
+      const need = await pageSchemaNeeds(pageId)
+      if (need > schema) {
+        data.connection.readOnly = true
+        schemaNeeds = need
+      }
+    }
+
     // sessionToken lets liveConnections close exactly the sockets of revoked sessions.
     // docGen is read here, before any content is sent to this connection, and handed to it in
     // `connected` (docs/adr/2201-*): a client never pairs a newer generation with older content.
-    return { userId: user.id, sessionToken: token, docGen: page.docGen }
+    return { userId: user.id, sessionToken: token, docGen: page.docGen, schema, schemaNeeds }
   },
   // The page's document generation for device copies (docs/adr/2201-*). Older clients ignore it.
   async connected({ context, connectionInstance }) {
-    const gen = (context as { docGen?: unknown } | undefined)?.docGen
-    if (typeof gen !== 'number') return
+    const ctx = context as { docGen?: unknown; schemaNeeds?: unknown } | undefined
     try {
-      connectionInstance.sendStateless(JSON.stringify({ t: 'gen', gen }))
+      if (typeof ctx?.docGen === 'number') connectionInstance.sendStateless(JSON.stringify({ t: 'gen', gen: ctx.docGen }))
+      // read-only because the page needs a newer app (docs/adr/2425-*): clients that know the
+      // message say so; 0.19 ignores unknown messages
+      if (typeof ctx?.schemaNeeds === 'number') connectionInstance.sendStateless(JSON.stringify({ t: 'schema', needs: ctx.schemaNeeds }))
     } catch {
       // the socket went away meanwhile
     }
@@ -476,6 +509,50 @@ export const hocuspocus = new Hocuspocus({
 })
 
 registerHocuspocus(hocuspocus)
+
+type SchemaConnection = { readOnly: boolean; context?: unknown; webSocket?: { close: (code?: number, reason?: string) => void } }
+
+/**
+ * The schema a page needs (docs/adr/2425-*): from the live document when it is loaded (walked again,
+ * so a group removed since counts), otherwise from page_docs.
+ */
+export async function pageSchemaNeeds(pageId: string): Promise<number> {
+  const live = hocuspocus.documents.get(pageId)
+  if (live && loadedDocs.has(live)) return refreshDocSchema(live)
+  const [row] = (await db.execute(sql`SELECT state FROM page_docs WHERE page_id = ${pageId}`)) as unknown as { state: Buffer | null }[]
+  return schemaOfStoredState(row?.state ?? null)
+}
+
+/**
+ * A page just gained a node type (docs/adr/2425-*): every connection of an older client becomes
+ * read-only now (synchronously, so the deletion its editor answers with is never applied), and its
+ * socket is closed so the client reconnects and learns the read-only scope.
+ */
+function onSchemaRaised(doc: Y.Doc, need: number): void {
+  const hit: SchemaConnection[] = []
+  for (const conn of (doc as unknown as { getConnections: () => SchemaConnection[] }).getConnections()) {
+    const client = (conn.context as { schema?: unknown } | undefined)?.schema
+    if (typeof client !== 'number' || client >= need || conn.readOnly) continue
+    conn.readOnly = true
+    hit.push(conn)
+  }
+  if (hit.length) reconnectForSchema(hit)
+}
+
+/** Close code of that reconnect: an ordinary close, so the provider connects again at once (not 4401/4403). */
+export const SCHEMA_RECONNECT_CODE = 4000
+
+function reconnectForSchema(conns: SchemaConnection[]): void {
+  setImmediate(() => {
+    for (const c of conns) {
+      try {
+        c.webSocket?.close(SCHEMA_RECONNECT_CODE, 'document-schema')
+      } catch {
+        // already closed
+      }
+    }
+  })
+}
 // Before a server edit of a page someone is typing in, index the live document first, so the
 // typing is logged as the typist's and the edit's change rows hold only the edit (CF-2,
 // docs/adr/1625-*). The state indexed here is not stored yet; the edit's store follows at once.

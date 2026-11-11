@@ -29,6 +29,7 @@ export default {
   'offline.blocked.replaced': 'The server has a different history for this page (restored from a backup?). Your offline edits were not merged; they are kept under Recovery.',
   'offline.blocked.readonly': 'You can no longer edit this page. Your offline edits were not uploaded; they are kept under Recovery.',
   'offline.blocked.trashed': 'This page was moved to the trash while you were offline. Your offline edits are kept under Recovery.',
+  'offline.blocked.outdated': 'Edits kept on this device were made by an older version of the app that could not show everything on this page. They were not uploaded; they are kept under Recovery.',
   'offline.blocked.gone': 'You no longer have access to this page. Its offline copy was deleted from this device.',
   'offline.recoveryTitle': 'Recovery',
   'offline.recoveryIntro': 'Offline edits that could not be merged. Open one to see it, copy what you need into the page, then delete the item.',
@@ -39,6 +40,7 @@ export default {
   'offline.reason.replaced': 'Different history on the server',
   'offline.reason.readonly': 'No edit access',
   'offline.reason.trashed': 'Page in the trash',
+  'offline.reason.outdated': 'Made by an older version of the app',
   'offline.logoutPending_one': '{count} page has edits that are not uploaded yet. Logging out deletes them from this device. Log out anyway?',
   'offline.logoutPending_other': '{count} pages have edits that are not uploaded yet. Logging out deletes them from this device. Log out anyway?',
 }

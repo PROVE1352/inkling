@@ -10,4 +10,7 @@ export default {
   'columns.resize': '끌어서 단 폭 조절, 두 번 누르면 똑같이',
   'columns.max': '단은 {n}개까지 둘 수 있습니다',
   'columns.nested': '단 안에는 단을 넣을 수 없습니다',
+  // 문서 스키마 (docs/adr/2425-*)
+  'docSchema.readOnly': '이 페이지에는 새 버전에서만 편집할 수 있는 내용이 있습니다. 새로고침하세요.',
+  'docSchema.reload': '새로고침',
 }

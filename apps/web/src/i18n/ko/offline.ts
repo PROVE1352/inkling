@@ -27,6 +27,7 @@ export default {
   'offline.blocked.replaced': '서버에 있는 이 페이지의 이력이 다릅니다(백업에서 복원?). 이 기기의 편집은 합치지 않고 복구 항목에 보관했습니다.',
   'offline.blocked.readonly': '이 페이지를 더 이상 편집할 수 없습니다. 이 기기의 편집은 올리지 않고 복구 항목에 보관했습니다.',
   'offline.blocked.trashed': '오프라인인 동안 이 페이지가 휴지통으로 옮겨졌습니다. 이 기기의 편집은 복구 항목에 보관했습니다.',
+  'offline.blocked.outdated': '이 기기에 남은 편집은 이 페이지 내용을 다 보여 주지 못하던 이전 버전 앱에서 한 것입니다. 올리지 않고 복구 항목에 보관했습니다.',
   'offline.blocked.gone': '이 페이지에 더 이상 접근할 수 없습니다. 이 기기의 오프라인 사본을 지웠습니다.',
   'offline.recoveryTitle': '복구 항목',
   'offline.recoveryIntro': '합치지 못한 오프라인 편집입니다. 항목을 열어 보고 필요한 내용을 페이지로 옮긴 뒤 지우세요.',
@@ -37,5 +38,6 @@ export default {
   'offline.reason.replaced': '서버 이력이 다름',
   'offline.reason.readonly': '편집 권한 없음',
   'offline.reason.trashed': '휴지통에 있는 페이지',
+  'offline.reason.outdated': '이전 버전 앱에서 한 편집',
   'offline.logoutPending_other': '아직 올라가지 않은 편집이 있는 페이지 {count}개가 있습니다. 로그아웃하면 이 기기에서 지워집니다. 그래도 로그아웃할까요?',
 } satisfies Partial<Record<keyof typeof en, string>>

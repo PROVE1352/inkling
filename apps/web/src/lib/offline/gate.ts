@@ -11,6 +11,7 @@
 // on that socket and processes them only after an Auth that never comes when the gate throws. The
 // caller never authenticates that name on the same socket again (collabSocket marks it denied).
 import * as Y from 'yjs'
+import { DOC_SCHEMA_VERSION, SCHEMA_PARAM } from '@inkling/shared'
 import { decide, type Decision, type ServerCheck } from './decide'
 import type { PageCopy } from './pageCopy'
 
@@ -25,7 +26,7 @@ export function docIsEmpty(doc: Y.Doc): boolean {
 
 export function createGate(opts: {
   doc: Y.Doc
-  copy: Pick<PageCopy, 'pending' | 'gen' | 'localClients'>
+  copy: Pick<PageCopy, 'pending' | 'gen' | 'localClients'> & Partial<Pick<PageCopy, 'schema'>>
   check: () => Promise<ServerCheck>
   /** carries out a non-merge decision (or 'retry') before the provider gives the document up */
   onBlocked: (d: Decision | { kind: 'retry' }) => Promise<void> | void
@@ -54,6 +55,7 @@ export function createGate(opts: {
         gen: opts.copy.gen(),
         sv: Y.decodeStateVector(Y.encodeStateVector(opts.doc)),
         localClients: opts.copy.localClients(),
+        schema: opts.copy.schema?.(),
       },
       server,
       Y.decodeStateVector,
@@ -64,11 +66,15 @@ export function createGate(opts: {
   }
 }
 
-/** GET /api/pages/:id/sync-check as a ServerCheck; CheckUnavailable for anything that is not an answer about access. */
-export async function fetchSyncCheck(pageId: string, fetchImpl: typeof fetch = fetch): Promise<ServerCheck> {
+/**
+ * GET /api/pages/:id/sync-check as a ServerCheck; CheckUnavailable for anything that is not an answer about access.
+ * `schema`: the document schema of the copy's unsent edits; below this build's, the server says what the page needs (docs/adr/2425-*).
+ */
+export async function fetchSyncCheck(pageId: string, fetchImpl: typeof fetch = fetch, schema?: number): Promise<ServerCheck> {
   let res: Response
+  const q = schema !== undefined && schema < DOC_SCHEMA_VERSION ? `?${SCHEMA_PARAM}=${schema}` : ''
   try {
-    res = await fetchImpl(`/api/pages/${encodeURIComponent(pageId)}/sync-check`, { credentials: 'same-origin', cache: 'no-store' })
+    res = await fetchImpl(`/api/pages/${encodeURIComponent(pageId)}/sync-check${q}`, { credentials: 'same-origin', cache: 'no-store' })
   } catch {
     throw new CheckUnavailable('network')
   }
@@ -79,9 +85,9 @@ export async function fetchSyncCheck(pageId: string, fetchImpl: typeof fetch = f
     return { kind: 'gone' }
   }
   if (!res.ok) throw new CheckUnavailable(`status ${res.status}`)
-  const j = (await res.json()) as { gen: number; canEdit: boolean; trashed: boolean; sv: string }
+  const j = (await res.json()) as { gen: number; canEdit: boolean; trashed: boolean; sv: string; needs?: number }
   const bin = atob(j.sv)
   const sv = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) sv[i] = bin.charCodeAt(i)
-  return { kind: 'ok', gen: j.gen, canEdit: j.canEdit, trashed: j.trashed, sv }
+  return { kind: 'ok', gen: j.gen, canEdit: j.canEdit, trashed: j.trashed, sv, ...(typeof j.needs === 'number' ? { needs: j.needs } : {}) }
 }

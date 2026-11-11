@@ -28,6 +28,8 @@ import { assertPageEditable } from '../editLock'
 import { requestLocale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
 import { toV1 } from '../yState'
+import { DOC_SCHEMA_VERSION, parseSchemaVersion } from '@inkling/shared'
+import { schemaOfStoredState } from '../docSchema'
 import {
   createRow,
   listRowTemplates,
@@ -163,6 +165,11 @@ export async function registerRowTemplateRoutes(app: FastifyInstance): Promise<v
         if (body.props !== undefined) set.props = sanitizeTemplateProps(fields, body.props)
         if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder
         if (body.update !== undefined && body.update.length > 0) {
+          // A template body is edited in the browser like a page (docs/adr/2425-*): an app older than
+          // the body's newest node type would send the deletion of what it cannot show.
+          if (parseSchemaVersion(body.schema) < DOC_SCHEMA_VERSION && schemaOfStoredState(cur.state) > parseSchemaVersion(body.schema)) {
+            throw new AppError(409, 'SCHEMA_OUTDATED', 'This template has content that needs a newer version of the app. Reload the page.')
+          }
           set.state = mergeBody(cur.state, new Uint8Array(Buffer.from(body.update, 'base64')))
         }
         if (body.isDefault === true) {

@@ -31,6 +31,22 @@ describe('offline store', () => {
     assert.deepEqual(r.localClients, [], 'once nothing is pending the local clients are on the server')
   })
 
+  it('pending edits remember the oldest document schema that made one (absent = 0.19) (2425)', async () => {
+    const s = createMemoryStore()
+    await s.claim('u1')
+    // a copy written by 0.19: no schema
+    await s.append('u1', 'p', upd('a'), { wsId: 'w', local: { session: 'old', count: 1, client: 1 } })
+    assert.equal((await s.getDoc('u1', 'p')).record.schema, 1)
+    // a newer app adds an edit: still as old as the oldest
+    await s.append('u1', 'p', upd('b'), { wsId: 'w', local: { session: 'new', count: 1, client: 2, schema: 2 } })
+    assert.equal((await s.getDoc('u1', 'p')).record.schema, 1)
+    // everything acknowledged: no schema; the next edit starts from its own app
+    await s.clearPending('u1', 'p', { old: 1, new: 1 })
+    assert.equal((await s.getDoc('u1', 'p')).record.schema, undefined)
+    await s.append('u1', 'p', upd('c'), { wsId: 'w', local: { session: 'new', count: 2, client: 2, schema: 2 } })
+    assert.equal((await s.getDoc('u1', 'p')).record.schema, 2)
+  })
+
   it('a remote update does not mark the copy as pending', async () => {
     const s = createMemoryStore()
     await s.claim('u1')
@@ -89,5 +105,24 @@ describe('eviction (G)', () => {
   })
   it('under the limits nothing goes', () => {
     assert.deepEqual(pickEvictions([doc('a', 10, 1)], new Set()), [])
+  })
+})
+
+describe('decide: edits of an older app (2425)', () => {
+  const sv = new Map([[1, 5]])
+  const server = { kind: 'ok', gen: 3, canEdit: true, trashed: false, sv: new Uint8Array() }
+  const decodeSv = () => sv
+  const local = { pending: true, gen: 3, sv, localClients: new Set() }
+  it('unsent edits of a 0.19 copy on a page that needs schema 2 are kept for recovery', async () => {
+    const { decide } = await import('./decide')
+    assert.deepEqual(decide({ ...local }, { ...server, needs: 2 }, decodeSv), { kind: 'recover', reason: 'outdated' })
+    assert.deepEqual(decide({ ...local, schema: 1 }, { ...server, needs: 2 }, decodeSv), { kind: 'recover', reason: 'outdated' })
+  })
+  it('the same edits merge when the page needs nothing newer, or the server does not say', async () => {
+    const { decide } = await import('./decide')
+    assert.deepEqual(decide({ ...local, schema: 1 }, { ...server, needs: 1 }, decodeSv), { kind: 'merge' })
+    assert.deepEqual(decide({ ...local, schema: 1 }, { ...server }, decodeSv), { kind: 'merge' })
+    assert.deepEqual(decide({ ...local, schema: 2 }, { ...server, needs: 2 }, decodeSv), { kind: 'merge' })
+    assert.deepEqual(decide({ ...local, pending: false, schema: 1 }, { ...server, needs: 2 }, decodeSv), { kind: 'merge' })
   })
 })

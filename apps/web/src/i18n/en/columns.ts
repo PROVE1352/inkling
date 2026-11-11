@@ -10,4 +10,7 @@ export default {
   'columns.resize': 'Drag to resize the columns, double-click for equal widths',
   'columns.max': 'At most {n} columns',
   'columns.nested': 'Columns cannot go inside columns',
+  // document schema (docs/adr/2425-*): shown when the server takes this tab's edits as read-only
+  'docSchema.readOnly': 'This page has content that only a newer version of the app can edit. Reload to update.',
+  'docSchema.reload': 'Reload',
 }

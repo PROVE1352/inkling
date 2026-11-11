@@ -67,6 +67,11 @@ export type CollabState = {
    * dropped by the server, so the editor must not be editable then.
    */
   scope?: string
+  /**
+   * The server took this connection as read-only because the page holds a node type this build does not
+   * know (docs/adr/2425-*): the schema it needs. The editor shows its own banner, not the lock banner.
+   */
+  schemaNeeds?: number
 }
 
 // One spec list for this schema and the page-embed viewer's (editorSchemaSpecs, docs/adr/1539-*):
@@ -82,8 +87,9 @@ const schema = BlockNoteSchema.create(
 const localSchema = BlockNoteSchema.create(editorSchemaSpecs({ pageEmbed: pageEmbedSpec, codeBlock: mermaidCodeBlockSpec }))
 
 /** Why the device copy was not merged (docs/adr/2201-*): shown above the editor that reopened from the server. */
-type BlockedNotice = 'restored' | 'replaced' | 'readonly' | 'trashed' | 'gone'
+type BlockedNotice = 'restored' | 'replaced' | 'readonly' | 'trashed' | 'outdated' | 'gone'
 const BLOCKED_TEXT: Record<BlockedNotice, TKey> = {
+  outdated: 'offline.blocked.outdated',
   restored: 'offline.blocked.restored',
   replaced: 'offline.blocked.replaced',
   readonly: 'offline.blocked.readonly',
@@ -153,6 +159,8 @@ function CollabEditorSession({
   const [synced, setSynced] = useState(false)
   const [users, setUsers] = useState<CollabUser[]>([])
   const [scope, setScope] = useState<string | undefined>(undefined)
+  // The page needs a newer document schema than this build knows (docs/adr/2425-*): read-only + banner.
+  const [schemaNeeds, setSchemaNeeds] = useState<number | null>(null)
   // The device copy (docs/adr/2200-*): undefined while it loads, null when there is none to keep
   // (setting off, storage unusable). Loaded into `doc` before the provider exists.
   const [copy, setCopy] = useState<PageCopy | null | undefined>(undefined)
@@ -193,7 +201,7 @@ function CollabEditorSession({
     const token = copy && createGate({
       doc,
       copy,
-      check: () => fetchSyncCheck(pageId),
+      check: () => fetchSyncCheck(pageId, fetch, copy.schema()),
       onBlocked: async (d) => {
         if (d.kind === 'retry') {
           onReopen(null, 10_000)
@@ -245,6 +253,9 @@ function CollabEditorSession({
             queryClient.invalidateQueries({ queryKey: qk.comments(pageId) })
           } else if (msg?.t === 'gen' && typeof msg.gen === 'number' && !blocked) {
             copy?.setGen(msg.gen)
+          } else if (msg?.t === 'schema' && typeof msg.needs === 'number') {
+            // sent only to a connection the server took as read-only for this reason
+            setSchemaNeeds(msg.needs)
           }
         } catch {
           // ignore malformed payloads
@@ -318,8 +329,8 @@ function CollabEditorSession({
 
   // Report collab state to the parent (PageView) — for the top-bar connection dot / online users
   useEffect(() => {
-    onCollabChange?.({ status, synced, users, scope })
-  }, [status, synced, users, scope, onCollabChange])
+    onCollabChange?.({ status, synced, users, scope, ...(schemaNeeds !== null ? { schemaNeeds } : {}) })
+  }, [status, synced, users, scope, schemaNeeds, onCollabChange])
 
   // No server and nothing on this device for this page: say so instead of an empty editor whose
   // typing would only start a second, unrelated history (docs/adr/2202-*).
@@ -351,6 +362,15 @@ function CollabEditorSession({
     )
   }
   return (
+    <>
+      {schemaNeeds !== null && (
+        <div role="status" data-testid="schema-readonly" className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-ink">
+          <span className="min-w-0 flex-1">{t('docSchema.readOnly')}</span>
+          <button type="button" onClick={() => window.location.reload()} className="shrink-0 text-xs font-medium text-ink underline-offset-2 hover:underline">
+            {t('docSchema.reload')}
+          </button>
+        </div>
+      )}
     <CollabEditorBody
       pageId={pageId}
       wsId={wsId}
@@ -360,8 +380,9 @@ function CollabEditorSession({
       synced={synced}
       deviceCopy={hadCopy}
       onEditorReady={onEditorReady}
-      readOnly={readOnly}
+      readOnly={readOnly || schemaNeeds !== null}
     />
+    </>
   )
 }
 

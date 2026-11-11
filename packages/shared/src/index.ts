@@ -1022,6 +1022,7 @@ export * from './math'
 export * from './blocks'
 // Columns: the columnList / column nodes and width helpers (docs/adr/2420-*)
 export * from './columns'
+export * from './docSchema'
 
 // Per-user sidebar menu order / visibility (docs/adr/1020-*)
 export * from './sidebar'

@@ -1,6 +1,7 @@
 // Database row templates (docs/adr/1180-1184): list/CRUD hooks and the single-row create that
 // every "new row" button uses (table, gallery, board column, calendar day).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { DOC_SCHEMA_VERSION } from '@inkling/shared'
 import type {
   CreateRowInput,
   CreateRowResultDTO,
@@ -53,7 +54,8 @@ export function useCreateRowTemplate(collectionId: string) {
 export function updateRowTemplate(id: string, input: UpdateRowTemplateInput): Promise<RowTemplateDTO> {
   return api<{ template: RowTemplateDTO }>(`/api/collection-row-templates/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify(input),
+    // a body update says which document schema made it (docs/adr/2425-*)
+    body: JSON.stringify(input.update ? { ...input, schema: DOC_SCHEMA_VERSION } : input),
   }).then((r) => r.template)
 }
 

@@ -650,7 +650,10 @@ export function PageView() {
   // one makes the editor read-only.
   const queryClient = useQueryClient()
   const treeLockRoot = lockRootOf(pages.data, page?.id)
-  const scopeReadOnly = isDoc && collab.scope !== undefined && collab.scope !== 'read-write'
+  // read-only because the page needs a newer app (docs/adr/2425-*): CollabEditor says so itself, so
+  // it is not shown as a lock
+  const schemaReadOnly = isDoc && collab.schemaNeeds !== undefined
+  const scopeReadOnly = isDoc && !schemaReadOnly && collab.scope !== undefined && collab.scope !== 'read-write'
   const canLock = !!page && page.scope !== 'private' && !guest
   // A guest's level comes only from the lock answer (level / canEdit), so it is always asked.
   const lockEnabled = guest ? !!page : canLock && (!!treeLockRoot || scopeReadOnly)
@@ -658,6 +661,7 @@ export function PageView() {
   const lockData = lockEnabled ? lockQuery.data : undefined
   const lockReadOnly =
     scopeReadOnly ||
+    schemaReadOnly ||
     (lockData ? !lockData.canEdit : (guest || !!treeLockRoot) && lockQuery.isLoading)
   const isLocked = !!lockData?.locked || !!treeLockRoot || scopeReadOnly
   // A lock appeared/disappeared in the tree or the server changed this connection's scope:

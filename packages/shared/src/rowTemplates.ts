@@ -87,6 +87,11 @@ export const updateRowTemplateSchema = z.object({
    * server merges it into the stored body, so two editors saving at once both keep their edits.
    */
   update: z.string().max(BODY_UPDATE_MAX_CHARS).optional(),
+  /**
+   * Document schema of the app that made `update` (0.20, docs/adr/2425-*); absent = 1 (0.19 and older).
+   * An update from an app older than the body's newest node type is refused (409 SCHEMA_OUTDATED).
+   */
+  schema: z.number().int().min(1).max(9999).optional(),
   /** true makes this the collection's default (the previous default is cleared); false clears it. */
   isDefault: z.boolean().optional(),
   sortOrder: z.number().finite().optional(),

@@ -10,6 +10,7 @@
 // - Write failures (quota, blocked IndexedDB) never stop editing: `state` turns 'failed' and the
 //   leave guard is armed again (the edits then live only in this tab, as before 0.18).
 import * as Y from 'yjs'
+import { DOC_SCHEMA_VERSION } from '@inkling/shared'
 import { applyClear, hasPending, OfflineStoreError, type DocRecord, type OfflineStore, type PendingClients } from './store'
 
 /** Origin of the updates load() applies (not an edit). */
@@ -37,6 +38,8 @@ export type PageCopy = {
   setGen: (gen: number) => void
   gen: () => number | null
   localClients: () => Set<number>
+  /** document schema of the oldest app whose unsent edits the copy holds (this build's when none) (docs/adr/2425-*) */
+  schema: () => number
   setTitle: (title: string) => void
   /** writes everything queued; resolves when stored (or failed) */
   flush: () => Promise<void>
@@ -69,6 +72,8 @@ export function createPageCopy(opts: {
   let ackedCount = 0 // local edits of this session the server acknowledged
   let adopted: PendingClients = {}
   let localClients = new Set<number>()
+  // schema of the unsent edits adopted from the device (this session's are this build's)
+  let adoptedSchema = DOC_SCHEMA_VERSION
   let queue: Uint8Array[] = []
   let queueLocal = false
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -115,7 +120,7 @@ export function createPageCopy(opts: {
       await store.append(userId, pageId, update, {
         wsId,
         title,
-        ...(local ? { local: { session, count: n, client: doc.clientID } } : {}),
+        ...(local ? { local: { session, count: n, client: doc.clientID, schema: DOC_SCHEMA_VERSION } } : {}),
       })
       if (local) writtenCount = Math.max(writtenCount, n)
       if (!failed) state = 'stored'
@@ -157,6 +162,7 @@ export function createPageCopy(opts: {
       if (stored.record.title) title = title || stored.record.title
       adopted = { ...stored.record.pending }
       localClients = new Set(stored.record.localClients)
+      adoptedSchema = hasPending(stored.record) ? (stored.record.schema ?? 1) : DOC_SCHEMA_VERSION
       appends = stored.record.updates
       state = 'stored'
       void store.touch(userId, pageId, Date.now()).catch(() => {})
@@ -184,6 +190,7 @@ export function createPageCopy(opts: {
       const r = { pending: { ...adopted }, localClients: [] as number[] }
       applyClear(r as DocRecord, ack)
       adopted = r.pending
+      if (!Object.keys(adopted).length) adoptedSchema = DOC_SCHEMA_VERSION
       if (ack[session] !== undefined) ackedCount = Math.max(ackedCount, ack[session])
       if (!Object.keys(adopted).length) localClients = new Set(count > ackedCount ? [doc.clientID] : [])
       emit()
@@ -195,6 +202,7 @@ export function createPageCopy(opts: {
     },
     gen: () => gen,
     localClients: () => new Set(localClients),
+    schema: () => (hasPending({ pending: adopted }) ? Math.min(adoptedSchema, DOC_SCHEMA_VERSION) : DOC_SCHEMA_VERSION),
     setTitle(t) {
       title = t
     },

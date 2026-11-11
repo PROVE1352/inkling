@@ -1,7 +1,7 @@
 # Inkling deployment guide (any Linux server)
 
 Every image is multi-arch (x86-64 and ARM64), so the same setup works on ARM cloud VMs (for example
-free-tier Ampere instances) and on ordinary x86 servers.
+free-tier Ampere instances) and on ordinary x86 servers. 한국어: [DEPLOY.ko.md](DEPLOY.ko.md).
 
 > **Just trying it on your own computer?** `git clone <repo-url> && cd inkling && ./deploy/local.sh`
 > writes a `.env` with generated secrets, starts the stack on a free port bound to 127.0.0.1, and

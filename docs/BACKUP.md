@@ -5,6 +5,7 @@ dumps the database, archives the data volume (uploaded files, plugins), verifies
 a grandfather-father-son (GFS) history, test-restores a set once a week and, optionally, copies
 every set off-site with rclone. Admins see the status in **Admin › Backups** and can start a backup
 or download a set there. Restoring is deliberately **command-line only** (`deploy/restore.sh`).
+한국어: [BACKUP.ko.md](BACKUP.ko.md).
 
 Design notes: [ADR 0600–0607](adr/README.md#06xx-backups).
 

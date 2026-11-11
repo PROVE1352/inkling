@@ -564,7 +564,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1602](1602-chart-aggregate-endpoint.md) | One aggregate endpoint on the collection query's access path | Accepted |
 | [1603](1603-chart-view-type-in-the-view-config.md) | A "chart" collection view, configured in the view config | Accepted |
 | [1604](1604-chart-token-carries-its-config.md) | The chart token carries its config; the data line is a comment | Accepted |
-| [1605](1605-charts-in-exports-and-public-pages.md) | Charts in exports and on public pages are tables, inside what is shared | Accepted |
+| [1605](1605-charts-in-exports-and-public-pages.md) | Charts in exports and on public pages are tables, inside what is shared | Accepted; amended by 2440 |
 | [1606](1606-create-chart-and-create-view-tools.md) | create_chart and create_view write through the existing routes | Accepted |
 
 ## 1620–1629 Partial accept and reverting agent edits
@@ -941,6 +941,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2384](2384-getting-started-card-inside-the-sidebar-height-budget.md) | The Getting started card is part of the sidebar's height budget; it scrolls inside, the footer stays reachable | Accepted |
 | [2385](2385-intro-end-screen-camera-and-ink-wipe.md) | The intro ends on a screen of next steps; a camera and ink wipes inside the same pure function | Accepted |
 | [2386](2386-image-viewer-double-click-in-the-editor-click-elsewhere.md) | Image viewer: double-click or the corner button in the editor, one click where nothing can be edited | Accepted |
+| [2387](2387-public-callouts-carry-their-icon-css-finds-parts-by-class.md) | Public page callouts carry their icon; the CSS finds the icon and the text by class | Accepted |
 
 ## 2400–2409 find_context recall (0.20)
 
@@ -962,6 +963,16 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2423](2423-columns-on-narrow-screens-and-other-views.md) | Columns stack below 640 px and keep their layout in public, slides, print, embeds | Accepted |
 | [2424](2424-headings-in-columns-are-not-sections.md) | A heading inside a column is not a section; patch_section and find_context keep a group whole | Accepted |
 | [2425](2425-older-clients-are-read-only-on-pages-with-newer-nodes.md) | Older clients are read-only on pages that hold node types they do not know (document schema version) | Accepted |
+
+## 2440–2449 Charts on public links (0.20)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2440](2440-public-link-charts-switch-per-link-off-by-default.md) | Charts on a public link: a per-link switch, off by default | Accepted; amended by 2444 |
+| [2441](2441-public-charts-aggregate-as-the-manager-who-turned-them-on.md) | Public charts are aggregated as the manager who turned them on, while a member | Accepted; amended by 2444 |
+| [2442](2442-public-charts-drawn-in-the-browser-from-labels-and-numbers.md) | Public charts are drawn in the browser from labels and numbers, a table underneath | Accepted |
+| [2443](2443-public-render-cache-keyed-by-whose-charts.md) | The public render cache is keyed by whose access its charts use | Accepted |
+| [2444](2444-public-charts-only-of-approved-sources.md) | Public charts only of sources a manager approved | Accepted |
 
 ## 099x Client updates
 

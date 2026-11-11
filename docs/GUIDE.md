@@ -589,6 +589,19 @@ Visitors of a public link see a row of actions above the title (one **⋯** butt
   dialog under the link's settings: **Let visitors download it as Markdown**. The file holds only what the
   public page shows. It is off for every new link, and publishing again turns it off.
 
+Charts are not on a public link unless you choose so: a chart shows numbers from a database that the link itself
+usually does not share. The share dialog tells you how many charts of the page (a folder link: of its pages) do not
+show. Turn on **Show charts on the public page** in the link's settings to publish them. Visitors then see each chart
+— its title, the names of its bars or slices and their values — but not the rows behind it, the database's name, or
+anything else from the workspace. The numbers are worked out with the access of the person who turned the setting on:
+if that person leaves the workspace, or can no longer see a chart's database, that chart disappears from the public
+page. Turning the setting on approves the databases (and queries) the charts use at that moment: if someone later adds a
+chart over another database, it stays off the public page and the share dialog says "1 newly added chart is not
+public yet" until an owner or admin presses **Publish these charts too** (from then on, with that person's access).
+New charts over an approved database show at once. Numbers can be up to 10 minutes behind the database. A folder link
+always shows the charts of databases that are inside the folder. New links start with charts off, and so does a link
+published again after it was stopped.
+
 ## Edit lock
 
 An edit lock protects a page and everything under it. Others can still read and comment.

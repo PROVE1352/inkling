@@ -152,6 +152,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Edit lock for a page tree; agents can be held separately to suggestions, comments or reading
 - Comments on pages and sections, notifications with mail digests and web push to your devices, an Activity screen with a diff per change, page owners and review dates, and "Verify page", which marks a page correct until a date
 - Public links for a page or a folder, with expiry, password and a scheduled start; visitors get a wide view, Save as PDF and, when you allow it, a Markdown download
+- Public links can show the page's charts (per link, off by default): drawn as charts, labels and numbers only
 - Member status (emoji, message, clear time) in the members panel, mentions and presence
 - Slack app per workspace (channel posts, `/inkling` search, link previews), and webhooks to Slack, Discord or any https endpoint ([docs/WEBHOOKS.md](docs/WEBHOOKS.md))
 

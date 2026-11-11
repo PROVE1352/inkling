@@ -696,6 +696,11 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
   core 32 ~7,533). The Markdown download of public pages is a public route, not a tool, and onboarding is for browser
   sessions only. `create_from_template`: an inline view of a database inside the same template now points at the new
   copy of that database ([ADR 2381](adr/2381-sample-page-first-admin-auto-members-by-button.md)).
+- **0.20**: one migration (`0061_share_include_charts`: `pages.share_include_charts`, `share_charts_by`,
+  `share_chart_sources`); none changes a tool. Same 48 tools (32 in core), same descriptions and sizes. Columns are
+  marker lines in every tool's Markdown (above). Charts on public links are a browser-only setting: the share routes
+  are session-only, so no tool turns them on or approves a chart's source, and `read_page` keeps the chart token and
+  its data line for the reader ([ADR 2440](adr/2440-public-link-charts-switch-per-link-off-by-default.md)).
 
 ## Checking connections with real clients (DCR and Client ID Metadata Documents)
 

@@ -1260,7 +1260,7 @@ html[data-resizing] .nd-sidebar-shell {
    Shaped like Notion's callout (measured 2026-11-08: radius 10px, 12px padding, a flat tint, no stripe):
    the type colour is only a light tint, so a page with several callouts stays calm. The icon sits in a box
    one text line high, so it lines up with the first line however long the text is. docs/adr/1222-*.
-   The icon and the text are found by class, never by position: HTML rendered before 0.19.2 has the text
+   The icon and the text are found by class, never by position: HTML rendered before 0.20.0 has the text
    alone, which must still flow as one block (docs/adr/2387-*). */
 .nd-callout {
   --nd-callout-accent: #3b82f6;

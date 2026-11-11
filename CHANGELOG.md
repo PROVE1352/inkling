@@ -13,17 +13,20 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 > would delete a group of columns with everything inside it. 0.20 lets such a tab read pages with columns but not
 > edit them, until it is reloaded (below and docs/adr/2425-*).
 
-A minor release with columns and better `find_context` answers for Korean questions. Blocks can sit side by side in
+A minor release with columns, charts on public links and better `find_context` answers for Korean questions. Blocks can sit side by side in
 two to four columns (`/2단`, `/3단`); agents, Markdown downloads, zip export and vault sync carry them as comment
 markers. A tab of an older release can no longer delete them: each client tells the server which document schema it
 knows, and the server takes edits only from clients that know every node on the page. `find_context` counts the
 shorter form of a long Korean word in titles and headings, prefers sections with the question's rarest word and
-gives title words their real weight. No database migration (a 0.19 database stays at 61 applied migrations), no new dependency, two
-optional settings (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`). The MCP tool list is unchanged (48 tools,
+gives title words their real weight. A public link can now show the page's charts, drawn as charts from labels and
+numbers, once an owner or admin turns it on for that link; public pages also draw callouts (icon, then text) and
+text and background colours as the editor does. One database migration, additive: `0061_share_include_charts` (three
+columns on `pages`; a 0.19 database goes from 61 to 62 applied migrations, and every existing link keeps charts off).
+No new dependency, two optional settings (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`). The MCP tool list is unchanged (48 tools,
 32 in core; same descriptions and sizes). Upgrade matrix adds v0.19.0 and v0.19.1.
 
 Checked in Chrome only (desktop and a 390 px window): the columns check (31 steps), a 0.19.1 build against the 0.20
-server (10 steps) and the 0.19 browser checks passed; none of it was tried in Safari, Firefox or on a touch device
+server (10 steps), public charts (27 steps), public callouts and colours (16 steps) and the 0.19 browser checks passed; none of it was tried in Safari, Firefox or on a touch device
 (docs/KNOWN-ISSUES.md, "Added in 0.20.0").
 
 ### Upgrade notes
@@ -39,17 +42,26 @@ server (10 steps) and the 0.19 browser checks passed; none of it was tried in Sa
 - **Proxies**: the collaboration socket URL now carries a query string (`/collab?schema=2`). Path rules such as
   Caddy's or nginx's `location /collab` need nothing; a rule that compares the whole request URI must allow it. A
   proxy that strips the query makes every 0.20 tab look like 0.19: read-only on pages with columns.
-- **No migration**, no re-index: the new `find_context` rules work at query time. Answers to Korean questions can be
-  ordered differently from 0.19; answers cached in memory are dropped by the restart.
-- **Going back to 0.19.1** needs no database restore (no migration), but 0.19 does not know columns and has no
-  guard: its editor deletes a group with its content as soon as someone opens the page. Not checked beyond that;
-  do not go back once columns are in use.
+- **Migration 0061** (the only one) adds `pages.share_include_charts` (boolean, default false), `pages.share_charts_by`
+  (uuid, references users, on delete set null) and `pages.share_chart_sources` (jsonb, the approved chart sources).
+  Additive; every existing link keeps its behaviour (charts off) until a manager turns them on in the share dialog.
+  Chart numbers on public pages can be up to 10 minutes old (the public render cache); the switch and the person's
+  membership apply at once.
+- No re-index: the new `find_context` rules work at query time. Answers to Korean questions can be ordered
+  differently from 0.19; answers cached in memory are dropped by the restart.
+- **Going back to 0.19.1** needs no database restore: 0.19 ignores the three new columns (0061 stays applied). But
+  0.19 does not know columns and has no guard: its editor deletes a group with its content as soon as someone opens
+  the page; do not go back once columns are in use. A page whose link showed charts, published again while 0.19
+  runs, keeps the chart setting on for its new link once 0.20 runs again (KNOWN-ISSUES SHARE-9). Not checked beyond
+  that.
 - **Semantic search**: `EMBEDDING_QUERY_PREFIX` and `EMBEDDING_PASSAGE_PREFIX` are empty by default, so nothing
   changes. Setting, changing or removing one re-embeds every section at `EMBEDDING_REQUESTS_PER_MINUTE`; until that
   finishes, sections without a new vector are found by their words only (docs/OPERATIONS.md).
 - API: `GET /api/pages/:id/sync-check?schema=N` (new query) answers `needs` when N is below the server's document
   schema; `PATCH /api/collection-row-templates/:id` takes `schema` (409 `SCHEMA_OUTDATED`); page bodies with columns
-  carry `<!-- inkling:columns -->` marker lines in every Markdown format (docs/API.md, "v0.20.0 additions").
+  carry `<!-- inkling:columns -->` marker lines in every Markdown format; `PATCH /api/pages/:id/share` takes
+  `includeCharts` and `approveChartSources`, `ShareStatusDTO` and `PublicPageDTO` gain chart fields (docs/API.md,
+  "v0.20.0 additions").
 
 ### Added
 - **Columns** (docs/adr/2420-* .. 2424-*). Put blocks side by side: `/2단` or `/3단` in the slash menu (English "2
@@ -66,6 +78,17 @@ server (10 steps) and the 0.19 browser checks passed; none of it was tried in Sa
   `<!-- inkling:column -->` / `<!-- /inkling:columns -->` lines. A heading inside a column is not a section.
   Written against @blocknote/core's public API; BlockNote's GPL multi-column package is not used. No new
   dependency.
+- **Charts on public links** (docs/adr/2440-* .. 2444-*). A public link can now show the page's charts: the share
+  dialog says "N charts on this page do not show on the public link" and offers **Show charts on the public page**
+  (owners and admins; off by default, per link, audited). When it is on, each chart's labels and numbers are
+  published — worked out with the access of the person who turned it on, while they are a member of the workspace,
+  and only for the databases and queries the charts used when it was turned on (a chart added later over another
+  database waits: "N newly added charts are not public yet", **Publish these charts too**) — never the rows behind
+  them, the database's or view's name, or any id or query text. Public pages draw charts with the app's own chart
+  component (also in presentation mode, print and "Save as PDF"; scaled to the paper), with the table underneath for
+  screen readers, readers without scripts and the Markdown download. A chart inside a column stands in that column
+  (its title and table too). The chart code loads only on pages that have a chart. Without the switch, a folder
+  link's charts of its own databases are now drawn as charts instead of tables; everything else is as before.
 - **Document schema version** (docs/adr/2425-*). Every client says on its collaboration socket which document
   schema it knows (0.20 = 2; none = 0.19 and older = 1). On a page that holds a node type the client does not
   know, its connection is read-only, from the start or from the moment such a node arrives, so an older editor
@@ -96,14 +119,26 @@ server (10 steps) and the 0.19 browser checks passed; none of it was tried in Sa
   inside, so a section copied from find_context into patch_section keeps its group (docs/adr/2424-*).
 
 ### Fixed
+- Public links: a callout shows as in the editor, its type's icon and then the text, with line breaks, inline code,
+  bold and links flowing inside the tinted box. Since 0.12.0 the text took the icon's place and stood in narrow
+  side-by-side columns that ran out of the box (and widened the page on phones) (docs/adr/2387-*).
+- Public links: each callout type has its own tint again (note, tip, warning, danger, info), not the note blue for
+  all (docs/adr/2387-*).
+- Public links: text colour and background colour, on words, whole blocks and table cells, show as in the editor in
+  the light and dark themes; printed or saved as PDF they use the light colours (docs/adr/2387-*).
 - A section patch that the server refuses no longer shows up as an unhandled promise rejection in the server log
   (`gatedTransact`, docs/adr/2424-*).
 
 ### Performance
-- Web bundle against 0.19.1 (365b664): entry `index-*.js` 447,198 → 447,036 B (122,992 → 122,969 B gzip); entry
+- Web bundle against 0.19.1 (365b664), measured on the columns tree (c356b62) before the public chart and public
+  page commits were added: entry `index-*.js` 447,198 → 447,036 B (122,992 → 122,969 B gzip); entry
   plus modulepreload 1,374,102 → 1,376,227 B (404,600 → 404,970 B gzip); entry CSS 19,717 → 20,063 B gzip; the
   column code sits in the editor chunk (CollabEditor, 126,072 → 130,874 B gzip); precache 107 → 105 entries,
   +19,107 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- Public charts (docs/adr/2442-*): a public page with charts loads `PublicChartMount` (1,395 B gzip) and its CSS
+  (226 B), the chart adapter (962 B) and `ChartRender` (50,822 B, the app's chart chunk) only when the page has a
+  chart; a page without charts requests none of them. The share dialog's chart count of a folder link with 300 large
+  pages that all hold a chart takes about 0.36 s (26 ms with one chart page) ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 - `find_context` latency with the new word rules is unchanged (p50 36.2 → 34.6 ms, p95 102.2 → 90.8 ms on 15.8k
   sections, interleaved runs). The document schema guard costs current clients one comparison per message; on the
   server a keystroke costs nothing measurable and a new block in a 2,000-block group about 50 µs

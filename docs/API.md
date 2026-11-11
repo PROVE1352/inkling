@@ -1735,7 +1735,7 @@ No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (
 
 ## v0.20.0 additions
 
-No migration. Existing answers keep their shape; new fields are additive.
+One migration, 0061 (charts on public links, below). Existing answers keep their shape; new fields are additive.
 
 ### Columns (docs/adr/2420–2424)
 - Page bodies with columns carry `<!-- inkling:columns -->` (with `{"widths":[…]}` in percent when the columns
@@ -1758,6 +1758,48 @@ No migration. Existing answers keep their shape; new fields are additive.
 - `PATCH /api/collection-row-templates/:id` body adds `schema?: number` (the document schema of the client that
   made `update`; missing = 1). An `update` from a client below what the stored body needs answers 409
   `SCHEMA_OUTDATED` and changes nothing; other fields without `update` are not affected.
+
+### Charts on public links (docs/adr/2440–2444)
+
+Migration 0061 (`pages.share_include_charts boolean not null default false`, `pages.share_charts_by uuid` → users,
+`on delete set null`, `pages.share_chart_sources jsonb` — approved source keys, null while off), additive.
+
+- `PATCH /api/pages/:id/share` body adds `includeCharts?: boolean` (owners and admins; session only, like the
+  route; audited as `share.charts_changed` with before/after `{ includeCharts }`). Turning it on records the
+  caller as the account the charts are aggregated with; sending `true` while on keeps the recorded account;
+  turning it on also approves the sources the link's charts use now (a collection or a view of it: the collection;
+  a query: its text, white space normalized); `false` clears all three. `POST` does not take it (strict body: 400):
+  a new link starts with charts off. Unpublishing clears it.
+- `PATCH /api/pages/:id/share` body adds `approveChartSources?: true` (owners and admins, session only; 409
+  `CHARTS_OFF` while charts are off): approves the sources the link's charts use now and records the caller as
+  the account the charts are aggregated with. Audited as `share.charts_changed` with before/after `{ includeCharts,
+  sources }` (the number of approved sources).
+- `ShareStatusDTO` adds `includeCharts: boolean`, `chartsBy?: string | null` (the recorded account's name, while
+  on) and `charts?: { total, hidden, pending }`, left out when there are none: `total` = chart blocks on the page,
+  those inside columns included (a folder: its doc pages inside the link, at most 300 pages read); `hidden` = those
+  the public page leaves out with the current setting (`pending` included); `pending` = with charts on, those whose
+  source is not approved (added or changed since charts were turned on or last approved), which
+  `approveChartSources` would publish; 0 while off. GET answers it also before a link exists (with the setting
+  off); POST and PATCH return it too.
+- `PublicPageDTO` adds `charts?: PublicChartDTO[]` (left out when empty), behind the link's usual gate (unknown
+  404, expired 410, before a start 404, password 401):
+  `{ anchor, kind, title?, group, series?, measure: { fn, name? }, groups: { label, special? }[],
+  seriesKeys?: { label, special? }[], values: (number|null)[] | (number|null)[][], omittedGroups, omittedSeries,
+  truncated? }`. `group` / `series` / `measure.name` are property display names; `special` is `empty`, `checked`
+  or `unchecked`. No ids, keys, source, query text or library options. In `html`, the chart's title block has
+  `data-id="<anchor>"` (when it has a title) and its table block `data-id="<anchor>-t"`, in the chart's place (inside
+  its column when it is in one); anchors are new on each render. Which charts are included: with the switch on,
+  those of an approved source the recorded account (still a member) can see as in the Markdown export (collections
+  and views of the page's workspace, query sources run as that account); on a folder link, also those of
+  collections inside the link; nothing else.
+- The Markdown downloads (`…/export.md`) write each included chart as its bold title and a GFM table (inside the
+  column markers when the chart is in a column).
+
+### Public page HTML (docs/adr/2387)
+- `PublicPageDTO.html`: a callout is its box, then `<span class="nd-callout-icon" aria-hidden="true">` with the type's
+  emoji, then the text element (an unknown type is drawn as a note). Text and background colours keep BlockNote's
+  attributes (`data-style-type` / `data-value` on text, `data-text-color` / `data-background-color` on blocks and
+  table cells), and public pages now draw them in both themes. Only public pages use this server HTML.
 
 ### MCP tools
 No new tool and no description change: full 48 tools, core 32 (same sizes as 0.19). Details: [MCP.md](MCP.md).

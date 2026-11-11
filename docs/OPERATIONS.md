@@ -873,10 +873,13 @@ gets one unless they press the card's button.
 ## 14. Columns and tabs of older releases (0.20)
 
 ### Upgrading to 0.20
-No migration and no required setting: the usual procedure (Upgrades, above). A 0.19 database stays at 61 applied
-migrations. Afterwards, ask people to reload tabs they left open: a tab still running 0.19 or older can read pages
-with columns but not edit them (below). Going back to 0.19.1 needs no restore, but 0.19's editor deletes a group of
-columns with its content when it opens such a page (it has no guard); do not go back once columns are in use.
+One migration and no required setting: the usual procedure (Upgrades, above). Migration 0061 adds three columns to
+`pages` for charts on public links (section 15); a 0.19 database goes from 61 to 62 applied migrations. Every
+existing link keeps charts off, so public pages look as before until a manager turns them on. Afterwards, ask people
+to reload tabs they left open: a tab still running 0.19 or older can read pages with columns but not edit them
+(below). Going back to 0.19.1 needs no restore (0.19 ignores the three new columns), but 0.19's editor deletes a
+group of columns with its content when it opens such a page (it has no guard); do not go back once columns are in
+use. A link that showed charts and is published again while 0.19 runs keeps its chart setting (KNOWN-ISSUES SHARE-9).
 
 ### Older tabs and the document schema (docs/adr/2425-*)
 - Each client sends the document schema it knows on the collaboration socket (`/collab?schema=2` in 0.20; 0.19 and
@@ -895,3 +898,21 @@ columns with its content when it opens such a page (it has no guard); do not go 
 - Cost: an older client's connection walks the page once (from `page_docs` when the page is not open); current
   clients pay one comparison per message.
 
+## 15. Charts on public links (0.20)
+
+### Charts on public links (docs/adr/2440-* .. 2444-*)
+- Public links can show chart aggregates (per link, off by default), computed with the access of the owner/admin
+  who turned it on (`pages.share_charts_by`) while they are a workspace member. The public page answer is cached
+  per page revision for up to 10 minutes; chart numbers can be that old. Membership and the switch are read on every
+  request.
+- Only charts of sources approved by a manager (`pages.share_chart_sources`) are aggregated with that manager's
+  access; turning charts on and "Publish these charts too" also read the link's documents (as the count below).
+  Charts inside columns count and are approved like any other.
+- To find links with charts on: `SELECT id, title, share_charts_by FROM pages WHERE share_token IS NOT NULL AND share_include_charts;`
+  To turn them all off: `UPDATE pages SET share_include_charts = false, share_charts_by = NULL, share_chart_sources = NULL WHERE share_include_charts;`
+- The share dialog's chart count reads the documents of a folder link's pages (at most 300) that contain a chart
+  block: about 0.3 s for a folder of 300 large pages that all hold charts; also on every link setting change.
+- Each visit of a public page with charts runs the chart aggregates when its render is not cached (the 60 s
+  aggregate cache, docs/adr/1602-*, still applies); public routes stay at 60/min per route and IP.
+- No new setting. Public page HTML also changed for callouts (icon, then text) and keeps text and background colours
+  (docs/adr/2387-*); the in-memory render cache starts empty after the restart, so nothing needs clearing.

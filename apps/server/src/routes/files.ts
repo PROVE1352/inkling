@@ -1,4 +1,4 @@
-import { assertWorkspaceRoom } from '../quota/room'
+import { assertWorkspaceRoom, fileStorageBytes } from '../quota/room'
 import { fileLimitApplies, fileLimitError, uploadCapBytes } from '../quota/files'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -101,8 +101,9 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
       filePageId = pageId
     }
 
-    // Storage (docs/adr/2505-*): a full workspace is refused before the body is read.
-    await assertWorkspaceRoom(db, workspaceId, { bytes: 1, reserve: false })
+    // Storage (docs/adr/2505-*): a full workspace is refused before the body is read (with a limit, even
+    // an empty file counts its smallest size, review N2).
+    await assertWorkspaceRoom(db, workspaceId, { bytes: Math.max(1, fileStorageBytes(0)), reserve: false })
     // LIMIT_FILE_MB lowers both caps (docs/adr/2505-*); without it the caps are as before
     const defaultCap = bearer ? AGENT_UPLOAD_MAX_BYTES : MAX_FILE_BYTES
     const cap = uploadCapBytes(defaultCap)
@@ -151,7 +152,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     let row: { id: string }
     try {
       ;[row] = await db.transaction(async (tx) => {
-        await assertWorkspaceRoom(tx, workspaceId, { bytes: size }) // LIMIT_STORAGE, reserves the bytes
+        await assertWorkspaceRoom(tx, workspaceId, { bytes: fileStorageBytes(size) }) // LIMIT_STORAGE, reserves the counted bytes
         return tx
           .insert(files)
           .values({

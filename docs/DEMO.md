@@ -10,11 +10,48 @@ server but shares nothing with it: its own compose project, database, volumes, n
 restricted mode of 0.22 turns on what such a server needs: sign-in IDs instead of email addresses, an
 account cap, per-IP and hourly sign-up limits, accounts deleted 14 days after sign-up, limits on workspaces, members,
 pages and storage, a storage fuse for the whole server, server-wide switches for features that send data outside, terms and consent at sign-up,
-and a "Demo" label on every screen. 한국어: [DEMO.ko.md](DEMO.ko.md).
+and a "Demo" label on every screen. Its data lives on a filesystem of its own, with its own size and inode limits, so it cannot fill
+the disk your main instance uses (step 0). 한국어: [DEMO.ko.md](DEMO.ko.md).
 
 The files are in [`deploy/demo/`](../deploy/demo/): `demo.sh` (the only way to start, stop and check the
 demo), `compose.demo.yaml` (an overlay on `compose.yaml`), `demo.env.example` (the settings) and `legal/`
-(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2539.
+(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2539 and 2545–2547.
+
+## 0. A filesystem for the demo's data
+
+Make this on the server before the first `up`. The demo's database, uploads, backups and backup control files
+go in four folders (`db`, `data`, `backups`, `backup-ctl`) under one path, `DEMO_VOLUME_ROOT`. Mount a
+filesystem made only for the demo there. The storage fuse (`LIMIT_INSTANCE_STORAGE_MB`) does not see the WAL,
+the backups or the logs, and it trips only after the fact. A filesystem with its own size is what keeps a demo
+user from filling the disk your main instance uses. `demo.sh up` refuses a `DEMO_VOLUME_ROOT` on the root
+filesystem (or on the filesystem of Docker's data folder).
+
+You do this yourself, as root on the server: this page and the scripts never create, mount or delete
+filesystems. One way on Linux is an image file with ext4, mounted at every boot:
+
+```bash
+sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
+sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
+sudo mkdir -p /srv/inkling-demo-data
+echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec 0 2' | sudo tee -a /etc/fstab
+sudo mount /srv/inkling-demo-data
+sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
+findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
+```
+
+Then set `DEMO_VOLUME_ROOT=/srv/inkling-demo-data` in `demo.env`. A separate disk, partition, LVM volume or a
+virtual machine works as well. After a reboot, check with `findmnt` that it is mounted before `demo.sh up`:
+an empty mount point is on the root filesystem, so `up` refuses it rather than writing to the main disk.
+
+**Size**: fuse + 2 GB for the WAL + the number of backup sets × the fuse + headroom. With the preset
+(`LIMIT_INSTANCE_STORAGE_MB=3000`, 7 daily backup sets) that is 3 + 2 + 7 × 3 = 26 GB, so 30 GB with
+headroom. If you change the fuse or the backup sets, change the size to match. **Inodes**: with the preset, the
+counted files are at most 100 workspaces × 10 MB / 5 KB (each file counts at least 5 KB), about 205,000, plus
+the database's and the backups' files. `-N 600000` bounds the inodes and leaves room for them.
+
+For a trial on a laptop without such a filesystem, `DEMO_ALLOW_SHARED_DISK=1 deploy/demo/demo.sh up` goes on with
+a warning. Never do this for a public demo. On macOS a disk image works as a real one
+(`hdiutil create -size 2g -fs APFS -volname demo demo.dmg`, then `hdiutil attach -mountpoint <folder> demo.dmg`).
 
 ## 1. Start it as a separate instance
 
@@ -26,13 +63,14 @@ same machine:
 git clone <the Inkling repository> /srv/inkling-demo/inkling    # a second copy, at the release you run
 cd /srv/inkling-demo/inkling
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below)
-# and PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
+# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below),
+# PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
+# and DEMO_VOLUME_ROOT: the filesystem of step 0
 deploy/demo/demo.sh config     # check what would run; changes nothing
-deploy/demo/demo.sh up
+deploy/demo/demo.sh up         # builds the demo's own image (DEMO_IMAGE) the first time
 ```
 
-Run every demo command through `deploy/demo/demo.sh` (`config`, `up`, `down`, `destroy`, `ps`, `logs`,
+Run every demo command through `deploy/demo/demo.sh` (`config`, `up`, `build`, `down`, `destroy`, `ps`, `logs`,
 `exec`), never plain `docker compose`. The script always uses the project name `inkling-demo`, both compose
 files and `deploy/demo/demo.env` (another file with `--env-file`), and passes nothing from your shell but
 `PATH`, `HOME` and Docker's connection variables. It stops at once when `COMPOSE_PROJECT_NAME`,
@@ -40,11 +78,18 @@ files and `deploy/demo/demo.env` (another file with `--env-file`), and passes no
 resolved configuration and refuses, doing nothing, unless the project is `inkling-demo`, every volume and
 the network are named `inkling-demo_…`, the database and its role are `inkling_demo` and no port is 3000
 (production's default); `config` prints the same checks, and `up` also refuses secrets still marked
-`CHANGE-ME`. These names are written out in `compose.demo.yaml` itself, so no variable your main instance
+`CHANGE-ME`. The app image must be the demo's own name (`DEMO_IMAGE`, `inkling-demo:local` in the example; a name
+without `demo`, or production's `ghcr.io/prove1352/inkling`, is refused), so building or pulling for the demo never
+replaces the image your main instance's next `up` runs. Every volume must be a folder under `DEMO_VOLUME_ROOT`,
+written as an absolute path; before `up` that folder must exist on a filesystem of its own (step 0), and `up` makes
+the four folders in it. These names are written out in `compose.demo.yaml` itself, so no variable your main instance
 uses can point the demo at production's data, and plain `docker compose` with the overlay stops with a
 message. Every demo setting is required, so the production `.env` can never start a demo with no limits.
-`down` keeps the demo's volumes; `destroy` deletes them after you type the project name. The app listens on
-`127.0.0.1:3100` only (`DEMO_PORT`); nothing is public until step 3.
+`down` keeps the demo's volumes; `destroy` deletes them after you type the project name ("Closing the demo"
+below). The app listens on `127.0.0.1:3100` only (`DEMO_PORT`); nothing is public until step 3.
+
+To update the demo to a new release: `git pull` (or check out the release) in the demo's folder, then
+`deploy/demo/demo.sh build` and `deploy/demo/demo.sh up`. `up` alone keeps running the image it built before.
 
 ### Secrets
 
@@ -146,6 +191,8 @@ exists, the sign-up form opens to everyone.
 - After signing up, the deletion date is shown, and the "Demo" label is visible on a phone and on a computer.
 - `deploy/demo/demo.sh config` prints only `ok` lines, and `deploy/demo/demo.sh ps` shows no published
   database port and only `127.0.0.1:3100` for the app.
+- `deploy/demo/demo.sh up` printed `ok      DEMO_VOLUME_ROOT is a filesystem of its own`, and `df -h` of that folder
+  shows the size you chose in step 0.
 - Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets, and Admin › Status lists **Server storage limit**.
 - From one network, a third sign-up in a day is refused (the proxy passes the real address).
 
@@ -165,7 +212,7 @@ One line each; the full reference is in the operations docs.
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | Members of one workspace |
 | `LIMIT_PAGES_PER_WORKSPACE` | `300` | Pages of one workspace, trash included |
 | `LIMIT_FILE_MB` | `5` | Size of one uploaded file |
-| `LIMIT_WORKSPACE_STORAGE_MB` | `20` | Files, page bodies and version history of one workspace |
+| `LIMIT_WORKSPACE_STORAGE_MB` | `10` | Files (each counted as at least 5 KB), page bodies, version history and search indexes of one workspace |
 | `LIMIT_VERSIONS_PER_PAGE` | `10` | Version history kept per page |
 | `LIMIT_TRASH_DAYS` | `7` | Trashed pages are deleted for good after at most this many days, whatever a workspace sets |
 | `WORKSPACE_RESTORE_DAYS` | `7` | Days a deleted workspace can be restored |
@@ -181,6 +228,9 @@ One line each; the full reference is in the operations docs.
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | Self-registered OAuth clients that were never used are deleted this many hours after registering |
 | `OAUTH_UNUSED_CLIENT_MAX` | `500` | Most never-used self-registered OAuth clients kept; a new one removes the oldest (never one younger than 15 minutes) |
 | `DEMO_PORT` | `127.0.0.1:3100` | The demo's host port (not 3000) |
+| `DEMO_IMAGE` | `inkling-demo:local` | The demo's own image name, never production's (step 1) |
+| `DEMO_VOLUME_ROOT` | the filesystem of step 0 | Absolute path; the demo's four volumes are folders in it |
+| `DEMO_ALLOW_SHARED_DISK` | not set | Set to `1` in the shell for one `up` only: goes on, with a warning, when `DEMO_VOLUME_ROOT` is on the root filesystem (a trial, never a public demo) |
 | `DEMO_POSTGRES_PASSWORD`, `DEMO_APP_SECRET_KEY`, `DEMO_BACKUP_PASSPHRASE` | new values | The demo's own secrets ("Secrets" above) |
 
 Mail, OIDC, semantic search and experimental features stay off by leaving their variables empty. MCP stays on.
@@ -200,21 +250,21 @@ value and run `deploy/demo/demo.sh up` again.
 
 ### Disk and the storage fuse
 
-`LIMIT_INSTANCE_STORAGE_MB=3000` stops writes when the database and the uploads reach 3,000 MB: the demo then
+`LIMIT_INSTANCE_STORAGE_MB=3000` stops writes when the database and the uploads (their disk blocks) reach 3,000 MB: the demo then
 only reads, signs in, exports and deletes, and the app shows a strip saying so. It usually stays that way until you make
 room by hand, since deleting rows does not shrink the database file; what to do is in
 [OPERATIONS.md, "Instance storage fuse"](OPERATIONS.md#instance-storage-fuse). A few addresses writing at full
 speed for a minute or two can trip it on purpose; only the demo stops.
 
-The fuse does not see the WAL, the backups or the logs. Budget the disk for the worst case: 3,000 MB of live data,
-about 1 GB of WAL, 7 daily backup sets of up to 3,000 MB each (content that does not compress) and the logs, about
-3 + 1 + 7 × 3 = 25 GB. With 100 workspaces of at most 20 MB, the counted data stays under 2,000 MB; the rest of the
-3,000 MB is what is not counted and what deleting leaves inside the database. In 0.22.0 that is not enough: the
-search index alone can take more (KNOWN-ISSUES LIMITS-39).
+The fuse does not see the WAL, the backups or the logs; the demo's filesystem (step 0) holds them all and is sized
+for them. Measured for 0.22.1 with the production build: about 880 MB of WAL after 200 MB of database writes.
 
-A separate filesystem with a size limit for the demo's data (its own disk, partition or virtual machine) is
-recommended: it is stronger than the fuse, and whatever the fuse misses then cannot fill the disk your main
-instance uses.
+What one workspace can make the database grow by, measured for 0.22.1: a workspace's storage counts its files,
+page bodies, version history and the rows of its search indexes, but not Postgres's index entries and the space
+that rewriting leaves. Filled once with text, a 10 MB workspace grew the database by about 1.3–1.5 × its limit
+with prose and about 3.7–7.3 × with random words written on purpose. 100 workspaces of 10 MB filled with prose
+come to about 1.5 GB, under the 3,000 MB fuse; a few accounts writing random text can still trip the fuse on purpose. That
+stops only the demo, and the filesystem keeps it off your main disk.
 
 ### Posting a notice
 
@@ -233,8 +283,10 @@ backups are deleted without delay:
 deploy/demo/demo.sh destroy    # asks you to type inkling-demo
 ```
 
-`destroy` removes the demo's volumes, backups included, after the same checks as `up`; the main instance is
-not touched. Also delete
+`destroy` stops the demo after the same checks as `up`, removes its volumes and its image, and prints where the
+files still are: the volumes are folders under `DEMO_VOLUME_ROOT`, and the script never deletes files on the host.
+Delete the four folders yourself (as root, after checking the path), or unmount the filesystem of step 0 and delete
+its image file. The main instance is not touched. Also delete
 remote backup copies if `BACKUP_RCLONE_REMOTE` was set, the proxy's access log for the demo host, the
 filled terms folder and `demo.env`. If the server stopped suddenly, do this as soon as you can reach it.
 

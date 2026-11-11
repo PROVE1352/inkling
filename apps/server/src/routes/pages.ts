@@ -1,4 +1,4 @@
-import { assertWorkspaceGrowth, assertWorkspaceRoom, assertWorkspaceWritable, jsonBytes, pageBodyBytes } from '../quota/room'
+import { assertWorkspaceGrowth, assertWorkspaceRoom, assertWorkspaceWritable, jsonBytes, pageBodyBytes, storageLimitBytes } from '../quota/room'
 import { recountSoon } from '../quota/storage'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
@@ -28,7 +28,7 @@ import {
 } from '../db/schema'
 import { env } from '../env'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
-import { idParam, requireMembership } from '../helpers'
+import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { stateToBlocks } from '../md/convert'
 import type { AnyBlock } from '../md/convert'
@@ -59,7 +59,7 @@ import { enqueueWebhookEvent } from '../webhooks'
 import { outboxCommitted } from '../outbox'
 import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { actorOf } from '../context/attribution'
-import { assertCan, actorFor } from '../editLock'
+import { assertCan, actorFor, assertPageEditable } from '../editLock'
 import type { WorkspaceAccessRole, WorkspaceRole } from '@inkling/shared'
 import { bumpAcl, gateWrite } from '../aclVersion'
 import type { AclState } from '../aclVersion'
@@ -440,14 +440,6 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
 
     const visible = await findVisiblePage(id, user.id)
     if (!visible) throw notFound()
-    // Title, icon, cover, aliases and the date property are stored with the page; moving, reordering and
-    // the other switches are not refused // full workspace: LIMIT_STORAGE, and the bytes count at once (docs/adr/2533-*)
-    {
-      const grows = jsonBytes([body.title, body.icon, body.coverUrl, body.aliases, body.dateProperty])
-      if (body.title !== undefined || body.icon || body.coverUrl || body.aliases !== undefined || body.dateProperty !== undefined) {
-        await assertWorkspaceGrowth(db, visible.workspaceId, grows)
-      }
-    }
     // A guest (docs/adr/1252-*) may rename and decorate pages shared with them, nothing that moves,
     // re-scopes, reorders or re-labels them for the workspace.
     const guest = isGuestIn(visible.workspaceId, user.id)
@@ -456,6 +448,20 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (Object.keys(body).some((k) => !allowed.has(k) && (body as Record<string, unknown>)[k] !== undefined)) {
         throw guestOutside()
       }
+    }
+    // Title, icon, cover, aliases and the date property are stored with the page; moving, reordering and
+    // the other switches are not refused // full workspace: LIMIT_STORAGE, and the bytes count at once
+    // (docs/adr/2533-*). Only after an edit check (0.22.1, review N7): someone who may only read the page
+    // neither moves the workspace's cached use nor learns it from the 413. Before the transaction, as on
+    // the other write routes (assertWorkspaceGrowth takes its own connection and may recount); the
+    // transaction checks again under the write gate. No storage limit → nothing here, as before.
+    if (
+      storageLimitBytes() != null &&
+      (body.title !== undefined || body.icon || body.coverUrl || body.aliases !== undefined || body.dateProperty !== undefined)
+    ) {
+      const { role: r0, acl: a0 } = await requireMembershipAcl(visible.workspaceId, user.id, { guests: true })
+      await assertPageEditable(id, user.id, { role: r0, acl: a0 })
+      await assertWorkspaceGrowth(db, visible.workspaceId, jsonBytes([body.title, body.icon, body.coverUrl, body.aliases, body.dateProperty]))
     }
     const treeChange = body.parentId !== undefined || body.scope !== undefined
     // Names of properties this request may add (fullWidth / date / done), in the editor's locale.

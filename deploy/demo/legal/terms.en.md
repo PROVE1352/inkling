@@ -31,7 +31,7 @@ These terms set the conditions for using the Inkling demo service at {{SERVICE_U
 The service has storage and usage limits. The limits that apply are the ones shown in the service. As of the effective date of these terms, the limits are, for example:
 
 - One file: 5 MB
-- Storage of one workspace (files, page text and version history together): 20 MB
+- Storage of one workspace (files, page text, version history and search index together): 10 MB
 - Workspaces one account can own: 2
 - Members in one workspace: 4
 - Pages in one workspace: 300

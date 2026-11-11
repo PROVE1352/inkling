@@ -5,9 +5,32 @@
 > 끄기를 쓰는 것은 해당하지 않습니다. 자세한 것은 [KNOWN-ISSUES.ko.md의 "0.22.0에서 추가"](KNOWN-ISSUES.ko.md#added-in-0220)
 > (LIMITS-37부터 LIMITS-42까지)에 있습니다.
 
-데모 인스턴스는 처음 보는 사람도 가입해서 써 볼 수 있게 따로 띄우는 Inkling 서버입니다. 운영 중인 서버 옆에서 돌지만 나눠 쓰는 것은 없습니다. compose 프로젝트, 데이터베이스, 볼륨, 네트워크, 포트가 모두 따로입니다. 0.22의 제한 모드가 이런 서버에 필요한 것을 켭니다. 이메일 대신 아이디로 가입, 전체 계정 수 상한, IP별·시간당 가입 횟수 제한, 가입 14일 뒤 계정 삭제, 워크스페이스·멤버·페이지·저장 용량 한도, 서버 전체의 저장 공간 퓨즈, 밖으로 데이터를 보내는 기능을 서버 전체에서 끄는 스위치, 가입할 때 약관 동의, 모든 화면의 "Demo" 표시가 그것입니다. English: [DEMO.md](DEMO.md).
+데모 인스턴스는 처음 보는 사람도 가입해서 써 볼 수 있게 따로 띄우는 Inkling 서버입니다. 운영 중인 서버 옆에서 돌지만 나눠 쓰는 것은 없습니다. compose 프로젝트, 데이터베이스, 볼륨, 네트워크, 포트가 모두 따로입니다. 0.22의 제한 모드가 이런 서버에 필요한 것을 켭니다. 이메일 대신 아이디로 가입, 전체 계정 수 상한, IP별·시간당 가입 횟수 제한, 가입 14일 뒤 계정 삭제, 워크스페이스·멤버·페이지·저장 용량 한도, 서버 전체의 저장 공간 퓨즈, 밖으로 데이터를 보내는 기능을 서버 전체에서 끄는 스위치, 가입할 때 약관 동의, 모든 화면의 "Demo" 표시가 그것입니다. 데이터는 크기와 inode 수가 따로 정해진 전용 파일시스템에 두므로 본 인스턴스가 쓰는 디스크를 채울 수 없습니다(0단계). English: [DEMO.md](DEMO.md).
 
-파일은 [`deploy/demo/`](../deploy/demo/)에 있습니다. `demo.sh`(데모를 띄우고 내리고 확인하는 유일한 방법), `compose.demo.yaml`(`compose.yaml`에 덧씌우는 파일), `demo.env.example`(설정), `legal/`(이용약관, 개인정보 처리방침, 가입 화면 문구의 틀)입니다. 설계 설명은 ADR 2500–2539에 있습니다.
+파일은 [`deploy/demo/`](../deploy/demo/)에 있습니다. `demo.sh`(데모를 띄우고 내리고 확인하는 유일한 방법), `compose.demo.yaml`(`compose.yaml`에 덧씌우는 파일), `demo.env.example`(설정), `legal/`(이용약관, 개인정보 처리방침, 가입 화면 문구의 틀)입니다. 설계 설명은 ADR 2500–2539와 2545–2547에 있습니다.
+
+<a id="0-a-filesystem-for-the-demos-data"></a>
+## 0. 데모 데이터용 파일시스템 만들기
+
+처음 `up`을 하기 전에 서버에서 만듭니다. 데모의 데이터베이스, 업로드, 백업, 백업 제어 파일은 경로 하나(`DEMO_VOLUME_ROOT`) 아래의 폴더 네 개(`db`, `data`, `backups`, `backup-ctl`)에 들어갑니다. 그 경로에 데모만 쓰는 파일시스템을 마운트합니다. 저장 공간 퓨즈(`LIMIT_INSTANCE_STORAGE_MB`)는 WAL, 백업, 로그를 보지 못하고, 넘친 뒤에야 끊깁니다. 데모 사용자가 본 인스턴스의 디스크를 채우지 못하게 막는 것은 크기가 정해진 파일시스템입니다. `deploy/demo/demo.sh up`은 `DEMO_VOLUME_ROOT`가 루트 파일시스템(또는 Docker 데이터 폴더가 있는 파일시스템) 위에 있으면 거절합니다.
+
+이 일은 운영자가 서버에서 root로 직접 합니다. 이 문서와 스크립트는 파일시스템을 만들거나 마운트하거나 지우지 않습니다. Linux에서는 이미지 파일에 ext4를 만들고 부팅할 때마다 마운트하는 방법이 있습니다.
+
+```bash
+sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
+sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
+sudo mkdir -p /srv/inkling-demo-data
+echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec 0 2' | sudo tee -a /etc/fstab
+sudo mount /srv/inkling-demo-data
+sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
+findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
+```
+
+그다음 `demo.env`에 `DEMO_VOLUME_ROOT=/srv/inkling-demo-data`를 적습니다. 따로 둔 디스크, 파티션, LVM 볼륨, 가상 머신도 됩니다. 재부팅한 뒤에는 `deploy/demo/demo.sh up` 전에 `findmnt`로 마운트되어 있는지 확인합니다. 마운트되지 않은 빈 폴더는 루트 파일시스템에 있으므로 `up`이 본 디스크에 쓰지 않고 거절합니다.
+
+**크기**는 퓨즈 + WAL 2 GB + 백업 벌 수 × 퓨즈 + 여유입니다. 프리셋(`LIMIT_INSTANCE_STORAGE_MB=3000`, 매일 백업 7벌)이면 3 + 2 + 7 × 3 = 26 GB이고, 여유를 두어 30 GB입니다. 퓨즈나 백업 벌 수를 바꾸면 크기도 맞춰 바꿉니다. **inode**는, 프리셋에서 세는 파일이 많아야 워크스페이스 100개 × 10 MB / 5 KB(파일 하나는 적어도 5 KB로 셈), 약 205,000개이고 여기에 데이터베이스와 백업의 파일이 더해집니다. `-N 600000`은 inode 수를 묶으면서 그만큼의 여유를 둡니다.
+
+이런 파일시스템 없이 노트북에서 시험해 볼 때만 `DEMO_ALLOW_SHARED_DISK=1 deploy/demo/demo.sh up`으로 경고를 띄우고 진행할 수 있습니다. 공개 데모에서는 절대 쓰지 않습니다. macOS에서는 디스크 이미지가 실제 디스크처럼 동작합니다(`hdiutil create -size 2g -fs APFS -volname demo demo.dmg` 다음 `hdiutil attach -mountpoint <폴더> demo.dmg`).
 
 <a id="1-start-it-as-a-separate-instance"></a>
 ## 1. 별도 인스턴스로 띄우기
@@ -18,13 +41,16 @@
 git clone <the Inkling repository> /srv/inkling-demo/inkling    # a second copy, at the release you run
 cd /srv/inkling-demo/inkling
 cp deploy/demo/demo.env.example deploy/demo/demo.env
-# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below)
-# and PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
+# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see "Secrets" below),
+# PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
+# and DEMO_VOLUME_ROOT: the filesystem of step 0
 deploy/demo/demo.sh config     # check what would run; changes nothing
-deploy/demo/demo.sh up
+deploy/demo/demo.sh up         # builds the demo's own image (DEMO_IMAGE) the first time
 ```
 
-데모 명령은 모두 `deploy/demo/demo.sh`(`config`, `up`, `down`, `destroy`, `ps`, `logs`, `exec`)로 실행하고, `docker compose`를 직접 부르지 않습니다. 스크립트는 언제나 프로젝트 이름 `inkling-demo`, compose 파일 두 개, `deploy/demo/demo.env`(다른 파일은 `--env-file`로)를 쓰고, 셸의 변수는 `PATH`, `HOME`, Docker 연결 변수 말고는 넘기지 않습니다. 셸에 `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`, `INKLING_DATA_NAME`이 있으면 바로 멈춥니다. `up`, `down`, `destroy` 전에는 해석된 설정을 읽어서, 프로젝트가 `inkling-demo`이고 모든 볼륨과 네트워크 이름이 `inkling-demo_…`이고 데이터베이스와 그 역할이 `inkling_demo`이고 3000번 포트(운영의 기본값)가 없을 때만 진행합니다. 하나라도 어긋나면 아무것도 하지 않고 거절합니다. `config`는 같은 검사 결과를 보여 주고, `up`은 `CHANGE-ME`가 남은 비밀 값도 거절합니다. 이 이름들은 `compose.demo.yaml`에 글자로 적혀 있어서 운영 인스턴스가 쓰는 변수로는 데모를 운영 데이터로 돌릴 수 없고, 덧씌우는 파일을 `docker compose`로 직접 쓰면 안내와 함께 멈춥니다. 데모 설정은 모두 필수라서 운영용 `.env`로 한도 없는 데모가 뜨는 일도 없습니다. `down`은 데모의 볼륨을 남기고, `destroy`는 프로젝트 이름을 직접 입력해야 볼륨까지 지웁니다. 앱은 `127.0.0.1:3100`(`DEMO_PORT`)에서만 듣습니다. 3단계 전까지는 밖에서 열 수 없습니다.
+데모 명령은 모두 `deploy/demo/demo.sh`(`config`, `up`, `build`, `down`, `destroy`, `ps`, `logs`, `exec`)로 실행하고, `docker compose`를 직접 부르지 않습니다. 스크립트는 언제나 프로젝트 이름 `inkling-demo`, compose 파일 두 개, `deploy/demo/demo.env`(다른 파일은 `--env-file`로)를 쓰고, 셸의 변수는 `PATH`, `HOME`, Docker 연결 변수 말고는 넘기지 않습니다. 셸에 `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`, `INKLING_DATA_NAME`이 있으면 바로 멈춥니다. `up`, `down`, `destroy` 전에는 해석된 설정을 읽어서, 프로젝트가 `inkling-demo`이고 모든 볼륨과 네트워크 이름이 `inkling-demo_…`이고 데이터베이스와 그 역할이 `inkling_demo`이고 3000번 포트(운영의 기본값)가 없을 때만 진행합니다. 하나라도 어긋나면 아무것도 하지 않고 거절합니다. `config`는 같은 검사 결과를 보여 주고, `up`은 `CHANGE-ME`가 남은 비밀 값도 거절합니다. 앱 이미지는 데모 전용 이름(`DEMO_IMAGE`, 예시는 `inkling-demo:local`)이어야 합니다. 이름에 `demo`가 없거나 운영의 `ghcr.io/prove1352/inkling`이면 거절하므로, 데모를 빌드하거나 받아도 본 인스턴스가 다음 `up`에서 쓸 이미지는 바뀌지 않습니다. 볼륨은 모두 절대 경로로 적은 `DEMO_VOLUME_ROOT` 아래의 폴더여야 하고, `up` 전에 그 폴더가 전용 파일시스템(0단계) 위에 있어야 합니다. `up`이 그 안에 폴더 네 개를 만듭니다. 이 이름들은 `compose.demo.yaml`에 글자로 적혀 있어서 운영 인스턴스가 쓰는 변수로는 데모를 운영 데이터로 돌릴 수 없고, 덧씌우는 파일을 `docker compose`로 직접 쓰면 안내와 함께 멈춥니다. 데모 설정은 모두 필수라서 운영용 `.env`로 한도 없는 데모가 뜨는 일도 없습니다. `down`은 데모의 볼륨을 남기고, `destroy`는 프로젝트 이름을 직접 입력해야 볼륨까지 지웁니다(아래 "예고 없이 데모를 닫을 때"). 앱은 `127.0.0.1:3100`(`DEMO_PORT`)에서만 듣습니다. 3단계 전까지는 밖에서 열 수 없습니다.
+
+새 릴리스로 올릴 때는 데모 폴더에서 `git pull`(또는 그 릴리스를 체크아웃)한 뒤 `deploy/demo/demo.sh build`와 `deploy/demo/demo.sh up`을 차례로 실행합니다. `up`만 하면 전에 빌드한 이미지를 계속 씁니다.
 
 <a id="secrets"></a>
 ### 비밀 값
@@ -105,6 +131,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 - 시크릿 창에서 가입 화면이 아이디를 묻고, 고지와 체크되지 않은 항목 여섯 개를 보여 주며, 모두 체크하기 전에는 가입 단추가 꺼져 있습니다. `/terms`와 `/privacy`는 로그인하지 않아도 열립니다.
 - 가입한 뒤 삭제 예정일이 보이고, 휴대폰과 컴퓨터 모두에서 "Demo" 표시가 보입니다.
 - `deploy/demo/demo.sh config`가 `ok` 줄만 보여 주고, `deploy/demo/demo.sh ps`에 공개된 데이터베이스 포트가 없으며 앱은 `127.0.0.1:3100`만 있습니다.
+- `deploy/demo/demo.sh up`이 `ok      DEMO_VOLUME_ROOT is a filesystem of its own`을 보여 주었고, 그 폴더의 `df -h`가 0단계에서 정한 크기를 보여 줍니다.
 - 관리자 › 백업에 일 7, 주 0, 월 0이 보이고, 관리자 › 상태에 **서버 저장 공간 상한**이 보입니다.
 - 한 네트워크에서 하루에 세 번째 가입은 거절됩니다(프록시가 실제 주소를 넘깁니다).
 
@@ -125,7 +152,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | 워크스페이스 하나의 멤버 수 |
 | `LIMIT_PAGES_PER_WORKSPACE` | `300` | 워크스페이스 하나의 페이지 수(휴지통 포함) |
 | `LIMIT_FILE_MB` | `5` | 업로드 파일 하나의 크기 |
-| `LIMIT_WORKSPACE_STORAGE_MB` | `20` | 워크스페이스 하나의 파일, 페이지 본문, 버전 기록 합계 |
+| `LIMIT_WORKSPACE_STORAGE_MB` | `10` | 워크스페이스 하나의 파일(하나를 적어도 5 KB로 셈), 페이지 본문, 버전 기록, 검색 색인 합계 |
 | `LIMIT_VERSIONS_PER_PAGE` | `10` | 페이지마다 남기는 버전 기록 수 |
 | `LIMIT_TRASH_DAYS` | `7` | 휴지통의 페이지를 길어도 이 일수 뒤에 완전히 삭제(워크스페이스 설정과 상관없이) |
 | `WORKSPACE_RESTORE_DAYS` | `7` | 삭제한 워크스페이스를 복구할 수 있는 일수 |
@@ -141,6 +168,9 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을 등록 후 이 시간이 지나면 삭제 |
 | `OAUTH_UNUSED_CLIENT_MAX` | `500` | 한 번도 쓰이지 않은 OAuth 클라이언트를 남기는 최대 수. 새 등록이 가장 오래된 것부터 지움(15분이 안 된 것은 지우지 않음) |
 | `DEMO_PORT` | `127.0.0.1:3100` | 데모의 호스트 포트(3000은 안 됨) |
+| `DEMO_IMAGE` | `inkling-demo:local` | 데모 전용 이미지 이름. 운영의 이름은 안 됨(1단계) |
+| `DEMO_VOLUME_ROOT` | 0단계의 파일시스템 | 절대 경로. 데모의 볼륨 네 개가 이 안의 폴더 |
+| `DEMO_ALLOW_SHARED_DISK` | 두지 않음 | 셸에서 `up` 한 번에만 `1`로 줌. `DEMO_VOLUME_ROOT`가 루트 파일시스템에 있어도 경고와 함께 진행(시험용, 공개 데모에는 쓰지 않음) |
 | `DEMO_POSTGRES_PASSWORD`, `DEMO_APP_SECRET_KEY`, `DEMO_BACKUP_PASSPHRASE` | 새로 만든 값 | 데모 전용 비밀 값(위 "비밀 값") |
 
 메일, OIDC, 의미 검색, 실험 기능은 변수를 비워 두어 꺼 둡니다. MCP는 켜 둡니다.
@@ -158,11 +188,11 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 <a id="disk-and-the-storage-fuse"></a>
 ### 디스크와 저장 공간 퓨즈
 
-`LIMIT_INSTANCE_STORAGE_MB=3000`은 데이터베이스와 업로드가 3,000 MB에 닿으면 쓰기를 멈춥니다. 그러면 데모는 읽기, 로그인, 내보내기, 삭제만 하고, 앱은 그렇다고 알리는 띠를 보여 줍니다. 행을 지워도 데이터베이스 파일은 줄지 않으므로, 대개 손으로 공간을 비울 때까지 그대로입니다. 할 일은 [OPERATIONS.ko.md의 "인스턴스 저장 공간 퓨즈"](OPERATIONS.ko.md#instance-storage-fuse)에 있습니다. 주소 몇 개가 1~2분 동안 최대 속도로 쓰면 일부러 끊을 수도 있고, 그때 멈추는 것은 데모뿐입니다.
+`LIMIT_INSTANCE_STORAGE_MB=3000`은 데이터베이스와 업로드(디스크에서 차지하는 블록)가 3,000 MB에 닿으면 쓰기를 멈춥니다. 그러면 데모는 읽기, 로그인, 내보내기, 삭제만 하고, 앱은 그렇다고 알리는 띠를 보여 줍니다. 행을 지워도 데이터베이스 파일은 줄지 않으므로, 대개 손으로 공간을 비울 때까지 그대로입니다. 할 일은 [OPERATIONS.ko.md의 "인스턴스 저장 공간 퓨즈"](OPERATIONS.ko.md#instance-storage-fuse)에 있습니다. 주소 몇 개가 1~2분 동안 최대 속도로 쓰면 일부러 끊을 수도 있고, 그때 멈추는 것은 데모뿐입니다.
 
-퓨즈는 WAL, 백업, 로그를 보지 못합니다. 디스크는 최악의 경우로 잡으세요. 살아 있는 데이터 3,000 MB, WAL 약 1 GB, 매일 백업 7벌(압축되지 않는 내용이면 한 벌에 3,000 MB까지), 로그를 더하면 약 3 + 1 + 7 × 3 = 25 GB입니다. 워크스페이스 100개가 각각 20 MB까지이므로 센 데이터는 2,000 MB 아래에 머물고, 3,000 MB의 나머지는 세지 않는 것과 삭제가 데이터베이스 안에 남기는 공간입니다. 0.22.0에서는 이것으로 모자랍니다. 검색 색인만으로도 더 차지할 수 있습니다(KNOWN-ISSUES LIMITS-39).
+퓨즈는 WAL, 백업, 로그를 보지 못합니다. 이것들은 모두 데모의 파일시스템(0단계) 안에 있고, 크기도 이것들을 넣어 정합니다. 0.22.1에서 프로덕션 빌드로 재 보니 데이터베이스에 200 MB를 쓴 뒤 WAL이 약 880 MB였습니다.
 
-데모 데이터에는 크기 제한이 있는 별도 파일시스템(따로 둔 디스크, 파티션, 가상 머신)을 권합니다. 퓨즈보다 강하고, 퓨즈가 놓친 것이 본 인스턴스가 쓰는 디스크를 채우지 못하게 합니다.
+워크스페이스 하나가 데이터베이스를 얼마나 키울 수 있는지도 0.22.1에서 쟀습니다. 워크스페이스의 저장 용량은 파일, 페이지 본문, 버전 기록, 검색 색인의 행을 세지만, Postgres의 색인 항목과 다시 쓸 때 남는 공간은 세지 않습니다. 10 MB 워크스페이스를 글로 한 번 가득 채우면 데이터베이스가 일반 문장으로는 한도의 약 1.3–1.5배, 일부러 쓴 무작위 단어로는 약 3.7–7.3배 늘었습니다. 10 MB 워크스페이스 100개를 일반 문장으로 채우면 약 1.5 GB로 3,000 MB 퓨즈 아래입니다. 계정 몇 개로 무작위 글을 쓰면 여전히 퓨즈를 일부러 끊을 수 있지만, 그때 멈추는 것은 데모뿐이고 파일시스템이 본 디스크를 지킵니다.
 
 <a id="posting-a-notice"></a>
 ### 공지 올리기
@@ -178,7 +208,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 deploy/demo/demo.sh destroy    # asks you to type inkling-demo
 ```
 
-`destroy`는 `up`과 같은 검사를 거친 뒤 백업을 포함한 데모의 볼륨을 지우고, 운영 인스턴스는 건드리지 않습니다. `BACKUP_RCLONE_REMOTE`를 썼다면 원격 백업 사본도, 데모 주소의 프록시 접근 로그도, 채운 약관 폴더와 `demo.env`도 지웁니다. 서버가 갑자기 멈췄다면 다시 접속할 수 있게 되는 대로 이 일을 합니다.
+`destroy`는 `up`과 같은 검사를 거친 뒤 데모를 멈추고 볼륨과 이미지를 지운 다음, 파일이 아직 어디에 있는지 알려 줍니다. 볼륨은 `DEMO_VOLUME_ROOT` 아래의 폴더이고, 스크립트는 호스트의 파일을 지우지 않습니다. 폴더 네 개는 경로를 확인한 뒤 root로 직접 지우거나, 0단계의 파일시스템을 마운트 해제하고 그 이미지 파일을 지웁니다. 운영 인스턴스는 건드리지 않습니다. `BACKUP_RCLONE_REMOTE`를 썼다면 원격 백업 사본도, 데모 주소의 프록시 접근 로그도, 채운 약관 폴더와 `demo.env`도 지웁니다. 서버가 갑자기 멈췄다면 다시 접속할 수 있게 되는 대로 이 일을 합니다.
 
 <a id="these-files-are-not-legal-advice"></a>
 ### 이 파일들은 법률 자문이 아닙니다

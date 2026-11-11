@@ -224,8 +224,9 @@ async function writeRow(
       actor,
       action: existing ? 'page.access_changed' : 'page.access_granted',
       target: { type: 'page', id: ctx.page.id, label: ctx.page.title || 'Untitled' },
-      before: existing ? { person: who?.name ?? targetId, level: existing.level } : null,
-      after: { person: who?.name ?? targetId, level, guest: !targetRole },
+      // personId: account deletion removes the name by id (account/deletion.ts, review N6); not shown on the audit screen
+      before: existing ? { person: who?.name ?? targetId, personId: targetId, level: existing.level } : null,
+      after: { person: who?.name ?? targetId, personId: targetId, level, guest: !targetRole },
     })
     return true
   })
@@ -358,7 +359,7 @@ export async function registerPageAccessRoutes(app: FastifyInstance): Promise<vo
         actor: user,
         action: 'page.access_removed',
         target: { type: 'page', id, label: ctx.page.title || 'Untitled' },
-        before: { person: who?.name ?? userId, level: rows[0].level },
+        before: { person: who?.name ?? userId, personId: userId, level: rows[0].level },
       })
       return true
     })
@@ -526,7 +527,7 @@ export async function registerPageAccessRoutes(app: FastifyInstance): Promise<vo
           actor: user,
           action: 'page.access_granted',
           target: { type: 'page', id: inv.pageId, label: inv.title || 'Untitled' },
-          after: { person: user.name, level: inv.level, guest: true, via: 'invitation' },
+          after: { person: user.name, personId: user.id, level: inv.level, guest: true, via: 'invitation' },
         })
       })
       return { workspaceId: inv.workspaceId, pageId: inv.pageId }

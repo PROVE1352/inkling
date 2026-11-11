@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { AppError } from '../errors'
 import { limits, mbToBytes } from '../limits'
+import { currentGuest } from '../pageGrants'
 import { collabUnsavedBytes } from './collabGrowth'
 
 /**
@@ -36,6 +37,34 @@ export function storageLimitBytes(): number | null {
   return limits.workspaceStorageMb == null ? null : mbToBytes(limits.workspaceStorageMb)
 }
 
+/**
+ * What one upload counts toward the workspace's storage while a storage limit is set (contract §15,
+ * review N2): at least one 4 KB block, plus 1 KB for its inode, folder entry and row, so a pile of
+ * one-byte or empty files cannot hide in a few bytes of the count. Without a limit: the file's size.
+ */
+export const FILE_MIN_COUNTED_BYTES = 4096
+export const FILE_OVERHEAD_BYTES = 1024
+
+export function fileStorageBytes(size: number): number {
+  if (storageLimitBytes() == null) return size
+  return Math.max(size, FILE_MIN_COUNTED_BYTES) + FILE_OVERHEAD_BYTES
+}
+
+/**
+ * The most `files` uploads add on top of their sizes (an archive's attachments, reserved before the
+ * sizes of what is kept are known exactly). 0 without a storage limit.
+ */
+export function fileStorageOverhead(files: number): number {
+  if (storageLimitBytes() == null) return 0
+  return Math.max(0, files) * (FILE_MIN_COUNTED_BYTES + FILE_OVERHEAD_BYTES)
+}
+
+/** SQL for the counted bytes of a `files` row's `size` column (same rule as fileStorageBytes). */
+export function fileStorageSql(sizeCol: ReturnType<typeof sql>): ReturnType<typeof sql> {
+  if (storageLimitBytes() == null) return sizeCol
+  return sql`(greatest(${sizeCol}, ${FILE_MIN_COUNTED_BYTES}) + ${FILE_OVERHEAD_BYTES})`
+}
+
 /** LIMIT_FILE_MB in bytes, null = no limit (the 25 MB multipart ceiling still applies). */
 export function fileLimitBytes(): number | null {
   return limits.fileMb == null ? null : mbToBytes(limits.fileMb)
@@ -50,13 +79,28 @@ export function pageBodyLimitBytes(): number | null {
   return ws == null ? null : Math.floor(ws / 4)
 }
 
-export function storageError(limit: number, used: number): AppError {
+/**
+ * The request's user is a page guest in this workspace, not a member (docs/adr/1252-*): read from the
+ * request's guest scope, so no query. False outside a request (collab socket, jobs).
+ */
+export function guestInWorkspace(workspaceId: string | undefined): boolean {
+  if (!workspaceId) return false
+  const g = currentGuest()
+  return !!g && g.workspaces.has(workspaceId)
+}
+
+/**
+ * 413 LIMIT_STORAGE. `{ limit, used }` are the workspace's numbers: members see them (they can read
+ * GET /workspaces/:id/usage anyway); a page guest of `workspaceId` gets the code and the message only
+ * (0.22.1, review N7).
+ */
+export function storageError(limit: number, used: number, workspaceId?: string): AppError {
   return new AppError(
     413,
     'LIMIT_STORAGE',
     'This workspace has used up its storage. Delete files or pages (and empty the trash) to edit again',
     undefined,
-    { limit, used, unit: 'bytes' },
+    guestInWorkspace(workspaceId) ? undefined : { limit, used, unit: 'bytes' },
   )
 }
 
@@ -125,8 +169,13 @@ export async function assertWorkspaceRoom(
     // do not both take the same room
     const used = Number(ws.used) + collabUnsavedBytes(workspaceId)
     const bytes = Math.max(0, need.bytes ?? 0)
-    if (ws.over || used >= storage || used + bytes > storage) throw storageError(storage, used)
-    if (bytes > 0 && need.reserve !== false) await tx.execute(sql`UPDATE workspaces SET storage_bytes = storage_bytes + ${bytes} WHERE id = ${workspaceId}`)
+    if (ws.over || used >= storage || used + bytes > storage) throw storageError(storage, used, workspaceId)
+    if (bytes > 0 && need.reserve !== false) {
+      await tx.execute(sql`UPDATE workspaces SET storage_bytes = storage_bytes + ${bytes} WHERE id = ${workspaceId}`)
+      // new pages are indexed after their transaction (review N3): a recount once that has landed counts
+      // their index rows (quota/storage.ts; imported lazily, storage.ts imports this module)
+      if ((need.pages ?? 0) > 0) void import('./storage').then((m) => m.recountAfterIndex(workspaceId)).catch(() => {})
+    }
   }
 }
 
@@ -145,14 +194,16 @@ export async function assertWorkspaceWritable(exec: QuotaExec, workspaceId: stri
           FROM workspaces WHERE id = ${workspaceId}`,
   )
   const used = ws ? Number(ws.used) + collabUnsavedBytes(workspaceId) : 0
-  if (ws && (ws.over || used > storage)) throw storageError(storage, used)
+  if (ws && (ws.over || used > storage)) throw storageError(storage, used, workspaceId)
   const cap = pageBodyLimitBytes()!
   if (ws?.body != null && Number(ws.body) > cap) {
-    throw new AppError(413, 'LIMIT_STORAGE', 'This page is too large to grow further: move part of it to a new page', undefined, {
-      limit: cap,
-      used: Number(ws.body),
-      unit: 'bytes',
-    })
+    throw new AppError(
+      413,
+      'LIMIT_STORAGE',
+      'This page is too large to grow further: move part of it to a new page',
+      undefined,
+      guestInWorkspace(workspaceId) ? undefined : { limit: cap, used: Number(ws.body), unit: 'bytes' },
+    )
   }
 }
 
@@ -203,7 +254,7 @@ export async function assertWorkspaceGrowth(exec: QuotaExec, workspaceId: string
     ws = await read()
     if (!ws) return
   }
-  if (!fits(ws)) throw storageError(storage, Number(ws.used) + collabUnsavedBytes(workspaceId))
+  if (!fits(ws)) throw storageError(storage, Number(ws.used) + collabUnsavedBytes(workspaceId), workspaceId)
   if (n > 0) await exec.execute(sql`UPDATE workspaces SET storage_bytes = storage_bytes + ${n} WHERE id = ${workspaceId}`)
 }
 

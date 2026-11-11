@@ -85,7 +85,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |
 | `TZ` | `UTC` | 마감일, 데일리 노트, 알림, 백업 일정에서 "오늘"을 정하는 시간대입니다. 예: `Asia/Seoul` |
 
-나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.ko.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.ko.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.ko.md#3-h-semantic-search-optional)를 보시면 되고(e5처럼 앞에 붙는 말이 필요한 모델은 `EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`로 정합니다), 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 새 계정에는 짧은 소개와 시작하기 체크리스트가 나오는데, `ONBOARDING=off`로 끌 수 있고 `ONBOARDING_EXISTING_USERS=once`를 넣으면 0.19 전부터 있던 계정에도 소개를 한 번 보여 줍니다([docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#13-public-page-downloads-start-up-notices-and-onboarding-019)). 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md)를 참고하시기 바랍니다.
+나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.ko.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.ko.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.ko.md#3-h-semantic-search-optional)를 보시면 되고(e5처럼 앞에 붙는 말이 필요한 모델은 `EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`로 정합니다), 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 새 계정에는 짧은 소개와 시작하기 체크리스트가 나오는데, `ONBOARDING=off`로 끌 수 있고 `ONBOARDING_EXISTING_USERS=once`를 넣으면 0.19 전부터 있던 계정에도 소개를 한 번 보여 줍니다([docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#13-public-page-downloads-start-up-notices-and-onboarding-019)). 제한 모드(0.22)의 한도, 기능 끄기 같은 설정은 모두 선택입니다([docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#17-limits-and-restricted-mode-022)). 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md)를 참고하시기 바랍니다.
 
 ### 개발
 
@@ -129,7 +129,7 @@ pnpm dev        # API·협업 서버 :3001, 웹 :5173
 
 ### 셀프호스팅
 
-`docker compose` 하나로 Postgres, 앱, 백업 사이드카가 뜨고, Caddy 오버레이를 더하면 HTTPS까지 붙습니다. 백업은 예약 실행되고 매번 검증하며, 암호화와 GFS 보관, 주간 복원 테스트, rclone 외부 사본을 지원합니다([docs/BACKUP.ko.md](docs/BACKUP.ko.md)). 로그인은 가입 키, 2단계 인증, OpenID Connect, 외부 인증 서버로 넘기는 위임 로그인을 지원하고, 관리자 페이지에서 사용자, 가입 키, 막힌 IP, 백업, 서버 상태를 봅니다. 노션 내보내기 zip과 마크다운/zip을 가져올 수 있고, 마크다운/zip과 PDF로 내보내며, 마감일은 iCal로 구독할 수 있습니다.
+`docker compose` 하나로 Postgres, 앱, 백업 사이드카가 뜨고, Caddy 오버레이를 더하면 HTTPS까지 붙습니다. 백업은 예약 실행되고 매번 검증하며, 암호화와 GFS 보관, 주간 복원 테스트, rclone 외부 사본을 지원합니다([docs/BACKUP.ko.md](docs/BACKUP.ko.md)). 로그인은 가입 키, 2단계 인증, OpenID Connect, 외부 인증 서버로 넘기는 위임 로그인을 지원하고, 관리자 페이지에서 사용자, 가입 키, 막힌 IP, 백업, 서버 상태를 봅니다. 노션 내보내기 zip과 마크다운/zip을 가져올 수 있고, 마크다운/zip과 PDF로 내보내며, 마감일은 iCal로 구독할 수 있습니다. 남에게 여는 서버를 위해 계정, 워크스페이스, 멤버, 페이지, 파일 크기, 저장 용량에 한도를 두고, 기능을 서버 전체에서 끄고, 아이디와 별명으로 가입받고, 약관 동의를 받고, 며칠 뒤 계정을 지우고, "데모" 표시를 붙일 수 있습니다. 모두 선택이고([docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#17-limits-and-restricted-mode-022), [docs/DEMO.ko.md](docs/DEMO.ko.md)), 계정 삭제는 모든 계정이 스스로 할 수 있습니다.
 
 ### 실험 기능
 

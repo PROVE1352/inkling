@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { closePageConnections, closeWorkspaceConnections, reconnectReadOnlyWorkspaceConnections } from '../liveConnections'
-import { collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed } from './collabGrowth'
+import { clearCollabRefusals, collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed, setCollabRecountHook } from './collabGrowth'
 import { instanceFullNow, instanceStorageLimitBytes } from './instance'
 import { pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
 
@@ -79,9 +79,10 @@ export async function recountWorkspaceStorage(workspaceId: string): Promise<Stor
   `)) as unknown as { was: boolean | null }[]
   noteWorkspaceUsed(workspaceId, count.total)
   if (over && prev && !prev.was) await closeWorkspaceConnections(workspaceId)
-  // back under the limit (files or pages deleted, the trash emptied): the read-only connections
-  // reconnect and are authorised again, so editing comes back without reopening the page
-  else if (!over && prev?.was) await reconnectReadOnlyWorkspaceConnections(workspaceId)
+  // back under the limit (files or pages deleted, the trash emptied), or room found after live updates
+  // were refused on a cached number (quota/collabGrowth.ts): the read-only connections reconnect and
+  // are authorised again, so editing comes back without reopening the page
+  else if (!over && (clearCollabRefusals(workspaceId) > 0 || prev?.was)) await reconnectReadOnlyWorkspaceConnections(workspaceId)
   return { ...count, over }
 }
 
@@ -90,6 +91,9 @@ export function recountSoon(workspaceId: string): void {
   if (storageLimitBytes() == null) return
   void recountWorkspaceStorage(workspaceId).catch((err: unknown) => console.warn('[inkling] storage recount failed', workspaceId, err))
 }
+
+// a live update refused for the workspace's use recounts it (the cache may hold upper bounds)
+setCollabRecountHook(recountSoon)
 
 /** Hourly housekeeping: recount every live workspace while a storage limit is set. */
 export async function recountAllWorkspaces(): Promise<number> {
@@ -162,12 +166,23 @@ export async function collabStorageReadOnly(pageId: string, workspaceId: string)
   const limit = storageLimitBytes()
   if (limit == null) return false
   const pageCap = pageBodyLimitBytes()!
-  const [r] = (await db.execute(sql`
-    SELECT w.over_storage AS over, w.storage_bytes AS used,
-           coalesce((SELECT octet_length(state) FROM page_docs WHERE page_id = ${pageId}), 0) AS body
-      FROM workspaces w WHERE w.id = ${workspaceId}
-  `)) as unknown as { over: boolean; used: string | number; body: number }[]
+  const read = async () =>
+    (
+      (await db.execute(sql`
+        SELECT w.over_storage AS over, w.storage_bytes AS used,
+               coalesce(w.storage_checked_at > now() - interval '10 seconds', false) AS fresh,
+               coalesce((SELECT octet_length(state) FROM page_docs WHERE page_id = ${pageId}), 0) AS body
+          FROM workspaces w WHERE w.id = ${workspaceId}
+      `)) as unknown as { over: boolean; used: string | number; fresh: boolean; body: number }[]
+    )[0]
+  let r = await read()
   if (!r) return false
+  // The cache says full but was not recounted lately: it may hold upper bounds (quota/room.ts
+  // assertWorkspaceGrowth), so count before closing editing for this connection.
+  if (!r.over && Number(r.used) >= limit && !r.fresh) {
+    await recountWorkspaceStorage(workspaceId)
+    r = (await read()) ?? r
+  }
   noteCollabAuthorised(pageId, workspaceId, Number(r.body), Number(r.used))
   return r.over || Number(r.used) >= limit || Number(r.body) > pageCap || collabFullInMemory(pageId, workspaceId)
 }

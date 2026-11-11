@@ -67,18 +67,19 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
       await new Promise((r) => setTimeout(r, 25))
     }
   }
-  /** Wait until the server has handled every frame: the admission counters stop moving. */
-  const quiet = async () => {
+  /** Wait until the server has refused at least `refusedAtLeast` updates and then handled no frame for 1 s. */
+  const quiet = async (refusedAtLeast = 0) => {
     let last = -1
     let still = 0
     await until(() => {
+      if (G.collabGrowthStats.refused < refusedAtLeast) return false
       const n = G.collabGrowthStats.admitted + G.collabGrowthStats.refused
       if (n === last) still++
       else {
         still = 0
         last = n
       }
-      return still >= 20 // 0.5 s without a frame
+      return still >= 40 // 1 s without a frame
     }, 'the frames to settle')
   }
 
@@ -125,7 +126,7 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
       for (let round = 0; round < 6; round++) {
         for (const p of pages) p.doc.getText('junk').insert(p.doc.getText('junk').length, junk(100 * 1024))
       }
-      await quiet()
+      await quiet(refusedBefore + 1)
       await collab.flushLiveDocuments(ids)
       const limit = L.mbToBytes(2)
       const count = await S.countWorkspaceStorage(db, ws.id)
@@ -178,6 +179,50 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
     }
   })
 
+  it('a cache inflated by upper bounds (repeated property writes) does not keep live editing closed: the refusal recounts and reopens', async () => {
+    const restore = L.setLimitsForTests({ workspaceStorageMb: 1 })
+    try {
+      const u = await h.makeUser('f2-inflate')
+      const ws = await h.makeWorkspace(u)
+      const page = await h.makeDocPage(ws.id, u.id, 'typing', [] as never)
+      const created = (await app.inject({ method: 'POST', url: '/api/pages', headers: { cookie: u.cookie }, payload: { workspaceId: ws.id, kind: 'collection', title: 'db' } })).json() as { page: { id: string } }
+      const row = (await app.inject({ method: 'POST', url: '/api/pages', headers: { cookie: u.cookie }, payload: { workspaceId: ws.id, parentId: created.page.id, title: 'r' } })).json() as { page: { id: string } }
+      await S.recountWorkspaceStorage(ws.id)
+      // the same key rewritten five times: each write counts its size until the next recount
+      for (let i = 0; i < 5; i++) {
+        const r = await app.inject({ method: 'PATCH', url: `/api/pages/${row.page.id}/props`, headers: { cookie: u.cookie }, payload: { props: { k: junk(200 * 1024) } } })
+        assert.ok(r.statusCode === 200 || r.statusCode === 413, r.body)
+      }
+      // the most those upper bounds can leave behind: a cache at the limit (each write only passes while
+      // it fits), with the last recount long ago
+      await db.execute(sql`UPDATE workspaces SET storage_bytes = ${L.mbToBytes(1)}, storage_checked_at = now() - interval '1 hour' WHERE id = ${ws.id}`)
+      const tab = socketFor(u.cookie)
+      const scopes: string[] = []
+      const doc = new Y.Doc()
+      const provider = new HocuspocusProvider({ websocketProvider: tab.socket, name: page.id, document: doc, token: 'cookie', broadcast: false, onAuthenticated: () => scopes.push(provider.authorizedScope) })
+      open.push(provider)
+      await until(() => scopes.length >= 1, 'the first authentication')
+      // whatever the cached number said first, the recount finds room and editing is open again
+      // a cache at the limit that was not recounted lately is recounted before the connection is judged
+      assert.equal(scopes[0], 'read-write')
+      doc.getText('t').insert(0, 'a')
+      await until(() => provider.unsyncedChanges === 0 && collab.hocuspocus.documents.get(page.id)?.getText('t').toString() === 'a', 'one character typed and kept')
+      const used = Number(((await db.execute(sql`SELECT storage_bytes AS n FROM workspaces WHERE id = ${ws.id}`)) as unknown as { n: string }[])[0].n)
+      console.log(`[F2] cache inflated to the limit by property rewrites: scopes ${scopes.join(',')}; cached use after the recount ${used}`)
+      assert.ok(used < L.mbToBytes(1) / 2, 'recounted to what is stored')
+      // and a live update refused on an inflated number reopens too: the refusal kicks a recount that
+      // clears the refused page and reconnects it
+      await db.execute(sql`UPDATE workspaces SET storage_bytes = ${L.mbToBytes(1)}, storage_checked_at = now() - interval '1 hour' WHERE id = ${ws.id}`)
+      G.noteWorkspaceUsed(ws.id, L.mbToBytes(1))
+      const before = scopes.length
+      doc.getText('t').insert(1, 'b')
+      await until(() => scopes.length > before && scopes.at(-1) === 'read-write', 'refused, recounted, reconnected read-write')
+      await until(() => provider.unsyncedChanges === 0 && collab.hocuspocus.documents.get(page.id)?.getText('t').toString() === 'ab', 'the refused character sent again and kept')
+    } finally {
+      restore()
+    }
+  })
+
   it('ordinary editing within the limit is never refused: a 1 MB paste, an image block, three people at once', async () => {
     const restore = L.setLimitsForTests({ workspaceStorageMb: 20 })
     try {
@@ -202,7 +247,11 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
       frag.insert(0, [container])
       // three people typing in the same page at once
       for (let i = 0; i < 50; i++) for (const d of docs) d.getText('typing').insert(0, `x${i}`)
-      await quiet()
+      const live0 = () => collab.hocuspocus.documents.get(page.id)
+      await until(
+        () => !!live0() && live0()!.getText('typing').length === 3 * 50 * 2 + 3 * 40 && live0()!.getText('paste').length > 0 && live0()!.getXmlFragment('document-store').length === 1,
+        'every edit on the server',
+      )
       await collab.flushLiveDocuments([page.id])
       assert.equal(G.collabGrowthStats.refused, refusedBefore, 'nothing refused')
       assert.equal(tabs.reduce((n, t) => n + t.closes, 0), 0, 'no socket closed')
@@ -313,7 +362,7 @@ describe('collab growth counters (no database)', () => {
     const g = G.newSocketQueueGuard()
     G.noteSocketConnected(g, 'open')
     for (let i = 0; i < 15; i++) assert.equal(G.admitSocketFrame(g, frame('open', MB)), null)
-    assert.equal(G.admitSocketFrame(g, frame('open', 2 * MB)), 'rate', 'past the 16 MB burst at once')
+    assert.equal(G.admitSocketFrame(g, frame('open', 6 * MB)), 'rate', 'past the 16 MB burst at once (a stall under 1.25 s refills less)')
     const q = G.newSocketQueueGuard()
     for (let i = 0; i < 8; i++) assert.equal(G.admitQueuedFrame(q, frame('never', MB)), true)
     assert.equal(G.admitQueuedFrame(q, frame('never', 16)), false, 'past 8 MB queued for a document never opened')

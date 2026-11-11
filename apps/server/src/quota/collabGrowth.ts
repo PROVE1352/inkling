@@ -56,8 +56,17 @@ interface WsAcc {
 }
 
 const pageAcc = new Map<string, PageAcc>()
+/** Kept after the workspace's last live page unloads, so a reload never starts from `used: 0`. */
 const wsAcc = new Map<string, WsAcc>()
-const refusedPages = new Map<string, number>()
+/** Pages refused lately: until when, and their workspace (a recount that finds room clears them). */
+const refusedPages = new Map<string, { until: number; ws: string }>()
+
+/** Recount hook (quota/storage.ts recountSoon), kicked when an update is refused for the workspace. */
+let recountHook: ((workspaceId: string) => void) | null = null
+const recountKickedAt = new Map<string, number>()
+export function setCollabRecountHook(fn: (workspaceId: string) => void): void {
+  recountHook = fn
+}
 
 /** The storage checks of the collab socket run (a storage limit or the instance fuse is set). */
 export function collabGuardsOn(): boolean {
@@ -124,9 +133,9 @@ export function noteCollabAuthorised(pageId: string, workspaceId: string, stored
  * or the workspace's use with the unsaved growth has reached the limit.
  */
 export function collabFullInMemory(pageId: string, workspaceId: string): boolean {
-  const until = refusedPages.get(pageId)
-  if (until !== undefined) {
-    if (until > Date.now()) return true
+  const r = refusedPages.get(pageId)
+  if (r !== undefined) {
+    if (r.until > Date.now()) return true
     refusedPages.delete(pageId)
   }
   const limit = storageLimit()
@@ -174,13 +183,43 @@ function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () 
   return 'ok'
 }
 
-/** The page refused an update: connections to it authorise read-only for REFUSED_PAGE_MS. */
-export function noteCollabRefused(pageId: string): void {
-  refusedPages.set(pageId, Date.now() + REFUSED_PAGE_MS)
+/**
+ * The page refused an update: connections to it authorise read-only for REFUSED_PAGE_MS, or until a
+ * recount of its workspace finds room (clearCollabRefusals). A refusal for the workspace's use kicks
+ * that recount (at most every 10 s per workspace): the cached use may hold upper bounds that only a
+ * recount corrects (quota/room.ts assertWorkspaceGrowth), and a stale number must not keep a
+ * workspace's editing closed.
+ */
+export function noteCollabRefused(pageId: string, why: Admission = 'page'): void {
+  const ws = pageAcc.get(pageId)?.ws
+  if (!ws) return
+  refusedPages.set(pageId, { until: Date.now() + REFUSED_PAGE_MS, ws })
   if (refusedPages.size > 10_000) {
     const oldest = refusedPages.keys().next().value
     if (oldest !== undefined) refusedPages.delete(oldest)
   }
+  if (why === 'workspace' && recountHook) {
+    const last = recountKickedAt.get(ws) ?? 0
+    if (Date.now() - last >= 10_000) {
+      recountKickedAt.set(ws, Date.now())
+      try {
+        recountHook(ws)
+      } catch (err) {
+        console.warn('[inkling] collab storage recount failed', ws, err)
+      }
+    }
+  }
+}
+
+/** A recount found room in the workspace: its refused pages authorise normally again. Returns how many there were. */
+export function clearCollabRefusals(workspaceId: string): number {
+  let n = 0
+  for (const [page, r] of refusedPages) {
+    if (r.ws !== workspaceId) continue
+    refusedPages.delete(page)
+    n++
+  }
+  return n
 }
 
 /** Unsaved growth counted for the page right now (read when a store encodes the state). */
@@ -217,7 +256,7 @@ export function noteCollabUnloaded(pageId: string): void {
   if (!w) return
   w.pending = Math.max(0, w.pending - p.pending)
   w.reserve = Math.max(0, w.reserve - p.reserve)
-  if (--w.pages <= 0) wsAcc.delete(p.ws)
+  w.pages = Math.max(0, w.pages - 1)
 }
 
 /** A recount (quota/storage.ts) set the workspace's cached use. */
@@ -243,6 +282,7 @@ export function _resetCollabGrowth(): void {
   pageAcc.clear()
   wsAcc.clear()
   refusedPages.clear()
+  recountKickedAt.clear()
 }
 
 // ---------------------------------------------------------------------------

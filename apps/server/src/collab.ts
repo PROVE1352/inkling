@@ -447,7 +447,7 @@ export const hocuspocus = new Hocuspocus({
         const verdict = admitCollabUpdate(documentName, ws, bytes, () => encodeStoredState(document).length)
         if (verdict !== 'ok') {
           connection.readOnly = true
-          if (verdict !== 'instance') noteCollabRefused(documentName)
+          if (verdict !== 'instance') noteCollabRefused(documentName, verdict)
           reconnectForStorage(connection as unknown as SchemaConnection & { sendStateless?: (p: string) => void }, verdict)
           return
         }

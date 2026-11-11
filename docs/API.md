@@ -1888,7 +1888,9 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   with their files; a shared workspace they own alone passes
   to its oldest admin-role member, else its oldest member (notification type `workspace_owner`); private pages are
   deleted; shared pages, comments and versions stay with their author set to null. Names copied into audit rows and
-  the sign-up workspace's name are found by the account's id only (docs/adr/2535-*).
+  the sign-up workspace's name are found by the account's id only (docs/adr/2535-*); names written without an id
+  stay, also in new rows: `person` of `page.access_granted`, `page.access_changed` and `page.access_removed`, and
+  `email` of `page.guest_invited` (KNOWN-ISSUES LIMITS-8).
 - Audit events (`GET /api/workspaces/:id/audit`): `page.locked` and `page.lock_editors_changed` now store
   `editorIds` beside `editors`, and `agent.blocked` and `agent.unblocked` store `userId` beside `user`, so account
   deletion can find the names by id. The audit route leaves these id keys out of `before` and `after`.

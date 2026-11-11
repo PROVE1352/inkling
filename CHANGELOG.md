@@ -20,7 +20,10 @@ except for what is listed under "What changes on every server" below.** One data
 and the server instructions are unchanged; tool errors for the new codes say what to do next. Design notes are
 docs/adr/2500-* .. 2539-*; 2530-* .. 2539-* are the fixes of an independent security review before release (below).
 A preset for a demo server is in `deploy/demo/`, run through `deploy/demo/demo.sh`, with the
-steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17.
+steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17. **The preset and
+the steps for a public demo are included, but do not open a public demo for strangers with 0.22.0**: the review
+found problems for a demo that shares a machine with other services, to be fixed in 0.22.1 (docs/KNOWN-ISSUES.md,
+"Added in 0.22.0").
 
 Not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
 
@@ -59,10 +62,14 @@ These change with no new setting, on every server that upgrades:
   addresses share one budget (docs/adr/2537-*). IPv4 is unchanged; the sign-in failure bans are unchanged.
 - **Account deletion and expiry find the copied names by the account's id only** (docs/adr/2535-*): the audit rows
   it acted in or was the target of, the names write sites keep beside an id, and the workspace it made at sign-up.
-  Records of another person with the same name are not changed. Names in four kinds of audit rows written before
-  this release (locking a page, changing a lock's editors, blocking and unblocking an agent) have no id and stay.
+  Records of another person with the same name are not changed. A name written without an id beside it stays: the
+  person of the page access rows and the invited address of page invitations, also in rows this release writes, and
+  in older rows the names of locking a page, changing a lock's editors, and blocking and unblocking an agent
+  (KNOWN-ISSUES LIMITS-8; to be removed in 0.22.1).
 - **Audit JSON keeps ids beside names**: `page.locked` and `page.lock_editors_changed` store `editorIds`,
   `agent.blocked` and `agent.unblocked` store `userId`. The audit screen and route do not show them.
+- **The deletion preview (`GET /api/me/delete-preview`) answers browser sessions only**: a token gets 403. The
+  preview is new in this release, so nothing that worked before stops working.
 - **The OAuth token exchange is one transaction**: consuming the authorization code and storing the grant commit
   together. The answers are unchanged.
 
@@ -144,10 +151,10 @@ These change with no new setting, on every server that upgrades:
 - The consent gate runs on every authenticated way in: REST with a cookie or a token (MCP tools included), the
   `/mcp` endpoint itself, and the collaboration socket (docs/adr/2502-*). Only sign-out, `/api/auth/me`, the legal
   routes and account deletion are exempt.
-- Account deletion by the person or by expiry removes their name and sign-in ID from every column that copies them as
-  text (audit events, the change log, invitations, the workspace named after them), found by the account's id, in
-  the deletion's transaction; a test scans every text and uuid column after a deletion. What stays is listed in
-  KNOWN-ISSUES LIMITS-8.
+- Account deletion by the person or by expiry removes their name and sign-in ID from the columns that copy them as
+  text with the account's id (audit events, the change log, invitations, the workspace named after them), in the
+  deletion's transaction; a test scans every text and uuid column after a deletion. Names
+  written without an id stay, among them the page access audit rows: KNOWN-ISSUES LIMITS-8.
 - `DELETE /api/me` needs a browser session and the password (and two-step code); failures count against the
   sign-in guard. Deleting for good (leaving alone, "Delete now") is browser-only too: no token or agent can do it.
 - In ID mode, signing in with an unknown ID costs the same password check as a wrong password.
@@ -155,7 +162,9 @@ These change with no new setting, on every server that upgrades:
   reachable from other hosts, or `SIGNUP_PER_IP_PER_DAY` can be passed with a made-up `X-Forwarded-For` (LIMITS-11);
   `POST /oauth/register` stays open without sign-in, and its rows are cleaned up only with the
   `OAUTH_UNUSED_CLIENT_*` settings (LIMITS-9).
-- **Found and fixed in an independent security review before release** (docs/adr/2530-* .. 2539-*). Marked
+- **Found and fixed in an independent security review before release** (docs/adr/2530-* .. 2539-*). A second
+  review of these fixes found that 0.22.0 can run production servers, and found more problems for a public demo,
+  listed after this list. Marked
   "earlier versions too" where 0.21.1 behaves the same; the others concern what 0.22.0 adds.
   - Account deletion handed shared workspaces to a member without looking at their workspace limit, and freed a
     sign-up place, so one account could collect workspaces without end. Now `LIMIT_WORKSPACES_TOTAL` bounds the
@@ -164,12 +173,12 @@ These change with no new setting, on every server that upgrades:
     pages × 8 MB on one socket could exhaust the server's memory: read-only was decided only at connection. Now each
     update is counted when it arrives and one that does not fit is not stored, and the bytes a client address may
     send are bounded. These checks run only with a storage setting; without one a document's size has no bound, as
-    in earlier versions too.
+    in earlier versions too. Other ways to exhaust the memory remain (below).
   - `POST /oauth/register` stored a row of about 23 KB per call without sign-in, nothing removed them, and the rate
     limit keyed IPv6 by the full address (earlier versions too). Now the rate key groups IPv6 by /64 on every server,
     the `OAUTH_UNUSED_CLIENT_*` settings delete never-used clients, and the storage fuse refuses registrations.
   - The demo's volumes had no size limit and several tables grow outside the workspace count. Now the
-    `LIMIT_INSTANCE_STORAGE_MB` fuse; a filesystem with a size limit stays the recommendation (it is stronger).
+    `LIMIT_INSTANCE_STORAGE_MB` fuse; a public demo also needs a filesystem with a size limit of its own.
   - A full workspace still took `PATCH /api/pages/:id/props` writes (five of about 800 KB). Now every write that can
     grow a workspace is checked.
   - The sign-up address cap counted IPv6 per /64 and the bot checks were easy to pass, so the account cap could be
@@ -185,6 +194,18 @@ These change with no new setting, on every server that upgrades:
   - A sign-up answered "taken" without counting against the address's sign-ups, so IDs could be probed (email
     addresses in email mode too, as in earlier versions). Now, while `SIGNUP_PER_IP_PER_DAY` is set, an address gets
     at most 10 such answers in 24 hours.
+- **Found in the second review and left for 0.22.1** (they stop a public demo, not a production server; details in
+  KNOWN-ISSUES LIMITS-37 to LIMITS-42 and LIMITS-8):
+  - A signed-in account can make the server process run out of memory through live-editing connections, also with a
+    storage limit; the process restarts and unsaved edits are lost. Part of it is in earlier versions too.
+  - Very small files count far less than the disk they take, in the storage limit and in the fuse.
+  - The fuse can trip before the workspaces reach their limits (the search index is not counted), and the demo
+    preset's values do not match each other.
+  - A member with edit rights can make the workspace's storage use count larger than it is and block the others'
+    writes for a while; a member who can only view a page can read the storage numbers from one route.
+  - Names in page access audit rows stay after account deletion.
+  - The demo preset uses the same image name and tag as the main instance.
+  - The three ways to block sign-up on a public server (KNOWN-ISSUES LIMITS-28) stay as they are.
 
 ### Upgrade notes
 - **Migration 0062** (the only one) adds the tables `signup_events` and `user_consents` and four columns:
@@ -199,8 +220,8 @@ These change with no new setting, on every server that upgrades:
   `TRUST_PROXY` to your proxy's address before relying on `SIGNUP_PER_IP_PER_DAY`.
 - **Turning `ACCOUNT_LIFETIME_DAYS` off and on again** deletes at the next hourly run every account whose date
   passed while it was off (docs/OPERATIONS.md, "Account lifetime").
-- **A demo** runs only through `deploy/demo/demo.sh`, from a checkout of its own, with new secrets; give its volumes
-  a filesystem with a size limit (docs/DEMO.md).
+- **Do not open a public demo with 0.22.0** (above). A demo runs only through `deploy/demo/demo.sh`, from a
+  checkout of its own, with new secrets; give its volumes a filesystem with a size limit (docs/DEMO.md).
 - Reload open tabs to get the new screens. Going back to 0.21.1 after the migration was not tried.
 
 ## [0.21.1] - 2026-11-12

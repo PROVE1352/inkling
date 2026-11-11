@@ -1071,6 +1071,9 @@ semantic search, OpenID Connect and mail. MCP stays on.
   row templates, custom templates, the texts the change log keeps, and agent suggestions. Pages in the trash count
   until they are purged. Search indexes, audit events, notifications, the outbox, per-person tables, OAuth clients
   and backups do not count.
+- Two limits of 0.22.0 (KNOWN-ISSUES LIMITS-38, LIMITS-39, to be fixed in 0.22.1): a very small file counts as its
+  size, far less than the disk block and inode it takes, and the search index built from page bodies is not counted,
+  so the database can grow well past the sum of the counted workspaces.
 - The count is kept in `workspaces.storage_bytes`. Uploads add their bytes in their own transaction; each save of a
   page body adds the body's growth; housekeeping counts every workspace again each hour; Workspace settings ›
   General counts it again when the stored count is more than a minute old (at most once a minute per workspace);
@@ -1106,6 +1109,9 @@ semantic search, OpenID Connect and mail. MCP stays on.
 ### Instance storage fuse
 `LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2532-*) stops writes on a server that strangers could fill, such as a demo.
 It is weaker than a filesystem with a size limit (KNOWN-ISSUES LIMITS-27); give a demo one of its own as well (below).
+In 0.22.0 it also sees very small files at their size rather than the disk they take, and it can trip before the
+workspaces reach their limits, because the search index and dead space count in the database but not in any
+workspace (LIMITS-38, LIMITS-39). A public demo for strangers needs 0.22.1 ([DEMO.md](DEMO.md)).
 
 - **What it measures**: `pg_database_size` of the app's database plus the bytes of every file under the data folder
   (`DATA_DIR`: uploads, the import and export scratch folder, plugins), walked on disk. It measures at most once a
@@ -1249,8 +1255,11 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
   name. Mentions other members wrote, and ids without a name in audit rows, stay (KNOWN-ISSUES LIMITS-8).
 - Copied names are found by the account's id only: the name in audit rows (actor, target, and the names write sites
   keep beside an id) and the workspace this account made at sign-up (`<name>'s workspace`). Records of another person
-  with the same name never change. Names in four kinds of audit rows written before 0.22.0 (locking a page, changing
-  a lock's editors, blocking and unblocking an agent) have no id beside them and stay.
+  with the same name never change. A name written without an id beside it stays, also in rows 0.22.0 writes: the
+  person of the page access rows (sharing a page with a person, changing or removing that access, accepting a page
+  invitation) and the invited address of page invitations; rows written before 0.22.0 also keep the names of
+  locking a page, changing a lock's editors, and blocking and unblocking an agent. 0.22.1 is to remove them
+  (KNOWN-ISSUES LIMITS-8).
 - The preview of what deletion removes (`GET /api/me/delete-preview`) answers browser sessions only.
 - The admin's **Delete** in Admin › Users keeps its 0.21 behaviour (409 `SOLE_OWNER`, private pages to the trash).
 

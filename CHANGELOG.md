@@ -7,6 +7,57 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-11
+
+A minor release with one feature: a PDF attached to a page now shows its pages in the page, under the file name.
+Web app only: no database migration (a 0.20 database stays at 62 applied migrations), no new setting, no header
+change, no API change, and the stored file block, its HTML export and the document format are unchanged. New
+dependency `pdfjs-dist` 6.5.438 (Apache-2.0, web only, loaded on the first PDF preview of a session, not precached);
+its optional Node canvas (`@napi-rs/canvas`) is not installed (`ignoredOptionalDependencies` in
+`pnpm-workspace.yaml`). The build now ships pdf.js's data files with their licences; they are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The MCP tool list is unchanged.
+
+Checked in Chrome only (desktop and a 390 px touch window, light and dark); not tried in Safari, Firefox or on a
+real phone. The wasm image decoders (JPEG 2000, JBIG2, colour profiles) compile in the worker, but no scanned PDF
+was decoded in the check (docs/KNOWN-ISSUES.md, "Added in 0.21.0").
+
+### Upgrade notes
+- Nothing to do on the server: no migration, no setting, no header change. Reload open tabs to get the preview.
+- **Proxies**: the preview loads its code and pdf.js's files from `/assets/lazy/` (the pdf.js worker is a `.mjs`
+  file). A reverse proxy that blocks or rewrites those paths stops the preview: it shows "The preview could not be
+  loaded." with a download link. A proxy that serves `.mjs` with a type other than JavaScript also stops it, with
+  an error message and the download link (docs/OPERATIONS.md, "PDF preview (0.21)").
+
+### Added
+- **PDF preview in the page** (docs/adr/2480-* .. 2482-*). A PDF attached to a page (a file block whose file was
+  uploaded to this server) shows its pages under the file name. The pages scroll inside an area at most 70% of the
+  screen tall; type a page number to jump, zoom in steps (25–400%) or fit the width, open it full screen (Esc or the
+  close button closes it), select and copy its text, and follow its web links (they open in a new tab; a link to
+  another page of the same PDF scrolls the preview there). Files up to 10 MB load when the block comes near the
+  screen; larger ones, and every file in a browser with the data saver on, show "Load preview (25.1 MB)" and load on
+  a press, with a progress bar. "Hide preview" is remembered per person and file in this browser. Works in editable
+  and locked pages and in pen mode; printing and "Export as PDF" keep the file name line only. The preview is view
+  state: nothing is stored in the document, and a member who deletes or replaces the file block removes or replaces
+  the preview in everyone's tab. Each person reads at their own page.
+
+### Security
+- PDFs are still never opened by the browser itself: `/files/:id` keeps `Content-Disposition: attachment`,
+  `nosniff` and its `sandbox` CSP. The preview draws them with pdf.js from the app's own origin (no CDN), runs no
+  JavaScript from the PDF, has no form fields, attachments or launch actions, and keeps only `http:`/`https:` links
+  (opened with `noopener noreferrer`). Password-protected and broken PDFs show a message and the download link; the
+  preview never asks for a password. The app's CSP is unchanged (docs/adr/2480-*).
+
+### Performance
+- The entry chunk is unchanged (449,412 B); the preview's strings add 2,568 B to the modulepreloaded i18n chunk,
+  the file block code 3,497 B to the editor chunk (+1,102 B gzip), its host rules 1,293 B to the entry stylesheet.
+  The preview UI (`PdfPreview-*.js`, 20 KB, 7 KB gzip, + 3 KB CSS) loads when a PDF block comes near the screen;
+  pdf.js (445 KB, 132 KB gzip) and its worker (1.27 MB, 378 KB gzip) when a preview loads a file; cMaps and fonts
+  per need. None of pdf.js is in the PWA precache. Pages without a PDF fetch none of it
+  ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- Page 1 waits for the whole file, because `/files/:id` sends no byte ranges: about 4.2 s for 10 MB and 10.2 s for
+  25 MB at 20 Mbit/s. The auto-load limit is 10 MB instead of the proposed 15 MB for that reason
+  (docs/adr/2482-*, [docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
 ## [0.20.0] - 2026-11-11
 
 > **Reload open tabs after the upgrade.** A tab that still runs 0.19 or older cannot show columns, and its editor

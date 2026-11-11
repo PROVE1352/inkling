@@ -775,6 +775,9 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
   marker lines in every tool's Markdown (above). Charts on public links are a browser-only setting: the share routes
   are session-only, so no tool turns them on or approves a chart's source, and `read_page` keeps the chart token and
   its data line for the reader ([ADR 2440](adr/2440-public-link-charts-switch-per-link-off-by-default.md)).
+- **0.21**: no migration; no tool, description or server instruction changes, so the fixed cost per session is the
+  same as 0.20. The PDF preview is a web app feature only: agents read a PDF's text with `read_file` as before
+  ([ADR 2480](adr/2480-pdf-preview-with-pdfjs-from-the-apps-own-origin.md)).
 
 ## Checking connections with real clients (DCR and Client ID Metadata Documents)
 

@@ -1806,3 +1806,15 @@ No new tool and no description change; every tool now carries its annotation hin
 (~13,245 tokens; 0.19: ~12,777), core 32 (~7,857; 0.19: ~7,533), server instructions unchanged (~492). `catch_up`
 is no longer marked read-only and `update_row` is marked destructive. Details: [MCP.md](MCP.md).
 
+## v0.21.0 additions
+
+No migration and no server change: endpoints, request bodies and answers are the same as in 0.20.0.
+
+### PDF preview (docs/adr/2480–2482)
+- The web app's PDF preview reads the file's size and type from `GET /api/files/:id/meta` and fetches the file
+  through `GET /files/:id`, both as before (same checks, same headers), then draws it in the browser. Nothing new is
+  stored and no route takes a new field.
+
+### MCP tools
+No new tool and no description change: the same numbers as 0.20, full 48 tools (~13,245 tokens), core 32 (~7,857),
+server instructions ~492. Details: [MCP.md](MCP.md).

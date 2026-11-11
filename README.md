@@ -133,6 +133,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides
 - Command palette, shortcuts you can change, Later reminders and followed comment threads; button blocks that add a row, set values, open a page or call a webhook
 - Columns: `/2단` or `/3단` puts blocks side by side, widths by dragging, stacked on phones
+- PDF preview: attached PDFs show their pages in the page (scroll, zoom, full screen, copy text); files over 10 MB load when you press
 - Save from the web with a bookmarklet, the `/clip` screen or Android's share sheet, as a link or the article's text
 - English and Korean UI, installable PWA with offline copies of the pages you open, light and dark themes
 - A short intro and a Getting started checklist for new accounts, and a sample page to try things on
@@ -282,3 +283,5 @@ more easily after a short discussion in an issue.
 ## License
 
 [MIT](LICENSE). Every feature in this repository is free; there is no paid edition.
+Third-party components the app ships as separate files (pdf.js and its data files) and their licences are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

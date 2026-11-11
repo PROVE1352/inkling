@@ -211,6 +211,19 @@ name, the zoom and **Open original**, which opens the picture in a new tab. Esc,
 close button closes it and puts you back where you were. The browser's Back button goes back as usual and closes
 the viewer on the way. While it is open, keys go to the viewer only, never to the page behind it. The `?` window lists these keys under **Image viewer**.
 
+### Reading PDFs in the page
+
+A PDF you attach shows its pages right under the file name. Scroll inside the preview to turn pages, type a page
+number to jump, use − / + to zoom or **Fit width** to fit the page to the column, and **Full screen** to read it
+over the whole window. Esc or the close button closes it and the preview below the file name moves to the page you
+were reading; the browser's Back button goes back as usual and closes it on the way. You can select text in the
+PDF and copy it; web links in the PDF open in a new tab, and a link to another page of the same PDF scrolls there.
+PDFs up to 10 MB open as soon as you scroll to them. A larger file shows **Load preview** with its size, so you
+decide when to spend the data (with the browser's data saver on, every PDF waits for that press). **Hide preview**
+folds it to one line, and this browser remembers that for you. The preview is only on your screen: scrolling or
+zooming changes nothing in the page for others, and each person reads at their own page. Password-protected or
+damaged PDFs cannot be previewed; download them instead. Public links show the file name only, as before.
+
 ### Verifying a page
 
 Mark a page as checked and correct until a date: **⋯** → **Verify page…** → choose 30, 90 or 180 days or **Until a

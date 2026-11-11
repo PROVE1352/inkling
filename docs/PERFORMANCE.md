@@ -353,7 +353,17 @@ the request gates. Two things run without any setting: `GET /api/workspaces/:id/
 General calls on every server, runs the full count when the workspace's cached count is more than a minute old
 (so at most once a minute per workspace) and stores it, and the hourly housekeeping runs two more `DELETE`
 statements (old sign-up records and old `ip_bans` rows). `LIMIT_TRASH_DAYS` changes only the interval inside the
-existing trash purge statement (`LEAST(trash_retention_days, cap)`); without it the statement is the 0.21.1 one.
+existing trash purge statement (`LEAST(trash_retention_days, cap)`); without it the statement is the 0.21.1 one. The
+security fixes of 0.22.0 (docs/adr/2530-* .. 2539-*) add, also only with their settings: with
+`LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB`, every incoming live-editing update is counted before it
+is applied against sums kept in memory per page and workspace (no SQL on that path; the workspace's cached count is
+read again in the background when it is more than 2 s old) and against a byte budget per client address; the
+writes that can grow a workspace read its row and run one `UPDATE` that adds the request's JSON size, and a full
+count when a refusal finds the count more than 10 s old; with `LIMIT_INSTANCE_STORAGE_MB`, at most once a minute
+one `pg_database_size` query and a walk over every file of the data folder, so its cost grows with the number of
+uploads. The only numbers are those ADR 2530 records for the collaboration attack of the security review, on the
+development server (`tsx`), not a production build: 40 pages × 8 MB on one socket left 18.0 MB stored under a 20 MB
+limit with resident memory 356 → 615 MB at the peak, where the code before the fix stored 320 MB and reached 2.1 GB.
 
 ## Sync & collaboration
 

@@ -23,10 +23,10 @@ was decoded in the check (docs/KNOWN-ISSUES.md, "Added in 0.21.0").
 
 ### Upgrade notes
 - Nothing to do on the server: no migration, no setting, no header change. Reload open tabs to get the preview.
-- **Proxies**: the preview loads its code and pdf.js's files from `/assets/lazy/` (the pdf.js worker is a `.mjs`
-  file). A reverse proxy that blocks or rewrites those paths stops the preview: it shows "The preview could not be
-  loaded." with a download link. A proxy that serves `.mjs` with a type other than JavaScript also stops it, with
-  an error message and the download link (docs/OPERATIONS.md, "PDF preview (0.21)").
+- **Proxies**: the preview loads pdf.js, its worker (a `.mjs` file) and its data files from `/assets/lazy/`. A
+  reverse proxy that blocks or rewrites those paths stops the preview: it shows "The preview could not be loaded."
+  with a download link. A proxy that serves `.mjs` with a type other than JavaScript also stops it, with an error
+  message and the download link (docs/OPERATIONS.md, "PDF preview (0.21)").
 
 ### Added
 - **PDF preview in the page** (docs/adr/2480-* .. 2482-*). A PDF attached to a page (a file block whose file was

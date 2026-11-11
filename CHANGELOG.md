@@ -14,7 +14,7 @@ browser check of the PDF preview's error boundary. No database migration, no new
 dependency, no API change: the four upload routes keep their limits and answers, and a cut upload now gets a 400.
 
 ### Security
-- **`@fastify/multipart` 9.4.0 → 10.1.8** (GHSA-5849-5m6q-9632, medium; every version from 5.3.0 up to 10.1.7, no
+- **`@fastify/multipart` 9.4.0 → 10.1.8** (GHSA-5849-5m6q-9632, medium; every version from 5.3.0 before 10.1.7, no
   9.x fix). A multipart body that ended inside a file part, without the closing boundary, had its file stream
   destroyed without an error, so a handler that read that stream could wait forever and each such request held its
   connection and handler (a denial of service when many are sent). Only signed-in accounts reached our multipart

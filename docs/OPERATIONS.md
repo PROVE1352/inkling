@@ -970,10 +970,12 @@ columns (`users.expires_at`, `workspaces.storage_bytes`, `workspaces.storage_che
 all null or with a constant default). A 0.21 database goes from 62 to 63 applied migrations. Every new setting below
 is optional. With none of them set the server behaves as 0.21.1, except for the changes that 0.22 makes on every
 server (CHANGELOG, "What changes on every server"): every account can delete itself, a sole owner who is the only
-member can leave a workspace (it is deleted at once), an owner can delete a deleted workspace for good, and the
-hourly housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago.
+member can leave a workspace (it is deleted at once), an owner can delete a deleted workspace for good, the
+hourly housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago, the request rate limit counts an
+IPv6 client by its /64, the deletion preview answers browser sessions only, account deletion finds the copied names
+by the account's id only, and the OAuth token exchange is one transaction.
 
-`compose.yaml` passes all seventeen 0.22 variables to the app as `${VAR:-}`, and `.env.example` has a commented
+`compose.yaml` passes all twenty-two 0.22 variables to the app as `${VAR:-}`, and `.env.example` has a commented
 example of each, so setting one in `.env` is enough. An empty value means the same as an unset one, for every one of
 them. `LEGAL_DIR` is a path inside the container, so the folder has to be mounted as well (the demo overlay,
 `deploy/demo/compose.demo.yaml`, shows how).
@@ -987,7 +989,7 @@ the number of people, and a demo server that strangers can sign up to. Setting u
 |---|---|---|---|---|
 | `LOGIN_ID_MODE` | `email` or `username` | `email` | `username`: sign-up takes an ID and a nickname instead of an email address. An ID is 3–30 characters of `a-z 0-9 . _ -`, starting with a letter or digit, stored lower-cased in the email column; reserved names (admin, root, support, inkling and others) are refused | 400 `LOGIN_ID_INVALID`, 409 `LOGIN_ID_TAKEN` |
 | `SIGNUP_MAX_USERS` | whole number ≥ 1 | none | Accounts on the server in total (all `users` rows, admins included), counted again inside the sign-up transaction. The first admin made with the setup code is not refused | 403 `SIGNUP_FULL` |
-| `SIGNUP_PER_IP_PER_DAY` | whole number ≥ 1 | none | Sign-ups from one address (an IPv4 address or an IPv6 /64) in 24 hours | 429 `SIGNUP_IP_LIMIT` |
+| `SIGNUP_PER_IP_PER_DAY` | whole number ≥ 1 | none | Sign-ups from one address (an IPv4 address or an IPv6 /56) in 24 hours. While it is set, one address also gets at most 10 "this email or ID is taken" answers in 24 hours (below) | 429 `SIGNUP_IP_LIMIT` |
 | `ACCOUNT_LIFETIME_DAYS` | whole number ≥ 1 | none | Accounts that sign up while it is set are deleted this many days after sign-up. Admins and accounts made before it was set never expire | — |
 | `ACCOUNT_LIFETIME_DRY_RUN` | `1` or `0` | `0` | `1`: the hourly job logs the accounts it would delete and deletes nothing | — |
 | `LIMIT_WORKSPACES_PER_USER` | whole number ≥ 1 | none | Workspaces a person owns: the one made at sign-up and deleted ones that can still be restored count | 403 `LIMIT_WORKSPACES` |
@@ -1002,6 +1004,11 @@ the number of people, and a demo server that strangers can sign up to. Setting u
 | `INSTANCE_LABEL` | up to 20 characters, no control characters | none | A label every screen shows, for example `Demo` | — |
 | `LIMIT_TRASH_DAYS` | whole number ≥ 7 | none | Upper bound of page trash retention: pages stay in the trash min(the workspace's "Keep trash for", this value) days, and MCP `list_trash` gives the same date. The stored workspace value is not rewritten; Workspace settings show the bound and do not take a larger value | 400 `LIMIT_TRASH_DAYS` when a workspace asks for more |
 | `INSTANCE_NOTICE` | up to 500 characters of plain text (not HTML); line breaks allowed | none | An operator notice under the title of the sign-in, sign-up, consent and setup-waiting screens and as a strip above every app screen, which nobody can close. Shown as text, without links. For servers that send no mail: changes, interruptions, incidents | — |
+| `SIGNUP_PER_HOUR` | whole number ≥ 1 | none | Accounts the whole server makes in one hour, counted again under one lock inside the sign-up transaction. The setup-code sign-up does not count and is not refused | 429 `SIGNUP_RATE_LIMIT` |
+| `OAUTH_UNUSED_CLIENT_HOURS` | whole number ≥ 1 | none | Self-registered OAuth clients that were never used are deleted by the hourly housekeeping this many hours after registering (below) | — |
+| `OAUTH_UNUSED_CLIENT_MAX` | whole number ≥ 1 | none | Most never-used self-registered OAuth clients kept: a new registration first deletes the oldest, never one younger than 15 minutes (below) | 503 `temporarily_unavailable` on `/oauth/register` when only younger ones are left |
+| `LIMIT_WORKSPACES_TOTAL` | whole number ≥ 1 | none | Workspaces on the whole server, deleted ones that can still be restored included, counted under one server-wide lock. Sign-up makes a personal workspace, so it is refused at the limit too (the setup code is not) | 403 `LIMIT_WORKSPACES_TOTAL`; 403 `SIGNUP_FULL` at sign-up |
+| `LIMIT_INSTANCE_STORAGE_MB` | number > 0 (decimals allowed) | none | Storage fuse of the whole server: the database size plus the files under the data folder, measured at most once a minute. At it the server only reads, signs in, exports and deletes (below) | 503 `INSTANCE_FULL`; 503 `temporarily_unavailable` on `/oauth/register` |
 
 - Megabytes are 1,048,576 bytes. A value that is unset or empty means "no limit" (or off); with nothing set the
   server answers as 0.21.1 and runs none of the checks below.
@@ -1011,8 +1018,10 @@ the number of people, and a demo server that strangers can sign up to. Setting u
   deleted does not look at the limit. MCP tools call the same REST routes
   and are refused the same way. Every limit error carries `{ limit, used }` (API.md, "v0.22.0 additions").
 - `LIMIT_FILE_MB` without `LIMIT_WORKSPACE_STORAGE_MB` still lets a workspace grow without bound; with both, the worst
-  case on disk is about the number of accounts × owned workspaces × the storage limit, plus what is not counted
-  (indexes, audit and notification rows, OAuth clients) and the backups.
+  case on disk is about the number of accounts × owned workspaces × the storage limit (with `LIMIT_WORKSPACES_TOTAL`,
+  at most that number × the storage limit), plus what is not counted (indexes, audit and notification rows, OAuth
+  clients) and the backups. `LIMIT_INSTANCE_STORAGE_MB` is a fuse over the database and the data folder (below), not
+  a bound on the disk.
 
 ### When the server refuses to start
 The log names the variable and the reason. The server does not start when:
@@ -1066,9 +1075,13 @@ semantic search, OpenID Connect and mail. MCP stays on.
   page body adds the body's growth; housekeeping counts every workspace again each hour; Workspace settings ›
   General counts it again when the stored count is more than a minute old (at most once a minute per workspace);
   deleting for good counts it again.
-- A workspace that has reached its limit is read-only. New pages, uploads, imports, templates, comments, handwriting, manual
-  versions, body writes by REST and MCP, quick tasks and vault sync are refused with 413 `LIMIT_STORAGE`, and live
-  editing connections become read-only. Members see a notice above the page ("This workspace has used up its storage,
+- A workspace that has reached its limit is read-only. Every write that can grow what it keeps is refused with 413
+  `LIMIT_STORAGE` (docs/adr/2533-*): new pages, uploads, imports, templates, comments and edited comment bodies,
+  handwriting, manual versions, body writes by REST and MCP, quick tasks, vault sync, rows and row properties,
+  database fields, views and row templates, a page's title, icon, cover, aliases and date property, and agent
+  suggestions; new automations, webhooks and share links too. Live editing connections become read-only. Settings
+  of bounded size replaced in place, ticking a task, membership, restoring and removing stay open (API.md lists
+  them). Members see a notice above the page ("This workspace has used up its storage,
   so it is read-only. …"). Deleting pages and files,
   emptying the trash, clearing handwriting and exporting always work.
 - To make it writable again, delete files or pages and empty the trash, then open Workspace settings › General
@@ -1076,7 +1089,73 @@ semantic search, OpenID Connect and mail. MCP stays on.
   read-only editing connections; they reconnect at once and can edit (KNOWN-ISSUES LIMITS-3).
 - One page body may hold at most a quarter of the limit. Past that, REST and MCP writes to that page are refused
   and its live connections become read-only; splitting it into subpages is the way out (KNOWN-ISSUES LIMITS-2).
-- Between saves of live typing the count can pass the limit by what one save carries (saves come every 2–10 s).
+- The writes above move the stored count by the request's size at once (an upper bound), so close to the limit a
+  large write can be refused although it would fit; before refusing, the server counts the workspace again when its
+  count is more than 10 seconds old, which keeps that short.
+- Live edits are counted when they arrive, before they are applied (docs/adr/2530-*). An edit that would take the
+  page body past a quarter of the limit or the workspace past its limit, or that arrives while the instance storage
+  fuse is tripped, is not applied and not stored: the connection becomes read-only and reconnects read-only, and
+  for the next 10 minutes (or until the server restarts) connections to that page are opened read-only. What the
+  person typed or pasted then stays only in their editor and on their device (KNOWN-ISSUES).
+- With `LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB` set, the collaboration socket also bounds what a
+  client sends: the sockets of one client address share 16 MB, refilled at 4 MB a second, and one socket may hold
+  at most 8 MB of messages for documents it has not opened yet; past either the socket is cut. With neither setting
+  none of these checks runs.
+
+### Instance storage fuse
+`LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2532-*) stops writes on a server that strangers could fill, such as a demo.
+It is weaker than a filesystem with a size limit; give a demo one of its own as well (below).
+
+- **What it measures**: `pg_database_size` of the app's database plus the bytes of every file under the data folder
+  (`DATA_DIR`: uploads, the import and export scratch folder, plugins), walked on disk. It measures at most once a
+  minute: when a check finds the last measurement older than that, from the hourly housekeeping, and in the
+  background while live edits arrive. A failed measurement keeps the last answer. The log has one line when the fuse
+  trips and one when the server is under it again.
+- **What stops when it is full** (the sum has reached the limit): every POST, PUT and PATCH under `/api` answers 503
+  `INSTANCE_FULL` before sign-in is checked, and so does sign-up (not the setup-code sign-up). A new OIDC account is
+  refused, `POST /oauth/register` answers 503 `temporarily_unavailable`, and live editing connections become
+  read-only and reconnect read-only. The app shows a strip ("This server's storage is full. For now you can only read
+  and delete."), and MCP tools tell the agent not to retry.
+- **What keeps working**: GET and DELETE always pass, so reading, exporting, and deleting pages, files, workspaces,
+  the trash and one's own account work. Of the other writes these stay open (`quota/instanceGate.ts`): signing in and
+  out, two-step sign-in, changing and resetting a password, two-step setup, agreeing to the terms, reads sent as POST
+  (database query, chart aggregate, vault sync read, unlocking a public link), read marks (inbox, notifications,
+  threads), what only removes or hands over (rejecting and withdrawing suggestions, unpublishing, removing guests,
+  releasing connections, transferring ownership) and the admin routes (`/api/admin/**`). When a measurement finds the
+  server under the limit again, writes work at once and read-only editing connections reconnect and can edit.
+- Admin › Status lists **Server storage limit** with use, limit, database and files: red when tripped, amber from
+  90 %.
+
+**A tripped fuse usually needs the operator.** Deleting rows does not make the database file smaller: Postgres keeps
+the space for reuse inside each table. Measured for 0.22.0 (ADR 2532): 60 × 5 MB took the database from 11.4 MB to
+322.6 MB; deleting every row left 322.6 MB; with half the rows deleted, `VACUUM` left 326.2 MB, still tripped;
+`VACUUM FULL` of the table brought it to 167.0 MB and released the fuse. So members deleting pages will usually not
+release it. To release it:
+
+1. Find the largest tables (with their TOAST data and indexes). Usually `page_docs` and `page_snapshots` lead.
+2. Have what should go deleted: workspaces deleted for good, trashes emptied, accounts that should go deleted.
+3. Run `VACUUM FULL` on those tables, one at a time. It locks the table while it runs and needs free disk about the
+   size of the table's live data.
+4. Or raise `LIMIT_INSTANCE_STORAGE_MB` and restart. Until one of these is done, the server only reads and deletes.
+
+```sh
+# a demo (deploy/demo/demo.sh); on a main instance: docker compose exec db psql -c "…"
+deploy/demo/demo.sh exec db psql -c "SELECT relname, pg_size_pretty(pg_total_relation_size(oid)) FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY pg_total_relation_size(oid) DESC LIMIT 10"
+deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
+```
+
+**What the fuse cannot bound.** It does not see the WAL (up to `max_wal_size`, 1 GB by default, more while a backup
+or a long transaction holds it), the backup sets, container logs (3 × 10 MB per service), what grows in the minute
+between two measurements, or what still grows after it trips (sessions, audit rows of the writes that stay open).
+Rewrites bloat the database too: rewriting one 5 MB value 40 times in 8 seconds grew it by 207.5 MB, and one client
+address can send 4 MB a second over the collaboration socket (about 240 MB a minute), so a few addresses writing
+at full rate for a minute or two can trip a 3,000 MB fuse on a demo holding 2,000 MB of counted data. Only that
+server stops, but it stays stopped until the operator acts.
+
+Disk budget for a fuse of `L` MB: live data `L` plus a minute of growth, WAL about 1 GB, each daily backup set at
+most `L` (content that does not compress), and the logs. With the demo preset (3,000 MB, 7 daily sets) that is about
+3 + 1 + 7 × 3 = 25 GB in the worst case. Put a demo's Docker volumes on a separate filesystem with a size limit, so
+that whatever the fuse misses cannot fill the disk the main instance uses.
 
 ### Terms and consent (`LEGAL_DIR`)
 - The folder holds `terms.ko.md`, `terms.en.md`, `privacy.ko.md`, `privacy.en.md` (those present) and `signup.json`
@@ -1103,24 +1182,52 @@ semantic search, OpenID Connect and mail. MCP stays on.
   address. Set `TRUST_PROXY` to your reverse proxy's address only, and do not publish the app port beyond
   `127.0.0.1`. A sign-up that arrives from a private or loopback address is logged once as a hint that the proxy
   does not send the header.
-- While `SIGNUP_MAX_USERS` or `SIGNUP_PER_IP_PER_DAY` is set, the sign-up form also has a hidden field that must
-  stay empty and must have been on screen for two seconds (400 `SIGNUP_CHECK_FAILED` otherwise). These checks stop
-  only simple scripts; the two caps are what bound the damage.
+- The sign-up limits count an IPv6 client by its /56 (one subscriber usually holds at least that much), an IPv4
+  client by its address, and an IPv4-mapped IPv6 address as the IPv4 address. The request rate limit of every server
+  counts IPv6 by /64; the sign-in failure bans are unchanged.
+- While `SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `SIGNUP_PER_HOUR` is set, the sign-up form also has a hidden
+  field that must stay empty and must have been on screen for two seconds (400 `SIGNUP_CHECK_FAILED` otherwise).
+  These checks stop only simple scripts; the caps are what bound the damage, and they slow filling the server
+  rather than prevent it (KNOWN-ISSUES).
+- `SIGNUP_PER_HOUR` counts the accounts the server made in the last hour (429 `SIGNUP_RATE_LIMIT`, "Try again in an
+  hour"). The setup-code sign-up neither counts nor is refused.
+- While `SIGNUP_PER_IP_PER_DAY` is set, a sign-up refused because the email or ID is taken is recorded for the
+  address (in `signup_events`, as `taken:` and the address). After 10 such answers in 24 hours the address gets 429
+  `SIGNUP_IP_LIMIT` for every sign-up, before the server says whether a name is taken. Without
+  `SIGNUP_PER_IP_PER_DAY` nothing is recorded and the answers are not limited.
 - Sign-up address records are deleted after 30 days. The hourly housekeeping also deletes `ip_bans` rows whose ban
   ended more than 30 days ago, on every server; an active ban is never touched.
 - Open sign-up (`SIGNUP_REQUIRE_KEY=0`) on a server without an admin: the first account becomes the admin. Under
   restricted sign-up (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
-  `LOGIN_ID_MODE=username`) a server without an admin refuses sign-ups without the setup code (403
+  `LOGIN_ID_MODE=username`; `SIGNUP_PER_HOUR` alone is not restricted sign-up) a server without an admin refuses sign-ups without the setup code (403
   `SETUP_REQUIRED`, before any other check) and its sign-up screen only says it is waiting for its operator. Create
   the operator account with the setup link from the log (`/setup?code=…`, opened at the `PUBLIC_URL` address); after
   that, sign-up is open as configured. Sign-in still promotes: with OIDC or delegated sign-in on (possible with the
   caps or the lifetime, not with sign-in IDs), and on a server that has accounts but no admin, the first account to
   sign in becomes the admin (KNOWN-ISSUES LIMITS-19, LIMITS-20).
 
+### Unused OAuth clients
+`POST /oauth/register` needs no account, and every call stores a client row (up to about 20 KB). Two settings bound
+these rows on a server open to strangers (docs/adr/2536-*). Both are off by default; without them nothing is deleted.
+- **Never used** means a self-registered client (`ink_c_…`) that nothing points at: no authorization code, no grant,
+  no agent access record and no agent block. An expired grant still counts as use until the hourly OAuth purge
+  removes it (60 days after its last refresh). Agent connection tokens (`ink_tc_…`) and metadata-document clients
+  (whose id is a URL) are never deleted this way, and neither is a client someone has connected with.
+- `OAUTH_UNUSED_CLIENT_HOURS`: the hourly housekeeping deletes never-used clients registered more than this many
+  hours ago.
+- `OAUTH_UNUSED_CLIENT_MAX`: a registration that would pass this many never-used clients first deletes the oldest
+  ones. It never deletes one registered in the last 15 minutes (someone may be on the sign-in or consent screen with
+  it); when only those are left, the registration is refused with 503 `temporarily_unavailable` and `Retry-After`.
+- An app whose client was deleted gets `invalid_client` and has to register again (KNOWN-ISSUES).
+- With the demo values (24 hours, 500) the never-used rows stay under about 500 × 23 KB.
+
 ### Account lifetime
 - `ACCOUNT_LIFETIME_DAYS` gives an expiry date only to accounts that sign up while it is set, and never to admins.
   Turning it on later leaves existing accounts alone; turning it off stops all deletion, also for accounts that
   have a date.
+- **Turning it off and on again** keeps the dates that accounts got earlier: at the next hourly run every account
+  whose date passed while it was off is deleted at once. Before turning it back on, look at the dates in Admin ›
+  Users and move or lift the ones that should not apply.
 - Each hour up to 50 expired accounts are deleted, oldest date first, each in its own transaction; a failure is
   one log line and the next account still runs. Log lines carry the account id and counts, never a name or ID.
 - Start with `ACCOUNT_LIFETIME_DRY_RUN=1`: the job logs one line per account it would delete ("would delete user
@@ -1138,9 +1245,15 @@ semantic search, OpenID Connect and mail. MCP stays on.
   own alone that could still be restored, are deleted with their files; a shared workspace they own alone goes to its oldest admin-role member, else its oldest member (who gets
   a notification); their private pages are deleted; their shared pages, comments and versions stay without their
   name. Mentions other members wrote, and ids without a name in audit rows, stay (KNOWN-ISSUES LIMITS-8).
+- Copied names are found by the account's id only: the name in audit rows (actor, target, and the names write sites
+  keep beside an id) and the workspace this account made at sign-up (`<name>'s workspace`). Records of another person
+  with the same name never change. Names in four kinds of audit rows written before 0.22.0 (locking a page, changing
+  a lock's editors, blocking and unblocking an agent) have no id beside them and stay.
+- The preview of what deletion removes (`GET /api/me/delete-preview`) answers browser sessions only.
 - The admin's **Delete** in Admin › Users keeps its 0.21 behaviour (409 `SOLE_OWNER`, private pages to the trash).
 
 ### Admin status
 - The "Security settings" card gains two items. **Account cap**, shown while anyone can sign up: amber in
   production without `SIGNUP_MAX_USERS`. **Account lifetime**, shown while `ACCOUNT_LIFETIME_DAYS` or the dry run is
   set: amber during a dry run.
+- With `LIMIT_INSTANCE_STORAGE_MB`, the storage group lists **Server storage limit** (above, "Instance storage fuse").

@@ -122,6 +122,22 @@ empty table of 3 columns × 4 rows (`/표 3x4` and `3*4` work too). A Markdown t
 
 You can also drop images and files onto the page. The title is the large text at the top; F2 jumps to it.
 
+### Columns
+
+Type `/2단` or `/3단` (in English "2 columns", "3 columns") on an empty line to split it into columns side by side;
+the caret goes into the first one. Write in each column as anywhere else: any block works, including images,
+to-dos, code, callouts and toggles. Arrow keys move between columns; Tab and Shift+Tab indent inside a column.
+Backspace at the start of a column moves the caret to the column on its left instead of pulling the line out.
+
+To change widths, point between two columns and drag the line that appears; a double-click on it makes all
+columns equally wide. The block menu (⋮⋮ beside a block) of anything in a column has **Add column** (up to four),
+**Delete this column** (what was in it moves to the end of the column on its left) and **Unwrap columns** (the
+group becomes ordinary blocks again, column after column). Columns cannot go inside columns.
+
+On a narrow screen the columns stack, first column on top. A heading inside a column does not start a section:
+it is not in the outline, does not split presentation slides, and agents patch the section around the group.
+Images inside columns open large like any other (see *Looking at images*).
+
 ### Math
 
 - Display equation: `/` → **Math block**.
@@ -383,6 +399,11 @@ when the edits are stored on this device, and **Not saved yet** when they exist 
 "Some edits have not reached the server yet. Keep this tab open until they are saved."); only then does closing or
 reloading the tab ask you first. Opening another page inside the app is fine: the edits of the page you left are
 kept until the server has them.
+
+A tab that still runs an older version of the app (opened before your server was updated) can read pages that
+use something it does not know, such as columns in 0.20, but not edit them; reload it. In 0.20 and later such a
+page says "This page has content that only a newer version of the app can edit. Reload to update."; a 0.19 tab
+shows the page as locked instead.
 
 ### Comments
 

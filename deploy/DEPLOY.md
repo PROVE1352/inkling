@@ -336,6 +336,8 @@ restart:
 | `EMBEDDING_QUERY_TIMEOUT_MS` | Timeout of the query embedding of one search; on timeout search answers lexically | `3000` |
 | `EMBEDDING_MAX_CHARS` | Characters of one chunk sent to the model | `4000` |
 | `EMBEDDING_CACHE_MB` | In-process vector cache for queries | `128` |
+| `EMBEDDING_QUERY_PREFIX` | Text put before every search query (`"query: "` for e5 models); taken as written; changing it re-embeds everything | empty |
+| `EMBEDDING_PASSAGE_PREFIX` | Text put before every section sent for embedding (`"passage: "` for e5); changing it re-embeds everything | empty |
 
 Inside the container `localhost` is the container: for Ollama on the Docker host use
 `http://host.docker.internal:11434/v1` (Docker Desktop) or the host's LAN address. Boot log, progress, memory and how

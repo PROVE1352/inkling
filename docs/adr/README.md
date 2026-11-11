@@ -383,7 +383,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 
 | ADR | Title | Status |
 |---|---|---|
-| [1210](1210-find-context-idf-weighted-ranking.md) | find_context ranking: idf-weighted BM25, adjacency of query words, Korean word groups | Accepted |
+| [1210](1210-find-context-idf-weighted-ranking.md) | find_context ranking: idf-weighted BM25, adjacency of query words, Korean word groups | Accepted (amended by [2401](2401-shorter-form-of-a-korean-compound-in-titles-and-headings.md)–[2403](2403-title-words-count-in-document-frequency.md)) |
 | [1211](1211-find-context-per-page-diversification.md) | find_context: at most two sections per page, the second only when it is nearly as good | Accepted |
 | [1212](1212-find-context-short-section-locations.md) | find_context: the last heading and a short anchor instead of the whole path | Accepted |
 | [1213](1213-retrieval-evaluation-dev-test-split.md) | Retrieval evaluation: dev/test split, rank metrics, the field failure as data | Accepted |
@@ -621,7 +621,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 
 | ADR | Title | Status |
 |---|---|---|
-| [1740](1740-optional-semantic-search-off-by-default.md) | Optional semantic search: an operator's embedding endpoint, off by default | Accepted |
+| [1740](1740-optional-semantic-search-off-by-default.md) | Optional semantic search: an operator's embedding endpoint, off by default | Accepted (role prefixes: [2404](2404-embedding-role-prefixes.md)) |
 | [1741](1741-vectors-in-real-arrays-brute-force-cosine.md) | Vectors in `real[]`, brute-force cosine from a per-workspace cache | Accepted |
 | [1742](1742-background-indexer-content-addressed-chunks.md) | Background indexer: content-addressed chunk vectors, rate limit and backoff | Accepted |
 | [1743](1743-semantic-candidates-at-the-permission-boundary.md) | Semantic candidates pass the same permission boundary as find_context | Accepted |
@@ -941,6 +941,27 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2384](2384-getting-started-card-inside-the-sidebar-height-budget.md) | The Getting started card is part of the sidebar's height budget; it scrolls inside, the footer stays reachable | Accepted |
 | [2385](2385-intro-end-screen-camera-and-ink-wipe.md) | The intro ends on a screen of next steps; a camera and ink wipes inside the same pure function | Accepted |
 | [2386](2386-image-viewer-double-click-in-the-editor-click-elsewhere.md) | Image viewer: double-click or the corner button in the editor, one click where nothing can be edited | Accepted |
+
+## 2400–2409 find_context recall (0.20)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2400](2400-recall-evaluation-set-and-page-metrics.md) | Recall evaluation set: questions as people remember pages, asked over several workspaces | Accepted |
+| [2401](2401-shorter-form-of-a-korean-compound-in-titles-and-headings.md) | The shorter form of a Korean compound counts in titles and headings, with a discount | Accepted (amends the word groups of 1210/1700) |
+| [2402](2402-a-chunk-without-the-rare-query-word-keeps-three-quarters.md) | A chunk without the query's rarest word keeps three quarters of its score | Accepted (amends the score of 1210) |
+| [2403](2403-title-words-count-in-document-frequency.md) | Title words count in a word's document frequency; results of the 0.20 word rules | Accepted (amends the word weights of 1210) |
+| [2404](2404-embedding-role-prefixes.md) | Optional role prefixes for embedding models (EMBEDDING_QUERY_PREFIX, EMBEDDING_PASSAGE_PREFIX) | Accepted (amends 1740) |
+
+## 2420–2429 Columns (0.20)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2420](2420-columns-are-columnlist-and-column-nodes.md) | Columns are `columnList` and `column` nodes next to BlockNote's blocks (core's API, not the GPL package) | Accepted |
+| [2421](2421-column-edits-without-automatic-cleanup.md) | Column edits never tidy a group by themselves (own transactions, column-safe replace/remove, edge keys) | Accepted |
+| [2422](2422-columns-in-markdown-as-comment-markers.md) | Columns in Markdown are comment markers around each column, in every notation mode | Accepted |
+| [2423](2423-columns-on-narrow-screens-and-other-views.md) | Columns stack below 640 px and keep their layout in public, slides, print, embeds | Accepted |
+| [2424](2424-headings-in-columns-are-not-sections.md) | A heading inside a column is not a section; patch_section and find_context keep a group whole | Accepted |
+| [2425](2425-older-clients-are-read-only-on-pages-with-newer-nodes.md) | Older clients are read-only on pages that hold node types they do not know (document schema version) | Accepted |
 
 ## 099x Client updates
 

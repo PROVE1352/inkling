@@ -799,7 +799,7 @@ Changed rules:
 ### Row templates (docs/adr/1180–1184)
 - `GET /api/pages/:id/collection/row-templates` (anyone who can see the database) → `{ templates: RowTemplateDTO[], defaultId }`; `RowTemplateDTO { id, collectionId, name, icon, title, props, isDefault, sortOrder, inputs, hasBody, updatedAt }`.
 - `POST /api/pages/:id/collection/row-templates` (database editable; edit lock → 403 `PAGE_LOCKED`) `{ name, icon?, title?, props?, fromRowId?, isDefault? }` → `{ template }`. At most 20 (400). Props by field id; dates `YYYY-MM-DD`, `today`, `today±N`; person = member id or `me`; relation/rollup and invalid values dropped.
-- `GET /api/collection-row-templates/:id` → `{ template, state }` (base64 Yjs update of the body, '' when empty). `PATCH` `{ name?, icon?, title?, props?, update? (base64 Yjs update merged into the body; damaged 400 `TEMPLATE_INVALID`, > 2 MiB 400 `TEMPLATE_TOO_LARGE`), isDefault?, sortOrder? }` → `{ template }`. `DELETE` → 204.
+- `GET /api/collection-row-templates/:id` → `{ template, state }` (base64 Yjs update of the body, '' when empty). `PATCH` `{ name?, icon?, title?, props?, update? (base64 Yjs update merged into the body; damaged 400 `TEMPLATE_INVALID`, > 2 MiB 400 `TEMPLATE_TOO_LARGE`), schema? (0.20, see "v0.20.0 additions"), isDefault?, sortOrder? }` → `{ template }`. `DELETE` → 204.
 - `POST /api/pages/:id/collection/rows` `{ template?: uuid|null, title?, props?, inputs?, tz? }`: omitted template → the default (none → empty row), `null` → empty row, unknown → 404 `TEMPLATE_NOT_FOUND`. Given props override the template; a typed title wins over the pattern. → `{ row, templateId, cursor? }`. Placement and edit lock as for page creation; `page_created` webhook and assignment events.
 
 ### Webhooks (docs/adr/1190–1192, [WEBHOOKS.md](WEBHOOKS.md))
@@ -1574,7 +1574,7 @@ tokens) get 403.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/pages/:id/sync-check` | `{ gen: number, canEdit: boolean, trashed: boolean, sv: string }` for the browser before it syncs a device copy. `gen` the page's document generation; `canEdit` whether the caller may edit the body now (lock, people rows, guest level; false when trashed); `trashed` the page is in the trash (a trashed page the caller could see answers 200 instead of 404); `sv` the base64 Yjs state vector of the live document (or of `page_docs`). Browser session only (403 for tokens); members and guests, as on the collaboration socket. 404 when the page is not visible or not a document; 403 not a member or guest of the workspace, or `TWO_FACTOR_REQUIRED`. `Cache-Control: no-store` |
+| GET | `/api/pages/:id/sync-check` | `{ gen: number, canEdit: boolean, trashed: boolean, sv: string, needs?: number }` (`needs` and `?schema=` since 0.20, see "v0.20.0 additions") for the browser before it syncs a device copy. `gen` the page's document generation; `canEdit` whether the caller may edit the body now (lock, people rows, guest level; false when trashed); `trashed` the page is in the trash (a trashed page the caller could see answers 200 instead of 404); `sv` the base64 Yjs state vector of the live document (or of `page_docs`). Browser session only (403 for tokens); members and guests, as on the collaboration socket. 404 when the page is not visible or not a document; 403 not a member or guest of the workspace, or `TWO_FACTOR_REQUIRED`. `Cache-Control: no-store` |
 
 - Collaboration socket: right after authentication the server sends the stateless message `{"t":"gen","gen":<n>}` on
   the page's channel, and again to every open client when the generation changes. Clients ignore unknown `t`.
@@ -1732,3 +1732,33 @@ session only: bearer tokens get 403.
 
 ### MCP tools
 No new tool and no description change: full 48 tools (~12,777 tokens), core 32 (~7,533). Details: [MCP.md](MCP.md).
+
+## v0.20.0 additions
+
+No migration. Existing answers keep their shape; new fields are additive.
+
+### Columns (docs/adr/2420–2424)
+- Page bodies with columns carry `<!-- inkling:columns -->` (with `{"widths":[…]}` in percent when the columns
+  differ), `<!-- inkling:column -->` and `<!-- /inkling:columns -->` lines in every Markdown answer and input:
+  `GET /api/pages/:id/export?format=md` (every `notation`), zip export and import, `POST /api/pages/:id/content`,
+  the section routes and vault sync. Markers that do not pair up are dropped on input and the blocks stay.
+- `GET` and `POST /api/pages/:id/section` (and `POST /api/pages/:id/sections`) treat a top-level group as one block of its section: a
+  heading inside a column is not a section; a replace keeps the group unchanged or replaces it whole
+  (docs/adr/2424-*).
+
+### Document schema (docs/adr/2425)
+- Collaboration socket: `GET /collab?schema=N` (WebSocket upgrade). `N` is the document schema the client knows
+  (0.20 = 2); missing or invalid = 1 (0.19 and older). On a page that holds a node type above `N` the connection is
+  read-only (`Authenticated` scope `readonly`) and gets the stateless message `{"t":"schema","needs":M}`; when such a
+  node reaches a page while the connection is open, the connection becomes read-only at once and its socket is
+  closed with code 4000 so the client reconnects.
+- `GET /api/pages/:id/sync-check?schema=N`: with `N` below the server's document schema the answer adds
+  `needs: number`, the schema the page needs now. Without the parameter, or with the server's own version, the
+  answer is unchanged.
+- `PATCH /api/collection-row-templates/:id` body adds `schema?: number` (the document schema of the client that
+  made `update`; missing = 1). An `update` from a client below what the stored body needs answers 409
+  `SCHEMA_OUTDATED` and changes nothing; other fields without `update` are not affected.
+
+### MCP tools
+No new tool and no description change: full 48 tools, core 32 (same sizes as 0.19). Details: [MCP.md](MCP.md).
+

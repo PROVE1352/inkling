@@ -7,6 +7,108 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-11
+
+> **Reload open tabs after the upgrade.** A tab that still runs 0.19 or older cannot show columns, and its editor
+> would delete a group of columns with everything inside it. 0.20 lets such a tab read pages with columns but not
+> edit them, until it is reloaded (below and docs/adr/2425-*).
+
+A minor release with columns and better `find_context` answers for Korean questions. Blocks can sit side by side in
+two to four columns (`/2단`, `/3단`); agents, Markdown downloads, zip export and vault sync carry them as comment
+markers. A tab of an older release can no longer delete them: each client tells the server which document schema it
+knows, and the server takes edits only from clients that know every node on the page. `find_context` counts the
+shorter form of a long Korean word in titles and headings, prefers sections with the question's rarest word and
+gives title words their real weight. No database migration (a 0.19 database stays at 61 applied migrations), no new dependency, two
+optional settings (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`). The MCP tool list is unchanged (48 tools,
+32 in core; same descriptions and sizes). Upgrade matrix adds v0.19.0 and v0.19.1.
+
+Checked in Chrome only (desktop and a 390 px window): the columns check (31 steps), a 0.19.1 build against the 0.20
+server (10 steps) and the 0.19 browser checks passed; none of it was tried in Safari, Firefox or on a touch device
+(docs/KNOWN-ISSUES.md, "Added in 0.20.0").
+
+### Upgrade notes
+- **Tabs left open over the upgrade** (docs/adr/2425-*). Pages without columns: nothing changes, a 0.19 tab edits
+  them as before. Pages with columns: a 0.19 tab gets a read-only connection. It shows the page without the group,
+  under its lock line ("Locked · … You can read and comment, but not edit": 0.19 reads a read-only connection as a
+  lock), next to its own "A new version is available. Reload" notice; typing does nothing and nothing it does
+  reaches the page. When someone adds columns to a page a 0.19 tab has open, that tab turns read-only the same way
+  within a moment; what it sent in that moment is dropped. After Reload the tab runs 0.20 and edits normally. A 0.19
+  tab with offline copies on (the installed app) keeps its editor's deletion of the group as an unsent edit; 0.20
+  keeps that edit as a recovery item ("Made by an older version of the app") instead of sending it. A row template
+  body with columns refuses saves from a 0.19 tab (409 `SCHEMA_OUTDATED`).
+- **Proxies**: the collaboration socket URL now carries a query string (`/collab?schema=2`). Path rules such as
+  Caddy's or nginx's `location /collab` need nothing; a rule that compares the whole request URI must allow it. A
+  proxy that strips the query makes every 0.20 tab look like 0.19: read-only on pages with columns.
+- **No migration**, no re-index: the new `find_context` rules work at query time. Answers to Korean questions can be
+  ordered differently from 0.19; answers cached in memory are dropped by the restart.
+- **Going back to 0.19.1** needs no database restore (no migration), but 0.19 does not know columns and has no
+  guard: its editor deletes a group with its content as soon as someone opens the page. Not checked beyond that;
+  do not go back once columns are in use.
+- **Semantic search**: `EMBEDDING_QUERY_PREFIX` and `EMBEDDING_PASSAGE_PREFIX` are empty by default, so nothing
+  changes. Setting, changing or removing one re-embeds every section at `EMBEDDING_REQUESTS_PER_MINUTE`; until that
+  finishes, sections without a new vector are found by their words only (docs/OPERATIONS.md).
+- API: `GET /api/pages/:id/sync-check?schema=N` (new query) answers `needs` when N is below the server's document
+  schema; `PATCH /api/collection-row-templates/:id` takes `schema` (409 `SCHEMA_OUTDATED`); page bodies with columns
+  carry `<!-- inkling:columns -->` marker lines in every Markdown format (docs/API.md, "v0.20.0 additions").
+
+### Added
+- **Columns** (docs/adr/2420-* .. 2424-*). Put blocks side by side: `/2단` or `/3단` in the slash menu (English "2
+  columns", "3 columns"; `/columns` and `/단` find them too) turns an empty line into a group of empty columns with
+  the caret in the first one (on a line with text the group goes below it). Any ordinary block goes in a column:
+  text, headings, lists, to-dos, images, code, callouts, toggles, tables, embeds. Drag the boundary between two
+  columns to change their widths (each keeps at least 15%), double-click it to make them equal. The block menu (⋮⋮)
+  of a block in a column adds **Add column** (up to four), **Delete this column** (its blocks move to the column on
+  its left) and **Unwrap columns** (everything back as ordinary blocks, in order). Nothing tidies a group on its
+  own: an empty column stays until you delete it; Backspace in a group whose columns are all empty removes it.
+  Below 640 px of width (phones, a side peek) the columns stack in order. Public links, presentation mode, PDF and
+  print, page embeds and the offline copy show the columns, and the image viewer opens on images inside them;
+  agents, Markdown downloads, zip export/import and vault sync write them as `<!-- inkling:columns -->` /
+  `<!-- inkling:column -->` / `<!-- /inkling:columns -->` lines. A heading inside a column is not a section.
+  Written against @blocknote/core's public API; BlockNote's GPL multi-column package is not used. No new
+  dependency.
+- **Document schema version** (docs/adr/2425-*). Every client says on its collaboration socket which document
+  schema it knows (0.20 = 2; none = 0.19 and older = 1). On a page that holds a node type the client does not
+  know, its connection is read-only, from the start or from the moment such a node arrives, so an older editor
+  never deletes what it cannot show. 0.20 shows "This page has content that only a newer version of the app can
+  edit. Reload to update." when that happens to it in a later release.
+- **Role prefixes for embedding models**: `EMBEDDING_QUERY_PREFIX` and `EMBEDDING_PASSAGE_PREFIX` (optional, empty
+  by default) for models that expect them, such as the e5 family (`"query: "`, `"passage: "`). Changing either one
+  re-embeds every section, as a model change does (docs/adr/2404-*).
+- Developers: a recall evaluation set for `find_context` (32 questions written the way people remember pages, over
+  three workspaces) with page@1, page@3 and page MRR in `apps/server/scripts/context-bench.ts` and
+  `context-tune.ts` (docs/adr/2400-*).
+
+### Changed
+- **find_context finds pages people describe with a longer word than the page uses** (docs/adr/2401-* .. 2403-*):
+  a Korean query word of three or more syllables also counts, with a discount, when its shorter form (the word
+  without the last syllable, e.g. 택배함 → 택배, 회의록 → 회의) is in a page title or heading. Sections that miss the
+  question's clearly rarest word rank a little lower (×0.75), and words that appear only in titles now carry their
+  real weight instead of the "unknown word" minimum. Query time only: no migration, no re-index. On the new recall
+  evaluation (32 questions over three workspaces): tuning (dev) questions page@3 0.875 → 1.000 (own workspaces) and
+  0.813 → 0.938 (with a 5,000-page workspace); held-out (test) questions page@3 unchanged at 0.938 in both, page@1
+  0.750 → 0.813 and page MRR 0.844 → 0.885 with the large workspace, unchanged on own workspaces. Existing questions
+  unchanged or better except one test question that loses its second relevant section; latency unchanged.
+- **patch_section on a section that holds columns** keeps the group: sent back unchanged it stays as it is (same
+  block ids), with any change inside it is replaced whole (the blocks in it get new ids); it is never merged with
+  an ordinary block. `update_page` replace of a page with columns keeps the blocks around the group instead of
+  rewriting the page (docs/adr/2424-*).
+- **find_context's section text writes columns with read_page's marker lines**, without indenting the blocks
+  inside, so a section copied from find_context into patch_section keeps its group (docs/adr/2424-*).
+
+### Fixed
+- A section patch that the server refuses no longer shows up as an unhandled promise rejection in the server log
+  (`gatedTransact`, docs/adr/2424-*).
+
+### Performance
+- Web bundle against 0.19.1 (365b664): entry `index-*.js` 447,198 → 447,036 B (122,992 → 122,969 B gzip); entry
+  plus modulepreload 1,374,102 → 1,376,227 B (404,600 → 404,970 B gzip); entry CSS 19,717 → 20,063 B gzip; the
+  column code sits in the editor chunk (CollabEditor, 126,072 → 130,874 B gzip); precache 107 → 105 entries,
+  +19,107 B ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+- `find_context` latency with the new word rules is unchanged (p50 36.2 → 34.6 ms, p95 102.2 → 90.8 ms on 15.8k
+  sections, interleaved runs). The document schema guard costs current clients one comparison per message; on the
+  server a keystroke costs nothing measurable and a new block in a 2,000-block group about 50 µs
+  ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+
 ## [0.19.1] - 2026-11-11
 
 A patch release in two parts. The onboarding intro, redone after it was seen in production, is drawn with real

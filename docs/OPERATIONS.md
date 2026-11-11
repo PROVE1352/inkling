@@ -409,8 +409,16 @@ leave the machine. Turned off, nothing of it runs: no request, no timer, no quer
 | `EMBEDDING_QUERY_TIMEOUT_MS` | 3000 | Timeout of the one query embedding per search; on timeout search answers lexically |
 | `EMBEDDING_MAX_CHARS` | 4000 | Characters of one chunk sent to the model |
 | `EMBEDDING_CACHE_MB` | 128 | In-process vector cache for queries; a workspace that does not fit is scored in SQL (slower) |
+| `EMBEDDING_QUERY_PREFIX` | empty | Role prefix put before every search query (0.20, docs/adr/2404-*) |
+| `EMBEDDING_PASSAGE_PREFIX` | empty | Role prefix put before every section sent for embedding (0.20) |
 
-`compose.yaml` passes all ten through, so setting them in `.env` is enough (examples in `.env.example`). A half-filled
+`EMBEDDING_QUERY_PREFIX` / `EMBEDDING_PASSAGE_PREFIX` are for models trained with role prefixes (e5:
+`EMBEDDING_QUERY_PREFIX="query: "`, `EMBEDDING_PASSAGE_PREFIX="passage: "`; quote them in `.env` so the space is
+kept). Vectors are stored under the model name plus a short hash of the prefixes, so setting, changing or removing a
+prefix re-embeds every section and the clean-up deletes the old vectors, exactly as after a model change. The admin
+status keeps showing the model.
+
+`compose.yaml` passes all twelve through, so setting them in `.env` is enough (examples in `.env.example`). A half-filled
 set (URL without model or the reverse) stays off and logs one warning at boot. Multilingual models work best for mixed
 Korean/English notes (e.g. `bge-m3`, `multilingual-e5-large`, `text-embedding-3-small`).
 
@@ -861,3 +869,29 @@ Removing `legacy` as well (`state - 'introSeenAt' - 'legacy'`) makes an older ac
 comes back too, and if the account is the server's first account and an admin, its next load also makes the sample
 page. The first admin of a new server gets a sample page in their private pages on their first app load; nobody else
 gets one unless they press the card's button.
+
+## 14. Columns and tabs of older releases (0.20)
+
+### Upgrading to 0.20
+No migration and no required setting: the usual procedure (Upgrades, above). A 0.19 database stays at 61 applied
+migrations. Afterwards, ask people to reload tabs they left open: a tab still running 0.19 or older can read pages
+with columns but not edit them (below). Going back to 0.19.1 needs no restore, but 0.19's editor deletes a group of
+columns with its content when it opens such a page (it has no guard); do not go back once columns are in use.
+
+### Older tabs and the document schema (docs/adr/2425-*)
+- Each client sends the document schema it knows on the collaboration socket (`/collab?schema=2` in 0.20; 0.19 and
+  older send nothing and count as 1). On a page holding a node type the client does not know (columns for 0.19), its
+  connection is read-only. A 0.19 tab then shows the page without the group under its lock line ("Locked … You can
+  read and comment, but not edit"); after a reload it runs 0.20 and edits normally. Pages without columns are not
+  affected.
+- When a group is added to a page a 0.19 tab has open, the server turns that connection read-only in the same
+  moment and closes its socket (WebSocket close code 4000, reason `document-schema`); the tab reconnects at once.
+  A few such closes in the log after an upgrade are expected.
+- Reverse proxies must pass the query string of `/collab` (Caddy and nginx path rules do). Without it every tab
+  counts as 0.19 and pages with columns become read-only for everyone in the browser.
+- With offline copies on, edits a 0.19 tab kept on the device for a page with columns are not sent after the reload:
+  they become a recovery item ("Made by an older version of the app", Settings › Offline).
+- Agents and the REST API write through the server's own schema and are not affected.
+- Cost: an older client's connection walks the page once (from `page_docs` when the page is not open); current
+  clients pay one comparison per message.
+

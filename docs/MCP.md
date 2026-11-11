@@ -266,7 +266,23 @@ that people see drawn as a diagram; read and write it as an ordinary fence (it c
 - a mention chip is `@[Name](user:<id>)` or `@[Title](page:<id>)`. You can keep, move or delete chips that are already
   in the page; a new one stays plain `@Name` text (it does not notify anyone, see step 7);
 - page embeds, link embeds, plugin blocks, file and audio blocks are one line each, e.g.
-  `<!-- inkling:pageEmbed {"pageId":"…"} -->`, `<!-- inkling:file {"caption":"Q3","name":"q3.pdf","url":"/files/…"} -->`.
+  `<!-- inkling:pageEmbed {"pageId":"…"} -->`, `<!-- inkling:file {"caption":"Q3","name":"q3.pdf","url":"/files/…"} -->`;
+- columns (0.20) are marker lines around ordinary Markdown ([ADR 2422](adr/2422-columns-in-markdown-as-comment-markers.md)):
+  ```
+  <!-- inkling:columns {"widths":[60,40]} -->
+  <!-- inkling:column -->
+  left column blocks
+  <!-- inkling:column -->
+  right column blocks
+  <!-- /inkling:columns -->
+  ```
+  `{"widths":[…]}` (whole percent) is there only when the columns differ. Keep the lines to keep the group; write
+  them yourself to make one (2–4 columns, markers at the start of the line, not inside a list or quote). Markers
+  that do not pair up are dropped and the blocks stay as ordinary blocks. A heading inside a column is not a
+  section (`outline=true` does not list it). `patch_section` on the section that holds a group keeps the group:
+  sent back unchanged it stays as it is, with any change inside it is replaced whole (its blocks get new ids).
+  `find_context` shows a group with the same lines, so a section copied from it can be patched back
+  ([ADR 2424](adr/2424-headings-in-columns-are-not-sections.md)).
 
 Leave these lines as they are and the nodes stay exactly as they were; delete a line to remove the node; edit the text
 or the JSON to change it (e.g. `[!warning]` → `[!tip]`, another `pageId`); write a new line to add one (links must be

@@ -102,7 +102,8 @@ The essentials, all in `.env`:
 
 Everything else is in [.env.example](.env.example) and [deploy/DEPLOY.md](deploy/DEPLOY.md): mail
 ([3-E](deploy/DEPLOY.md#3-e-mail-optional)), OpenID Connect sign-in ([3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional)),
-semantic search ([3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)) and running behind your own reverse proxy.
+semantic search ([3-H](deploy/DEPLOY.md#3-h-semantic-search-optional), with `EMBEDDING_QUERY_PREFIX` and
+`EMBEDDING_PASSAGE_PREFIX` for models that expect role prefixes such as e5) and running behind your own reverse proxy.
 Web push (`WEB_PUSH`, `VAPID_*`) and OAuth Client ID Metadata Documents (`OAUTH_CIMD`) work without settings or stay
 off until set: [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018).
 New accounts get a short intro and a Getting started checklist; `ONBOARDING=off` turns that off and
@@ -129,6 +130,7 @@ Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding 
 - Nested pages and folders with drag-and-drop, ⌘K search over titles and bodies, version history with named versions, trash, PDF export
 - Checklist items with a date become tasks, listed in the Due view and on the workspace calendar; presentation mode shows a page as slides
 - Command palette, shortcuts you can change, Later reminders and followed comment threads; button blocks that add a row, set values, open a page or call a webhook
+- Columns: `/2단` or `/3단` puts blocks side by side, widths by dragging, stacked on phones
 - Save from the web with a bookmarklet, the `/clip` screen or Android's share sheet, as a link or the article's text
 - English and Korean UI, installable PWA with offline copies of the pages you open, light and dark themes
 - A short intro and a Getting started checklist for new accounts, and a sample page to try things on

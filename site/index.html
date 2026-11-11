@@ -45,7 +45,7 @@
   <div class="wrap">
     <a class="brand" href="index.html"><img src="assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
     <nav class="nav" aria-label="Main">
-      <a class="hide-sm" href="#connect">Connect</a>
+      <a class="hide-sm" href="#start">Quick start</a>
       <a class="hide-sm" href="#install">Install</a>
       <a href="{{DOCS_INDEX}}">Docs</a>
       <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
@@ -65,44 +65,60 @@
         read, and can leave its edits as suggestions for a person to accept.
       </p>
       <div class="cta">
-        <a class="btn primary" href="#connect">Connect an agent</a>
-        <a class="btn" href="#install">Install</a>
+        <a class="btn primary" href="#start">Quick start</a>
+        <a class="btn" href="#connect">Connect to a server</a>
         <a class="btn" href="https://github.com/PROVE1352/inkling">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           GitHub
         </a>
       </div>
 
-      <div class="quick">
-        <p class="quick-label">Add your server to Claude Code (replace notes.example.com with your domain)</p>
-        <div class="term" data-copy>
-<pre><code><span class="k">claude</span> mcp add --transport http inkling https://notes.example.com/mcp</code></pre>
-        </div>
-      </div>
-
-      <figure class="shot hero-shot">
-        <picture>
-          <source srcset="assets/en/review-dark.png" media="(prefers-color-scheme: dark)">
-          <img src="assets/en/review-light.png" width="1440" height="900" alt="A page with a section an agent suggested to change: the review dialog shows the suggestion as a diff with Accept and Reject">
-        </picture>
-      </figure>
+      <p class="agent-links">For agents: <a href="llms.txt">summary for agents (llms.txt)</a> · <a href="docs/MCP.md">MCP guide as Markdown (docs/MCP.md)</a> · <a href="docs/DEPLOY.md">deployment guide as Markdown (docs/DEPLOY.md)</a></p>
     </div>
   </section>
 
-  <section class="block fit" id="fit" aria-labelledby="fit-title">
+  <section class="block start" id="start" aria-labelledby="start-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="kicker">Who it is for</p>
-        <h2 id="fit-title">Several people and several agents on the same notes</h2>
-        <p>
-          If you keep notes alone in one folder, Obsidian and an agent that reads the files directly are enough.
-          Inkling is for the case where several people and several agents work on the same notes, such as a small team of
-          three to five people who each work with their own agent. Inkling has no AI model of its own; writing and
-          summarizing are done by the agents you connect.
-        </p>
+        <p class="kicker">Quick start</p>
+        <h2 id="start-title">Try it on your computer with an agent</h2>
+        <p>Needs Docker Compose v2.24 or newer, bash and curl. The commands below are for a local trial; a server with a domain and HTTPS is under <a href="#install">Install</a>.</p>
       </div>
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>Start Inkling</h3>
+          <p>Downloads Inkling and starts it with generated secrets on a free local port (usually 3000).</p>
+          <div class="term" data-copy><pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git <span class="k">&amp;&amp;</span> <span class="k">cd</span> inkling
+<span class="k">./deploy/local.sh</span></code></pre></div>
+          <p class="after">When the server is up, the script prints a one-time setup link (<code>/setup?code=…</code>) and the MCP address. <code>./deploy/local.sh stop</code> stops the trial, <code>./deploy/local.sh destroy</code> deletes it.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Check that it answers</h3>
+          <p>Asks the server for its version (use the port the script printed).</p>
+          <div class="term" data-copy><pre><code><span class="k">curl</span> http://localhost:3000/api/version</code></pre></div>
+          <p class="after">The answer is JSON with <code>build</code>, <code>version</code> and <code>updateMode</code>.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Create the first account</h3>
+          <p>A person does this step: open the setup link in a browser and create an account. It becomes the administrator.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Make an agent connection token</h3>
+          <p>A person does this step. Sign-in does not work at a plain <code>http://</code> address, so the trial uses a token: open <code>http://localhost:3000/settings/connections</code>, make an <b>agent connection token</b> named after the client, read and write, 7 days. Copy it when it is shown; it is shown once.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Add the server to Claude Code</h3>
+          <p>Adds Inkling under the name <code>inkling</code> and sends the token as a header (put in your port and token).</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling http://localhost:3000/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre></div>
+        </div></li>
+        <li class="step"><div>
+          <h3>Check the connection</h3>
+          <p>Ask the agent to create a page, or to <code>find_context</code> something. In Inkling, its edits show "you (via Claude Code)".</p>
+        </div></li>
+      </ol>
     </div>
   </section>
+
 
   <section class="block" id="connect" aria-labelledby="connect-title">
     <div class="wrap">
@@ -145,6 +161,10 @@
         <b>Connect an AI app</b>, writes the settings for Claude Code, claude.ai and Claude Desktop, Cursor, VS Code and a
         generic <code>mcpServers</code> JSON. Details: <a href="{{DOC:MCP}}">MCP connector</a>.
       </div>
+      <p class="protocol"><b>Transport and sign-in.</b> MCP Streamable HTTP (stateless, JSON responses) at <code>/mcp</code>. Sign-in is OAuth 2.1 (dynamic client registration, and Client ID Metadata Documents when the server sets <code>OAUTH_CIMD=1</code>), or an agent connection token sent as <code>Authorization: Bearer</code>.</p>
+      <h3 class="table-title">Tools agents use most</h3>
+      <div class="table-scroll"><table class="tools"><thead><tr><th>Tool</th><th>Kind</th><th>What it does</th></tr></thead><tbody><tr><td><code>find_context</code></td><td>read</td><td>Ranked sections across your workspaces, packed into a token budget, each with page id, §anchor and version. Start here.</td></tr><tr><td><code>read_page</code></td><td>read</td><td>A page as Markdown; <code>outline=true</code> lists sections, <code>section=…</code> reads one.</td></tr><tr><td><code>patch_section</code></td><td>write</td><td>Change one section with <code>baseVersion</code>; a stale version returns a conflict with the current text.</td></tr><tr><td><code>claim_section</code></td><td>write</td><td>"Working on this section" for this connection, up to 30 minutes.</td></tr><tr><td><code>list_suggestions</code></td><td>read</td><td>Suggested edits and their outcome.</td></tr><tr><td><code>inbox</code></td><td>read</td><td>Mentions, replies, assignments and answers to suggestions, not yet acknowledged.</td></tr><tr><td><code>catch_up</code></td><td>read</td><td>What happened while the agent was away, most important first.</td></tr><tr><td><code>changes_since</code></td><td>read</td><td>What changed since a cursor, with per-section diffs.</td></tr><tr><td><code>get_instructions</code></td><td>read</td><td>The workspace's rules for agents from locked instruction pages.</td></tr><tr><td><code>trash_page</code></td><td>write</td><td>Move to trash, restorable for 30 days. There is no permanent-delete tool.</td></tr></tbody></table></div>
+      <p class="method">48 tools in all; 32 with <code>?profile=core</code>. The full list with arguments: <a href="{{DOC:MCP}}#what-it-can-do-tools">MCP connector</a> (<a href="docs/MCP.md">Markdown</a>).</p>
     </div>
   </section>
 
@@ -162,17 +182,23 @@
 
       <div class="split">
         <div class="transcript">
-          <p class="quick-label">An agent asks a question (output shortened)</p>
+          <p class="quick-label">An agent asks a question. Real output from a demo workspace on 0.20; ids differ on every server.</p>
           <div class="term">
 <pre><code><span class="k">› find_context</span>(query: "launch checklist status page")
-2 result(s) for "launch checklist status page", ~410/3500 tokens
+1 result(s) for "launch checklist status page", ~63/3500 tokens
 <span class="c">&lt;untrusted_content source="find_context"&gt;</span>
 [1] Q4 launch plan › Checklist
-(page 7c1e2a90 §checklist v=4f2a9c01b3de)
+(page bf62b053; §checklist v=3a3739a2f5ab; can: read,comment,edit; edited by Priya Nair)
 - [x] Pricing page copy
 - [ ] Status page, owner Sam Ortiz, due 2026-11-20
-…
-<span class="c">&lt;/untrusted_content&gt;</span></code></pre>
+- [ ] Support macros for the new plans
+
+Title matches without text:
+- Pricing page copy (page b4b7b832, doc)
+- Status page (page 20f7143e, doc)
+<span class="c">&lt;/untrusted_content&gt;</span>
+
+Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
           </div>
         </div>
         <div class="metrics">
@@ -203,14 +229,21 @@
 
       <div class="split">
         <div class="transcript">
-          <p class="quick-label">A stale version is refused (output shortened)</p>
+          <p class="quick-label">Sam ticked a box after the agent read the section, so the first edit is refused and the retry goes through. Real output.</p>
           <div class="term">
-<pre><code><span class="k">› patch_section</span>(pageId: "7c1e2a90", section: "checklist", mode: "append",
-                markdown: "- [ ] Changelog post", baseVersion: "4f2a9c01b3de")
-Conflict: Section "checklist" changed since baseVersion 4f2a9c01b3de;
-nothing was written. …
-<span class="k">› patch_section</span>(…, baseVersion: "8b61d0e2a7f4")
-<span class="o">Done (append): §checklist is now v=c27a90f13e56.</span></code></pre>
+<pre><code><span class="k">› patch_section</span>(pageId: "bf62b053", section: "checklist", mode: "append",
+                markdown: "- [ ] Changelog post", baseVersion: "3a3739a2f5ab")
+Conflict: Section "checklist" changed since baseVersion 3a3739a2f5ab; nothing was written. Merge your edit into the current content and retry with baseVersion 96198f73e6eb.
+
+Current §checklist (v=96198f73e6eb):
+## Checklist
+
+* [x] Pricing page copy
+* [x] Status page, owner Sam Ortiz, due 2026-11-20
+* [ ] Support macros for the new plans
+
+<span class="k">› patch_section</span>(…, baseVersion: "96198f73e6eb")
+<span class="o">Done (append): §checklist is now v=1ae7c04d3487.</span></code></pre>
           </div>
         </div>
         <div class="metrics">
@@ -232,6 +265,12 @@ nothing was written. …
         <h2 id="decide-title">Suggestions, history and locks stay with people</h2>
       </div>
 
+      <figure class="shot wide-shot">
+        <picture>
+          <source srcset="assets/en/review-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="assets/en/review-light.png" width="1440" height="900" loading="lazy" alt="The review dialog for a section an agent suggested to change: the suggestion as a diff, with Reject and Accept">
+        </picture>
+      </figure>
       <div class="grid two">
         <div class="card">
           <h3>Suggestions</h3>
@@ -271,22 +310,26 @@ nothing was written. …
     </div>
   </section>
 
+
   <section class="block" id="scope" aria-labelledby="scope-title">
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Scope</p>
-        <h2 id="scope-title">What each connection may do</h2>
+        <h2 id="scope-title">What limits an agent</h2>
+        <p>An agent acts as the person who connected it and sees only what that person can see in the web app. On top of that:</p>
       </div>
       <ul class="points">
-        <li><b>Read only, or read and write.</b> Chosen on the consent screen; a read-only connection's write tools refuse.</li>
-        <li><b>A range.</b> Everything the person can see, only some workspaces, or one page and the pages under it. The range can be changed later without reconnecting.</li>
+        <li><b>Read only, or read and write.</b> Chosen per connection on the consent screen; a read-only connection's write tools refuse.</li>
+        <li><b>A range.</b> Everything the person can see, only some workspaces, or one page and the pages under it. It can be changed later without reconnecting.</li>
+        <li><b>Suggestions a person accepts.</b> A workspace set to review everything, or a lock set to suggestions only, holds every agent edit until a person accepts or rejects it. No tool lets an agent accept.</li>
+        <li><b>Edit locks and agent blocks.</b> A locked page tree can hold agents to comments or reading; owners and admins can block an agent in their workspace. Agents cannot change locks.</li>
         <li><b>No permanent delete.</b> There is no tool for it; <code>trash_page</code> can be undone for 30 days.</li>
-        <li><b>Data, not instructions.</b> Text that members wrote reaches the agent inside <code>&lt;untrusted_content&gt;</code>. Text that looks like a prompt injection is flagged, and a connection that read it can only make suggestions for the next hour.</li>
-        <li><b>Per workspace.</b> Owners and admins see every member's agents, how many calls each made, and can block one in their workspace.</li>
       </ul>
       <p class="method">
-        The untrusted-data marking and the one-hour rule are mitigations, not permission checks. The limits are edit locks,
-        connection scopes and per-workspace agent blocks.
+        Text that members wrote reaches the agent inside <code>&lt;untrusted_content&gt;</code>, a marker that helps the agent
+        tell members' text from instructions; text that looks like a prompt injection is flagged and makes the connection
+        suggest-only for an hour. Both are mitigations, not permission checks: detection can be evaded and a model can still
+        be misled.
       </p>
     </div>
   </section>
@@ -316,6 +359,21 @@ nothing was written. …
     </div>
   </section>
 
+  <section class="block fit" id="fit" aria-labelledby="fit-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Who it is for</p>
+        <h2 id="fit-title">Several people and several agents on the same notes</h2>
+        <p>
+          If you keep notes alone in one folder, Obsidian and an agent that reads the files directly are enough.
+          Inkling is for the case where several people and several agents work on the same notes, such as a small team of
+          three to five people who each work with their own agent. Inkling has no AI model of its own; writing and
+          summarizing are done by the agents you connect.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <section class="block" id="notes" aria-labelledby="notes-title">
     <div class="wrap">
       <div class="section-head">
@@ -332,7 +390,7 @@ nothing was written. …
         <div class="card"><h3>English and Korean</h3><p>The interface comes in both languages, installs as a PWA and has light and dark themes.</p></div>
       </div>
       <div class="pair" style="margin-top:32px">
-        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/doc-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/doc-light.png" width="1440" height="900" loading="lazy" alt="A meeting-notes page with wiki links and dated tasks; the right panel shows backlinks and a local graph"></picture></div><figcaption>A page with its backlinks and local graph.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/doc-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/doc-light.png" width="1440" height="900" loading="lazy" alt="A meeting-notes page with wiki links and tasks; the right panel shows the outline, backlinks, outgoing links and tags"></picture></div><figcaption>A page with its backlinks and outgoing links in the right panel.</figcaption></figure>
         <figure class="fig"><div class="shot"><picture><source srcset="assets/en/board-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/board-light.png" width="1440" height="900" loading="lazy" alt="A roadmap database shown as a board grouped by status"></picture></div><figcaption>A database as a board, grouped by status.</figcaption></figure>
       </div>
     </div>
@@ -342,28 +400,11 @@ nothing was written. …
     <div class="wrap">
       <div class="section-head">
         <p class="kicker">Install</p>
-        <h2 id="install-title">Try it on your computer, then on a server</h2>
+        <h2 id="install-title">Run it on a server</h2>
         <p>You need Docker with the Compose plugin. The app is the prebuilt image <code>ghcr.io/prove1352/inkling</code> (amd64 and arm64), so a 1 GB server builds nothing.</p>
       </div>
 
       <ol class="steps">
-        <li class="step"><div>
-          <h3>Start a local trial</h3>
-          <p>Downloads Inkling and starts it with generated secrets on a free local port (usually <code>http://localhost:3000</code>).</p>
-          <div class="term" data-copy><pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git <span class="k">&amp;&amp;</span> <span class="k">cd</span> inkling
-<span class="k">./deploy/local.sh</span></code></pre></div>
-          <p class="after">The script prints a one-time setup link. A person opens it and creates the first account, which becomes the administrator. <code>./deploy/local.sh stop</code> stops the trial, <code>./deploy/local.sh destroy</code> deletes it.</p>
-        </div></li>
-        <li class="step"><div>
-          <h3>Connect an agent to the trial</h3>
-          <p>
-            Sign-in does not work at a plain <code>http://</code> address, so the trial uses a token. In
-            <b>Settings › Connections</b>, make an agent connection token named after the client, read and write, 7 days.
-            Copy it; it is shown once. Then add the server with the token (put in your port and token):
-          </p>
-          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling http://localhost:3000/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre></div>
-          <p class="after">Ask the agent to create a page or to <code>find_context</code> something; its edits show "you (via Claude Code)".</p>
-        </div></li>
         <li class="step"><div>
           <h3>Run it on a server</h3>
           <p>Point a domain at the server (ports 80 and 443 open) and start it with the Caddy overlay, which obtains the certificate and keeps the app and database ports private. Fill in <code>.env</code> first:</p>
@@ -373,7 +414,7 @@ nothing was written. …
 <span class="c">#          APP_SECRET_KEY=&lt;openssl rand -base64 32&gt;   (keep INKLING_DATA_NAME=inkling)</span>
 <span class="k">docker</span> compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 <span class="k">./deploy/signup-key.sh</span> new "first admin"   <span class="c"># prints https://notes.example.com/register</span></code></pre></div>
-          <p class="after">Backups run in a sidecar: scheduled, verified, optionally encrypted, with weekly restore tests. To upgrade, take a backup, pull the new image and restart; migrations run on boot. See <a href="{{DOC:DEPLOY}}">Deployment</a>, <a href="{{DOC:OPERATIONS}}">Operations</a> and <a href="{{DOC:BACKUP}}">Backup</a>.</p>
+          <p class="after">The last command prints the signup link (<code>https://notes.example.com/register</code>); open it to create the first account. Backups run in a sidecar: scheduled, verified, optionally encrypted, with weekly restore tests. To upgrade, take a backup, pull the new image and restart; migrations run on boot. See <a href="{{DOC:DEPLOY}}">Deployment</a>, <a href="{{DOC:OPERATIONS}}">Operations</a> and <a href="{{DOC:BACKUP}}">Backup</a>.</p>
         </div></li>
       </ol>
 
@@ -395,7 +436,7 @@ nothing was written. …
       <div class="section-head">
         <p class="kicker">Documentation</p>
         <h2 id="docs-title">Docs</h2>
-        <p>Every docs page links its Markdown source, and <a href="llms.txt">llms.txt</a> lists them for agents.</p>
+        <p>Every docs page links its Markdown source. The <a href="llms.txt">summary for agents (llms.txt)</a> lists them all.</p>
       </div>
       <div class="grid">
         <a class="card" href="{{DOC:MCP}}"><h3>MCP connector and agent guide</h3><p>Connecting clients, every tool, and the order an agent should use them in.</p></a>
@@ -416,7 +457,8 @@ nothing was written. …
       <a href="https://github.com/PROVE1352/inkling">GitHub</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security</a>
-      <a href="llms.txt">llms.txt</a>
+      <a href="llms.txt">Summary for agents (llms.txt)</a>
+      <a href="docs/MCP.md">MCP guide (Markdown)</a>
     </nav>
   </div>
 </footer>

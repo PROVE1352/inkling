@@ -184,7 +184,6 @@ function renderDoc(name) {
   const toc = []
   let title = null
   const marked = new Marked({ gfm: true })
-  const anchorLabel = isKo(name) ? '이 절로 가는 링크' : 'Link to this section'
   marked.use({
     renderer: {
       heading({ tokens, depth }) {
@@ -196,7 +195,8 @@ function renderDoc(name) {
           return `<h1 id="${esc(id)}">${inner}</h1>\n`
         }
         if (depth === 2) toc.push({ id, html: inner })
-        return `<h${depth} id="${esc(id)}">${inner}<a class="anchor" href="#${esc(id)}" aria-label="${anchorLabel}">#</a></h${depth}>\n`
+        // No "#" link next to the heading: a link must have a visible text name (the TOC links every h2).
+        return `<h${depth} id="${esc(id)}">${inner}</h${depth}>\n`
       },
     },
   })

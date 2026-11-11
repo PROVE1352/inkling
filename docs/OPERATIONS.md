@@ -877,7 +877,8 @@ One migration and no required setting: the usual procedure (Upgrades, above). Mi
 `pages` for charts on public links (section 15); a 0.19 database goes from 61 to 62 applied migrations. Every
 existing link keeps charts off, so public pages look as before until a manager turns them on. Afterwards, ask people
 to reload tabs they left open: a tab still running 0.19 or older can read pages with columns but not edit them
-(below). Going back to 0.19.1 needs no restore (0.19 ignores the three new columns), but 0.19's editor deletes a
+(below). Going back to 0.19.1 should need no restore (0.19 does not read the three new columns; starting it on a database
+with 0061 was not tried), but 0.19's editor deletes a
 group of columns with its content when it opens such a page (it has no guard); do not go back once columns are in
 use. A link that showed charts and is published again while 0.19 runs keeps its chart setting (KNOWN-ISSUES SHARE-9).
 

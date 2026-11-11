@@ -49,7 +49,8 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
   membership apply at once.
 - No re-index: the new `find_context` rules work at query time. Answers to Korean questions can be ordered
   differently from 0.19; answers cached in memory are dropped by the restart.
-- **Going back to 0.19.1** needs no database restore: 0.19 ignores the three new columns (0061 stays applied). But
+- **Going back to 0.19.1** should need no database restore: 0.19 does not read the three new columns (0061 stays
+  applied); starting 0.19.1 on a database with 0061 was not tried. But
   0.19 does not know columns and has no guard: its editor deletes a group with its content as soon as someone opens
   the page; do not go back once columns are in use. A page whose link showed charts, published again while 0.19
   runs, keeps the chart setting on for its new link once 0.20 runs again (KNOWN-ISSUES SHARE-9). Not checked beyond

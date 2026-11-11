@@ -2,7 +2,7 @@
 
 A workspace owner can send workspace events to any https endpoint: n8n, Zapier, Make, a serverless
 function or your own server. This guide is for the person writing the receiving side. Slack and
-Discord webhooks are configured in the same place but get a chat message, not the JSON described here.
+Discord webhooks are configured in the same place but get a chat message, not the JSON described here. 한국어: [WEBHOOKS.ko.md](WEBHOOKS.ko.md).
 
 Decisions behind this design: [ADR 1190](adr/1190-generic-webhooks-and-signatures.md) (payload,
 signature, secrets, SSRF), [ADR 1191](adr/1191-webhook-delivery-records-and-resend.md) (delivery list,

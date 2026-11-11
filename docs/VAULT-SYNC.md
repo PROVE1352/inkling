@@ -1,7 +1,7 @@
 # Obsidian vault sync (experimental)
 
 Two-way sync between a folder of markdown notes (an Obsidian vault, or a sub-folder of one) and an
-Inkling workspace.
+Inkling workspace. 한국어: [VAULT-SYNC.ko.md](VAULT-SYNC.ko.md).
 
 > **Still experimental in 0.17.** The server routes stay off unless `EXPERIMENTAL_FEATURES` lists `vault-sync`.
 > 0.17 closed the data-loss paths found while checking it (see [Status](#status-and-what-is-left)), but two

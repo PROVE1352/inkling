@@ -3,7 +3,7 @@
 Inkling can run small third-party plugins that add **command palette entries** and **custom
 blocks**, read or (with confirmation) write pages, and keep a little per-user data. Security comes
 first: every plugin runs in a sandboxed iframe with an opaque origin, no network access and no
-access to the app's cookies, DOM or storage. Only the server operator can install plugins.
+access to the app's cookies, DOM or storage. Only the server operator can install plugins. 한국어: [PLUGINS.ko.md](PLUGINS.ko.md).
 
 > Status: **experimental**. Enable with `EXPERIMENTAL_FEATURES=plugins`. With the flag off, no
 > plugin route is registered and no plugin UI is shown; plugin blocks already in documents render

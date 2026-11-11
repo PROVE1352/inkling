@@ -188,6 +188,8 @@ services:
       LEGAL_DIR: ${LEGAL_DIR:-}
       INSTANCE_LABEL: ${INSTANCE_LABEL:-}
       INSTANCE_NOTICE: ${INSTANCE_NOTICE:-}
+      LIMIT_WORKSPACES_TOTAL: ${LIMIT_WORKSPACES_TOTAL:-}
+      LIMIT_INSTANCE_STORAGE_MB: ${LIMIT_INSTANCE_STORAGE_MB:-}
       # MCP connectors that identify themselves with a Client ID Metadata Document (see .env.example,
       # docs/adr/2280-*). Empty = off.
       OAUTH_CIMD: ${OAUTH_CIMD:-}

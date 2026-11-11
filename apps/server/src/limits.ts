@@ -27,6 +27,8 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   INSTANCE_LABEL              ≤ 20 characters  a label every screen shows
  *   LIMIT_TRASH_DAYS            integer ≥ 7      cap on the days trashed pages are kept (contract §13)
  *   INSTANCE_NOTICE             ≤ 500 characters an operator notice on the sign-in, sign-up and app screens
+ *   LIMIT_WORKSPACES_TOTAL      integer ≥ 1      workspaces on the whole server, deleted-but-restorable included (contract §14)
+ *   LIMIT_INSTANCE_STORAGE_MB   number > 0       fuse: database size + upload folder; at it the server is read-only (contract §14)
  *
  * This module only reads the settings. Enforcing them is done where things are created.
  */
@@ -63,6 +65,16 @@ export interface Limits {
   trashDays?: number
   /** INSTANCE_NOTICE (docs/adr/2526-*): plain text, line breaks kept. Absent when unset. */
   instanceNotice?: string
+  /**
+   * LIMIT_WORKSPACES_TOTAL (contract §14): workspaces on the whole server, live and deleted-but-restorable.
+   * Absent when unset (like trashDays).
+   */
+  workspacesTotal?: number
+  /**
+   * LIMIT_INSTANCE_STORAGE_MB (contract §14): the instance storage fuse (quota/instance.ts), in MB (may be
+   * fractional). Absent when unset.
+   */
+  instanceStorageMb?: number
   /** Boot warnings for settings that are valid but do nothing as combined. */
   warnings: string[]
 }
@@ -173,6 +185,9 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceNotice = n
   }
 
+  const workspacesTotal = int(e, 'LIMIT_WORKSPACES_TOTAL')
+  const instanceStorageMb = megabytes(e, 'LIMIT_INSTANCE_STORAGE_MB')
+
   const limits: Limits = {
     loginIdMode,
     signupMaxUsers: int(e, 'SIGNUP_MAX_USERS'),
@@ -191,6 +206,8 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceLabel: label,
     ...(trashDays !== null ? { trashDays } : {}),
     ...(instanceNotice !== null ? { instanceNotice } : {}),
+    ...(workspacesTotal !== null ? { workspacesTotal } : {}),
+    ...(instanceStorageMb !== null ? { instanceStorageMb } : {}),
     warnings,
   }
   if (accountLifetimeDryRun && limits.accountLifetimeDays === null) {
@@ -246,6 +263,8 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.instanceLabel !== null) on.push(`instance label "${l.instanceLabel}"`)
   if (l.trashDays !== undefined) on.push(`trash kept at most ${l.trashDays} days`)
   if (l.instanceNotice !== undefined) on.push(`instance notice (${[...l.instanceNotice].length} characters)`)
+  if (l.workspacesTotal !== undefined) on.push(`${l.workspacesTotal} workspaces on the server`)
+  if (l.instanceStorageMb !== undefined) on.push(`instance storage fuse at ${l.instanceStorageMb} MB`)
   const lines: string[] = []
   if (on.length > 0) lines.push(`restricted mode: ${on.join(', ')}`)
   if (l.disabledFeatures.length > 0) lines.push(`features turned off: ${l.disabledFeatures.join(', ')}`)
@@ -270,7 +289,7 @@ export function setLimitsForTests(partial: Partial<Limits>): () => void {
   const before = { ...limits, disabledFeatures: [...limits.disabledFeatures], warnings: [...limits.warnings] }
   Object.assign(limits, partial)
   return () => {
-    // the optional settings (trashDays, instanceNotice) are absent when unset: drop a key the
+    // the optional settings (trashDays, instanceNotice, workspacesTotal, instanceStorageMb) are absent when unset: drop a key the
     // partial added, so "unset" comes back as no key rather than a stale value
     for (const k of Object.keys(limits) as (keyof Limits)[]) if (!(k in before)) delete limits[k]
     Object.assign(limits, before)

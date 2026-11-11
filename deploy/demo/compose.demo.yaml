@@ -38,6 +38,8 @@ x-demo-limits: &demo-limits
   AGENT_UPLOAD_DAILY_MB: ${AGENT_UPLOAD_DAILY_MB:?set in deploy/demo/demo.env}
   PUBLIC_URL: ${PUBLIC_URL:?set in deploy/demo/demo.env}
   TRUST_PROXY: ${TRUST_PROXY:?set in deploy/demo/demo.env}
+  LIMIT_WORKSPACES_TOTAL: ${LIMIT_WORKSPACES_TOTAL:?set in deploy/demo/demo.env}
+  LIMIT_INSTANCE_STORAGE_MB: ${LIMIT_INSTANCE_STORAGE_MB:?set in deploy/demo/demo.env}
 
 services:
   app:

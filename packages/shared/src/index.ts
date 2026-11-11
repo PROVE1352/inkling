@@ -266,6 +266,11 @@ export interface AuthModeDTO {
    * it), shown on the sign-in and sign-up screens and above every app screen.
    */
   instanceNotice?: string
+  /**
+   * LIMIT_INSTANCE_STORAGE_MB is reached (the server's storage fuse tripped): only reading, signing in,
+   * exporting and deleting work. Absent otherwise.
+   */
+  instanceFull?: true
 }
 
 export const createWorkspaceSchema = z.object({

@@ -1,4 +1,4 @@
-import { assertUserRoom, assertWorkspaceRoom } from '../quota/room'
+import { assertUserRoom, assertWorkspaceRoom, assertWorkspacesTotalRoom } from '../quota/room'
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { currentGuest, dropWorkspaceRowsTx } from '../pageGrants'
@@ -233,6 +233,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
 
     const ws = await db.transaction(async (tx) => {
       await assertUserRoom(tx, user.id, { workspaces: 1 }) // LIMIT_WORKSPACES (docs/adr/2505-*)
+      await assertWorkspacesTotalRoom(tx, 1) // LIMIT_WORKSPACES_TOTAL (docs/adr/2531-*), after the user lock
       const id = randomUUID()
       const [created] = await tx
         .insert(workspaces)

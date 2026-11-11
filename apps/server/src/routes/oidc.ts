@@ -38,6 +38,7 @@ import {
   verifyIdToken,
 } from '../oidc'
 import { createLoginChallenge, twoFactorEnabled } from '../twoFactor'
+import { assertWorkspacesTotalRoom } from '../quota/room'
 
 /**
  * Sign-in with an OpenID Connect provider (docs/adr/1160-*, 1161-*, 1162-*).
@@ -247,6 +248,7 @@ async function resolveAccount(req: FastifyRequest, claims: IdTokenClaims): Promi
         createdBy: u.id,
       })
       await tx.insert(workspaceMembers).values({ workspaceId: wsId, userId: u.id, role: 'owner' })
+      await assertWorkspacesTotalRoom(tx, 0, 'signup') // LIMIT_WORKSPACES_TOTAL (docs/adr/2531-*): SIGNUP_FULL
       return u as AccountRow
     })
     req.log.info(`[oidc] created account ${created.id}`)

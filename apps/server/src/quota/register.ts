@@ -1,6 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import { registerHousekeepingTask } from '../restrictedExtras'
+import type { AuthModeDTO } from '@inkling/shared'
+import { db } from '../db/index'
+import { registerAuthModeExtra, registerHousekeepingTask } from '../restrictedExtras'
+import { registerSignupHook } from '../signupHooks'
 import { registerFeatureGate } from './features'
+import { isInstanceFull } from './instance'
+import { workspacesTotalReached } from './room'
+import { quotaSignupHook } from './signup'
 import { recountAllWorkspaces } from './storage'
 import { registerUsageRoute } from './usage'
 
@@ -25,6 +31,18 @@ export async function registerQuota(api: FastifyInstance): Promise<void> {
     processWide = true
     registerHousekeepingTask('quota-storage-recount', async () => {
       await recountAllWorkspaces()
+    })
+    // LIMIT_WORKSPACES_TOTAL and the instance fuse (contract §14, docs/adr/2531-*, 2532-*): the sign-up
+    // checks and the auth mode fields. Each answers nothing and reads nothing without its setting.
+    registerSignupHook('quota-server-limits', quotaSignupHook)
+    registerAuthModeExtra('quota-server-limits', async () => {
+      const out: Partial<AuthModeDTO> = {}
+      if (await workspacesTotalReached(db)) out.signupFull = true
+      if (await isInstanceFull()) {
+        out.instanceFull = true
+        out.signupFull = true
+      }
+      return out
     })
   }
 }

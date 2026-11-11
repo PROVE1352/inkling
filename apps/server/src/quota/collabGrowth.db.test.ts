@@ -118,7 +118,7 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
       const ids: string[] = []
       for (let i = 0; i < 6; i++) ids.push((await h.makeDocPage(ws.id, u.id, `p${i}`, [] as never)).id)
       const tab = socketFor(u.cookie)
-      const pages = []
+      const pages: Awaited<ReturnType<typeof openPage>>[] = []
       for (const id of ids) pages.push(await openPage(tab, id))
       const refusedBefore = G.collabGrowthStats.refused
       // 6 pages × 6 updates × 100 KB = 3.6 MB offered to a 2 MB workspace with 512 KB pages
@@ -188,7 +188,7 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
       const ws = await h.makeWorkspace(owner, [b, c])
       const page = await h.makeDocPage(ws.id, owner.id, 'shared', [] as never)
       const tabs = [owner, b, c].map((x) => socketFor(x.cookie))
-      const docs = []
+      const docs: InstanceType<typeof Y.Doc>[] = []
       for (const t of tabs) docs.push((await openPage(t, page.id)).doc)
       // a 1 MB paste (one update, under the 2 MB frame cap)
       docs[0].getText('paste').insert(0, junk(1024 * 1024))
@@ -226,7 +226,7 @@ describe('[db] collab updates against the storage limit (F2)', { skip: !HAS_DB }
     const ids: string[] = []
     for (let i = 0; i < 3; i++) ids.push((await h.makeDocPage(ws.id, u.id, `p${i}`, [] as never)).id)
     const tab = socketFor(u.cookie)
-    const pages = []
+    const pages: Awaited<ReturnType<typeof openPage>>[] = []
     for (const id of ids) pages.push(await openPage(tab, id))
     // what the limited server above refuses: 600 KB per page
     for (let round = 0; round < 6; round++) for (const p of pages) p.doc.getText('junk').insert(p.doc.getText('junk').length, junk(100 * 1024))

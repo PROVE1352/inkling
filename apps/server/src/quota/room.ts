@@ -172,7 +172,7 @@ export const GROWTH_RECOUNT_MS = 10_000
 /**
  * A write that adds about `bytes` to what a workspace stores, outside the creating paths (row and page
  * properties, collection fields, views and row templates, templates, rules, titles and aliases, edited
- * comments; security review F5, docs/adr/2531-*). No limit set → nothing at all, no read.
+ * comments; security review F5, docs/adr/2533-*). No limit set → nothing at all, no read.
  *
  * Refuses (413 LIMIT_STORAGE) a workspace that is read-only for storage and a write that does not fit
  * in what is left; otherwise moves the cached use up by `bytes`, an upper bound (a replaced value is
@@ -231,6 +231,38 @@ export async function assertUserRoom(tx: QuotaExec, userId: string, need: { work
       { limit, used: n },
     )
   }
+}
+
+/**
+ * Room for `need` more workspaces on the whole server (LIMIT_WORKSPACES_TOTAL, contract §14, security
+ * review F1, docs/adr/2531-*). Counted: every `workspaces` row, deleted-but-restorable ones included.
+ * Taken under one server-wide lock (`ws-total`), always after the person's own `user-ws:` lock, so
+ * concurrent creations and sign-ups cannot pass the limit together. `need: 0` from a transaction that
+ * already inserted its workspace (sign-up, a new OIDC account) asks "not past it". Unset → no read.
+ * Throws LIMIT_WORKSPACES_TOTAL (403), or SIGNUP_FULL (403) when `as: 'signup'`.
+ */
+export async function assertWorkspacesTotalRoom(tx: QuotaExec, need: number, as: 'create' | 'signup' = 'create'): Promise<void> {
+  const limit = limits.workspacesTotal
+  if (limit === undefined) return
+  await lockKey(tx, 'ws-total')
+  const [{ n }] = await rows<{ n: number }>(tx, sql`SELECT count(*)::int AS n FROM workspaces`)
+  if (n + need <= limit) return
+  if (as === 'signup') throw new AppError(403, 'SIGNUP_FULL', 'This server is not taking new accounts right now', undefined, { limit, used: n })
+  throw new AppError(
+    403,
+    'LIMIT_WORKSPACES_TOTAL',
+    `This server already holds ${n} of ${limit} workspaces (deleted ones count until they are gone for good)`,
+    undefined,
+    { limit, used: n },
+  )
+}
+
+/** Workspaces on the server reached LIMIT_WORKSPACES_TOTAL (auth mode, the sign-up check before the transaction). */
+export async function workspacesTotalReached(exec: QuotaExec): Promise<boolean> {
+  const limit = limits.workspacesTotal
+  if (limit === undefined) return false
+  const [{ n }] = await rows<{ n: number }>(exec, sql`SELECT count(*)::int AS n FROM workspaces`)
+  return n >= limit
 }
 
 /**

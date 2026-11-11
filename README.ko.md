@@ -45,7 +45,7 @@ git clone https://github.com/PROVE1352/inkling.git && cd inkling
 ./deploy/local.sh
 ```
 
-스크립트가 비밀번호와 키를 만들어 `.env`를 쓰고, 비어 있는 로컬 포트(보통 http://localhost:3000)로 Inkling을 띄운 뒤 한 번만 쓰는 링크를 보여 줍니다. 그 링크를 열어 계정을 만들면 그 계정이 관리자가 됩니다. 끄려면 `./deploy/local.sh stop`, 지우려면 `./deploy/local.sh destroy`를 실행하시면 됩니다. 스크립트는 미리 빌드된 이미지를 받아 오는데, 이 링크는 0.17부터 생긴 기능이라 받아 온 이미지가 그보다 오래된 것이면 그렇다고 알려 주고 대신 가입 키 만드는 방법을 보여 줍니다. 받아 둔 소스로 바로 빌드하시려면 `./deploy/local.sh --build`를 쓰시면 됩니다(처음엔 몇 분 걸립니다). AI 에이전트까지 붙여 보시려면 [docs/MCP.md](docs/MCP.md#a-local-trial-with-an-agent-in-five-minutes)의 순서를 따라 하시면 됩니다. 다른 사람에게 줄 가입 키는 관리자 페이지에서 만들 수 있습니다.
+스크립트가 비밀번호와 키를 만들어 `.env`를 쓰고, 비어 있는 로컬 포트(보통 http://localhost:3000)로 Inkling을 띄운 뒤 한 번만 쓰는 링크를 보여 줍니다. 그 링크를 열어 계정을 만들면 그 계정이 관리자가 됩니다. 끄려면 `./deploy/local.sh stop`, 지우려면 `./deploy/local.sh destroy`를 실행하시면 됩니다. 스크립트는 미리 빌드된 이미지를 받아 오는데, 이 링크는 0.17부터 생긴 기능이라 받아 온 이미지가 그보다 오래된 것이면 그렇다고 알려 주고 대신 가입 키 만드는 방법을 보여 줍니다. 받아 둔 소스로 바로 빌드하시려면 `./deploy/local.sh --build`를 쓰시면 됩니다(처음엔 몇 분 걸립니다). AI 에이전트까지 붙여 보시려면 [docs/MCP.ko.md](docs/MCP.ko.md#a-local-trial-with-an-agent-in-five-minutes)의 순서를 따라 하시면 됩니다. 다른 사람에게 줄 가입 키는 관리자 페이지에서 만들 수 있습니다.
 
 서버에 올리실 때는 서버를 가리키는 도메인과 열린 80, 443 포트를 준비하고 Caddy 오버레이를 같이 띄우시면 됩니다. 인증서는 Caddy가 받아 오고 갱신하며, 앱과 DB 포트는 밖에서 보이지 않게 됩니다.
 
@@ -144,7 +144,7 @@ claude mcp add --transport http inkling https://notes.example.com/mcp
 # Claude Code에서 /mcp → inkling → Authenticate
 ```
 
-claude.ai에서는 설정 › 커넥터 › Add custom connector에 같은 주소를 넣으시면 됩니다. 도구 48개(`?profile=core`로 연결하면 32개만 보이고 나머지는 `more_tools`로 씁니다)와 에이전트용 안내는 [docs/MCP.md](docs/MCP.md)에 있습니다. 보통은 이런 순서로 씁니다.
+claude.ai에서는 설정 › 커넥터 › Add custom connector에 같은 주소를 넣으시면 됩니다. 도구 48개(`?profile=core`로 연결하면 32개만 보이고 나머지는 `more_tools`로 씁니다)와 에이전트용 안내는 [docs/MCP.ko.md](docs/MCP.ko.md)에 있습니다. 보통은 이런 순서로 씁니다.
 
 1. `find_context(query)`로 질문에 맞는 섹션을 순위대로 토큰 예산 안에 받습니다. 결과마다 페이지 id(모든 도구가 받는 8자리), `§앵커`, 버전이 붙습니다. `queries=[…]`로 질문과 그 번역처럼 여러 표현을 한 번에 찾을 수 있습니다.
 2. 모자라면 `read_page(pageId, outline=true)`로 목차를 보고 `read_page(pageId, section=…)`로 섹션 하나만 읽습니다. `known=<버전>`을 주면 바뀌지 않은 페이지는 한 줄로 답합니다.

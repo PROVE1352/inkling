@@ -101,8 +101,8 @@ server (10 steps), public charts (27 steps), public callouts and colours (16 ste
 - Developers: a recall evaluation set for `find_context` (32 questions written the way people remember pages, over
   three workspaces) with page@1, page@3 and page MRR in `apps/server/scripts/context-bench.ts` and
   `context-tune.ts` (docs/adr/2400-*).
-- **Korean deployment, operations and backup guides**: `deploy/DEPLOY.ko.md`, `docs/OPERATIONS.ko.md` and
-  `docs/BACKUP.ko.md`, with the same sections, anchors and code blocks as the English files. The Korean README and
+- **Korean deployment, operations, backup and MCP guides**: `deploy/DEPLOY.ko.md`, `docs/OPERATIONS.ko.md`,
+  `docs/BACKUP.ko.md` and `docs/MCP.ko.md`, with the same sections, anchors and code blocks as the English files. The Korean README and
   user guide link to them; each English file links to its Korean one.
 
 ### Changed

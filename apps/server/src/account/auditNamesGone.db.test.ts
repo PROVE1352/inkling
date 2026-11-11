@@ -102,7 +102,7 @@ describe('[db] account deletion leaves no name or sign-in ID behind (review N6)'
     const A = await makeUser(`Olga${tag}`)
     const B = await makeUser(`Bo${tag}`)
     const leaverName = `Qz${tag}Leaver`
-    const leaverEmail = `lv${tag}@t.t`
+    const leaverEmail = `lv${tag}@example.com`
 
     // A's team workspace with a shared page
     const W = (await step('create Team', A, 'POST', '/api/workspaces', { name: `Team ${tag}` })).json().workspace.id as string

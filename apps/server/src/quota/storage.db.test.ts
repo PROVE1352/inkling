@@ -73,13 +73,14 @@ describe('[db] storage, file and version limits', { skip: !process.env.DATABASE_
     const u = await h.makeUser('st-race')
     const ws = await h.makeWorkspace(u)
     await S.recountWorkspaceStorage(ws.id)
-    const restore = L.setLimitsForTests({ workspaceStorageMb: 0.01 }) // 10485 bytes
+    // 0.22.1 (review N2): a 3,000-byte file counts max(size, 4096) + 1024 = 5,120 bytes, so three fit in 15,728
+    const restore = L.setLimitsForTests({ workspaceStorageMb: 0.015 }) // 15728 bytes
     try {
       const res = await Promise.all(Array.from({ length: 6 }, () => upload(u, ws.id, 3000)))
       assert.equal(res.filter((r) => r.statusCode === 200).length, 3)
       const refused = res.find((r) => r.statusCode === 413)!
       assert.equal(refused.json().error.code, 'LIMIT_STORAGE')
-      assert.equal(refused.json().error.limit, 10485)
+      assert.equal(refused.json().error.limit, 15728)
       assert.equal(await fileCount(ws.id), 3)
     } finally {
       restore()

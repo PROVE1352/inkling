@@ -165,7 +165,8 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
     const restore = L.setLimitsForTests({ workspaceStorageMb: limitMb })
     try {
       const limit = L.mbToBytes(limitMb)
-      await fileRow(ws.id, u.id, limit - total) // exactly at the limit
+      // exactly at the limit: a file of 4 KB or more counts its size + 1 KB with a limit (0.22.1, review N2)
+      await fileRow(ws.id, u.id, limit - total - 1024)
       const c = await S.recountWorkspaceStorage(ws.id)
       assert.equal(c.total, limit)
       assert.equal(c.over, true)

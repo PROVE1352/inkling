@@ -59,9 +59,9 @@ describe('[db] PATCH /pages/:id: storage after the edit check; no workspace numb
     const restore = L.setLimitsForTests({ workspaceStorageMb: 1 })
     try {
       await db.execute(sql`UPDATE workspaces SET storage_bytes = 1000, over_storage = false, storage_checked_at = now() WHERE id = ${x.ws}`)
-      const r = await rename(x.member, x.locked, 'z'.repeat(400))
+      const r = await rename(x.member, x.locked, 'z'.repeat(250))
       assert.equal(r.statusCode, 403, r.body)
-      assert.equal(await cached(x.ws), 1000, 'the review: +400 before the refusal')
+      assert.equal(await cached(x.ws), 1000, 'the review: +250 before the refusal')
       // a full workspace: still the edit refusal, never the 413 with the workspace's numbers
       await db.execute(sql`UPDATE workspaces SET storage_bytes = ${L.mbToBytes(1)}, over_storage = true, storage_checked_at = now() WHERE id = ${x.ws}`)
       const full = await rename(x.member, x.locked, 'again')

@@ -30,6 +30,9 @@ export const SETTINGS_022 = [
   'LEGAL_DIR',
   'INSTANCE_LABEL',
   'INSTANCE_NOTICE',
+  'SIGNUP_PER_HOUR',
+  'OAUTH_UNUSED_CLIENT_HOURS',
+  'OAUTH_UNUSED_CLIENT_MAX',
 ] as const
 
 const here = path.dirname(fileURLToPath(import.meta.url))

@@ -297,7 +297,7 @@ describe('[db] sign-up limits and account lifetime', { skip: !BASE_URL }, async 
     assert.ok(!('signupChecks' in ((await app.inject({ method: 'GET', url: '/api/auth/mode' })).json() as object)))
   })
 
-  it('SIGNUP_PER_IP_PER_DAY: counted per address (IPv6 per /64), recorded only while set', async () => {
+  it('SIGNUP_PER_IP_PER_DAY: counted per address (IPv6 per /56 since the security fix F6), recorded only while set', async () => {
     const before = Number(((await db.execute(sql`SELECT count(*)::int AS n FROM signup_events`)) as unknown as { n: number }[])[0].n)
     assert.equal(before, 0) // nothing recorded while the setting was off
     const restore = setLimitsForTests({ signupPerIpPerDay: 2 })
@@ -309,9 +309,9 @@ describe('[db] sign-up limits and account lifetime', { skip: !BASE_URL }, async 
       assert.equal(third.statusCode, 429)
       assert.equal(third.json().error.code, 'SIGNUP_IP_LIMIT')
       assert.equal((await register(person({ formMs: 3000 }), { ip: '192.0.2.11' })).statusCode, 200)
-      // one IPv6 /64 is one address
+      // one IPv6 /56 is one address (here two /64s of it)
       assert.equal((await register(person({ formMs: 3000 }), { ip: '2001:db8:1:2::a' })).statusCode, 200)
-      assert.equal((await register(person({ formMs: 3000 }), { ip: '2001:db8:1:2::b' })).statusCode, 200)
+      assert.equal((await register(person({ formMs: 3000 }), { ip: '2001:db8:1:3::b' })).statusCode, 200)
       assert.equal((await register(person({ formMs: 3000 }), { ip: '2001:db8:1:2:ffff::1' })).statusCode, 429)
       // X-Forwarded-For counts only from a trusted proxy: a direct client cannot pick its address
       const direct = await register(person({ formMs: 3000 }), { ip, headers: { 'x-forwarded-for': '198.18.0.1' } })
@@ -320,7 +320,7 @@ describe('[db] sign-up limits and account lifetime', { skip: !BASE_URL }, async 
       const viaProxy = await register(person({ formMs: 3000 }), { ip: '127.0.0.1', headers: { 'x-forwarded-for': '198.18.0.2' }, via: proxied })
       assert.equal(viaProxy.statusCode, 200, viaProxy.body)
       const rows = (await db.execute(sql`SELECT ip FROM signup_events ORDER BY id`)) as unknown as { ip: string }[]
-      assert.deepEqual(rows.map((r) => r.ip), ['192.0.2.10', '192.0.2.10', '192.0.2.11', '2001:db8:1:2::/64', '2001:db8:1:2::/64', '198.18.0.2'])
+      assert.deepEqual(rows.map((r) => r.ip), ['192.0.2.10', '192.0.2.10', '192.0.2.11', '2001:db8:1:0::/56', '2001:db8:1:0::/56', '198.18.0.2'])
     } finally {
       restore()
     }

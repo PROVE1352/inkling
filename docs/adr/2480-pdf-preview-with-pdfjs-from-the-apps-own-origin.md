@@ -34,8 +34,9 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
   the service worker caches what is used, as for Shiki and exceljs. No CDN.
 - **CSP**: unchanged. The SPA policy has `worker-src 'self' blob:` and `script-src 'self'`; the worker is a
   same-origin module worker. The worker's response carries no CSP of its own (only `text/html` gets the
-  SPA policy, `embedCsp.ts`), so pdf.js can compile its wasm decoders there; the page itself never needs
-  `wasm-unsafe-eval` or `unsafe-eval`.
+  SPA policy, `embedCsp.ts`), so pdf.js compiles its wasm decoders there (checked in Chrome 157: openjpeg,
+  jbig2 and qcms compile inside the running pdf.js worker); the page itself never needs `wasm-unsafe-eval`
+  or `unsafe-eval`.
 - **One worker per tab**: one `PDFWorker` serves every document; documents are shared by address and kept
   30 s after the last preview lets go (a node view is rebuilt on every prop change, ADR 2481); the worker
   goes when the last document does.
@@ -70,13 +71,13 @@ had no PDF code; the server extracts PDF text with `unpdf` 1.9.1 (`apps/server/s
 
 ## Trade-offs
 - The pdf.js chunk is 445 KB (132 KB gzip) and the worker 1.27 MB (378 KB gzip), fetched on the first PDF
-  preview of a session; data files are fetched per need (two cMaps for a Korean PDF, about 10 KB). The entry
+  preview of a session; data files are fetched per need (two cMaps for a Korean PDF, 49 KB). The entry
   chunk is unchanged; strings add 2.6 KB to the modulepreloaded i18n chunk (PERFORMANCE.md).
 - pdf.js 6 is a month-old major line; an upgrade is a version bump and a browser check (the paths carry the
   version). A browser without module workers falls back to pdf.js's main-thread "fake worker", which works
   but blocks the page while it parses.
-- The wasm decoders (JPEG 2000, JBIG2, colour profiles) are copied but not exercised by the browser check's
-  test files; their fallbacks are copied too.
+- The wasm decoders (JPEG 2000, JBIG2, colour profiles) compile in the worker, but the browser check's test
+  files hold no such images, so decoding itself is not exercised; the no-wasm fallbacks are copied too.
 
 ## Consequences
 - `apps/web/package.json` gains `pdfjs-dist`; `pnpm-workspace.yaml` gains `ignoredOptionalDependencies`;

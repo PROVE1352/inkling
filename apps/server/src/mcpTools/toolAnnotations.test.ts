@@ -1,5 +1,5 @@
-// MCP tool annotations (docs/adr/2460-*): every registered tool, in both profiles, states the four
-// hints of the MCP ToolAnnotations type, from the one table in annotations.ts. No database: the
+// MCP tool annotations (docs/adr/2460-*): every tool has a row with the four
+// hints of the MCP ToolAnnotations type (annotations.ts); tools/list carries them without the spec defaults. No database: the
 // server is built with an inert context and listed in memory. The read-only connection check is
 // toolAnnotations.db.test.ts.
 // Run alone: cd apps/server && node --import tsx --test --test-reporter=spec src/mcpTools/toolAnnotations.test.ts
@@ -8,10 +8,18 @@ import { describe, it } from 'node:test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { annotateTools, annotationsOf, TOOL_ANNOTATIONS } from './annotations'
+import { annotateTools, annotationsOf, emittedAnnotationsOf, SPEC_DEFAULTS, TOOL_ANNOTATIONS } from './annotations'
+import type { ToolHints } from './annotations'
 import { renderToolSpec } from './profiles'
 
 const HINTS = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint']
+
+/**
+ * What a client can read from a full set of hints: all four for a write tool; for a read-only tool
+ * destructive and idempotent are "meaningful only when readOnlyHint == false" (sdk types.js).
+ */
+const meaning = (h: ToolHints): Partial<ToolHints> =>
+  h.readOnlyHint ? { readOnlyHint: true, openWorldHint: h.openWorldHint } : { ...h }
 
 async function listed(profile: 'core' | 'full') {
   const { buildMcpServer } = await import('../mcp')
@@ -34,19 +42,50 @@ async function listed(profile: 'core' | 'full') {
 }
 
 describe('tool annotations (docs/adr/2460-*)', () => {
-  it('every listed tool, in both profiles, has exactly the four hints as booleans, from the table', async () => {
+  it('every row of the table has exactly the four hints as booleans', () => {
+    for (const [name, a] of Object.entries(TOOL_ANNOTATIONS)) {
+      assert.deepEqual(Object.keys(a), HINTS, name)
+      for (const k of HINTS) assert.equal(typeof (a as unknown as Record<string, unknown>)[k], 'boolean', `${name}.${k}`)
+    }
+  })
+
+  it('every listed tool, in both profiles, carries its row without the spec defaults (ADR 2460 rule)', async () => {
     for (const profile of ['full', 'core'] as const) {
       const { tools } = await listed(profile)
       assert.ok(tools.length > 0)
       for (const t of tools) {
         const a = t.annotations as Record<string, unknown> | undefined
         assert.ok(a, `${t.name} (${profile}) has no annotations: add a row to mcpTools/annotations.ts`)
+        const row = TOOL_ANNOTATIONS[t.name]
         // the order is part of the listed bytes (docs/adr/1543-*); no title (docs/adr/2460-*)
-        assert.deepEqual(Object.keys(a), HINTS, `${t.name} (${profile})`)
-        for (const k of HINTS) assert.equal(typeof a[k], 'boolean', `${t.name}.${k}`)
-        assert.deepEqual(a, TOOL_ANNOTATIONS[t.name], t.name)
+        const keys = row.readOnlyHint
+          ? ['readOnlyHint', 'openWorldHint']
+          : ['destructiveHint', ...(row.idempotentHint ? ['idempotentHint'] : []), 'openWorldHint']
+        assert.deepEqual(Object.keys(a), keys, `${t.name} (${profile})`)
+        for (const k of keys) assert.equal(typeof a[k], 'boolean', `${t.name}.${k}`)
+        if (row.readOnlyHint) {
+          // destructive / idempotent mean nothing for a read-only tool (sdk types.js)
+          assert.ok(!('destructiveHint' in a) && !('idempotentHint' in a), t.name)
+        } else {
+          // the two hints whose default is the risky side are always written for a write tool
+          assert.ok('destructiveHint' in a && 'openWorldHint' in a, t.name)
+          // nothing equal to its default, except destructiveHint: true, written on purpose
+          for (const [k, v] of Object.entries(a)) {
+            if (k !== 'destructiveHint') assert.notEqual(v, SPEC_DEFAULTS[k as keyof typeof SPEC_DEFAULTS], `${t.name}.${k}`)
+          }
+        }
+        // the same meaning: the emitted hints with the spec defaults filled in are the row
+        assert.deepEqual(meaning({ ...SPEC_DEFAULTS, ...a }), meaning(row), `${t.name} (${profile})`)
+        assert.deepEqual(a, emittedAnnotationsOf(t.name), t.name)
       }
     }
+  })
+
+  it('filling the spec defaults into every emitted set gives its row', () => {
+    for (const name of Object.keys(TOOL_ANNOTATIONS)) {
+      assert.deepEqual(meaning({ ...SPEC_DEFAULTS, ...emittedAnnotationsOf(name) }), meaning(TOOL_ANNOTATIONS[name]), name)
+    }
+    assert.deepEqual(SPEC_DEFAULTS, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true })
   })
 
   it('the table has one row per registered tool (48 tools and more_tools), no more', async () => {
@@ -90,8 +129,8 @@ describe('tool annotations (docs/adr/2460-*)', () => {
   })
 
   it('more_tools(tool) prints the hints that are true', () => {
-    assert.match(renderToolSpec({ name: 'rename_page', annotations: { ...annotationsOf('rename_page') } }), /^rename_page \(destructive, idempotent\): /)
-    assert.match(renderToolSpec({ name: 'list_trash', annotations: { ...annotationsOf('list_trash') } }), /^list_trash \(readOnly\): /)
-    assert.match(renderToolSpec({ name: 'create_view', annotations: { ...annotationsOf('create_view') } }), /^create_view: /)
+    assert.match(renderToolSpec({ name: 'rename_page', annotations: emittedAnnotationsOf('rename_page') }), /^rename_page \(destructive, idempotent\): /)
+    assert.match(renderToolSpec({ name: 'list_trash', annotations: emittedAnnotationsOf('list_trash') }), /^list_trash \(readOnly\): /)
+    assert.match(renderToolSpec({ name: 'create_view', annotations: emittedAnnotationsOf('create_view') }), /^create_view: /)
   })
 })

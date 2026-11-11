@@ -3,12 +3,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 /**
  * MCP tool annotations, one table for every tool (docs/adr/2460-*).
  *
- * Every tool states all four hints of the MCP ToolAnnotations type (sdk 1.32.2 types.js), because the
- * spec's defaults are the cautious ones: a tool without annotations reads as "not read-only, may be
- * destructive, not idempotent, open world". `annotateTools` puts the row of this table on each
- * registered tool after registration (more_tools included); a registered tool without a row, or one
- * that brings its own `annotations`, stops the server from building, and
- * `toolAnnotations.test.ts` lists every tool against this table.
+ * Every tool has a row with all four hints of the MCP ToolAnnotations type (sdk 1.32.2 types.js),
+ * because the spec's defaults are the cautious ones: a tool without annotations reads as "not
+ * read-only, may be destructive, not idempotent, open world". `annotateTools` puts each row on its
+ * registered tool after registration (more_tools included), without the hints that equal the spec's
+ * defaults (`emittedAnnotationsOf`); a registered tool without a row, or one that brings its own
+ * `annotations`, stops the server from building, and `toolAnnotations.test.ts` lists every tool
+ * against this table.
  *
  * - readOnlyHint: the tool changes nothing it or another tool reads back. Bookkeeping that every
  *   authenticated request causes is not counted (last-used times, per-connection usage, page read
@@ -34,7 +35,7 @@ export interface ToolHints {
   openWorldHint: boolean
 }
 
-// key order is the order tools/list prints (the same bytes for the same build, docs/adr/1543-*)
+// the order tools/list prints comes from emittedAnnotationsOf (the same bytes for the same build, docs/adr/1543-*)
 const read: ToolHints = { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
 const write = (destructive: boolean, idempotent: boolean): ToolHints => ({
   readOnlyHint: false,
@@ -105,11 +106,37 @@ export function annotationsOf(name: string): ToolHints {
   return { ...hints }
 }
 
+/** The MCP spec's value of each hint when a tool leaves it out (sdk 1.32.2 types.js). */
+export const SPEC_DEFAULTS: Readonly<ToolHints> = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+
+/** What tools/list carries for a row: the hints that differ from the spec's defaults, in a fixed order. */
+export type EmittedHints = Partial<ToolHints>
+
+/**
+ * The hints `name` lists (docs/adr/2460-*, "What tools/list carries"). The list is paid for in every
+ * session, and a hint equal to the spec's default says nothing, so it is left out, except the two
+ * whose default is the risky side, written for every write tool either way:
+ * - read-only: `{ readOnlyHint: true, openWorldHint: false }` (destructive and idempotent are meaningful
+ *   only when readOnlyHint is false, sdk types.js);
+ * - write: `destructiveHint` (true or false), `idempotentHint: true` only when true, `openWorldHint`;
+ *   `readOnlyHint: false` is the default and left out.
+ * Filling the spec's defaults back in gives the table's row (toolAnnotations.test.ts).
+ */
+export function emittedAnnotationsOf(name: string): EmittedHints {
+  const h = annotationsOf(name)
+  if (h.readOnlyHint) return { readOnlyHint: true, openWorldHint: h.openWorldHint }
+  return {
+    destructiveHint: h.destructiveHint,
+    ...(h.idempotentHint ? { idempotentHint: true } : {}),
+    openWorldHint: h.openWorldHint,
+  }
+}
+
 type Registered = Record<string, { annotations?: Record<string, unknown> }>
 
 /**
- * Puts the table's annotations on every tool registered on `server`. Call it once, after every
- * registerTool (more_tools included), before the server answers its first request.
+ * Puts each tool's emitted hints (`emittedAnnotationsOf`) on every tool registered on `server`. Call
+ * it once, after every registerTool (more_tools included), before the server answers its first request.
  */
 export function annotateTools(server: McpServer): void {
   const tools = (server as unknown as { _registeredTools?: Registered })._registeredTools
@@ -118,6 +145,6 @@ export function annotateTools(server: McpServer): void {
     if (tool.annotations !== undefined) {
       throw new Error(`annotations: tool "${name}" sets its own annotations; put them in mcpTools/annotations.ts (docs/adr/2460-*)`)
     }
-    tool.annotations = { ...annotationsOf(name) }
+    tool.annotations = emittedAnnotationsOf(name)
   }
 }

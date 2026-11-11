@@ -17,11 +17,22 @@ read-only mode left out tools it could have offered; and every tool claimed an o
 ## Decision
 - **One table** (`mcpTools/annotations.ts`, `TOOL_ANNOTATIONS`): one row per tool name with all four
   hints, the 48 tools and `more_tools`. `annotateTools(server)` runs in `buildMcpServer` after the last
-  registration (`applyProfile`, so `more_tools` is covered) and puts a copy of the row on each
-  registered tool. A registered tool without a row, or a tool that passes its own `annotations`, throws
+  registration (`applyProfile`, so `more_tools` is covered) and puts each row on its registered tool,
+  in the form below ("What tools/list carries"). A registered tool without a row, or a tool that passes its own `annotations`, throws
   while the server is built, so a new tool cannot ship without a verdict. The 32 inline annotations
   were removed. No `title` hint: the tools already carry a top-level `title`, and every byte here is
   paid by every session.
+- **What tools/list carries** (`emittedAnnotationsOf`). The tool list is paid for in every session, and a
+  hint equal to the spec's default tells a client nothing, so the table's row is written without
+  those, except the two whose default is the risky side:
+  - read-only tool: `{"readOnlyHint":true,"openWorldHint":false}`. destructiveHint and idempotentHint are
+    "meaningful only when `readOnlyHint == false`" (sdk 1.32.2 `types.js`), so they are left out;
+  - write tool: `destructiveHint` always, true or false (default true: false must be written, and true is
+    written too so a reader sees the verdict), then `idempotentHint: true` only when true (default false),
+    then `openWorldHint: false` always (default true); `readOnlyHint: false` is the default and left out.
+  - The key order is fixed by that function, so the list stays the same bytes for the same build. Filling
+    the spec's defaults into what is listed gives back every hint of the row that means something (the
+    test checks it for every tool), so the client reads the same verdicts as with all four written.
 - **readOnlyHint: true** when the tool changes nothing that it or another tool reads back. Checked per
   tool from its code (all 20 use `wrap` and only GET routes; the in-process writes of the tool modules
   were looked up too) and by running them on a read-only connection with Postgres logging the writes
@@ -94,9 +105,13 @@ open world) are now explicit: 14 of those 17 are not destructive, and no tool is
   fails when one is forgotten; the table is read in one screen and checked by a test.
 - **A registerTool wrapper** like `meterTools`/`resolveIdArgs`: misses `more_tools`, which `applyProfile`
   registers with the SDK's own method past the wrappers.
-- **Only the hints that differ from the defaults** (e.g. leave `idempotentHint: false` out): about a
-  quarter of the bytes, but a reader cannot tell "decided false" from "not decided", and clients that
-  treat a missing hint differently from the default would differ again.
+- **All four hints on every tool in tools/list** (the first cut of this change): full ~13,737 tokens
+  (+960 over 0.19, +7.5%), core ~8,174 (+641, +8.5%), every session, for hints that repeat the spec's
+  defaults or mean nothing for a read-only tool. The table keeps all four, so "decided" is still visible
+  where the verdicts are made; only the wire form drops the defaults.
+- **Only the hints that differ from the defaults, everywhere** (also leaving out `destructiveHint: true`):
+  a few hundred characters less, but a write tool's destructive verdict would then be read from an
+  absent key; the two risky-default hints are always written for write tools.
 - **catch_up read-only**, as since 0.12 (the route calls the marker bookkeeping like
   `last_used_at`): the marker changes the next answer, which `last_used_at` does not; a client that
   hides non-read-only tools in a read-only mode now hides catch_up, and `peek=true` callers lose nothing
@@ -111,9 +126,10 @@ open world) are now explicit: 14 of those 17 are not destructive, and no tool is
 
 ## Consequences
 - tools/list (`scripts/mcp-tools-list-cost.ts`, read-write connection, inert context): full 48 tools
-  51,059 → 54,897 characters, ~12,777 → ~13,737 tokens (+960, +7.5%); core 32 tools 30,093 → 32,657
-  characters, ~7,533 → ~8,174 tokens (+641, +8.5%). The full-list cap in `toolSurface.test.ts` moves to
-  13,810. Descriptions and schemas are unchanged; the list is still the same bytes for the same build.
+  51,059 → 52,932 characters, ~12,777 → ~13,245 tokens (+468, +3.7%); core 32 tools 30,093 → 31,391
+  characters, ~7,533 → ~7,857 tokens (+324, +4.3%). With all four hints on every tool it was 54,897 /
+  ~13,737 and 32,657 / ~8,174. The full-list cap in `toolSurface.test.ts` moves to 13,320. Descriptions
+  and schemas are unchanged; the list is still the same bytes for the same build.
 - `more_tools(tool=…)` prints the hints that are true after the name (ADR 2000): write tools now show
   `(destructive)`, `(destructive, idempotent)` or `(idempotent)`; non-destructive writes without
   idempotence still show none.
@@ -124,8 +140,11 @@ open world) are now explicit: 14 of those 17 are not destructive, and no tool is
   arguments in `toolAnnotations.db.test.ts`.
 
 ## Tests
-- `mcpTools/toolAnnotations.test.ts` (no database): every listed tool in both profiles has exactly the
-  four hints, as booleans in a fixed order, equal to its row; the table has one row per registered tool
+- `mcpTools/toolAnnotations.test.ts` (no database): every row of the table has the four hints as
+  booleans; every listed tool in both profiles carries exactly the keys of the rule above in its order
+  (read-only: no destructive or idempotent; write: destructiveHint and openWorldHint always, nothing else
+  equal to its default) and, with the spec's defaults filled in, the meaningful hints of its row; the
+  table has one row per registered tool
   (48 + more_tools); read-only rows keep the write hints false; no row is open world; the 20/11/18 split;
   a tool without a row or with inline annotations throws; `more_tools(tool)` prints the true hints.
 - `mcpTools/toolAnnotations.db.test.ts`: every tool is called with valid arguments on a connection with

@@ -114,9 +114,9 @@ describe('tools/list (docs/adr/1945-*)', () => {
     // 2144-*, 2147-*), list_versions all=true +36 (docs/adr/2182-*), search limit +4 (docs/adr/2183-*),
     // workspace names +6 (docs/adr/2186-*), restore_version −3. Core: 7,437 → 7,533 (+96). The cap is
     // the measured value plus a small margin: a new tool or a longer description must move it on purpose.
-    // 0.20: every tool states its four annotation hints (docs/adr/2460-*): 12,777 → 13,737 tok (+960,
-    // 51,059 → 54,897 chars); core 7,533 → 8,174 (+641).
-    assert.ok(tokens < 13_810, `tools/list ~${tokens} tok`)
+    // 0.20: every tool carries its annotation hints, without those equal to the spec defaults
+    // (docs/adr/2460-*): 12,777 → 13,245 tok (+468, 51,059 → 52,932 chars); core 7,533 → 7,857 (+324).
+    assert.ok(tokens < 13_320, `tools/list ~${tokens} tok`)
   })
 
   it('only dialect-neutral JSON Schema keywords are used, so dropping $schema changes no meaning', async () => {

@@ -346,6 +346,12 @@ export const pages = pgTable('pages', {
   sharePasswordHash: text('share_password_hash'),
   /** Visitors may download the page as Markdown (docs/adr/2362-*); off by default, cleared on unpublish. */
   shareAllowDownload: boolean('share_allow_download').notNull().default(false),
+  /**
+   * The public page shows its charts as aggregates (docs/adr/2440-*); off by default, cleared on unpublish.
+   * Aggregated as `shareChartsBy`, the manager who turned it on, while that person is a member.
+   */
+  shareIncludeCharts: boolean('share_include_charts').notNull().default(false),
+  shareChartsBy: uuid('share_charts_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),

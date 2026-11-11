@@ -26,8 +26,6 @@ import { pageDocs } from '../db/schema'
 import { env } from '../env'
 import type { Locale } from '../i18n'
 import { peekLinkPreview } from '../linkPreview'
-import { chartsToTables } from '../charts/render'
-import type { ChartDataFn } from '../charts/render'
 import { markdownToBlocks, rewriteAssetUrlsForPublic, stateToBlocks } from '../md/convert'
 import type { AnyBlock, Inline } from '../md/convert'
 import { loadEmbedView, mdCell, queryBlockSource, queryResultMarkdown, viewTableMarkdown } from '../md/customTables'
@@ -52,8 +50,8 @@ export interface PublicBlocksCtx {
   hostId: string
   /** public URL of an attachment of a page inside the link, or null */
   fileUrl: (pageId: string, fileId: string) => string | null
-  /** chart data inside the link (folder links, docs/adr/1605-*); embedded pages use it too */
-  charts?: ChartDataFn
+  /** replaces chart blocks with their public form (docs/adr/1605-*, 2440-*); embedded pages use it too */
+  charts?: (blocks: AnyBlock[]) => Promise<AnyBlock[]>
 }
 
 /** No account has this id: `visibleTo` of it is "shared pages" and the range does the rest. */
@@ -145,7 +143,7 @@ export async function publicCustomBlocks(blocks: AnyBlock[], ctx: PublicBlocksCt
         }
       } else if (target.kind === 'doc' && depth === 0 && target.id !== ctx.hostId) {
         let inner = await docBlocks(target.id)
-        if (ctx.charts) inner = await chartsToTables(inner, ctx.charts)
+        if (ctx.charts) inner = await ctx.charts(inner)
         inner = await publicCustomBlocks(inner, { ...ctx, hostId: target.id }, depth + 1)
         // the embedded page's images are served through its own address (the file gate is per page)
         rewriteAssetUrlsForPublic(inner, (fileId) => ctx.fileUrl(target.id, fileId) ?? '')

@@ -612,7 +612,7 @@ export function chartSummaryLine(d: ChartDataDTO, top = 8): string {
 }
 
 /** Markdown table of an aggregate (plain exports, public pages): label | value [| series…]. */
-export function chartTableMarkdown(d: ChartDataDTO, labels: { empty?: string; checked?: string; unchecked?: string } = {}): string {
+export function chartTableMarkdown(d: Pick<ChartDataDTO, 'group' | 'measure' | 'groups' | 'seriesKeys' | 'values'>, labels: { empty?: string; checked?: string; unchecked?: string } = {}): string {
   const cell = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ')
   const label = (k: ChartKeyDTO) =>
     k.special === 'empty' ? (labels.empty ?? k.label) : k.special === 'checked' ? (labels.checked ?? k.label) : k.special === 'unchecked' ? (labels.unchecked ?? k.label) : k.label
@@ -625,4 +625,68 @@ export function chartTableMarkdown(d: ChartDataDTO, labels: { empty?: string; ch
     lines.push(`| ${[cell(label(g)), ...vals].join(' | ')} |`)
   })
   return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Charts on public pages (docs/adr/2440-*)
+// ---------------------------------------------------------------------------
+
+/** A group or series of a public chart: its display label only (no option, member or row id). */
+export interface PublicChartKeyDTO {
+  label: string
+  special?: ChartKeySpecial
+}
+
+/**
+ * A chart as a public page sends it: what to draw and the aggregate as labels and numbers. Never the
+ * block's config (source, collection / view / field ids, query text, library options) and never a key.
+ */
+export interface PublicChartDTO {
+  /** `data-id` of its blocks in the page HTML: `anchor` (the title, if any) and `anchor + '-t'` (the table) */
+  anchor: string
+  kind: ChartKind
+  title?: string
+  /** display names of the grouping and series properties ("Status", "Title") */
+  group: string
+  series?: string
+  measure: { fn: ChartFn; name?: string }
+  groups: PublicChartKeyDTO[]
+  seriesKeys?: PublicChartKeyDTO[]
+  values: (number | null)[] | (number | null)[][]
+  omittedGroups: number
+  omittedSeries: number
+  truncated?: boolean
+}
+
+const publicKey = (k: ChartKeyDTO): PublicChartKeyDTO => (k.special ? { label: k.label, special: k.special } : { label: k.label })
+
+/** The public form of an aggregate: copies the labels and numbers, drops every id and source detail. */
+export function publicChartOf(anchor: string, cfg: { kind: ChartKind; title?: string }, d: ChartDataDTO): PublicChartDTO {
+  return {
+    anchor,
+    kind: cfg.kind,
+    ...(cfg.title ? { title: cfg.title } : {}),
+    group: d.group.name,
+    ...(d.series ? { series: d.series.name } : {}),
+    measure: d.measure.fn === 'count' ? { fn: 'count' } : { fn: d.measure.fn, ...(d.measure.name ? { name: d.measure.name } : {}) },
+    groups: d.groups.map(publicKey),
+    ...(d.seriesKeys ? { seriesKeys: d.seriesKeys.map(publicKey) } : {}),
+    values: Array.isArray(d.values[0]) ? (d.values as (number | null)[][]).map((row) => [...row]) : [...(d.values as (number | null)[])],
+    omittedGroups: d.omittedGroups,
+    omittedSeries: d.omittedSeries,
+    ...(d.truncated ? { truncated: true } : {}),
+  }
+}
+
+/** The aggregate shape the table writer and the chart adapter read, rebuilt from a public chart (keys are null). */
+export function chartDataOfPublic(p: PublicChartDTO): Pick<ChartDataDTO, 'group' | 'series' | 'measure' | 'groups' | 'seriesKeys' | 'values'> {
+  const key = (k: PublicChartKeyDTO): ChartKeyDTO => ({ key: null, ...k })
+  return {
+    group: { field: '', name: p.group, type: '' },
+    ...(p.series !== undefined ? { series: { field: '', name: p.series, type: '' } } : {}),
+    measure: { fn: p.measure.fn, name: p.measure.name ?? '' },
+    groups: p.groups.map(key),
+    ...(p.seriesKeys ? { seriesKeys: p.seriesKeys.map(key) } : {}),
+    values: p.values,
+  }
 }

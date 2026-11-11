@@ -62,6 +62,8 @@ describe('share link gate', async () => {
       notStarted: false,
       // the Markdown download is off unless the row says otherwise (docs/adr/2362-*)
       allowDownload: false,
+      // and so are charts (docs/adr/2440-*)
+      includeCharts: false,
     })
   })
 

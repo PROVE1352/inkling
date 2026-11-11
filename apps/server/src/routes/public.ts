@@ -5,7 +5,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { unlockShareSchema } from '@inkling/shared'
-import type { PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
+import type { PublicChartDTO, PublicFolderDTO, PublicPageDTO, PublicTreeNodeDTO } from '@inkling/shared'
 import { db } from '../db/index'
 import { files, pageDocs, pages } from '../db/schema'
 import { hashShareToken } from '../secretsAtRest'
@@ -27,8 +27,7 @@ import type { ShareGate } from '../shareAccess'
 import { BoundedLru } from '../lru'
 import { liveWorkspace } from '../workspaceLive'
 import { collectionTableMdShared } from '../md/exporter'
-import { chartsToTables, publicFor } from '../charts/render'
-import type { ChartDataFn } from '../charts/render'
+import { chartsEnabler, publicChartData, publicChartPlacer } from '../charts/publicCharts'
 import {
   blocksToFullHTML,
   collectAssetFileIds,
@@ -105,6 +104,9 @@ export interface SharedRoot extends SharedPage {
   gate: ShareGate
   /** visitors may download Markdown of the page (folder link: of its pages), docs/adr/2362-* */
   allowDownload: boolean
+  /** the page shows its charts as aggregates of `chartsBy` (docs/adr/2440-*) */
+  includeCharts: boolean
+  chartsBy: string | null
 }
 
 /** One page of a folder share's subtree (the root folder itself excluded). */
@@ -279,6 +281,8 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
         passwordHash: pages.sharePasswordHash,
         fullWidth: FULL_WIDTH_SQL,
         allowDownload: pages.shareAllowDownload,
+        includeCharts: pages.shareIncludeCharts,
+        chartsBy: pages.shareChartsBy,
       })
       .from(pages)
       .where(
@@ -304,7 +308,7 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
  *  - collection: child rows (shared) as a GFM table → markdownToBlocks (internal links unresolved)
  * Other kinds (folder/canvas) get a 404 before the call, so they never reach here.
  */
-async function loadPublicBlocks(page: SharedPage, charts?: ChartDataFn): Promise<AnyBlock[]> {
+async function loadPublicBlocks(page: SharedPage, charts?: ChartPlacer): Promise<AnyBlock[]> {
   if (page.kind === 'collection') {
     try {
       const md = await collectionTableMdShared(page.id)
@@ -327,8 +331,23 @@ async function loadPublicBlocks(page: SharedPage, charts?: ChartDataFn): Promise
   } catch {
     return []
   }
-  // chart blocks: a table of data inside the link, else left out by blocksToFullHTML (docs/adr/1605-*)
-  return charts ? chartsToTables(blocks, charts) : blocks
+  // chart blocks: their public form (docs/adr/2440-*), else left out by blocksToFullHTML (docs/adr/1605-*)
+  return charts ? charts(blocks) : blocks
+}
+
+/** Replaces chart blocks with their public form, collecting the charts (charts/publicCharts.ts). */
+type ChartPlacer = (blocks: AnyBlock[]) => Promise<AnyBlock[]>
+
+/** The public blocks of a page and the charts drawn into them (docs/adr/2440-*). */
+interface PublicBody {
+  blocks: AnyBlock[]
+  charts: PublicChartDTO[]
+}
+
+/** The rendered page body: HTML and its charts, cached together so the anchors always match. */
+interface PublicRender {
+  html: string
+  charts: PublicChartDTO[]
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +357,7 @@ async function loadPublicBlocks(page: SharedPage, charts?: ChartDataFn): Promise
 // cached: their table depends on child rows whose edits do not bump the parent.
 // ---------------------------------------------------------------------------
 const RENDER_TTL_MS = 10 * 60_000
-const htmlCache = new BoundedLru<string>(200, RENDER_TTL_MS, 32 * 1024 * 1024, (h) => h.length * 2)
+const htmlCache = new BoundedLru<PublicRender>(200, RENDER_TTL_MS, 32 * 1024 * 1024, (r) => r.html.length * 2 + (r.charts.length ? JSON.stringify(r.charts).length * 2 : 0))
 const fileIdCache = new BoundedLru<Set<string>>(500, RENDER_TTL_MS, 8 * 1024 * 1024, (s) => 64 + s.size * 90)
 export const publicRenderStats = { htmlHits: 0, htmlMisses: 0, fileHits: 0, fileMisses: 0 }
 
@@ -346,7 +365,7 @@ function revKey(page: SharedPage): string | null {
   return page.kind === 'doc' ? `${page.id}|${page.updatedAt.getTime()}` : null
 }
 
-async function cachedHtml(key: string | null, render: () => Promise<string>): Promise<string> {
+async function cachedRender(key: string | null, render: () => Promise<PublicBody>): Promise<PublicRender> {
   if (key) {
     const hit = htmlCache.get(key)
     if (hit !== undefined) {
@@ -355,9 +374,10 @@ async function cachedHtml(key: string | null, render: () => Promise<string>): Pr
     }
   }
   publicRenderStats.htmlMisses++
-  const html = await render()
-  if (key) htmlCache.set(key, html)
-  return html
+  const body = await render()
+  const out: PublicRender = { html: await blocksToFullHTML(body.blocks), charts: body.charts }
+  if (key) htmlCache.set(key, out)
+  return out
 }
 
 /** The set of fileIds the page publicly references (body attachments + cover + icon). Basis of the file gate. */
@@ -413,8 +433,11 @@ function setPagePublicHeaders(reply: FastifyReply): void {
  * The public blocks of a single-page link: what its HTML is rendered from, and its Markdown download
  * (docs/adr/2362-*), so the two never show different data.
  */
-async function singlePageBlocks(page: SharedPage, token: string): Promise<AnyBlock[]> {
-  let blocks = await loadPublicBlocks(page)
+async function singlePageBlocks(page: SharedPage, token: string, enablerId: string | null): Promise<PublicBody> {
+  // charts only with "include charts" on: nothing else of the workspace is inside this link (docs/adr/2440-*)
+  const charts: PublicChartDTO[] = []
+  const place = enablerId ? publicChartPlacer(publicChartData({ workspaceId: page.workspaceId, enablerId }), charts) : undefined
+  let blocks = await loadPublicBlocks(page, place)
   // embeds, database views and query blocks: only this page is inside the link (docs/adr/2121-*)
   if (page.kind === 'doc') {
     blocks = await publicCustomBlocks(blocks, {
@@ -429,14 +452,16 @@ async function singlePageBlocks(page: SharedPage, token: string): Promise<AnyBlo
   neutralizeInternalLinksForPublic(blocks)
   // Rewrite image/attachment URLs (/files/<id>) to the token-scoped public path (avoids auth 404s + access gate).
   rewriteAssetUrlsForPublic(blocks, (fileId) => publicFileUrl(token, fileId))
-  return blocks
+  return { blocks, charts }
 }
 
 /** The public blocks of a page of a folder link (HTML and Markdown, as singlePageBlocks). */
-async function childPageBlocks(share: FolderShare, page: SubtreePage, token: string, ref: string): Promise<AnyBlock[]> {
-  // charts may show collections inside this folder share (the root excluded: a folder has no rows)
+async function childPageBlocks(share: FolderShare, page: SubtreePage, token: string, ref: string, enablerId: string | null): Promise<PublicBody> {
+  // charts of collections inside this folder share (the root excluded: a folder has no rows), and with
+  // "include charts" on, of any source the manager who turned it on can see (docs/adr/2440-*)
   const inShare = new Map(share.pages.map((p) => [p.id, p]))
-  const charts = publicFor(share.root.workspaceId, (id) => inShare.get(id))
+  const list: PublicChartDTO[] = []
+  const charts = publicChartPlacer(publicChartData({ workspaceId: share.root.workspaceId, enablerId, inside: (id) => inShare.get(id) }), list)
   let blocks = await loadPublicBlocks(page, charts)
   // embeds, database views and query blocks: data of pages inside this link only (docs/adr/2121-*)
   if (page.kind === 'doc') {
@@ -459,7 +484,7 @@ async function childPageBlocks(share: FolderShare, page: SubtreePage, token: str
     return r ? `/s/${token}/p/${r}` : null
   })
   rewriteAssetUrlsForPublic(blocks, (fileId) => publicChildFileUrl(token, ref, fileId))
-  return blocks
+  return { blocks, charts: list }
 }
 
 /**
@@ -517,16 +542,20 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
 
     const rk = revKey(page)
-    const html = await cachedHtml(rk && `p|${rk}|${token}`, async () => blocksToFullHTML(await singlePageBlocks(page, token)))
+    // the chart setting is checked here, before the cache: its key changes the moment the switch or the
+    // member's access does (docs/adr/2440-*)
+    const enablerId = await chartsEnabler(page.workspaceId, page)
+    const out = await cachedRender(rk && `p|${rk}|${token}|${enablerId ?? ''}`, () => singlePageBlocks(page, token, enablerId))
 
     setPagePublicHeaders(reply)
     const dto: PublicPageDTO = {
       title: page.title,
       icon: publicizeAssetUrl(page.icon, token),
       coverUrl: publicizeAssetUrl(page.coverUrl, token),
-      html,
+      html: out.html,
       updatedAt: page.updatedAt.toISOString(),
       ...publicViewFlags(page, page),
+      ...(out.charts.length ? { charts: out.charts } : {}),
     }
     return dto
   })
@@ -543,7 +572,8 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     assertShareOpen(req, reply, page.gate)
     if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
     if (!page.allowDownload) throw notFound()
-    return sendPublicMarkdown(req, reply, page.title, await singlePageBlocks(page, token))
+    const body = await singlePageBlocks(page, token, await chartsEnabler(page.workspaceId, page))
+    return sendPublicMarkdown(req, reply, page.title, body.blocks)
   })
 
   // Stream only attachments the shared page references (unauthenticated). Gate: the file appears in
@@ -598,8 +628,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     const members = rk
       ? createHash('sha1').update([...share.refById.keys()].sort().join(',')).digest('base64')
       : ''
-    const html = await cachedHtml(rk && `c|${rk}|${token}|${ref}|${members}`, async () =>
-      blocksToFullHTML(await childPageBlocks(share, page, token, ref)),
+    const enablerId = await chartsEnabler(share.root.workspaceId, share.root)
+    const out = await cachedRender(rk && `c|${rk}|${token}|${ref}|${members}|${enablerId ?? ''}`, () =>
+      childPageBlocks(share, page, token, ref, enablerId),
     )
 
     setPagePublicHeaders(reply)
@@ -607,9 +638,10 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       title: page.title,
       icon: publicizeChildAssetUrl(page.icon, token, ref),
       coverUrl: publicizeChildAssetUrl(page.coverUrl, token, ref),
-      html,
+      html: out.html,
       updatedAt: page.updatedAt.toISOString(),
       ...publicViewFlags(page, share.root),
+      ...(out.charts.length ? { charts: out.charts } : {}),
     }
     return dto
   })
@@ -623,7 +655,8 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     const page = share.byRef.get(ref)
     if (!page) throw notFound()
     if (page.kind !== 'doc' && page.kind !== 'collection') throw notFound()
-    return sendPublicMarkdown(req, reply, page.title, await childPageBlocks(share, page, token, ref))
+    const body = await childPageBlocks(share, page, token, ref, await chartsEnabler(share.root.workspaceId, share.root))
+    return sendPublicMarkdown(req, reply, page.title, body.blocks)
   })
 
   // Attachments of a folder-share subpage. Gate: the ref is inside the subtree + the file appears in

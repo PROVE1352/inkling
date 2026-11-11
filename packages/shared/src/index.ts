@@ -833,6 +833,17 @@ export interface ShareStatusDTO {
   hasPassword?: boolean
   /** Visitors may download the page as Markdown (docs/adr/2362-*). Off by default. */
   allowDownload?: boolean
+  /**
+   * The public page shows its charts as aggregates (docs/adr/2440-*). Off by default; computed as the
+   * manager who turned it on (`chartsBy`, their name) while they are a member.
+   */
+  includeCharts?: boolean
+  chartsBy?: string | null
+  /**
+   * Chart blocks on the page (a folder: its pages inside the link) and how many of them the public
+   * page leaves out with the link's current settings (docs/adr/2440-*). Absent when there are none.
+   */
+  charts?: { total: number; hidden: number }
   /** Workspace rules for new links (docs/adr/1172-*). */
   policy?: import('./shareLinks').SharePolicyDTO
 }
@@ -849,6 +860,11 @@ export interface PublicPageDTO {
   fullWidth?: boolean
   /** The link lets visitors download this page as Markdown (`…/export.md`, docs/adr/2362-*). */
   download?: boolean
+  /**
+   * Charts of the page, drawn by the viewer (docs/adr/2440-*). Each one's place in `html` is the block
+   * whose `data-id` is `anchor` (its title, if any) and `anchor + '-t'` (its table, the fallback).
+   */
+  charts?: import('./charts').PublicChartDTO[]
 }
 
 /**

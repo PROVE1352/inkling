@@ -50,6 +50,11 @@ export const updateShareSchema = z
     password: passwordSchema.nullable().optional(),
     /** Visitors may download the page as Markdown (docs/adr/2362-*); only here, never when a link is made. */
     allowDownload: z.boolean().optional(),
+    /**
+     * The public page shows its charts as aggregates (docs/adr/2440-*), computed as the manager who turns
+     * it on; only here, never when a link is made.
+     */
+    includeCharts: z.boolean().optional(),
   })
   .strict()
   .refine((v) => !(v.expiresAt !== undefined && v.expiresInDays !== undefined), {

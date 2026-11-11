@@ -147,6 +147,8 @@ export const AUDIT_ACTIONS = [
   'share.password_removed',
   /** Visitors' Markdown download was turned on / off for a link (docs/adr/2362-*). */
   'share.download_changed',
+  /** A link's charts were turned on / off (docs/adr/2440-*). */
+  'share.charts_changed',
   /** A form view's public link was turned on / off (docs/adr/1821-*). */
   'form.published',
   'form.unpublished',

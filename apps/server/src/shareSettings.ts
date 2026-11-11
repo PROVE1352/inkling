@@ -89,9 +89,17 @@ export const sharePasswordPolicyError = () =>
 
 /** The status fields of a link (the password itself never leaves the server). */
 export function shareLinkFields(
-  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null; shareStartsAt?: Date | null; shareAllowDownload?: boolean },
+  row: { shareExpiresAt: Date | null; sharePasswordHash: string | null; shareStartsAt?: Date | null; shareAllowDownload?: boolean; shareIncludeCharts?: boolean },
   now = Date.now(),
-): { expiresAt: string | null; expired: boolean; hasPassword: boolean; startsAt: string | null; notStarted: boolean; allowDownload: boolean } {
+): {
+  expiresAt: string | null
+  expired: boolean
+  hasPassword: boolean
+  startsAt: string | null
+  notStarted: boolean
+  allowDownload: boolean
+  includeCharts: boolean
+} {
   const startsAt = row.shareStartsAt ?? null
   return {
     expiresAt: row.shareExpiresAt ? row.shareExpiresAt.toISOString() : null,
@@ -102,6 +110,8 @@ export function shareLinkFields(
     notStarted: startsAt !== null && startsAt.getTime() > now,
     // visitors may download Markdown (docs/adr/2362-*)
     allowDownload: row.shareAllowDownload === true,
+    // the public page shows its charts (docs/adr/2440-*)
+    includeCharts: row.shareIncludeCharts === true,
   }
 }
 
@@ -113,4 +123,6 @@ export const CLEARED_SHARE_LINK = {
   shareStartsAt: null,
   sharePasswordHash: null,
   shareAllowDownload: false,
+  shareIncludeCharts: false,
+  shareChartsBy: null,
 } as const

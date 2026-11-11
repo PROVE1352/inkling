@@ -33,6 +33,7 @@ import type { AnyBlock } from '../md/convert'
 import { blocksToCanvasState } from '../md/expand'
 import { reindexPageTasksForPages } from '../md/taskIndex'
 import { loadSharedSubtree } from './public'
+import { chartsByName, chartsEnabler, shareChartCounts } from '../charts/publicCharts'
 import { assertPlacement, descendantsCte, lockTree, purgeDeletedSubtrees, withTreeLock } from '../pageTree'
 import { findVisiblePage, pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { hashShareToken, protectSecret, tryRevealSecret } from '../secretsAtRest'
@@ -127,6 +128,34 @@ async function folderExposedCount(folderId: string, workspaceId: string): Promis
   const list = await loadSharedSubtree(folderId, workspaceId)
   return list.filter((p) => p.kind === 'doc' || p.kind === 'collection').length
 }
+
+/**
+ * The chart part of a share status (docs/adr/2440-*): whose access the link's charts use and how many
+ * chart blocks of what the link shows (a folder: its doc pages inside the link) the public page leaves
+ * out with the current setting. Counted from the configs and the access of their sources; nothing is
+ * aggregated. Also answered before a link exists (the setting is off then).
+ */
+async function shareChartsStatus(
+  page: { id: string; kind: string; workspaceId: string },
+  setting: { includeCharts: boolean; chartsBy: string | null },
+): Promise<Pick<ShareStatusDTO, 'chartsBy' | 'charts'>> {
+  if (page.kind !== 'doc' && page.kind !== 'folder') return {}
+  const enablerId = await chartsEnabler(page.workspaceId, setting)
+  let docIds = [page.id]
+  let inside: ((id: string) => SubtreePageRef | undefined) | undefined
+  if (page.kind === 'folder') {
+    const list = await loadSharedSubtree(page.id, page.workspaceId)
+    const byId = new Map(list.map((p) => [p.id, p]))
+    docIds = list.filter((p) => p.kind === 'doc').map((p) => p.id)
+    inside = (id) => byId.get(id)
+  }
+  const charts = await shareChartCounts(docIds, { workspaceId: page.workspaceId, enablerId, ...(inside ? { inside } : {}) })
+  return {
+    ...(setting.includeCharts ? { chartsBy: await chartsByName(setting.chartsBy) } : {}),
+    ...(charts ? { charts } : {}),
+  }
+}
+type SubtreePageRef = { id: string; kind: string; title: string; workspaceId: string }
 
 async function generateUniqueShareToken(): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -662,6 +691,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
           shareAllowDownload: pages.shareAllowDownload,
+          shareIncludeCharts: pages.shareIncludeCharts,
+          shareChartsBy: pages.shareChartsBy,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -670,7 +701,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // Already shared: hand back the same link. When its copy cannot be opened (APP_SECRET_KEY
       // changed or removed), a new link replaces it — the only way to get a link to show again.
       const existing = current?.shareToken ? revealShareToken(id, current.enc) : null
-      if (existing) return { token: existing, link: shareLinkFields(current!), policy }
+      if (existing) {
+        return { token: existing, link: shareLinkFields(current!), charts: { includeCharts: current!.shareIncludeCharts, chartsBy: current!.shareChartsBy }, policy }
+      }
       if (policy.publicSharingDisabled) {
         throw new AppError(403, 'PUBLIC_SHARING_DISABLED', 'Public web links are turned off in this workspace')
       }
@@ -693,8 +726,10 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareExpiresAt,
           shareStartsAt: requestedStart,
           sharePasswordHash: passwordHash,
-          // a new link never lets visitors download (docs/adr/2362-*)
+          // a new link never lets visitors download (docs/adr/2362-*) and shows no charts (docs/adr/2440-*)
           shareAllowDownload: false,
+          shareIncludeCharts: false,
+          shareChartsBy: null,
         })
         .where(eq(pages.id, id))
       await recordAudit(tx, {
@@ -715,12 +750,13 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       return {
         token,
         link: shareLinkFields({ shareExpiresAt, shareStartsAt: requestedStart, sharePasswordHash: passwordHash }),
+        charts: { includeCharts: false, chartsBy: null },
         policy,
       }
     })
 
     const { publicSharingDisabled: _off, ...policy } = result.policy
-    const dto: ShareStatusDTO = { shared: true, token: result.token, ...result.link, policy }
+    const dto: ShareStatusDTO = { shared: true, token: result.token, ...result.link, policy, ...(await shareChartsStatus(page, result.charts)) }
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
     return dto
   })
@@ -752,6 +788,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
           shareAllowDownload: pages.shareAllowDownload,
+          shareIncludeCharts: pages.shareIncludeCharts,
+          shareChartsBy: pages.shareChartsBy,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -760,7 +798,14 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       if (!cur?.shareToken) throw new AppError(409, 'NOT_SHARED', 'This page has no public link')
       if (nextHash === null && policy.passwordRequired) throw sharePasswordPolicyError()
 
-      const set: { shareExpiresAt?: Date | null; shareStartsAt?: Date | null; sharePasswordHash?: string | null; shareAllowDownload?: boolean } = {}
+      const set: {
+        shareExpiresAt?: Date | null
+        shareStartsAt?: Date | null
+        sharePasswordHash?: string | null
+        shareAllowDownload?: boolean
+        shareIncludeCharts?: boolean
+        shareChartsBy?: string | null
+      } = {}
       const target = { type: 'page', id, label: page.title }
       // The window after this change: a start must stay before the expiry (docs/adr/1844-*).
       assertShareWindow(
@@ -815,18 +860,37 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           after: { allowDownload: body.allowDownload },
         })
       }
+      // the public page's charts (docs/adr/2440-*): aggregated as the manager who turns them on, so
+      // turning on records that person; sending true while on keeps whoever turned it on
+      if (body.includeCharts !== undefined && body.includeCharts !== cur.shareIncludeCharts) {
+        set.shareIncludeCharts = body.includeCharts
+        set.shareChartsBy = body.includeCharts ? user.id : null
+        await recordAudit(tx, {
+          workspaceId: page.workspaceId,
+          actor: user,
+          action: 'share.charts_changed',
+          target,
+          before: { includeCharts: cur.shareIncludeCharts },
+          after: { includeCharts: body.includeCharts },
+        })
+      }
       if (Object.keys(set).length > 0) await tx.update(pages).set(set).where(eq(pages.id, id))
+      const charts = {
+        includeCharts: set.shareIncludeCharts !== undefined ? set.shareIncludeCharts : cur.shareIncludeCharts,
+        chartsBy: set.shareChartsBy !== undefined ? set.shareChartsBy : cur.shareChartsBy,
+      }
       const link = shareLinkFields({
         shareExpiresAt: set.shareExpiresAt !== undefined ? set.shareExpiresAt : cur.shareExpiresAt,
         shareStartsAt: set.shareStartsAt !== undefined ? set.shareStartsAt : cur.shareStartsAt,
         sharePasswordHash: set.sharePasswordHash !== undefined ? set.sharePasswordHash : cur.sharePasswordHash,
         shareAllowDownload: set.shareAllowDownload !== undefined ? set.shareAllowDownload : cur.shareAllowDownload,
+        shareIncludeCharts: charts.includeCharts,
       })
-      return { token: revealShareToken(id, cur.enc), link, policy }
+      return { token: revealShareToken(id, cur.enc), link, charts, policy }
     })
 
     const { publicSharingDisabled: _off, ...policy } = result.policy
-    const dto: ShareStatusDTO = { shared: Boolean(result.token), token: result.token, ...result.link, policy }
+    const dto: ShareStatusDTO = { shared: Boolean(result.token), token: result.token, ...result.link, policy, ...(await shareChartsStatus(page, result.charts)) }
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)
     return dto
   })
@@ -880,6 +944,8 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareStartsAt: pages.shareStartsAt,
           sharePasswordHash: pages.sharePasswordHash,
           shareAllowDownload: pages.shareAllowDownload,
+          shareIncludeCharts: pages.shareIncludeCharts,
+          shareChartsBy: pages.shareChartsBy,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -896,6 +962,11 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         : { expiresAt: null, expired: false, hasPassword: false, startsAt: null, notStarted: false }),
       // The rules a new link would get (the dialog pre-selects the default expiry).
       policy: await readSharePolicy(db, page.workspaceId),
+      // charts the public page leaves out (docs/adr/2440-*); before a link exists, with the setting off
+      ...(await shareChartsStatus(
+        page,
+        token && current ? { includeCharts: current.shareIncludeCharts, chartsBy: current.shareChartsBy } : { includeCharts: false, chartsBy: null },
+      )),
     }
     // For folders, also return the number of viewable subpages that are (or would be, if published) exposed.
     if (page.kind === 'folder') dto.exposedCount = await folderExposedCount(page.id, page.workspaceId)

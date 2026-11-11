@@ -185,6 +185,8 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
       const [big] = await fileRow(ws.id, u.id, 2 * 1024 * 1024)
       assert.equal((await S.recountWorkspaceStorage(ws.id)).over, true)
       const doc = new Y.Doc()
+      // synced, not only authenticated: the server adds the connection to the document after loading it
+      const synced: string[] = []
       const tab = { scopes: [] as string[], provider: null as never as InstanceType<typeof HocuspocusProvider>, socket: null as never as InstanceType<typeof HocuspocusProviderWebsocket> }
       class CookieSocket extends WebSocket {
         constructor(url: string, protocols?: string | string[]) {
@@ -199,6 +201,7 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
         token: 'cookie',
         broadcast: false,
         onAuthenticated: () => tab.scopes.push(tab.provider.authorizedScope),
+        onSynced: () => synced.push('ok'),
       })
       open.push(tab)
       // the web app shares one socket between its documents and the inbox channel (lib/collabSocket.ts)
@@ -219,7 +222,7 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
           await new Promise((r) => setTimeout(r, 20))
         }
       }
-      await until(() => tab.scopes.length === 1 && inboxAuth.length === 1, 'the first authentication')
+      await until(() => tab.scopes.length === 1 && inboxAuth.length === 1 && synced.length === 1, 'the first sync')
       assert.equal(tab.scopes[0], 'readonly')
       // the member deletes the big file: the recount finds room
       await db.delete(schema.files).where(eq(schema.files.id, big.id))

@@ -7,6 +7,40 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-12
+
+A patch release for a security advisory in the server's multipart parser, with a group of patch updates and a
+browser check of the PDF preview's error boundary. No database migration, no new environment variable, no new
+dependency, no API change: the four upload routes keep their limits and answers, and a cut upload now gets a 400.
+
+### Security
+- **`@fastify/multipart` 9.4.0 → 10.1.8** (GHSA-5849-5m6q-9632, medium; every version from 5.3.0 up to 10.1.7, no
+  9.x fix). A multipart body that ended inside a file part, without the closing boundary, had its file stream
+  destroyed without an error, so a handler that read that stream could wait forever and each such request held its
+  connection and handler (a denial of service when many are sent). Only signed-in accounts reached our multipart
+  routes: the body is read after the sign-in (session or API token) and workspace checks, and file uploads by a guest
+  only into a page shared with them that they can edit. Against 9.4.0, a small cut part left `POST /api/files`,
+  `POST /api/workspaces/:id/import` and `POST /api/workspaces/:id/import-folder` without an answer; a larger cut
+  part, and any cut part on `POST /api/workspaces/:id/templates/import`, answered 500 instead. With 10.1.8 the parser
+  reports the cut body, and all four routes answer `400 VALIDATION` ("The upload ended before the file was complete;
+  send it again") at once. Size limits and the `413 PAYLOAD_TOO_LARGE` answers are unchanged.
+
+### Dependencies
+- `@fastify/multipart` 10.1.8 (pinned, see Security; it brings `fastify-plugin` 6, already in the tree).
+- Patch updates (Dependabot group "runtime-patches"): `jszip` 3.10.2 (server, CLI), `@fastify/cookie` 11.1.5, `yjs`
+  13.6.33 (server and web, still one copy shared with Hocuspocus and BlockNote), `d3-force` 3.0.1. The editor pins
+  (`@blocknote/*` 0.51.4, `prosemirror-view` 1.42.4, `pdfjs-dist` 6.5.438) are unchanged.
+
+### Tests
+- `multipartTruncated.db.test.ts` sends bodies cut inside a file part to every multipart route (file upload, import,
+  folder import with the first or a later part cut, template import; small and 512 KB parts) over a real socket and
+  expects a 4xx within 5 seconds, then a complete upload that still works. Against 9.4.0 it fails: three routes hang
+  and the rest answer 500.
+- The PDF preview's per-block error boundary was made to throw in Chrome 157 against the production build, on the
+  first render of one preview and on a later render of another (KNOWN-ISSUES PDFVIEW-12): only that block turned
+  into "The preview could not open this PDF." with its download link (which serves the file), the PDF beside it kept
+  drawing, the app's crash screen never showed, and the editor kept taking typing. No defect was found.
+
 ## [0.21.0] - 2026-11-11
 
 A minor release with one feature: a PDF attached to a page now shows its pages in the page, under the file name.

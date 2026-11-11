@@ -1,4 +1,4 @@
-// Account deletion (0.22, docs/adr/2512-*, 2513-*, 2514-*): leaving (DELETE /api/me) and its preview,
+// Account deletion (0.22, docs/adr/2517-*, 2513-*, 2514-*): leaving (DELETE /api/me) and its preview,
 // the trace check (after a deletion by the person or by expiry, the name and sign-in ID are found in
 // no text or jsonb column of the database), leaving a workspace as its only member, "delete now" of a
 // deleted workspace, and the admin deletion keeping its 0.21.1 answers.

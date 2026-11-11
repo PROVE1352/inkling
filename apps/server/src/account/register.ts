@@ -6,7 +6,7 @@ import { registerAccountRoutes } from './routes'
 import { proxyWarning, signupChecksOn, signupGuardHook } from './signupGuards'
 
 /**
- * Restricted mode, piece B (accounts: sign-in IDs, deletion, lifetime, docs/adr/2512-*): the one place this piece registers itself.
+ * Restricted mode, piece B (accounts: sign-in IDs, deletion, lifetime, docs/adr/2512-* .. 2517-*): the one place this piece registers itself.
  * restricted.ts registerRestrictedMode calls it inside the `/api` scope of every app (index.ts and the
  * test harnesses), after the auth routes.
  *

@@ -1,4 +1,4 @@
-// Accounts in restricted mode (0.22, docs/adr/2512-* .. 2516-*): sign-in IDs, sign-up limits, leaving,
+// Accounts in restricted mode (0.22, docs/adr/2512-* .. 2517-*): sign-in IDs, sign-up limits, leaving,
 // account lifetime, workspaces without members.
 export default {
   // sign-in IDs (LOGIN_ID_MODE=username)

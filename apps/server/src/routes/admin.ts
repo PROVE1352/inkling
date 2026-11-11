@@ -304,7 +304,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     if (id === me.id) throw badRequest('You cannot delete your own account here')
     await loadUser(id)
 
-    // One deletion for every path (account/deletion.ts, docs/adr/2512-*); `admin` keeps the 0.21.1
+    // One deletion for every path (account/deletion.ts, docs/adr/2517-*); `admin` keeps the 0.21.1
     // behaviour: last admin 400, sole owner of a shared workspace 409 SOLE_OWNER, personal
     // workspaces deleted with the account, private pages to the trash, the signup key's use given back.
     const { deletedWorkspaces } = await deleteAccount(id, { by: 'admin', actorId: me.id, log: (m) => req.log.warn(m) })

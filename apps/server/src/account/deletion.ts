@@ -16,7 +16,7 @@ import { recordAudit } from '../workspaceAdmin'
 import { purgeWorkspacesTx } from '../workspaceDeletion'
 
 /**
- * Account deletion (0.22, docs/adr/2512-*): one function for leaving (`self`), the account lifetime
+ * Account deletion (0.22, docs/adr/2517-*): one function for leaving (`self`), the account lifetime
  * (`expiry`) and an admin's forced deletion (`admin`).
  *
  * Always in this order: the plan (what goes, computed from the database, shared by the preview,
@@ -59,7 +59,7 @@ export interface AccountDeletionPlan {
 type Exec = Pick<Tx, 'execute'>
 
 /**
- * The workspaces a deletion of `userId` affects (docs/adr/0813-*, 2512-*). Read-only: the preview,
+ * The workspaces a deletion of `userId` affects (docs/adr/0813-*, 2517-*). Read-only: the preview,
  * the dry run and the deletion itself (inside its transaction, after the member locks) call it.
  */
 export async function planAccountDeletion(exec: Exec, userId: string): Promise<AccountDeletionPlan> {
@@ -152,7 +152,7 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
       throw notFound('USER_NOT_FOUND', 'User not found')
     }
     if (opts.by === 'expiry') {
-      // the double lock (docs/adr/2512-*), re-read under the lock
+      // the double lock (docs/adr/2517-*), re-read under the lock
       if (limits.accountLifetimeDays === null || target.isAdmin || !target.expiresAt || target.expiresAt.getTime() >= Date.now()) return none
     }
     if (target.isAdmin && opts.by !== 'expiry') {
@@ -283,7 +283,7 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
 
 /**
  * Rows of the surviving workspaces that copied the account's name or sign-in ID as text
- * (docs/adr/2512-*, the survey table): the audit log's actor name, target label and before/after
+ * (docs/adr/2517-*, the survey table): the audit log's actor name, target label and before/after
  * values, and the workspace name made at sign-up ("<name>'s workspace").
  */
 async function scrubCopiedNames(tx: Tx, userId: string, staying: string[], who: { name: string; email: string }): Promise<void> {

@@ -822,7 +822,7 @@ export type NotificationType =
   | 'large_page'
   /** A reminder you set on an item of your Later list came due (docs/adr/1411-*). */
   | 'later_reminder'
-  /** You became the owner of a workspace because its only owner deleted their account (0.22, docs/adr/2512-*). */
+  /** You became the owner of a workspace because its only owner deleted their account (0.22, docs/adr/2517-*). */
   | 'workspace_owner'
 export interface NotificationDTO {
   id: string

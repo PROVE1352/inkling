@@ -168,6 +168,26 @@ services:
       AGENT_UPLOADS: ${AGENT_UPLOADS:-}
       AGENT_UPLOAD_MAX_MB: ${AGENT_UPLOAD_MAX_MB:-}
       AGENT_UPLOAD_DAILY_MB: ${AGENT_UPLOAD_DAILY_MB:-}
+      # Restricted mode (0.22; see .env.example, docs/adr/2500-*): limits, features turned off, sign-in
+      # IDs, sign-up consent, account lifetime. Empty = off; with none set the server behaves as 0.21.1.
+      # LEGAL_DIR is a path inside the container: mount the folder too (deploy/demo/README.md).
+      LOGIN_ID_MODE: ${LOGIN_ID_MODE:-}
+      SIGNUP_MAX_USERS: ${SIGNUP_MAX_USERS:-}
+      SIGNUP_PER_IP_PER_DAY: ${SIGNUP_PER_IP_PER_DAY:-}
+      ACCOUNT_LIFETIME_DAYS: ${ACCOUNT_LIFETIME_DAYS:-}
+      ACCOUNT_LIFETIME_DRY_RUN: ${ACCOUNT_LIFETIME_DRY_RUN:-}
+      LIMIT_WORKSPACES_PER_USER: ${LIMIT_WORKSPACES_PER_USER:-}
+      LIMIT_MEMBERS_PER_WORKSPACE: ${LIMIT_MEMBERS_PER_WORKSPACE:-}
+      LIMIT_PAGES_PER_WORKSPACE: ${LIMIT_PAGES_PER_WORKSPACE:-}
+      LIMIT_FILE_MB: ${LIMIT_FILE_MB:-}
+      LIMIT_WORKSPACE_STORAGE_MB: ${LIMIT_WORKSPACE_STORAGE_MB:-}
+      LIMIT_VERSIONS_PER_PAGE: ${LIMIT_VERSIONS_PER_PAGE:-}
+      LIMIT_TRASH_DAYS: ${LIMIT_TRASH_DAYS:-}
+      DISABLED_FEATURES: ${DISABLED_FEATURES:-}
+      WORKSPACE_RESTORE_DAYS: ${WORKSPACE_RESTORE_DAYS:-}
+      LEGAL_DIR: ${LEGAL_DIR:-}
+      INSTANCE_LABEL: ${INSTANCE_LABEL:-}
+      INSTANCE_NOTICE: ${INSTANCE_NOTICE:-}
       # MCP connectors that identify themselves with a Client ID Metadata Document (see .env.example,
       # docs/adr/2280-*). Empty = off.
       OAUTH_CIMD: ${OAUTH_CIMD:-}

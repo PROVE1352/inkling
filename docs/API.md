@@ -34,8 +34,8 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }` (no auth required). `defaultLocale: 'en' \| 'ko' \| null` is set only when the operator configured `DEFAULT_LOCALE` (otherwise `null`, and the browser language decides) |
-| POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. |
+| GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }` (no auth required). `defaultLocale: 'en' \| 'ko' \| null` is set only when the operator configured `DEFAULT_LOCALE` (otherwise `null`, and the browser language decides). Restricted mode (0.22) adds optional fields, each only when its setting is on: [v0.22.0 additions](#v0220-additions) |
+| POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. Restricted mode (0.22): `loginId` instead of `email`, consent and bot-check fields, new errors ([v0.22.0 additions](#v0220-additions)). |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. Failure → 401 `INVALID_CREDENTIALS` (never reveal whether the email exists; same message). Unverified account in enforced-verification mode (only when the password is correct) → 403 `EMAIL_NOT_VERIFIED`. If there are no admins, bootstrap promotion applies. |
 | POST | `/api/auth/login/totp` | `{ challenge, code }` | Second step for accounts with two-step verification: `POST /api/auth/login` then returns `200 { totpRequired: true, challenge }` without a cookie. `code` is a 6-digit app code or a recovery code. `{ user: UserDTO, recoveryCodeUsed }` + Set-Cookie. 401 `INVALID_TOTP_CODE` / `TOTP_CODE_REUSED` / `TOTP_CHALLENGE_EXPIRED` (5 minutes or 5 failures). 10/min (docs/adr/1061-*) |
 | GET | `/api/auth/2fa` | - | `{ enabled, pending, recoveryCodesLeft, available }`. Browser session, local accounts only (also for the other `/auth/2fa*` routes). |
@@ -44,7 +44,7 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 | POST | `/api/auth/2fa/disable` | `{ password, code }` | `{ ok: true }` |
 | POST | `/api/auth/2fa/recovery-codes` | `{ password, code }` | `{ recoveryCodes }` (replaces the old set). |
 | POST | `/api/auth/logout` | - | 204 + cookie cleared. The session row is deleted. |
-| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), `twoFactor` (two-step verification on), `sidebar: SidebarPrefsDTO` (sidebar menu order / hidden menus, see [Sidebar menus](#sidebar-menus-per-user-docsadr1020-); `{ order: [], hidden: [] }` when never customized), and `pendingResetRequests` for admins. |
+| GET | `/api/auth/me` | - | `{ user: UserDTO }` / 401. Includes `origin`, `emailVerified` (true for delegated accounts), `locale: 'en' \| 'ko' \| null` (saved UI/email language; `null` = automatic), `twoFactor` (two-step verification on), `sidebar: SidebarPrefsDTO` (sidebar menu order / hidden menus, see [Sidebar menus](#sidebar-menus-per-user-docsadr1020-); `{ order: [], hidden: [] }` when never customized), and `pendingResetRequests` for admins. Restricted mode (0.22) adds `expiresAt` and `consentRequired` when they apply. |
 | PATCH | `/api/auth/me/locale` | `{ "locale": "en" \| "ko" \| null }` | `{ "locale": "en" \| "ko" \| null }`. Requires a session. Saves the account's UI and email language (`null` = automatic: browser language / `DEFAULT_LOCALE`). Anything else → 400 `VALIDATION`. |
 | POST | `/api/auth/reset-password` | `resetPasswordSchema` `{ email, code, newPassword }` | `{ ok: true }`. Code = a reset code from an admin or automatic email (single use, 24h), or the **maxUses=1** sign-up key that person registered with. On success all of that account's sessions are deleted, remaining codes are revoked and pending requests are resolved. Failure (unknown account, delegated account, wrong code alike) → 400 `INVALID_RESET` with the same message. 10/min + blocking on accumulated failures. |
 | POST | `/api/auth/forgot-password` | `forgotPasswordSchema` `{ email, note? }` | Always `{ ok: true }` (never reveal whether the account exists). Only existing accounts are processed: verified email + mail enabled → a reset code email is sent automatically (in the background, at most one per 5 minutes). Otherwise (unverified, mail disabled, delegated account) → merged into a single pending row in `password_reset_requests` (refreshed at most once a minute). Input without `@` is treated as a delegated ID. 5/min. |
@@ -123,7 +123,7 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 | POST | `/api/files?workspaceId=<uuid>&pageId=<uuid>` | multipart field `file` (one) | `{ file: FileDTO }`: `url` is `/files/<id>`. `pageId` is required for bearer tokens since 0.16 (see "v0.16.0 additions") |
 | GET | `/files/:id` | - | Binary stream. Headers: Content-Type from the row's `mime`, `Content-Disposition: inline; filename*=UTF-8''<encoded>` for raster images and `attachment; …` for every other type (PDF, text, video, audio), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=31536000, immutable`, ETag=id. Unauthenticated 401; not a member or guest of the file's workspace, or a page file you cannot see: 404, the same as an unknown id (docs/adr/1301-*). |
 
-- Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above).
+- Physical storage: `DATA_DIR/uploads/<id>` (the bare id, no extension). Size limit 25MB (413 above), or `LIMIT_FILE_MB` when set lower (413 `LIMIT_FILE`, 0.22).
 - Allowed MIME types: `image/*`, `application/pdf`, `video/mp4`, `video/webm`, `audio/mpeg`, `audio/mp4`, `audio/wav`, `text/plain`; anything else 415.
 
 ## Collab (real-time co-editing)
@@ -260,7 +260,7 @@ Types and validation schemas come from the M3 section of `@inkling/shared` (coll
 
 ## Members (roles `owner | admin | member`, docs/adr/0945-*)
 - `PATCH /api/workspaces/:id/members/:userId` body `updateMemberSchema { role: 'owner'|'admin'|'member' }` (owner only) → `{ member: MemberDTO }`. Demoting the last owner 400.
-- `DELETE /api/workspaces/:id/members/:userId` → 204. An owner removes anyone, an admin removes plain members (owner/admin target 403), or you leave. The last owner leaving 400. **On removal, that user's private pages in this workspace are soft-deleted** (audit L3), their document ownerships are cleared and (when someone else is removed) the invite code is regenerated.
+- `DELETE /api/workspaces/:id/members/:userId` → 204. An owner removes anyone, an admin removes plain members (owner/admin target 403), or you leave. The last owner leaving 400, unless they are the only member and send `{ name }` (the workspace's name) from a browser session: then the workspace is deleted at once (0.22, [v0.22.0 additions](#v0220-additions)). **On removal, that user's private pages in this workspace are soft-deleted** (audit L3), their document ownerships are cleared and (when someone else is removed) the invite code is regenerated.
 - `GET /api/workspaces/:id/member-candidates`, `POST /api/workspaces/:id/members`: only callers the member-add policy allows (default owners and admins; 403 otherwise, docs/adr/0948-*).
 - `POST /api/workspaces/:id/invite/regenerate` (owner or admin) → `{ workspace: WorkspaceDTO }` (new code).
 - `POST /api/workspaces/:id/transfer` (owner) body `transferOwnershipSchema { userId }` → `{ members: MemberDTO[] }`. The target becomes owner and the caller becomes member in one transaction under the `ws-members` lock (docs/adr/0911-*). Not a member (delegated accounts included as usual) 400; the caller themself 400; caller not an owner 403 (also the loser of two concurrent transfers). Afterwards the old owner can leave normally.
@@ -268,9 +268,9 @@ Types and validation schemas come from the M3 section of `@inkling/shared` (coll
 ## Workspace deletion (owner, soft delete with a 30-day restore — docs/adr/0910-*)
 - `GET /api/workspaces/:id/delete-preview` (owner) → `WorkspaceDeletePreviewDTO { pages, files, publicLinks, members, restoreDays }` for the confirm dialog.
 - `DELETE /api/workspaces/:id` body `deleteWorkspaceSchema { name }` → 204. `name` must equal the workspace name (surrounding spaces ignored, case-sensitive), else 400; member 403; not a member / unknown / already deleted 404. Takes effect for everyone at once: the workspace disappears from `GET /api/workspaces`, every `/api/workspaces/:id/*`, page, comment, file (`/files/:id`) and template route answers 404, public links (`/api/public/*`; `/s/*` falls back to the plain app shell) and the invite code stop working, the iCal feed drops its items, query blocks, MCP tools, reminders, webhooks and sheet sync skip it, and open collaboration sockets are closed. Other members get a `workspace_deleted` notification with the workspace name (no webhook is sent).
-- `GET /api/workspaces/deleted` → `{ workspaces: DeletedWorkspaceDTO[] }` — workspaces the caller owns that are deleted and still restorable (`deletedAt`, `purgeAt` = deletedAt + 30 days), newest first.
-- `POST /api/workspaces/:id/restore` (owner) → `{ workspace: WorkspaceDTO }`. Everything comes back as it was (members, roles, pages, links, invite code). Not deleted or past 30 days 404; member 403. The `workspace_deleted` notifications are removed.
-- Housekeeping deletes workspaces deleted more than 30 days ago: all rows by FK cascade, upload blobs after commit (same function as the forced account deletion's personal workspaces).
+- `GET /api/workspaces/deleted` → `{ workspaces: DeletedWorkspaceDTO[] }` — workspaces the caller owns that are deleted and still restorable (`deletedAt`, `purgeAt` = deletedAt + `WORKSPACE_RESTORE_DAYS`, 30 by default), newest first. `DELETE /api/workspaces/:id/permanent` deletes one for good at once (0.22).
+- `POST /api/workspaces/:id/restore` (owner) → `{ workspace: WorkspaceDTO }`. Everything comes back as it was (members, roles, pages, links, invite code). Not deleted or past the restore window (`WORKSPACE_RESTORE_DAYS`, 30 by default) 404; member 403; an owner already past `LIMIT_WORKSPACES_PER_USER` 403 `LIMIT_WORKSPACES`. The `workspace_deleted` notifications are removed.
+- Housekeeping deletes workspaces deleted more than `WORKSPACE_RESTORE_DAYS` (default 30) days ago: all rows by FK cascade, upload blobs after commit (same function as the forced account deletion's personal workspaces).
 
 ## Snapshots (version history, doc pages, visibleTo guard)
 - `POST /api/pages/:id/snapshots` body `createSnapshotSchema { label? }` → `{ snapshot: SnapshotDTO }`.
@@ -1818,3 +1818,142 @@ No migration and no server change: endpoints, request bodies and answers are the
 ### MCP tools
 No new tool and no description change: the same numbers as 0.20, full 48 tools (~13,245 tokens), core 32 (~7,857),
 server instructions ~492. Details: [MCP.md](MCP.md).
+
+## v0.22.0 additions
+
+Migration 0062 (additive). Restricted mode: every setting is off unless the operator sets it (docs/OPERATIONS.md,
+section 17), and with none set every answer below that depends on a setting is the same as in 0.21.1. Account
+deletion, leaving a workspace alone and "delete now" exist on every server.
+
+### Settings in `/api/auth/mode` and `/api/auth/me` (docs/adr/2500–2503)
+- `GET /api/auth/mode` adds each field only while its setting is on (no key otherwise, not even `undefined`):
+  `loginId: 'username'` (`LOGIN_ID_MODE=username`), `signupFull: true` (the account count reached
+  `SIGNUP_MAX_USERS`), `signupChecks: true` (`SIGNUP_MAX_USERS` or `SIGNUP_PER_IP_PER_DAY` is set: the sign-up form
+  sends the bot-check fields), `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]` (sorted),
+  `legal: { version, docs: ('terms' | 'privacy')[] }` (`LEGAL_DIR`), `limits: { workspacesPerUser?,
+  membersPerWorkspace?, pagesPerWorkspace?, fileMb?, workspaceStorageMb? }` (only the limits that are set; MB as set)
+  and `workspaceRestoreDays` (only when it is not 30).
+- `GET /api/auth/mode` adds `instanceNotice: string` while `INSTANCE_NOTICE` is set.
+- `UserDTO` from `GET /api/auth/me` adds `expiresAt` (ISO, the account's deletion date under
+  `ACCOUNT_LIFETIME_DAYS`) and `consentRequired: true` (no consent to the current documents). The login, second-step
+  and sign-up answers keep their short `user`; the web app reads these from `/auth/me`.
+- `AdminUserDTO` (`GET /api/admin/users`) adds `expiresAt` on accounts that have a date.
+- The shared constants are in `@inkling/shared` (`packages/shared/src/limits.ts`): `DISABLED_FEATURE_NAMES`,
+  `RESTRICTED_MODE_ERRORS`, `AuthModeLimitsDTO`, `AuthModeLegalDTO`, `WorkspaceUsageDTO`.
+
+### Sign-up (docs/adr/2501, 2512, 2516, 2519)
+- `POST /api/auth/register` takes new optional fields: `consents: string[]` (ids of the ticked items, at most 32) and
+  `legalVersion` (the version the form showed) under `LEGAL_DIR`; `website` (a hidden field that must stay empty)
+  and `formMs` (milliseconds the form was on screen, at least 2000) while `signupChecks` is on. `formMs` is read
+  from the body as sent; it is not part of `registerSchema`.
+- With `LOGIN_ID_MODE=username` the body has `loginId` instead of `email`: sending `email` is 400 `VALIDATION`, a
+  missing or invalid ID 400 `LOGIN_ID_INVALID`, a taken one 409 `LOGIN_ID_TAKEN`. The ID is stored lower-cased in
+  the account's email column, so `UserDTO.email` carries it. Sign-in sends it in `email` as before. In email mode a
+  `loginId` field is ignored.
+- Order of the checks: the body, the reserved delegated domain, the setup code, then the restricted-mode checks
+  (bot checks, account cap, address cap, then consent), all before the signup key is used or anything is written. The
+  account cap and the address cap are counted again inside the account's transaction, and the consent rows are
+  written there. The first admin made with the setup code passes the account and address caps and the bot checks,
+  but must consent.
+- In restricted mode (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
+  `LOGIN_ID_MODE=username`), a server with no admin refuses a sign-up without the setup code with 403
+  `SETUP_REQUIRED`.
+- Accounts made while `ACCOUNT_LIFETIME_DAYS` is set get `users.expires_at` = sign-up + N days, admins excepted.
+
+### Account deletion and leaving (docs/adr/2513–2517)
+- `GET /api/me/delete-preview` → `{ deleted: { id, name, pages, files }[], transferred: { id, name, to: { id, name }
+  }[], kept: { id, name }[], privatePages, pages, files, needs: { password, code, recentSignIn }, confirm,
+  lastAdmin }`: the workspaces deleted with the account, the ones that pass to another member, the others, and what
+  the request must carry. `confirm` is the text to type (the sign-in email or ID).
+- `DELETE /api/me` body `{ confirm, password?, code? }` → `{ ok: true, deletedWorkspaces, transferredWorkspaces }`
+  and the session cookie cleared. Browser sessions only (a bearer token 403). `confirm` must equal the sign-in
+  email or ID, case ignored (400 `CONFIRM_MISMATCH`). Local accounts send the current password (400
+  `INVALID_PASSWORD`) and, with two-step verification on, `code` (400 `TOTP_REQUIRED` when missing, 400
+  `INVALID_TOTP_CODE` when wrong); failures count against the sign-in guard. Delegated and OIDC accounts need a
+  session made in the last ten minutes (401 `REAUTH_REQUIRED`). The only admin 409 `LAST_ADMIN`. 10/min. Deletes at
+  once: workspaces where the person is the only member with their files; a shared workspace they own alone passes
+  to its oldest admin-role member, else its oldest member (notification type `workspace_owner`); private pages are
+  deleted; shared pages, comments and versions stay with their author set to null.
+- `DELETE /api/workspaces/:id/members/:userId` for yourself, as the only member and last owner, with body
+  `{ name }` equal to the workspace's name, from a browser session: 204 and the workspace is deleted at once with its
+  files (no restore). A wrong name 400; without `name`, from a token, or with other members the answer stays 400.
+- `DELETE /api/workspaces/:id/permanent` body `{ name }` → 204: an owner deletes a deleted (still restorable)
+  workspace for good, at once. Browser sessions only (a bearer token 403); not deleted, unknown or not a member 404;
+  not an owner 403; the workspace's two-step rule applies as for restore; a wrong name 400.
+- `DELETE /api/admin/users/:id` answers as in 0.21 (409 `SOLE_OWNER` with the list, private pages to the trash).
+- `GET /api/admin/users/:id/expiry` → `{ expiresAt: string | null }`; `PATCH` with `{ expiresAt: string | null }`
+  (ISO with an offset) moves the date or lifts it (`null`) → `{ expiresAt }`. A date in the past 400; an account
+  without a date cannot get one here (400); unknown 404 `USER_NOT_FOUND`. Admins, browser session.
+
+### Usage and limits (docs/adr/2505–2506)
+- `GET /api/workspaces/:id/usage` (members) → `WorkspaceUsageDTO { members, pages, storageBytes, fileBytes, limits:
+  { members?, pages?, storageBytes? } }`. `pages` counts the trash; `storageBytes` is the storage total (files
+  included), `fileBytes` the files alone; `limits` holds only the limits that are set, storage in bytes. It answers
+  on every server. Without a storage limit the storage is counted on each call; with one the cached count is used,
+  counted again first when it is more than a minute old.
+- Creating past a limit is refused in the creating transaction, by REST and by the MCP tools that call it: pages
+  (create, duplicate, canvas, rows and row batches, imports, templates, split, clip, quick tasks, sync, form
+  answers), files, workspaces (create, take over, promotion to owner, restore) and members (join by invite code,
+  direct add). Joining a workspace you are already a member of is not counted again.
+- A workspace past `LIMIT_WORKSPACE_STORAGE_MB` is read-only: the writes listed in docs/OPERATIONS.md (section 17)
+  answer 413 `LIMIT_STORAGE`, and collaboration connections get the read-only scope. A page body over a quarter of
+  the limit refuses REST and MCP writes with 413 `LIMIT_STORAGE` ("This page is too large to grow further: move
+  part of it to a new page", `limit` = the quarter).
+- `POST /api/files` with `LIMIT_FILE_MB` below the built-in cap (25 MB in the browser, `AGENT_UPLOAD_MAX_MB` for
+  tokens): 413 `LIMIT_FILE`. Without it the answer stays 413 `PAYLOAD_TOO_LARGE`.
+
+### Features turned off (docs/adr/2507)
+- A route of a feature named in `DISABLED_FEATURES` answers 404 `FEATURE_DISABLED` with `details: { feature }`,
+  before authentication. The routes per feature are listed in `apps/server/src/quota/features.ts`; the routes that
+  remove what exists (unpublish, delete a webhook, remove a Slack link or an iCal token, unsubscribe a device) stay
+  open. `/s/:token` serves the plain app shell and `/ical/:file` answers 404 while their feature is off.
+- `POST /api/workspaces/:id/import` with `source=notion` while `notion-import` is off: 404 `FEATURE_DISABLED`; a zip
+  that looks like a Notion export is imported as plain Markdown (also through a connection, which otherwise gets 415
+  `NOTION_IMPORT_IN_APP`).
+
+### Terms and consent (docs/adr/2519–2520)
+Only while `LEGAL_DIR` is set; otherwise these routes are 404 and nothing below applies.
+- `GET /api/legal` (no sign-in) → `{ version, notice: string | null, items: { id, required, label, doc?, details?
+  }[] }` in one language (`?locale=en|ko`, else `Accept-Language`, else `DEFAULT_LOCALE`). `Cache-Control: no-store`.
+- `GET /api/legal/:doc` (`terms` or `privacy`, no sign-in) → `{ doc, version, locale, markdown }`. A document the
+  folder has in one language only is returned in that language; `locale` says which.
+- `POST /api/legal/consent` body `{ consents, legalVersion }` → `{ ok: true, version }`. Signed in, browser
+  sessions only (a bearer token 403 `FORBIDDEN`). Another version, an unknown item or a required item not ticked
+  400 `CONSENT_REQUIRED` with `details: { version }`. 20/min.
+- A person without consent to every required item of the current version is refused with 403 `CONSENT_REQUIRED`
+  (`details: { version }`, the message says where to agree) on every authenticated request: cookie, personal API
+  token, OAuth and agent tokens, the REST calls of MCP tools, the `/mcp` endpoint itself (a plain HTTP 403 with the
+  error body, before any JSON-RPC answer) and the collaboration socket. Exempt: `POST /api/auth/logout`,
+  `GET /api/auth/me`, everything under `/api/legal`, `DELETE /api/me`, `GET /api/me/delete-preview`.
+  `PATCH /api/auth/me/locale` is not exempt. Automation runs set up earlier pass.
+
+### Error codes
+| Status | Code | When | `details` |
+|---|---|---|---|
+| 400 | `LOGIN_ID_INVALID` | ID mode: no `loginId`, or one that breaks the rules or is reserved | — |
+| 409 | `LOGIN_ID_TAKEN` | ID mode: the ID is taken (email mode keeps `EMAIL_TAKEN`) | — |
+| 403 | `SIGNUP_FULL` | The server has `SIGNUP_MAX_USERS` accounts | — |
+| 429 | `SIGNUP_IP_LIMIT` | The address made `SIGNUP_PER_IP_PER_DAY` accounts in 24 hours | — |
+| 400 | `SIGNUP_CHECK_FAILED` | Sign-up limits on: the hidden `website` field is filled, or `formMs` is missing or below 2000 | — |
+| 403 | `SETUP_REQUIRED` | Restricted mode, no admin yet, sign-up without the setup code | — |
+| 400 | `CONSENT_REQUIRED` | Sign-up or `POST /api/legal/consent`: another version, an unknown item, a required item not ticked | `{ version }` |
+| 403 | `CONSENT_REQUIRED` | Any other gated request before consenting to the current version | `{ version }` |
+| 404 | `FEATURE_DISABLED` | A route of a feature in `DISABLED_FEATURES` | `{ feature }` |
+| 403 | `LIMIT_WORKSPACES` | Creating, taking over, promotion to owner or restoring past `LIMIT_WORKSPACES_PER_USER` | `{ limit, used }` |
+| 403 | `LIMIT_MEMBERS` | Joining or direct add past `LIMIT_MEMBERS_PER_WORKSPACE` | `{ limit, used }` |
+| 403 | `LIMIT_PAGES` | Any page-creating path past `LIMIT_PAGES_PER_WORKSPACE` (trash included) | `{ limit, used }` |
+| 413 | `LIMIT_STORAGE` | The workspace is past `LIMIT_WORKSPACE_STORAGE_MB` or the write would pass it; or a page body past a quarter of it | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_FILE` | An upload larger than `LIMIT_FILE_MB` | `{ limit, used, unit: 'bytes' }`; `used` is `limit` + 1 (the upload is cut there, its size is not known) |
+| 409 | `LAST_ADMIN` | `DELETE /api/me` by the only admin | — |
+| 401 | `REAUTH_REQUIRED` | `DELETE /api/me` by a delegated or OIDC account whose session is older than 10 minutes | — |
+| 400 | `CONFIRM_MISMATCH` | `DELETE /api/me`: `confirm` is not the sign-in email or ID | — |
+| 400 | `TOTP_REQUIRED` | `DELETE /api/me`: two-step verification is on and `code` is missing | — |
+
+The `details` keys are sent inside the error object, next to `code` and `message`: `{ "error": { "code", "message",
+"limit", "used", "unit" } }`. `limit` and `used` are numbers; the web app shows them in its own text. `DELETE /api/me` answers a wrong two-step code with 400 `INVALID_TOTP_CODE` (sign-in answers
+401).
+
+### MCP tools
+No new tool and no description or server instruction change: the same numbers as 0.21 (full 48 tools, core 32). The
+tools are refused by the same limits, features and consent through the REST routes they call. Details:
+[MCP.md](MCP.md).

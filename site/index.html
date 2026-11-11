@@ -168,6 +168,25 @@
     </div>
   </section>
 
+
+  <section class="block promo" id="watch" aria-labelledby="watch-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Video</p>
+        <h2 id="watch-title">Watch it work</h2>
+        <p>The video has no sound. What it shows is written out below it, scene by scene.</p>
+      </div>
+      <figure class="shot promo-shot">
+        <video src="assets/promo.mp4" poster="assets/promo-poster.png" width="1920" height="1080" controls preload="none" playsinline muted aria-describedby="watch-scenes"></video>
+      </figure>
+      <ol class="points video-scenes" id="watch-scenes">
+        <li><b>Notes you write together.</b> Two people edit the same page with live cursors, a <code>[[link]]</code> connects two pages, and a database inside a page shows as a board.</li>
+        <li><b>Your AI agents read the notes.</b> Someone asks the agent when the launch is and who sends the email. <code>find_context</code> lights up only the two sections that answer it, one in each of two pages, <code>read_page</code> reads them, and the answer cites both. The screen shows "48 MCP tools" and "−72% tokens", the numbers under <a href="#connect">Connect</a> and <a href="#find">Find</a>.</li>
+        <li><b>Agents edit, you decide.</b> <code>patch_section</code> leaves a suggested edit on the page; a person opens Review and accepts it, and the version line offers Revert for the accepted edit. Then <code>update_row</code> moves a card on the database board from To do to In progress.</li>
+        <li><b>On your own server.</b> A laptop and a phone stay connected to your server; the laptop goes offline, still shows its page, and syncs again when it reconnects.</li>
+      </ol>
+    </div>
+  </section>
   <section class="block" id="find" aria-labelledby="find-title">
     <div class="wrap">
       <div class="section-head">

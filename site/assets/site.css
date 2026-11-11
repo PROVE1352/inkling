@@ -1282,3 +1282,6 @@ table.tools td:nth-child(2) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.video-scenes {
+  margin-top: 24px;
+}

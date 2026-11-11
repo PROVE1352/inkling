@@ -168,6 +168,25 @@
     </div>
   </section>
 
+
+  <section class="block promo" id="watch" aria-labelledby="watch-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">영상</p>
+        <h2 id="watch-title">영상으로 보기</h2>
+        <p>영상에는 소리가 없습니다. 영상이 보여 주는 내용은 아래에 장면 순서대로 적었습니다.</p>
+      </div>
+      <figure class="shot promo-shot">
+        <video src="../assets/promo-ko.mp4" poster="../assets/promo-ko-poster.png" width="1920" height="1080" controls preload="none" playsinline muted aria-describedby="watch-scenes"></video>
+      </figure>
+      <ol class="points video-scenes" id="watch-scenes">
+        <li><b>함께 쓰는 노트.</b> 두 사람이 커서를 띄운 채 같은 페이지를 고치고, <code>[[링크]]</code>가 두 페이지를 잇고, 페이지 안의 데이터베이스가 보드로 보입니다.</li>
+        <li><b>AI 에이전트가 노트를 읽습니다.</b> 에이전트에게 출시가 언제이고 메일은 누가 보내는지 묻습니다. <code>find_context</code>가 두 페이지에서 답이 되는 섹션 하나씩만 골라 오고, <code>read_page</code>로 읽은 뒤 두 출처를 달아 답합니다. 화면의 "48 MCP tools"와 "−72% 토큰"은 <a href="#connect">연결</a>과 <a href="#find">찾기</a>에 근거와 함께 적은 숫자입니다.</li>
+        <li><b>에이전트가 고치고, 사람이 정합니다.</b> <code>patch_section</code>이 페이지에 수정 제안을 남기면 사람이 검토를 열어 수락하고, 버전 줄에서 수락한 편집을 되돌릴 수 있습니다. 이어서 <code>update_row</code>가 데이터베이스 보드의 카드를 '할 일'에서 '진행 중'으로 옮깁니다.</li>
+        <li><b>내 서버에서.</b> 노트북과 휴대폰이 내 서버에 연결되어 있고, 노트북이 오프라인이 되어도 페이지가 그대로 보이다가 다시 연결되면 맞춰집니다.</li>
+      </ol>
+    </div>
+  </section>
   <section class="block" id="find" aria-labelledby="find-title">
     <div class="wrap">
       <div class="section-head">

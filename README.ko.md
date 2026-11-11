@@ -58,9 +58,9 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 ./deploy/signup-key.sh new "first admin"   # https://notes.example.com/register 링크가 출력됩니다
 ```
 
-앱은 미리 빌드된 이미지 `ghcr.io/prove1352/inkling`(amd64, arm64)을 받아 오므로 램 1 GB 서버에서도 직접 빌드할 필요가 없습니다. 특정 릴리스로 고정하시려면 `.env`의 `INKLING_VERSION`에 `X.Y.Z`나 `X.Y` 형식으로 적으시면 됩니다(비우면 `latest`). 받아 둔 소스로 직접 빌드하시려면 `-f compose.build.yaml`과 `--build`를 더하시면 됩니다([deploy/DEPLOY.md](deploy/DEPLOY.md#image-or-source-build)).
+앱은 미리 빌드된 이미지 `ghcr.io/prove1352/inkling`(amd64, arm64)을 받아 오므로 램 1 GB 서버에서도 직접 빌드할 필요가 없습니다. 특정 릴리스로 고정하시려면 `.env`의 `INKLING_VERSION`에 `X.Y.Z`나 `X.Y` 형식으로 적으시면 됩니다(비우면 `latest`). 받아 둔 소스로 직접 빌드하시려면 `-f compose.build.yaml`과 `--build`를 더하시면 됩니다([deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md#image-or-source-build)).
 
-업그레이드는 백업, 새 이미지 받기, 앱 재시작 순서입니다. 마이그레이션은 부팅할 때 자동으로 돌고, 이전 버전으로 내리는 것은 지원하지 않습니다. 자세한 내용은 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades)에 있습니다.
+업그레이드는 백업, 새 이미지 받기, 앱 재시작 순서입니다. 마이그레이션은 부팅할 때 자동으로 돌고, 이전 버전으로 내리는 것은 지원하지 않습니다. 자세한 내용은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#upgrades)에 있습니다.
 
 ```bash
 ./deploy/backup.sh
@@ -69,7 +69,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml pull app
 docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 ```
 
-0.18 이하를 쓰던 서버를 0.19로 올리실 때는 `.env`에 `INKLING_DATA_NAME=nodian` 한 줄을 먼저 넣어 주세요. 그 버전들의 볼륨과 DB는 프로젝트의 예전 이름(nodian)으로 만들어져 있어서, 이 줄이 없으면 compose가 아예 시작하지 않습니다. 새 이름(inkling)으로 옮기는 건 선택이라 업그레이드가 잘 된 걸 확인한 뒤에 하셔도 됩니다. `./deploy/rename-from-nodian.sh --dry-run`으로 먼저 계획을 보고 `--dry-run` 없이 한 번 더 돌리면 됩니다. compose를 `sudo`로 돌리는 서버라면 이 스크립트도 `sudo`로 돌리세요. 자세한 내용은 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-to-019-the-nodian--inkling-names)에 있습니다.
+0.18 이하를 쓰던 서버를 0.19로 올리실 때는 `.env`에 `INKLING_DATA_NAME=nodian` 한 줄을 먼저 넣어 주세요. 그 버전들의 볼륨과 DB는 프로젝트의 예전 이름(nodian)으로 만들어져 있어서, 이 줄이 없으면 compose가 아예 시작하지 않습니다. 새 이름(inkling)으로 옮기는 건 선택이라 업그레이드가 잘 된 걸 확인한 뒤에 하셔도 됩니다. `./deploy/rename-from-nodian.sh --dry-run`으로 먼저 계획을 보고 `--dry-run` 없이 한 번 더 돌리면 됩니다. compose를 `sudo`로 돌리는 서버라면 이 스크립트도 `sudo`로 돌리세요. 자세한 내용은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#upgrading-to-019-the-nodian--inkling-names)에 있습니다.
 
 ### 설정
 
@@ -85,7 +85,7 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d app
 | `DEFAULT_LOCALE` | `en` | `en` 또는 `ko`. 언어를 고르지 않은 사용자에게 가는 메일과 기본 템플릿의 언어이고, 브라우저 언어보다 먼저 쓰는 화면 기본값입니다. |
 | `TZ` | `UTC` | 마감일, 데일리 노트, 알림, 백업 일정에서 "오늘"을 정하는 시간대입니다. 예: `Asia/Seoul` |
 
-나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.md](deploy/DEPLOY.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.md#3-h-semantic-search-optional)를 보시면 되고(e5처럼 앞에 붙는 말이 필요한 모델은 `EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`로 정합니다), 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.md](docs/OPERATIONS.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 새 계정에는 짧은 소개와 시작하기 체크리스트가 나오는데, `ONBOARDING=off`로 끌 수 있고 `ONBOARDING_EXISTING_USERS=once`를 넣으면 0.19 전부터 있던 계정에도 소개를 한 번 보여 줍니다([docs/OPERATIONS.md](docs/OPERATIONS.md#13-public-page-downloads-start-up-notices-and-onboarding-019)). 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 참고하시기 바랍니다.
+나머지는 [.env.example](.env.example)과 [deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md)에 있습니다. 메일은 [3-E](deploy/DEPLOY.ko.md#3-e-mail-optional), OpenID Connect 로그인은 [3-G](deploy/DEPLOY.ko.md#3-g-openid-connect-sign-in-optional), 의미 검색은 [3-H](deploy/DEPLOY.ko.md#3-h-semantic-search-optional)를 보시면 되고(e5처럼 앞에 붙는 말이 필요한 모델은 `EMBEDDING_QUERY_PREFIX`, `EMBEDDING_PASSAGE_PREFIX`로 정합니다), 직접 운영하시는 리버스 프록시 뒤에 두는 방법도 같은 문서에 있습니다. 웹 푸시(`WEB_PUSH`, `VAPID_*`)는 따로 설정하지 않아도 되고, OAuth Client ID Metadata Documents(`OAUTH_CIMD`)는 켜기 전까지 꺼져 있습니다. 둘 다 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018)에 설명이 있습니다. 새 계정에는 짧은 소개와 시작하기 체크리스트가 나오는데, `ONBOARDING=off`로 끌 수 있고 `ONBOARDING_EXISTING_USERS=once`를 넣으면 0.19 전부터 있던 계정에도 소개를 한 번 보여 줍니다([docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#13-public-page-downloads-start-up-notices-and-onboarding-019)). 메모리 한도와 Postgres 튜닝은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md)를 참고하시기 바랍니다.
 
 ### 개발
 
@@ -129,7 +129,7 @@ pnpm dev        # API·협업 서버 :3001, 웹 :5173
 
 ### 셀프호스팅
 
-`docker compose` 하나로 Postgres, 앱, 백업 사이드카가 뜨고, Caddy 오버레이를 더하면 HTTPS까지 붙습니다. 백업은 예약 실행되고 매번 검증하며, 암호화와 GFS 보관, 주간 복원 테스트, rclone 외부 사본을 지원합니다([docs/BACKUP.md](docs/BACKUP.md)). 로그인은 가입 키, 2단계 인증, OpenID Connect, 외부 인증 서버로 넘기는 위임 로그인을 지원하고, 관리자 페이지에서 사용자, 가입 키, 막힌 IP, 백업, 서버 상태를 봅니다. 노션 내보내기 zip과 마크다운/zip을 가져올 수 있고, 마크다운/zip과 PDF로 내보내며, 마감일은 iCal로 구독할 수 있습니다.
+`docker compose` 하나로 Postgres, 앱, 백업 사이드카가 뜨고, Caddy 오버레이를 더하면 HTTPS까지 붙습니다. 백업은 예약 실행되고 매번 검증하며, 암호화와 GFS 보관, 주간 복원 테스트, rclone 외부 사본을 지원합니다([docs/BACKUP.ko.md](docs/BACKUP.ko.md)). 로그인은 가입 키, 2단계 인증, OpenID Connect, 외부 인증 서버로 넘기는 위임 로그인을 지원하고, 관리자 페이지에서 사용자, 가입 키, 막힌 IP, 백업, 서버 상태를 봅니다. 노션 내보내기 zip과 마크다운/zip을 가져올 수 있고, 마크다운/zip과 PDF로 내보내며, 마감일은 iCal로 구독할 수 있습니다.
 
 ### 실험 기능
 
@@ -154,7 +154,7 @@ claude.ai에서는 설정 › 커넥터 › Add custom connector에 같은 주�
 
 토큰은 같은 데이터로 전후를 재서 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)에 측정 방법과 함께 적어 두었습니다. 세션마다 고정으로 드는 비용(도구 목록과 서버 안내문)은 0.15.1에서 약 16,938토큰에서 약 12,390토큰으로 26.9% 줄었습니다. `find_context`를 처음 넣었을 때 5,000페이지 벤치마크에서 재 보니, 검색 후 페이지를 통째로 읽던 방식보다 질문당 평균 토큰이 2,254에서 624로, 도구 호출이 3.68번에서 1.00번으로 줄었습니다. `read_page(outline=true)`의 목차는 0.15.1에서 34% 작아졌고, 바뀌지 않은 목차를 `known`으로 다시 읽으면 93.5% 덜 듭니다. 문장 하나를 `patch_section`으로 고치면 약 222토큰이 들고, 읽고 통째로 바꾸면 약 2,415토큰이 듭니다. 에이전트가 섹션을 고치는 동안 같은 섹션을 사람이 치고 있으면, 예전에는 6개 시나리오 중 1개에서만 사람의 글이 남았는데 지금은 6개 모두에서 남습니다.
 
-의미 검색은 선택 기능이고 기본으로 꺼져 있습니다. 운영자가 켜면 `find_context`가 뜻으로도 순위를 매기고, 이때 섹션 내용이 설정한 임베딩 주소로 나갑니다. 로컬 Ollama를 쓰면 노트가 내 네트워크 밖으로 나가지 않습니다([deploy/DEPLOY.md](deploy/DEPLOY.md#3-h-semantic-search-optional)).
+의미 검색은 선택 기능이고 기본으로 꺼져 있습니다. 운영자가 켜면 `find_context`가 뜻으로도 순위를 매기고, 이때 섹션 내용이 설정한 임베딩 주소로 나갑니다. 로컬 Ollama를 쓰면 노트가 내 네트워크 밖으로 나가지 않습니다([deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md#3-h-semantic-search-optional)).
 
 게임 엔진, 디자인 도구, 코드 저장소 같은 다른 MCP 서버와 같이 쓰는 예시는 [docs/RECIPES.ko.md](docs/RECIPES.ko.md)에 모아 두었습니다.
 
@@ -204,7 +204,7 @@ Inkling은 서로 믿는 사람들이 워크스페이스 단위로 함께 쓰는
 - `TRUST_PROXY`는 실제로 앞에 둔 리버스 프록시만 가리키게 해 주세요.
 - 실험 기능(`plugins`, `vault-sync`, `sheets-sync`)은 기본으로 꺼져 있습니다. 플러그인은 샌드박스에서 돌지만, 관리자가 승인한 뒤에는 신뢰하는 코드로 취급합니다.
 
-기본으로는 워크스페이스 멤버가 그 워크스페이스의 공유 페이지를 모두 읽고 고칠 수 있습니다. 페이지별 권한과 편집 잠금으로 이를 좁힐 수 있고, 개인 페이지는 만든 사람만, 게스트는 공유받은 페이지만 봅니다. 전체 점검 목록은 [docs/OPERATIONS.md](docs/OPERATIONS.md#before-first-deploy)에 있습니다. 취약점을 발견하시면 [SECURITY.md](SECURITY.md)의 방법으로 알려 주시기 바랍니다.
+기본으로는 워크스페이스 멤버가 그 워크스페이스의 공유 페이지를 모두 읽고 고칠 수 있습니다. 페이지별 권한과 편집 잠금으로 이를 좁힐 수 있고, 개인 페이지는 만든 사람만, 게스트는 공유받은 페이지만 봅니다. 전체 점검 목록은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#before-first-deploy)에 있습니다. 취약점을 발견하시면 [SECURITY.md](SECURITY.md)의 방법으로 알려 주시기 바랍니다.
 
 ## AI 도움을 받아 만들었습니다
 

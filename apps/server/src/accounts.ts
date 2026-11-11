@@ -78,6 +78,24 @@ export async function promoteIfNoAdmin(userId: string): Promise<boolean> {
   })
 }
 
+/**
+ * promoteIfNoAdmin inside a transaction that just inserted the user (sign-up, docs/adr/2501-*): the
+ * promotion commits with the account, so sign-up hooks that run later in the same transaction see
+ * the final `isAdmin`. The admin lock is taken only when no admin exists, and held to the commit:
+ * of two first sign-ups racing, the second sees the first one's admin once it gets the lock.
+ */
+export async function promoteIfNoAdminInTx(tx: Tx, userId: string): Promise<boolean> {
+  const any = await tx.select({ id: users.id }).from(users).where(eq(users.isAdmin, true)).limit(1)
+  if (any.length > 0) return false
+  await tx.execute(sql`select pg_advisory_xact_lock(${ADMIN_LOCK_KEY})`)
+  const updated = await tx
+    .update(users)
+    .set({ isAdmin: true })
+    .where(and(eq(users.id, userId), sql`not exists (select 1 from ${users} where ${users.isAdmin} = true)`))
+    .returning({ id: users.id })
+  return updated.length > 0
+}
+
 /** Mark pending reset requests as resolved */
 export async function resolvePendingRequests(userId: string, by: string | null): Promise<void> {
   await db

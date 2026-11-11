@@ -72,6 +72,12 @@ export const users = pgTable('users', {
    */
   sidebarPrefs: jsonb('sidebar_prefs').$type<{ order: string[]; hidden: string[] }>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Restricted mode (docs/adr/2500-*): when ACCOUNT_LIFETIME_DAYS deletes this account. Set only at
+   * sign-up while the setting is on, and never for admins; null = never expires. Turning the
+   * setting on later does not touch existing accounts, and nothing is deleted while it is off.
+   */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
 })
 
 /**
@@ -282,6 +288,13 @@ export const workspaces = pgTable('workspaces', {
    * 'off' = this workspace's choice. AGENT_UPLOADS=never wins over 'on'. Owners and admins set it.
    */
   agentUploads: text('agent_uploads', { enum: ['on', 'off'] }),
+  // --- Storage use (restricted mode, docs/adr/2500-*): a cache, recounted by housekeeping ---------
+  /** Bytes the workspace uses (files + page bodies + version history + other member-grown columns). */
+  storageBytes: bigint('storage_bytes', { mode: 'number' }).notNull().default(0),
+  /** When storage_bytes was last counted; null = never. */
+  storageCheckedAt: timestamp('storage_checked_at', { withTimezone: true }),
+  /** storage_bytes is past LIMIT_WORKSPACE_STORAGE_MB: read-only until something is deleted. */
+  overStorage: boolean('over_storage').notNull().default(false),
 })
 
 export const workspaceMembers = pgTable(
@@ -1016,3 +1029,5 @@ export * from './schema-automations'
 export * from './schema-workspaceListing'
 // Onboarding state per person: intro, checklist, sample pages (docs/adr/2380-*)
 export * from './schema-onboarding'
+// Restricted mode: sign-up consent records and sign-up IPs (docs/adr/2500-*)
+export * from './schema-limits'

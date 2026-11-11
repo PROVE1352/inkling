@@ -65,7 +65,7 @@ export default {
   'wsSettings.transferTitle': 'Transfer ownership',
   'wsSettings.transferDesc': 'Make another member the owner. You become a member.',
   'wsSettings.deleteTitle': 'Delete workspace',
-  'wsSettings.deleteDesc': 'Hidden from everyone at once; an owner can restore it for 30 days.',
+  'wsSettings.deleteDesc': 'Hidden from everyone at once; an owner can restore it for {days} days.',
   'wsSettings.dangerOwnerOnly': 'Transfer and delete are for owners.',
 
   'wsTwoFactor.group': 'Security',

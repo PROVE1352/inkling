@@ -10,6 +10,7 @@ import { db } from './db/index'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
+import { hasRequestGates, runRequestGates } from './requestGates'
 import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFailure } from './agentTokens'
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
@@ -993,6 +994,10 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
               : 'Sign-in required (OAuth access token)',
         })
     }
+
+    // Request gates (docs/adr/2502-*) at the door too: initialize and tools/list never reach REST,
+    // where the tools' own calls are gated. An AppError answers before the transport takes over.
+    if (hasRequestGates()) await runRequestGates({ user, req, via: 'bearer', channel: 'mcp' })
 
     // Stateless mode: there is no server-to-client SSE stream (GET) and no session termination (DELETE).
     if (req.method !== 'POST') {

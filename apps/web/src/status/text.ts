@@ -120,6 +120,12 @@ export function itemValue(it: StatusItem): string {
       if (num(d.warnings) > 0) parts.push(tk(`${k}.invalid`))
       return parts.join(' · ')
     }
+    case 'security.signupCap':
+      // open sign-up (restricted mode, docs/adr/2500-*): the account cap, or none
+      return d.max === null || d.max === undefined ? tk(`${k}.none`) : tk(`${k}.set`, { max: num(d.max) })
+    case 'security.accountLifetime':
+      if (d.days === null || d.days === undefined) return tk(`${k}.dryRunOnly`)
+      return tk(d.dryRun ? `${k}.dryRun` : `${k}.on`, { days: num(d.days) })
     case 'update.check': {
       const p = { current: String(d.current ?? ''), latest: String(d.latest ?? '') }
       if (!d.enabled) return tk(`${k}.disabled`, p)

@@ -37,6 +37,8 @@ import { ToastContainer } from './Toast'
 import { AppDnd } from './dnd/AppDnd'
 import { AppErrorBoundary } from './AppErrorBoundary'
 import { OnboardingHost } from '../onboarding/Host'
+import { InstanceBadge } from './InstanceBadge'
+import { AccountExpiry } from './AccountExpiry'
 
 export type LayoutContext = {
   onToggleSidebar: () => void
@@ -301,6 +303,9 @@ export function AppLayout() {
       )}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* restricted mode (docs/adr/2500-*): instance label and account expiry, nothing when not set */}
+        <InstanceBadge placement="banner" />
+        <AccountExpiry placement="banner" />
         <AdminStatusBanner />
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />

@@ -10,7 +10,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
 } from '@inkling/shared'
-import type { AuthModeDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
+import type { AuthModeDTO, AuthModeLimitsDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
 import {
   DELEGATED_EMAIL_SUFFIX,
   consumeResetCode,
@@ -21,6 +21,7 @@ import {
   issueVerifyToken,
   normalizeCode,
   promoteIfNoAdmin,
+  promoteIfNoAdminInTx,
   setPassword,
   verificationEnforced,
   withAdminLock,
@@ -58,6 +59,8 @@ import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
 import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i18n'
 import { toSidebarPrefsDTO } from './sidebarPrefs'
+import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits } from '../limits'
+import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
 import { linkedLogins } from './oidc'
 import { oidcEnabled } from '../oidc'
 import {
@@ -198,6 +201,32 @@ async function refundSignupKey(key: string): Promise<void> {
     .where(eq(signupKeys.key, hashSignupKey(key)))
 }
 
+/**
+ * The restricted-mode fields of GET /auth/mode (docs/adr/2500-*): each one only when its setting is
+ * on, so a server without them answers exactly as 0.21.1 (no key, not even an undefined one).
+ * `legal` is filled where LEGAL_DIR is read.
+ */
+async function restrictedAuthMode(): Promise<Partial<AuthModeDTO>> {
+  const out: Partial<AuthModeDTO> = {}
+  if (limits.loginIdMode === 'username') out.loginId = 'username'
+  if (limits.signupMaxUsers !== null) {
+    const [c] = await db.select({ n: count() }).from(users)
+    if ((c?.n ?? 0) >= limits.signupMaxUsers) out.signupFull = true
+  }
+  if (limits.instanceLabel !== null) out.instanceLabel = limits.instanceLabel
+  if (limits.accountLifetimeDays !== null) out.accountLifetimeDays = limits.accountLifetimeDays
+  if (limits.disabledFeatures.length > 0) out.disabledFeatures = [...limits.disabledFeatures]
+  const l: AuthModeLimitsDTO = {}
+  if (limits.workspacesPerUser !== null) l.workspacesPerUser = limits.workspacesPerUser
+  if (limits.membersPerWorkspace !== null) l.membersPerWorkspace = limits.membersPerWorkspace
+  if (limits.pagesPerWorkspace !== null) l.pagesPerWorkspace = limits.pagesPerWorkspace
+  if (limits.fileMb !== null) l.fileMb = limits.fileMb
+  if (limits.workspaceStorageMb !== null) l.workspaceStorageMb = limits.workspaceStorageMb
+  if (Object.keys(l).length > 0) out.limits = l
+  if (limits.workspaceRestoreDays !== DEFAULT_WORKSPACE_RESTORE_DAYS) out.workspaceRestoreDays = limits.workspaceRestoreDays
+  return out
+}
+
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   const log = (msg: string) => app.log.info(msg)
 
@@ -217,6 +246,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     defaultLocale: env.defaultLocaleConfigured ? env.defaultLocale : null,
     // No account yet: the sign-in screen points at the setup link in the server log (docs/adr/2160-*).
     setupPending: await setupPending(),
+    // Restricted mode (0.22): nothing here unless the operator set it.
+    ...(await restrictedAuthMode()),
   }))
 
   /** Send the verification mail (issues the token). Failure is AppError(502). */
@@ -250,6 +281,15 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Language of the default workspace name and the verification mail: the browser's
+    // (Accept-Language from the web client) or DEFAULT_LOCALE, since the account has no saved one yet.
+    const locale = await requestLocale(req)
+
+    // Sign-up hooks (docs/adr/2501-*): refusals before anything is consumed (the signup key below,
+    // the password hash, rows). No hook registered = nothing happens here.
+    const hookCtx: SignupContext = { rawBody: req.body, body, ip: req.ip, locale, setupCode: !!setupCode, req }
+    await runBeforeSignup(hookCtx)
+
     // Signup key check (Inkling's own keys).
     const signupKey = setupCode ? '' : body.signupKey?.trim() || ''
     if (env.signupRequireKey && !setupCode) {
@@ -267,10 +307,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // The first admin made with the setup code is not: the code already proves who runs the server,
     // and a mail misconfiguration must not lock the only admin out (the mail still goes out).
     const mustVerify = setupCode ? false : verificationEnforced()
-
-    // Language of the default workspace name and the verification mail: the browser's
-    // (Accept-Language from the web client) or DEFAULT_LOCALE, since the account has no saved one yet.
-    const locale = await requestLocale(req)
 
     let user: UserDTO
     // The setup account is inserted under the admin advisory lock, after checking in the same
@@ -316,7 +352,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
           .insert(workspaceMembers)
           .values({ workspaceId: ws.id, userId: u.id, role: 'owner' })
 
-        return u
+        // New-install bootstrap: with no admin yet, the first user to sign up becomes admin. Decided
+        // here, in the account's transaction, so the sign-up hooks below see the final isAdmin
+        // (docs/adr/2501-*); the setup-code account is admin already.
+        const created = !setupCode && !u.isAdmin && (await promoteIfNoAdminInTx(tx, u.id)) ? { ...u, isAdmin: true } : u
+
+        await runOnSignup(tx, { ...created, workspaceId: ws.id }, hookCtx)
+        return created
       })
     } catch (err) {
       // If signup failed, give the key back as unused.
@@ -329,7 +371,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     if (setupCode) closeFirstAdminSetup()
 
-    // New-install bootstrap: with no admin yet, the first user to sign up becomes admin.
+    // Kept as before 0.22 (a no-op once the transaction above promoted or an admin exists).
     if (await promoteIfNoAdmin(user.id)) user = { ...user, isAdmin: true }
 
     if (mustVerify) {
@@ -542,6 +584,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         emailVerifiedAt: users.emailVerifiedAt,
         locale: users.locale,
         sidebarPrefs: users.sidebarPrefs,
+        expiresAt: users.expiresAt,
       })
       .from(users)
       .where(eq(users.id, user.id))
@@ -563,6 +606,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       // Linked OpenID Connect sign-ins, for Settings › Account (docs/adr/1161-*)
       logins: await linkedLogins(user.id),
     }
+    // Restricted mode (docs/adr/2500-*): when the account will be deleted (ACCOUNT_LIFETIME_DAYS).
+    // Only accounts created while the setting was on have a date; the field is absent otherwise.
+    if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
     if (user.isAdmin) {
       const [c] = await db

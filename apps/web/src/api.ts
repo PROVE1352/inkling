@@ -160,7 +160,7 @@ export async function parseError(res: Response): Promise<ApiError> {
   }
   // The server's message is English; show it localized (docs/adr/0902-*). The raw text stays on
   // `serverMessage` for logs and for callers that match on it.
-  const err = new ApiError(res.status, code, localizeApiError(code, message), details)
+  const err = new ApiError(res.status, code, localizeApiError(code, message, details), details)
   err.serverMessage = message
   return err
 }
@@ -394,6 +394,14 @@ export function useAuthMode() {
     staleTime: Infinity,
     retry: false,
   })
+}
+
+/**
+ * Days an owner can restore a deleted workspace: the server's WORKSPACE_RESTORE_DAYS when it set one
+ * (restricted mode, docs/adr/2500-*), else 30 as always.
+ */
+export function useWorkspaceRestoreDays(): number {
+  return useAuthMode().data?.workspaceRestoreDays ?? 30
 }
 
 const fetchWorkspaces = () =>

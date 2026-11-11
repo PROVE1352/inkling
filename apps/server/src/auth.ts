@@ -20,6 +20,7 @@ import { assertNotBanned, recordFailure } from './guard'
 import { runInRange } from './tokenRange'
 import { hasGrantsSql, peopleScopeFor, runAsGuest } from './pageGrants'
 import { assertBearerRouteAllowed } from './tokenPolicy'
+import { hasRequestGates, runRequestGatesForRequest } from './requestGates'
 import type { RangeScope } from './tokenRange'
 import { newSessionToken } from './util'
 import { AUTOMATION_RUN_HEADER, automationRunUser } from './automations/context'
@@ -273,6 +274,12 @@ export function requireUser(
 }
 
 async function authenticate(req: FastifyRequest): Promise<void> {
+  await identify(req)
+  // Request gates (docs/adr/2502-*): every authenticated REST request, cookie and bearer alike.
+  if (hasRequestGates()) await runRequestGatesForRequest(req)
+}
+
+async function identify(req: FastifyRequest): Promise<void> {
   // A database automation run (docs/adr/2241-*): an in-process inject carrying a one-run token that
   // only this process knows; the run is its rule's author, as a non-browser client.
   const autoRun = req.headers[AUTOMATION_RUN_HEADER]

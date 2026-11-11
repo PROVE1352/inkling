@@ -34,6 +34,8 @@ import { toast } from '../lib/toast'
 import { SIDEBAR_MENU_META, isSidebarMenuId } from './sidebarMenus'
 import { SidebarMenuPopup, useMenuContextTrigger, type MenuCtx } from './SidebarMenuContext'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { InstanceBadge } from './InstanceBadge'
+import { AccountExpiry } from './AccountExpiry'
 import { PageTree } from './PageTree'
 import { TrashModal } from './TrashModal'
 import { Spinner } from './Spinner'
@@ -581,6 +583,9 @@ export function Sidebar({
     <aside ref={asideRef} className="flex h-full flex-col bg-side transition-colors duration-200">
       <div className="p-2">
         {workspaces.data && <WorkspaceSwitcher wsId={wsId} workspaces={workspaces.data} />}
+        {/* restricted mode (docs/adr/2500-*): instance label and account expiry, nothing when not set */}
+        <InstanceBadge placement="sidebar" />
+        <AccountExpiry placement="sidebar" />
       </div>
 
       {/* Top menus: order and visibility follow the person's saved choice (docs/adr/1020-*). Right-click

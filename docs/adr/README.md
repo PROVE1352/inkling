@@ -989,6 +989,14 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2482](2482-pdf-preview-loads-files-up-to-10-mb-on-sight.md) | PDF preview: files up to 10 MB load on sight, larger ones on a press | Accepted |
 | [2483](2483-pdf-preview-limits-against-hostile-files.md) | PDF preview: limits that keep a hostile or huge PDF inside its own block | Accepted |
 
+## 2500–2529 Restricted mode (0.22)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2500](2500-restricted-mode-settings-inert-by-default.md) | Restricted mode: one settings module, every setting off unless set | Accepted |
+| [2501](2501-sign-up-hooks.md) | Sign-up hooks: checks before, records inside the account's transaction | Accepted |
+| [2502](2502-request-gates.md) | Request gates: one check list for every authenticated request | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

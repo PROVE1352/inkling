@@ -12,7 +12,7 @@ export default {
   'notifications.workspaceFallback': '워크스페이스',
   'notifications.workspaceAdded': '{actor}님이 회원님을 "{workspace}"에 추가했습니다',
   'notifications.workspaceDeleted':
-    '{actor} 님이 워크스페이스 "{workspace}"를 삭제했습니다. 소유자는 30일 안에 복원할 수 있습니다.',
+    '{actor} 님이 워크스페이스 "{workspace}"를 삭제했습니다. 소유자는 {days}일 안에 복원할 수 있습니다.',
   'notifications.webhookDisabled': '"{workspace}"의 웹훅이 전송 실패가 반복되어 비활성화되었습니다',
   'notifications.backupFailed': '백업이 실패했습니다 — 관리자 › 백업에서 자세히 확인하세요',
   'notifications.reminderDue': '「{title}」 오늘 마감',
@@ -233,7 +233,7 @@ export default {
     '워크스페이스에는 소유자가 한 명 이상 있어야 합니다. 나가기 전에 다른 멤버에게 소유권을 넘기거나, 모두를 위해 워크스페이스를 삭제하세요.',
   'wsDanger.aloneTitle': '멤버가 나 혼자입니다',
   'wsDanger.aloneBody':
-    '이 워크스페이스에는 다른 사람이 없어서 나가기는 곧 삭제입니다. 지금 삭제하고 30일 안에 설정에서 복원할 수 있습니다.',
+    '이 워크스페이스에는 다른 사람이 없어서 나가기는 곧 삭제입니다. 지금 삭제하고 {days}일 안에 설정에서 복원할 수 있습니다.',
   'wsDanger.goTransfer': '소유권 넘기기',
   'wsDanger.goDelete': '워크스페이스 삭제',
   'wsDanger.transferTitle': '소유권 넘기기',

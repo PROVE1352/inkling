@@ -5,6 +5,7 @@ import { ApiError, useAuthMode, useMe, useRegister } from '../api'
 import { safeNext } from '../lib/nav'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
+import { SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
 import { useT } from '../i18n'
 
 export function Register() {
@@ -33,6 +34,8 @@ export function Register() {
     signupKey?: string
   }>({})
   const [serverError, setServerError] = useState<string | null>(null)
+  // Sign-up consent (restricted mode, LEGAL_DIR): ready unless the block asks for ticks.
+  const [consent, setConsent] = useState<SignupConsentState>({ ready: true, consents: [] })
 
   if (me.data) return <Navigate to={next} replace />
 
@@ -54,6 +57,8 @@ export function Register() {
       return
     }
 
+    if (!consent.ready) return
+
     const parsed = registerSchema.safeParse({
       email,
       name,
@@ -61,6 +66,9 @@ export function Register() {
       ...(setupMode
         ? { setupCode: setupCode.trim() || undefined }
         : { signupKey: signupKey.trim() || undefined }),
+      // only when the consent block asked for them, so the body is unchanged otherwise
+      ...(consent.legalVersion || consent.consents.length > 0 ? { consents: consent.consents } : {}),
+      ...(consent.legalVersion ? { legalVersion: consent.legalVersion } : {}),
     })
     if (!parsed.success) {
       const next: {
@@ -225,11 +233,13 @@ export function Register() {
             </label>
           )}
 
+          <SignupConsent onChange={setConsent} />
+
           {serverError && <p className="text-xs text-red-600">{serverError}</p>}
 
           <button
             type="submit"
-            disabled={register.isPending}
+            disabled={register.isPending || !consent.ready}
             className="mt-1 flex items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
           >
             {register.isPending && (

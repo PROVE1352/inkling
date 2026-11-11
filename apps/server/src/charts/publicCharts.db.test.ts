@@ -438,4 +438,189 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     const [gone] = await db.select({ src: schema.pages.shareChartSources, by: schema.pages.shareChartsBy }).from(schema.pages).where(eq(schema.pages.id, page2.id))
     assert.deepEqual(gone, { src: null, by: null })
   })
+
+  it('charts inside columns (docs/adr/2420-*): counted, approved and drawn in their column; a waiting one stays out', async () => {
+    const erin = await h.makeUser(`Erin${W}`)
+    await db.insert(schema.workspaceMembers).values({ workspaceId: ws.id, userId: erin.id, role: 'member' })
+    const vault = await newCollection(ws.id, `VaultTitle${W}`, [[`VaultRowSecret${W}`, 'todo', 11, 'hi']])
+    await db.update(schema.pages).set({ scope: 'private', ownerId: alice.id }).where(eq(schema.pages.id, vault.id))
+    const colQuery = `LIST FROM "SalesTitle${W}"`
+    const page3 = await h.makeDocPage(ws.id, alice.id, `Columns${W}`, [
+      para('Before'),
+      {
+        type: 'columnList',
+        props: {},
+        children: [
+          {
+            type: 'column',
+            props: {},
+            children: [para('LeftCol'), chart({ source: { type: 'collection', collectionId: sales.id }, kind: 'bar', groupBy: { field: F.st }, title: `ColBar${W}` })],
+          },
+          {
+            type: 'column',
+            props: {},
+            children: [para('RightCol'), chart({ source: { type: 'query', query: colQuery }, kind: 'pie', groupBy: { field: 'title' }, title: `ColQuery${W}` })],
+          },
+        ],
+      },
+      para('After'),
+    ] as never)
+    const s = (await ok(alice, 'POST', `/pages/${page3.id}/share`)) as ShareStatusDTO
+    assert.deepEqual(s.charts, { total: 2, hidden: 2, pending: 0 })
+    const get = async () => {
+      const res = await visit(`/api/public/${s.token}`)
+      assert.equal(res.statusCode, 200, res.body)
+      return { body: res.body, dto: res.json() as PublicPageDTO }
+    }
+    const COL_TEXT = [`ColBar${W}`, `ColQuery${W}`, `Todo${W}`, `Done${W}`, `SalesRowA${W}`]
+    {
+      const { body, dto } = await get()
+      assert.equal(dto.charts, undefined)
+      assertNone(body, [...SECRET, ...COL_TEXT, 'SalesTitle', 'inkling:'], 'columns page off')
+      assert.equal((dto.html.match(/data-node-type="columnList"/g) ?? []).length, 1)
+      assert.equal((dto.html.match(/data-node-type="column"/g) ?? []).length, 2)
+      assert.ok(dto.html.indexOf('LeftCol') < dto.html.indexOf('RightCol'))
+    }
+    // turning on approves the sources of the charts inside the columns too
+    const on = (await ok(alice, 'PATCH', `/pages/${page3.id}/share`, { includeCharts: true })) as ShareStatusDTO
+    assert.deepEqual(on.charts, { total: 2, hidden: 0, pending: 0 })
+    const [stored] = await db.select({ src: schema.pages.shareChartSources }).from(schema.pages).where(eq(schema.pages.id, page3.id))
+    assert.equal((stored.src as string[]).length, 2)
+    assert.ok((stored.src as string[]).includes(`c:${sales.id}`))
+    {
+      const { body, dto } = await get()
+      const list = dto.charts as PublicChartDTO[]
+      assert.deepEqual(list.map((c) => c.title), [`ColBar${W}`, `ColQuery${W}`])
+      assert.deepEqual(list[0].values, [1, 2])
+      const at = (needle: string) => {
+        const i = dto.html.indexOf(needle)
+        assert.ok(i >= 0, `html has ${needle}`)
+        return i
+      }
+      // each chart's stand-in sits in its own column, in order
+      assert.ok(at('Before') < at('LeftCol'))
+      assert.ok(at('LeftCol') < at(`data-id="${list[0].anchor}-t"`))
+      assert.ok(at(`data-id="${list[0].anchor}-t"`) < at('RightCol'))
+      assert.ok(at('RightCol') < at(`data-id="${list[1].anchor}-t"`))
+      assert.ok(at(`data-id="${list[1].anchor}-t"`) < at('After'))
+      assertNone(body, [...SECRET.filter((x) => x !== `SalesRowA${W}` && x !== `SalesRowB${W}` && x !== `SalesRowC${W}`), 'LIST FROM'], 'columns page on')
+    }
+    // an editor adds a column group whose chart reads a database only Alice can see: it waits
+    const md = (c: Record<string, unknown>) => `<!-- inkling:chart ${canonicalChartJson(c as never)} -->`
+    await ok(erin, 'POST', `/pages/${page3.id}/content`, {
+      mode: 'append',
+      markdown: [
+        '<!-- inkling:columns -->',
+        '<!-- inkling:column -->',
+        'ErinLeft',
+        '',
+        md({ source: { type: 'collection', collectionId: vault.id }, kind: 'bar', groupBy: { field: 'title' }, title: `ColSneak${W}` }),
+        '<!-- inkling:column -->',
+        'ErinRight',
+        '<!-- /inkling:columns -->',
+      ].join('\n'),
+    })
+    {
+      const { body, dto } = await get()
+      assert.deepEqual(dto.charts?.map((c) => c.title), [`ColBar${W}`, `ColQuery${W}`])
+      assert.ok(dto.html.includes('ErinLeft') && dto.html.includes('ErinRight'), 'the new columns are on the page')
+      assert.equal((dto.html.match(/data-node-type="columnList"/g) ?? []).length, 2, 'the appended markers made a column group')
+      assertNone(body, [`ColSneak${W}`, `VaultRowSecret${W}`, `VaultTitle${W}`, vault.id], 'columns page with a waiting chart')
+    }
+    assert.deepEqual(((await ok(alice, 'GET', `/pages/${page3.id}/share`)) as ShareStatusDTO).charts, { total: 3, hidden: 1, pending: 1 })
+    // the Markdown download: the approved charts as title and table inside the column markers, the waiting one absent
+    await ok(alice, 'PATCH', `/pages/${page3.id}/share`, { allowDownload: true })
+    const dl = await visit(`/api/public/${s.token}/export.md`)
+    assert.equal(dl.statusCode, 200, dl.body)
+    assert.match(dl.body, new RegExp(`\\*\\*ColBar${W}\\*\\*\\n\\n\\| Status +\\| Count +\\|`))
+    assert.match(dl.body, new RegExp(`\\*\\*ColQuery${W}\\*\\*`))
+    assert.ok(dl.body.indexOf('LeftCol') < dl.body.indexOf(`ColBar${W}`) && dl.body.indexOf(`ColBar${W}`) < dl.body.indexOf('RightCol'))
+    assertNone(dl.body, [`ColSneak${W}`, `VaultRowSecret${W}`, vault.id, 'LIST FROM', 'collectionId'], 'columns markdown')
+    // approving publishes the waiting chart in its column
+    const approved = (await ok(alice, 'PATCH', `/pages/${page3.id}/share`, { approveChartSources: true })) as ShareStatusDTO
+    assert.deepEqual(approved.charts, { total: 3, hidden: 0, pending: 0 })
+    const { dto } = await get()
+    const sneak = dto.charts?.find((c) => c.title === `ColSneak${W}`)
+    assert.ok(sneak && sneak.groups.some((g) => g.label === `VaultRowSecret${W}`))
+    assert.ok(dto.html.indexOf('ErinLeft') < dto.html.indexOf(`data-id="${sneak.anchor}-t"`))
+    assert.ok(dto.html.indexOf(`data-id="${sneak.anchor}-t"`) < dto.html.indexOf('ErinRight'))
+  })
+
+  it('a column holding only a chart: the page still renders off, on, waiting, as Markdown and in a folder link', async () => {
+    const fred = await h.makeUser(`Fred${W}`)
+    await db.insert(schema.workspaceMembers).values({ workspaceId: ws.id, userId: fred.id, role: 'member' })
+    const hidden = await newCollection(ws.id, `HiddenTitle${W}`, [[`HiddenRowSecret${W}`, 'todo', 4, 'hi']])
+    await db.update(schema.pages).set({ scope: 'private', ownerId: alice.id }).where(eq(schema.pages.id, hidden.id))
+    const only = (title: string, collectionId: string) =>
+      ({ type: 'column', props: {}, children: [chart({ source: { type: 'collection', collectionId }, kind: 'bar', groupBy: { field: F.st }, title })] })
+    const blocks = [
+      para('Top'),
+      // a chart alone on the left, text on the right
+      { type: 'columnList', props: {}, children: [only(`OnlyLeft${W}`, sales.id), { type: 'column', props: {}, children: [para('NextToChart')] }] },
+      // every column only a chart, one of them from another workspace (never shown)
+      { type: 'columnList', props: {}, children: [only(`OnlyA${W}`, sales.id), only(`OnlyForeign${W}`, foreign.id)] },
+      para('Bottom'),
+    ]
+    const page4 = await h.makeDocPage(ws.id, alice.id, `ChartOnly${W}`, blocks as never)
+    const s = (await ok(alice, 'POST', `/pages/${page4.id}/share`)) as ShareStatusDTO
+    await ok(alice, 'PATCH', `/pages/${page4.id}/share`, { allowDownload: true })
+    const both = async (what: string) => {
+      const res = await visit(`/api/public/${s.token}`)
+      assert.equal(res.statusCode, 200, `${what}: ${res.body.slice(0, 300)}`)
+      const dto = res.json() as PublicPageDTO
+      for (const w of ['Top', 'NextToChart', 'Bottom']) assert.ok(dto.html.includes(w), `${what}: html has ${w}`)
+      assertNone(res.body, [...SECRET, `OnlyForeign${W}`, `HiddenRowSecret${W}`, `HiddenTitle${W}`, hidden.id], `${what} page`)
+      const md = await visit(`/api/public/${s.token}/export.md`)
+      assert.equal(md.statusCode, 200, `${what} markdown: ${md.body.slice(0, 300)}`)
+      for (const w of ['Top', 'NextToChart', 'Bottom']) assert.ok(md.body.includes(w), `${what}: markdown has ${w}`)
+      // the column markers are the 0.20 notation (docs/adr/2422-*); nothing else of the notation
+      assertNone(md.body, [...SECRET.filter((x) => x !== 'inkling:'), 'inkling:chart', `OnlyForeign${W}`, `HiddenRowSecret${W}`, hidden.id], `${what} markdown`)
+      return { dto, md: md.body }
+    }
+    {
+      const { dto, md } = await both('off')
+      assert.equal(dto.charts, undefined)
+      assertNone(dto.html + md, [`OnlyLeft${W}`, `OnlyA${W}`], 'off')
+    }
+    await ok(alice, 'PATCH', `/pages/${page4.id}/share`, { includeCharts: true })
+    {
+      const { dto, md } = await both('on')
+      assert.deepEqual(dto.charts?.map((c) => c.title), [`OnlyLeft${W}`, `OnlyA${W}`])
+      assert.ok(md.includes(`**OnlyLeft${W}**`) && md.includes(`**OnlyA${W}**`))
+      assert.ok(dto.html.indexOf(`data-id="${dto.charts![0].anchor}-t"`) < dto.html.indexOf('NextToChart'))
+    }
+    // a member adds a group whose only column is a chart of a database only Alice can see: it waits
+    await ok(fred, 'POST', `/pages/${page4.id}/content`, {
+      mode: 'append',
+      markdown: [
+        '<!-- inkling:columns -->',
+        '<!-- inkling:column -->',
+        `<!-- inkling:chart ${canonicalChartJson({ source: { type: 'collection', collectionId: hidden.id }, kind: 'bar', groupBy: { field: 'title' }, title: `OnlyHidden${W}` } as never)} -->`,
+        '<!-- inkling:column -->',
+        `<!-- inkling:chart ${canonicalChartJson({ source: { type: 'collection', collectionId: foreign.id }, kind: 'bar', groupBy: { field: F.st }, title: `OnlyForeign2${W}` } as never)} -->`,
+        '<!-- /inkling:columns -->',
+        '',
+        'FredAfter',
+      ].join('\n'),
+    })
+    {
+      const { dto, md } = await both('waiting')
+      assert.deepEqual(dto.charts?.map((c) => c.title), [`OnlyLeft${W}`, `OnlyA${W}`])
+      assert.ok(dto.html.includes('FredAfter') && md.includes('FredAfter'))
+      assertNone(dto.html + md, [`OnlyHidden${W}`, `OnlyForeign2${W}`], 'waiting')
+    }
+    assert.deepEqual(((await ok(alice, 'GET', `/pages/${page4.id}/share`)) as ShareStatusDTO).charts, { total: 5, hidden: 3, pending: 1 })
+    // the same blocks inside a folder link, charts off (its own collections only): no chart of the page shows
+    const [folder] = await db.insert(schema.pages).values({ workspaceId: ws.id, title: `ColFolder${W}`, kind: 'folder', createdBy: alice.id }).returning()
+    await h.makeDocPage(ws.id, alice.id, `ColChild${W}`, blocks as never, { parentId: folder.id })
+    const fs = (await ok(alice, 'POST', `/pages/${folder.id}/share`)) as ShareStatusDTO
+    const tree = (await visit(`/api/public/${fs.token}`)).json() as { tree: { ref: string; title: string }[] }
+    const ref = tree.tree.find((n) => n.title === `ColChild${W}`)!.ref
+    const child = await visit(`/api/public/${fs.token}/p/${ref}`)
+    assert.equal(child.statusCode, 200, child.body.slice(0, 300))
+    const cdto = child.json() as PublicPageDTO
+    assert.equal(cdto.charts, undefined)
+    for (const w of ['Top', 'NextToChart', 'Bottom']) assert.ok(cdto.html.includes(w), `folder child: html has ${w}`)
+    assertNone(child.body, [...SECRET, `OnlyLeft${W}`, `OnlyA${W}`, `OnlyForeign${W}`], 'folder child')
+  })
 })

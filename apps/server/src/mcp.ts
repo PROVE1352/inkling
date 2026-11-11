@@ -51,6 +51,7 @@ import { inferWorkspace, resolveIdArgs } from './mcpTools/idArgs'
 import { idArg, isFullId } from './mcpTools/idSchema'
 import { slimToolList } from './mcpTools/toolList'
 import { applyProfile, parseProfile, PROFILE_ERROR } from './mcpTools/profiles'
+import { annotateTools } from './mcpTools/annotations'
 import { registerNotesCheckTools } from './mcpTools/notesCheckTools'
 import { registerResources } from './mcpTools/resources'
 import { registerPrompts } from './mcpTools/prompts'
@@ -364,7 +365,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
     {
       title: 'List workspaces',
       description: 'Inkling workspaces I am a member of (id, name, role).',
-      annotations: { readOnlyHint: true },
     },
     wrap(async () => {
       const res = await call(ctx, 'GET', '/api/workspaces')
@@ -401,7 +401,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         depth: z.number().int().min(1).max(64).optional().describe('Levels below parentId/root to include (json: default 1 with parentId, all without)'),
         format: z.enum(['compact', 'lines', 'json']).optional(),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId: wsRef, parentId: parentRef, depth, format }) => {
       // a short parent id is resolved like every page id (docs/adr/1541-*, 1940-*)
@@ -435,7 +434,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         limit: z.number().int().min(1).max(SEARCH_MAX_LIMIT).optional(),
         format: z.enum(['compact', 'lines', 'json']).optional(),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ query, workspaceId, limit, format: formatArg }) => {
       const format = formatArg ?? 'compact' // the default since 0.15.1 (docs/adr/1944-*)
@@ -479,7 +477,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           .describe('Section versions you already have (anchor → v): only changed, new and removed sections come back'),
         backlinks: z.boolean().optional().describe('Also list the pages that link to this one'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId: ref, outline, section, maxChars, known, knownSections, backlinks }) => {
       const pageId = await resolvePageRef(ctx, ref) // short ids (docs/adr/1541-*, 1940-*)
@@ -746,7 +743,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         mode: z.enum(['append', 'replace']).describe('append = add to the end, replace = replace the whole body'),
         baseVersion: z.string().trim().max(64).optional().describe("replace: the version line of your read_page"),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId, markdown, mode, baseVersion }) => {
       // A replace must not undo a person's edit made after the agent read the page (docs/adr/1947-*).
@@ -846,7 +842,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'Move a page (and everything under it) to the trash. It can be restored from the trash in the web app until the trash retention period of its workspace ends (30 days by default). ' +
         'There is no permanent-delete tool.',
       inputSchema: { pageId: idArg('page').describe('Page id') },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId }) => {
       await call(ctx, 'DELETE', `/api/pages/${pageId}`)
@@ -863,7 +858,6 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'custom templates (id = uuid; private ones only if I created them). kind=structure templates create a page tree ' +
         '(sub-pages, collections, canvases). inputs are the {{input:…}} questions create_from_template can answer.',
       inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace') },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId: wsRef }) => {
       const workspaceId = await inferWorkspace(ctx, wsRef) // docs/adr/1943-*
@@ -964,6 +958,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   slimToolList(server)
   // core / full (docs/adr/2000-*): after the list is slimmed, so more_tools prints what tools/list would
   applyProfile(server, ctx)
+  // Every tool's four hints from one table (docs/adr/2460-*): after the last registerTool (more_tools)
+  annotateTools(server)
   return server
 }
 

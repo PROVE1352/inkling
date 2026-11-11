@@ -65,7 +65,6 @@ export function registerSplitTools(server: McpServer, ctx: ToolCtx): void {
           .describe('Only these sections: heading block ids from a dry run (default: every section of that level)'),
         dry_run: z.boolean().optional().describe('true = only list what would be split (nothing changes)'),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId, level, sections, dry_run }) => {
       const res = await call(ctx, 'POST', `/api/pages/${pageId}/split`, { json: { level, sections, preview: !!dry_run } })

@@ -399,7 +399,6 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         remove: z.array(z.string().trim().min(1).max(60)).max(100).optional().describe('Property names (or #id) to remove'),
         order: z.array(z.string().trim().min(1).max(60)).max(200).optional().describe('Property names to put first, in this order'),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ collectionId, add: addRaw, change: changeRaw, remove, order }) => {
       if (!addRaw?.length && !changeRaw?.length && !remove?.length && !order?.length) {

@@ -214,7 +214,6 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
         ...settingsInput,
         suggest: z.boolean().optional().describe('true: leave it as a suggestion for a person (needs section)'),
       },
-      annotations: { destructiveHint: false },
     },
     wrapWrite(ctx, async (args: SettingsArgs & { pageId: string; section?: string; placement?: 'end' | 'start' | 'after'; collectionId?: string; view?: string; query?: string; suggest?: boolean }) => {
       if (!!args.collectionId === !!args.query) throw new ToolError('Give exactly one data source: collectionId or query. Nothing was written.')
@@ -302,7 +301,6 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
           .optional()
           .describe('type=form: the questions, in order (text, number, select, multiSelect, date, checkbox, url, person)'),
       },
-      annotations: { destructiveHint: false },
     },
     wrapWrite(ctx, async ({ collectionId, type, name, config, chart: chartRaw, form }: { collectionId: string; type: z.infer<typeof viewTypeSchema>; name: string; config?: Record<string, unknown>; chart?: Record<string, unknown>; form?: FormArgs }) => {
       let chart: SettingsArgs | undefined

@@ -61,7 +61,6 @@ export function registerInstructionTools(server: McpServer, ctx: ToolCtx): void 
         workspaceId: idArg('workspace').optional().describe("Id or name. Default: forPageId's workspace, or your only one"),
         forPageId: idArg('page').optional().describe('Also return the instructions that apply to this page'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId: wsRef, forPageId }) => {
       // docs/adr/1943-*: only which workspace is inferred; the bundle route still decides what counts

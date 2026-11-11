@@ -109,7 +109,6 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
         section: z.string().trim().min(1).max(500).optional().describe('Only threads in this section'),
         status: z.enum(['open', 'resolved', 'all']).optional().describe('Default open'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId, section, status }) => {
       const res = await call(ctx, 'GET', `/api/pages/${pageId}/comments`)

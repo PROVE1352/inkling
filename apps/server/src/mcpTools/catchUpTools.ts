@@ -41,7 +41,6 @@ export function registerCatchUpTools(server: McpServer, ctx: ToolCtx): void {
         peek: z.boolean().optional().describe('true: do not move this connection\'s "last catch_up" marker'),
         team: z.boolean().optional().describe("true: also others' section claims and what each person's agents did"),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId, since, budget, peek, team }) => {
       const query: Record<string, string> = {}

@@ -69,7 +69,6 @@ export function registerPatchSectionsTool(server: McpServer, ctx: ToolCtx): void
           .describe('Edits, applied in order'),
         suggest: z.boolean().optional().describe('true: write nothing; leave every edit as a suggestion for a person'),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId: ref, edits, suggest }) => {
       edits.forEach((e, i) => {

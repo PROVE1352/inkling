@@ -84,7 +84,6 @@ export function registerChangeTools(server: McpServer, ctx: ToolCtx): void {
               'as something changes; empty at the end. Use instead of calling again in a loop.',
           ),
       },
-      annotations: { readOnlyHint: true },
     },
     async (args, extra) =>
       wrap(async ({ cursor, workspaceId, budget, detail, wait }: typeof args) => {

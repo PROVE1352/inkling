@@ -136,7 +136,6 @@ export function registerCollabTools(server: McpServer, ctx: ToolCtx): void {
           .optional()
           .describe('open (default), decided (accepted, accepted_partial, rejected), all, or one status (withdrawn, superseded, …)'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId, status }) => {
       // One status filter for both paths (docs/adr/1626-*).

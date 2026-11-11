@@ -116,7 +116,6 @@ export function registerInboxTools(server: McpServer, ctx: ToolCtx): void {
         kinds: z.array(z.enum(INBOX_KINDS)).max(INBOX_KINDS.length).optional().describe('Only these kinds'),
         budget: z.number().int().min(200).max(8000).optional().describe(`Max tokens to return (default ${INBOX_DEFAULT_BUDGET})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId, cursor, kinds, budget }) => {
       // explicit filters win; otherwise the ones the cursor carries (docs/adr/1922-*)

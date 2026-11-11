@@ -109,7 +109,6 @@ export function registerNotesCheckTools(server: McpServer, ctx: ToolCtx): void {
         limit: z.number().int().min(1).max(NOTES_CHECK_MAX_LIMIT).optional().describe(`Items per kind (default ${NOTES_CHECK_DEFAULT_LIMIT})`),
         budget: z.number().int().min(CHECK_MIN_BUDGET).max(CHECK_MAX_BUDGET).optional().describe(`Max tokens (default ${CHECK_DEFAULT_BUDGET})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId: wsRef, parentId, limit, budget }) => {
       const workspaceId = await inferWorkspace(ctx, wsRef, parentId) // docs/adr/1943-*

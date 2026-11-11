@@ -74,7 +74,6 @@ export function registerInkTools(server: McpServer, ctx: ToolCtx): void {
         height: z.number().int().min(16).max(50_000).optional().describe('Height of the range (default: down to the lowest stroke)'),
         scale: z.number().min(0.25).max(2).optional().describe('Image scale (default 1 = 896 px wide)'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId, top, height, scale }): Promise<CallToolResult> => {
       let ink: InkDTO
@@ -202,7 +201,6 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
         pageId: idArg('page').describe('Page id'),
         all: z.boolean().optional().describe('Every saved version, no folding'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId, all }) => {
       const { snapshots } = (await call(ctx, 'GET', `/api/pages/${pageId}/snapshots`)).json() as { snapshots: SnapshotDTO[] }
@@ -242,7 +240,6 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
         to: versionRef().optional(),
         maxChars: z.number().int().min(500).max(100_000).optional().describe(`Cap on the diff text (default ${DIFF_DEFAULT_CHARS})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageId, from, to = 'current', maxChars = DIFF_DEFAULT_CHARS }) => {
       const same = from === to
@@ -303,7 +300,6 @@ export function registerVersionTools(server: McpServer, ctx: ToolCtx): void {
         pageId: idArg('page').describe('Page id (kind=doc)'),
         version: idArg('full').describe('Version id from list_versions'),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId, version }) => {
       const before = (await call(ctx, 'GET', `/api/pages/${pageId}/snapshots`)).json() as { snapshots: SnapshotDTO[] }
@@ -344,7 +340,6 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
         'restore_page(pageId) brings one back with its subpages. Trashed pages are deleted for good after the workspace\'s ' +
         'retention period; there is no permanent-delete tool.',
       inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace') },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId: wsRef }) => {
       const workspaceId = await inferWorkspace(ctx, wsRef) // docs/adr/1943-*
@@ -562,7 +557,6 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
         maxChars: z.number().int().min(200).max(100_000).optional().describe(`Cap on text (default ${READ_FILE_DEFAULT_CHARS})`),
         pages: z.string().trim().max(20).optional().describe(`PDF pages, e.g. "1-5" (default 1-${PDF_LIMITS.defaultPages}, at most ${PDF_LIMITS.maxPages})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ file, maxChars = READ_FILE_DEFAULT_CHARS, pages }): Promise<CallToolResult> => {
       const m = FILE_ID.exec(file)

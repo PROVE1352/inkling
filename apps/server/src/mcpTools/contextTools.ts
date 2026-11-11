@@ -344,7 +344,6 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         workspaceId: idArg('workspace').optional().describe('Limit to one workspace, id or name (default: all of yours)'),
         budget: z.number().int().min(300).max(MAX_BUDGET).optional().describe(`Max tokens to return (default ${DEFAULT_BUDGET})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ query, queries, workspaceId, budget }) => {
       // query first, then queries; repeats (as retrieval sees them) once. One left: the single-query call.
@@ -386,7 +385,6 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
           .optional()
           .describe('Versions you already have: pageId → v from an earlier read_page/read_pages'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ pageIds, budget, known }) => {
       // Short ids and known versions (docs/adr/1540-*, 1541-*): handled in tokenSaving.ts
@@ -420,7 +418,6 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         baseVersion: z.string().trim().max(64).optional().describe('Section version you based the edit on (v=…)'),
         suggest: z.boolean().optional().describe('true: do not write; leave it as a suggestion for a person (docs/adr/1531-*)'),
       },
-      annotations: { destructiveHint: true },
     },
     wrapWrite(ctx, async ({ pageId, section, markdown, mode, baseVersion, suggest }) => {
       if ((mode === 'replace' || mode === 'delete') && !baseVersion) {

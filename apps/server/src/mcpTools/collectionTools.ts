@@ -235,7 +235,6 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         under: z.string().max(300).optional().describe('Sub-items: only rows under this row (id, ID like TASK-3, or title)'),
         depth: z.number().int().min(1).max(8).optional().describe('Levels under `under` (default 1)'),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ collectionId, filter, sort, fields, limit, cursor, describe, under, depth }) => {
       const query: Record<string, string> = {}
@@ -312,7 +311,6 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         properties: z.record(z.string().max(100), z.unknown()).describe('{ "Property name": value }'),
         baseVersion: z.string().min(1).max(64).describe('Row version from query_rows (second column)'),
       },
-      annotations: { destructiveHint: false, idempotentHint: true },
     },
     wrapWrite(ctx, async ({ rowId, properties, baseVersion }) => {
       if (Object.keys(properties).length === 0) throw new ToolError('properties is empty; pass at least one { "Name": value }')
@@ -369,7 +367,6 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         inputs: z.record(z.string().max(200), z.string().max(2000)).optional().describe('{ "Prompt": "answer" } for {{input:…}} prompts'),
         parent: z.string().max(300).optional().describe('Sub-items: the parent row (id, ID like TASK-3, or title)'),
       },
-      annotations: { destructiveHint: false },
     },
     wrapWrite(ctx, async ({ collectionId, title, properties = {}, template, inputs, parent }) => {
       const def = (

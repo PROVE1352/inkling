@@ -73,7 +73,6 @@ export function registerLaterTools(server: McpServer, ctx: ToolCtx): void {
         state: z.enum(['open', 'done']).optional().describe('open (default) or done items'),
         budget: z.number().int().min(200).max(8000).optional().describe(`Max tokens to return (default ${LATER_DEFAULT_BUDGET})`),
       },
-      annotations: { readOnlyHint: true },
     },
     wrap(async ({ workspaceId, state, budget }) => {
       const query: Record<string, string> = { state: state ?? 'open' }

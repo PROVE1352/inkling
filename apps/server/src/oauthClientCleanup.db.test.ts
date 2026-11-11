@@ -198,6 +198,39 @@ describe('[db] never-used OAuth clients', { skip: !BASE_URL }, async () => {
     assert.equal(left.size, 7)
   })
 
+  it('the code exchange (one transaction now): a refused exchange still spends the code; a good one leaves a grant, so the client is in use', async () => {
+    const { createHash } = await import('node:crypto')
+    const u = await user()
+    const id = await client(48 * 60)
+    const verifier = randomBytes(32).toString('base64url')
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+    const code = async () => {
+      const c = `ink_code_${tag()}${tag()}`
+      const { sha256 } = await import('./oauth')
+      await db.insert(schema.oauthCodes).values({ codeHash: sha256(c), clientId: id, userId: u.id, redirectUri: 'https://app.example.com/cb', codeChallenge: challenge, expiresAt: new Date(Date.now() + 5 * 60_000) })
+      return c
+    }
+    const exchange = (c: string, v: string) =>
+      app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'authorization_code', code: c, code_verifier: v, redirect_uri: 'https://app.example.com/cb', client_id: id } })
+    const first = await code()
+    const bad = await exchange(first, 'wrong-verifier-' + 'x'.repeat(30))
+    assert.equal(bad.statusCode, 400)
+    assert.equal((bad.json() as { error: string }).error, 'invalid_grant')
+    const again = await exchange(first, verifier)
+    assert.equal(again.statusCode, 400)
+    assert.match((again.json() as { error_description: string }).error_description, /invalid or expired/)
+    const good = await exchange(await code(), verifier)
+    assert.equal(good.statusCode, 200, good.body)
+    assert.ok((good.json() as { access_token: string }).access_token)
+    const restore = setLimitsForTests({ oauthUnusedClientHours: 1 })
+    try {
+      assert.equal(await purgeUnusedOAuthClients(), 0)
+      assert.ok((await ids()).has(id))
+    } finally {
+      restore()
+    }
+  })
+
   it('registration size caps as before: at most 10 redirect URIs of at most 2000 characters, the name cut at 100', async () => {
     assert.equal((await register({ redirect_uris: Array.from({ length: 11 }, (_, i) => `https://e${i}.example.com/cb`) })).statusCode, 400)
     assert.equal((await register({ redirect_uris: [`https://e.example.com/${'a'.repeat(2000)}`] })).statusCode, 400)

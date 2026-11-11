@@ -42,20 +42,26 @@ function unusedSql(): SQL {
   return sql`left(c.id, 6) = 'ink_c_' AND ${sql.join(refs, sql` AND `)}`
 }
 
-async function deleteOldestUnused(exec: Pick<Tx, 'execute'>, olderThan: Date, max: number): Promise<number> {
+/**
+ * Delete up to `max` of the oldest never-used clients registered before `olderThan`. Two statements in
+ * the caller's transaction: lock the candidates (rows another transaction holds, e.g. a code being
+ * inserted for one, are skipped), then delete them only if still unused, with a fresh snapshot of
+ * committed rows (a code or grant committed meanwhile keeps its client). A reference inserted after the
+ * lock waits for this transaction and then fails, as for any deleted client.
+ */
+async function deleteOldestUnused(tx: Pick<Tx, 'execute'>, olderThan: Date, max: number): Promise<number> {
   if (max <= 0) return 0
-  // locked and re-checked in one statement: a client that gets a code or grant meanwhile is skipped
-  // (its row is locked by that insert's foreign key check) or seen as used
-  const rows = (await exec.execute(sql`
-    WITH doomed AS (
-      SELECT c.id FROM oauth_clients c
-       WHERE ${unusedSql()} AND c.created_at < ${olderThan.toISOString()}::timestamptz
-       ORDER BY c.created_at, c.id
-       LIMIT ${max}
-       FOR UPDATE SKIP LOCKED
-    )
-    DELETE FROM oauth_clients c USING doomed WHERE c.id = doomed.id AND ${unusedSql()}
-    RETURNING c.id
+  const picked = (await tx.execute(sql`
+    SELECT c.id FROM oauth_clients c
+     WHERE ${unusedSql()} AND c.created_at < ${olderThan.toISOString()}::timestamptz
+     ORDER BY c.created_at, c.id
+     LIMIT ${max}
+     FOR UPDATE SKIP LOCKED
+  `)) as unknown as { id: string }[]
+  if (picked.length === 0) return 0
+  const ids = `{${picked.map((p) => `"${p.id.replace(/["\\]/g, '')}"`).join(',')}}`
+  const rows = (await tx.execute(sql`
+    DELETE FROM oauth_clients c WHERE c.id = ANY(${ids}::text[]) AND ${unusedSql()} RETURNING c.id
   `)) as unknown as unknown[]
   return rows.length
 }
@@ -74,7 +80,7 @@ export async function countUnusedClients(exec: Pick<Tx, 'execute'> = db): Promis
 export async function purgeUnusedOAuthClients(now = new Date()): Promise<number> {
   let n = 0
   const hours = limits.oauthUnusedClientHours
-  if (hours !== undefined) n += await deleteOldestUnused(db, new Date(now.getTime() - hours * 3_600_000), SWEEP_BATCH)
+  if (hours !== undefined) n += await db.transaction((tx) => deleteOldestUnused(tx, new Date(now.getTime() - hours * 3_600_000), SWEEP_BATCH))
   const cap = limits.oauthUnusedClientMax
   if (cap !== undefined) {
     n += await db.transaction(async (tx) => {

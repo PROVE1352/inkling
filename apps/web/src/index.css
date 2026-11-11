@@ -1105,7 +1105,8 @@ html[data-resizing] .nd-sidebar-shell {
    attributes (data-style-type/data-value on text, data-text-color/data-background-color on blocks); the
    editor colours them from BlockNote's palette variables, which only the editor sets. The same palette for
    light and dark (BlockNote 0.51 defaults, as the editor shows them), and the rules, so they do not depend on
-   BlockNote's CSS coming along with the public page. A block's colour covers its children, as in the editor. */
+   BlockNote's CSS coming along with the public page. A block's colour covers its children, as in the editor;
+   table cells carry their own. */
 .nd-public-body {
   --bn-colors-highlights-gray-text: #9b9a97;
   --bn-colors-highlights-gray-background: #ebeced;
@@ -1126,96 +1127,117 @@ html[data-resizing] .nd-sidebar-shell {
   --bn-colors-highlights-pink-text: #ad1a72;
   --bn-colors-highlights-pink-background: #f4dfeb;
 }
-.dark .nd-public-body {
-  --bn-colors-highlights-gray-text: #bebdb8;
-  --bn-colors-highlights-gray-background: #9b9a97;
-  --bn-colors-highlights-brown-text: #8e6552;
-  --bn-colors-highlights-brown-background: #64473a;
-  --bn-colors-highlights-red-text: #ec4040;
-  --bn-colors-highlights-red-background: #be3434;
-  --bn-colors-highlights-orange-text: #e3790d;
-  --bn-colors-highlights-orange-background: #b7600a;
-  --bn-colors-highlights-yellow-text: #dfab01;
-  --bn-colors-highlights-yellow-background: #b58b00;
-  --bn-colors-highlights-green-text: #6b8b87;
-  --bn-colors-highlights-green-background: #4d6461;
-  --bn-colors-highlights-blue-text: #0e87bc;
-  --bn-colors-highlights-blue-background: #0b6e99;
-  --bn-colors-highlights-purple-text: #8552d7;
-  --bn-colors-highlights-purple-background: #6940a5;
-  --bn-colors-highlights-pink-text: #da208f;
-  --bn-colors-highlights-pink-background: #ad1a72;
+/* screen only: paper always takes the light palette (print.css, docs/adr/2361-*) */
+@media screen {
+  .dark .nd-public-body {
+    --bn-colors-highlights-gray-text: #bebdb8;
+    --bn-colors-highlights-gray-background: #9b9a97;
+    --bn-colors-highlights-brown-text: #8e6552;
+    --bn-colors-highlights-brown-background: #64473a;
+    --bn-colors-highlights-red-text: #ec4040;
+    --bn-colors-highlights-red-background: #be3434;
+    --bn-colors-highlights-orange-text: #e3790d;
+    --bn-colors-highlights-orange-background: #b7600a;
+    --bn-colors-highlights-yellow-text: #dfab01;
+    --bn-colors-highlights-yellow-background: #b58b00;
+    --bn-colors-highlights-green-text: #6b8b87;
+    --bn-colors-highlights-green-background: #4d6461;
+    --bn-colors-highlights-blue-text: #0e87bc;
+    --bn-colors-highlights-blue-background: #0b6e99;
+    --bn-colors-highlights-purple-text: #8552d7;
+    --bn-colors-highlights-purple-background: #6940a5;
+    --bn-colors-highlights-pink-text: #da208f;
+    --bn-colors-highlights-pink-background: #ad1a72;
+  }
 }
 .nd-public-body [data-style-type='textColor'][data-value='gray'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='gray']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='gray']),
+.nd-public-body :is(td, th)[data-text-color='gray'] {
   color: var(--bn-colors-highlights-gray-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='gray'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='gray']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='gray']),
+.nd-public-body :is(td, th)[data-background-color='gray'] {
   background-color: var(--bn-colors-highlights-gray-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='brown'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='brown']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='brown']),
+.nd-public-body :is(td, th)[data-text-color='brown'] {
   color: var(--bn-colors-highlights-brown-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='brown'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='brown']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='brown']),
+.nd-public-body :is(td, th)[data-background-color='brown'] {
   background-color: var(--bn-colors-highlights-brown-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='red'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='red']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='red']),
+.nd-public-body :is(td, th)[data-text-color='red'] {
   color: var(--bn-colors-highlights-red-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='red'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='red']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='red']),
+.nd-public-body :is(td, th)[data-background-color='red'] {
   background-color: var(--bn-colors-highlights-red-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='orange'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='orange']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='orange']),
+.nd-public-body :is(td, th)[data-text-color='orange'] {
   color: var(--bn-colors-highlights-orange-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='orange'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='orange']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='orange']),
+.nd-public-body :is(td, th)[data-background-color='orange'] {
   background-color: var(--bn-colors-highlights-orange-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='yellow'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='yellow']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='yellow']),
+.nd-public-body :is(td, th)[data-text-color='yellow'] {
   color: var(--bn-colors-highlights-yellow-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='yellow'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='yellow']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='yellow']),
+.nd-public-body :is(td, th)[data-background-color='yellow'] {
   background-color: var(--bn-colors-highlights-yellow-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='green'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='green']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='green']),
+.nd-public-body :is(td, th)[data-text-color='green'] {
   color: var(--bn-colors-highlights-green-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='green'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='green']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='green']),
+.nd-public-body :is(td, th)[data-background-color='green'] {
   background-color: var(--bn-colors-highlights-green-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='blue'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='blue']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='blue']),
+.nd-public-body :is(td, th)[data-text-color='blue'] {
   color: var(--bn-colors-highlights-blue-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='blue'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='blue']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='blue']),
+.nd-public-body :is(td, th)[data-background-color='blue'] {
   background-color: var(--bn-colors-highlights-blue-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='purple'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='purple']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='purple']),
+.nd-public-body :is(td, th)[data-text-color='purple'] {
   color: var(--bn-colors-highlights-purple-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='purple'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='purple']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='purple']),
+.nd-public-body :is(td, th)[data-background-color='purple'] {
   background-color: var(--bn-colors-highlights-purple-background);
 }
 .nd-public-body [data-style-type='textColor'][data-value='pink'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='pink']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-text-color='pink']),
+.nd-public-body :is(td, th)[data-text-color='pink'] {
   color: var(--bn-colors-highlights-pink-text);
 }
 .nd-public-body [data-style-type='backgroundColor'][data-value='pink'],
-.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='pink']) {
+.nd-public-body .bn-block:has(> .bn-block-content[data-background-color='pink']),
+.nd-public-body :is(td, th)[data-background-color='pink'] {
   background-color: var(--bn-colors-highlights-pink-background);
 }
 .nd-public-body input[type='checkbox'] {

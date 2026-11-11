@@ -4,7 +4,7 @@
 // limit, the page window, zoom steps, the links that survive and the collapsed memory.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { fileIdOf, pdfByName, previewsAllowed } from './pdfFile'
+import { fileIdOf, isUndoKey, pdfByName, previewsAllowed } from './pdfFile'
 import {
   AUTO_LOAD_MAX_BYTES,
   COLLAPSED_KEY,
@@ -254,6 +254,16 @@ describe('previews and ink', () => {
     assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 'loading' }), false)
     // the ink request failing does not hide every PDF in the workspace
     assert.equal(previewsAllowed({ penMode: false, savingInk: false, ink: 'error' }), true)
+  })
+
+  it('knows the undo and redo keys', () => {
+    const k = (key, m = {}) => ({ key, metaKey: false, ctrlKey: false, altKey: false, ...m })
+    assert.equal(isUndoKey(k('z', { metaKey: true })), true)
+    assert.equal(isUndoKey(k('Z', { ctrlKey: true })), true)
+    assert.equal(isUndoKey(k('y', { ctrlKey: true })), true)
+    assert.equal(isUndoKey(k('z')), false)
+    assert.equal(isUndoKey(k('z', { metaKey: true, altKey: true })), false)
+    assert.equal(isUndoKey(k('.', { metaKey: true })), false)
   })
 })
 

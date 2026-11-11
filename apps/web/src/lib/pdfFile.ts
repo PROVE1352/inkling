@@ -45,3 +45,14 @@ export function previewsAllowed(s: { penMode: boolean; savingInk: boolean; ink: 
   if (s.ink === 'error') return true
   return s.ink === 0
 }
+
+/**
+ * Undo and redo keys (Mod+Z, Mod+Shift+Z, Mod+Y). Typed inside a PDF preview they must do nothing: the
+ * browser's own undo would otherwise reach back into the page body's last edit (its undo stack is the
+ * document's), although the focus is in the preview.
+ */
+export function isUndoKey(e: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): boolean {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false
+  const k = e.key.toLowerCase()
+  return k === 'z' || k === 'y'
+}

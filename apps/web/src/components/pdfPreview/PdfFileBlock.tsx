@@ -8,7 +8,7 @@ import { Component, useCallback, useEffect, useRef, useState, useSyncExternalSto
 import { createPortal } from 'react-dom'
 import { defaultBlockSpecs, type BlockNoteEditor } from '@blocknote/core'
 import { usePageInkPresence } from '../../api'
-import { fileIdOf, pdfByName, previewsAllowed } from '../../lib/pdfFile'
+import { fileIdOf, isUndoKey, pdfByName, previewsAllowed } from '../../lib/pdfFile'
 import { t, useT } from '../../i18n'
 import type { PdfPreviewProps } from './PdfPreview'
 
@@ -89,8 +89,12 @@ export const pdfFileSpec = {
       host.className = 'nd-pdf-host'
       host.contentEditable = 'false'
       host.setAttribute('data-pdf-host', '')
-      // the editor's own key commands (undo, indent, fold, …) leave keys typed in the preview alone
+      // the editor's own key commands (undo, indent, fold, …) leave keys typed in the preview alone, and the
+      // browser's undo does not reach back into the body from here
       host.setAttribute('data-own-keys', '')
+      host.addEventListener('keydown', (e) => {
+        if (isUndoKey(e)) e.preventDefault()
+      })
       // under the file name line, above a caption
       const nameLine = wrapper.querySelector(':scope > .bn-file-name-with-icon')
       if (nameLine) nameLine.after(host)

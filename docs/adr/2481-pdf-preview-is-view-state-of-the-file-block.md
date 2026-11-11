@@ -34,7 +34,9 @@ holds a PDF.
   draggable, and with Alt, Ctrl or ⌘ held the target can be the block rather than the host), so PDF text is
   never dropped into the document and the block is not moved from inside its preview. The host carries
   `data-own-keys`: the editor's own key commands (`lib/shortcuts/editorKeys.ts`: undo, indent, fold with
-  Mod+., …), which listen on the editor in the capture phase, skip keys typed in it. The preview's root takes
+  Mod+., …), which listen on the editor in the capture phase, skip keys typed in it, and Mod+Z / Mod+Y are
+  cancelled inside the preview and its full-screen view: the browser's own undo works on the document's
+  undo stack and would otherwise undo the body's last edit while the focus is in the page number box. The preview's root takes
   focus on a press (`tabIndex -1`), so keys typed after a click in it do not reach the editor. The image viewer needed a double-click for the
   same reason (ADR 2386); here the preview is a separate area under the block's own name line, so a single
   press works and the name line keeps selecting the block.

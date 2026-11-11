@@ -1,5 +1,14 @@
 # Demo instance preset
 
+> **Do not open a public demo for strangers with 0.22.0.** The security review before release left problems open
+> for a demo server that shares the disk and memory of one machine with other services; 0.22.1 fixes them. Using
+> limits and features turned off on a server for people you know is not affected. Details:
+> [docs/KNOWN-ISSUES.md, "Added in 0.22.0"](../../docs/KNOWN-ISSUES.md#added-in-0220).
+>
+> 0.22.0으로는 낯선 사람에게 여는 공개 데모를 열지 마세요. 데모 서버가 같은 기계의 다른 서비스와 디스크와 메모리를 같이
+> 쓸 때의 문제가 남아 있고 0.22.1에서 고칩니다. 아는 사람끼리 쓰는 서버에서 한도와 기능 끄기를 쓰는 것은 해당하지
+> 않습니다([docs/KNOWN-ISSUES.ko.md](../../docs/KNOWN-ISSUES.ko.md#added-in-0220)).
+
 Files for running a public demo of Inkling as a separate instance next to your own server, with the
 restricted mode of 0.22 switched on. The steps (separate instance, terms, proxy, operator account with the setup link, checks) and what
 each setting means are in [docs/DEMO.md](../../docs/DEMO.md) ([한국어](../../docs/DEMO.ko.md)).

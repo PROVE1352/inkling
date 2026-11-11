@@ -1,5 +1,10 @@
 # Running a demo instance
 
+> **Do not open a public demo for strangers with 0.22.0.** The security review before release left problems open
+> for a demo server that shares the disk and memory of one machine with other services; 0.22.1 fixes them. Using
+> limits and features turned off on a server for people you know is not affected. Details: [KNOWN-ISSUES.md,
+> "Added in 0.22.0"](KNOWN-ISSUES.md#added-in-0220) (LIMITS-37 to LIMITS-42).
+
 A demo instance is a second Inkling server that strangers can sign up to and try. It runs next to your own
 server but shares nothing with it: its own compose project, database, volumes, network and port. The
 restricted mode of 0.22 turns on what such a server needs: sign-in IDs instead of email addresses, an
@@ -204,7 +209,8 @@ speed for a minute or two can trip it on purpose; only the demo stops.
 The fuse does not see the WAL, the backups or the logs. Budget the disk for the worst case: 3,000 MB of live data,
 about 1 GB of WAL, 7 daily backup sets of up to 3,000 MB each (content that does not compress) and the logs, about
 3 + 1 + 7 × 3 = 25 GB. With 100 workspaces of at most 20 MB, the counted data stays under 2,000 MB; the rest of the
-3,000 MB is what is not counted and what deleting leaves inside the database.
+3,000 MB is what is not counted and what deleting leaves inside the database. In 0.22.0 that is not enough: the
+search index alone can take more (KNOWN-ISSUES LIMITS-39).
 
 A separate filesystem with a size limit for the demo's data (its own disk, partition or virtual machine) is
 recommended: it is stronger than the fuse, and whatever the fuse misses then cannot fill the disk your main

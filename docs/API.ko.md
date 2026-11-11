@@ -1751,7 +1751,9 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   지우고, 그 사람이 혼자
   소유한 공유 워크스페이스는 가장 오래된 관리자 역할 멤버, 없으면 가장 오래된 멤버에게 넘깁니다(알림 타입
   `workspace_owner`). 개인 페이지는 지우고, 공유 페이지·댓글·버전은 작성자를 null로 두고 남깁니다. 감사 기록에 옮겨
-  적힌 이름과 가입 때 생긴 워크스페이스의 이름은 계정 id로만 찾습니다(docs/adr/2535-*).
+  적힌 이름과 가입 때 생긴 워크스페이스의 이름은 계정 id로만 찾습니다(docs/adr/2535-*). 옆에 id 없이 쓰인 이름은 새 행에서도
+  남습니다. `page.access_granted`, `page.access_changed`, `page.access_removed`의 `person`과 `page.guest_invited`의
+  `email`입니다(KNOWN-ISSUES LIMITS-8).
 - 감사 이벤트(`GET /api/workspaces/:id/audit`): `page.locked`와 `page.lock_editors_changed`는 이제 `editors` 옆에
   `editorIds`를, `agent.blocked`와 `agent.unblocked`는 `user` 옆에 `userId`를 저장해서 계정 삭제가 이름을 id로 찾을 수
   있습니다. 감사 라우트는 `before`와 `after`에서 이 id 키를 빼고 돌려줍니다.

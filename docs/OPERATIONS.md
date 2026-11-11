@@ -1,6 +1,6 @@
 # Operations: deployment checklist, performance, caches and database tuning
 
-Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/0750`–`0759`. Known, accepted issues: [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
+Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/0750`–`0759`. Known, accepted issues: [KNOWN-ISSUES.md](KNOWN-ISSUES.md). 한국어: [OPERATIONS.ko.md](OPERATIONS.ko.md).
 
 ## 0. Deployment checklist
 

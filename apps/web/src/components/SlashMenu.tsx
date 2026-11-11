@@ -9,6 +9,7 @@ import { CARET_MENU_FLOATING } from '../lib/caretMenu'
 import type { CalloutType } from './blocks/Callout'
 import { usePluginSlashItems } from '../plugins/integration'
 import { linkEmbedSlashItems } from './blocks/LinkEmbed'
+import { useDisabledFeatures } from './quota/features'
 import { chartSlashItems } from './blocks/ChartBlock'
 import { buttonSlashItems } from './blocks/ButtonBlock'
 import { dbViewSlashItems } from './blocks/DbViewEmbed'
@@ -32,6 +33,7 @@ const FILE_BLOCKS = new Set(['image', 'video', 'audio', 'file'])
 // an empty line below them (docs/adr/1270-*).
 export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }) {
   const t = useT()
+  useDisabledFeatures() // linkEmbedSlashItems reads the turned-off features outside React
   // Plugin blocks (experimental `plugins`; [] when off)
   const pluginItems = usePluginSlashItems(editor)
   // Insert a callout — replaces the current block if it is an empty paragraph, otherwise inserts

@@ -4,6 +4,7 @@
  * (pages/PublicForm.tsx) renders the same FormFill with the questions the server hands visitors.
  */
 import { useState } from 'react'
+import { FeatureOn } from '../quota/FeatureOn'
 import type { FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -388,7 +389,10 @@ function FormEditor({
           <input key={`m-${view.id}`} defaultValue={settings.successMessage ?? ''} placeholder={t('form.sent')} maxLength={500} onBlur={(e) => onChange({ ...settings, successMessage: e.target.value })} className={INPUT} />
         </label>
       </div>
-      <FormLinkPanel viewId={view.id} />
+      {/* the public form link is off on this server (DISABLED_FEATURES=public-forms, docs/adr/2507-*) */}
+      <FeatureOn name="public-forms">
+        <FormLinkPanel viewId={view.id} />
+      </FeatureOn>
     </div>
   )
 }

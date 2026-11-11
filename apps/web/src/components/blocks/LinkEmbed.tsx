@@ -4,6 +4,7 @@ import { createReactBlockSpec } from '@blocknote/react'
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { EMBED_PROVIDER_LABELS, linkEmbedConfig, parseHttpUrl, toEmbed, type LinkEmbedDisplay } from '@inkling/shared'
 import { useLinkPreview } from '../../api'
+import { featureOffNow, useFeatureOff } from '../quota/features'
 import { GlobeIcon, LinkIcon } from '../Icons'
 import { t } from '../../i18n'
 import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
@@ -77,7 +78,9 @@ function UrlInput({ onSubmit }: { onSubmit: (url: string) => void }) {
 }
 
 function LinkCard({ url }: { url: string }) {
-  const q = useLinkPreview(url)
+  // DISABLED_FEATURES=link-preview (docs/adr/2507-*): no request, the card is the address alone
+  const previewOff = useFeatureOff('link-preview')
+  const q = useLinkPreview(previewOff ? undefined : url)
   const p = q.data
   const host = hostOf(p?.url ?? url)
   const href = parseHttpUrl(p?.url ?? url)?.href ?? parseHttpUrl(url)?.href
@@ -128,6 +131,14 @@ function LinkCard({ url }: { url: string }) {
 }
 
 function EmbedFrame({ url }: { url: string }) {
+  // DISABLED_FEATURES=embeds: the app's CSP allows no outside frame, so a blank frame would be all
+  // there is; the block shows its link card instead (the stored block is unchanged)
+  const embedsOff = useFeatureOff('embeds')
+  if (embedsOff) return <LinkCard url={url} />
+  return <EmbedFrameOn url={url} />
+}
+
+function EmbedFrameOn({ url }: { url: string }) {
   const info = toEmbed(url)
   if (!info) return <LinkCard url={url} />
   return (
@@ -173,7 +184,8 @@ function Toolbar({
   onDisplay: (d: LinkEmbedDisplay) => void
   onLink: () => void
 }) {
-  const canEmbed = !!toEmbed(url)
+  const embedsOff = useFeatureOff('embeds')
+  const canEmbed = !!toEmbed(url) && !embedsOff
   const btn = (active: boolean) =>
     `rounded px-1.5 py-0.5 transition-colors duration-150 hover:bg-hover hover:text-ink ${active ? 'text-ink' : ''}`
   return (
@@ -207,7 +219,7 @@ export const linkEmbedSpec = createReactBlockSpec(linkEmbedConfig, {
         <div className="w-full">
           <UrlInput
             onSubmit={(u) =>
-              ed.updateBlock(block, { type: 'linkEmbed', props: { url: u, display: toEmbed(u) ? 'embed' : 'card' } })
+              ed.updateBlock(block, { type: 'linkEmbed', props: { url: u, display: toEmbed(u) && !featureOffNow('embeds') ? 'embed' : 'card' } })
             }
           />
         </div>
@@ -259,7 +271,9 @@ export function handleUrlPaste(event: ClipboardEvent, editor: AnyEditor): boolea
       (!Array.isArray(cur.content) || cur.content.length === 0) &&
       (!Array.isArray(cur.children) || cur.children.length === 0)
     if (!empty) return false
-    const block = linkEmbedBlock(u.href, toEmbed(u.href) ? 'embed' : 'card')
+    // with embeds and link previews both off on this server, a pasted address stays a plain link
+    if (embedsAndPreviewsOff()) return false
+    const block = linkEmbedBlock(u.href, toEmbed(u.href) && !featureOffNow('embeds') ? 'embed' : 'card')
     const [inserted] = editor.replaceBlocks([cur], [block]).insertedBlocks
     // Leave an empty line after the embed so typing can continue.
     if (inserted) {
@@ -273,9 +287,16 @@ export function handleUrlPaste(event: ClipboardEvent, editor: AnyEditor): boolea
   }
 }
 
+/** DISABLED_FEATURES has both `embeds` and `link-preview` (the demo preset). */
+function embedsAndPreviewsOff(): boolean {
+  return featureOffNow('embeds') && featureOffNow('link-preview')
+}
+
 /** Slash-menu entry: inserts an empty linkEmbed block that asks for a URL. */
 export function linkEmbedSlashItems(editor: AnyEditor): DefaultReactSuggestionItem[] {
   if (!('linkEmbed' in editor.schema.blockSchema)) return []
+  // nothing to embed and no preview to show: the menu has no entry (a link stays a link)
+  if (embedsAndPreviewsOff()) return []
   return [
     {
       title: T.slashTitle,

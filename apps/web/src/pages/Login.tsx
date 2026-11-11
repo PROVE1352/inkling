@@ -7,6 +7,7 @@ import { safeNext } from '../lib/nav'
 import { Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
+import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
 import { t as tr, tMaybe, useT } from '../i18n'
 
@@ -178,6 +179,7 @@ export function Login() {
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
           <InstanceBadge placement="auth" />
+          <InstanceNotice placement="auth" />
         </div>
 
         {challenge ? (

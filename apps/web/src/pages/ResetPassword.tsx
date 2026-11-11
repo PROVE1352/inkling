@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { resetPasswordSchema } from '@inkling/shared'
 import { ApiError, useAuthMode, useForgotPassword, useResetPassword } from '../api'
 import { Spinner } from '../components/Spinner'
+import { useFeatureOff } from '../components/quota/features'
 import { useT } from '../i18n'
 import { delegatedDisplayName } from './Login'
 
@@ -33,6 +34,7 @@ export function ResetPassword() {
   const [error, setError] = useState<string | null>(null)
   const [requested, setRequested] = useState(false)
 
+  const resetOff = useFeatureOff('password-reset')
   const delegated = mode.data?.delegated ?? false
   const delegatedName = delegatedDisplayName(mode.data?.delegatedName)
 
@@ -95,6 +97,23 @@ export function ResetPassword() {
       {label}
     </button>
   )
+
+  // DISABLED_FEATURES=password-reset (docs/adr/2507-*): the routes answer 404; a bookmark or an old
+  // link to /reset says so instead of a form that cannot work.
+  if (resetOff) {
+    return (
+      <div className="flex min-h-full items-center justify-center bg-app px-4 py-12">
+        <div className="w-full max-w-sm rounded-lg border border-line bg-app p-6 text-center" data-testid="reset-off">
+          <img src="/icon.svg" alt="Inkling" className="mx-auto mb-3 h-12 w-12" />
+          <h1 className="mb-2 text-base font-semibold text-ink">{t('reset.title')}</h1>
+          <p className="text-sm text-sub">{t('limits.featureOff')}</p>
+          <Link to="/login" className="mt-4 inline-block text-xs text-accent hover:underline">
+            {t('auth.toLogin')}
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-full items-center justify-center bg-app px-4 py-12">

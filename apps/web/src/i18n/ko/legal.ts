@@ -26,4 +26,6 @@ export default {
   'legal.onlyIn': '이 문서는 {language}판만 있습니다.',
   'legal.version': '문서 버전 {version}',
   'legal.instanceTitle': '이 서버: {label}',
+  'legal.instanceNotice': '운영자 공지',
+  'legal.deleteNoExport': '동의하기 전에는 내보내기를 쓸 수 없습니다.',
 } satisfies Partial<Record<keyof typeof en, string>>

@@ -9,6 +9,7 @@ import { useT, type TKey } from '../../i18n'
 import { useCollectionDef } from '../../lib/collectionApi'
 import { useRowTemplates } from '../../lib/rowTemplatesApi'
 import { useWebhookTargets } from '../../lib/automationsApi'
+import { useFeatureOff } from '../quota/features'
 import { ActionValuesEditor } from '../collection/ActionValuesEditor'
 import { PlusIcon, TrashIcon } from '../Icons'
 
@@ -188,7 +189,11 @@ export function AddRowEditor({
 /** Picks a registered webhook (never a URL typed here). */
 export function WebhookPicker({ wsId, draft, onChange }: { wsId: string; draft: ActionDraft; onChange: (d: ActionDraft) => void }) {
   const t = useT()
-  const targets = useWebhookTargets(wsId)
+  // DISABLED_FEATURES=automations-webhooks (docs/adr/2507-*): the targets route answers 404 and the
+  // action is skipped when it runs; an existing action says so instead of an empty picker
+  const off = useFeatureOff('automations-webhooks')
+  const targets = useWebhookTargets(wsId, !off)
+  if (off) return <p className="text-xs text-sub">{t('limits.featureOff')}</p>
   const list = targets.data ?? []
   if (targets.isError) return <p className="text-xs text-red-600">{(targets.error as Error).message}</p>
   if (targets.data && !list.length) return <p className="text-xs text-sub">{t('button.noWebhooks')}</p>
@@ -339,6 +344,7 @@ export function ButtonSettingsForm({
   const [drafts, setDrafts] = useState<ActionDraft[]>(() => initial.actions.map((a) => keyed({ ...a } as ActionDraft)))
   const [addType, setAddType] = useState<ButtonActionType>('addRow')
   const [error, setError] = useState<string | null>(null)
+  const hooksOff = useFeatureOff('automations-webhooks')
 
   const setAt = (i: number, d: ActionDraft) => setDrafts((list) => list.map((x, j) => (j === i ? { ...d, _k: x._k } : x)))
   const move = (i: number, by: -1 | 1) =>
@@ -461,7 +467,7 @@ export function ButtonSettingsForm({
               value={addType}
               onChange={(e) => setAddType(e.target.value as ButtonActionType)}
             >
-              {BUTTON_ACTION_TYPES.map((ty) => (
+              {BUTTON_ACTION_TYPES.filter((ty) => ty !== 'webhook' || !hooksOff).map((ty) => (
                 <option key={ty} value={ty}>
                   {t(actionTypeKey(ty))}
                 </option>

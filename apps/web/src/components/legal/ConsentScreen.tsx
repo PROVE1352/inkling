@@ -5,6 +5,7 @@ import { api, ApiError, useLogout, useMe } from '../../api'
 import { getLocaleChoice, useT } from '../../i18n'
 import { Spinner } from '../Spinner'
 import { InstanceBadge } from '../InstanceBadge'
+import { InstanceNotice } from '../InstanceNotice'
 import { AccountDeletionSlot, ACCOUNT_DELETION_READY } from './AccountDeletionSlot'
 import { ConsentItems } from './ConsentItems'
 import { LegalLanguageSelect, LegalLinks } from './LegalLinks'
@@ -69,6 +70,7 @@ export function ConsentScreen() {
         <div className="mb-5 flex flex-col items-center gap-2 text-center">
           <img src="/icon.svg" alt="Inkling" className="h-10 w-10" />
           <InstanceBadge placement="auth" />
+          <InstanceNotice placement="auth" />
           <h1 className="text-lg font-semibold text-ink">{t('legal.consentTitle')}</h1>
           <p className="text-xs leading-relaxed text-sub">{t('legal.consentDesc')}</p>
         </div>
@@ -134,7 +136,7 @@ export function ConsentScreen() {
               </button>
             )}
           </div>
-          {ACCOUNT_DELETION_READY && deleting && <AccountDeletionSlot />}
+          {ACCOUNT_DELETION_READY && deleting && <AccountDeletionSlot onClose={() => setDeleting(false)} />}
         </div>
 
         <div className="mt-5 flex flex-col items-center gap-3">

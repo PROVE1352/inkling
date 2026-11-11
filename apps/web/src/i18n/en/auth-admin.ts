@@ -114,6 +114,8 @@ export default {
   'setup.submit': 'Create administrator account',
   'setup.loginHint': 'No account yet? Open the setup link the server printed to its log (docker compose logs app).',
 
+  'setup.restrictedTitle': 'Waiting for the operator account',
+  'setup.restrictedBody': 'This server takes no sign-ups until its operator account exists. If you run it, open the setup link the server printed to its log (/setup?code=…).',
   // reset password
   'reset.title': 'Reset password',
   'reset.tabCode': 'I have a code',

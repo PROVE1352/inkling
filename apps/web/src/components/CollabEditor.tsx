@@ -30,6 +30,7 @@ import { QueryBlockPortals } from './blocks/QueryBlock'
 import { MermaidPortals, mermaidCodeBlockSpec } from './blocks/MermaidBlock'
 import { useSectionLinkJump } from '../lib/sectionLinks'
 import { handleUrlPaste } from './blocks/LinkEmbed'
+import { useDisabledFeatures } from './quota/features'
 import { ColumnsSideMenu, columnsExtension, pasteFlatInColumn } from './blocks/Columns'
 import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
@@ -118,6 +119,8 @@ type CollabEditorProps = {
  */
 export function CollabEditor(props: CollabEditorProps) {
   const t = useT()
+  // the paste handler reads the server's turned-off features outside React (featureOffNow)
+  useDisabledFeatures()
   const [epoch, setEpoch] = useState(0)
   const [notice, setNotice] = useState<BlockedNotice | null>(null)
   const onReopen = useCallback((why: BlockedNotice | null, delayMs = 0) => {

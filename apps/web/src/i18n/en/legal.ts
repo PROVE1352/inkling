@@ -24,4 +24,6 @@ export default {
   'legal.onlyIn': 'This document is only available in {language}.',
   'legal.version': 'Document version {version}',
   'legal.instanceTitle': 'This server: {label}',
+  'legal.instanceNotice': 'Notice from the operator',
+  'legal.deleteNoExport': 'Export is not available before you agree.',
 }

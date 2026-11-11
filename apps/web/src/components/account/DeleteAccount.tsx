@@ -52,7 +52,12 @@ export function DeleteAccount() {
   )
 }
 
-function DeleteAccountModal({ onClose }: { onClose: () => void }) {
+/**
+ * The deletion dialog itself. Settings › Account opens it from its row; the consent screen opens it
+ * through AccountDeletionSlot with `beforeConsent`: the export buttons are left out there (export is
+ * not on the consent gate's exception list, so it would answer CONSENT_REQUIRED) and a line says so.
+ */
+export function DeleteAccountModal({ onClose, beforeConsent = false }: { onClose: () => void; beforeConsent?: boolean }) {
   const t = useT()
   const qc = useQueryClient()
   const preview = useQuery({
@@ -113,18 +118,21 @@ function DeleteAccountModal({ onClose }: { onClose: () => void }) {
                   <span className="min-w-0 flex-1 truncate">
                     {t('accountLifecycle.goesWorkspace', { name: w.name, pages: w.pages, files: w.files })}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => triggerDownload(`/api/workspaces/${w.id}/export`)}
-                    className="flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-ink hover:bg-hover"
-                  >
-                    <DownloadIcon size={12} /> {t('accountLifecycle.export')}
-                  </button>
+                  {!beforeConsent && (
+                    <button
+                      type="button"
+                      onClick={() => triggerDownload(`/api/workspaces/${w.id}/export`)}
+                      className="flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-ink hover:bg-hover"
+                    >
+                      <DownloadIcon size={12} /> {t('accountLifecycle.export')}
+                    </button>
+                  )}
                 </li>
               ))}
               {p.privatePages > 0 && <li>{t('accountLifecycle.goesPrivate', { count: p.privatePages })}</li>}
               <li>{t('accountLifecycle.goesAccount')}</li>
             </ul>
+            {beforeConsent && p.deleted.length > 0 && <p className="text-xs text-sub">{t('legal.deleteNoExport')}</p>}
           </section>
           {(p.transferred.length > 0 || p.kept.length > 0) && (
             <section className="flex flex-col gap-2 text-sm">

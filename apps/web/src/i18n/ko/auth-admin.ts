@@ -116,6 +116,8 @@ export default {
   'setup.submit': '관리자 계정 만들기',
   'setup.loginHint': '아직 계정이 없나요? 서버가 로그에 찍은 설정 링크를 여세요(docker compose logs app).',
 
+  'setup.restrictedTitle': '운영자 계정을 기다리는 중입니다',
+  'setup.restrictedBody': '이 서버는 운영자 계정이 생기기 전에는 가입을 받지 않습니다. 운영자라면 서버 기록에 찍힌 설정 링크(/setup?code=…)를 여세요.',
   // reset password
   'reset.title': '비밀번호 재설정',
   'reset.tabCode': '코드가 있어요',

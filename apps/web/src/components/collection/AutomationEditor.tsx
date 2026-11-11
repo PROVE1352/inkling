@@ -21,6 +21,7 @@ import { useAgentConnections } from '../../teamAgentsApi'
 import { useCreateAutomation, useUpdateAutomation } from '../../lib/automationsApi'
 import { AddRowEditor, WebhookPicker, keyed, type ActionDraft } from '../blocks/ButtonSettings'
 import { ActionValuesEditor } from './ActionValuesEditor'
+import { useFeatureOff } from '../quota/features'
 import { PlusIcon, TrashIcon, XIcon } from '../Icons'
 
 type ActionType = AutomationAction['type']
@@ -553,6 +554,7 @@ export function AutomationEditor({
   onDone: () => void
 }) {
   const t = useT()
+  const hooksOff = useFeatureOff('automations-webhooks') // the webhook action is off on this server (docs/adr/2507-*)
   const create = useCreateAutomation(collectionId)
   const update = useUpdateAutomation(collectionId)
   const [name, setName] = useState(initial?.name ?? '')
@@ -676,7 +678,7 @@ export function AutomationEditor({
               value={addType}
               onChange={(e) => setAddType(e.target.value as ActionType)}
             >
-              {ACTION_TYPES.map((ty) => (
+              {ACTION_TYPES.filter((ty) => ty !== 'webhook' || !hooksOff).map((ty) => (
                 <option key={ty} value={ty}>
                   {t(automationActionKey(ty))}
                 </option>

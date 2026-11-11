@@ -6,9 +6,11 @@ import { safeNext } from '../lib/nav'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
+import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
 import { SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
 import { BotCheckField, SignupFullNotice, signupBody, useSignupShownAt } from '../components/account/SignupExtras'
+import { restrictedSignup, SetupOnlyNotice } from '../components/SetupOnlyNotice'
 import { useT } from '../i18n'
 
 export function Register() {
@@ -51,6 +53,9 @@ export function Register() {
   if (mode.isLoading) return <FullScreenSpinner />
   const keyRequired = !setupMode && (mode.data?.signupKeyRequired ?? false)
   const idMode = mode.data?.loginId === 'username'
+  // Restricted sign-up on a server without its operator yet (contract §13, docs/adr/2527-*): the server
+  // refuses every sign-up but the setup code's (SETUP_REQUIRED), so the form points at the setup link only.
+  if (!setupMode && mode.data?.setupPending && restrictedSignup(mode.data)) return <SetupOnlyNotice next={next} />
   // SIGNUP_MAX_USERS reached: a notice instead of the form (the setup link still works)
   if (mode.data?.signupFull && !setupMode) return <SignupFullNotice next={next} />
 
@@ -161,6 +166,7 @@ export function Register() {
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
           <InstanceBadge placement="auth" />
+          <InstanceNotice placement="auth" />
           {setupMode && (
             <>
               <h2 className="text-sm font-semibold text-ink">{t('setup.title')}</h2>

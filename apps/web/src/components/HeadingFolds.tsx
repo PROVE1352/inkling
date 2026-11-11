@@ -136,7 +136,8 @@ export function HeadingFolds({
   useEffect(() => {
     setFoldRevealer((blockId) => {
       const el = containerRef.current?.querySelector(`[data-id="${CSS.escape(blockId)}"]`)
-      const top = el?.closest(TOP) as HTMLElement | null
+      // a block inside a group of columns: the group is the top-level block (docs/adr/2420-*)
+      const top = (el?.closest(TOP) ?? el?.closest('.bn-editor > .bn-block-group > .bn-block-column-list')) as HTMLElement | null
       const topId = top?.getAttribute('data-id')
       if (!topId) return false
       const layout = layoutRef.current

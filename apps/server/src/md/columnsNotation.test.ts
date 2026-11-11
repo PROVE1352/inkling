@@ -12,6 +12,7 @@ import { applyDocumentReplace, applySectionPatch, buildEchoIndex, readBlocks } f
 import { blocksToMarkdown, blocksToStateBuffer, markdownToBlocks, stateToBlocks } from './convert'
 import type { AnyBlock } from './convert'
 import { getServerEditor } from './editor'
+import { renderSyncMarkdown } from './syncMd'
 import type { NotationMode } from './notation'
 
 const noTitles = () => null
@@ -92,6 +93,14 @@ describe('columns in Markdown (2422)', () => {
     // a parser that drops the comments sees the same blocks, flattened
     const flat = await getServerEditor().tryParseMarkdownToBlocks(visible)
     assert.ok(flat.length >= 8)
+  })
+
+  it('vault sync writes the markers and its Markdown reads back as the same group', async () => {
+    const doc = stored(PAGE())
+    const md = await renderSyncMarkdown({ id: '6f1c2a10-1111-4c3b-9a55-0123456789ab', properties: {}, aliases: [] }, doc)
+    assert.match(md, /<!-- inkling:columns \{"widths":\[60,40\]\} -->/)
+    const body = md.replace(/^---[\s\S]*?---\n/, '')
+    assert.deepEqual(shape(stored(await markdownToBlocks(body, noTitles))), shape(doc))
   })
 
   it('an empty column reads back with an empty paragraph', async () => {

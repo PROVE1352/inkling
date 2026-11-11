@@ -147,6 +147,20 @@ describe('[db] columns through the agent tools', { skip: !HAS_DB }, async () => 
     assert.deepEqual(shape(blocks), ['paragraph:one', 'paragraph:two', 'paragraph:three'])
   })
 
+  it('split_page moves a section with a group to its subpage whole', async () => {
+    const id = (JSON.parse(await ok('create_page', { workspaceId: ws.id, title: 'Splittable', markdown: BODY })) as { id: string }).id
+    const out = await ok('split_page', { pageId: id, level: 2 })
+    const sub = /([0-9a-f]{8}-[0-9a-f-]{27})[^\n]*Plan|Plan[^\n]*?([0-9a-f]{8}-[0-9a-f-]{27})/.exec(out)
+    const pages = await db.select().from(schema.pages).where(eq(schema.pages.parentId, id))
+    const plan = pages.find((p) => p.title === 'Plan')
+    assert.ok(plan, `${out} ${JSON.stringify(sub)}`)
+    const blocks = await stored(plan!.id)
+    const group = blocks.find((b) => b.type === 'columnList')
+    assert.ok(group, JSON.stringify(shape(blocks)))
+    assert.deepEqual(group!.children!.map((c) => Number(c.props?.width)), [1.2, 0.8])
+    assert.ok(!(await stored(id)).some((b) => b.type === 'columnList'), 'the group left the parent page')
+  })
+
   it('zip export → import keeps the group and its widths', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/workspaces/${ws.id}/export`, headers: { cookie: owner.cookie } })
     assert.equal(res.statusCode, 200)

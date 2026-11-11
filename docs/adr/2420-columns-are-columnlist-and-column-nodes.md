@@ -48,7 +48,8 @@ PROPRIETARY`. Inkling is MIT.
 - The names match the commercial package's, so documents would read there too; nothing here depends on it.
 - Old clients: a 0.19 editor does not know the nodes and y-prosemirror deletes the whole group **with the
   blocks inside it** when that client edits the page (worse than the 0.18 button, ADR 2244, which lost
-  only itself). Known issue; the service worker updates clients on reload.
+  only itself; `components/blocks/ColumnsCompat.test.ts` records it). Known issue; the service worker
+  updates clients on reload.
 
 ## Consequences
 - `column+` instead of `column column+`: two people removing different columns at once can leave one

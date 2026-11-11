@@ -52,5 +52,8 @@ throws below two columns, which `column+` (ADR 2420) allows.
   converge (browser check G2 kept the text when the delete unwrapped the group).
 
 ## Consequences
+- Checked in Chrome: block-menu Delete on a column's only block and dragging that block out both leave
+  the column with an empty line. A selection across columns deleted with Backspace removes what it
+  covers, as anywhere else, and can leave a one-column group (valid, full width; Unwrap columns).
 - Dragging a block beside another to make columns (core's multi-column drop cursor is in the GPL package)
   is a separate, later step.

@@ -22,8 +22,11 @@ printed to PDF, inside a page embed, in the version history and from the offline
   splits slides; handles are hidden on slides.
 - **PDF / print**: side by side as on screen (also when the editor had stacked them), no handles.
 - **Page embed**: the viewer's schema has the nodes (ADR 1539), so the columns show inside the embed.
-- **Version history**: preview and diff are Markdown text, so they show the markers around the blocks.
-- **Offline copy**: the same editor and schema over the device copy.
+- **Version history**: preview and diff are Markdown text (plain notation), so they show the markers around
+  the blocks (from the code path; not opened in a browser).
+- **Offline copy**: the same editor and schema over the device copy's Yjs state (from the code path; not
+  opened offline in a browser).
+- **Heading folds**: a folded section hides its group; a jump to a block inside the group opens the fold.
 
 ## Alternatives considered
 - **A media query on the window**: wrong in a side peek and on wide screens with narrow panes.

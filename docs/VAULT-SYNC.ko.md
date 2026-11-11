@@ -15,7 +15,7 @@ inklingctl sync ~/Vault/Inkling --workspace "Team notes" --dry-run
 
 두 번째 줄의 주석은 동기화를 원할 때마다 실행하면 된다는 뜻입니다.
 
-비밀번호로 로그인하는 대신 API 토큰(설정 › 연결 › API 토큰, `Settings → Connections → API tokens`)을 쓸 수도 있습니다. `inklingctl login --token`으로 로그인하거나, 한 번만 실행할 때는 `INKLING_TOKEN=ink_pat_… inklingctl sync …`처럼 씁니다. 한 페이지의 하위 트리로 범위를 제한한 토큰은 그 하위 트리만 동기화하고, 새 최상위 노트는 거절합니다. 자세한 것은 [apps/cli/README.md](../apps/cli/README.md)를 보세요.
+비밀번호로 로그인하는 대신 설정 › 연결 › API 토큰(`Settings → Connections → API tokens`)에서 만든 API 토큰을 쓸 수도 있습니다. `inklingctl login --token`으로 로그인하거나, 한 번만 실행할 때는 `INKLING_TOKEN=ink_pat_… inklingctl sync …`처럼 씁니다. 한 페이지의 하위 트리로 범위를 제한한 토큰은 그 하위 트리만 동기화하고, 새 최상위 노트는 거절합니다. 자세한 것은 [apps/cli/README.md](../apps/cli/README.md)를 보세요.
 
 워크스페이스마다 전용 폴더를 따로 쓰세요. 처음 실행할 때 그 폴더가 워크스페이스와 연결되고, 그 뒤로는 다른 워크스페이스를 지정하면 거절합니다.
 
@@ -68,7 +68,7 @@ inklingctl sync ~/Vault/Inkling --workspace "Team notes" --dry-run
 
 | ID | 조건 | 구분 | 근거 | 결과 | 비고 |
 |---|---|---|---|---|---|
-| R1 | 만들기, 양방향 | 필수 | vaultSyncReadiness "R1 R2" | 통과 | 링크된 노트, 하위 폴더 |
+| R1 | 만들기, 양방향 | 필수 | vaultSyncReadiness "R1 R2" | 통과 | 서로 링크된 노트, 하위 폴더 |
 | R2 | 고치기, 양방향 | 필수 | vaultSyncReadiness "R1 R2", "R7 (and R2)", "R8 (and R2)" | 통과(고침) | 고치기 전: 볼트에서 편집하면 임베드, 플러그인 블록, 차트가 지워졌습니다 |
 | R3 | 지우기, 양방향, 되살아나지 않음 | 필수 | vaultSyncReadiness R3(테스트 3개 + 빈 폴더) | 통과(고침) | 고치기 전: 하위 페이지 폴더와 함께 지운 페이지가 되살아났고, 지운 폴더가 다시 만들어졌습니다 |
 | R4 | 이름 바꾸기, 양방향 | 필수 | vaultSyncReadiness "R4 R5"(테스트 3개) | 통과(고침) | 고치기 전: 폴더 이름을 바꾸면 폴더 페이지가 새로 생겼고, `Topic.md` + `Topic/`의 이름을 바꾸면 하위 항목을 잃었습니다 |
@@ -82,7 +82,7 @@ inklingctl sync ~/Vault/Inkling --workspace "Team notes" --dry-run
 | R12 | 캔버스: 손상이나 손실 없음 | 필수 | vaultSyncReadiness R12 | 통과(고침) | 동기화하지 않습니다. 이제 실행할 때마다 목록에 나옵니다(전에는 말없이 건너뛰었습니다) |
 | R13 | 동기화 경로의 보안이 다른 경로와 같음 | 필수 | vaultSyncSecurity (13) + agentTaint, accessLeaks, guests, editLock, tokenRange, snapshotChain (146) | **미해결** | 제안만 토큰, 읽기 전용 토큰, 하위 트리 토큰, 게스트, 잠금, 다른 사람의 개인 페이지, 외부인은 쓰기에서 거절됩니다. **동기화 읽기는 제안만 규칙에 쓰는 의심 표시 내용을 기록하지 않습니다(TAINT-1)** |
 | R14 | 파일 1,000개짜리 볼트 | 필수 | vaultSyncScale (`VSYNC_SCALE_N=1000`, CI 기본값 100) | 통과 | docs/PERFORMANCE.md |
-| O1 | 첨부 파일 양방향 동기화 | 선택 | — | 만들지 않음 | 서버 → 볼트 다운로드는 있습니다. 볼트에서 `assets/` 아래를 고쳐도 업로드하지 않습니다 |
+| O1 | 첨부 파일 양방향 동기화 | 선택 | — | 만들지 않음 | 서버 → 볼트 다운로드. 볼트에서 `assets/` 아래를 고쳐도 업로드하지 않습니다 |
 | O2 | 캔버스 내용 동기화 | 선택 | — | 만들지 않음 | 목록에만 나옵니다 |
 
 R14는 다른 에이전트들과 함께 쓰는 Apple M4에서 쟀습니다(CLI는 tsx로 테스트 앱에 붙였고, 로컬 Postgres 16은 Docker에서 돌렸습니다). 노트 1,000개를 처음 업로드하는 데 속도 제한을 끄면 23.5초, 켜면 120.1초 걸렸습니다(429 때문에 5번 기다림). 바뀐 것이 없는 실행은 0.4초 / 1.3초, 페이지 1,000개를 처음 내려받는 데는 4.4초 / 15.5초 걸렸습니다.

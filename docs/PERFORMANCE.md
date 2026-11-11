@@ -353,7 +353,14 @@ the request gates. Two things run without any setting: `GET /api/workspaces/:id/
 General calls on every server, runs the full count when the workspace's cached count is more than a minute old
 (so at most once a minute per workspace) and stores it, and the hourly housekeeping runs two more `DELETE`
 statements (old sign-up records and old `ip_bans` rows). `LIMIT_TRASH_DAYS` changes only the interval inside the
-existing trash purge statement (`LEAST(trash_retention_days, cap)`); without it the statement is the 0.21.1 one.
+existing trash purge statement (`LEAST(trash_retention_days, cap)`); without it the statement is the 0.21.1 one. With
+`LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2530-* .. 2533-*), every live-editing update is
+counted before it is applied against sums in memory and a byte budget per client address (no SQL on that path; the
+cached count is re-read in the background when older than 2 s), the writes that can grow a workspace run one
+`UPDATE` adding the request's JSON size, and the fuse runs at most once a minute one `pg_database_size` query and a
+walk over every file of the data folder. The only numbers are ADR 2530's, from the development server (`tsx`), not
+a production build: 40 pages × 8 MB on one socket stored 18.0 MB under a 20 MB limit with resident memory 356 → 615
+MB at the peak, against 320 MB stored and 2.1 GB before the fix.
 
 ## Sync & collaboration
 

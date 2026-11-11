@@ -357,6 +357,12 @@ DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench npx tsx scri
 수치가 1분보다 오래되었을 때만 전체 계산을 돌려 저장하고(그래서 워크스페이스마다 1분에 한 번까지), 매시간 정리 작업은
 `DELETE` 문을 두 개 더 돌립니다(오래된 가입 기록과 오래된 `ip_bans` 행). `LIMIT_TRASH_DAYS`는 기존 휴지통 정리 문 안의
 기간만 바꾸고(`LEAST(trash_retention_days, cap)`), 없으면 그 문은 0.21.1과 같습니다.
+`LIMIT_WORKSPACE_STORAGE_MB`나 `LIMIT_INSTANCE_STORAGE_MB`가 있으면(docs/adr/2530-* .. 2533-*) 실시간 편집 갱신마다 적용하기
+전에 메모리의 합계와 클라이언트 주소별 바이트 예산에 대어 세고(이 경로에는 SQL이 없고, 캐시한 수치는 2초보다 오래되면 뒤에서
+다시 읽습니다), 워크스페이스를 키울 수 있는 쓰기는 요청 JSON 크기를 더하는 `UPDATE`를 한 번 돌리며, 퓨즈는 1분에 한 번까지
+`pg_database_size` 쿼리 하나와 데이터 폴더의 모든 파일을 도는 일을 합니다. 숫자는 ADR 2530의 것뿐이고 프로덕션 빌드가 아니라
+개발 서버(`tsx`)에서 잰 것입니다. 소켓 하나에 40페이지 × 8 MB를 보내자 20 MB 한도에 18.0 MB가 저장되었고 상주 메모리는 최고
+356 → 615 MB였습니다. 수정 전에는 320 MB를 저장했고 2.1 GB까지 올라갔습니다.
 
 <a id="sync--collaboration"></a>
 ## 동기화와 공동 편집

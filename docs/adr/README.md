@@ -989,7 +989,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2482](2482-pdf-preview-loads-files-up-to-10-mb-on-sight.md) | PDF preview: files up to 10 MB load on sight, larger ones on a press | Accepted |
 | [2483](2483-pdf-preview-limits-against-hostile-files.md) | PDF preview: limits that keep a hostile or huge PDF inside its own block | Accepted |
 
-## 2500–2529 Restricted mode (0.22)
+## 2500–2539 Restricted mode (0.22)
 
 | ADR | Title | Status |
 |---|---|---|
@@ -1014,6 +1014,15 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2527](2527-restricted-sign-up-waits-for-the-setup-code-admin.md) | Restricted sign-up waits for the setup-code administrator (SETUP_REQUIRED) | Accepted |
 | [2528](2528-restricted-mode-pieces-joined.md) | Restricted mode: where the three pieces meet | Accepted |
 | [2529](2529-sockets-of-purged-workspaces.md) | Closing the sockets of a workspace deleted for good | Accepted |
+| [2530](2530-live-edits-counted-when-they-arrive.md) | Live edits counted against the storage limit when they arrive | Accepted |
+| [2531](2531-workspaces-on-the-whole-server.md) | A ceiling on the workspaces of the whole server | Accepted |
+| [2532](2532-instance-storage-fuse.md) | An instance storage fuse inside the app | Accepted |
+| [2533](2533-full-workspaces-refuse-every-growing-write.md) | A full workspace refuses every write that grows it | Accepted |
+| [2535](2535-account-deletion-scrubs-names-by-id-only.md) | Account deletion scrubs names by id only | Accepted |
+| [2536](2536-never-used-oauth-clients-deleted-when-configured.md) | Never-used self-registered OAuth clients are deleted when configured | Accepted |
+| [2537](2537-sign-up-counting-keys-and-hourly-cap.md) | Sign-up counting keys, an hourly cap and limited taken-ID answers | Accepted |
+| [2538](2538-demo-runs-through-a-script-with-fixed-names.md) | The demo runs through a script, with its names written out | Accepted |
+| [2539](2539-deletion-preview-is-session-only.md) | The deletion preview answers browser sessions only | Accepted |
 
 ## 099x Client updates
 

@@ -1693,8 +1693,10 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 <a id="settings-in-apiauthmode-and-apiauthme-docsadr25002503"></a>
 ### `/api/auth/mode`와 `/api/auth/me`의 설정 (docs/adr/2500–2503)
 - `GET /api/auth/mode`는 설정이 켜져 있을 때만 그 필드를 더합니다(아니면 키 자체가 없고 `undefined`도 보내지 않습니다).
-  `loginId: 'username'`(`LOGIN_ID_MODE=username`), `signupFull: true`(계정 수가 `SIGNUP_MAX_USERS`에 닿음),
-  `signupChecks: true`(`SIGNUP_MAX_USERS`나 `SIGNUP_PER_IP_PER_DAY`가 있어서 가입 양식이 봇 검사 필드를 보냄),
+  `loginId: 'username'`(`LOGIN_ID_MODE=username`), `signupFull: true`(계정 수가 `SIGNUP_MAX_USERS`에 닿았거나, 서버의
+  워크스페이스 수가 `LIMIT_WORKSPACES_TOTAL`에 닿았거나, 인스턴스 저장 공간 퓨즈가 끊김), `instanceFull: true`
+  (`LIMIT_INSTANCE_STORAGE_MB` 퓨즈가 끊겨 읽기, 로그인, 내보내기, 삭제만 됨), `signupChecks: true`(`SIGNUP_MAX_USERS`,
+  `SIGNUP_PER_IP_PER_DAY`, `SIGNUP_PER_HOUR` 가운데 하나가 있어서 가입 양식이 봇 검사 필드를 보냄),
   `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]`(정렬), `legal: { version, docs: ('terms' |
   'privacy')[] }`(`LEGAL_DIR`), `limits: { workspacesPerUser?, membersPerWorkspace?, pagesPerWorkspace?, fileMb?,
   workspaceStorageMb?, trashDays? }`(설정된 한도만, MB는 설정한 값 그대로), `workspaceRestoreDays`(30이 아닐 때만)입니다.
@@ -1720,6 +1722,12 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   모두 가입 키를 쓰거나 무엇을 쓰기 전에 합니다. 계정 수 상한과 주소별 상한은 계정을 만드는 트랜잭션 안에서 다시 세고,
   동의 행도 거기서 씁니다. 설정 코드로 만드는 첫 관리자는 계정 수·주소별 상한과 봇 검사를 거치지 않지만 동의는 해야
   합니다.
+- 0.22.0의 보안 수정이 검사 네 개를 더합니다. 각각 그 설정이 켜져 있을 때만 하고, 설정 코드는 넷 다 거치지 않습니다.
+  지난 한 시간 동안 서버의 가입 수(`SIGNUP_PER_HOUR`, 429 `SIGNUP_RATE_LIMIT`, 계정을 만드는 트랜잭션 안에서 잠금을 잡고
+  다시 셈), 그 주소가 받은 "이미 있음" 답(`SIGNUP_PER_IP_PER_DAY`가 있는 동안 409 `EMAIL_TAKEN`이나 `LOGIN_ID_TAKEN`으로
+  거절된 가입을 기록하고, 24시간에 10번이 되면 그 주소는 이름을 보기 전에 429 `SIGNUP_IP_LIMIT`를 받음), 서버의
+  워크스페이스 수(`LIMIT_WORKSPACES_TOTAL`: 403 `SIGNUP_FULL`, 트랜잭션 안에서 다시 세고 거기서는 `{ limit, used }`가
+  붙음), 인스턴스 저장 공간 퓨즈(503 `INSTANCE_FULL`)입니다. 주소별 상한은 IPv6 클라이언트를 /56 단위로 셉니다.
 - 제한 모드(`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY`, `ACCOUNT_LIFETIME_DAYS` 가운데 하나가 있거나
   `LOGIN_ID_MODE=username`)에서 관리자가 없는 서버는 설정 코드 없는 가입을 다른 제한 모드 검사보다 먼저 403
   `SETUP_REQUIRED`로 거절하고, 계정을 만드는 트랜잭션 안에서 한 번 더 확인합니다. 그런 가입은 관리자가 되지 않습니다.
@@ -1731,7 +1739,9 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 - `GET /api/me/delete-preview` → `{ deleted: { id, name, pages, files }[], transferred: { id, name, to: { id, name }
   }[], kept: { id, name }[], privatePages, pages, files, needs: { password, code, recentSignIn }, confirm,
   lastAdmin }`. 계정과 함께 지워지는 워크스페이스, 다른 멤버에게 넘어가는 워크스페이스, 나머지, 그리고 요청에 실어야
-  하는 것입니다. `confirm`은 입력할 확인 문구(로그인 이메일이나 아이디)입니다.
+  하는 것입니다. `confirm`은 입력할 확인 문구(로그인 이메일이나 아이디)입니다. 모든 서버에서 브라우저 세션에만 답합니다
+  (bearer 토큰은 403 `FORBIDDEN`, docs/adr/2539-*). 응답이 계정의 모든 워크스페이스와 넘겨받을 멤버를 토큰의 범위와
+  상관없이 알려 주기 때문입니다.
 - `DELETE /api/me` 본문 `{ confirm, password?, code? }` → `{ ok: true, deletedWorkspaces, transferredWorkspaces }`이고
   세션 쿠키를 지웁니다. 브라우저 세션에서만 됩니다(bearer 토큰은 403). `confirm`은 대소문자를 무시하고 로그인 이메일이나
   아이디와 같아야 합니다(400 `CONFIRM_MISMATCH`). 로컬 계정은 현재 비밀번호를 보내고(400 `INVALID_PASSWORD`),
@@ -1740,7 +1750,11 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   관리자는 409 `LAST_ADMIN`. 분당 10회. 바로 지웁니다. 그 사람만 멤버인 워크스페이스와 그 사람이 혼자 소유한 삭제된(아직 복원할 수 있는) 워크스페이스는 파일까지
   지우고, 그 사람이 혼자
   소유한 공유 워크스페이스는 가장 오래된 관리자 역할 멤버, 없으면 가장 오래된 멤버에게 넘깁니다(알림 타입
-  `workspace_owner`). 개인 페이지는 지우고, 공유 페이지·댓글·버전은 작성자를 null로 두고 남깁니다.
+  `workspace_owner`). 개인 페이지는 지우고, 공유 페이지·댓글·버전은 작성자를 null로 두고 남깁니다. 감사 기록에 옮겨
+  적힌 이름과 가입 때 생긴 워크스페이스의 이름은 계정 id로만 찾습니다(docs/adr/2535-*).
+- 감사 이벤트(`GET /api/workspaces/:id/audit`): `page.locked`와 `page.lock_editors_changed`는 이제 `editors` 옆에
+  `editorIds`를, `agent.blocked`와 `agent.unblocked`는 `user` 옆에 `userId`를 저장해서 계정 삭제가 이름을 id로 찾을 수
+  있습니다. 감사 라우트는 `before`와 `after`에서 이 id 키를 빼고 돌려줍니다.
 - `DELETE /api/workspaces/:id/members/:userId`를 자기 자신에게, 유일한 멤버이자 마지막 소유자로서, 워크스페이스 이름과
   같은 `{ name }` 본문을 실어 브라우저 세션에서 보내면 204이고 워크스페이스를 파일까지 바로 지웁니다(복원 없음). 이름이
   틀리면 400이고, `name`이 없거나 토큰으로 보냈거나 다른 멤버가 있으면 지금처럼 400입니다.
@@ -1762,8 +1776,21 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   복제, 캔버스, 행과 행 일괄, 가져오기, 템플릿, 나누기, 클립, 빠른 할 일, 동기화, 폼 응답), 파일, 워크스페이스(만들기,
   넘겨받기, 소유자로 승격, 복원), 멤버(초대 코드로 참여, 바로 추가)가 그렇습니다. 이미 멤버인 워크스페이스에 다시
   참여하면 다시 세지 않습니다.
-- `LIMIT_WORKSPACE_STORAGE_MB`에 닿은(사용량 ≥ 한도) 워크스페이스는 읽기 전용입니다. docs/OPERATIONS.ko.md(17절)에 적은 쓰기는 413
-  `LIMIT_STORAGE`로 답하고, 협업 연결은 읽기 전용 범위를 받습니다. 본문이 한도의 1/4을 넘은 페이지는 REST와 MCP 쓰기를
+- `LIMIT_WORKSPACE_STORAGE_MB`에 닿은(사용량 ≥ 한도) 워크스페이스는 읽기 전용입니다. 담긴 것을 키울 수 있는 쓰기는 모두
+  413 `LIMIT_STORAGE`로 답하고, 협업 연결은 읽기 전용 범위를 받습니다. POST, PUT, PATCH 라우트는 모두
+  `apps/server/src/quota/writeSweep.test.ts`에 검사함 또는 열어 둠(이유와 함께)으로 적혀 있습니다(docs/adr/2533-*).
+  거절하는 것: 페이지 만들기(복제, 캔버스 펼치기, 섹션, 나누기와 순환 대상, 템플릿에서 만들기, 온보딩 예시 포함), 본문
+  쓰기(`/content`, `/section`, `/ink`, 동기화 Markdown, 페이지·변경·워크스페이스 되돌리기), 버전(`POST /snapshots`, 버전
+  복원), 행(만들기, 일괄 만들기와 바꾸기, 폼 응답), `PATCH /pages/:id/props`, 컬렉션 필드, 뷰와 행 템플릿 새로 만들기와
+  바꾸기, 제목·아이콘·표지·별칭·날짜 속성을 바꾸는 `PATCH /pages/:id`, 새 댓글과 댓글 본문 고치기, 제안 수락과 모든 새
+  제안, 업로드, 클립, 빠른 할 일, vault 동기화 페이지, 가져오기와 폴더 가져오기, 템플릿, 시트 동기화 실행, 새 자동화·
+  웹훅·공유 링크. 열어 두는 것: 없애기, 게시 취소, 거절, 휴지통이나 삭제에서 복원, 멤버와 역할(참여는 `LIMIT_MEMBERS`를
+  그대로 받음), 그 자리에서 바꾸는 크기가 정해진 설정(워크스페이스 이름과 설정, 에이전트 정책과 규칙, 잠금, 소유자,
+  페이지 접근, 공유 링크의 만료와 비밀번호, 자동화 규칙, 검증과 검토), 할 일 체크나 날짜 옮기기, POST로 보내는 읽기,
+  그 사람에 관한 것, 관리자 라우트, `POST /mcp`(그 도구는 위의 라우트를 부름).
+- 이 검사는 캐시한 값을 요청 JSON 크기만큼 바로 올립니다(다음 계산 전까지의 위쪽 어림값). 캐시한 값으로는 들어가지
+  않는데 최근 10초 안에 센 적이 없으면 답하기 전에 워크스페이스를 다시 셉니다. 그래서 한도 가까이의 큰 쓰기는 잠깐 거절될
+  수 있습니다. 본문이 한도의 1/4을 넘은 페이지는 REST와 MCP 쓰기를
   413 `LIMIT_STORAGE`로 거절합니다("This page is too large to grow further: move part of it to a new page", `limit`은 그
   1/4).
 - `LIMIT_TRASH_DAYS`(docs/adr/2525-*): 휴지통의 페이지는 min(`trashRetentionDays`, 상한)일 뒤 완전히 지웁니다.
@@ -1771,6 +1798,14 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   거절합니다. 저장된 값이 상한보다 커도 다른 필드는 저장되고, `GET`은 저장된 값을 돌려줍니다.
 - 내장 상한(브라우저 25 MB, 토큰은 `AGENT_UPLOAD_MAX_MB`)보다 작은 `LIMIT_FILE_MB`가 있으면 `POST /api/files`는 413
   `LIMIT_FILE`로 답합니다. 없으면 지금처럼 413 `PAYLOAD_TOO_LARGE`입니다.
+- `LIMIT_WORKSPACES_TOTAL`(docs/adr/2531-*): 서버의 워크스페이스 수(삭제했지만 아직 복원할 수 있는 것 포함)를 넘는
+  `POST /api/workspaces`는 `{ limit, used }`가 붙은 403 `LIMIT_WORKSPACES_TOTAL`로 답합니다. 가입과 새 OIDC 계정은 대신
+  `SIGNUP_FULL`을 받습니다.
+- `LIMIT_INSTANCE_STORAGE_MB`(docs/adr/2532-*): 퓨즈가 끊긴 동안 `/api` 아래의 POST, PUT, PATCH는 인증보다 먼저 503
+  `INSTANCE_FULL`로 답합니다. 예외는 `OPEN_WHEN_FULL`의 라우트(`apps/server/src/quota/instanceGate.ts`: 로그인과 로그아웃,
+  비밀번호 바꾸기와 재설정, 2단계 인증 설정, 동의, POST로 보내는 읽기, 읽음 표시, 없애거나 넘기기만 하는 라우트)와
+  `/api/admin/**`입니다. GET과 DELETE는 언제나 통과합니다. `POST /oauth/register`는 OAuth 오류 형식의 503
+  `temporarily_unavailable`로 답합니다.
 
 <a id="features-turned-off-docsadr2507"></a>
 ### 기능 끄기 (docs/adr/2507)
@@ -1804,8 +1839,11 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 |---|---|---|---|
 | 400 | `LOGIN_ID_INVALID` | 아이디 모드: `loginId`가 없거나 규칙에 맞지 않거나 예약어 | — |
 | 409 | `LOGIN_ID_TAKEN` | 아이디 모드: 이미 쓰이는 아이디(이메일 모드는 `EMAIL_TAKEN` 그대로) | — |
-| 403 | `SIGNUP_FULL` | 서버의 계정 수가 `SIGNUP_MAX_USERS`에 닿음 | — |
-| 429 | `SIGNUP_IP_LIMIT` | 그 주소에서 24시간 동안 `SIGNUP_PER_IP_PER_DAY`개를 만듦 | — |
+| 403 | `SIGNUP_FULL` | 서버의 계정 수가 `SIGNUP_MAX_USERS`에, 또는 워크스페이스 수가 `LIMIT_WORKSPACES_TOTAL`에 닿음(가입하면 하나 생김) | 트랜잭션 전에는 —. 트랜잭션 안의 워크스페이스 수 검사는 `{ limit, used }` |
+| 429 | `SIGNUP_IP_LIMIT` | 그 주소에서 24시간 동안 `SIGNUP_PER_IP_PER_DAY`개를 만들었거나, 그 설정이 켜진 동안 24시간에 "이미 있음" 답을 10번 받음 | — |
+| 429 | `SIGNUP_RATE_LIMIT` | 서버가 지난 한 시간 동안 `SIGNUP_PER_HOUR`개의 계정을 만듦 | — |
+| 403 | `LIMIT_WORKSPACES_TOTAL` | 서버의 워크스페이스가 `LIMIT_WORKSPACES_TOTAL`개(삭제했지만 아직 복원할 수 있는 것 포함)일 때의 `POST /api/workspaces` | `{ limit, used }` |
+| 503 | `INSTANCE_FULL` | 인스턴스 저장 공간 퓨즈가 끊김: `OPEN_WHEN_FULL` 밖의 `/api` 아래 POST, PUT, PATCH, 또는 가입 | — |
 | 400 | `SIGNUP_CHECK_FAILED` | 가입 제한이 켜져 있는데 숨은 `website` 칸이 채워졌거나, `formMs`가 없거나 2000보다 작음 | — |
 | 403 | `SETUP_REQUIRED` | 제한 모드, 아직 관리자 없음, 설정 코드 없는 가입 | — |
 | 400 | `CONSENT_REQUIRED` | 가입이나 `POST /api/legal/consent`: 다른 버전, 모르는 항목, 체크하지 않은 필수 항목 | `{ version }` |
@@ -1826,6 +1864,17 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 "unit" } }`. `limit`과 `used`는 숫자이고, 웹 앱은 이 값을 자기 문구에 넣어 보여 줍니다. `DELETE /api/me`는 틀린 2단계
 코드에 400 `INVALID_TOTP_CODE`로 답합니다(로그인은 401).
 
+OAuth 라우트는 OAuth 오류 형식(`{ error, error_description }`)으로 답합니다.
+- `POST /oauth/register`는 두 경우에 503 `temporarily_unavailable`로 답합니다. 인스턴스 저장 공간 퓨즈가 끊겼을 때(먼저
+  확인합니다), 그리고 `OAUTH_UNUSED_CLIENT_MAX`에 닿았는데 쓰이지 않은 클라이언트가 모두 15분이 안 되었을 때입니다
+  (`Retry-After: 60`과 함께). 상한이 있으면 등록은 먼저 가장 오래된, 쓰이지 않은 클라이언트를 지웁니다.
+- `OAUTH_UNUSED_CLIENT_HOURS`나 `OAUTH_UNUSED_CLIENT_MAX`로 지워진 자체 등록 클라이언트는 모르는 클라이언트가 됩니다.
+  인가 단계가 400 `INVALID_CLIENT`("Unknown app. Connect again from the app.")로 답하고, 앱은 다시 등록해야 합니다
+  (docs/adr/2536-*). 아무것도 가리키지 않는 클라이언트만 지우므로, 코드나 grant가 있는 클라이언트는 이런 일을 겪지
+  않습니다.
+- 모든 서버에서 `grant_type=authorization_code`인 `POST /oauth/token`은 코드를 쓰는 일과 grant를 저장하는 일을 한
+  트랜잭션으로 합니다. 응답은 그대로입니다.
+
 <a id="mcp-tools-11"></a>
 ### MCP 도구
-새 도구도 서버 지침 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). `LIMIT_FILE_MB`가 `AGENT_UPLOAD_MAX_MB`보다 작으면 `upload_file`의 설명에 작은 쪽 크기가 적힙니다. 도구는 자기가 부르는 REST 라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸리고, 이 코드들의 오류에는 각자의 다음 할 일 안내가 붙습니다. `list_trash`의 날짜는 `LIMIT_TRASH_DAYS`를 따릅니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).
+새 도구도 서버 지침 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). `LIMIT_FILE_MB`가 `AGENT_UPLOAD_MAX_MB`보다 작으면 `upload_file`의 설명에 작은 쪽 크기가 적힙니다. 도구는 자기가 부르는 REST 라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸리고, 이 코드들의 오류에는 각자의 다음 할 일 안내가 붙습니다(`INSTANCE_FULL`도 그렇습니다. 아무것도 쓰지 않았고, 다시 시도하지 말고, 운영자가 공간을 비워야 한다고 알립니다). `list_trash`의 날짜는 `LIMIT_TRASH_DAYS`를 따릅니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).

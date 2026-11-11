@@ -681,13 +681,25 @@ app, because they call the same REST routes; nothing is written when a call is r
   for example `Error: This workspace already has 300 of 300 pages (the trash counts too) (LIMIT_PAGES): nothing was
   created; this workspace has reached its page limit on this server (300 of 300 used). Pages in the trash count too.
   Do not retry. Tell the user: deleting pages and emptying the trash makes room, or use another workspace`.
-  `LIMIT_MEMBERS`, `LIMIT_WORKSPACES`, `LIMIT_STORAGE` (sizes in MB) and `LIMIT_FILE` have their own. A workspace that
-  has reached its storage limit is read-only: page writes, comments, uploads and imports are refused that way, and
+  `LIMIT_MEMBERS`, `LIMIT_WORKSPACES`, `LIMIT_STORAGE` (sizes in MB) and `LIMIT_FILE` have their own. No tool creates
+  workspaces, so `LIMIT_WORKSPACES_TOTAL` never reaches a tool and has no hint of its own. A workspace that
+  has reached its storage limit is read-only: page writes, comments, row fields, suggestions, uploads and imports are
+  refused that way, and
   one page past a quarter of the limit answers `This page is too large to grow further: move part of it to a new
   page (LIMIT_STORAGE)` with the same next step. `upload_file` takes at most `min(AGENT_UPLOAD_MAX_MB,
   LIMIT_FILE_MB)`, names that size in its description and refuses a larger file before uploading it ("the file is
   too large for this server (LIMIT_FILE): …"). `LIMIT_VERSIONS_PER_PAGE` keeps fewer versions per page; the agents'
   share of them shrinks with it. `LIMIT_TRASH_DAYS` shortens the "deleted for good after" date of `list_trash`.
+- **A full server.** While the instance storage fuse (`LIMIT_INSTANCE_STORAGE_MB`) is tripped, every tool that
+  writes gets `INSTANCE_FULL` with the next step "nothing was written; this server's storage is full, so for now it
+  only reads, exports and deletes. Do not retry, and do not try another tool to write the same thing. Tell the user:
+  the server operator has to make room; reading still works". Tools that only read keep working, and so does
+  `trash_page` (a DELETE); a tool whose REST call is open on a full server (`quota/instanceGate.ts`, for example
+  withdrawing a suggestion or acknowledging the inbox) passes too. Every other write is refused.
+- **Connecting.** On a server with `OAUTH_UNUSED_CLIENT_HOURS` or `OAUTH_UNUSED_CLIENT_MAX`, a client that registered
+  but never finished connecting can be deleted; the next attempt with its old id is refused as an unknown app, and
+  the client has to register again (KNOWN-ISSUES LIMITS-30). A full server refuses new registrations for now (503
+  `temporarily_unavailable`). Connections that are set up are never deleted this way.
 - **Terms.** On a server with terms (`LEGAL_DIR`), a person who has not agreed to the current version cannot use
   any connection: every request to `/mcp` is refused with HTTP 403 `CONSENT_REQUIRED` before the MCP exchange starts,
   with the message "You must agree to the terms of this server first. Sign in on the web and agree: <server
@@ -811,8 +823,8 @@ connection token (`ink_agt_`, see "Apps that cannot sign in" above). Revoking ei
 - **0.22**: one migration (`0062_limits_accounts`); no new tool and no server instruction change, so the fixed cost
   per session is the same as 0.21 (full 48 tools, core 32). With none of the restricted-mode settings nothing
   changes for agents; with `LIMIT_FILE_MB` below `AGENT_UPLOAD_MAX_MB`, `upload_file`'s description names the smaller
-  size. With them, tools are refused by the limits, the consent gate and the features turned
-  off through the REST routes they call ("Servers with limits, features turned off or terms" above); a person who
+  size. With them, tools are refused by the limits, the instance storage fuse, the consent gate and the features
+  turned off through the REST routes they call ("Servers with limits, features turned off or terms" above); a person who
   has not agreed to the terms cannot open `/mcp` at all. Account deletion, "delete now" and leaving a workspace as
   its only member are browser-only: no tool and no token can do them.
 

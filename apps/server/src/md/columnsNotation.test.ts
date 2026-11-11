@@ -3,11 +3,13 @@
 // A `columnList` is written as comment markers around each column's blocks in every notation mode,
 // reads back into the same structure (types, widths, text), reads as ordinary Markdown in order for a
 // tool that does not know the markers, and broken marker input keeps every block. Headings inside a
-// column are not section boundaries; patch_section on the section that holds the group keeps it.
+// column are not section boundaries; patch_section on the section that holds the group keeps it, also
+// when it is given find_context's text of that section.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import * as Y from 'yjs'
 import { findSection, splitSections } from '../context/chunker'
+import { scanInjection } from '../context/injectionScan'
 import { applyDocumentReplace, applySectionPatch, buildEchoIndex, readBlocks } from '../context/sectionPatch'
 import { blocksToMarkdown, blocksToStateBuffer, markdownToBlocks, stateToBlocks } from './convert'
 import type { AnyBlock } from './convert'
@@ -167,21 +169,78 @@ describe('headings inside columns are not sections (2424)', () => {
     assert.equal(blocks.slice(intro.start, intro.end).some((b) => b.type === 'columnList'), true)
   })
 
-  // context/sectionPatch.ts builds and indexes top-level blockContainers only. Until it knows groups
-  // (a proposed change for context/, outside this branch), a patch of the section that holds a group
-  // is refused with nothing changed, and update_page falls back to rewriting the document
-  // (docWrite.ts) — both keep the columns. Sections without a group patch as before.
-  it('patch_section on the section holding the group is refused with nothing changed (for now)', async () => {
+  // context/sectionPatch.ts takes a top-level group of columns as one unit: kept when the agent left it
+  // alone, replaced whole when anything inside it changed (docs/adr/2424-*).
+  it('patch_section on the section holding the group keeps the group (unchanged or edited inside)', async () => {
     const doc = getServerEditor().blocksToYDoc(stored(PAGE()) as never, 'document')
-    const before = doc.getXmlFragment('document').toString()
     const current = readBlocks(doc)
     const s = findSection(splitSections(current), 'intro')!
     const sectionMd = await md(current.slice(s.start, s.end))
     const echo = await buildEchoIndex(current.slice(s.start, s.end), noTitles, {})
-    assert.throws(() => applySectionPatch(doc, 'intro', [], 'replace', undefined, echo))
-    const incoming = await markdownToBlocks(sectionMd.replace('left text', 'left text edited'), noTitles)
-    assert.throws(() => applySectionPatch(doc, 'intro', incoming, 'replace', undefined, echo), /Could not convert the Markdown|update_page/)
-    assert.equal(doc.getXmlFragment('document').toString(), before)
+    assert.throws(() => applySectionPatch(doc, 'intro', [], 'replace', undefined, echo), /markdown is empty/)
+    // the section as read, given back: nothing changes, the group keeps its id
+    const groupId = current.find((b) => b.type === 'columnList')!.id
+    const same = applySectionPatch(doc, 'intro', await markdownToBlocks(sectionMd, noTitles), 'replace', undefined, echo)
+    assert.equal(same.status, 'ok')
+    assert.deepEqual(shape(readBlocks(doc)), shape(current))
+    assert.equal(readBlocks(doc).find((b) => b.type === 'columnList')!.id, groupId)
+    // text inside a column edited: the group is replaced whole, same structure and widths
+    const out = applySectionPatch(doc, 'intro', await markdownToBlocks(sectionMd.replace('left text', 'left text edited'), noTitles), 'replace', undefined, echo)
+    assert.equal(out.status, 'ok')
+    const after = readBlocks(doc)
+    assert.deepEqual(shape(after), shape(current).map((b) => (JSON.stringify(b).includes('left text') ? JSON.parse(JSON.stringify(b).replace('left text', 'left text edited')) : b)))
+    assert.equal(after.filter((b) => b.type === 'columnList').length, 1)
+  })
+
+  it('an edit inside a column is applied when the echo index also sees the new blocks (the routes pass them)', async () => {
+    const doc = getServerEditor().blocksToYDoc(stored(PAGE()) as never, 'document')
+    const current = readBlocks(doc)
+    const s = findSection(splitSections(current), 'intro')!
+    const sectionMd = await md(current.slice(s.start, s.end))
+    const incoming = await markdownToBlocks(sectionMd.replace('right text', 'right text edited'), noTitles)
+    const echo = await buildEchoIndex(current.slice(s.start, s.end), noTitles, {}, incoming)
+    assert.equal(applySectionPatch(doc, 'intro', incoming, 'replace', undefined, echo).status, 'ok')
+    const group = readBlocks(doc).find((b) => b.type === 'columnList')!
+    assert.match(JSON.stringify(group), /right text edited/)
+    // the blocks around the group were left alone: same ids
+    assert.deepEqual(readBlocks(doc).filter((b) => b.type !== 'columnList').map((b) => b.id), current.filter((b) => b.type !== 'columnList').map((b) => b.id))
+  })
+
+  it('an edit to a nested block inside a column is applied (the group key covers every depth)', async () => {
+    const page: AnyBlock[] = [
+      h(2, 'Intro'),
+      cols(col([{ type: 'bulletListItem', content: t('parent item'), children: [{ type: 'bulletListItem', content: t('nested item') }] }]), col([p('right')])),
+    ]
+    const doc = getServerEditor().blocksToYDoc(stored(page) as never, 'document')
+    const current = readBlocks(doc)
+    const s = findSection(splitSections(current), 'intro')!
+    const sectionMd = await md(current.slice(s.start, s.end))
+    assert.match(sectionMd, /nested item/)
+    const incoming = await markdownToBlocks(sectionMd.replace('nested item', 'nested item edited'), noTitles)
+    const echo = await buildEchoIndex(current.slice(s.start, s.end), noTitles, {}, incoming)
+    assert.equal(applySectionPatch(doc, 'intro', incoming, 'replace', undefined, echo).status, 'ok')
+    assert.match(JSON.stringify(readBlocks(doc)), /nested item edited/)
+  })
+
+  it("find_context's section text given back to patch_section keeps the group (markers, no indent)", async () => {
+    const doc = getServerEditor().blocksToYDoc(stored(PAGE()) as never, 'document')
+    const current = readBlocks(doc)
+    const intro = splitSections(current).find((x) => x.anchor === 'intro')!
+    assert.match(intro.text, /^<!-- inkling:columns \{"widths":\[60,40\]\} -->$/m)
+    assert.match(intro.text, /^<!-- inkling:column -->\n### Left heading$/m)
+    assert.match(intro.text, /^left text$/m)
+    assert.match(intro.text, /^<!-- \/inkling:columns -->$/m)
+    assert.doesNotMatch(intro.text, /^ +\S/m)
+    // the marker comments are not taken for hidden instructions (docs/adr/0977-*)
+    assert.deepEqual(scanInjection(intro.text), [])
+    const echo = await buildEchoIndex(current.slice(intro.start, intro.end), noTitles, {})
+    const out = applySectionPatch(doc, 'intro', await markdownToBlocks(`## Intro\n\n${intro.text.replace('left text', 'left text 2')}`, noTitles), 'replace', undefined, echo)
+    assert.equal(out.status, 'ok')
+    const group = readBlocks(doc).find((b) => b.type === 'columnList')!
+    assert.ok(group, 'group kept')
+    assert.deepEqual(group.children!.map((c) => Number(c.props?.width)), [1.2, 0.8])
+    assert.match(JSON.stringify(group), /left text 2/)
+    assert.match(JSON.stringify(group), /Left heading/)
   })
 
   it('patch_section on a section next to the group keeps the group', async () => {
@@ -197,15 +256,18 @@ describe('headings inside columns are not sections (2424)', () => {
     assert.match(JSON.stringify(after), /next body edited/)
   })
 
-  it('the minimal update_page replace refuses a page with a group (docWrite then rewrites it)', async () => {
+  it('the minimal update_page replace keeps a group and the blocks around it', async () => {
     const doc = getServerEditor().blocksToYDoc(stored(PAGE()) as never, 'document')
     const current = readBlocks(doc)
     const full = await md(current)
-    const before = doc.getXmlFragment('document').toString()
     const incoming = await markdownToBlocks(full.replace('right text', 'right text 2'), noTitles)
     assert.equal(incoming.filter((b) => b.type === 'columnList').length, 1)
-    assert.throws(() => applyDocumentReplace(doc, incoming, null))
-    assert.equal(doc.getXmlFragment('document').toString(), before)
+    const keptIds = current.filter((b) => b.type !== 'columnList').map((b) => b.id)
+    applyDocumentReplace(doc, incoming, null)
+    const after = readBlocks(doc)
+    assert.equal(after.filter((b) => b.type === 'columnList').length, 1)
+    assert.match(JSON.stringify(after.find((b) => b.type === 'columnList')), /right text 2/)
+    assert.deepEqual(after.filter((b) => b.type !== 'columnList').map((b) => b.id), keptIds)
   })
 
   it('Yjs: a page with columns reads back unchanged on the server', () => {

@@ -122,7 +122,14 @@ function fingerprint(b: AnyBlock): string {
 }
 
 function keyOf(b: AnyBlock): string {
+  // A group of columns is one unit (docs/adr/2424-*): its key covers every block inside it at any depth,
+  // so it is kept only when nothing in it changed and otherwise replaced whole.
+  if (b.type === 'columnList' || b.type === 'column') return deepKey(b)
   return JSON.stringify([b.type ?? '', b.props ?? {}, b.content ?? null])
+}
+
+function deepKey(b: AnyBlock): string {
+  return JSON.stringify([b.type ?? '', b.props ?? {}, b.content ?? null, (b.children ?? []).map((c) => deepKey(c))])
 }
 
 /**
@@ -151,12 +158,15 @@ export async function buildEchoIndex(
       for (const c of b.children ?? []) await visit(c)
       return
     }
-    const { markdown } = await blocksToMarkdown([{ ...b, children: [] }], { assetMode: 'absolute', notation: 'agent' })
+    // a group of columns round-trips whole (its key covers its blocks); its inner blocks are never paired
+    const group = b.type === 'columnList'
+    const { markdown } = await blocksToMarkdown([group ? b : { ...b, children: [] }], { assetMode: 'absolute', notation: 'agent' })
     const parsed = normalizeBlocks(await markdownToBlocks(markdown, resolveTitle, undefined, notation))
     out.set(fingerprint(b), {
       key: parsed.length === 1 ? keyOf(parsed[0]) : `\u0000multi:${JSON.stringify(parsed.map(keyOf))}`,
       type: parsed.length === 1 ? (parsed[0].type ?? '') : (b.type ?? ''),
     })
+    if (group) return
     for (const c of b.children ?? []) await visit(c)
   }
   for (const b of blocks) await visit(b)
@@ -203,6 +213,15 @@ function structureError(): never {
 
 function indexContainers(group: Y.XmlElement, map: Map<string, Y.XmlElement>): void {
   for (const c of group.toArray()) {
+    if (isEl(c, 'columnList')) {
+      // a group of columns is one top-level unit: replaced whole, never merged inside (docs/adr/2424-*)
+      const id = c.getAttribute('id')
+      if (typeof id === 'string') {
+        if (map.has(id)) structureError()
+        map.set(id, c)
+      }
+      continue
+    }
     if (!isEl(c, 'blockContainer')) continue
     const id = c.getAttribute('id')
     if (typeof id === 'string') {
@@ -701,7 +720,8 @@ function syncList(
     const newTypes = ins.map((j) => pairType(newBlocks[j].type ?? ''))
     const run: Act[] = []
     for (const p of align(oldTypes, newTypes, 1_000, 1_000_000)) {
-      if (p.t === '=') run.push({ t: 'edit', i: dels[p.i], j: ins[p.j] })
+      if (p.t === '=' && oldBlocks[dels[p.i]].type === 'columnList') run.push({ t: 'del', i: dels[p.i] }, { t: 'ins', j: ins[p.j] })
+      else if (p.t === '=') run.push({ t: 'edit', i: dels[p.i], j: ins[p.j] })
       else if (p.t === '-') run.push({ t: 'del', i: dels[p.i] })
       else run.push({ t: 'ins', j: ins[p.j] })
     }
@@ -757,7 +777,8 @@ function buildIncoming(blocks: AnyBlock[]): { tmp: Y.Doc; els: Y.XmlElement[]; r
     tmp.destroy()
     throw badRequest('Could not convert the Markdown')
   }
-  const els = g.toArray().filter((c) => isEl(c, 'blockContainer')) as Y.XmlElement[]
+  // a top-level block is a blockContainer or a group of columns (docs/adr/2420-*)
+  const els = g.toArray().filter((c) => isEl(c, 'blockContainer') || isEl(c, 'columnList')) as Y.XmlElement[]
   // The server's own reading of the new blocks (normalized: "\n" → hardBreak → "\n", default props).
   const read = readBlocks(tmp)
   return { tmp, els, read }
@@ -803,6 +824,11 @@ function validate(doc: Y.Doc, expect: Ctx['expect']): string | null {
   const knownIds: string[] = []
   const walk = (group: Y.XmlElement) => {
     for (const c of group.toArray()) {
+      // blocks inside a group of columns must survive too (columnList > column > blockContainer, docs/adr/2420-*)
+      if (isEl(c, 'columnList')) {
+        for (const col of c.toArray()) if (isEl(col, 'column')) walk(col)
+        continue
+      }
       if (!isEl(c, 'blockContainer')) continue
       const cn = contentNode(c)
       if (!cn || !schema.nodes[cn.nodeName]) continue

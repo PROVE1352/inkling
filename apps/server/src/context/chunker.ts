@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { parseInternalHref, sectionLinkMarkdown } from '@inkling/shared/sectionLink'
 import { scanInjection } from './injectionScan'
 import type { AnyBlock } from '../md/convert'
+import { COLUMN_MARK, COLUMNS_CLOSE, columnsOpen } from '../md/notation'
 import { estimateTokens, isCjkCode } from './tokens'
 
 /**
@@ -157,6 +158,22 @@ function blockLines(b: AnyBlock, indent: string, out: string[]): void {
     case 'button':
       out.push(`${indent}[button: ${String(props.label ?? '').replace(/[\r\n]+/g, ' ')}]`)
       break
+    case 'columnList': {
+      // The same marker lines as read_page (docs/adr/2422-*), column blocks not indented: section text
+      // given back to patch_section keeps the group (docs/adr/2424-*).
+      const columns = Array.isArray(b.children) ? b.children : []
+      out.push(`${indent}${columnsOpen(columns)}`)
+      for (const col of columns) {
+        out.push(`${indent}${COLUMN_MARK}`)
+        for (const ch of Array.isArray(col.children) ? col.children : []) blockLines(ch, indent, out)
+      }
+      out.push(`${indent}${COLUMNS_CLOSE}`)
+      return
+    }
+    case 'column':
+      // only inside a columnList (above); a stray one shows its blocks in place
+      for (const ch of Array.isArray(b.children) ? b.children : []) blockLines(ch, indent, out)
+      return
     case 'codeBlock': {
       const lang = typeof props.language === 'string' && props.language !== 'text' ? props.language : ''
       out.push(`${indent}\`\`\`${lang}`)

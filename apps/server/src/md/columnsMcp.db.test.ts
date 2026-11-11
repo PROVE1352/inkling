@@ -1,8 +1,7 @@
 // Columns through the agent tools (docs/adr/2422-*, 2424-*): read_page writes the column markers,
 // create_page / update_page read them back into a group, outline and find_context do not take a
 // heading inside a column for a section, and the zip export → import keeps the group. patch_section
-// works next to a group; on the section that holds one it is refused with nothing changed until
-// context/sectionPatch.ts knows groups (ADR 2424).
+// works next to a group and on the section that holds one (ADR 2424).
 // Run: cd apps/server && DATABASE_URL=postgres://… node ../../scripts/run-tests.mjs --db
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -124,21 +123,23 @@ describe('[db] columns through the agent tools', { skip: !HAS_DB }, async () => 
     assert.equal(groups[1].children!.length, 3)
   })
 
-  it('patch_section: a section next to a group patches; the section holding one says to use update_page', async () => {
+  it('patch_section: a section next to a group patches; the section holding one keeps its group', async () => {
     const v = (anchor: string) => async () => new RegExp(`§${anchor} [^\\n]*v=([0-9a-f]+)`).exec(await ok('read_page', { pageId, outline: true }))![1]
-    await ok('patch_section', { pageId, section: 'later', markdown: '## Later\n\nlater body patched', mode: 'replace', baseVersion: await v('later')() })
+    // 'later' holds the group appended above: given back with its markers, the group stays
+    const appended = '<!-- inkling:columns -->\n<!-- inkling:column -->\na\n<!-- inkling:column -->\nb\n<!-- inkling:column -->\nc\n<!-- /inkling:columns -->'
+    await ok('patch_section', { pageId, section: 'later', markdown: `## Later\n\nlater body patched\n\n${appended}`, mode: 'replace', baseVersion: await v('later')() })
     let blocks = await stored(pageId)
     assert.match(JSON.stringify(blocks), /later body patched/)
     assert.equal(blocks.filter((b) => b.type === 'columnList').length, 2)
-    const r = await m.tool('patch_section', { pageId, section: 'plan', markdown: '## Plan\n\nintro changed\n\n<!-- inkling:columns -->\n<!-- inkling:column -->\nx\n<!-- inkling:column -->\ny\n<!-- /inkling:columns -->', mode: 'replace', baseVersion: await v('plan')() })
+    assert.equal(blocks.filter((b) => b.type === 'columnList')[1].children!.length, 3)
+    await ok('patch_section', { pageId, section: 'plan', markdown: '## Plan\n\nintro changed\n\n<!-- inkling:columns {"widths":[60,40]} -->\n<!-- inkling:column -->\nx\n<!-- inkling:column -->\ny\n<!-- /inkling:columns -->', mode: 'replace', baseVersion: await v('plan')() })
     blocks = await stored(pageId)
-    if (r.isError) {
-      assert.match(r.text, /update_page|Could not convert the Markdown/)
-      assert.doesNotMatch(JSON.stringify(blocks), /intro changed/)
-    } else {
-      assert.match(JSON.stringify(blocks), /intro changed/)
-    }
-    assert.ok(blocks.some((b) => b.type === 'columnList'), 'groups kept')
+    assert.match(JSON.stringify(blocks), /intro changed/)
+    const groups = blocks.filter((b) => b.type === 'columnList')
+    assert.equal(groups.length, 2, 'the patched section has its new group, the appended one stays')
+    assert.deepEqual(groups[0].children!.map((c) => Number(c.props?.width)), [1.2, 0.8])
+    assert.match(JSON.stringify(groups[0]), /"x"/)
+    assert.match(JSON.stringify(groups[0]), /"y"/)
   })
 
   it('broken markers from an agent keep every line and make no group', async () => {

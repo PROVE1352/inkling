@@ -73,8 +73,8 @@ export const COLUMN_MARK = '<!-- inkling:column -->'
 const COLUMN_MARK_RE = /^([ \t>]*)<!--[ \t]*(\/?)inkling:(columns|column)(?:[ \t]+(\{.*\}))?[ \t]*-->[ \t]*$/
 type ColumnMark = { kind: 'open'; widths: number[] | null } | { kind: 'column' } | { kind: 'close' }
 
-/** `<!-- inkling:columns -->`, with the widths in percent when the columns are not equal. */
-function columnsOpen(columns: AnyBlock[]): string {
+/** `<!-- inkling:columns -->`, with the widths in percent when the columns are not equal (also find_context's text). */
+export function columnsOpen(columns: AnyBlock[]): string {
   const weights = columns.map((c) => columnWeight(c.props?.width))
   return equalWeights(weights) ? '<!-- inkling:columns -->' : `<!-- inkling:columns ${commentJson({ widths: weightsToPct(weights) })} -->`
 }

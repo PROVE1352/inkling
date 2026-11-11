@@ -15,4 +15,5 @@ export default {
   'limits.fullSettings': 'See usage',
   'limits.trashCapped': 'Pages in the trash are deleted for good after this many days. This server keeps them at most {cap} days ({min}–{cap}).',
   'limits.featureOff': 'This server has turned this feature off.',
+  'limits.instanceFull': "This server's storage is full. For now you can only read and delete.",
 } as const

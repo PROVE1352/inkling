@@ -4,7 +4,8 @@ import { db } from '../db/index'
 import { registerAuthModeExtra, registerHousekeepingTask } from '../restrictedExtras'
 import { registerSignupHook } from '../signupHooks'
 import { registerFeatureGate } from './features'
-import { isInstanceFull } from './instance'
+import { instanceStorageLimitBytes, isInstanceFull, measureInstanceStorage } from './instance'
+import { registerInstanceGate } from './instanceGate'
 import { workspacesTotalReached } from './room'
 import { quotaSignupHook } from './signup'
 import { recountAllWorkspaces } from './storage'
@@ -26,6 +27,8 @@ let processWide = false
  */
 export async function registerQuota(api: FastifyInstance): Promise<void> {
   registerFeatureGate(api)
+  // LIMIT_INSTANCE_STORAGE_MB: writes under /api refused while the fuse is tripped (docs/adr/2532-*)
+  registerInstanceGate(api)
   registerUsageRoute(api)
   if (!processWide) {
     processWide = true
@@ -35,6 +38,10 @@ export async function registerQuota(api: FastifyInstance): Promise<void> {
     // LIMIT_WORKSPACES_TOTAL and the instance fuse (contract §14, docs/adr/2531-*, 2532-*): the sign-up
     // checks and the auth mode fields. Each answers nothing and reads nothing without its setting.
     registerSignupHook('quota-server-limits', quotaSignupHook)
+    // the fuse is measured at least hourly even when nothing asks (and at most once a minute when asked)
+    registerHousekeepingTask('quota-instance-measure', async () => {
+      if (instanceStorageLimitBytes() != null) await measureInstanceStorage()
+    })
     registerAuthModeExtra('quota-server-limits', async () => {
       const out: Partial<AuthModeDTO> = {}
       if (await workspacesTotalReached(db)) out.signupFull = true

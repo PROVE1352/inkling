@@ -71,6 +71,8 @@ export function itemValue(it: StatusItem): string {
       return it.level === 'off' ? tk('adminStatus.storage.off') : tk(`${k}.ok`, { size: fmtBytes(d.bytes), count: num(d.files) })
     case 'storage.largePages':
       return it.level === 'off' ? tk('adminStatus.storage.off') : tk(`${k}.ok`, { count: num(d.count) })
+    case 'storage.instanceFuse':
+      return tk(d.full ? `${k}.full` : `${k}.ok`, { used: fmtBytes(d.used), limit: fmtBytes(d.limit), db: fmtBytes(d.db), files: fmtBytes(d.files) })
     case 'app.uptime':
       return tk(`${k}.ok`, { duration: fmtDuration(num(d.seconds)), version: String(d.version ?? '') })
     case 'app.restarts':

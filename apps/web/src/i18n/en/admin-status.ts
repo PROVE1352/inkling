@@ -92,6 +92,9 @@ export default {
   'adminStatus.storage.uploads.ok': '{size} in {count} files',
   'adminStatus.storage.largePages': 'Large pages',
   'adminStatus.storage.largePages.ok': '{count} (listed in each workspace\'s settings)',
+  'adminStatus.storage.instanceFuse': 'Server storage limit',
+  'adminStatus.storage.instanceFuse.ok': '{used} of {limit} used (database {db}, files {files})',
+  'adminStatus.storage.instanceFuse.full': 'Full: {used} of {limit} used (database {db}, files {files}). Only reading and deleting work now. How to make room is in the operations guide.',
   'adminStatus.storage.off': 'Unknown',
 
   'adminStatus.app.uptime': 'Uptime',

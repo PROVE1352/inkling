@@ -237,6 +237,14 @@ describe('read-only workspaces refuse every write that grows them (docs/adr/2533
     assert.deepEqual(stale, [], 'listed but no longer found')
   })
 
+  it('the writes a full server keeps open (quota/instanceGate.ts) are real routes', async () => {
+    const { OPEN_WHEN_FULL } = await import('./instanceGate')
+    for (const k of OPEN_WHEN_FULL) {
+      const key = k.replace(' /api/', ' /')
+      assert.ok(found.has(key), `${k} is not a route`)
+    }
+  })
+
   it('a checked route calls a storage check in its handler, or in the helper it names', () => {
     for (const [key, entry] of Object.entries(ROUTES)) {
       const r = found.get(key)

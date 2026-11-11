@@ -93,6 +93,9 @@ export default {
   'adminStatus.storage.uploads.ok': '파일 {count}개, {size}',
   'adminStatus.storage.largePages': '큰 페이지',
   'adminStatus.storage.largePages.ok': '{count}개 (각 워크스페이스 설정에 목록이 있음)',
+  'adminStatus.storage.instanceFuse': '서버 저장 공간 상한',
+  'adminStatus.storage.instanceFuse.ok': '{limit} 중 {used} 사용 (데이터베이스 {db}, 파일 {files})',
+  'adminStatus.storage.instanceFuse.full': '가득 참: {limit} 중 {used} 사용 (데이터베이스 {db}, 파일 {files}). 지금은 읽기와 삭제만 됩니다. 공간을 비우는 방법은 운영 문서에 있습니다.',
   'adminStatus.storage.off': '알 수 없음',
 
   'adminStatus.app.uptime': '가동 시간',

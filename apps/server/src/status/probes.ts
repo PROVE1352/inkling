@@ -23,6 +23,7 @@ import { countSecretsAtRest } from '../secretsAtRest'
 import { isNewerRelease, releaseCheck, SERVER_VERSION } from '../version'
 import { dbPasswordWeakness, type DiskFact, type StatusFacts } from './evaluate'
 import { errorStats, restartStats } from './runtime'
+import { instanceStorageStatus } from '../quota/instance'
 
 export const HEAVY_TTL_MS = 5 * 60 * 1000
 
@@ -203,6 +204,13 @@ async function pushFacts(): Promise<NonNullable<StatusFacts['push']>> {
   return { enabled: pushEnv.enabled, problem, subscriptions: s.subscriptions, failing: s.failing, dead24h: s.dead24h, lastFailureAt: s.lastFailureAt }
 }
 
+/** The instance fuse (docs/adr/2532-*): nothing without LIMIT_INSTANCE_STORAGE_MB. Measures when older than a minute. */
+async function instanceFuseFacts(): Promise<Pick<StatusFacts, 'instanceFuse'>> {
+  const s = await safe(instanceStorageStatus)
+  if (!s) return {}
+  return { instanceFuse: { usedBytes: s.total, limitBytes: s.limit, dbBytes: s.dbBytes, fileBytes: s.fileBytes, full: s.full, measuredAt: s.at } }
+}
+
 /** All facts: heavy (cached) + live. */
 export async function gatherFacts(opts: { refresh?: boolean } = {}): Promise<{ facts: StatusFacts; cache: { hit: boolean; at: number } }> {
   const now = Date.now()
@@ -226,6 +234,7 @@ export async function gatherFacts(opts: { refresh?: boolean } = {}): Promise<{ f
     dbBytes: h.facts.dbBytes,
     uploads: h.facts.uploads,
     largePages: h.facts.largePages,
+    ...(await instanceFuseFacts()),
     uptimeSec: process.uptime(),
     version: SERVER_VERSION,
     restarts: restartStats(now),

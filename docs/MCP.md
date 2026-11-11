@@ -2,7 +2,7 @@
 
 Connects Claude (Claude Code, claude.ai) so it can read and write **your Inkling notes**. Each user signs in and
 grants consent with their own account, so Claude sees only what that user can see on the web (workspaces you are a
-member of, shared pages, and your own 🔒 private pages; other people's private pages and other workspaces are off limits).
+member of, shared pages, and your own 🔒 private pages; other people's private pages and other workspaces are off limits). 한국어: [MCP.ko.md](MCP.ko.md).
 
 MCP server URL: `https://<your domain>/mcp` (the examples below use `notes.example.com`). Add `?profile=core`
 for the smaller tool list (see "Tool profiles" below); without it the connection lists every tool.

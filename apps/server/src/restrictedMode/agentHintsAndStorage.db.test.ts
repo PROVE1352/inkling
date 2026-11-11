@@ -201,6 +201,17 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
         onAuthenticated: () => tab.scopes.push(tab.provider.authorizedScope),
       })
       open.push(tab)
+      // the web app shares one socket between its documents and the inbox channel (lib/collabSocket.ts)
+      const inboxAuth: string[] = []
+      const inbox = new HocuspocusProvider({
+        websocketProvider: tab.socket,
+        name: `inbox:${u.id}`,
+        document: new Y.Doc(),
+        token: 'cookie',
+        broadcast: false,
+        onAuthenticated: () => inboxAuth.push('ok'),
+      })
+      open.push({ provider: inbox, socket: { destroy: () => {} } })
       const until = async (cond: () => boolean, what: string) => {
         const end = Date.now() + 5000
         while (!cond()) {
@@ -208,13 +219,15 @@ describe('[db] agent hints for limits, usage cost, storage boundary and reconnec
           await new Promise((r) => setTimeout(r, 20))
         }
       }
-      await until(() => tab.scopes.length === 1, 'the first authentication')
+      await until(() => tab.scopes.length === 1 && inboxAuth.length === 1, 'the first authentication')
       assert.equal(tab.scopes[0], 'readonly')
       // the member deletes the big file: the recount finds room
       await db.delete(schema.files).where(eq(schema.files.id, big.id))
       assert.equal((await S.recountWorkspaceStorage(ws.id)).over, false)
       await until(() => tab.scopes.length >= 2, 'the reconnect')
       assert.equal(tab.scopes.at(-1), 'read-write')
+      // the shared socket came back for the inbox channel too
+      await until(() => inboxAuth.length >= 2, 'the inbox channel back on the shared socket')
     } finally {
       restore()
     }

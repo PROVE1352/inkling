@@ -129,7 +129,7 @@ export async function closeWorkspaceConnections(workspaceId: string): Promise<nu
  * Read-only connections to documents of one workspace, closed with an ordinary close (no "permission
  * changed" message) so the client connects again at once and is authorised anew: a workspace that came
  * back under its storage limit (quota/storage.ts) lets them edit again. Connections that can edit are
- * left alone. Returns how many were closed.
+ * left alone. Returns how many sockets were closed.
  */
 export async function reconnectReadOnlyWorkspaceConnections(workspaceId: string): Promise<number> {
   if (!instance) return 0
@@ -142,16 +142,24 @@ export async function reconnectReadOnlyWorkspaceConnections(workspaceId: string)
       .where(and(eq(pages.workspaceId, workspaceId), inArray(pages.id, open)))
     const inWs = new Set(rows.map((r) => r.id))
     let n = 0
+    const sockets = new Set<{ close: (code?: number, reason?: string) => void }>()
     for (const [name, doc] of instance.documents) {
       if (!inWs.has(name)) continue
       for (const conn of doc.getConnections()) {
         if (!conn.readOnly) continue
-        try {
-          conn.close({ code: RECONNECT_CODE, reason: 'storage-room' })
-          n++
-        } catch (err) {
-          console.error('[inkling] reconnecting collab connection failed', name, err)
-        }
+        // The socket itself, as collab.ts reconnectForSchema does: Connection.close only detaches the
+        // document on the server and tells the client nothing. One browser socket carries all its
+        // documents (and the inbox), and they all reconnect at once.
+        const ws = (conn as unknown as { webSocket?: { close: (code?: number, reason?: string) => void } }).webSocket
+        if (ws) sockets.add(ws)
+      }
+    }
+    for (const ws of sockets) {
+      try {
+        ws.close(RECONNECT_CODE, 'storage-room')
+        n++
+      } catch (err) {
+        console.error('[inkling] reconnecting collab socket failed', err)
       }
     }
     return n

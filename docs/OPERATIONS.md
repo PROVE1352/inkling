@@ -961,3 +961,176 @@ to reload tabs they left open: a tab still running 0.20 shows PDFs as a file nam
   comes back to the front: the server does not announce ink changes.
 - No other server cost beyond the file downloads themselves and one `GET /api/files/:id/meta` per preview (kept in
   the tab for a minute).
+
+## 17. Limits and restricted mode (0.22)
+
+### Upgrading to 0.22
+One migration, `0062_limits_accounts`, additive only: two tables (`signup_events`, `user_consents`) and four
+columns (`users.expires_at`, `workspaces.storage_bytes`, `workspaces.storage_checked_at`, `workspaces.over_storage`,
+all null or with a constant default). A 0.21 database goes from 62 to 63 applied migrations. Every new setting below
+is optional. With none of them set the server behaves as 0.21.1, except for the changes that 0.22 makes on every
+server (CHANGELOG, "What changes on every server"): every account can delete itself, a sole owner who is the only
+member can leave a workspace (it is deleted at once), an owner can delete a deleted workspace for good, and the
+hourly housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago.
+
+`compose.yaml` passes every 0.22 variable to the app as `${VAR:-}`, and `.env.example` lists them commented out, so
+setting one in `.env` is enough. An empty value means the same as an unset one.
+
+### Limits and restricted mode (docs/adr/2500-* .. 2521-*)
+Restricted mode is a set of settings for two kinds of servers: an install whose operator wants to cap disk use and
+the number of people, and a demo server that strangers can sign up to. Setting up a demo server, in order, is in
+[DEMO.md](DEMO.md); this section is the reference.
+
+| Variable | Format | Default | Meaning | Error when it applies |
+|---|---|---|---|---|
+| `LOGIN_ID_MODE` | `email` or `username` | `email` | `username`: sign-up takes an ID and a nickname instead of an email address. An ID is 3–30 characters of `a-z 0-9 . _ -`, starting with a letter or digit, stored lower-cased in the email column; reserved names (admin, root, support, inkling and others) are refused | 400 `LOGIN_ID_INVALID`, 409 `LOGIN_ID_TAKEN` |
+| `SIGNUP_MAX_USERS` | whole number ≥ 1 | none | Accounts on the server in total (all `users` rows, admins included), counted again inside the sign-up transaction. The first admin made with the setup code is not refused | 403 `SIGNUP_FULL` |
+| `SIGNUP_PER_IP_PER_DAY` | whole number ≥ 1 | none | Sign-ups from one address (an IPv4 address or an IPv6 /64) in 24 hours | 429 `SIGNUP_IP_LIMIT` |
+| `ACCOUNT_LIFETIME_DAYS` | whole number ≥ 1 | none | Accounts that sign up while it is set are deleted this many days after sign-up. Admins and accounts made before it was set never expire | — |
+| `ACCOUNT_LIFETIME_DRY_RUN` | `1` or `0` | `0` | `1`: the hourly job logs the accounts it would delete and deletes nothing | — |
+| `LIMIT_WORKSPACES_PER_USER` | whole number ≥ 1 | none | Workspaces a person owns: the one made at sign-up and deleted ones that can still be restored count | 403 `LIMIT_WORKSPACES` |
+| `LIMIT_MEMBERS_PER_WORKSPACE` | whole number ≥ 1 | none | Members of a workspace, owners included; page guests are not members and do not count | 403 `LIMIT_MEMBERS` |
+| `LIMIT_PAGES_PER_WORKSPACE` | whole number ≥ 1 | none | Pages of a workspace: documents, database rows, folders and canvases, the trash included | 403 `LIMIT_PAGES` |
+| `LIMIT_FILE_MB` | number > 0, at most 25 (decimals allowed) | none (25 MB) | Size of one uploaded file. Connections and tokens get `min(AGENT_UPLOAD_MAX_MB, LIMIT_FILE_MB)` | 413 `LIMIT_FILE` |
+| `LIMIT_WORKSPACE_STORAGE_MB` | number > 0 (decimals allowed) | none | Storage of a workspace (below). One page body may hold at most a quarter of it | 413 `LIMIT_STORAGE` |
+| `LIMIT_VERSIONS_PER_PAGE` | whole number 1–50 | none (50) | Versions kept per page. It can only lower the budget of 50; the shares that AI steps may take shrink with it (40 % per connection, 60 % for all connections) | — |
+| `DISABLED_FEATURES` | comma-separated names | empty | Features turned off on the whole server (below) | 404 `FEATURE_DISABLED` |
+| `WORKSPACE_RESTORE_DAYS` | whole number ≥ 1 | `30` | Days an owner can restore a deleted workspace; housekeeping deletes it for good after that | — |
+| `LEGAL_DIR` | path of a folder | none | Terms, privacy policy and sign-up consent (below) | 400 `CONSENT_REQUIRED` at sign-up, 403 `CONSENT_REQUIRED` on other requests |
+| `INSTANCE_LABEL` | up to 20 characters, no control characters | none | A label every screen shows, for example `Demo` | — |
+| `LIMIT_TRASH_DAYS` | whole number ≥ 7 | none | Upper bound of page trash retention: pages stay in the trash min(the workspace's "Keep trash for", this value) days. Workspace settings show the bound and do not take a larger value | — |
+| `INSTANCE_NOTICE` | up to 500 characters of plain text (not HTML) | none | An operator notice on the sign-in and sign-up screens and as a banner in the app, which nobody can close. For servers that send no mail: changes, interruptions, incidents | — |
+
+- Megabytes are 1,048,576 bytes. A value that is unset or empty means "no limit" (or off); with nothing set the
+  server answers as 0.21.1 and runs none of the checks below.
+- The limits are checked by the server inside the transaction that creates the page, row, file, member or
+  workspace, under a lock, so concurrent requests cannot pass a limit together. MCP tools call the same REST routes
+  and are refused the same way. Every limit error carries `{ limit, used }` (API.md, "v0.22.0 additions").
+- `LIMIT_FILE_MB` without `LIMIT_WORKSPACE_STORAGE_MB` still lets a workspace grow without bound; with both, the worst
+  case on disk is about the number of accounts × owned workspaces × the storage limit, plus what is not counted
+  (indexes, audit and notification rows, OAuth clients) and the backups.
+
+### When the server refuses to start
+The log names the variable and the reason. The server does not start when:
+- a value cannot be read as written: not a whole number where one is needed, below 1, a decimal written with an
+  exponent, `LIMIT_FILE_MB` above 25, `LIMIT_VERSIONS_PER_PAGE` above 50, `ACCOUNT_LIFETIME_DRY_RUN` other than `1`
+  or `0`, `LOGIN_ID_MODE` other than `email` or `username`, an unknown name in `DISABLED_FEATURES`, an
+  `INSTANCE_LABEL` over 20 characters or with a control character;
+- `LOGIN_ID_MODE=username` is set together with `DELEGATED_AUTH_URL`, OpenID Connect or SMTP mail, or without
+  `password-reset` in `DISABLED_FEATURES` (an ID is not an address that mail can reach);
+- `LEGAL_DIR` is not a readable folder, has no `signup.json`, or a file in it is malformed (below).
+
+It starts with a warning when `ACCOUNT_LIFETIME_DRY_RUN=1` is set without `ACCOUNT_LIFETIME_DAYS`, when
+`SIGNUP_PER_IP_PER_DAY` is set with `TRUST_PROXY=false`, and when a file of `LEGAL_DIR` still has template
+placeholders. The start log has one line for the limits that are on, one for the features that are off and, with
+`ACCOUNT_LIFETIME_DAYS`, one saying how many existing accounts it leaves alone.
+
+### Features turned off (`DISABLED_FEATURES`)
+The routes stay registered and answer 404 `FEATURE_DISABLED` before sign-in is checked. What was set up before
+stops working but is not deleted, and the routes that remove it stay open, so an owner can still clean up. The app
+hides the menus of a feature that is off.
+
+| Name | Turned off | Still works |
+|---|---|---|
+| `public-links` | Publishing and changing public links, `/api/public/*`; `/s/:token` serves the plain app shell | Unpublishing |
+| `public-forms` | Turning on and reading a form link, the public form and its answers | Removing a form link |
+| `webhooks` | Listing, adding, changing, testing webhooks, their secret and deliveries; nothing is sent (queued deliveries wait) | Deleting a webhook |
+| `slack` | Slack settings, test, the link flow, `/inkling` commands and events; nothing is posted | Removing the Slack settings and links |
+| `link-preview` | Link preview cards (`GET /api/link-preview`) | — |
+| `web-clipper` | Saving from the web (`POST /api/clip`) and its lookup | — |
+| `ical` | The iCal feed URL in Settings, and `/ical/:file` answers 404 | Revoking the feed |
+| `notion-import` | An import that asks for Notion is refused; a zip that looks like a Notion export is imported as plain Markdown | Markdown, zip and folder imports |
+| `web-push` | Subscribing, push settings, test, and sending (queued pushes wait) | Unsubscribing a device |
+| `password-reset` | Forgot password, reset with a code, and the admin's temporary password, reset code, send credentials and reset request queue | Changing your own password while signed in |
+| `email-invites` | Mailing a signup key from Admin; page invitations are not mailed (the link is shown instead) | Copying keys and links |
+| `automations-webhooks` | Button blocks and automation actions that call a webhook (the action is skipped, the rule stays on) | Every other automation action |
+| `oauth-cimd` | OAuth Client ID Metadata Documents, also with `OAUTH_CIMD=1` | Dynamic client registration |
+| `embeds` | Frames from other sites: the app's CSP keeps only `frame-src 'self'` | Page embeds of this server's pages |
+| `member-direct-add` | Adding an existing account to a workspace without an invite link, and the candidate list | Invite links |
+
+Not in the list, because they are already off until configured: experimental features (`EXPERIMENTAL_FEATURES`),
+semantic search, OpenID Connect and mail. MCP stays on.
+
+### Storage and read-only workspaces
+- `LIMIT_WORKSPACE_STORAGE_MB` counts what members can grow without bound: uploaded files, page bodies, version
+  history, handwriting, comments, the page rows themselves (titles, properties, icons), database fields, views and
+  row templates, custom templates, the texts the change log keeps, and agent suggestions. Pages in the trash count
+  until they are purged. Search indexes, audit events, notifications, the outbox, per-person tables, OAuth clients
+  and backups do not count.
+- The count is kept in `workspaces.storage_bytes`. Uploads add their bytes in their own transaction; each save of a
+  page body adds the body's growth; housekeeping counts every workspace again each hour; Workspace settings ›
+  General counts it again when the stored count is more than a minute old; deleting for good counts it again.
+- A workspace past its limit is read-only. New pages, uploads, imports, templates, comments, handwriting, manual
+  versions, body writes by REST and MCP, quick tasks and vault sync are refused with 413 `LIMIT_STORAGE`, and live
+  editing connections become read-only. Members see a notice above the page ("This workspace has used up its storage,
+  so it is read-only. …"). Deleting pages and files,
+  emptying the trash, clearing handwriting and exporting always work.
+- To make it writable again, delete files or pages and empty the trash, then open Workspace settings › General
+  (which counts again) or wait for the hourly count. A page that is already open stays read-only until it is opened
+  again (KNOWN-ISSUES LIMITS-3).
+- One page body may hold at most a quarter of the limit. Past that, REST and MCP writes to that page are refused
+  and its live connections become read-only; splitting it into subpages is the way out (KNOWN-ISSUES LIMITS-2).
+- Between saves of live typing the count can pass the limit by what one save carries (saves come every 2–10 s).
+
+### Terms and consent (`LEGAL_DIR`)
+- The folder holds `terms.ko.md`, `terms.en.md`, `privacy.ko.md`, `privacy.en.md` (those present) and `signup.json`
+  (the notice at the top of the sign-up form and the tick boxes: `id`, `required`, `label`, optional `doc` and
+  `details`). [DEMO.md](DEMO.md) describes the files, and `deploy/demo/legal/` has templates.
+- The server reads the folder once, at start. It refuses to start for a malformed `signup.json` (not JSON, an
+  unknown key, an empty label, a duplicate id, a `doc` whose file is missing, more than 32 items) and for an empty
+  document or one over 512 KB. Other files in the folder are ignored and listed in the log.
+- The version is the first 12 hex characters of a SHA-256 over the documents and `signup.json`. Any edit therefore
+  needs a restart, and after it everyone, admins included, agrees again before they can go on.
+- Consent is asked at sign-up and stored per item (`user_consents`, with the version and the address). Accounts
+  made another way (delegated sign-in, OIDC) and everyone after a change see a consent screen
+  instead of the app. Until they agree, every request of theirs is refused with 403 `CONSENT_REQUIRED`: the browser,
+  personal API tokens, MCP connections (the `/mcp` request itself is refused with HTTP 403) and the collaboration
+  socket. Signing out, reading the documents, agreeing, and deleting the account still work. Automation rules
+  set up earlier keep running.
+- `/terms` and `/privacy` open without signing in; the sign-in and sign-up screens and Settings link to them.
+
+### Sign-up limits and `TRUST_PROXY`
+- `SIGNUP_PER_IP_PER_DAY` needs the client's real address. It is taken from `X-Forwarded-For` only on connections
+  from a `TRUST_PROXY` address. The default, `loopback,uniquelocal`, also trusts every private range (10/8,
+  172.16/12, 192.168/16, fc00::/7): anyone who can reach the app port from such a network can send a made-up
+  address. Set `TRUST_PROXY` to your reverse proxy's address only, and do not publish the app port beyond
+  `127.0.0.1`. A sign-up that arrives from a private or loopback address is logged once as a hint that the proxy
+  does not send the header.
+- While `SIGNUP_MAX_USERS` or `SIGNUP_PER_IP_PER_DAY` is set, the sign-up form also has a hidden field that must
+  stay empty and must have been on screen for two seconds (400 `SIGNUP_CHECK_FAILED` otherwise). These checks stop
+  only simple scripts; the two caps are what bound the damage.
+- Sign-up address records are deleted after 30 days. The hourly housekeeping also deletes `ip_bans` rows whose ban
+  ended more than 30 days ago, on every server; an active ban is never touched.
+- Open sign-up (`SIGNUP_REQUIRE_KEY=0`) on a server without an admin: the first account becomes the admin. Under
+  restricted mode (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
+  `LOGIN_ID_MODE=username`) a server without an admin refuses sign-ups without the setup code (403
+  `SETUP_REQUIRED`) and the sign-up screen shows only the setup code hint, so create the operator account with the
+  setup code first.
+
+### Account lifetime
+- `ACCOUNT_LIFETIME_DAYS` gives an expiry date only to accounts that sign up while it is set, and never to admins.
+  Turning it on later leaves existing accounts alone; turning it off stops all deletion, also for accounts that
+  have a date.
+- Each hour up to 50 expired accounts are deleted, oldest date first, each in its own transaction; a failure is
+  one log line and the next account still runs. Log lines carry the account id and counts, never a name or ID.
+- Start with `ACCOUNT_LIFETIME_DRY_RUN=1`: the job logs one line per account it would delete ("would delete user
+  …, N workspace(s) deleted, M handed over") and deletes nothing. When the first accounts pass their date and the
+  log lists exactly those, remove the value and restart.
+- An expired account goes as if it had deleted itself (below). Backups keep it until they rotate out.
+- Admin › Users shows the date and **Lift expiry**. `GET` and `PATCH /api/admin/users/:id/expiry` read, move or lift
+  a date; they never give a date to an account that has none.
+
+### Account deletion
+- Every account can delete itself on every server (Settings › Account › **Delete account**, `DELETE /api/me`), from
+  a browser session only, with the current password (and the two-step code when it is on) or, for delegated and OIDC
+  accounts, within ten minutes of signing in. The only admin cannot.
+- It is immediate and cannot be undone: workspaces where the person is the only member are deleted with their
+  files; a shared workspace they own alone goes to its oldest admin-role member, else its oldest member (who gets
+  a notification); their private pages are deleted; their shared pages, comments and versions stay without their
+  name. Mentions other members wrote, and ids without a name in audit rows, stay (KNOWN-ISSUES LIMITS-8).
+- The admin's **Delete** in Admin › Users keeps its 0.21 behaviour (409 `SOLE_OWNER`, private pages to the trash).
+
+### Admin status
+- The "Security settings" card gains two items. **Account cap**, shown while anyone can sign up: amber in
+  production without `SIGNUP_MAX_USERS`. **Account lifetime**, shown while `ACCOUNT_LIFETIME_DAYS` or the dry run is
+  set: amber during a dry run.

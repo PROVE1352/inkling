@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
+  CALLOUT_EMOJI,
+  CALLOUT_TYPES,
   calloutConfig,
   buttonBlockConfig,
   chartBlockConfig,
@@ -16,6 +18,7 @@ import {
   pageEmbedConfig,
   pluginBlockConfig,
 } from '@inkling/shared'
+import type { CalloutType } from '@inkling/shared'
 
 /**
  * The server's BlockNote schema: BlockNote's defaults plus the math nodes
@@ -113,10 +116,17 @@ const inlineMathSpec = core.createInlineContentSpec(inlineMathConfig, {
  * editable text; embeds and plugin blocks render as empty placeholders (their content lives
  * elsewhere and the public page never loaded it); a mention is its `@label` text.
  */
+// The callout is the editor's box: the type's icon, then the text (docs/adr/2387-*). The icon is outside
+// contentDOM, so it is not part of the block's text when HTML is read back.
 const calloutSpec = core.createBlockSpec(calloutConfig, {
   render: (block: { props: { type: string } }) => {
+    const type = (CALLOUT_TYPES as string[]).includes(block.props.type) ? (block.props.type as CalloutType) : 'note'
     const dom = element('div', 'nd-callout')
-    dom.setAttribute('data-callout-type', block.props.type)
+    dom.setAttribute('data-callout-type', type)
+    const icon = element('span', 'nd-callout-icon')
+    icon.setAttribute('aria-hidden', 'true')
+    icon.textContent = CALLOUT_EMOJI[type]
+    dom.appendChild(icon)
     const contentDOM = element('div', 'nd-callout-content')
     dom.appendChild(contentDOM)
     return { dom, contentDOM }

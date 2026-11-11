@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
-import { CALLOUT_TYPES, calloutConfig, type CalloutType } from '@inkling/shared'
+import { CALLOUT_EMOJI, CALLOUT_TYPES, calloutConfig, type CalloutType } from '@inkling/shared'
 import { useT, type TKey } from '../../i18n'
 
 // Callout custom block (M14) — colored/emoji highlight box + type switching.
@@ -11,14 +11,15 @@ import { useT, type TKey } from '../../i18n'
 
 export { CALLOUT_TYPES, type CalloutType }
 
-// Emoji, label key and accent color per type (hex saturated enough to color-mix in light and dark).
-// Labels are i18n keys, translated at render time.
-const CALLOUT_META: Record<CalloutType, { emoji: string; label: TKey; accent: string }> = {
-  note: { emoji: '💡', label: 'callout.note', accent: '#3b82f6' },
-  tip: { emoji: '✅', label: 'callout.tip', accent: '#22c55e' },
-  warning: { emoji: '⚠️', label: 'callout.warning', accent: '#eab308' },
-  danger: { emoji: '🛑', label: 'callout.danger', accent: '#ef4444' },
-  info: { emoji: 'ℹ️', label: 'callout.info', accent: '#6b7280' },
+// Label key per type (i18n keys, translated at render time). The emoji is shared with the server's HTML
+// (CALLOUT_EMOJI) and the tint comes from index.css by data-callout-type, so the public page's callout,
+// rendered on the server, looks the same (docs/adr/2387-*).
+const CALLOUT_LABEL: Record<CalloutType, TKey> = {
+  note: 'callout.note',
+  tip: 'callout.tip',
+  warning: 'callout.warning',
+  danger: 'callout.danger',
+  info: 'callout.info',
 }
 
 function normalizeType(v: unknown): CalloutType {
@@ -35,18 +36,17 @@ function TypeSwitcher({
 }) {
   const tr = useT()
   const [open, setOpen] = useState(false)
-  const meta = CALLOUT_META[type]
 
   return (
-    <span className="relative shrink-0 leading-none" contentEditable={false}>
+    <span className="nd-callout-icon relative shrink-0 leading-none" contentEditable={false}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={tr('callout.changeType')}
-        title={tr('callout.typeTitle', { type: tr(meta.label) })}
+        title={tr('callout.typeTitle', { type: tr(CALLOUT_LABEL[type]) })}
         className="text-base leading-none transition-transform duration-100 hover:scale-110"
       >
-        {meta.emoji}
+        {CALLOUT_EMOJI[type]}
       </button>
       {open && (
         <>
@@ -58,7 +58,6 @@ function TypeSwitcher({
           />
           <span className="nd-pop absolute left-0 top-full z-50 mt-1 flex w-32 origin-top-left flex-col overflow-hidden rounded-md border border-line bg-app py-1 shadow-xl">
             {CALLOUT_TYPES.map((t) => {
-              const m = CALLOUT_META[t]
               return (
                 <button
                   key={t}
@@ -71,8 +70,8 @@ function TypeSwitcher({
                     t === type ? 'text-ink' : 'text-sub'
                   }`}
                 >
-                  <span className="text-sm leading-none">{m.emoji}</span>
-                  {tr(m.label)}
+                  <span className="text-sm leading-none">{CALLOUT_EMOJI[t]}</span>
+                  {tr(CALLOUT_LABEL[t])}
                 </button>
               )
             })}
@@ -86,13 +85,8 @@ function TypeSwitcher({
 export const calloutSpec = createReactBlockSpec(calloutConfig, {
   render: ({ block, editor, contentRef }) => {
     const type = normalizeType(block.props.type)
-    const meta = CALLOUT_META[type]
     return (
-      <div
-        className="nd-callout"
-        data-callout-type={type}
-        style={{ '--nd-callout-accent': meta.accent } as React.CSSProperties}
-      >
+      <div className="nd-callout" data-callout-type={type}>
         <TypeSwitcher
           type={type}
           onPick={(t) =>

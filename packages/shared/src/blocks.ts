@@ -119,3 +119,16 @@ export type CustomBlockType = (typeof CUSTOM_BLOCK_TYPES)[number]
 
 export const CUSTOM_INLINE_CONTENT_TYPES = [mentionConfig.type, inlineMathConfig.type] as const
 export type CustomInlineContentType = (typeof CUSTOM_INLINE_CONTENT_TYPES)[number]
+
+/**
+ * The icon of each callout type, the same in the editor (components/blocks/Callout.tsx) and in the
+ * server's HTML (md/serverSchema.ts: public pages, their presentation and print), so a public page
+ * shows the box the editor shows (docs/adr/2387-*). An unknown type is drawn as 'note'.
+ */
+export const CALLOUT_EMOJI: Record<CalloutType, string> = {
+  note: '💡',
+  tip: '✅',
+  warning: '⚠️',
+  danger: '🛑',
+  info: 'ℹ️',
+}

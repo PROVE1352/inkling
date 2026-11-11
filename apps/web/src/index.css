@@ -1116,10 +1116,13 @@ html[data-resizing] .nd-sidebar-shell {
   background: var(--color-accent-soft);
 }
 
-/* Callout block (M14) — the per-type accent is injected inline as --nd-callout-accent (same for light/dark).
+/* Callout block (M14). The per-type accent comes from data-callout-type (the editor's box and the server's
+   HTML on public pages carry it; the public sanitizer drops inline custom properties), same for light/dark.
    Shaped like Notion's callout (measured 2026-11-08: radius 10px, 12px padding, a flat tint, no stripe):
    the type colour is only a light tint, so a page with several callouts stays calm. The icon sits in a box
-   one text line high, so it lines up with the first line however long the text is. docs/adr/1222-*. */
+   one text line high, so it lines up with the first line however long the text is. docs/adr/1222-*.
+   The icon and the text are found by class, never by position: HTML rendered before 0.19.2 has the text
+   alone, which must still flow as one block (docs/adr/2387-*). */
 .nd-callout {
   --nd-callout-accent: #3b82f6;
   display: flex;
@@ -1131,15 +1134,28 @@ html[data-resizing] .nd-sidebar-shell {
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--nd-callout-accent) 8%, var(--color-app));
 }
+.nd-callout[data-callout-type='tip'] {
+  --nd-callout-accent: #22c55e;
+}
+.nd-callout[data-callout-type='warning'] {
+  --nd-callout-accent: #eab308;
+}
+.nd-callout[data-callout-type='danger'] {
+  --nd-callout-accent: #ef4444;
+}
+.nd-callout[data-callout-type='info'] {
+  --nd-callout-accent: #6b7280;
+}
 .dark .nd-callout {
   background: color-mix(in srgb, var(--nd-callout-accent) 13%, var(--color-app));
 }
-.nd-callout > :first-child {
+.nd-callout > .nd-callout-icon {
   display: flex;
+  flex: none;
   align-items: center;
   height: 1.5em;
 }
-.nd-callout > :first-child > button {
+.nd-callout > .nd-callout-icon > button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1148,10 +1164,21 @@ html[data-resizing] .nd-sidebar-shell {
   border-radius: var(--radius-sm);
   font-size: 1.125rem;
 }
-.nd-callout > :first-child > button:hover {
+.nd-callout > .nd-callout-icon > button:hover {
   background: var(--color-hover);
 }
-.nd-callout-body {
+/* server HTML (public page, its presentation and print): the emoji is the span's own text, 1.125 times the
+   text as in the editor, in a box one public line high (line-height 1.7 of the text: 1.7em / 1.125) */
+.nd-public-body .nd-callout > .nd-callout-icon:not(:has(button)) {
+  justify-content: center;
+  width: 1.5rem;
+  height: calc(1.7em / 1.125);
+  font-size: 1.125em;
+  line-height: 1;
+}
+.nd-callout-body,
+.nd-callout > .nd-callout-content {
+  display: block;
   flex: 1 1 auto;
   min-width: 0;
 }

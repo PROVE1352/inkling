@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { NotificationDTO } from '@inkling/shared'
-import { useMarkRead, useNotifications } from '../api'
+import { useMarkRead, useNotifications, useWorkspaceRestoreDays } from '../api'
 import { relativeTime } from '../lib/time'
 import { t, useT } from '../i18n'
 import { BellIcon, ClockIcon } from './Icons'
@@ -10,7 +10,7 @@ import { toast } from '../lib/toast'
 
 // Builds the notification text — actorName commented on / mentioned you in pageTitle. reminder (M17) is a due-date line.
 // The switch is exhaustive over NotificationType, so a new type fails typecheck until it has a line.
-function describe(n: NotificationDTO): string {
+function describe(n: NotificationDTO, restoreDays: number): string {
   const actor = n.actorName ?? t('notifications.someone')
   const title = n.pageTitle ?? t('notifications.deletedPage')
   const workspace = n.workspaceName ?? t('notifications.workspaceFallback')
@@ -21,7 +21,7 @@ function describe(n: NotificationDTO): string {
       return t('notifications.webhookDisabled', { workspace })
     case 'workspace_deleted':
       // no navigation target: the workspace is gone for members (owners restore it in Settings)
-      return t('notifications.workspaceDeleted', { actor, workspace })
+      return t('notifications.workspaceDeleted', { actor, workspace, days: restoreDays })
     case 'backup_failed':
       return t('notifications.backupFailed')
     case 'reminder':
@@ -71,6 +71,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
   useT()
   const navigate = useNavigate()
   const notifications = useNotifications()
+  const restoreDays = useWorkspaceRestoreDays()
   const markRead = useMarkRead()
   const saveLater = useSaveLater()
   const [open, setOpen] = useState(false)
@@ -187,7 +188,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                             <span className="shrink-0 text-xs leading-4">⏰</span>
                           )}
                           <span className="min-w-0 flex-1 pr-5 text-xs text-ink">
-                            {describe(n)}
+                            {describe(n, restoreDays)}
                             {n.via && <span className="text-sub"> {t('comments.via', { client: n.via })}</span>}
                             {n.forAgent && <span className="text-sub"> · {t('notifications.forAgent', { client: n.forAgent })}</span>}
                             {repeat && <span className="ml-1 text-sub">{repeat}</span>}

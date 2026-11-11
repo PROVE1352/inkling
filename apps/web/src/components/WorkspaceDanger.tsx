@@ -10,6 +10,7 @@ import {
   useMembers,
   useRemoveMember,
   useRestoreWorkspace,
+  useWorkspaceRestoreDays,
   useTransferOwnership,
   useWorkspaceDeletePreview,
 } from '../api'
@@ -95,6 +96,7 @@ function LeaveWorkspaceModal({
   const me = useMe()
   const members = useMembers(wsId)
   const remove = useRemoveMember(wsId)
+  const restoreDays = useWorkspaceRestoreDays()
   const [error, setError] = useState<string | null>(null)
 
   const list = members.data ?? []
@@ -129,7 +131,7 @@ function LeaveWorkspaceModal({
     return (
       <Modal open onClose={onClose} title={t('wsDanger.aloneTitle')}>
         <div className="flex flex-col gap-4" data-testid="leave-alone">
-          <p className="text-sm text-sub">{t('wsDanger.aloneBody')}</p>
+          <p className="text-sm text-sub">{t('wsDanger.aloneBody', { days: restoreDays })}</p>
           <div className="flex justify-end gap-2">
             <button type="button" className={btnPlain} onClick={onClose}>
               {t('common.cancel')}

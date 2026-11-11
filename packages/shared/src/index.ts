@@ -8,6 +8,7 @@ import { formSettingsSchema } from './forms'
 import { mentionConnectionsSchema } from './teamAgents'
 import { filterOpSchema, uniqueIdConfigSchema, viewFilterSchema } from './collectionFields'
 import type { WorkspaceListingDTO } from './workspaceListing'
+import type { AuthModeLegalDTO, AuthModeLimitsDTO } from './limits'
 
 // ---------------------------------------------------------------------------
 // Request schemas (shared by server validation and web form validation)
@@ -23,6 +24,16 @@ export const registerSchema = z.object({
   // One-time first-admin setup code from the server log (/setup?code=…, docs/adr/2160-*). Accepted
   // only while the server has no account; takes the place of a signup key for that one account.
   setupCode: z.string().trim().min(1).max(200).optional(),
+  // Restricted mode (0.22, docs/adr/2501-*). Optional and ignored unless the server turned the matching
+  // setting on; the route hands them, with the raw body, to the signup hooks (signupHooks.ts).
+  // A sign-in ID instead of an email (LOGIN_ID_MODE=username). The rules are checked by the hook.
+  loginId: z.string().trim().min(1).max(64).optional(),
+  // The ids of the consent items the person ticked (LEGAL_DIR's signup.json) and the document
+  // version the screen showed.
+  consents: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
+  legalVersion: z.string().trim().min(1).max(64).optional(),
+  // Hidden input that people never see or fill (bots do); any value is passed to the hooks as is.
+  website: z.string().max(500).optional(),
 })
 export type RegisterInput = z.infer<typeof registerSchema>
 
@@ -229,6 +240,23 @@ export interface AuthModeDTO {
    * Absent on older servers.
    */
   setupPending?: boolean
+  // --- Restricted mode (0.22, docs/adr/2500-*): each field only when the operator set it ---
+  /** LOGIN_ID_MODE=username: sign-up and sign-in take an ID instead of an email. Absent = email. */
+  loginId?: 'username'
+  /** SIGNUP_MAX_USERS is reached: sign-up is closed for now. */
+  signupFull?: true
+  /** INSTANCE_LABEL: a label every screen shows (e.g. "Demo"). */
+  instanceLabel?: string
+  /** ACCOUNT_LIFETIME_DAYS: accounts created from now on are deleted this many days after sign-up. */
+  accountLifetimeDays?: number
+  /** DISABLED_FEATURES, sorted (names from DISABLED_FEATURE_NAMES). */
+  disabledFeatures?: string[]
+  /** LEGAL_DIR: terms/privacy and sign-up consent. */
+  legal?: AuthModeLegalDTO
+  /** The LIMIT_* values that are set. */
+  limits?: AuthModeLimitsDTO
+  /** WORKSPACE_RESTORE_DAYS when set: days an owner can restore a deleted workspace (absent = 30). */
+  workspaceRestoreDays?: number
 }
 
 export const createWorkspaceSchema = z.object({
@@ -348,6 +376,10 @@ export interface UserDTO {
   pendingResetRequests?: number
   /** /auth/me only: sign-in methods linked to the account (OpenID Connect, docs/adr/1161-*) */
   logins?: LinkedLoginDTO[]
+  /** /auth/me only, restricted mode: when the account will be deleted (ISO; ACCOUNT_LIFETIME_DAYS). */
+  expiresAt?: string
+  /** /auth/me only, restricted mode: the person has not consented to the current documents (LEGAL_DIR). */
+  consentRequired?: true
 }
 
 /** owner > admin > member (docs/adr/0945-*). */
@@ -1086,3 +1118,5 @@ export * from './automations'
 export * from './workspaceListing'
 // Onboarding: intro, Getting started checklist, sample page (docs/adr/2380-*)
 export * from './onboarding'
+// Restricted mode (0.22): feature names, error codes, limit DTOs (docs/adr/2500-*)
+export * from './limits'

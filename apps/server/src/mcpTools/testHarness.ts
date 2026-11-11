@@ -94,6 +94,8 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/notesCheck')).registerNotesCheckRoutes(api)
       await (await import('../routes/instructionLength')).registerInstructionLengthRoutes(api)
       await (await import('../routes/clip')).registerClipRoutes(api) // web clipper (docs/adr/2260-*)
+      // restricted mode pieces, as index.ts registers them (docs/adr/2503-*)
+      await (await import('../restricted')).registerRestrictedMode(api)
     },
     { prefix: '/api' },
   )

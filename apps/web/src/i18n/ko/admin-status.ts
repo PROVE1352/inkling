@@ -143,6 +143,13 @@ export default {
   'adminStatus.security.agentUploads.never': '이 서버에서 꺼짐(AGENT_UPLOADS=never)',
   'adminStatus.security.agentUploads.mcpBody': 'upload_file MCP 요청은 {mb} MB까지',
   'adminStatus.security.agentUploads.invalid': 'AGENT_UPLOAD* 값 중 적힌 대로 쓰이지 않은 것이 있음(부팅 로그)',
+  'adminStatus.security.signupCap': '계정 수 상한',
+  'adminStatus.security.signupCap.none': '없음: 공개 가입으로 계정이 끝없이 생길 수 있음(SIGNUP_MAX_USERS)',
+  'adminStatus.security.signupCap.set': '계정 {max}개가 되면 가입이 닫힘(SIGNUP_MAX_USERS)',
+  'adminStatus.security.accountLifetime': '계정 수명',
+  'adminStatus.security.accountLifetime.on': '설정한 뒤 가입한 계정은 가입 {days}일 뒤 삭제됨(관리자는 제외)',
+  'adminStatus.security.accountLifetime.dryRun': '시험 실행: {days}일이 지난 계정을 로그로만 남기고 지우지 않음(ACCOUNT_LIFETIME_DRY_RUN)',
+  'adminStatus.security.accountLifetime.dryRunOnly': 'ACCOUNT_LIFETIME_DAYS 없이 ACCOUNT_LIFETIME_DRY_RUN만 있음: 아무 일도 하지 않음',
 
   'adminStatus.update.check': '업데이트',
   'adminStatus.update.check.disabled': '확인 꺼짐 (UPDATE_CHECK) · 현재 {current}',

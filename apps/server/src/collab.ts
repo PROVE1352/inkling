@@ -8,6 +8,7 @@ import * as Y from 'yjs'
 import type { WebSocket } from 'ws'
 import { z } from 'zod'
 import { getSessionUser, SESSION_COOKIE } from './auth'
+import { hasRequestGates, runRequestGates } from './requestGates'
 import { upgradeOriginAllowed } from './csrf'
 import { db } from './db/index'
 import { pages, workspaceMembers } from './db/schema'
@@ -417,6 +418,8 @@ export const hocuspocus = new Hocuspocus({
     if (!token) throw new Error('Unauthorized')
     const user = await getSessionUser(token)
     if (!user) throw new Error('Unauthorized')
+    // Request gates (docs/adr/2502-*): the same checks as REST, for every document and the inbox.
+    if (hasRequestGates()) await runRequestGates({ user, req: null, via: 'collab', channel: 'collab' })
 
     // 1.5) inbox channel (`inbox:<userId>`): stateless notifications only.
     //      Only subscribing to your own inbox is allowed (others' inboxes are blocked). It is an empty doc with no Yjs content,

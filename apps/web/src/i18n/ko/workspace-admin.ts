@@ -61,7 +61,7 @@ export default {
   'wsSettings.transferTitle': '소유권 이전',
   'wsSettings.transferDesc': '다른 멤버를 소유자로 만들고 나는 멤버가 됩니다.',
   'wsSettings.deleteTitle': '워크스페이스 삭제',
-  'wsSettings.deleteDesc': '모두에게서 즉시 숨겨지고, 소유자는 30일 동안 복원할 수 있습니다.',
+  'wsSettings.deleteDesc': '모두에게서 즉시 숨겨지고, 소유자는 {days}일 동안 복원할 수 있습니다.',
   'wsSettings.dangerOwnerOnly': '이전과 삭제는 소유자만 할 수 있습니다.',
 
   'wsTwoFactor.group': '보안',

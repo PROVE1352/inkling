@@ -38,6 +38,7 @@ import {
   useWorkspaceAgents,
   useWorkspaces,
   useWorkspaceSettings,
+  useWorkspaceRestoreDays,
 } from '../api'
 import { useLayout } from '../components/AppLayout'
 import { ConfirmPopover } from '../components/ConfirmPopover'
@@ -1217,6 +1218,7 @@ function ReviewTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities }
 
 function DangerTab({ ws }: { ws: WorkspaceDTO }) {
   const t = useT()
+  const restoreDays = useWorkspaceRestoreDays()
   const [danger, setDanger] = useState<DangerAction>(null)
   const owner = ws.role === 'owner'
   return (
@@ -1243,7 +1245,7 @@ function DangerTab({ ws }: { ws: WorkspaceDTO }) {
           </Row>
         )}
         {owner && (
-          <Row title={t('wsSettings.deleteTitle')} desc={t('wsSettings.deleteDesc')}>
+          <Row title={t('wsSettings.deleteTitle')} desc={t('wsSettings.deleteDesc', { days: restoreDays })}>
             <button
               type="button"
               onClick={() => setDanger('delete')}

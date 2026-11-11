@@ -15,11 +15,25 @@ const byMessage: Record<string, Record<string, string>> = {
  * (it is the most specific text) unless it is missing or just the code. Other locales use, in
  * order: a translation of the exact message, `errors.<CODE>`, then the English message.
  */
-export function localizeApiError(code: string, serverMessage: string | undefined): string {
+export function localizeApiError(code: string, serverMessage: string | undefined, details?: Record<string, unknown>): string {
   const msg = serverMessage && serverMessage !== code ? serverMessage : ''
   const locale = getLocale()
-  if (locale === 'en') return msg || tMaybe(`errors.${code}`, { message: msg }) || tMaybe('errors.INTERNAL')!
+  if (locale === 'en') return msg || byCode(code, msg, details) || tMaybe('errors.INTERNAL')!
   const exact = msg ? byMessage[locale]?.[msg] : undefined
   if (exact) return exact
-  return tMaybe(`errors.${code}`, { message: msg }) || msg || tMaybe('errors.INTERNAL')!
+  return byCode(code, msg, details) || msg || tMaybe('errors.INTERNAL')!
+}
+
+/**
+ * `errors.<CODE>`. A limit error (restricted mode, docs/adr/2500-*) that carries numeric `limit` and
+ * `used` next to its code uses `errors.<CODE>_counts` when there is one, filled with those numbers.
+ */
+function byCode(code: string, msg: string, details?: Record<string, unknown>): string | undefined {
+  const limit = details?.limit
+  const used = details?.used
+  if (typeof limit === 'number' && typeof used === 'number') {
+    const counted = tMaybe(`errors.${code}_counts`, { message: msg, limit, used })
+    if (counted) return counted
+  }
+  return tMaybe(`errors.${code}`, { message: msg })
 }

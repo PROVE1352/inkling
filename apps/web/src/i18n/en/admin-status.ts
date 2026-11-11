@@ -142,6 +142,13 @@ export default {
   'adminStatus.security.agentUploads.never': 'Off on this server (AGENT_UPLOADS=never)',
   'adminStatus.security.agentUploads.mcpBody': 'MCP requests with upload_file up to {mb} MB',
   'adminStatus.security.agentUploads.invalid': 'a value in AGENT_UPLOAD* was not used as written (boot log)',
+  'adminStatus.security.signupCap': 'Account cap',
+  'adminStatus.security.signupCap.none': 'None: open sign-up can create any number of accounts (SIGNUP_MAX_USERS)',
+  'adminStatus.security.signupCap.set': 'Sign-up closes at {max} accounts (SIGNUP_MAX_USERS)',
+  'adminStatus.security.accountLifetime': 'Account lifetime',
+  'adminStatus.security.accountLifetime.on': 'Accounts created since it was set are deleted {days} days after sign-up (admins never)',
+  'adminStatus.security.accountLifetime.dryRun': 'Dry run: accounts older than {days} days are only logged, nothing is deleted (ACCOUNT_LIFETIME_DRY_RUN)',
+  'adminStatus.security.accountLifetime.dryRunOnly': 'ACCOUNT_LIFETIME_DRY_RUN is set without ACCOUNT_LIFETIME_DAYS: nothing happens',
 
   'adminStatus.update.check': 'Updates',
   'adminStatus.update.check.disabled': 'Check off (UPDATE_CHECK) · running {current}',

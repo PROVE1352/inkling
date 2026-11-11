@@ -74,6 +74,11 @@ export interface StatusFacts {
     dbPasswordWeak: DbPasswordReason | null
     /** Uploads by AI agents (docs/adr/2065-*): server default and limits; warnings = values not taken as written. */
     agentUploads?: { mode: 'on' | 'off' | 'never'; maxBytes: number; dailyBytes: number | null; mcpBodyBytes: number; warnings: number }
+    /**
+     * Restricted mode (docs/adr/2500-*): the settings an operator must keep in mind. Absent = not
+     * gathered (the items below are then not shown).
+     */
+    restricted?: { signupMaxUsers: number | null; accountLifetimeDays: number | null; accountLifetimeDryRun: boolean }
   }
   /** Web push (docs/adr/2222-*): counts only, never endpoints. Absent = not gathered. */
   push?: {
@@ -470,6 +475,28 @@ function securityItems(f: StatusFacts): StatusItem[] {
         warnings: a.warnings,
       },
     })
+  }
+  // Restricted mode (docs/adr/2500-*). Only where it says something: open sign-up (no key, not
+  // delegated) gets its account cap, and account lifetime or its dry run when either is set.
+  if (s.restricted) {
+    const r = s.restricted
+    if (policy === 'open') {
+      out.push({
+        key: 'security.signupCap',
+        group: g,
+        level: prodWarn(f, r.signupMaxUsers === null),
+        data: { max: r.signupMaxUsers },
+      })
+    }
+    if (r.accountLifetimeDays !== null || r.accountLifetimeDryRun) {
+      out.push({
+        key: 'security.accountLifetime',
+        group: g,
+        // a dry run deletes nothing: worth a reminder until the operator turns deletion on (or off)
+        level: r.accountLifetimeDryRun ? 'warn' : 'ok',
+        data: { days: r.accountLifetimeDays, dryRun: r.accountLifetimeDryRun },
+      })
+    }
   }
   return out
 }

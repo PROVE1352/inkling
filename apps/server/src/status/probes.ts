@@ -12,6 +12,7 @@
  */
 import { readFile, stat, statfs } from 'node:fs/promises'
 import { agentUploadEnv } from '../agentUploads'
+import { limits } from '../limits'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { BACKUP_DIR, currentAlert, isConfigured, isStale, readStatus } from '../backup/store'
@@ -169,6 +170,11 @@ export function securityEnvFacts(): Omit<StatusFacts['security'], 'plaintextSecr
       dailyBytes: agentUploadEnv.dailyBytes,
       mcpBodyBytes: agentUploadEnv.mcpUploadBodyBytes,
       warnings: agentUploadEnv.warnings.length,
+    },
+    restricted: {
+      signupMaxUsers: limits.signupMaxUsers,
+      accountLifetimeDays: limits.accountLifetimeDays,
+      accountLifetimeDryRun: limits.accountLifetimeDryRun,
     },
   }
 }

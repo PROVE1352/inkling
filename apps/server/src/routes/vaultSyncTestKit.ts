@@ -130,6 +130,8 @@ export async function buildSyncApp(opts: { rateLimit?: boolean; extra?: (api: Fa
       await (await import('./apiTokens')).registerApiTokenRoutes(api)
       await (await import('./files')).registerFileRoutes(api)
       await (await import('./sync')).registerSyncRoutes(api)
+      // restricted mode pieces, as index.ts registers them (docs/adr/2503-*)
+      await (await import('../restricted')).registerRestrictedMode(api)
       if (opts.extra) await opts.extra(api)
     },
     { prefix: '/api' },

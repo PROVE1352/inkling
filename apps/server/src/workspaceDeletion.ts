@@ -8,7 +8,7 @@ import { env } from './env'
 import { badRequest, forbidden, notFound } from './errors'
 import { lockWorkspaceMembers, memberRoleTx } from './helpers'
 import { lockTree, type Tx } from './pageTree'
-import { WORKSPACE_RESTORE_MS } from './workspaceLive'
+import { workspaceRestoreMs } from './workspaceLive'
 import { recordAudit } from './workspaceAdmin'
 import type { AuditActor } from './workspaceAdmin'
 import { isTwoFactorBlocked, twoFactorRequired } from './twoFactorPolicy'
@@ -123,7 +123,7 @@ export async function restoreWorkspace(actor: AuditActor, workspaceId: string): 
     if (!role) throw notFound()
     if (role !== 'owner') throw forbidden('Only owners can restore the workspace')
     if (await isTwoFactorBlocked(workspaceId, actorId)) throw twoFactorRequired(workspaceId)
-    const cutoff = new Date(Date.now() - WORKSPACE_RESTORE_MS)
+    const cutoff = new Date(Date.now() - workspaceRestoreMs())
     const restored = await tx
       .update(workspaces)
       .set({ deletedAt: null, deletedBy: null })
@@ -149,7 +149,7 @@ export async function restoreWorkspace(actor: AuditActor, workspaceId: string): 
 
 /** Soft-deleted workspaces `userId` owns that can still be restored, newest deletion first. */
 export async function listRestorableWorkspaces(userId: string) {
-  const cutoff = new Date(Date.now() - WORKSPACE_RESTORE_MS)
+  const cutoff = new Date(Date.now() - workspaceRestoreMs())
   const rows = await db
     .select({
       id: workspaces.id,
@@ -175,7 +175,7 @@ export async function listRestorableWorkspaces(userId: string) {
       name: r.name,
       icon: r.icon,
       deletedAt: deletedAt.toISOString(),
-      purgeAt: new Date(deletedAt.getTime() + WORKSPACE_RESTORE_MS).toISOString(),
+      purgeAt: new Date(deletedAt.getTime() + workspaceRestoreMs()).toISOString(),
     }
   })
 }
@@ -186,7 +186,7 @@ export async function listRestorableWorkspaces(userId: string) {
  * leaves nothing to do) → tree lock → cascade delete. Blobs are unlinked after commit.
  */
 export async function purgeExpiredWorkspaces(now: Date, log: (msg: string) => void): Promise<number> {
-  const cutoff = new Date(now.getTime() - WORKSPACE_RESTORE_MS)
+  const cutoff = new Date(now.getTime() - workspaceRestoreMs())
   const candidates = await db
     .select({ id: workspaces.id })
     .from(workspaces)
@@ -276,6 +276,6 @@ export async function workspaceDeletePreview(workspaceId: string) {
     files: Number(r?.files ?? 0),
     publicLinks: Number(r?.publicLinks ?? 0),
     members: Number(r?.members ?? 0),
-    restoreDays: WORKSPACE_RESTORE_MS / 86_400_000,
+    restoreDays: workspaceRestoreMs() / 86_400_000,
   }
 }

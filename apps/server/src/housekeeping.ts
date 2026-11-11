@@ -11,6 +11,8 @@ import { purgeExpiredApiTokens } from './apiTokens'
 import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
+import { workspaceRestoreDays } from './limits'
+import { runRegisteredHousekeepingTasks } from './restrictedExtras'
 import { purgeOldChanges } from './context/changeLog'
 import { purgeStaleSuggestionBases } from './suggestionMerge'
 import { scanReviewDigests, scoreAllWorkspaces } from './review'
@@ -52,7 +54,7 @@ export async function purgeOldAuditEvents(now: Date, maxBatches = 20): Promise<n
  *   - Trash: pages in the trash longer than their workspace's trash retention (default 30 days,
  *     docs/adr/0950-*) are permanently deleted.
  *     Same order as manual permanent deletion (routes/pages.ts purge): collect attachment ids -> delete pages -> file rows + blobs.
- *   - Workspaces soft-deleted more than 30 days ago are permanently deleted (docs/adr/0910-*).
+ *   - Workspaces soft-deleted longer ago than WORKSPACE_RESTORE_DAYS (default 30) are permanently deleted (docs/adr/0910-*).
  *   - Change feed rows older than CHANGE_FEED_RETENTION_DAYS (docs/adr/0932-*), in bounded batches.
  *   - Audit events older than their workspace's audit retention (default 90 days, docs/adr/0946-*).
  *   - Page read counters: flush the buffer, purge days older than 90 (docs/adr/0953-*).
@@ -140,7 +142,7 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
     await pruneTaints()
     if (s.length || n.length || t || w || o || a || c || e) {
       log(
-        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than 30 days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,
+        `[inkling] cleanup: deleted ${s.length} expired sessions, ${n.length} old read notifications, ${t} trash pages past their workspace's retention, ${w} workspaces deleted more than ${workspaceRestoreDays()} days ago, ${o} expired OAuth items and API tokens, ${a} expired reset/verification tokens, ${c} change feed rows older than ${env.changeFeedRetentionDays} days, ${e} audit events past retention`,
       )
     }
     // Page read counters (docs/adr/0953-*): write the buffer, drop days past retention
@@ -155,4 +157,7 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
   } catch (err) {
     log(`[inkling] cleanup job failed: ${String(err)}`)
   }
+  // Jobs the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*), after the work
+  // above; each failure is one log line and the next job still runs.
+  await runRegisteredHousekeepingTasks(log)
 }

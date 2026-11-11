@@ -33,9 +33,11 @@ import { guardHook, initGuard, RATE_LIMIT_MESSAGE } from './guard'
 import { registerMcpRoutes } from './mcp'
 import { registerAdminRoutes } from './routes/admin'
 import { registerAuthRoutes } from './routes/auth'
+import { registerRestrictedMode } from './restricted'
 import { registerTwoFactorRoutes } from './routes/twoFactor'
 import { registerOidcRoutes } from './routes/oidc'
-import { assertOidcConfig } from './oidc'
+import { assertOidcConfig, oidcEnabled } from './oidc'
+import { accountLifetimeLine, assertLimitsCompatible, limits, limitsBootLines } from './limits'
 import { registerBookmarkRoutes } from './routes/bookmarks'
 import { registerCollectionRoutes } from './routes/collections'
 import { registerIcalApiRoutes, registerIcalFeedRoute } from './routes/ical'
@@ -246,6 +248,11 @@ async function main(): Promise<void> {
   for (const w of agentUploadEnv.warnings) console.warn(`[inkling] ${w}`)
   const uploadLimits = agentUploadLimitsLine(agentUploadEnv)
   if (uploadLimits) console.log(`[inkling] ${uploadLimits}`)
+  //    Restricted mode (docs/adr/2500-*): the values were read (and a bad one refused) at import; here
+  //    the combination with the other settings, then one line for the limits and one for the features.
+  assertLimitsCompatible(limits, { delegated: !!env.delegatedAuthUrl, oidc: oidcEnabled(), mail: mailEnabled })
+  for (const w of limits.warnings) console.warn(`[inkling] ${w}`)
+  for (const line of limitsBootLines(limits)) console.log(`[inkling] ${line}`)
 
   // 1) Prepare the upload directory
   await mkdir(path.join(env.dataDir, 'uploads'), { recursive: true })
@@ -323,6 +330,11 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error('[inkling] Workspace access versions could not be reconciled; the server cannot start', err)
     process.exit(1)
+  }
+  //    Account lifetime (docs/adr/2500-*): existing accounts have no expiry date and are never affected.
+  if (limits.accountLifetimeDays !== null) {
+    const [r] = (await db.execute(sql`select count(*)::int as n from users where expires_at is null`)) as unknown as { n: number }[]
+    console.log(`[inkling] ${accountLifetimeLine(limits, Number(r?.n ?? 0))}`)
   }
   if (!env.appSecretKey) {
     console.warn('[inkling] APP_SECRET_KEY is not set — two-step verification cannot be turned on and workspaces cannot require it (docs/adr/1061-*, 1112-*).')
@@ -528,6 +540,8 @@ async function main(): Promise<void> {
         return reply.code(ok ? 200 : 503).send({ ok, db: ok })
       })
       await registerAuthRoutes(api)
+      // Restricted mode pieces (docs/adr/2503-*): their routes, hooks, gates and jobs
+      await registerRestrictedMode(api)
       // Two-step verification settings (docs/adr/1061-*)
       await registerTwoFactorRoutes(api)
       // Sign-in with an OpenID Connect provider (docs/adr/1160-*)

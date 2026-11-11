@@ -103,7 +103,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
 
     // Storage (docs/adr/2505-*): a full workspace is refused before the body is read (with a limit, even
     // an empty file counts its smallest size, review N2).
-    await assertWorkspaceRoom(db, workspaceId, { bytes: fileStorageBytes(1), reserve: false })
+    await assertWorkspaceRoom(db, workspaceId, { bytes: Math.max(1, fileStorageBytes(0)), reserve: false })
     // LIMIT_FILE_MB lowers both caps (docs/adr/2505-*); without it the caps are as before
     const defaultCap = bearer ? AGENT_UPLOAD_MAX_BYTES : MAX_FILE_BYTES
     const cap = uploadCapBytes(defaultCap)

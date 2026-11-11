@@ -188,7 +188,7 @@ export function _resetInstanceStorage(): void {
 }
 
 /** Test hook: pretend a measurement, so tests need not fill a disk. */
-export function _setInstanceStorageForTests(s: { dbBytes: number; fileBytes: number } | null): void {
+export function _setInstanceStorageForTests(s: { dbBytes: number; fileBytes: number } | null, at = Date.now()): void {
   if (!s) {
     last = null
     return
@@ -196,7 +196,7 @@ export function _setInstanceStorageForTests(s: { dbBytes: number; fileBytes: num
   const limit = instanceStorageLimitBytes() ?? Number.POSITIVE_INFINITY
   const total = s.dbBytes + s.fileBytes
   const was = last?.full ?? false
-  last = { ...s, total, limit, full: total >= limit, at: Date.now() }
+  last = { ...s, total, limit, full: total >= limit, at }
   if (last.full !== was) for (const fn of listeners) fn(last.full)
 }
 

@@ -62,7 +62,7 @@
 
 관리자는 **관리자**(`Admin`) 화면 맨 위에서 서버 상태 요약을 보고, 손볼 것이 있으면 앱 맨 위에 한 줄짜리 배너가 뜹니다(docs/adr/1230-*, 1233-*). 같은 데이터를 `GET /api/admin/status`로도 받을 수 있습니다(관리자의 브라우저 세션에서만 됩니다. `?refresh=1`을 붙이면 5분 캐시를 건너뜁니다).
 
-- **색.** 초록은 정상, 주황은 경고, 빨강은 문제이고, 회색은 꺼져 있거나 이 서버에서 설정하지 않은 항목입니다. 회색 줄은 배너를 띄우지 않습니다. `NODE_ENV=production`이 아니면 설정 점검 항목(비밀 키, `PUBLIC_URL`, 쿠키, 가입, 데이터베이스 비밀번호, 사이드카 없음)은 회색으로 나옵니다. 운영 서버를 위한 점검이기 때문입니다.
+- **색.** 초록은 정상, 주황은 경고, 빨강은 문제이고, 회색은 꺼져 있거나 이 서버에서 설정하지 않은 항목입니다. 회색 줄은 배너를 띄우지 않습니다. `NODE_ENV=production`이 아니면 설정 점검 항목(비밀 키, `PUBLIC_URL`, 쿠키, 가입, 데이터베이스 비밀번호, 사이드카 없음)은 회색으로 나옵니다. 프로덕션 서버를 위한 점검이기 때문입니다.
 - **배너**는 첫 번째 문제와 나머지 문제가 몇 개인지 보여 줍니다. 같은 문제(항목 + 단계)는 관리자와 브라우저마다 하루에 한 번만 보여 주고, 새 문제나 경고에서 문제로 올라간 항목은 바로 보여 줍니다. 관리자 화면을 열면 본 것으로 칩니다. 배너를 닫으면 그 세션 동안은 보이지 않습니다.
 - **측정 주기.** 디스크 공간, 데이터베이스 크기, 업로드, 큰 페이지, 저장된 비밀값, 마이그레이션은 최대 5분에 한 번 잽니다. 화면에는 언제 쟀는지(`Checked … ago`)가 나오고, **다시 확인**(`Check again`)을 누르면 바로 다시 잽니다. 백업 상태, 재시작, 오류, 설정은 요청마다 읽습니다.
 
@@ -75,12 +75,12 @@
 | 저장 공간 · 데이터 디스크 (`Storage · Data disk`) | `DATA_DIR` 볼륨의 남은 공간입니다. 2 × (데이터베이스 + 업로드)나 10 %보다 적으면 주황, 512 MB나 3 %보다 적으면 빨강입니다. | 데이터베이스가 공간을 다 쓰기 전에 공간을 비우거나 디스크를 늘리세요("장애 대응" 절). |
 | 저장 공간 · 백업 디스크 (`Storage · Backup disk`) | 마지막 세트 × 2 + `BACKUP_MIN_FREE_MB`보다 적으면 주황, 다음 실행이 들어갈 자리가 없으면 빨강입니다. "데이터와 같은 디스크"(`Same disk as the data`)는 디스크 하나에 둘 다 있다는 뜻입니다. | `BACKUP_KEEP_*`를 낮추거나, 백업 볼륨을 옮기거나, 외부 사본을 더하세요. |
 | 저장 공간 · 데이터베이스 / 업로드 / 큰 페이지 (`Storage · Database / Uploads / Large pages`) | 현재 값만 보여 줍니다. 큰 페이지(상태 1 MiB 이상 또는 토큰 50k개 이상, docs/adr/1103-*)는 워크스페이스마다 그 워크스페이스 설정에 목록이 있습니다. | 긴 로그를 하위 페이지로 나누세요. |
-| 앱 · 24시간 재시작 (`App · Restarts in 24 h`) | `DATA_DIR/status/boots.json`에서 셉니다. 정상 종료 없이 재시작한 일(OOM 강제 종료, 크래시, `docker kill`)이 한 번이라도 있거나 운영 환경에서 정상 재시작이 3번이면 주황, 비정상 재시작이 3번이면 빨강(크래시 루프)입니다. 배포는 정상 재시작으로 셉니다. | `docker compose logs --tail 200 app`. 종료 코드 137은 메모리 부족입니다(2절). |
+| 앱 · 24시간 재시작 (`App · Restarts in 24 h`) | `DATA_DIR/status/boots.json`에서 셉니다. 정상 종료 없이 재시작한 일(OOM 강제 종료, 크래시, `docker kill`)이 한 번이라도 있거나 프로덕션 환경에서 정상 재시작이 3번이면 주황, 비정상 재시작이 3번이면 빨강(크래시 루프)입니다. 배포는 정상 재시작으로 셉니다. | `docker compose logs --tail 200 app`. 종료 코드 137은 메모리 부족입니다(2절). |
 | 앱 · 24시간 오류 로그 (`App · Errors logged in 24 h`) | error/fatal 단계의 로그 기록 수입니다. 24시간에 10개면 주황, 한 시간에 50개면 빨강입니다. 개수만 남기고 내용은 남기지 않습니다. | `docker compose logs app \| grep '"level":50'`. |
 | 앱 · 데이터베이스 스키마 (`App · Database schema`) | 데이터베이스에 적용된 마이그레이션과 이 서버에 들어 있는 마이그레이션을 비교합니다. 다르면 빨강입니다(예: 더 새 릴리스에서 만든 데이터베이스를 복원한 경우). | 그 데이터베이스를 마지막으로 쓴 릴리스로 업그레이드하세요("업그레이드" 절). |
 | 앱 · 웹 푸시 (`App · Web push`) | 기기 수, 실패하는 기기 수, 24시간 동안 포기한 전송 수입니다(0.18). `WEB_PUSH=off`면 회색입니다. 24시간에 포기한 전송이 20개가 되거나 "보낼 수 없음: VAPID 키 문제 (…)"(`Cannot send: VAPID key problem (…)`)가 나오면 주황입니다. | 12절의 "웹 푸시": 서버에서 푸시 서비스로 나가는 연결, `APP_SECRET_KEY`, VAPID 환경 변수 한 쌍을 확인하세요. |
 | 앱 · 데이터베이스 자동화 (`App · Database automations`) | 켜진 규칙, 대기 중인 실행, 24시간 동안 실패한 실행 수입니다(0.18). 규칙이 없으면 회색이고, 때가 된 실행이 15분 이상 기다리고 있으면 주황입니다("자동화 대기열이 밀려 있습니다"(`the automation queue is not keeping up`)). | 12절의 "데이터베이스 자동화와 버튼". 같은 동작을 되풀이하는 규칙이나 느린 웹훅이 있는지 보세요. |
-| 보안 설정 (`Security settings`) | 운영 환경에서 다음 중 하나면 주황입니다. `APP_SECRET_KEY`나 `PUBLIC_URL`이 없을 때, 쿠키가 `Secure`가 아닐 때, 누구나 가입할 수 있을 때(`SIGNUP_REQUIRE_KEY=0`, 또는 `OIDC_ALLOWED_DOMAINS` 없이 `OIDC_AUTO_CREATE=1`), 데이터베이스 비밀번호가 비었거나 사용자 이름과 같거나 흔한 기본값이거나 12자보다 짧을 때입니다(판단은 서버에서 하고 값은 보여 주지 않습니다). 암호화해 둔 비밀값이 있는데 `APP_SECRET_KEY`가 없어졌으면 빨강입니다. | 0절의 "처음 배포하기 전에". |
+| 보안 설정 (`Security settings`) | 프로덕션 환경에서 다음 중 하나면 주황입니다. `APP_SECRET_KEY`나 `PUBLIC_URL`이 없을 때, 쿠키가 `Secure`가 아닐 때, 누구나 가입할 수 있을 때(`SIGNUP_REQUIRE_KEY=0`, 또는 `OIDC_ALLOWED_DOMAINS` 없이 `OIDC_AUTO_CREATE=1`), 데이터베이스 비밀번호가 비었거나 사용자 이름과 같거나 흔한 기본값이거나 12자보다 짧을 때입니다(판단은 서버에서 하고 값은 보여 주지 않습니다). 암호화해 둔 비밀값이 있는데 `APP_SECRET_KEY`가 없어졌으면 빨강입니다. | 0절의 "처음 배포하기 전에". |
 | 업데이트 (`Updates`) | `UPDATE_CHECK=github`가 아니면 회색입니다. 더 새 릴리스가 있으면 주황, 이 서버보다 새 릴리스 가운데 릴리스 노트에 "Security" 절이 있는 것이 있으면 빨강입니다(docs/adr/1232-*). | "업그레이드" 절. |
 
 <a id="upgrades"></a>
@@ -113,7 +113,7 @@ docker compose logs --tail 50 app  #    check the migration result and "Server l
 
 - [ ] 먼저 손으로 백업을 받으세요: `./deploy/backup.sh`.
 - [ ] 백업이 도는 시간(기본 03:00)에는 배포하지 마세요.
-- [ ] 운영 데이터베이스에 `drizzle-kit push`를 절대 돌리지 마세요(1절 참고).
+- [ ] 프로덕션 데이터베이스에 `drizzle-kit push`를 절대 돌리지 마세요(1절 참고).
 - [ ] 앱 인스턴스는 하나만 둡니다. 알림, 시트 동기화, 웹훅 대기열, Hocuspocus 상태, 공개 폼 답변의 시간당 한도가 모두 프로세스마다 따로 있기 때문입니다. 0.15.1부터는 다른 Inkling 프로세스가 같은 데이터베이스를 쓰고 있으면 서버가 시작하지 않습니다(9절).
 - [ ] 업그레이드한 뒤에는 부팅 로그에서 마이그레이션이 성공했는지, 켜진 실험 기능이 무엇인지 확인하세요.
 
@@ -217,7 +217,7 @@ docker compose pull app && docker compose up -d  #    or `up -d --build` for sou
 
 알아 둘 점
 - `shared_buffers`와 `shared_preload_libraries`는 `docker compose up -d db`(컨테이너 재시작)를 해야 바뀝니다. 나머지는 `ALTER SYSTEM` + `SELECT pg_reload_conf()`로 돌고 있는 채로도 바꿀 수 있지만, 다음에 재시작하면 compose 인자 값이 이깁니다.
-- 컨테이너의 페이지 캐시도 `mem_limit`에 들어갑니다. `effective_cache_size`는 `PG_MEM_LIMIT`에서 `shared_buffers`와 여유분을 뺀 값보다 작게 두세요. 그렇지 않으면 플래너는 cgroup이 결국 비워 버릴 캐시까지 있다고 보고 계획을 세웁니다.
+- 컨테이너의 페이지 캐시도 `mem_limit`에 들어갑니다. `effective_cache_size`는 `PG_MEM_LIMIT`에서 `shared_buffers`가 쓸 몫을 뺀 값보다 작게 두세요. 그렇지 않으면 플래너는 cgroup이 결국 비워 버릴 캐시까지 있다고 보고 계획을 세웁니다.
 - `db`에 자체 `command:`를 정의한 `compose.override.yaml`을 쓰면 여기 있는 명령이 통째로 바뀝니다. 그럴 때는 위 플래그들을 그 파일에 합쳐 넣으세요.
 
 <a id="query-statistics-opt-in"></a>
@@ -282,7 +282,7 @@ VACUUM (FULL, ANALYZE) pages;   -- optional one-time rewrite
 5k 페이지짜리 시드 데이터로 재 보니 HOT 비율이 0.1%였다가, `fillfactor = 85`를 걸고 다시 쓴 뒤 91%가 되었습니다.
 
 <a id="never-drizzle-kit-push-against-production"></a>
-### 운영 데이터베이스에 `drizzle-kit push`를 쓰지 마세요
+### 프로덕션 데이터베이스에 `drizzle-kit push`를 쓰지 마세요
 
 push는 돌고 있는 데이터베이스를 `schema.ts`와 비교해서, 거기 선언되지 않은 것은 지워 버립니다. 손으로 만든 trigram 인덱스와 "perf" 인덱스가 실제로 한 번 이렇게 지워졌습니다. 마이그레이션 0024부터는 이 인덱스들을 스키마에 선언해 두고 `IF NOT EXISTS`로 다시 만듭니다. 언제나 생성된 마이그레이션(`pnpm db:generate`, 부팅할 때 적용)을 쓰세요.
 

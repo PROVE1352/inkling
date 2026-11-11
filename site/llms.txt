@@ -1,0 +1,32 @@
+# Inkling
+
+> Self-hosted notes app with a built-in MCP server, where people and their AI agents read and edit the same notes. Agents find the sections that answer a question within a token budget (find_context), change one section against the version they read (patch_section), and can leave their edits as suggestions for a person to accept. This site describes Inkling {{VERSION}}.
+
+The docs pages on this site are rendered from the repository; every page has its Markdown source next to it (docs/NAME.html and docs/NAME.md). The links below point at the Markdown. The MCP server of a running Inkling instance is at https://<its domain>/mcp; each person connects their own client with OAuth 2.1 or an agent connection token. Source code: https://github.com/PROVE1352/inkling
+
+## Connect an agent
+- [MCP connector and agent guide](docs/MCP.md): connecting Claude Code, claude.ai and other MCP clients, agent connection tokens, tool profiles, every tool, and the order an agent should use them in (find_context, read_page outline and section, patch_section, suggestions, claims, inbox, catch_up, changes_since, get_instructions)
+- [Recipes with other MCP servers](docs/RECIPES.md): Inkling as the shared memory next to game engines, design tools and code hosts
+- [User guide](docs/GUIDE.md): where each feature is in the web app, including connecting an AI app, reviewing suggestions, reverting agent edits and team agents
+
+## Install and run a server
+- [README](https://github.com/PROVE1352/inkling/blob/main/README.md): quick start (`./deploy/local.sh` for a local trial, Docker Compose with Caddy on a server), configuration, limits
+- [Deployment](docs/DEPLOY.md): a Linux server step by step, HTTPS, signup keys, mail, sign-in options, semantic search, updates, the local trial
+- [Operations](docs/OPERATIONS.md): deployment checklist, upgrades, status summary, database tuning
+- [Backups](docs/BACKUP.md): the backup sidecar, retention, encryption, restore
+- [Known issues](docs/KNOWN-ISSUES.md): open problems by area and severity
+
+## Reference
+- [REST API](docs/API.md): every REST route; the MCP tools call these routes as the connected person
+- [Performance log](docs/PERFORMANCE.md): every performance change with numbers before and after and how they were measured
+- [Templates](docs/TEMPLATES.md), [Query blocks](docs/QUERY.md), [Webhooks](docs/WEBHOOKS.md)
+- [Plugins (experimental)](docs/PLUGINS.md), [Vault sync (experimental)](docs/VAULT-SYNC.md)
+- [Architecture](docs/ARCHITECTURE.md), [Roadmap](docs/ROADMAP.md)
+
+## Korean
+{{KO_DOCS}}
+
+## Optional
+- [Site home](index.html), [Korean site home](ko/index.html), [All docs](docs/index.html)
+- [Changelog](https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md)
+- [AGENTS.md](https://github.com/PROVE1352/inkling/blob/main/AGENTS.md): rules for coding agents changing the Inkling repository

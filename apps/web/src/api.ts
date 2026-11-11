@@ -213,6 +213,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     if (err.code === 'TWO_FACTOR_REQUIRED' && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(TWO_FACTOR_REQUIRED_EVENT, { detail: err.details }))
     }
+    // Not agreed to this server's current terms (LEGAL_DIR): components/legal reloads /auth/me (CONSENT_REQUIRED_EVENT).
+    if (err.code === 'CONSENT_REQUIRED' && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inkling:consent-required'))
     throw err
   }
   if (res.status === 204) return undefined as T

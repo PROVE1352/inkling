@@ -7,6 +7,7 @@ import { FullScreenSpinner, Spinner } from './components/Spinner'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
 import { reloadOnceForStaleChunk } from './lib/pwa'
+import { ConsentGate } from './components/legal/ConsentGate'
 
 // Route-level code splitting (docs/adr/0704-route-and-feature-code-splitting.md).
 // The entry chunk holds the shell (router, React Query, AppLayout/sidebar) and the login page;
@@ -51,6 +52,9 @@ const WorkspaceHome = lazyNamed(() => import('./pages/WorkspaceHome'), 'Workspac
 const WorkspaceSettings = lazyNamed(() => import('./pages/WorkspaceSettings'), 'WorkspaceSettings')
 const SlackLink = lazyNamed(() => import('./pages/SlackLink'), 'SlackLink')
 const Clip = lazyNamed(() => import('./pages/Clip'), 'Clip')
+// this server's terms and privacy policy (LEGAL_DIR, docs/adr/2519-*)
+const TermsPage = lazyNamed(() => import('./components/legal/LegalDocPage'), 'TermsPage')
+const PrivacyPage = lazyNamed(() => import('./components/legal/LegalDocPage'), 'PrivacyPage')
 
 /** Full-screen fallback for top-level routes. */
 function Page({ children }: { children: ReactNode }) {
@@ -88,6 +92,7 @@ function usePrefetchEditor() {
 export function App() {
   usePrefetchEditor()
   return (
+    <ConsentGate>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Page><Register /></Page>} />
@@ -96,6 +101,8 @@ export function App() {
       <Route path="/setup" element={<Page><Register /></Page>} />
       <Route path="/reset" element={<Page><ResetPassword /></Page>} />
       <Route path="/verify" element={<Page><VerifyEmail /></Page>} />
+      <Route path="/terms" element={<Page><TermsPage /></Page>} />
+      <Route path="/privacy" element={<Page><PrivacyPage /></Page>} />
       <Route path="/join/:code" element={<Page><JoinWorkspace /></Page>} />
       {/* Invitation to one page tree as a guest (docs/adr/1253-*); sends signed-out visitors to /login?next= */}
       <Route path="/invite/page/:token" element={<Page><PageInvite /></Page>} />
@@ -148,5 +155,6 @@ export function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </ConsentGate>
   )
 }

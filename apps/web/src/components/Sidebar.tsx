@@ -36,6 +36,7 @@ import { SidebarMenuPopup, useMenuContextTrigger, type MenuCtx } from './Sidebar
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { InstanceBadge } from './InstanceBadge'
 import { AccountExpiry } from './AccountExpiry'
+import { LegalSidebarLinks } from './legal/LegalLinks'
 import { PageTree } from './PageTree'
 import { TrashModal } from './TrashModal'
 import { Spinner } from './Spinner'
@@ -928,6 +929,7 @@ export function Sidebar({
               {me.data?.name ?? t('sidebar.userFallback')}
             </div>
             <div className="truncate text-xs text-sub">{me.data?.email}</div>
+            <LegalSidebarLinks />
           </div>
           <div className="flex items-center gap-1">
             {guest ? (

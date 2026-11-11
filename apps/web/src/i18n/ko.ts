@@ -44,6 +44,7 @@ import imageViewer from './ko/image-viewer'
 import columns from './ko/columns'
 import pdfPreview from './ko/pdf-preview'
 import limits from './ko/limits'
+import legal from './ko/legal'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -92,4 +93,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...columns,
   ...pdfPreview,
   ...limits,
+  ...legal,
 }

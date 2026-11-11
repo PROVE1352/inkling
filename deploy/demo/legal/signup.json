@@ -1,0 +1,68 @@
+{
+  "notice": {
+    "ko": "데모 서비스입니다. 계정과 데이터는 가입 14일 뒤 자동으로 삭제되며, 그 전에도 예고 없이 중단되거나 삭제될 수 있습니다. 중요한 자료는 따로 보관하세요.",
+    "en": "This is a demo service. Your account and data are deleted automatically 14 days after signup, and the service may stop or lose data without notice before then. Keep your own copy of anything important."
+  },
+  "items": [
+    {
+      "id": "demo_notice",
+      "required": true,
+      "doc": "terms",
+      "label": {
+        "ko": "위 데모 서비스 안내를 읽었습니다. 계정과 데이터가 가입 14일 뒤 자동으로 삭제되고, 그 전에도 서비스가 예고 없이 멈추거나 데이터가 사라질 수 있으며, 백업을 보장하지 않는다는 점을 이해합니다. (이용약관 2절)",
+        "en": "I have read the demo service notice above. I understand that my account and data are deleted automatically 14 days after signup, that the service may stop or lose data without notice before then, and that backups are not guaranteed. (Section 2 of the Terms)"
+      }
+    },
+    {
+      "id": "terms",
+      "required": true,
+      "doc": "terms",
+      "label": {
+        "ko": "이용약관에 동의합니다.",
+        "en": "I agree to the Terms of Service."
+      }
+    },
+    {
+      "id": "privacy",
+      "required": true,
+      "doc": "privacy",
+      "label": {
+        "ko": "개인정보 수집·이용에 동의합니다.",
+        "en": "I agree to the collection and use of my personal information."
+      },
+      "details": {
+        "ko": "| 항목 | 목적 | 보유 기간 |\n|---|---|---|\n| 아이디, 별명, 비밀번호 | 가입, 로그인, 계정 식별 | 가입일로부터 14일 또는 탈퇴할 때까지 중 먼저 오는 때 |\n| 작성한 노트, 파일, 댓글 | 서비스 제공 | 직접 지우거나 계정이 삭제될 때까지(휴지통 7일). 함께 쓰는 워크스페이스에 쓴 글은 작성자 표시만 지우고 남김 |\n| 가입 시각, 화면 언어, 로그인 상태 | 로그인 유지, 자동 삭제일 계산 | 계정이 삭제될 때까지 |\n| 접속 IP 주소와 시각, 로그인 실패가 쌓인 IP와 차단 기록, 가입 요청 IP | 무단 접속 차단, 가입 횟수 제한, 보안 | 기록한 날부터 최대 30일(계정 삭제 뒤에도 이 기간까지 남을 수 있음) |\n| 동의 기록(문서 버전, 시각, IP 주소) | 동의 사실 확인 | 계정이 삭제될 때까지 |\n\n- 위 정보는 서비스 이용 계약을 이행하는 데 꼭 필요한 정보입니다. 삭제된 정보는 백업에 최대 7일(가입일로부터 최장 21일) 남았다가 지워집니다. 서비스는 메일을 보내지 않습니다.\n- 아이디와 별명에 실명, 이메일 주소, 전화번호 같은 개인정보를 넣지 마세요. 서비스는 연락처를 받지 않습니다.\n- 동의를 거부할 수 있습니다. 다만 거부하면 서비스에 가입할 수 없습니다.\n- 2단계 인증, 푸시 알림, AI 도구 연결처럼 나중에 직접 켜는 기능의 정보는 그 기능을 켤 때만 처리합니다.",
+        "en": "| Item | Purpose | Kept for |\n|---|---|---|\n| User ID, nickname, password | Signup, sign-in, identifying your account | 14 days from signup, or until you delete your account, whichever comes first |\n| Notes, files and comments you write | Providing the service | Until you delete them or the account is deleted (trash: 7 days). What you wrote in shared workspaces stays with your name removed |\n| Signup time, interface language, sign-in state | Keeping you signed in, working out the automatic deletion date | Until the account is deleted |\n| IP address and time of access, IPs with repeated sign-in failures and blocks, signup request IP | Blocking unauthorized access, limiting signups, security | Up to 30 days from when recorded (may outlast the account by up to that long) |\n| Agreement records (document version, time, IP address) | Showing that you agreed | Until the account is deleted |\n\n- This information is needed to perform the service contract. Deleted data stays in backups for up to 7 days (at most 21 days from signup) and is then removed. The service does not send email.\n- Do not put personal information such as your real name, email address or phone number in your user ID or nickname. The service does not take contact details.\n- You may refuse. If you refuse, you cannot sign up.\n- Features you turn on later yourself, such as two-step verification, push notifications and AI tool connections, process their data only when you turn them on."
+      }
+    },
+    {
+      "id": "age_14",
+      "required": true,
+      "label": {
+        "ko": "만 14세 이상입니다.",
+        "en": "I am 14 or older."
+      }
+    },
+    {
+      "id": "residence_kr_us",
+      "required": true,
+      "label": {
+        "ko": "한국 또는 미국에 거주합니다. 유럽경제지역(EEA), 영국, 스위스에 거주한다면 가입할 수 없습니다.",
+        "en": "I live in the Republic of Korea or the United States. If you live in the European Economic Area (EEA), the United Kingdom or Switzerland, you cannot sign up."
+      }
+    },
+    {
+      "id": "overseas_transfer",
+      "required": true,
+      "doc": "privacy",
+      "label": {
+        "ko": "개인정보 국외 이전(일본 서버 보관)에 동의합니다. 동의를 거부할 수 있으나, 거부하면 서비스에 가입할 수 없습니다. (개인정보 처리방침 8절)",
+        "en": "I agree to the transfer of my personal information outside Korea (storage on a server in Japan). You may refuse, but if you refuse you cannot sign up. (Section 8 of the Privacy Policy)"
+      },
+      "details": {
+        "ko": "| 구분 | 내용 |\n|---|---|\n| 이전받는 자 | Oracle(Oracle Cloud Infrastructure), 연락처: https://www.oracle.com/legal/privacy/ 의 문의 창구 |\n| 이전 국가 | 일본(Oracle Cloud 도쿄 리전) |\n| 이전 일시와 방법 | 가입하고 서비스를 쓸 때마다, 암호화된 인터넷 연결로 저장 |\n| 이전 항목 | 개인정보 처리방침 2절의 모든 항목(나중에 켜는 기능의 정보 포함) |\n| 이용 목적과 보유 기간 | 서비스 서버와 저장 공간 제공. 보유 기간은 처리방침 4절과 같음 |\n| 거부 방법과 효과 | 가입하지 않거나 탈퇴하면 이전되지 않습니다. 서비스는 이 서버에서만 운영되므로, 원하지 않으면 서비스를 이용할 수 없습니다 |",
+        "en": "| | Details |\n|---|---|\n| Recipient | Oracle (Oracle Cloud Infrastructure). Contact: the inquiry channel at https://www.oracle.com/legal/privacy/ |\n| Country | Japan (Oracle Cloud Tokyo region) |\n| When and how | Whenever you sign up and use the service, stored over an encrypted internet connection |\n| Items | All items in section 2 of the Privacy Policy (including data from features you turn on later) |\n| Purpose and retention | Providing servers and storage for the service. Retention as in section 4 of the Privacy Policy |\n| How to refuse, and what happens | If you do not sign up, or delete your account, nothing is transferred. The service runs only on this server, so you cannot use it if you do not want this |"
+      }
+    }
+  ]
+}

@@ -5,6 +5,8 @@ import { ApiError, useAuthMode, useMe, useRegister } from '../api'
 import { safeNext } from '../lib/nav'
 import { FullScreenSpinner, Spinner } from '../components/Spinner'
 import { LanguageSelect } from '../components/LanguageSelect'
+import { InstanceBadge } from '../components/InstanceBadge'
+import { LegalLinks } from '../components/legal/LegalLinks'
 import { SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
 import { useT } from '../i18n'
 
@@ -145,6 +147,7 @@ export function Register() {
         <div className="mb-6 flex flex-col items-center gap-2">
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
+          <InstanceBadge placement="auth" />
           {setupMode && (
             <>
               <h2 className="text-sm font-semibold text-ink">{t('setup.title')}</h2>
@@ -259,7 +262,8 @@ export function Register() {
           </Link>
         </p>
 
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <LegalLinks />
           <LanguageSelect compact />
         </div>
       </div>

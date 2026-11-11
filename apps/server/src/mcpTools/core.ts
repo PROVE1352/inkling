@@ -109,6 +109,52 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }
 
+/** A byte count for a person: "4.2 MB". */
+function mb(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/**
+ * Next steps for the restricted-mode codes (0.22, docs/adr/2505-*, 2507-*, 2519-*), built from the
+ * error's `limit` / `used` (bytes for storage and file size): what the user can do, in words an agent
+ * can pass on. They replace the status hints, which would say "not a member" for a 403 limit and "not
+ * found" for a 404 turned-off feature.
+ */
+export function restrictedModeHint(code: string, e: { limit?: unknown; used?: unknown; feature?: unknown }): string | null {
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const limit = n(e.limit)
+  const used = n(e.used)
+  const counts = limit != null && used != null ? ` (${used} of ${limit} used)` : ''
+  switch (code) {
+    case 'LIMIT_PAGES':
+      return (
+        `nothing was created; this workspace has reached its page limit on this server${counts}. Pages in the trash count too. ` +
+        'Do not retry. Tell the user: deleting pages and emptying the trash makes room, or use another workspace'
+      )
+    case 'LIMIT_MEMBERS':
+      return `nobody was added; this workspace has reached its member limit on this server${counts}. Do not retry. Tell the user: a member has to leave or be removed first`
+    case 'LIMIT_WORKSPACES':
+      return (
+        `nothing was created; the user owns as many workspaces as this server allows${counts}, deleted ones included until they are gone for good. ` +
+        'Do not retry. Tell the user: permanently delete a deleted workspace (Settings › Deleted workspaces) or leave one'
+      )
+    case 'LIMIT_STORAGE':
+      return (
+        `nothing was written; this workspace's storage is full on this server${limit != null && used != null ? ` (${mb(used)} of ${mb(limit)})` : ''}: ` +
+        'files, page bodies and version history count together, and the workspace is read-only until there is room. ' +
+        'Do not retry. Tell the user: deleting files or pages and emptying the trash makes room'
+      )
+    case 'LIMIT_FILE':
+      return `nothing was stored; the file is larger than this server allows${limit != null ? ` (at most ${mb(limit)} per file)` : ''}. Do not retry with the same file: make it smaller, split it, or put the content into the page as Markdown`
+    case 'FEATURE_DISABLED':
+      return `this server has turned ${typeof e.feature === 'string' ? `"${e.feature}"` : 'this feature'} off for everyone; it is not a missing id or a permission. Do not retry or look for another way to do it; tell the user it is not available on this server`
+    case 'CONSENT_REQUIRED':
+      return 'nothing was done; the user has not agreed to the current terms of this server. Do not retry. Tell the user to sign in on the web app and agree (the message says where); this connection works again after that'
+    default:
+      return null
+  }
+}
+
 /** Call an existing REST route as the token user; 4xx/5xx become a ToolError carrying the server message */
 export async function call(
   ctx: ToolCtx,
@@ -137,16 +183,18 @@ export async function call(
   if (res.statusCode >= 400 && !opts.passStatuses?.includes(res.statusCode)) {
     let message = `Request failed (HTTP ${res.statusCode})`
     let code: string | undefined
+    let detail: { limit?: unknown; used?: unknown; feature?: unknown } = {}
     try {
-      const body = res.json() as { error?: { message?: string; code?: string } }
+      const body = res.json() as { error?: { message?: string; code?: string; limit?: unknown; used?: unknown; feature?: unknown } }
       code = body?.error?.code
+      detail = body?.error ?? {}
       if (body?.error?.message) message = `${body.error.message} (${body.error.code ?? res.statusCode})`
     } catch {
       // Body is not JSON: keep the default message
     }
     // Error codes first (more specific than the status), then the status.
     const hint =
-      (code && NEXT_STEP_BY_CODE[code]) ||
+      (code && (NEXT_STEP_BY_CODE[code] ?? restrictedModeHint(code, detail))) ||
       (res.statusCode === 404 ? NOT_FOUND_HINT[opts.target ?? notFoundTarget(url)] : NEXT_STEP[res.statusCode])
     if (hint) message = `${message}: ${hint}`
     throw new ToolError(message)

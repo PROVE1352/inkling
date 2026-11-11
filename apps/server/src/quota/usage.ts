@@ -6,16 +6,16 @@ import { db } from '../db/index'
 import { idParam, requireMembership } from '../helpers'
 import { limits } from '../limits'
 import { storageLimitBytes } from './room'
-import { countWorkspaceStorage, recountWorkspaceStorage } from './storage'
+import { recountWorkspaceStorage } from './storage'
 
 /** The usage route recounts storage when the cached count is older than this (limit set). */
 export const USAGE_RECOUNT_MS = 60_000
 
 /**
  * GET /api/workspaces/:id/usage (members, docs/adr/2506-*): members, pages (trash included), storage
- * and file bytes, and the limits that apply. With a storage limit the cached count is used, recounted
- * first when older than a minute, so deleting files and opening the settings is enough to edit again.
- * Without one the storage is counted on the spot and nothing is written.
+ * and file bytes, and the limits that apply. The cached count is used, recounted first when older than
+ * a minute (with or without a storage limit), so deleting files and opening the settings is enough to
+ * edit again, and a server without limits counts a workspace at most once a minute.
  */
 export async function workspaceUsage(workspaceId: string): Promise<WorkspaceUsageDTO> {
   const [r] = (await db.execute(sql`
@@ -27,9 +27,9 @@ export async function workspaceUsage(workspaceId: string): Promise<WorkspaceUsag
   const storageLimit = storageLimitBytes()
   let storageBytes: number
   let fileBytes: number
-  if (storageLimit == null) {
-    ;({ total: storageBytes, fileBytes } = await countWorkspaceStorage(db, workspaceId))
-  } else if (r?.stale) {
+  // The full count reads every member-grown column of the workspace: at most once a minute per
+  // workspace, with or without a limit (the settings screen asks on every visit).
+  if (r?.stale) {
     ;({ total: storageBytes, fileBytes } = await recountWorkspaceStorage(workspaceId))
   } else {
     const [c] = (await db.execute(sql`

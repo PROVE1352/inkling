@@ -126,6 +126,45 @@ export async function closeWorkspaceConnections(workspaceId: string): Promise<nu
 }
 
 /**
+ * Read-only connections to documents of one workspace, closed with an ordinary close (no "permission
+ * changed" message) so the client connects again at once and is authorised anew: a workspace that came
+ * back under its storage limit (quota/storage.ts) lets them edit again. Connections that can edit are
+ * left alone. Returns how many were closed.
+ */
+export async function reconnectReadOnlyWorkspaceConnections(workspaceId: string): Promise<number> {
+  if (!instance) return 0
+  const open = openPageDocNames()
+  if (!open.length) return 0
+  try {
+    const rows = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.workspaceId, workspaceId), inArray(pages.id, open)))
+    const inWs = new Set(rows.map((r) => r.id))
+    let n = 0
+    for (const [name, doc] of instance.documents) {
+      if (!inWs.has(name)) continue
+      for (const conn of doc.getConnections()) {
+        if (!conn.readOnly) continue
+        try {
+          conn.close({ code: RECONNECT_CODE, reason: 'storage-room' })
+          n++
+        } catch (err) {
+          console.error('[inkling] reconnecting collab connection failed', name, err)
+        }
+      }
+    }
+    return n
+  } catch (err) {
+    console.error('[inkling] reconnectReadOnlyWorkspaceConnections failed', err)
+    return 0
+  }
+}
+
+/** An ordinary close code (not 4401/4403): the provider reconnects at once (as collab.ts SCHEMA_RECONNECT_CODE). */
+const RECONNECT_CODE = 4000
+
+/**
  * Every connection to a page document whose page row no longer exists: after a workspace was deleted
  * for good (leaving as its last member, "delete now", an account deletion purging it). The workspace's
  * pages are gone by then, so closeWorkspaceConnections, which finds them by workspace, would close

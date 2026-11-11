@@ -17,7 +17,8 @@ server the rows are its MCP connections, so nothing may be deleted there without
   key to `oauth_clients` (codes, grants, agent blocks, agent access records), compared with the database
   catalog by a test; all of them cascade, so a missed one would delete live rows. Agent connection token
   clients (`ink_tc_`) and metadata-document clients (URL ids) are never candidates. The deletion locks
-  candidates (`FOR UPDATE SKIP LOCKED`) and re-checks in the same statement.
+  candidates (`FOR UPDATE SKIP LOCKED`), then deletes them in a second statement of the same
+  transaction that checks again against the codes and grants committed meanwhile.
 - The cap never deletes a registration younger than 15 minutes (someone may be on the consent screen).
   When only those are left the registration answers 503 `temporarily_unavailable` with `Retry-After`,
   rather than pushing out a person who is signing in.

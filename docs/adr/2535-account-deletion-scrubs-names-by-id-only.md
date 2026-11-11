@@ -18,7 +18,9 @@ R3, R3b). This happens on every server: leaving needs no setting.
   `user` with `userId` (`account/auditIds.ts` lists the pairs). The audit screen leaves the id keys out.
   `workspace.transferred` has kept its shape since it was added: `before.owner` is the actor's name,
   `after.owner` the target's, so those are matched through `actor_id` and `target_id`, old rows included.
-- Only workspaces the account created (`created_by`) and still named after it at sign-up are renamed.
+- Only workspaces the account created (`created_by`) and still named after it at sign-up are renamed. In
+  the workspaces it created, audit rows that copied that sign-up name (the workspace label of delete,
+  restore and export rows, a rename's `name`) get the new name too.
 
 ## Consequences
 - A row about anyone else, a namesake included, never changes (`nameScrubById.db.test.ts`, leaving and

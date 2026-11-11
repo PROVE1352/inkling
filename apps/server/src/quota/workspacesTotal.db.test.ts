@@ -41,7 +41,7 @@ describe('[db] LIMIT_WORKSPACES_TOTAL (F1)', { skip: !HAS_DB }, async () => {
   const codeOf = (r: { json: () => unknown }) => (r.json() as { error?: { code?: string } }).error?.code
   let v6 = 0
   const signUp = (loginId: string) =>
-    app.inject({ method: 'POST', url: '/api/auth/register', remoteAddress: `2001:db8:77:${(v6++).toString(16)}::1`, payload: { loginId, name: 'N', password: 'password123', formMs: 2500 } })
+    app.inject({ method: 'POST', url: '/api/auth/register', remoteAddress: `2001:db8:${(v6++).toString(16)}:77::1`, payload: { loginId, name: 'N', password: 'password123', formMs: 2500 } })
   const signedUp = async (loginId: string) => {
     const r = await signUp(loginId)
     assert.equal(r.statusCode, 200, r.body)

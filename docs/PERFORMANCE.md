@@ -350,9 +350,10 @@ asks whether the person agreed: "agreed" is cached for 10 minutes (at most 20,00
 from `user_consents` each time. With none of the settings the checks return before any SQL (a test passes them an
 executor that throws), and a request costs one length check for the features turned off and one size check for
 the request gates. Two things run without any setting: `GET /api/workspaces/:id/usage`, which Workspace settings ›
-General calls on every server, counts the workspace's storage with the full statement on each call (the browser
-keeps the answer for a minute), and the hourly housekeeping runs two more `DELETE` statements (old sign-up
-records and old `ip_bans` rows).
+General calls on every server, runs the full count when the workspace's cached count is more than a minute old
+(so at most once a minute per workspace) and stores it, and the hourly housekeeping runs two more `DELETE`
+statements (old sign-up records and old `ip_bans` rows). `LIMIT_TRASH_DAYS` changes only the interval inside the
+existing trash purge statement (`LEAST(trash_retention_days, cap)`); without it the statement is the 0.21.1 one.
 
 ## Sync & collaboration
 

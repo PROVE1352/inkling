@@ -15,8 +15,9 @@ owned workspaces, members, pages, file size, storage and versions; features turn
 sign-up with an ID and a nickname instead of an email address; terms and consent at sign-up; accounts deleted some
 days after sign-up; a label such as "Demo" on every screen. **A server that sets none of them behaves as 0.21.1,
 except for what is listed under "What changes on every server" below.** One database migration, additive
-(`0062_limits_accounts`; a 0.21 database goes from 62 to 63 applied migrations). No new dependency. The MCP tool list,
-its descriptions and the server instructions are unchanged. A preset for a demo server is in `deploy/demo/`, with the
+(`0062_limits_accounts`; a 0.21 database goes from 62 to 63 applied migrations). No new dependency. The MCP tool list
+and the server instructions are unchanged; tool errors for the new codes say what to do next. Design notes are
+docs/adr/2500-* .. 2529-*. A preset for a demo server is in `deploy/demo/`, with the
 steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17.
 
 Not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
@@ -32,7 +33,8 @@ These change with no new setting, on every server that upgrades:
   admin cannot (409 `LAST_ADMIN`). Backups keep the data until they rotate out.
 - **A sole owner who is the workspace's only member can leave it, and the workspace is deleted at once** with its
   pages and files (no restore), after typing its name. Before, leaving was refused (400). A sole owner with other
-  members is still refused: transfer ownership first.
+  members is still refused: transfer ownership first. Tabs still open on the deleted pages, page guests' included,
+  are disconnected (docs/adr/2529-*).
 - **An owner can delete a deleted workspace for good at once** ("Delete now" in Settings → Account → Deleted
   workspaces, `DELETE /api/workspaces/:id/permanent`), instead of waiting for the end of its restore window.
 - **Housekeeping deletes `ip_bans` rows whose ban ended more than 30 days ago.** An active ban is never touched.
@@ -43,8 +45,9 @@ These change with no new setting, on every server that upgrades:
 - **The first account to sign up on a server without an admin is made admin inside the sign-up transaction**, under
   the admin lock, instead of right after it. The old call after the commit stays and does nothing then. The rule is
   the same: with no admin, the first sign-up becomes the admin.
-- **Workspace settings → General shows the workspace's usage**: members, pages (the trash included) and storage. On
-  a server without limits it counts the storage each time the tab is opened (docs/PERFORMANCE.md).
+- **Workspace settings → General shows the workspace's usage**: members, pages (the trash included) and storage. The
+  server counts the storage again when the stored count is more than a minute old, so at most once a minute per
+  workspace, also without limits (docs/PERFORMANCE.md).
 - **Admin → Server status** shows a new "Account cap" item under the security settings while anyone can sign up
   (`SIGNUP_REQUIRE_KEY=0`); in production it is amber until `SIGNUP_MAX_USERS` is set.
 - A new notification, "You are now the owner of …: its previous owner deleted their account". The hourly
@@ -56,14 +59,15 @@ These change with no new setting, on every server that upgrades:
   included), `LIMIT_MEMBERS_PER_WORKSPACE` (page guests do not count), `LIMIT_PAGES_PER_WORKSPACE` (the trash
   included), `LIMIT_FILE_MB` (one upload, at most 25; connections get the smaller of it and `AGENT_UPLOAD_MAX_MB`),
   `LIMIT_WORKSPACE_STORAGE_MB` and `LIMIT_VERSIONS_PER_PAGE` (1–50). Checked in the transaction that creates the
-  row, under a lock, on every path that creates pages, files, members or workspaces (REST and the MCP tools that
+  row (transfer of ownership and restore included, docs/adr/2528-*), under a lock, on every path that creates pages, files, members or workspaces (REST and the MCP tools that
   call it); a test lists every insert site and fails on a new unchecked one. Errors 403 `LIMIT_WORKSPACES`,
   `LIMIT_MEMBERS`, `LIMIT_PAGES` and 413 `LIMIT_STORAGE`, `LIMIT_FILE`, each with `{ limit, used }`.
 - **Storage and read-only workspaces** (docs/adr/2506-*): storage counts files, page bodies, version history,
   handwriting, comments, page rows, database fields and views, templates, the change log's texts and agent
-  suggestions, the trash included. A workspace past its limit is read-only: new pages, uploads, imports, comments
-  and body writes are refused, live editing turns read-only, and a notice says what to delete. Deleting, emptying
-  the trash and exporting always work. One page body may hold at most a quarter of the limit.
+  suggestions, the trash included. A workspace that has reached its limit is read-only: new pages, uploads, imports,
+  comments and body writes are refused, live editing turns read-only, and a notice says what to delete. Deleting,
+  emptying the trash and exporting always work. When a count finds the workspace back under its limit, open editors
+  reconnect and can edit again. One page body may hold at most a quarter of the limit.
 - **Features turned off** (docs/adr/2507-*): `DISABLED_FEATURES` takes `public-links`, `public-forms`, `webhooks`,
   `slack`, `link-preview`, `web-clipper`, `ical`, `notion-import`, `web-push`, `password-reset`, `email-invites`,
   `automations-webhooks`, `oauth-cimd`, `embeds` and `member-direct-add`. Their routes answer 404 `FEATURE_DISABLED`,
@@ -72,22 +76,26 @@ These change with no new setting, on every server that upgrades:
   instead of an email; needs mail, OIDC and delegated sign-in off and `password-reset` turned off),
   `SIGNUP_MAX_USERS` (403 `SIGNUP_FULL`), `SIGNUP_PER_IP_PER_DAY` (429 `SIGNUP_IP_LIMIT`), and with either cap a hidden
   field and a two-second minimum on the form (400 `SIGNUP_CHECK_FAILED`). On a restricted server without an admin,
-  sign-up without the setup code is refused (403 `SETUP_REQUIRED`) so a stranger cannot become the first admin.
+  sign-up without the setup code is refused (403 `SETUP_REQUIRED`, docs/adr/2527-*) and the sign-up screen says it
+  waits for its operator, so a stranger cannot become the first admin by signing up.
 - **Terms and consent** (docs/adr/2519-*, 2520-*): `LEGAL_DIR` holds the terms, the privacy policy and `signup.json`
   (the notice and the tick boxes). Each ticked item is stored with the document version (a hash of the files). `/terms` and
   `/privacy` open without signing in. Accounts without consent to the current version, including everyone after the
   texts change, see a consent screen and are refused on every way in (browser, API tokens, MCP, the collaboration
-  socket) with 403 `CONSENT_REQUIRED` until they agree, sign out or delete their account. The documents are Markdown
-  drawn without any HTML.
-- **Instance label and notice**: `INSTANCE_LABEL` (up to 20 characters) on every screen, phones included.
-  `INSTANCE_NOTICE` (up to 500 characters of plain text) on the sign-in and sign-up screens and as a banner in the
-  app that cannot be closed.
+  socket) with 403 `CONSENT_REQUIRED` until they agree, sign out or delete their account (the consent screen has
+  **Delete my account**, without export). The documents are Markdown drawn without any HTML.
+- **Instance label and notice** (docs/adr/2520-*, 2526-*): `INSTANCE_LABEL` (up to 20 characters) on every screen,
+  phones included. `INSTANCE_NOTICE` (up to 500 characters of plain text, line breaks kept, no links) under the title
+  of the sign-in, sign-up, consent and setup-waiting screens and as a strip above every app screen; nobody can close
+  it, and it changes with a restart.
 - **Account lifetime** (docs/adr/2515-*): `ACCOUNT_LIFETIME_DAYS` deletes accounts that signed up while it was set,
   N days after sign-up, never admins and never accounts from before it; `ACCOUNT_LIFETIME_DRY_RUN=1` only logs. The
   date is shown in the app with an Export link; admins lift or move it (Admin → Users, `PATCH
   /api/admin/users/:id/expiry`).
 - **Restore and trash windows**: `WORKSPACE_RESTORE_DAYS` (30 by default) replaces the fixed 30 days of workspace
-  restore, and the screens say the number. `LIMIT_TRASH_DAYS` (at least 7) caps each workspace's trash retention.
+  restore, and the screens say the number. `LIMIT_TRASH_DAYS` (at least 7, docs/adr/2525-*) caps each workspace's
+  trash retention: pages go after min(the workspace's setting, the cap) days, Workspace settings take nothing above
+  it (400 `LIMIT_TRASH_DAYS`), and `list_trash` gives the same date.
 - **Demo preset** (docs/adr/2521-*): `deploy/demo/compose.demo.yaml` (an overlay that cannot start without its
   settings, with its own project, volumes, network and port), `demo.env.example` and terms templates in
   `deploy/demo/legal/`; [docs/DEMO.md](docs/DEMO.md).
@@ -100,7 +108,11 @@ These change with no new setting, on every server that upgrades:
 - The "restore within N days" texts take the number from the server (30 unless `WORKSPACE_RESTORE_DAYS` is set).
 - With `LOGIN_ID_MODE=username`, screens that showed an email show the ID without the "email" label (sign-in,
   Settings → Account, Admin → Users, member and access search), and `inklingctl login` asks for an ID.
-- `compose.yaml` passes every 0.22 variable to the app and `.env.example` lists them; an empty value means unset.
+- `compose.yaml` passes all seventeen 0.22 variables to the app and `.env.example` has a commented example of each;
+  an empty value means unset for every one of them (docs/adr/2528-*).
+- MCP tool errors for `LIMIT_*`, `FEATURE_DISABLED` and `CONSENT_REQUIRED` carry their own next step instead of the
+  status hint ("not a member" for a 403, "not found" for a 404), and `upload_file` states and checks
+  min(`AGENT_UPLOAD_MAX_MB`, `LIMIT_FILE_MB`).
 
 ### Security
 - The consent gate runs on every authenticated way in: REST with a cookie or a token (MCP tools included), the

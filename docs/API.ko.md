@@ -1697,8 +1697,8 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   `signupChecks: true`(`SIGNUP_MAX_USERS`나 `SIGNUP_PER_IP_PER_DAY`가 있어서 가입 양식이 봇 검사 필드를 보냄),
   `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]`(정렬), `legal: { version, docs: ('terms' |
   'privacy')[] }`(`LEGAL_DIR`), `limits: { workspacesPerUser?, membersPerWorkspace?, pagesPerWorkspace?, fileMb?,
-  workspaceStorageMb? }`(설정된 한도만, MB는 설정한 값 그대로), `workspaceRestoreDays`(30이 아닐 때만)입니다.
-- `GET /api/auth/mode`는 `INSTANCE_NOTICE`가 있으면 `instanceNotice: string`을 더합니다.
+  workspaceStorageMb?, trashDays? }`(설정된 한도만, MB는 설정한 값 그대로), `workspaceRestoreDays`(30이 아닐 때만)입니다.
+- `GET /api/auth/mode`는 `INSTANCE_NOTICE`가 있으면 `instanceNotice: string`을 더합니다(일반 글자, 줄바꿈은 `\n`).
 - `GET /api/auth/me`의 `UserDTO`는 `expiresAt`(ISO, `ACCOUNT_LIFETIME_DAYS`에 따른 계정 삭제일)과
   `consentRequired: true`(현재 문서에 동의하지 않음)를 더합니다. 로그인, 2단계, 가입 응답의 `user`는 지금처럼 짧게
   두고, 웹 앱은 이 필드를 `/auth/me`에서 읽습니다.
@@ -1721,7 +1721,9 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   동의 행도 거기서 씁니다. 설정 코드로 만드는 첫 관리자는 계정 수·주소별 상한과 봇 검사를 거치지 않지만 동의는 해야
   합니다.
 - 제한 모드(`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY`, `ACCOUNT_LIFETIME_DAYS` 가운데 하나가 있거나
-  `LOGIN_ID_MODE=username`)에서 관리자가 없는 서버는 설정 코드 없는 가입을 403 `SETUP_REQUIRED`로 거절합니다.
+  `LOGIN_ID_MODE=username`)에서 관리자가 없는 서버는 설정 코드 없는 가입을 다른 제한 모드 검사보다 먼저 403
+  `SETUP_REQUIRED`로 거절하고, 계정을 만드는 트랜잭션 안에서 한 번 더 확인합니다. 그런 가입은 관리자가 되지 않습니다.
+  `/api/auth/mode`의 `setupPending`은 뜻이 그대로입니다(아직 계정 없음).
 - `ACCOUNT_LIFETIME_DAYS`가 있을 때 만든 계정은 `users.expires_at` = 가입 시각 + N일을 받습니다. 관리자는 받지 않습니다.
 
 <a id="account-deletion-and-leaving-docsadr25132517"></a>
@@ -1754,16 +1756,19 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 ### 사용량과 한도 (docs/adr/2505–2506)
 - `GET /api/workspaces/:id/usage`(멤버) → `WorkspaceUsageDTO { members, pages, storageBytes, fileBytes, limits: {
   members?, pages?, storageBytes? } }`. `pages`는 휴지통도 세고, `storageBytes`는 저장 용량 합계(파일 포함), `fileBytes`는
-  파일만입니다. `limits`에는 설정된 한도만 들어가고 저장 용량은 바이트입니다. 모든 서버에서 답합니다. 저장 용량 한도가
-  없으면 부를 때마다 세고, 있으면 캐시한 값을 쓰되 그 값이 1분보다 오래되었으면 먼저 다시 셉니다.
+  파일만입니다. `limits`에는 설정된 한도만 들어가고 저장 용량은 바이트입니다. 모든 서버에서 캐시한 값으로 답하고, 그 값이 1분보다 오래되었으면 먼저 다시 셉니다(그래서 한도가 있든 없든 워크스페이스마다
+  1분에 한 번까지).
 - 한도를 넘는 생성은 만드는 트랜잭션 안에서 거절합니다. REST도, 그 REST를 부르는 MCP 도구도 같습니다. 페이지(만들기,
   복제, 캔버스, 행과 행 일괄, 가져오기, 템플릿, 나누기, 클립, 빠른 할 일, 동기화, 폼 응답), 파일, 워크스페이스(만들기,
   넘겨받기, 소유자로 승격, 복원), 멤버(초대 코드로 참여, 바로 추가)가 그렇습니다. 이미 멤버인 워크스페이스에 다시
   참여하면 다시 세지 않습니다.
-- `LIMIT_WORKSPACE_STORAGE_MB`를 넘은 워크스페이스는 읽기 전용입니다. docs/OPERATIONS.ko.md(17절)에 적은 쓰기는 413
+- `LIMIT_WORKSPACE_STORAGE_MB`에 닿은(사용량 ≥ 한도) 워크스페이스는 읽기 전용입니다. docs/OPERATIONS.ko.md(17절)에 적은 쓰기는 413
   `LIMIT_STORAGE`로 답하고, 협업 연결은 읽기 전용 범위를 받습니다. 본문이 한도의 1/4을 넘은 페이지는 REST와 MCP 쓰기를
   413 `LIMIT_STORAGE`로 거절합니다("This page is too large to grow further: move part of it to a new page", `limit`은 그
   1/4).
+- `LIMIT_TRASH_DAYS`(docs/adr/2525-*): 휴지통의 페이지는 min(`trashRetentionDays`, 상한)일 뒤 완전히 지웁니다.
+  `PATCH /api/workspaces/:id/settings`는 상한보다 큰 `trashRetentionDays`를 400 `LIMIT_TRASH_DAYS`(`{ limit }`)로
+  거절합니다. 저장된 값이 상한보다 커도 다른 필드는 저장되고, `GET`은 저장된 값을 돌려줍니다.
 - 내장 상한(브라우저 25 MB, 토큰은 `AGENT_UPLOAD_MAX_MB`)보다 작은 `LIMIT_FILE_MB`가 있으면 `POST /api/files`는 413
   `LIMIT_FILE`로 답합니다. 없으면 지금처럼 413 `PAYLOAD_TOO_LARGE`입니다.
 
@@ -1809,8 +1814,9 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 | 403 | `LIMIT_WORKSPACES` | 만들기, 넘겨받기, 소유자로 승격, 복원이 `LIMIT_WORKSPACES_PER_USER`를 넘음 | `{ limit, used }` |
 | 403 | `LIMIT_MEMBERS` | 참여나 바로 추가가 `LIMIT_MEMBERS_PER_WORKSPACE`를 넘음 | `{ limit, used }` |
 | 403 | `LIMIT_PAGES` | 페이지를 만드는 모든 경로가 `LIMIT_PAGES_PER_WORKSPACE`를 넘음(휴지통 포함) | `{ limit, used }` |
-| 413 | `LIMIT_STORAGE` | 워크스페이스가 `LIMIT_WORKSPACE_STORAGE_MB`를 넘었거나 이 쓰기로 넘음. 또는 페이지 본문이 그 1/4을 넘음 | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_STORAGE` | 워크스페이스가 `LIMIT_WORKSPACE_STORAGE_MB`에 닿았거나 이 쓰기로 넘음. 또는 페이지 본문이 그 1/4을 넘음 | `{ limit, used, unit: 'bytes' }` |
 | 413 | `LIMIT_FILE` | `LIMIT_FILE_MB`보다 큰 업로드 | `{ limit, used, unit: 'bytes' }`. `used`는 `limit` + 1(업로드를 거기서 끊으므로 실제 크기는 모름) |
+| 400 | `LIMIT_TRASH_DAYS` | `trashRetentionDays`가 `LIMIT_TRASH_DAYS`보다 큰 `PATCH /api/workspaces/:id/settings` | `{ limit }` |
 | 409 | `LAST_ADMIN` | 유일한 관리자의 `DELETE /api/me` | — |
 | 401 | `REAUTH_REQUIRED` | 세션이 10분보다 오래된 위임 로그인·OIDC 계정의 `DELETE /api/me` | — |
 | 400 | `CONFIRM_MISMATCH` | `DELETE /api/me`: `confirm`이 로그인 이메일이나 아이디와 다름 | — |
@@ -1822,5 +1828,4 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 
 <a id="mcp-tools-11"></a>
 ### MCP 도구
-새 도구도, 설명이나 서버 지침의 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). 도구는 자기가 부르는 REST
-라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸립니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).
+새 도구도 서버 지침 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). `LIMIT_FILE_MB`가 `AGENT_UPLOAD_MAX_MB`보다 작으면 `upload_file`의 설명에 작은 쪽 크기가 적힙니다. 도구는 자기가 부르는 REST 라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸리고, 이 코드들의 오류에는 각자의 다음 할 일 안내가 붙습니다. `list_trash`의 날짜는 `LIMIT_TRASH_DAYS`를 따릅니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).

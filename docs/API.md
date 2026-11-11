@@ -1828,8 +1828,10 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
 ### Settings in `/api/auth/mode` and `/api/auth/me` (docs/adr/2500–2503)
 - `GET /api/auth/mode` adds each field only while its setting is on (no key otherwise, not even `undefined`):
   `loginId: 'username'` (`LOGIN_ID_MODE=username`), `signupFull: true` (the account count reached
-  `SIGNUP_MAX_USERS`), `signupChecks: true` (`SIGNUP_MAX_USERS` or `SIGNUP_PER_IP_PER_DAY` is set: the sign-up form
-  sends the bot-check fields), `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]` (sorted),
+  `SIGNUP_MAX_USERS`, the server's workspaces reached `LIMIT_WORKSPACES_TOTAL`, or the instance storage fuse is
+  tripped), `instanceFull: true` (the fuse of `LIMIT_INSTANCE_STORAGE_MB` is tripped: only reading, signing in,
+  exporting and deleting work), `signupChecks: true` (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or
+  `SIGNUP_PER_HOUR` is set: the sign-up form sends the bot-check fields), `instanceLabel`, `accountLifetimeDays`, `disabledFeatures: string[]` (sorted),
   `legal: { version, docs: ('terms' | 'privacy')[] }` (`LEGAL_DIR`), `limits: { workspacesPerUser?,
   membersPerWorkspace?, pagesPerWorkspace?, fileMb?, workspaceStorageMb?, trashDays? }` (only the limits that are set;
   MB as set)
@@ -1856,6 +1858,13 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   account cap and the address cap are counted again inside the account's transaction, and the consent rows are
   written there. The first admin made with the setup code passes the account and address caps and the bot checks,
   but must consent.
+- The security fixes of 0.22.0 add four checks, each only while its setting is on, and the setup code passes all
+  four: the server's sign-ups in the last hour (`SIGNUP_PER_HOUR`, 429 `SIGNUP_RATE_LIMIT`, counted again under a
+  lock inside the account's transaction); the "taken" answers of the address (while `SIGNUP_PER_IP_PER_DAY` is set,
+  a sign-up refused with 409 `EMAIL_TAKEN` or `LOGIN_ID_TAKEN` is recorded, and after 10 in 24 hours the address
+  gets 429 `SIGNUP_IP_LIMIT` before the name is looked at); the server's workspaces (`LIMIT_WORKSPACES_TOTAL`: 403
+  `SIGNUP_FULL`, counted again in the transaction, where it carries `{ limit, used }`); the instance storage fuse
+  (503 `INSTANCE_FULL`). The address caps count an IPv6 client by its /56.
 - In restricted mode (`SIGNUP_MAX_USERS`, `SIGNUP_PER_IP_PER_DAY` or `ACCOUNT_LIFETIME_DAYS` set, or
   `LOGIN_ID_MODE=username`), a server with no admin refuses a sign-up without the setup code with 403
   `SETUP_REQUIRED`, before the other restricted-mode checks, and checks it again inside the account's transaction;
@@ -1866,7 +1875,9 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
 - `GET /api/me/delete-preview` → `{ deleted: { id, name, pages, files }[], transferred: { id, name, to: { id, name }
   }[], kept: { id, name }[], privatePages, pages, files, needs: { password, code, recentSignIn }, confirm,
   lastAdmin }`: the workspaces deleted with the account, the ones that pass to another member, the others, and what
-  the request must carry. `confirm` is the text to type (the sign-in email or ID).
+  the request must carry. `confirm` is the text to type (the sign-in email or ID). Browser sessions only, on every
+  server (a bearer token 403 `FORBIDDEN`, docs/adr/2539-*): the answer names every workspace of the account and the
+  members who would take over, past any token's range.
 - `DELETE /api/me` body `{ confirm, password?, code? }` → `{ ok: true, deletedWorkspaces, transferredWorkspaces }`
   and the session cookie cleared. Browser sessions only (a bearer token 403). `confirm` must equal the sign-in
   email or ID, case ignored (400 `CONFIRM_MISMATCH`). Local accounts send the current password (400
@@ -1876,7 +1887,11 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   once: workspaces where the person is the only member, and deleted (still restorable) workspaces they own alone,
   with their files; a shared workspace they own alone passes
   to its oldest admin-role member, else its oldest member (notification type `workspace_owner`); private pages are
-  deleted; shared pages, comments and versions stay with their author set to null.
+  deleted; shared pages, comments and versions stay with their author set to null. Names copied into audit rows and
+  the sign-up workspace's name are found by the account's id only (docs/adr/2535-*).
+- Audit events (`GET /api/workspaces/:id/audit`): `page.locked` and `page.lock_editors_changed` now store
+  `editorIds` beside `editors`, and `agent.blocked` and `agent.unblocked` store `userId` beside `user`, so account
+  deletion can find the names by id. The audit route leaves these id keys out of `before` and `after`.
 - `DELETE /api/workspaces/:id/members/:userId` for yourself, as the only member and last owner, with body
   `{ name }` equal to the workspace's name, from a browser session: 204 and the workspace is deleted at once with its
   files (no restore). A wrong name 400; without `name`, from a token, or with other members the answer stays 400.
@@ -1898,8 +1913,24 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   (create, duplicate, canvas, rows and row batches, imports, templates, split, clip, quick tasks, sync, form
   answers), files, workspaces (create, take over, promotion to owner, restore) and members (join by invite code,
   direct add). Joining a workspace you are already a member of is not counted again.
-- A workspace that has reached `LIMIT_WORKSPACE_STORAGE_MB` (used ≥ limit) is read-only: the writes listed in docs/OPERATIONS.md (section 17)
-  answer 413 `LIMIT_STORAGE`, and collaboration connections get the read-only scope. A page body over a quarter of
+- A workspace that has reached `LIMIT_WORKSPACE_STORAGE_MB` (used ≥ limit) is read-only: every write that can grow
+  what it keeps answers 413 `LIMIT_STORAGE`, and collaboration connections get the read-only scope. Every POST, PUT
+  and PATCH route is listed, checked or open with its reason, in `apps/server/src/quota/writeSweep.test.ts`
+  (docs/adr/2533-*). Refused: creating pages (also duplicate, canvas expansion, sections, split and rotation targets,
+  from a template, the onboarding sample), body writes (`/content`, `/section`, `/ink`, sync Markdown, reverts of a
+  page, a change or a workspace), versions (`POST /snapshots`, restoring a version), rows (create, batch create and
+  change, form answers), `PATCH /pages/:id/props`, collection fields, new and changed views and row templates,
+  `PATCH /pages/:id` for title, icon, cover, aliases and the date property, new comments and an edited comment body,
+  accepting a suggestion and every new one, uploads, clips, quick tasks, vault sync pages, imports and folder
+  imports, templates, sheet sync runs, and new automations, webhooks and share links. Open: removing, unpublishing,
+  rejecting, restoring from the trash or from deletion; membership and roles (joining keeps `LIMIT_MEMBERS`);
+  settings of bounded size replaced in place (workspace name and settings, agent policy and rules, locks, owners,
+  page access, the share link's expiry and password, automation rules, verification and review); ticking a task or
+  moving its date; reads sent as POST; everything about the person only; the admin routes; `POST /mcp` (its tools
+  call the routes above).
+- These checks move the cached count by the request's JSON size at once (an upper bound until the next count). When
+  the cached count says a write does not fit and it was not counted in the last 10 seconds, the workspace is counted
+  again before the answer, so a large write close to the limit can be refused for a short while. A page body over a quarter of
   the limit refuses REST and MCP writes with 413 `LIMIT_STORAGE` ("This page is too large to grow further: move
   part of it to a new page", `limit` = the quarter).
 - `LIMIT_TRASH_DAYS` (docs/adr/2525-*): trashed pages are purged after min(`trashRetentionDays`, the cap) days.
@@ -1907,6 +1938,14 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   (`{ limit }`); other fields still save while the stored value is above it, and `GET` returns the stored value.
 - `POST /api/files` with `LIMIT_FILE_MB` below the built-in cap (25 MB in the browser, `AGENT_UPLOAD_MAX_MB` for
   tokens): 413 `LIMIT_FILE`. Without it the answer stays 413 `PAYLOAD_TOO_LARGE`.
+- `LIMIT_WORKSPACES_TOTAL` (docs/adr/2531-*): `POST /api/workspaces` past the server's workspace count (deleted ones
+  that can still be restored included) answers 403 `LIMIT_WORKSPACES_TOTAL` with `{ limit, used }`; sign-up and a
+  new OIDC account get `SIGNUP_FULL` instead.
+- `LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2532-*): while the fuse is tripped every POST, PUT and PATCH under `/api`
+  answers 503 `INSTANCE_FULL` before authentication, except the routes in `OPEN_WHEN_FULL`
+  (`apps/server/src/quota/instanceGate.ts`: sign-in and sign-out, password change and reset, two-step setup,
+  consent, reads sent as POST, read marks, routes that only remove or hand over) and `/api/admin/**`. GET and DELETE
+  always pass. `POST /oauth/register` answers 503 `temporarily_unavailable` in the OAuth error format.
 
 ### Features turned off (docs/adr/2507)
 - A route of a feature named in `DISABLED_FEATURES` answers 404 `FEATURE_DISABLED` with `details: { feature }`,
@@ -1938,8 +1977,11 @@ Only while `LEGAL_DIR` is set; otherwise these routes are 404 and nothing below 
 |---|---|---|---|
 | 400 | `LOGIN_ID_INVALID` | ID mode: no `loginId`, or one that breaks the rules or is reserved | — |
 | 409 | `LOGIN_ID_TAKEN` | ID mode: the ID is taken (email mode keeps `EMAIL_TAKEN`) | — |
-| 403 | `SIGNUP_FULL` | The server has `SIGNUP_MAX_USERS` accounts | — |
-| 429 | `SIGNUP_IP_LIMIT` | The address made `SIGNUP_PER_IP_PER_DAY` accounts in 24 hours | — |
+| 403 | `SIGNUP_FULL` | The server has `SIGNUP_MAX_USERS` accounts, or `LIMIT_WORKSPACES_TOTAL` workspaces (sign-up makes one) | — before the transaction; `{ limit, used }` for the workspace count inside it |
+| 429 | `SIGNUP_IP_LIMIT` | The address made `SIGNUP_PER_IP_PER_DAY` accounts in 24 hours, or got 10 "taken" answers in 24 hours while that setting is on | — |
+| 429 | `SIGNUP_RATE_LIMIT` | The server made `SIGNUP_PER_HOUR` accounts in the last hour | — |
+| 403 | `LIMIT_WORKSPACES_TOTAL` | `POST /api/workspaces` when the server holds `LIMIT_WORKSPACES_TOTAL` workspaces (deleted ones that can still be restored included) | `{ limit, used }` |
+| 503 | `INSTANCE_FULL` | The instance storage fuse is tripped: a POST, PUT or PATCH under `/api` outside `OPEN_WHEN_FULL`, or a sign-up | — |
 | 400 | `SIGNUP_CHECK_FAILED` | Sign-up limits on: the hidden `website` field is filled, or `formMs` is missing or below 2000 | — |
 | 403 | `SETUP_REQUIRED` | Restricted mode, no admin yet, sign-up without the setup code | — |
 | 400 | `CONSENT_REQUIRED` | Sign-up or `POST /api/legal/consent`: another version, an unknown item, a required item not ticked | `{ version }` |
@@ -1960,8 +2002,19 @@ The `details` keys are sent inside the error object, next to `code` and `message
 "limit", "used", "unit" } }`. `limit` and `used` are numbers; the web app shows them in its own text. `DELETE /api/me` answers a wrong two-step code with 400 `INVALID_TOTP_CODE` (sign-in answers
 401).
 
+OAuth routes answer in the OAuth error format (`{ error, error_description }`):
+- `POST /oauth/register` answers 503 `temporarily_unavailable` in two cases: the instance storage fuse is tripped
+  (checked first), or `OAUTH_UNUSED_CLIENT_MAX` is reached and every never-used client is younger than 15 minutes
+  (with `Retry-After: 60`). Under the cap a registration first deletes the oldest never-used clients.
+- A self-registered client deleted by `OAUTH_UNUSED_CLIENT_HOURS` or `OAUTH_UNUSED_CLIENT_MAX` is an unknown client:
+  the authorization step answers 400 `INVALID_CLIENT` ("Unknown app. Connect again from the app.") and the app has to
+  register again (docs/adr/2536-*). Only clients nothing points at are deleted, so a client with a code or a grant
+  never meets this.
+- On every server, `POST /oauth/token` with `grant_type=authorization_code` consumes the code and stores the grant in
+  one transaction; the answers are unchanged.
+
 ### MCP tools
 No new tool and no server instruction change: the same numbers as 0.21 (full 48 tools, core 32); with
 `LIMIT_FILE_MB` below `AGENT_UPLOAD_MAX_MB`, `upload_file`'s description names the smaller size. The tools are refused
 by the same limits, features and consent through the REST routes they call, and the errors of these codes carry a
-next step of their own. `list_trash` dates follow `LIMIT_TRASH_DAYS`. Details: [MCP.md](MCP.md).
+next step of their own (`INSTANCE_FULL` too: nothing was written, do not retry, the operator has to make room). `list_trash` dates follow `LIMIT_TRASH_DAYS`. Details: [MCP.md](MCP.md).

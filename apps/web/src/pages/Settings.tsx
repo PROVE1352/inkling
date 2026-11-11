@@ -1,3 +1,4 @@
+import { FeatureOn } from '../components/quota/FeatureOn'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { useLayout } from '../components/AppLayout'
@@ -538,8 +539,8 @@ function ConnectionsSection() {
           </div>
         </div>
       </Group>
-      <IcalSettings />
-      <WebClipperSettings />
+      <FeatureOn name="ical"><IcalSettings /></FeatureOn>
+      <FeatureOn name="web-clipper"><WebClipperSettings /></FeatureOn>
     </>
   )
 }
@@ -602,7 +603,7 @@ function SectionBody({ id, label }: { id: SectionId; label: string }) {
       return (
         <SettingsFlat omitTitle>
           <NotificationSettings />
-          <PushSettings />
+          <FeatureOn name="web-push"><PushSettings /></FeatureOn>
         </SettingsFlat>
       )
     case 'editor':

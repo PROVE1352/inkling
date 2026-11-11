@@ -28,6 +28,7 @@ export function fileLimitError(limit: number, used: number): AppError {
   return new AppError(413, 'LIMIT_FILE', `File is too large (max ${(limit / 1024 / 1024).toFixed(1)} MB on this server)`, undefined, {
     limit,
     used,
+    unit: 'bytes',
   })
 }
 

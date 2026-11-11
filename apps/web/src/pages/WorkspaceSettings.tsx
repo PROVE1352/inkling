@@ -1,3 +1,5 @@
+import { useDisabledFeatures } from '../components/quota/features'
+import { WorkspaceUsage } from '../components/quota/WorkspaceUsage'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AGENT_EDIT_LEVELS, DEFAULT_AUTO_ACCEPT_RULES, type AgentEditLevel, type AutoAcceptRules } from '@inkling/shared'
 import { useSetWorkspaceAgentPolicy, useWorkspaceAgentPolicy } from '../agentPolicyApi'
@@ -107,6 +109,7 @@ export function WorkspaceSettings() {
   const [params, setParams] = useSearchParams()
   const workspaces = useWorkspaces()
   const ws = workspaces.data?.find((w) => w.id === wsId)
+  const off = useDisabledFeatures() // webhooks / slack turned off by the server (docs/adr/2507-*)
 
   if (!ws) {
     return (
@@ -116,7 +119,7 @@ export function WorkspaceSettings() {
     )
   }
   const can = capsOf(ws)
-  const visible = TABS.filter((x) => x.show(can))
+  const visible = TABS.filter((x) => x.show(can) && !((x.id === 'webhooks' || x.id === 'slack') && off.has(x.id)))
   const requested = params.get('tab') as Tab | null
   const tab: Tab = visible.some((x) => x.id === requested) ? (requested as Tab) : 'general'
   const goBack = () => {
@@ -172,6 +175,7 @@ export function WorkspaceSettings() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="nd-enter mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+          {tab === 'general' && <WorkspaceUsage wsId={wsId} />}
           {tab === 'general' && <GeneralTab ws={ws} can={can} />}
           {tab === 'members' && (
             <>

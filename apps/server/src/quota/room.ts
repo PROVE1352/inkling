@@ -55,7 +55,7 @@ export function storageError(limit: number, used: number): AppError {
     'LIMIT_STORAGE',
     'This workspace has used up its storage. Delete files or pages (and empty the trash) to edit again',
     undefined,
-    { limit, used },
+    { limit, used, unit: 'bytes' },
   )
 }
 
@@ -147,6 +147,7 @@ export async function assertWorkspaceWritable(exec: QuotaExec, workspaceId: stri
     throw new AppError(413, 'LIMIT_STORAGE', 'This page is too large to grow further: move part of it to a new page', undefined, {
       limit: cap,
       used: Number(ws.body),
+      unit: 'bytes',
     })
   }
 }

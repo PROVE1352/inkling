@@ -1,3 +1,4 @@
+import { StorageFullNotice } from './quota/StorageFullNotice'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Navigate,
@@ -306,6 +307,7 @@ export function AppLayout() {
         {/* restricted mode (docs/adr/2500-*): instance label and account expiry, nothing when not set */}
         <InstanceBadge placement="banner" />
         <AccountExpiry placement="banner" />
+        <StorageFullNotice wsId={wsId} />
         <AdminStatusBanner />
         <EmailVerifyBanner />
         <TwoFactorBanner wsId={wsId} />

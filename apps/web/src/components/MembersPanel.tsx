@@ -1,3 +1,4 @@
+import { useFeatureOff } from './quota/features'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { MemberDTO, WorkspaceAccessRole, WorkspaceDTO, WorkspaceRole } from '@inkling/shared'
@@ -60,6 +61,8 @@ export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: Wor
   const removeMember = useRemoveMember(wsId)
   const regenerate = useRegenerateInvite(wsId)
   const addMember = useAddMember(wsId)
+  // adding existing users directly turned off by the server (member-direct-add, docs/adr/2507-*): invite link only
+  const directOff = useFeatureOff('member-direct-add')
 
   // Search existing users — input debounced by 250ms
   const [query, setQuery] = useState('')
@@ -68,7 +71,7 @@ export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: Wor
     const timer = window.setTimeout(() => setDebounced(query.trim()), 250)
     return () => window.clearTimeout(timer)
   }, [query])
-  const candidates = useMemberCandidates(workspace.can?.addMembers === false ? '' : wsId, debounced)
+  const candidates = useMemberCandidates(workspace.can?.addMembers === false || directOff ? '' : wsId, debounced)
 
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'ok' | 'fail' | null>(null)
@@ -77,7 +80,7 @@ export function MembersPanel({ wsId, workspace }: { wsId: string; workspace: Wor
 
   const isOwner = workspace.role === 'owner'
   const isManager = workspace.can?.manage ?? isOwner
-  const canAdd = workspace.can?.addMembers ?? true
+  const canAdd = (workspace.can?.addMembers ?? true) && !directOff
   const canInvite = workspace.can?.inviteLink ?? isOwner
   const list = members.data ?? []
   const ownerCount = list.filter((m) => m.role === 'owner').length

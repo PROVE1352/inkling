@@ -57,6 +57,8 @@ function pdfjsAssets(): Plugin {
       for (const rel of pdfjsDataFiles()) {
         this.emitFile({ type: 'asset', fileName: PDFJS_PREFIX + rel, source: readFileSync(path.join(PDFJS_DIR, rel)) })
       }
+      // pdf.js's license (Apache-2.0) next to the files it covers; the minified worker keeps no header
+      this.emitFile({ type: 'asset', fileName: `${PDFJS_PREFIX}LICENSE`, source: readFileSync(path.join(PDFJS_DIR, 'LICENSE')) })
     },
     configureServer(server) {
       const allowed = new Set(pdfjsDataFiles())
@@ -172,6 +174,19 @@ export default defineConfig({
         // and are cached on first use instead.
         globIgnores: ['**/assets/lazy/**'],
         runtimeCaching: [
+          {
+            // pdf.js (docs/adr/2480-*): its chunk, worker and data files (one CJK PDF may want a dozen
+            // cMaps) get their own cache, so a PDF does not push Shiki grammars or exceljs out of the
+            // one below and those do not push pdf.js out. The first matching rule wins.
+            urlPattern: ({ url, sameOrigin }) =>
+              sameOrigin && /^\/assets\/lazy\/(pdfjs-|pdfDocument-|pdf\.worker)/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'inkling-pdfjs',
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
           {
             // Content-hashed, immutable. No API/runtime JSON is cached by the SW — personal data
             // and permission changes must always come from the server.

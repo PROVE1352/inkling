@@ -386,3 +386,17 @@
     margin-bottom: -4.5em;
   }
 }
+
+/* Columns on paper (docs/adr/2423-*): side by side as on screen, never stacked by the editor's
+   narrow-width rule, no resize handles; a column's blocks do not split across pages when they fit. */
+@media print {
+  html.nd-printing .nd-columns-stacked > .nd-columns-row {
+    flex-direction: row;
+  }
+  html.nd-printing .nd-columns-row > .bn-block-column + .bn-block-column {
+    padding-left: 28px;
+  }
+  .nd-col-handles {
+    display: none !important;
+  }
+}

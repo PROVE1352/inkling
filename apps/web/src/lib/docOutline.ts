@@ -83,6 +83,15 @@ function summarize(container: PMNode): BlockSummary {
         if (s.links.length) links = links.concat(s.links)
         if (s.tags.length) tags = tags.concat(s.tags)
       }
+    } else if (child.type.name === 'column') {
+      // a group of columns (docs/adr/2420-*): its links and tags count, its headings are not part of
+      // the outline (a heading inside a column is not a section, docs/adr/2424-*)
+      for (let j = 0; j < child.childCount; j++) {
+        const s = summarize(child.child(j))
+        if (s === EMPTY) continue
+        if (s.links.length) links = links.concat(s.links)
+        if (s.tags.length) tags = tags.concat(s.tags)
+      }
     } else if (child.inlineContent) {
       // the block's own content node (paragraph, heading, list items, code, …) — comes first
       const ownLinks: string[] = []

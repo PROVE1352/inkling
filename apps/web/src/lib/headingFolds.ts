@@ -150,7 +150,8 @@ export function foldTarget(
 /** Stylesheet hiding what the layout hides; screen only, so printing shows the whole document. */
 export function foldCss(layout: FoldLayout, escape: (s: string) => string = cssEscape): string {
   const sel: string[] = []
-  for (const id of layout.hiddenBy.keys()) sel.push(`.bn-block-outer[data-id="${escape(id)}"]`)
+  // a group of columns is a top-level block without a .bn-block-outer wrapper (docs/adr/2420-*)
+  for (const id of layout.hiddenBy.keys()) sel.push(`.bn-block-outer[data-id="${escape(id)}"]`, `.bn-block-column-list[data-id="${escape(id)}"]`)
   for (const id of layout.withChildren)
     sel.push(`.bn-block-outer[data-id="${escape(id)}"] > .bn-block > .bn-block-group`)
   if (!sel.length) return ''

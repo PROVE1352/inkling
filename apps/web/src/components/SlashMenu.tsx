@@ -15,6 +15,7 @@ import { dbViewSlashItems } from './blocks/DbViewEmbed'
 import { querySlashItem } from './blocks/QueryBlock'
 import { mathSlashItems } from './blocks/Math'
 import { tableSizeSlashItems } from './tableSlash'
+import { columnsSlashItems } from './blocks/Columns'
 import { useT } from '../i18n'
 import { insertFromSlash, withCaretBelow, type SlashEditor } from '../lib/slashInsert'
 import { noteOnboarding } from '../onboarding/api'
@@ -80,6 +81,8 @@ export function SlashMenu({ editor }: { editor: BlockNoteEditor<any, any, any> }
         ...dbViewSlashItems(editor),
         ...mathSlashItems(editor, t),
         ...tableSizeSlashItems(editor, query, t),
+        // /2단 /3단 (docs/adr/2420-*), in BlockNote's "Basic blocks" group
+        ...columnsSlashItems(editor, editor.dictionary.slash_menu.paragraph.group),
       ]),
       query,
     )

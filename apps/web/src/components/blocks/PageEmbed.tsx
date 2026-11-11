@@ -30,6 +30,7 @@ import { calloutSpec } from './Callout'
 import { linkEmbedSpec } from './LinkEmbed'
 import { chartBlockSpec } from './ChartBlock'
 import { buttonBlockSpec } from './ButtonBlock'
+import { columnListSpec, columnSpec } from './Columns'
 import { mentionSpec } from './Mention'
 import { pluginBlockSpec } from '../../plugins/PluginBlock'
 import { DbViewEmbed, DbViewSetup, DbViewUnavailable } from './DbViewEmbed'
@@ -286,6 +287,9 @@ export function editorSchemaSpecs(renders: {
     chart: chartBlockSpec,
     // Button: actions run by whoever presses it, through their own REST rights (docs/adr/2244-*).
     button: buttonBlockSpec,
+    // Columns: a group of 2–4 columns of ordinary blocks (docs/adr/2420-*).
+    columnList: columnListSpec,
+    column: columnSpec,
   } satisfies Record<CustomBlockType, unknown>
   const customInlineContentSpecs = {
     // @mention chip (M13).

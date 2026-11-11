@@ -8,13 +8,22 @@ export function topLevelBlocks(root: ParentNode): Element[] {
     (root as Element).classList?.contains('bn-block-group')
       ? (root as Element)
       : root.querySelector('.bn-block-group')
-  if (group) return Array.from(group.children).filter((c) => c.classList.contains('bn-block-outer'))
+  // a group of columns is one top-level block (docs/adr/2420-*): it has no .bn-block-outer wrapper
+  if (group) return Array.from(group.children).filter((c) => c.classList.contains('bn-block-outer') || isColumnGroup(c))
   // not BlockNote markup: the root's element children
   return Array.from((root as Element).children ?? [])
 }
 
-/** The block's own content element (its first `.bn-block-content`, before any nested children). */
+function isColumnGroup(el: Element): boolean {
+  return el.getAttribute('data-node-type') === 'columnList'
+}
+
+/**
+ * The block's own content element (its first `.bn-block-content`, before any nested children). A group
+ * of columns has none of its own: a heading inside a column never splits slides (docs/adr/2424-*).
+ */
 function contentOf(block: Element): Element {
+  if (isColumnGroup(block)) return block
   return block.querySelector('.bn-block-content') ?? block
 }
 

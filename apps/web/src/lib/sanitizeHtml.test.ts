@@ -18,6 +18,12 @@ const parse = (html: string) => new JSDOM(html).window.document
 const clean = (html: string) => sanitizeHtml(html, { origin: O, parse })
 
 describe('sanitizeHtml (0852)', () => {
+  it('keeps a column width (flex-grow, a plain number) and drops anything else in it (2420)', () => {
+    const out = clean('<div class="bn-block-column-list" data-node-type="columnList"><div class="bn-block-column" data-node-type="column" data-width="1.2" style="flex-grow: 1.2"><p>a</p></div><div style="flex-grow: url(x)"><p>b</p></div></div>')
+    assert.match(out, /data-width="1.2" style="flex-grow: 1.2;?"/)
+    assert.doesNotMatch(out, /url\(/)
+  })
+
   it('keeps BlockNote markup intact', () => {
     const html =
       '<div class="bn-block-group" data-node-type="blockGroup"><div class="bn-block-outer" data-id="x">' +

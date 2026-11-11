@@ -70,6 +70,8 @@ const SAME_ORIGIN_PREFIXES = ['/api/public/', '/files/', '/s/']
 const STYLE_PROPS = new Set([
   'width', 'height', 'min-width', 'max-width', 'position', 'left', 'right', 'top', 'bottom',
   'display', 'text-align', 'vertical-align', '--default-cell-min-width',
+  // a column's width in a group of columns (docs/adr/2420-*): a plain number
+  'flex-grow',
 ])
 /** Plain CSS values only: words, numbers, units, %, #hex, commas, parentheses for calc()/fit-content. */
 const STYLE_VALUE_RE = /^[-\w\s.,%#()]+$/

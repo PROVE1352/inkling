@@ -30,6 +30,7 @@ import { QueryBlockPortals } from './blocks/QueryBlock'
 import { MermaidPortals, mermaidCodeBlockSpec } from './blocks/MermaidBlock'
 import { useSectionLinkJump } from '../lib/sectionLinks'
 import { handleUrlPaste } from './blocks/LinkEmbed'
+import { ColumnsSideMenu, columnsExtension, pasteFlatInColumn } from './blocks/Columns'
 import type { CollabUser } from './OnlineUsers'
 import { WikilinkMenu } from './WikilinkMenu'
 import { MentionMenu } from './MentionMenu'
@@ -406,14 +407,14 @@ function CollabEditorBody({
       uploadFile: (file: File) => uploadFile(wsId, file, pageId),
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
-        handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+        handleUrlPaste(event, editor as InklingEditor) || pasteFlatInColumn(event, editor) || defaultPasteHandler(),
       // Link clicks: BlockNote's default opens every link with window.open — internal links move in
       // the app instead (lib/internalLinks.ts, onClickCapture below).
       links: { onClick: editorLinkClick },
       // The registry's editor keys (⌘L, ⌘Enter, ⌘D, ⌘⇧D, ⌘., ⌘⇧E — docs/adr/1400-*), the typed
       // pipe row that becomes a table on Enter (docs/adr/1642-*) and select pickers in blocks
       // that ProseMirror must not take as clicks on the block (lib/selectPickerGuard.ts)
-      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard()],
+      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard(), columnsExtension()],
     },
     [provider],
   )
@@ -578,9 +579,12 @@ function CollabEditorBody({
         editor={editor}
         theme={resolved}
         slashMenu={false}
+        sideMenu={false}
         editable={!readOnly}
       >
         <SlashMenu editor={editor} />
+        {/* BlockNote's side menu with the column items in its block menu (blocks/Columns.tsx) */}
+        <ColumnsSideMenu />
         <WikilinkMenu editor={editor} wsId={wsId} />
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />
@@ -627,9 +631,9 @@ export function LocalDocEditor({
       ...(placeholder ? { placeholders: { emptyDocument: placeholder } } : {}),
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
-        handleUrlPaste(event, editor as InklingEditor) || defaultPasteHandler(),
+        handleUrlPaste(event, editor as InklingEditor) || pasteFlatInColumn(event, editor) || defaultPasteHandler(),
       links: { onClick: editorLinkClick },
-      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard()],
+      extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard(), columnsExtension()],
     },
     [doc],
   )
@@ -651,8 +655,9 @@ export function LocalDocEditor({
   }
   return (
     <div className="relative" onClickCapture={onClickCapture} onAuxClick={editableLinkAuxClick}>
-      <BlockNoteView editor={editor} theme={resolved} slashMenu={false} editable={!readOnly}>
+      <BlockNoteView editor={editor} theme={resolved} slashMenu={false} sideMenu={false} editable={!readOnly}>
         <SlashMenu editor={editor} />
+        <ColumnsSideMenu />
         <WikilinkMenu editor={editor} wsId={wsId} />
         <MentionMenu editor={editor} wsId={wsId} />
         <QueryBlockPortals editor={editor} wsId={wsId} />

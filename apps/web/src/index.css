@@ -1317,3 +1317,99 @@ span.nd-math-error {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ------------------------------------------------------------------ */
+/* Columns (docs/adr/2420-*, 2423-*). The editor's group is .nd-columns-view (columns in            */
+/* .nd-columns-row, handles beside it); server HTML (public pages, HTML export) has the columns     */
+/* directly in .bn-block-column-list. A column's width is its flex-grow (inline, from `width`).     */
+/* ------------------------------------------------------------------ */
+.bn-block-column-list {
+  display: flex;
+  align-items: flex-start;
+  margin: 2px 0;
+}
+.bn-block-column-list.nd-columns-view {
+  display: block;
+  position: relative;
+}
+.nd-columns-row {
+  display: flex;
+  align-items: stretch;
+}
+.bn-block-column {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* the gap: room for the side menu (+ and ⋮⋮, 48px) of the next column's blocks, with the resize
+   handle on the boundary itself, left of that menu */
+.bn-block-column + .bn-block-column {
+  padding-left: 52px;
+}
+.nd-public-body .bn-block-column + .bn-block-column {
+  padding-left: 32px;
+}
+/* live widths while a handle is dragged (the stored widths are written on release) */
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(1) { flex-grow: var(--nd-cw-1) !important; }
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(2) { flex-grow: var(--nd-cw-2) !important; }
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(3) { flex-grow: var(--nd-cw-3) !important; }
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(4) { flex-grow: var(--nd-cw-4) !important; }
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(5) { flex-grow: var(--nd-cw-5) !important; }
+.nd-columns-dragging > .nd-columns-row > .bn-block-column:nth-child(6) { flex-grow: var(--nd-cw-6) !important; }
+.nd-col-handles {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.nd-col-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  margin-left: -6px;
+  cursor: col-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.nd-col-handle::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms;
+}
+.nd-columns-view:hover > .nd-col-handles > .nd-col-handle::after {
+  background: var(--color-line);
+}
+.nd-col-handle:hover::after,
+.nd-columns-dragging .nd-col-handle::after {
+  background: var(--color-accent) !important;
+}
+/* narrow (a phone, a side peek): the columns stack in order, full width */
+.nd-columns-stacked > .nd-columns-row {
+  flex-direction: column;
+}
+.nd-columns-stacked > .nd-columns-row > .bn-block-column {
+  padding: 0;
+}
+.nd-columns-stacked > .nd-col-handles {
+  display: none;
+}
+/* slides clone the editor's blocks: no handles there */
+.nd-present-body .nd-col-handles {
+  display: none;
+}
+/* public pages: server HTML, stacked on phone screens (never on paper) */
+@media screen and (max-width: 680px) {
+  .nd-public-body .bn-block-column-list {
+    flex-direction: column;
+  }
+  .nd-public-body .bn-block-column,
+  .nd-public-body .bn-block-column + .bn-block-column {
+    padding: 0;
+  }
+}

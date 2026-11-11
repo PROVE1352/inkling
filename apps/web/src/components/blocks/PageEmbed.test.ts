@@ -46,6 +46,8 @@ delete g.document
 // Every custom node config of @inkling/shared (the configs the server schema registers too).
 const CUSTOM_BLOCKS = [calloutConfig, pageEmbedConfig, linkEmbedConfig, pluginBlockConfig, mathBlockConfig, chartBlockConfig, buttonBlockConfig]
 const CUSTOM_INLINES = [mentionConfig, inlineMathConfig]
+// Columns (docs/adr/2420-*) are ProseMirror nodes built from @inkling/shared's columnNodes, not block configs.
+CUSTOM_BLOCKS.push({ type: 'columnList' }, { type: 'column' })
 
 // The main editor schema, built the way CollabEditor builds it (CollabEditor itself imports CSS
 // and cannot load under Node).
@@ -78,6 +80,13 @@ const page = [
   { type: 'pageEmbed', props: { pageId: 'p2' } },
   { type: 'button', props: { label: 'Start', color: 'blue', actions: '[{"pageId":"p3","type":"open"}]' } },
   { type: 'codeBlock', props: { language: 'dataview' }, content: 'LIST' },
+  {
+    type: 'columnList',
+    children: [
+      { type: 'column', props: { width: 1.2 }, children: [{ type: 'paragraph', content: 'left' }] },
+      { type: 'column', props: { width: 0.8 }, children: [{ type: 'checkListItem', content: 'right' }] },
+    ],
+  },
   { type: 'paragraph', content: 'after' },
 ]
 

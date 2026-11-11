@@ -162,6 +162,36 @@ export function compoundSplits(word: string): [string, string][] {
  */
 export const QUERY_FORMS = { enInflection: true, koDoubleParticle: true }
 
+/**
+ * Word rules of 0.20 (docs/adr/2401-*, 2402-*, 2403-*), exported (not frozen) so
+ * scripts/context-tune.ts can switch them for a dev comparison:
+ *   - partialTitle / partialHeading / partialCover: share of a group's weight given when only its
+ *     `partial` form is in the page title (or an alias) / the heading path; `partialCover` is given
+ *     once for either. All three 0 = off (docs/adr/2401-*).
+ *   - rareRatio / rareFactor: when one query word's weight (idf) is at least `rareRatio` × every other
+ *     word's, a chunk that has neither that word nor its partial form in title or heading keeps
+ *     `rareFactor` of its score; 1 = off (docs/adr/2402-*).
+ *   - titleDf: a word's document frequency also counts the candidate chunks whose page title (or an
+ *     alias) has it, as scoring already counts the title in every chunk; a word written only in a
+ *     title no longer gets the unseen-word weight (docs/adr/2403-*).
+ */
+export const WORD_RULES = { partialTitle: 0.7, partialHeading: 0.7, partialCover: 0.7, rareRatio: 1.1, rareFactor: 0.75, titleDf: true }
+
+/** Hangul syllables only (the shortened form is taken from these words). */
+const HANGUL_WORD = /^[\uac00-\ud7a3]+$/
+
+/**
+ * Shorter form of a Korean query word of 3+ syllables (after stripping a particle or ending): the
+ * word without its last syllable, when two or more remain ("택배함" → 택배, "회의록" → 회의, "기능정의서"
+ * → 기능정의). Korean writes many nouns as a stem + a one-syllable noun (물, 록, 서, 지, 함, 표, 도), and
+ * a note's title often has only the stem (docs/adr/2401-*).
+ */
+export function partialForm(word: string): string | null {
+  const chars = [...word]
+  if (chars.length < 3 || !HANGUL_WORD.test(word)) return null
+  return chars.slice(0, -1).join('')
+}
+
 /** Stem of an English plural / -ed / -ing form, or null. The stem is searched as a prefix. */
 export function englishStem(w: string): string | null {
   if (!/^[a-z]+$/.test(w)) return null
@@ -195,6 +225,12 @@ export interface TermGroup {
   exact?: string[]
   /** Adjacent word pairs that also count: a compound the query writes without a space (docs/adr/1700-*). */
   splits?: [string, string][]
+  /**
+   * Shorter form of a Korean compound the query writes ("택배함" → 택배, "회의록" → 회의), counted with
+   * a discount and only in a page title or heading path (docs/adr/2401-*). Not searched in the text,
+   * not part of the group's document frequency.
+   */
+  partial?: string[]
 }
 
 /**
@@ -246,6 +282,8 @@ export function queryGroups(q: string): TermGroup[] {
       // split the stem when a particle or ending was stripped ("결제개편을" → 결제개편), else the word
       const splits = one ? [] : compoundSplits(g.variants[g.variants.length - 1])
       if (splits.length) g.splits = splits
+      const part = one ? null : partialForm(g.variants[g.variants.length - 1])
+      if (part && !g.variants.includes(part)) g.partial = [part]
     }
     out.push(g)
   }
@@ -340,6 +378,26 @@ export interface ScoreInput {
    * the clock) so the same documents always rank the same way (prompt-cache friendly, ADR 0937).
    */
   now: number
+  /** Index of the group that is rarer than every other by WORD_RULES.rareRatio (rareGroup), or -1 / absent. */
+  rare?: number
+}
+
+/**
+ * The query word that decides what the question is about (docs/adr/2402-*): the group with the largest
+ * weight when that weight is at least WORD_RULES.rareRatio × every other group's, and the word occurs in
+ * scope (df > 0; an unseen word cannot tell chunks apart). A one-character word (때, 것, 중, 수 — mostly
+ * dependent nouns and particles) is never that word. -1 when no word stands out or the query has one word.
+ */
+export function rareGroup(weights: number[], df: number[], groups?: Pick<TermGroup, 'word'>[]): number {
+  if (weights.length < 2 || WORD_RULES.rareFactor >= 1) return -1
+  let best = -1
+  weights.forEach((w, i) => {
+    if (groups && [...groups[i].word].length < 2) return
+    if (best < 0 || w > weights[best]) best = i
+  })
+  if (best < 0 || !(df[best] > 0)) return -1
+  const others = weights.filter((_, i) => i !== best)
+  return weights[best] >= WORD_RULES.rareRatio * Math.max(...others) ? best : -1
 }
 
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}]/u.test(c)
@@ -469,9 +527,9 @@ export function scoreCandidate(c: Candidate, input: ScoreInput): number {
 export function scoreParts(
   c: Candidate,
   input: ScoreInput,
-): { score: number; coverage: number; bm25: number; title: number; heading: number; adjacent: number; phrase: boolean; own: number; weak: boolean } {
+): { score: number; coverage: number; bm25: number; title: number; heading: number; adjacent: number; phrase: boolean; own: number; weak: boolean; rareMissing: boolean } {
   const { groups } = input
-  if (groups.length === 0) return { score: 0, coverage: 0, bm25: 0, title: 0, heading: 0, adjacent: 0, phrase: false, own: 0, weak: true }
+  if (groups.length === 0) return { score: 0, coverage: 0, bm25: 0, title: 0, heading: 0, adjacent: 0, phrase: false, own: 0, weak: true, rareMissing: false }
   // Aliases are other names of the page: they count as title (docs/adr/1701-*).
   const title = (c.aliases ? `${c.title}\n${c.aliases}` : c.title).toLowerCase()
   const heading = c.headingPath.toLowerCase()
@@ -495,6 +553,7 @@ export function scoreParts(
   let inTitle = 0
   let inHeading = 0
   let own = 0
+  let rareMissing = false
   /** Per group: [start, end) of every occurrence (a stem inside a longer variant's hit is the same one). */
   const spans: [number, number][][] = []
   groups.forEach((g, i) => {
@@ -503,10 +562,18 @@ export function scoreParts(
     const tf = hits.length
     const ti = g.variants.some((v) => title.includes(v)) || (hasExtra(g) && groupSpans(title, g).length > 0)
     const he = g.variants.some((v) => heading.includes(v)) || (hasExtra(g) && groupSpans(heading, g).length > 0)
+    // only the shorter form of a compound in the title / heading (docs/adr/2401-*)
+    const part = partialOn() ? g.partial : undefined
+    const pti = !ti && !!part && partialIn(title, part)
+    const phe = !he && !!part && partialIn(heading, part)
     if (tf > 0 || ti) cover += w[i]
+    else if (pti || phe) cover += WORD_RULES.partialCover * w[i]
     if (ti) inTitle += w[i]
+    else if (pti) inTitle += WORD_RULES.partialTitle * w[i]
     if (he) inHeading += w[i]
-    if (ownHay === null ? hits.some(([a]) => a >= ownFrom) : groupSpans(ownHay, g).length > 0) own += w[i]
+    else if (phe) inHeading += WORD_RULES.partialHeading * w[i]
+    if (i === input.rare && tf === 0 && !ti && !pti && !phe) rareMissing = true
+    if (phe || (ownHay === null ? hits.some(([a]) => a >= ownFrom) : groupSpans(ownHay, g).length > 0)) own += w[i]
     if (tf > 0) bm25 += (w[i] * (tf * (k1 + 1))) / (tf + k1 * norm) / (k1 + 1)
   })
   let adj = 0
@@ -528,6 +595,8 @@ export function scoreParts(
   // heading-only chunk, or a line of links (docs/adr/1900-*): little to read
   const thin = c.text.trim().length < 20 || (SECTION_RULES.thinLetters > 0 && proseLetters(c.text, SECTION_RULES.thinLetters) < SECTION_RULES.thinLetters)
   if (thin) s *= 0.7
+  // the word that makes the question specific is nowhere in the chunk (docs/adr/2402-*)
+  if (rareMissing) s *= WORD_RULES.rareFactor
   return {
     score: Math.round(s * 1e6) / 1e6,
     coverage: cover / wSum,
@@ -538,7 +607,18 @@ export function scoreParts(
     phrase,
     own: own / wSum,
     weak: thin || own === 0,
+    rareMissing,
   }
+}
+
+/** Is any partial credit on (scripts/context-tune.ts switches it off with all three shares at 0)? */
+export function partialOn(): boolean {
+  return WORD_RULES.partialTitle > 0 || WORD_RULES.partialHeading > 0 || WORD_RULES.partialCover > 0
+}
+
+/** Does a shorter form occur in a title or heading path, the way the index matches Korean words (anywhere)? */
+function partialIn(hay: string, forms: string[]): boolean {
+  return forms.some((f) => occurrences(hay, f).length > 0)
 }
 
 /** Score descending with a total, input-independent tie-break (page id, then position). */

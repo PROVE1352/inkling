@@ -37,7 +37,8 @@ Before changing the ranking, the failure needed numbers.
   respaced). Only numbers leave that machine; the notes, questions and titles are not copied anywhere.
 - The two meeting-notes questions of P name a detail of the page ("회의록 알림 문구 결정", "10월 회의록
   액션 아이템"): with the bare "회의록 결정" the padded wiki's own weekly notes (titled 주간회의록, same
-  sections) are an equally right answer in the large run. Reworded once, on dev, after the first run.
+  sections) are an equally right answer in the large run. One is a dev and one a test question; both
+  were reworded for that collision after the first dev-only run, before any test result was printed.
 
 ## Results before the ranking change (0.19.0 code, `--final`)
 | set | split | page@1 | page@3 | page MRR | section MRR | tokens |

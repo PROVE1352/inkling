@@ -4,7 +4,7 @@ import { db } from '../db/index'
 import { agentAllowedSql } from '../agentAccess'
 import { escapeLike } from '../util'
 import type { Candidate, Fragment, Scored, SectionLabel, TermGroup } from './rank'
-import { fullLabel, groupTsquery, idf, pack, queryGroups, scoreParts, TOP_K, TopK, UNSEEN_WEIGHT } from './rank'
+import { fullLabel, groupTsquery, idf, pack, partialOn, queryGroups, rareGroup, scoreParts, TOP_K, TopK, UNSEEN_WEIGHT, WORD_RULES } from './rank'
 import { headingTail, shortAnchors } from './chunker'
 import { isCjkCode } from './tokens'
 import { pageInRangeSql } from '../tokenRange'
@@ -103,8 +103,15 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   const hasAliases = sql`p.aliases <> '[]'::jsonb`
   const inTitle = (cond: (field: SQL) => SQL) => sql`(${cond(sql`p.title`)} OR (${hasAliases} AND ${cond(sql`p.aliases::text`)}))`
   const likeIn = (field: SQL, pattern: string) => sql`${field} ILIKE ${`%${escapeLike(pattern)}%`}`
-  const titleLike = long.length ? sql.join(long.map((t) => inTitle((f) => likeIn(f, t))), sql` OR `) : sql`false`
+  // Shorter forms of Korean compounds ("택배함" → 택배) bring pages whose title has only that form
+  // (docs/adr/2401-*); they are not searched in the text.
+  const partials = partialOn() ? [...new Set(groups.flatMap((g) => g.partial ?? []))] : []
+  const titleTerms = [...long, ...partials.filter((p) => !long.includes(p))]
+  const titleLike = titleTerms.length ? sql.join(titleTerms.map((t) => inTitle((f) => likeIn(f, t))), sql` OR `) : sql`false`
   const titleCond = sql`(${inTitle((f) => sql`to_tsvector('simple'::regconfig, ${f}) @@ q.tsq`)} OR ${titleLike})`
+  // Title-only pages (no text) are listed on the query's own words, not on a shorter form.
+  const titleLikeFull = long.length ? sql.join(long.map((t) => inTitle((f) => likeIn(f, t))), sql` OR `) : sql`false`
+  const titleCondFull = partials.length ? sql`(${inTitle((f) => sql`to_tsvector('simple'::regconfig, ${f}) @@ q.tsq`)} OR ${titleLikeFull})` : titleCond
 
   // Per query word (all its forms): does the chunk contain it (stored vector, + infix ILIKE), does
   // the page title contain it. Computed once per candidate row; the document frequencies and the
@@ -128,12 +135,23 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   const titleMatch = groups.map((g) => inTitle((f) => sql`(${sql.join(patterns(g).map((v) => likeIn(f, v)), sql` OR `)})`))
   const headingMatch = groups.map((g) => sql`(${sql.join(patterns(g).map((v) => likeIn(sql`c.heading_path`, v)), sql` OR `)})`)
   const col = (prefix: string, i: number) => sql.raw(`${prefix}${i}`)
+  // Partial (shorter-form) flags in title and heading path for the coarse order, only for groups that
+  // have a partial form and only while partial credit is on: the SQL is unchanged otherwise.
+  const hasPart = (i: number) => partials.length > 0 && !!groups[i].partial?.length
+  const partLike = (i: number, field: SQL) => sql`(${sql.join(groups[i].partial!.map((v) => likeIn(field, v)), sql` OR `)})`
   const mCols = sql.join(
-    groups.map((_, i) => sql`(${textMatch[i]})::int AS ${col('m', i)}, (${headingMatch[i]})::int AS ${col('h', i)}`),
+    groups.map((_, i) => sql`(${textMatch[i]})::int AS ${col('m', i)}, (${headingMatch[i]})::int AS ${col('h', i)}${hasPart(i) ? sql`, (${partLike(i, sql`c.heading_path`)})::int AS ${col('ph', i)}` : sql``}`),
     sql`, `,
   )
-  const tCols = sql.join(titleMatch.map((t, i) => sql`(${t})::int AS ${col('t', i)}`), sql`, `)
-  const dfCols = sql.join(groups.map((_, i) => sql.raw(`coalesce(sum(m${i}), 0)::int AS d${i}`)), sql`, `)
+  const tCols = sql.join(
+    titleMatch.map((t, i) => sql`(${t})::int AS ${col('t', i)}${hasPart(i) ? sql`, (${inTitle((f) => partLike(i, f))})::int AS ${col('pt', i)}` : sql``}`),
+    sql`, `,
+  )
+  // With titleDf the title flags are computed once in `matched` (pages joined there) and a word's df
+  // also counts chunks whose page title has it (docs/adr/2403-*); otherwise `ranked` computes them.
+  const titleDf = WORD_RULES.titleDf
+  const T = titleDf ? 'matched' : 't'
+  const dfCols = sql.join(groups.map((_, i) => sql.raw(titleDf ? `coalesce(sum(GREATEST(m${i}, t${i})), 0)::int AS d${i}` : `coalesce(sum(m${i}), 0)::int AS d${i}`)), sql`, `)
   // Same formula as rank.ts idf(), including the df = 0 weight.
   const wCols = sql.join(
     groups.map((_, i) => sql.raw(`CASE WHEN df.d${i} = 0 THEN ${UNSEEN_WEIGHT}::float8 ELSE ln(1 + (scope.n - df.d${i} + 0.5) / (df.d${i} + 0.5)) END AS w${i}`)),
@@ -143,7 +161,17 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   // Coarse order before the 300-row cut: idf-weighted share of words found (text or title) plus
   // idf-weighted title and heading shares, so a rare word outweighs several common ones here too.
   // Only integer flags and the precomputed weights: no tsvector is read here.
-  const coarse = sql.raw(groups.map((_, i) => `w.w${i} * (GREATEST(matched.m${i}, t.t${i}) + 0.3::float8 * (t.t${i} + matched.h${i}))`).join(' + '))
+  // A partial form counts with its discount (WORD_RULES) in the title and heading flags (docs/adr/2401-*).
+  const coarse = sql.raw(
+    groups
+      .map((_, i) => {
+        if (!hasPart(i)) return `w.w${i} * (GREATEST(matched.m${i}, ${T}.t${i}) + 0.3::float8 * (${T}.t${i} + matched.h${i}))`
+        const t = `GREATEST(${T}.t${i}, ${Number(WORD_RULES.partialTitle)}::float8 * ${T}.pt${i})`
+        const h = `GREATEST(matched.h${i}, ${Number(WORD_RULES.partialHeading)}::float8 * matched.ph${i})`
+        return `w.w${i} * (GREATEST(matched.m${i}, ${T}.t${i}, ${Number(WORD_RULES.partialCover)}::float8 * GREATEST(${T}.pt${i}, matched.ph${i})) + 0.3::float8 * (${t} + ${h}))`
+      })
+      .join(' + '),
+  )
 
   // Candidates from three index probes; `bonus` marks trigram (infix) hits so they are not cut by
   // the coarse ORDER BY. N = chunks in the searched workspaces and df = chunks containing the word
@@ -164,8 +192,8 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
       SELECT cand.page_id, cand.ord, max(cand.bonus) AS bonus FROM cand GROUP BY cand.page_id, cand.ord
     ),
     matched AS (
-      SELECT best.page_id, best.ord, best.bonus, ${mCols}
-        FROM best JOIN page_chunks c ON c.page_id = best.page_id AND c.ord = best.ord CROSS JOIN q
+      SELECT best.page_id, best.ord, best.bonus, ${mCols}${titleDf ? sql`, ${tCols}` : sql``}
+        FROM best JOIN page_chunks c ON c.page_id = best.page_id AND c.ord = best.ord${titleDf ? sql` JOIN pages p ON p.id = best.page_id` : sql``} CROSS JOIN q
     ),
     df AS (SELECT ${dfCols} FROM matched),
     scope AS (SELECT count(*)::float8 AS n FROM page_chunks c WHERE c.workspace_id = ANY(${ws}::uuid[])),
@@ -173,7 +201,7 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
     ranked AS (
       SELECT matched.page_id, matched.ord
         FROM matched JOIN pages p ON p.id = matched.page_id
-        CROSS JOIN LATERAL (SELECT ${tCols}) t, w
+        ${titleDf ? sql`` : sql`CROSS JOIN LATERAL (SELECT ${tCols}) t`}, w
        WHERE p.deleted_at IS NULL AND ${visibleSql(opts.userId)}
        ORDER BY (${coarse}) / (${wSum}) + matched.bonus DESC, p.updated_at DESC, matched.page_id, matched.ord
        LIMIT ${CANDIDATE_LIMIT}
@@ -192,7 +220,10 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
   const stats = rows[0]
   const dfRow = stats ? (typeof stats.df === 'string' ? (JSON.parse(stats.df) as Record<string, number>) : stats.df) : {}
   const n = stats ? Number(stats.scopeChunks) : 0
-  const weights = groups.map((_, i) => idf(n, Number(dfRow[`d${i}`]) || 0))
+  const dfs = groups.map((_, i) => Number(dfRow[`d${i}`]) || 0)
+  const weights = dfs.map((d) => idf(n, d))
+  // the word that makes the question specific, if one stands out (docs/adr/2402-*)
+  const rare = rareGroup(weights, dfs, groups)
 
   // Recency is measured against the newest candidate, not the clock: same documents → same output.
   let newest = 0
@@ -215,12 +246,12 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
       updatedAt: r.updatedAt instanceof Date ? r.updatedAt : new Date(r.updatedAt),
       aliases: aliasText(r.aliases),
     }
-    const parts = scoreParts(c, { groups, idf: weights, phrase, now })
+    const parts = scoreParts(c, { groups, idf: weights, phrase, now, rare })
     // `weak`: says nothing of its own about the query (title only, or a line of links), docs/adr/1900-*
     top.push({ ...c, score: parts.score, ...(parts.weak ? { weak: true } : {}) })
   }
   const ranked = top.sorted()
-  opts.explain?.({ groups, df: groups.map((_, i) => Number(dfRow[`d${i}`]) || 0), n, idf: weights, ranked, candidates: rows.length })
+  opts.explain?.({ groups, df: dfs, n, idf: weights, ranked, candidates: rows.length })
 
   // Short anchors need every anchor of the pages that may be shown (docs/adr/1212-*). These page
   // ids passed the permission filter above.
@@ -242,7 +273,7 @@ export async function findContext(opts: FindContextOptions): Promise<FindContext
     WITH q AS (SELECT to_tsquery('simple', ${tsq}) AS tsq)
     SELECT p.id AS "pageId", p.title, p.kind FROM pages p, q
      WHERE p.workspace_id = ANY(${ws}::uuid[]) AND p.deleted_at IS NULL AND ${visibleSql(opts.userId)}
-       AND ${titleCond}
+       AND ${titleCondFull}
        AND NOT EXISTS (SELECT 1 FROM page_chunks c WHERE c.page_id = p.id)
      ORDER BY p.updated_at DESC, p.id LIMIT 5
   `)) as unknown as { pageId: string; title: string; kind: string }[]

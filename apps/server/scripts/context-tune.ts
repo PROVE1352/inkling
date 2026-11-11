@@ -12,7 +12,8 @@
  *
  * With RECALL_WS=H=<id>,P=<id>,L=<id> (printed by context-bench.ts) the recall set of 0.20
  * (evalRecallSet.ts, docs/adr/2400-*) is asked too, over those three workspaces ("recall") and over
- * them plus <bigWs> ("recall+big"), without a workspace filter as an agent asks it.
+ * them plus <bigWs> ("recall+big"), without a workspace filter as an agent asks it. `{"WORD_RULES":{…}}`
+ * sets the partial-match and rare-word knobs (docs/adr/2401-*, 2402-*).
  */
 process.env.PUBLIC_URL ||= 'https://notes.example.com/'
 import { sql } from 'drizzle-orm'
@@ -45,7 +46,7 @@ async function main() {
     const rq = RECALL_QUESTIONS.filter((q) => q.split === split)
     sets.push(['recall', recall.map(([, id]) => id), keyed, rq], ['recall+big', [...recall.map(([, id]) => id), bigWs], keyed, rq])
   }
-  const knobs = ['WEIGHTS', 'BM25', 'DIVERSITY', 'FLOOR', 'PACKING', 'SECTION_RULES', 'QUERY_FORMS'] as const
+  const knobs = ['WEIGHTS', 'BM25', 'DIVERSITY', 'FLOOR', 'PACKING', 'SECTION_RULES', 'QUERY_FORMS', 'WORD_RULES'] as const
   const base = JSON.parse(JSON.stringify(Object.fromEntries(knobs.map((k) => [k, rank[k]]))))
   const configs = JSON.parse(configsJson || '[{}]') as Record<string, Record<string, number | boolean>>[]
   for (const cfg of configs) {

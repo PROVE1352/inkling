@@ -23,14 +23,17 @@ read-only mode left out tools it could have offered; and every tool claimed an o
   were removed. No `title` hint: the tools already carry a top-level `title`, and every byte here is
   paid by every session.
 - **readOnlyHint: true** when the tool changes nothing that it or another tool reads back. Checked per
-  tool from its code (all 20 use `wrap` and only GET routes) and by running each one on a read-only
-  connection with Postgres logging the writes (`log_statement = 'mod'` on a throwaway database). Not
-  counted, because every authenticated request causes them and they are not what the tool is for:
-  `oauth_grants.last_used_at` and `workspace_agent_access` (throttled, every tool), per-connection usage
-  (ADR 1552, every tool), page read counters (ADR 0953; page totals only, the same as a page view in the
-  browser), the taint record of flagged content (ADR 2040; a safety restriction on the connection
-  itself) and `change_feed_state.high_water` (a cached maximum of `page_changes`, written by
-  changes_since and catch_up).
+  tool from its code (all 20 use `wrap` and only GET routes; the in-process writes of the tool modules
+  were looked up too) and by running them on a read-only connection with Postgres logging the writes
+  (`log_statement = 'mod'` on a throwaway database; read_file and read_ink only reached their
+  not-found and not-allowed answers there). Not counted, because every authenticated request causes
+  them and they are not what the tool is for: `oauth_grants.last_used_at` and `workspace_agent_access`
+  (throttled, every tool), per-connection usage (ADR 1552, every tool), page read counters (ADR 0953;
+  read_page, read_pages, find_context; page totals only, the same as a page view in the browser, and
+  they feed the daily review batch), the taint record of flagged content (ADR 2040, 2046; sections via
+  `loadAgentContext(read)` and `recordTokenRead`, attachment text via read_file's `recordFlaggedFile`; a
+  safety restriction on the connection itself) and `change_feed_state.high_water` (a cached maximum of
+  `page_changes`, written by changes_since and catch_up).
 - **catch_up is not read-only.** Without `peek` it moves the connection's "last catch_up" marker and the
   person's copy of it (ADR 1537, `catch_up_markers`), and the marker decides what the next `catch_up()`
   answers. That is the "does not modify its environment" line of the spec, not request bookkeeping.
@@ -46,13 +49,23 @@ read-only mode left out tools it could have offered; and every tool claimed an o
 - **idempotentHint: true** for writes whose repeat with the same arguments changes nothing more:
   rename_page and move_page (the same title or parent again changes nothing), trash_page and
   restore_page (the second call finds nothing to move), update_row (the repeat fails on baseVersion),
-  resolve_comment, ack, withdraw_suggestion, release_section. claim_section is not: claiming again
-  extends the claim. Read-only tools carry false, the spec default (the hint means nothing for them).
-- **openWorldHint: false for every tool.** No tool fetches a URL the agent names or sends a message to
-  an address it picks; they read and write this server's notes. Workspace webhooks (Slack, Discord,
-  generic), email and push notifications and the operator's embedding endpoint (ADR 1740) are the
-  server's reactions to any change, the same for an edit in the browser, to destinations set by owners
-  or the operator, carrying summaries and links rather than bodies.
+  resolve_comment (sets the same value, no event), ack (the second call acknowledges 0 items),
+  withdraw_suggestion ("already withdrawn; nothing changed"), release_section ("holds no claim"); each was
+  called twice on a test database. claim_section is not: claiming again extends the claim. Read-only
+  tools carry false, the spec default (the hint means nothing for them).
+- **openWorldHint: false for every tool.** The spec's example of a closed world is a memory tool, and
+  these tools act on this server's notes and its workspace members only: none fetches a URL the agent
+  names or writes to an address outside the workspace. Writes that create pages, write page text,
+  comments or row values can make the server notify members (`mention`, `comment`, `assigned`,
+  `page_created`): in the app, by mail and web push per each member's settings (ADR 1004, 2222;
+  excerpts of at most 200 characters, never bodies), and through the workspace's webhooks (ADR 0504;
+  Slack, Discord or a generic https endpoint, summaries and links). Those are the server's reactions to
+  any change, the same for an edit in the browser, to members who can see the page or to destinations
+  owners set; the agent can address a member by mentioning them, not anyone else. The operator's
+  embedding endpoint (ADR 1740) is the server's own infrastructure. Reading "may reach mail or webhooks"
+  as open world would mark every content write (create_page, import_folder, import_zip,
+  create_from_template, update_page, patch_section, patch_sections, add_comment, reply_comment,
+  create_row, update_row, create_collection, split_page) and say "writes" a second time.
 - **more_tools**: `readOnlyHint` false, `destructiveHint` true, `idempotentHint` false: it lists and runs
   the hidden tools, among them restore_version, split_page and update_fields, so it carries the worst case
   of what it can dispatch. The tool it runs still checks the scope (a write is refused on a read-only

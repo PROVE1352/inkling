@@ -22,10 +22,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
  *   (resolved, acknowledged, the agent's own claim or suggestion). When in doubt: true.
  * - idempotentHint (only meaningful when not read-only): true for writes whose repeat with the same
  *   arguments changes nothing more. Read-only tools carry false, the spec's default.
- * - openWorldHint: false everywhere. Every tool reads and writes this server's notes; no tool fetches
- *   a URL the agent names or sends a message to an address it picks. Workspace webhooks, email/push
- *   notifications and the operator's embedding endpoint are the server's own reactions to any change
- *   (the same for an edit in the browser), to destinations the agent does not choose.
+ * - openWorldHint: false everywhere. Every tool acts on this server's notes and its workspace members;
+ *   none fetches a URL the agent names or writes to an address outside the workspace. Member
+ *   notifications (in the app, mail, web push), workspace webhooks and the operator's embedding
+ *   endpoint are the server's own reactions to any change (the same for an edit in the browser).
  */
 export interface ToolHints {
   readOnlyHint: boolean

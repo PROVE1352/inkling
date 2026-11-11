@@ -125,4 +125,5 @@ export const CLEARED_SHARE_LINK = {
   shareAllowDownload: false,
   shareIncludeCharts: false,
   shareChartsBy: null,
+  shareChartSources: null,
 } as const

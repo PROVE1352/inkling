@@ -27,7 +27,7 @@ import type { ShareGate } from '../shareAccess'
 import { BoundedLru } from '../lru'
 import { liveWorkspace } from '../workspaceLive'
 import { collectionTableMdShared } from '../md/exporter'
-import { chartsEnabler, publicChartData, publicChartPlacer } from '../charts/publicCharts'
+import { approvalFingerprint, approvedSources, chartsEnabler, publicChartData, publicChartPlacer } from '../charts/publicCharts'
 import {
   blocksToFullHTML,
   collectAssetFileIds,
@@ -107,6 +107,8 @@ export interface SharedRoot extends SharedPage {
   /** the page shows its charts as aggregates of `chartsBy` (docs/adr/2440-*) */
   includeCharts: boolean
   chartsBy: string | null
+  /** the chart sources approved for `chartsBy` (docs/adr/2444-*) */
+  chartSources: unknown
 }
 
 /** One page of a folder share's subtree (the root folder itself excluded). */
@@ -283,6 +285,7 @@ export async function findSharedPageByToken(token: string): Promise<SharedRoot |
         allowDownload: pages.shareAllowDownload,
         includeCharts: pages.shareIncludeCharts,
         chartsBy: pages.shareChartsBy,
+        chartSources: pages.shareChartSources,
       })
       .from(pages)
       .where(
@@ -433,10 +436,12 @@ function setPagePublicHeaders(reply: FastifyReply): void {
  * The public blocks of a single-page link: what its HTML is rendered from, and its Markdown download
  * (docs/adr/2362-*), so the two never show different data.
  */
-async function singlePageBlocks(page: SharedPage, token: string, enablerId: string | null): Promise<PublicBody> {
-  // charts only with "include charts" on: nothing else of the workspace is inside this link (docs/adr/2440-*)
+async function singlePageBlocks(page: SharedRoot, token: string, enablerId: string | null): Promise<PublicBody> {
+  // charts only with "include charts" on and of approved sources: nothing else of the workspace is inside
+  // this link (docs/adr/2440-*, 2444-*)
   const charts: PublicChartDTO[] = []
-  const place = enablerId ? publicChartPlacer(publicChartData({ workspaceId: page.workspaceId, enablerId }), charts) : undefined
+  const approved = approvedSources(page.chartSources)
+  const place = enablerId ? publicChartPlacer(publicChartData({ workspaceId: page.workspaceId, enablerId, approved }), charts) : undefined
   let blocks = await loadPublicBlocks(page, place)
   // embeds, database views and query blocks: only this page is inside the link (docs/adr/2121-*)
   if (page.kind === 'doc') {
@@ -461,7 +466,10 @@ async function childPageBlocks(share: FolderShare, page: SubtreePage, token: str
   // "include charts" on, of any source the manager who turned it on can see (docs/adr/2440-*)
   const inShare = new Map(share.pages.map((p) => [p.id, p]))
   const list: PublicChartDTO[] = []
-  const charts = publicChartPlacer(publicChartData({ workspaceId: share.root.workspaceId, enablerId, inside: (id) => inShare.get(id) }), list)
+  const charts = publicChartPlacer(
+    publicChartData({ workspaceId: share.root.workspaceId, enablerId, approved: approvedSources(share.root.chartSources), inside: (id) => inShare.get(id) }),
+    list,
+  )
   let blocks = await loadPublicBlocks(page, charts)
   // embeds, database views and query blocks: data of pages inside this link only (docs/adr/2121-*)
   if (page.kind === 'doc') {
@@ -545,7 +553,9 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
     // the chart setting is checked here, before the cache: its key changes the moment the switch or the
     // member's access does (docs/adr/2440-*)
     const enablerId = await chartsEnabler(page.workspaceId, page)
-    const out = await cachedRender(rk && `p|${rk}|${token}|${enablerId ?? ''}`, () => singlePageBlocks(page, token, enablerId))
+    // …and so does a new approval list (docs/adr/2444-*)
+    const charted = enablerId ? `${enablerId}:${approvalFingerprint(approvedSources(page.chartSources))}` : ''
+    const out = await cachedRender(rk && `p|${rk}|${token}|${charted}`, () => singlePageBlocks(page, token, enablerId))
 
     setPagePublicHeaders(reply)
     const dto: PublicPageDTO = {
@@ -629,7 +639,8 @@ export async function registerPublicRoutes(app: FastifyInstance): Promise<void> 
       ? createHash('sha1').update([...share.refById.keys()].sort().join(',')).digest('base64')
       : ''
     const enablerId = await chartsEnabler(share.root.workspaceId, share.root)
-    const out = await cachedRender(rk && `c|${rk}|${token}|${ref}|${members}|${enablerId ?? ''}`, () =>
+    const charted = enablerId ? `${enablerId}:${approvalFingerprint(approvedSources(share.root.chartSources))}` : ''
+    const out = await cachedRender(rk && `c|${rk}|${token}|${ref}|${members}|${charted}`, () =>
       childPageBlocks(share, page, token, ref, enablerId),
     )
 

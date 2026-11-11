@@ -1,6 +1,6 @@
 # 2440. Charts on a public link: a per-link switch, off by default
 
-- Status: Accepted
+- Status: Accepted; amended by 2444 (approved sources only)
 - Amends: 1605
 - Date: 2026-11-11
 

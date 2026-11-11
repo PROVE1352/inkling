@@ -1,6 +1,6 @@
 # 2441. Public charts are aggregated as the manager who turned them on, while a member
 
-- Status: Accepted
+- Status: Accepted; amended by 2444 (approved sources only)
 - Date: 2026-11-11
 
 ## Context
@@ -40,12 +40,12 @@ run as the member.
   file the same member downloads.
 
 ## Trade-offs
-- **Confused deputy, by design**: anyone who can edit a page whose link has the switch on can add a chart that
-  is aggregated with the recorded person's access, including `groupBy: title` (row titles as labels) of a
-  collection that editor cannot see, if they know its id. The output is the chart's labels and numbers on the
-  public page. Mitigations: only managers turn it on, the dialog names whose access is used, and the switch
-  belongs to one link; a page's editors are usually the people who could see the sources anyway. Recorded in
-  KNOWN-ISSUES.
+- **Confused deputy, closed by ADR 2444**: without more, anyone who can edit a page whose link has the switch on
+  could add a chart aggregated with the recorded person's access, including `groupBy: title` (row titles as
+  labels) of a collection that editor cannot see. Since 2444 only charts of sources the manager approved (the
+  databases and queries in use when charts were turned on or last approved) run as that person; a chart of any
+  other source waits for a manager's "Publish these charts too". What remains: a new chart of an approved
+  database can show another of its properties.
 - A collection made private, trashed or moved out of reach shows on the public page until the page's cached
   render expires (at most 10 minutes, ADR 2443); losing membership applies at once.
 

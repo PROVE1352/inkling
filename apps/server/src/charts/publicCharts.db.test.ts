@@ -43,6 +43,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
       await (await import('../routes/pages')).registerPageRoutes(api)
       await (await import('../routes/collections')).registerCollectionRoutes(api)
       await (await import('../routes/public')).registerPublicRoutes(api)
+      await (await import('../routes/pageContent')).registerPageContentRoutes(api)
     },
     { prefix: '/api' },
   )
@@ -155,7 +156,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
 
   it('off by default: a new link says how many charts it leaves out, and the page has none of them', async () => {
     assert.equal(share.includeCharts, false)
-    assert.deepEqual(share.charts, { total: 5, hidden: 5 })
+    assert.deepEqual(share.charts, { total: 5, hidden: 5, pending: 0 })
     const { body, dto } = await page()
     assert.equal(dto.charts, undefined)
     assertNone(body, [...SECRET, ...CHART_TEXT], 'off page')
@@ -173,7 +174,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     assert.equal(on.includeCharts, true)
     assert.equal(on.chartsBy, `Carol${W}`)
     // the foreign workspace's collection is left out even for a person who can see it
-    assert.deepEqual(on.charts, { total: 5, hidden: 1 })
+    assert.deepEqual(on.charts, { total: 5, hidden: 1, pending: 0 })
     const [row] = await db.select({ by: schema.pages.shareChartsBy }).from(schema.pages).where(eq(schema.pages.id, report.id))
     assert.equal(row.by, carol.id)
     // sending it again keeps who turned it on
@@ -186,10 +187,11 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
       .where(and(eq(schema.workspaceAuditEvents.targetId, report.id), eq(schema.workspaceAuditEvents.action, 'share.charts_changed')))
     assert.equal(audit.length, 1)
     assert.deepEqual(audit[0].before, { includeCharts: false })
-    assert.deepEqual(audit[0].after, { includeCharts: true })
+    // turning on approves the three sources the page's charts use (docs/adr/2444-*)
+    assert.deepEqual(audit[0].after, { includeCharts: true, sources: 3 })
     const status = (await ok(bob, 'GET', `/pages/${report.id}/share`)) as ShareStatusDTO
     assert.equal(status.includeCharts, true)
-    assert.deepEqual(status.charts, { total: 5, hidden: 1 })
+    assert.deepEqual(status.charts, { total: 5, hidden: 1, pending: 0 })
   })
 
   it('on: aggregates as labels and numbers, in place of each chart; no ids, query text or other rows', async () => {
@@ -263,7 +265,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     const off = (await ok(alice, 'PATCH', `/pages/${report.id}/share`, { includeCharts: false })) as ShareStatusDTO
     assert.equal(off.includeCharts, false)
     assert.equal(off.chartsBy, undefined)
-    assert.deepEqual(off.charts, { total: 5, hidden: 5 })
+    assert.deepEqual(off.charts, { total: 5, hidden: 5, pending: 0 })
     const { body, dto } = await page()
     assert.equal(dto.charts, undefined)
     assertNone(body, [...SECRET, ...CHART_TEXT], 'page after off')
@@ -279,7 +281,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     assertNone(body, [...SECRET, ...CHART_TEXT], 'page after the enabler left')
     const status = (await ok(alice, 'GET', `/pages/${report.id}/share`)) as ShareStatusDTO
     assert.equal(status.includeCharts, true)
-    assert.deepEqual(status.charts, { total: 5, hidden: 5 })
+    assert.deepEqual(status.charts, { total: 5, hidden: 5, pending: 0 })
     // a manager turns it off and on again: their own access from now on
     await ok(alice, 'PATCH', `/pages/${report.id}/share`, { includeCharts: false })
     await ok(alice, 'PATCH', `/pages/${report.id}/share`, { includeCharts: true })
@@ -300,7 +302,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     const { dto } = await page()
     assert.deepEqual(dto.charts?.map((c) => c.kind), ['pie'])
     const status = (await ok(bob, 'GET', `/pages/${report.id}/share`)) as ShareStatusDTO
-    assert.deepEqual(status.charts, { total: 5, hidden: 4 })
+    assert.deepEqual(status.charts, { total: 5, hidden: 4, pending: 0 })
     await db.update(schema.pages).set({ scope: 'shared', ownerId: null }).where(eq(schema.pages.id, sales.id))
   })
 
@@ -319,7 +321,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     const draft = await h.makeDocPage(ws.id, alice.id, `Draft${W}`, [charts.bar] as never)
     const status = (await ok(alice, 'GET', `/pages/${draft.id}/share`)) as ShareStatusDTO
     assert.equal(status.shared, false)
-    assert.deepEqual(status.charts, { total: 1, hidden: 1 })
+    assert.deepEqual(status.charts, { total: 1, hidden: 1, pending: 0 })
   })
 
   it('folder link: its own collections are charts when off; the rest only when on', async () => {
@@ -337,7 +339,7 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
       { parentId: folder.id },
     )
     const s = (await ok(alice, 'POST', `/pages/${folder.id}/share`)) as ShareStatusDTO
-    assert.deepEqual(s.charts, { total: 3, hidden: 2 })
+    assert.deepEqual(s.charts, { total: 3, hidden: 2, pending: 0 })
     const tree = (await visit(`/api/public/${s.token}`)).json() as { tree: { ref: string; title: string }[] }
     const ref = tree.tree.find((n) => n.title === `Child${W}`)!.ref
     const get = async () => (await visit(`/api/public/${s.token}/p/${ref}`)).json() as PublicPageDTO
@@ -346,10 +348,94 @@ describe('[db] public pages: charts', { skip: !HAS_DB }, async () => {
     assert.deepEqual(off.charts?.[0].groups.map((g) => g.label), [`Done${W}`])
     assertNone(JSON.stringify(off), [...SECRET, `BarTitle${W}`, `Todo${W}`, inside.id], 'folder page off')
     const on = (await ok(alice, 'PATCH', `/pages/${folder.id}/share`, { includeCharts: true })) as ShareStatusDTO
-    assert.deepEqual(on.charts, { total: 3, hidden: 1 })
+    assert.deepEqual(on.charts, { total: 3, hidden: 1, pending: 0 })
     const both = await get()
     assert.deepEqual(both.charts?.map((c) => c.title), [`InsideChart${W}`, `BarTitle${W}`])
     assertNone(JSON.stringify(both), [...SECRET, inside.id], 'folder page on')
     void child
+  })
+  it('approved sources only (docs/adr/2444-*): an editor’s new chart of another database waits for a manager', async () => {
+    const dave = await h.makeUser(`Dave${W}`)
+    await db.insert(schema.workspaceMembers).values({ workspaceId: ws.id, userId: dave.id, role: 'member' })
+    // a database only Alice can see, and its rows
+    const budget = await newCollection(ws.id, `BudgetTitle${W}`, [[`BudgetRowSecret${W}`, 'todo', 40, 'hi']])
+    await db.update(schema.pages).set({ scope: 'private', ownerId: alice.id }).where(eq(schema.pages.id, budget.id))
+    assert.equal((await call(dave, 'GET', `/pages/${budget.id}`)).statusCode, 404)
+    const q1 = `LIST FROM "TasksTitle${W}"`
+    const page2 = await h.makeDocPage(ws.id, alice.id, `Approval${W}`, [
+      chart({ source: { type: 'collection', collectionId: sales.id }, kind: 'bar', groupBy: { field: F.st }, title: `ApprovedBar${W}` }),
+      chart({ source: { type: 'query', query: q1 }, kind: 'pie', groupBy: { field: 'title' }, title: `ApprovedQuery${W}` }),
+    ] as never)
+    const s0 = (await ok(alice, 'POST', `/pages/${page2.id}/share`)) as ShareStatusDTO
+    // approving needs charts on; and no token can approve (the route is session-only)
+    assert.equal((await call(alice, 'PATCH', `/pages/${page2.id}/share`, { approveChartSources: true })).statusCode, 409)
+    const on = (await ok(alice, 'PATCH', `/pages/${page2.id}/share`, { includeCharts: true })) as ShareStatusDTO
+    assert.deepEqual(on.charts, { total: 2, hidden: 0, pending: 0 })
+    const [stored] = await db.select({ src: schema.pages.shareChartSources }).from(schema.pages).where(eq(schema.pages.id, page2.id))
+    assert.equal((stored.src as string[]).length, 2)
+    assert.ok((stored.src as string[]).includes(`c:${sales.id}`))
+    const get = async () => {
+      const res = await visit(`/api/public/${s0.token}`)
+      assert.equal(res.statusCode, 200, res.body)
+      return { body: res.body, dto: res.json() as PublicPageDTO }
+    }
+    const titles = async () => ((await get()).dto.charts ?? []).map((c) => c.title)
+    assert.deepEqual(await titles(), [`ApprovedBar${W}`, `ApprovedQuery${W}`])
+    // Dave (a member who cannot see Budget) adds a chart of it, grouped by row title
+    const sneak = { source: { type: 'collection', collectionId: budget.id }, kind: 'bar', groupBy: { field: 'title' }, title: `SneakTitle${W}` }
+    const md = (c: Record<string, unknown>) => `<!-- inkling:chart ${canonicalChartJson(c as never)} -->`
+    await ok(dave, 'POST', `/pages/${page2.id}/content`, { mode: 'append', markdown: md(sneak) })
+    {
+      const { body, dto } = await get()
+      assert.deepEqual(dto.charts?.map((c) => c.title), [`ApprovedBar${W}`, `ApprovedQuery${W}`])
+      assertNone(body, [`SneakTitle${W}`, `BudgetRowSecret${W}`, `BudgetTitle${W}`, budget.id], 'page with a waiting chart')
+    }
+    const waiting = (await ok(alice, 'GET', `/pages/${page2.id}/share`)) as ShareStatusDTO
+    assert.deepEqual(waiting.charts, { total: 3, hidden: 1, pending: 1 })
+    // a new chart of an approved database shows at once; so does an approved query written with other spaces
+    await ok(dave, 'POST', `/pages/${page2.id}/content`, {
+      mode: 'append',
+      markdown: `${md({ source: { type: 'collection', collectionId: sales.id }, kind: 'line', groupBy: { field: F.pri }, title: `SameDbNew${W}` })}\n\n${md({ source: { type: 'query', query: `  LIST   FROM "TasksTitle${W}" ` }, kind: 'donut', groupBy: { field: 'title' }, title: `SameQuery${W}` })}`,
+    })
+    assert.deepEqual(await titles(), [`ApprovedBar${W}`, `ApprovedQuery${W}`, `SameDbNew${W}`, `SameQuery${W}`])
+    // another query text waits
+    await ok(dave, 'POST', `/pages/${page2.id}/content`, {
+      mode: 'append',
+      markdown: md({ source: { type: 'query', query: `TABLE Points FROM "SalesTitle${W}"` }, kind: 'bar', groupBy: { field: 'title' }, title: `OtherQuery${W}` }),
+    })
+    assert.ok(!(await titles()).includes(`OtherQuery${W}`))
+    assert.ok(!(await get()).body.includes(`SalesRowA${W}`))
+    assert.deepEqual(((await ok(alice, 'GET', `/pages/${page2.id}/share`)) as ShareStatusDTO).charts, { total: 6, hidden: 2, pending: 2 })
+    // a member cannot approve; a token cannot either (session only)
+    assert.equal((await call(dave, 'PATCH', `/pages/${page2.id}/share`, { approveChartSources: true })).statusCode, 403)
+    const token = await h.mintToken(alice, 'notes write')
+    const viaToken = await app.inject({ method: 'PATCH', url: `/api/pages/${page2.id}/share`, headers: { authorization: `Bearer ${token}` }, payload: { approveChartSources: true } })
+    assert.ok(viaToken.statusCode === 403 || viaToken.statusCode === 401, `token: ${viaToken.statusCode}`)
+    assert.ok(!(await titles()).includes(`SneakTitle${W}`))
+    // Bob (an admin) approves: aggregated as Bob, who cannot see Budget either, so it stays out; the query shows
+    const byBob = (await ok(bob, 'PATCH', `/pages/${page2.id}/share`, { approveChartSources: true })) as ShareStatusDTO
+    assert.equal(byBob.chartsBy, `Bob${W}`)
+    assert.deepEqual(byBob.charts, { total: 6, hidden: 1, pending: 0 })
+    assert.ok(!(await titles()).includes(`SneakTitle${W}`))
+    // Alice approves: now her access, and the chart of her database is published by her choice
+    const byAlice = (await ok(alice, 'PATCH', `/pages/${page2.id}/share`, { approveChartSources: true })) as ShareStatusDTO
+    assert.deepEqual(byAlice.charts, { total: 6, hidden: 0, pending: 0 })
+    const after = await get()
+    assert.ok(after.dto.charts?.some((c) => c.title === `SneakTitle${W}` && c.groups.some((g) => g.label === `BudgetRowSecret${W}`)))
+    assert.ok(after.dto.charts?.some((c) => c.title === `OtherQuery${W}`))
+    const audit = await db
+      .select()
+      .from(schema.workspaceAuditEvents)
+      .where(and(eq(schema.workspaceAuditEvents.targetId, page2.id), eq(schema.workspaceAuditEvents.action, 'share.charts_changed')))
+    assert.equal(audit.length, 3)
+    // off forgets the list; a new link starts without one
+    await ok(alice, 'PATCH', `/pages/${page2.id}/share`, { includeCharts: false })
+    const [offRow] = await db.select({ src: schema.pages.shareChartSources }).from(schema.pages).where(eq(schema.pages.id, page2.id))
+    assert.equal(offRow.src, null)
+    assert.equal((await get()).dto.charts, undefined)
+    await ok(alice, 'PATCH', `/pages/${page2.id}/share`, { includeCharts: true })
+    await ok(alice, 'DELETE', `/pages/${page2.id}/share`)
+    const [gone] = await db.select({ src: schema.pages.shareChartSources, by: schema.pages.shareChartsBy }).from(schema.pages).where(eq(schema.pages.id, page2.id))
+    assert.deepEqual(gone, { src: null, by: null })
   })
 })

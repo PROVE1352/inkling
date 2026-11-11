@@ -352,6 +352,12 @@ export const pages = pgTable('pages', {
    */
   shareIncludeCharts: boolean('share_include_charts').notNull().default(false),
   shareChartsBy: uuid('share_charts_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+  /**
+   * The chart sources the manager approved when turning charts on (docs/adr/2444-*): `c:<collection id>` or
+   * `q:<sha-256 of the normalized query>`. Only charts of these sources are aggregated as `shareChartsBy`;
+   * null while charts are off. Cleared on unpublish.
+   */
+  shareChartSources: jsonb('share_chart_sources').$type<string[]>(),
   icon: text('icon'),
   /** Notion-style cover image URL (/files/<id> or external) */
   coverUrl: text('cover_url'),

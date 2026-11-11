@@ -33,7 +33,7 @@ import type { AnyBlock } from '../md/convert'
 import { blocksToCanvasState } from '../md/expand'
 import { reindexPageTasksForPages } from '../md/taskIndex'
 import { loadSharedSubtree } from './public'
-import { chartsByName, chartsEnabler, shareChartCounts } from '../charts/publicCharts'
+import { approvedSources, chartsByName, chartsEnabler, currentChartSources, shareChartCounts } from '../charts/publicCharts'
 import { assertPlacement, descendantsCte, lockTree, purgeDeletedSubtrees, withTreeLock } from '../pageTree'
 import { findVisiblePage, pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { hashShareToken, protectSecret, tryRevealSecret } from '../secretsAtRest'
@@ -129,27 +129,35 @@ async function folderExposedCount(folderId: string, workspaceId: string): Promis
   return list.filter((p) => p.kind === 'doc' || p.kind === 'collection').length
 }
 
+/** The doc pages a link shows (the page itself; a folder: its doc pages inside the link) and a lookup of those pages. */
+async function linkDocPages(page: { id: string; kind: string; workspaceId: string }): Promise<{ docIds: string[]; inside?: (id: string) => SubtreePageRef | undefined }> {
+  if (page.kind === 'doc') return { docIds: [page.id] }
+  if (page.kind !== 'folder') return { docIds: [] }
+  const list = await loadSharedSubtree(page.id, page.workspaceId)
+  const byId = new Map(list.map((p) => [p.id, p]))
+  return { docIds: list.filter((p) => p.kind === 'doc').map((p) => p.id), inside: (id) => byId.get(id) }
+}
+
 /**
- * The chart part of a share status (docs/adr/2440-*): whose access the link's charts use and how many
- * chart blocks of what the link shows (a folder: its doc pages inside the link) the public page leaves
- * out with the current setting. Counted from the configs and the access of their sources; nothing is
- * aggregated. Also answered before a link exists (the setting is off then).
+ * The chart part of a share status (docs/adr/2440-*, 2444-*): whose access the link's charts use and how
+ * many chart blocks of what the link shows the public page leaves out with the current setting, and how
+ * many of those wait for a manager to approve their source. Counted from the configs and the access of
+ * their sources; nothing is aggregated. Also answered before a link exists (the setting is off then).
  */
 async function shareChartsStatus(
   page: { id: string; kind: string; workspaceId: string },
-  setting: { includeCharts: boolean; chartsBy: string | null },
+  setting: { includeCharts: boolean; chartsBy: string | null; chartSources?: unknown },
 ): Promise<Pick<ShareStatusDTO, 'chartsBy' | 'charts'>> {
   if (page.kind !== 'doc' && page.kind !== 'folder') return {}
   const enablerId = await chartsEnabler(page.workspaceId, setting)
-  let docIds = [page.id]
-  let inside: ((id: string) => SubtreePageRef | undefined) | undefined
-  if (page.kind === 'folder') {
-    const list = await loadSharedSubtree(page.id, page.workspaceId)
-    const byId = new Map(list.map((p) => [p.id, p]))
-    docIds = list.filter((p) => p.kind === 'doc').map((p) => p.id)
-    inside = (id) => byId.get(id)
-  }
-  const charts = await shareChartCounts(docIds, { workspaceId: page.workspaceId, enablerId, ...(inside ? { inside } : {}) })
+  const { docIds, inside } = await linkDocPages(page)
+  const charts = await shareChartCounts(docIds, {
+    workspaceId: page.workspaceId,
+    enablerId,
+    approved: approvedSources(setting.chartSources),
+    chartsOn: setting.includeCharts,
+    ...(inside ? { inside } : {}),
+  })
   return {
     ...(setting.includeCharts ? { chartsBy: await chartsByName(setting.chartsBy) } : {}),
     ...(charts ? { charts } : {}),
@@ -693,6 +701,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareAllowDownload: pages.shareAllowDownload,
           shareIncludeCharts: pages.shareIncludeCharts,
           shareChartsBy: pages.shareChartsBy,
+          shareChartSources: pages.shareChartSources,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -702,7 +711,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // changed or removed), a new link replaces it — the only way to get a link to show again.
       const existing = current?.shareToken ? revealShareToken(id, current.enc) : null
       if (existing) {
-        return { token: existing, link: shareLinkFields(current!), charts: { includeCharts: current!.shareIncludeCharts, chartsBy: current!.shareChartsBy }, policy }
+        return { token: existing, link: shareLinkFields(current!), charts: { includeCharts: current!.shareIncludeCharts, chartsBy: current!.shareChartsBy, chartSources: current!.shareChartSources }, policy }
       }
       if (policy.publicSharingDisabled) {
         throw new AppError(403, 'PUBLIC_SHARING_DISABLED', 'Public web links are turned off in this workspace')
@@ -730,6 +739,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareAllowDownload: false,
           shareIncludeCharts: false,
           shareChartsBy: null,
+          shareChartSources: null,
         })
         .where(eq(pages.id, id))
       await recordAudit(tx, {
@@ -750,7 +760,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       return {
         token,
         link: shareLinkFields({ shareExpiresAt, shareStartsAt: requestedStart, sharePasswordHash: passwordHash }),
-        charts: { includeCharts: false, chartsBy: null },
+        charts: { includeCharts: false, chartsBy: null, chartSources: null },
         policy,
       }
     })
@@ -777,6 +787,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const nextStart = resolveShareStart(body)
     const nextHash =
       body.password === undefined ? undefined : body.password === null ? null : await hashSharePassword(body.password)
+    // the chart sources the link's pages use now: what turning charts on (or approving) publishes
+    // (docs/adr/2444-*); read before the transaction like the password hash
+    const sourcesNow = body.includeCharts === true || body.approveChartSources ? await currentChartSources((await linkDocPages(page)).docIds) : null
 
     const result = await db.transaction(async (tx) => {
       const policy = await lockSharePolicy(tx, page.workspaceId)
@@ -790,6 +803,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareAllowDownload: pages.shareAllowDownload,
           shareIncludeCharts: pages.shareIncludeCharts,
           shareChartsBy: pages.shareChartsBy,
+          shareChartSources: pages.shareChartSources,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -805,6 +819,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         shareAllowDownload?: boolean
         shareIncludeCharts?: boolean
         shareChartsBy?: string | null
+        shareChartSources?: string[] | null
       } = {}
       const target = { type: 'page', id, label: page.title }
       // The window after this change: a start must stay before the expiry (docs/adr/1844-*).
@@ -862,22 +877,42 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       }
       // the public page's charts (docs/adr/2440-*): aggregated as the manager who turns them on, so
       // turning on records that person; sending true while on keeps whoever turned it on
+      // turning on also approves the sources the charts use now; turning off forgets them (docs/adr/2444-*)
       if (body.includeCharts !== undefined && body.includeCharts !== cur.shareIncludeCharts) {
         set.shareIncludeCharts = body.includeCharts
         set.shareChartsBy = body.includeCharts ? user.id : null
+        set.shareChartSources = body.includeCharts ? sourcesNow : null
         await recordAudit(tx, {
           workspaceId: page.workspaceId,
           actor: user,
           action: 'share.charts_changed',
           target,
           before: { includeCharts: cur.shareIncludeCharts },
-          after: { includeCharts: body.includeCharts },
+          after: { includeCharts: body.includeCharts, ...(body.includeCharts ? { sources: sourcesNow?.length ?? 0 } : {}) },
         })
+      }
+      // "Publish these charts too": approve the sources used now, aggregated as this manager from now on
+      if (body.approveChartSources) {
+        const on = set.shareIncludeCharts ?? cur.shareIncludeCharts
+        if (!on) throw new AppError(409, 'CHARTS_OFF', 'Turn charts on for this link first')
+        if (set.shareIncludeCharts === undefined) {
+          set.shareChartsBy = user.id
+          set.shareChartSources = sourcesNow
+          await recordAudit(tx, {
+            workspaceId: page.workspaceId,
+            actor: user,
+            action: 'share.charts_changed',
+            target,
+            before: { includeCharts: true, sources: approvedSources(cur.shareChartSources).size },
+            after: { includeCharts: true, sources: sourcesNow?.length ?? 0 },
+          })
+        }
       }
       if (Object.keys(set).length > 0) await tx.update(pages).set(set).where(eq(pages.id, id))
       const charts = {
         includeCharts: set.shareIncludeCharts !== undefined ? set.shareIncludeCharts : cur.shareIncludeCharts,
         chartsBy: set.shareChartsBy !== undefined ? set.shareChartsBy : cur.shareChartsBy,
+        chartSources: set.shareChartSources !== undefined ? set.shareChartSources : cur.shareChartSources,
       }
       const link = shareLinkFields({
         shareExpiresAt: set.shareExpiresAt !== undefined ? set.shareExpiresAt : cur.shareExpiresAt,
@@ -946,6 +981,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
           shareAllowDownload: pages.shareAllowDownload,
           shareIncludeCharts: pages.shareIncludeCharts,
           shareChartsBy: pages.shareChartsBy,
+          shareChartSources: pages.shareChartSources,
         })
         .from(pages)
         .where(eq(pages.id, id))
@@ -965,7 +1001,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       // charts the public page leaves out (docs/adr/2440-*); before a link exists, with the setting off
       ...(await shareChartsStatus(
         page,
-        token && current ? { includeCharts: current.shareIncludeCharts, chartsBy: current.shareChartsBy } : { includeCharts: false, chartsBy: null },
+        token && current
+          ? { includeCharts: current.shareIncludeCharts, chartsBy: current.shareChartsBy, chartSources: current.shareChartSources }
+          : { includeCharts: false, chartsBy: null },
       )),
     }
     // For folders, also return the number of viewable subpages that are (or would be, if published) exposed.

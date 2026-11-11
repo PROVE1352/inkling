@@ -55,6 +55,11 @@ export const updateShareSchema = z
      * it on; only here, never when a link is made.
      */
     includeCharts: z.boolean().optional(),
+    /**
+     * With charts on: approve the chart sources the link's pages use now, aggregated as the caller from then
+     * on (docs/adr/2444-*). 409 while charts are off.
+     */
+    approveChartSources: z.literal(true).optional(),
   })
   .strict()
   .refine((v) => !(v.expiresAt !== undefined && v.expiresInDays !== undefined), {

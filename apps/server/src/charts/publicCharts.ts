@@ -9,13 +9,15 @@
  * `md/convert.ts publicBlocks` still drops any chart block that is left.
  *
  * Where the numbers come from, per chart, first match:
- *  1. the link has "include charts" on and the manager who turned it on (`pages.share_charts_by`) is
- *     still a member of the workspace: `exportFor` as that person, the Markdown export's path (a
- *     collection of this workspace they can see and a view of it, or a query run as them);
+ *  1. the link has "include charts" on, the manager who turned it on (`pages.share_charts_by`) is still
+ *     a member of the workspace, and the chart's source is one that manager approved
+ *     (`pages.share_chart_sources`, docs/adr/2444-*): `exportFor` as that person, the Markdown export's
+ *     path (a collection of this workspace they can see and a view of it, or a query run as them). A chart
+ *     added later by an editor over another database or query waits for a manager's approval;
  *  2. a folder link: `publicFor`, a collection inside the link (shared rows, no relation titles);
  *  3. nothing: the chart is left out, with no title.
  */
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { chartDataOfPublic, chartTableMarkdown, parseChartBlockConfig, publicChartOf } from '@inkling/shared'
 import type { ChartBlockConfig, PublicChartDTO } from '@inkling/shared'
@@ -30,6 +32,25 @@ import type { ChartDataFn, SharedLookup } from './render'
 export interface ShareChartsSetting {
   includeCharts: boolean
   chartsBy: string | null
+}
+
+/**
+ * The approval key of a chart's source (docs/adr/2444-*): its collection (a view of it counts as the
+ * collection), or the sha-256 of its query text with runs of white space made one space and the ends trimmed.
+ */
+export function chartSourceKey(cfg: ChartBlockConfig): string {
+  if (cfg.source.type === 'collection') return `c:${cfg.source.collectionId}`
+  return `q:${createHash('sha256').update(cfg.source.query.replace(/\s+/g, ' ').trim()).digest('hex')}`
+}
+
+/** The approved keys as stored (`pages.share_chart_sources`), never trusting the column's shape. */
+export function approvedSources(stored: unknown): ReadonlySet<string> {
+  return new Set(Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : [])
+}
+
+/** A short fingerprint of an approval list for the render cache key ('' when none). */
+export function approvalFingerprint(approved: ReadonlySet<string>): string {
+  return approved.size ? createHash('sha1').update([...approved].sort().join(',')).digest('base64url').slice(0, 16) : ''
 }
 
 /**
@@ -51,6 +72,8 @@ export interface PublicChartSources {
   workspaceId: string
   /** chart data as this member ("include charts" on and still a member) */
   enablerId?: string | null
+  /** the sources approved for `enablerId` (docs/adr/2444-*); anything else is not aggregated as them */
+  approved?: ReadonlySet<string>
   /** pages inside a folder link (its collections' charts show without the setting) */
   inside?: SharedLookup
 }
@@ -60,7 +83,7 @@ export function publicChartData(src: PublicChartSources): ChartDataFn {
   const asEnabler = src.enablerId ? exportFor(src.enablerId, src.workspaceId) : null
   const inside = src.inside ? publicFor(src.workspaceId, src.inside) : null
   return async (cfg) => {
-    if (asEnabler) {
+    if (asEnabler && src.approved?.has(chartSourceKey(cfg))) {
       try {
         const d = await asEnabler(cfg)
         if (d) return d
@@ -74,7 +97,7 @@ export function publicChartData(src: PublicChartSources): ChartDataFn {
 
 /** Would the public page show this chart (its source resolves)? The share dialog's count; nothing is aggregated. */
 async function publicChartShown(src: PublicChartSources, cfg: ChartBlockConfig): Promise<boolean> {
-  if (src.enablerId) {
+  if (src.enablerId && src.approved?.has(chartSourceKey(cfg))) {
     try {
       if (await exportTarget(src.enablerId, src.workspaceId, cfg)) return true
     } catch {
@@ -129,12 +152,12 @@ function chartConfigs(blocks: AnyBlock[], out: (ChartBlockConfig | null)[]): voi
 }
 
 /**
- * Chart blocks on `docIds` (the page of a single-page link, the doc pages of a folder link) and how many
- * of them the public page leaves out. Undefined when there are none.
+ * The chart configs of `docIds` (the page of a single-page link, the doc pages of a folder link, at most
+ * 300 read); null for a block whose config does not parse.
  */
-export async function shareChartCounts(docIds: string[], src: PublicChartSources): Promise<{ total: number; hidden: number } | undefined> {
+export async function linkChartConfigs(docIds: string[]): Promise<(ChartBlockConfig | null)[]> {
   const ids = docIds.slice(0, COUNT_PAGE_CAP)
-  if (!ids.length) return undefined
+  if (!ids.length) return []
   // only documents whose bytes hold the block name: the Yjs state stores it as plain UTF-8 (a page that
   // merely says "chart" in its text is decoded for nothing, which is still correct)
   const rows = await db
@@ -149,10 +172,35 @@ export async function shareChartCounts(docIds: string[], src: PublicChartSources
       // an unreadable document shows nothing publicly either
     }
   }
+  return configs
+}
+
+/** The approval list for a link's charts as they are now (docs/adr/2444-*): sorted, unique source keys. */
+export async function currentChartSources(docIds: string[]): Promise<string[]> {
+  const keys = new Set<string>()
+  for (const cfg of await linkChartConfigs(docIds)) if (cfg) keys.add(chartSourceKey(cfg))
+  return [...keys].sort()
+}
+
+/**
+ * Chart blocks on `docIds` and how many of them the public page leaves out (`hidden`); of those, with
+ * charts on (`chartsOn`), how many wait for approval because their source is not approved (`pending`).
+ * Undefined when there are none.
+ */
+export async function shareChartCounts(
+  docIds: string[],
+  src: PublicChartSources & { chartsOn?: boolean },
+): Promise<{ total: number; hidden: number; pending: number } | undefined> {
+  const configs = await linkChartConfigs(docIds)
   if (!configs.length) return undefined
   let hidden = 0
-  for (const cfg of configs) if (!cfg || !(await publicChartShown(src, cfg))) hidden++
-  return { total: configs.length, hidden }
+  let pending = 0
+  for (const cfg of configs) {
+    if (cfg && (await publicChartShown(src, cfg))) continue
+    hidden++
+    if (cfg && src.chartsOn && !src.approved?.has(chartSourceKey(cfg))) pending++
+  }
+  return { total: configs.length, hidden, pending }
 }
 
 /** Display name of the member whose access a link's charts use (the share dialog), or null. */

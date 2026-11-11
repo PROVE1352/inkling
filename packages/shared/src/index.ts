@@ -840,10 +840,15 @@ export interface ShareStatusDTO {
   includeCharts?: boolean
   chartsBy?: string | null
   /**
-   * Chart blocks on the page (a folder: its pages inside the link) and how many of them the public
-   * page leaves out with the link's current settings (docs/adr/2440-*). Absent when there are none.
+   * Chart blocks on the page (a folder: its doc pages inside the link), absent when there are none
+   * (docs/adr/2440-*, 2444-*):
+   * - `total`: every chart block;
+   * - `hidden`: those the public page leaves out with the link's current settings (`pending` included);
+   * - `pending`: with charts on, those whose source (a database, or a query's text) was not approved when
+   *   charts were turned on or last approved — added or changed since; `approveChartSources` publishes
+   *   them. 0 while charts are off.
    */
-  charts?: { total: number; hidden: number }
+  charts?: { total: number; hidden: number; pending: number }
   /** Workspace rules for new links (docs/adr/1172-*). */
   policy?: import('./shareLinks').SharePolicyDTO
 }

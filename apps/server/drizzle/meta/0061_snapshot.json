@@ -1,5 +1,5 @@
 {
-  "id": "c315dd1d-09e3-4c11-8ea8-70bf6b70ad4d",
+  "id": "94d7ab4a-a6e8-4a85-bcf0-b707b006ede1",
   "prevId": "72fa0820-82cc-43b6-a582-ee59f4128023",
   "version": "7",
   "dialect": "postgresql",
@@ -2697,6 +2697,12 @@
         "share_charts_by": {
           "name": "share_charts_by",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "share_chart_sources": {
+          "name": "share_chart_sources",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

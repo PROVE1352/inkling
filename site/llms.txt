@@ -5,6 +5,7 @@
 The docs pages on this site are rendered from the repository; every page has its Markdown source next to it (docs/NAME.html and docs/NAME.md). The links below point at the Markdown. The MCP server of a running Inkling instance is at https://<its domain>/mcp; each person connects their own client with OAuth 2.1 or an agent connection token. Source code: https://github.com/PROVE1352/inkling
 
 ## Connect an agent
+- [Tour](tour/index.md): five scenes of an agent working on one note (find_context, patch_section, a conflict and its retry, a suggestion a person decides, an edit lock) with every tool call and answer as text. The page is a walk-through that runs in the browser; it is not connected to a server
 - [MCP connector and agent guide](docs/MCP.md): connecting Claude Code, claude.ai and other MCP clients, agent connection tokens, tool profiles, every tool, and the order an agent should use them in (find_context, read_page outline and section, patch_section, suggestions, claims, inbox, catch_up, changes_since, get_instructions)
 - [Recipes with other MCP servers](docs/RECIPES.md): Inkling as the shared memory next to game engines, design tools and code hosts
 - [User guide](docs/GUIDE.md): where each feature is in the web app, including connecting an AI app, reviewing suggestions, reverting agent edits and team agents
@@ -25,6 +26,7 @@ The docs pages on this site are rendered from the repository; every page has its
 
 ## Korean
 {{KO_DOCS}}
+- [둘러보기 (Tour, Korean)](ko/tour/index.md)
 
 ## Optional
 - [Site home](index.html), [Korean site home](ko/index.html), [All docs](docs/index.html)

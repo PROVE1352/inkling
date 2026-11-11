@@ -7,6 +7,7 @@
 //     chrome by the file name: NAME.ko.md is Korean) and copies each source next to it as docs/NAME.md.
 //     Tables keep every cell in the HTML; a class picked from the header row lets CSS show wide ones
 //     as cards (see "tables" below), so no page needs sideways scrolling
+//   - writes the tour (tour/index.html, ko/tour/index.html and an index.md beside each) from assets/tour.js
 //   - writes llms.txt from site/llms.txt
 //   - checks that every local href/src in the output points at a file (and heading) that exists, and that
 //     no local link ends at a folder (file:// would show a directory listing there)
@@ -447,6 +448,7 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
   <div class="wrap wide">
     <a class="brand" href="${ko ? '../ko/index.html' : '../index.html'}"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
     <nav class="nav" aria-label="${ko ? '주 메뉴' : 'Main'}">
+      <a class="hide-sm" href="${ko ? '../ko/tour/index.html' : '../tour/index.html'}">${ko ? '둘러보기' : 'Tour'}</a>
       <a href="${docsIndex}"${isIndex ? ' aria-current="page"' : ''}>${ko ? '문서' : 'Docs'}</a>
       <a class="hide-sm" href="${GH}">GitHub</a>
       ${langSwitch(lang, koHref, enHref)}
@@ -591,6 +593,135 @@ for (const lang of ['en', 'ko']) {
     join(OUT, 'docs', `${name}.html`),
     page({ lang, name, title: ko ? '문서' : 'Documentation', description: ko ? 'Inkling 문서 목록' : 'Inkling documentation', body, toc: null }),
   )
+}
+
+// ---------------------------------------------------------------------------
+// tour: tour/index.html and ko/tour/index.html, with index.md next to each
+// The words, the made-up note and the scenes live in assets/tour.js, which also runs the page. Here the
+// same code prints every scene as text, so the page says everything without scripts and the scripts put
+// the stage on top of it.
+// ---------------------------------------------------------------------------
+const tour = (() => {
+  const scope = {}
+  new Function('globalThis', readFileSync(join(SITE, 'assets', 'tour.js'), 'utf8'))(scope)
+  return scope.InklingTour
+})()
+
+function tourPage(lang) {
+  const ko = lang === 'ko'
+  const t = tour.T[lang]
+  const up = ko ? '../../' : '../'
+  const home = ko ? '../index.html' : '../index.html'
+  const inl = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>')
+  const link = ([label, doc, enHash, koHash]) => {
+    const d = docLink(doc, lang, `${up}docs/`)
+    // the Korean docs keep English ids where the source has them, and Korean slugs elsewhere
+    return { label, href: `${d.href}#${ko && !d.en ? koHash : enHash}`, en: d.en, md: `${d.href.replace(/\.html$/, '.md')}` }
+  }
+  const state = tour.create(lang)
+  const scenes = tour.ORDER.map((id, i) => ({ id, n: i + 1, title: t.sc[id][0], does: t.sc[id][1], real: t.sc[id][2], links: (t.links[id] || []).map(link), text: tour.transcript(lang, id) }))
+  const next = t.next.map(([title, text, doc]) => ({ title, text, ...docLink(doc, lang, `${up}docs/`) }))
+  const canonical = `${BASE_URL}${ko ? 'ko/' : ''}tour/index.html`
+
+  const html = `<!doctype html>
+<html lang="${lang}" class="no-js tour-page">
+<head>
+  ${head({
+    lang,
+    title: `${t.title} · Inkling`,
+    description: t.lede,
+    canonical,
+    alternates: { ko: `${BASE_URL}ko/tour/index.html`, en: `${BASE_URL}tour/index.html` },
+    ogImage: `${BASE_URL}assets/${ko ? 'ko' : 'en'}/review-light.png`,
+    ogType: 'website',
+    extra: `<link rel="alternate" type="text/markdown" href="index.md" title="${ko ? '이 쪽의 Markdown 원문' : 'This page as Markdown'}">`,
+  })}
+  <link rel="icon" href="${up}assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="${up}assets/site.css">
+  <script src="${up}assets/site.js" defer></script>
+  <script src="${up}assets/tour.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">${ko ? '본문으로 건너뛰기' : 'Skip to content'}</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="${home}"><img src="${up}assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="${ko ? '주 메뉴' : 'Main'}">
+      <a class="hide-sm" href="index.html" aria-current="page">${esc(t.title)}</a>
+      <a href="${up}docs/${ko ? 'index.ko.html' : 'index.html'}">${ko ? '문서' : 'Docs'}</a>
+      <a class="hide-sm" href="${GH}">GitHub</a>
+      ${langSwitch(lang, ko ? 'index.html' : '../ko/tour/index.html', ko ? '../../tour/index.html' : 'index.html')}
+    </nav>
+  </div>
+</header>
+<main id="main" class="tour">
+  <div class="wrap">
+    <p class="tour-notice" role="note">${esc(t.notice)}</p>
+    <header class="tour-head">
+      <p class="doc-kicker">${esc(t.title)}</p>
+      <h1>${esc(t.h1)}</h1>
+      <p class="lede">${esc(t.lede)}</p>
+      <p class="tour-made">${esc(t.made)} <a href="index.md" type="text/markdown">${esc(t.mdNote)}</a></p>
+    </header>
+    <div data-tour>
+      <section class="tour-start">
+        <h2>${esc(t.startTitle)}</h2>
+        <p>${esc(t.startText)}</p>
+        <pre><code>${esc(tour.pageMd(state))}</code></pre>
+      </section>
+${scenes
+  .map(
+    (s) => `      <section class="tour-sc" id="scene-${s.id}" data-sc="${s.id}">
+        <h2><span class="tour-n">${s.n}</span>${esc(s.title)}</h2>
+        <p class="tour-does">${inl(s.does)}</p>
+        <p class="tour-label">${esc(t.scriptLabel)}</p>
+        <pre class="tour-script"><code>${esc(s.text)}</code></pre>
+        <p class="tour-real">${inl(s.real)} ${s.links.map((l) => `<a href="${esc(l.href)}">${esc(l.label)}</a>${l.en ? EN_MARK : ''}`).join(' · ')}</p>
+      </section>`,
+  )
+  .join('\n')}
+    </div>
+    <section class="tour-next" aria-labelledby="tour-next">
+      <h2 id="tour-next">${esc(t.nextTitle)}</h2>
+      <div class="grid two">${next.map((n) => `<a class="card" href="${n.href}"><h3>${esc(n.title)}${n.en ? EN_MARK : ''}</h3><p>${esc(n.text)}</p></a>`).join('')}</div>
+    </section>
+  </div>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <span>Inkling ${esc(`v${VERSION}`)}</span>
+    <nav aria-label="${ko ? '바닥글' : 'Footer'}">
+      <a href="${GH}">GitHub</a>
+      <a href="${up}docs/${ko ? 'index.ko.html' : 'index.html'}">${ko ? '문서' : 'Docs'}</a>
+      <a href="${up}llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
+`
+  const md = [
+    `# ${t.h1}`,
+    `> ${t.notice}`,
+    t.lede,
+    t.made,
+    `## ${t.startTitle}`,
+    t.startText,
+    '```markdown\n' + tour.pageMd(state) + '\n```',
+    ...scenes.flatMap((s) => [`## ${s.n}. ${s.title}`, s.does, '```text\n' + s.text + '\n```', s.real, s.links.map((l) => `- [${l.label}](${l.md})`).join('\n')]),
+    `## ${t.nextTitle}`,
+    next.map((n) => `- [${n.title}](${n.href.replace(/\.html$/, '.md')}): ${n.text}`).join('\n'),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+  return { html, md: md + '\n' }
+}
+for (const lang of ['en', 'ko']) {
+  const dir = join(OUT, lang === 'ko' ? 'ko' : '', 'tour')
+  mkdirSync(dir, { recursive: true })
+  const { html, md } = tourPage(lang)
+  writeFileSync(join(dir, 'index.html'), html)
+  writeFileSync(join(dir, 'index.md'), md)
 }
 
 // ---------------------------------------------------------------------------

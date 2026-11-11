@@ -1124,8 +1124,8 @@ semantic search, OpenID Connect and mail. MCP stays on.
 - Every account can delete itself on every server (Settings › Account › **Delete account**, `DELETE /api/me`), from
   a browser session only, with the current password (and the two-step code when it is on) or, for delegated and OIDC
   accounts, within ten minutes of signing in. The only admin cannot.
-- It is immediate and cannot be undone: workspaces where the person is the only member are deleted with their
-  files; a shared workspace they own alone goes to its oldest admin-role member, else its oldest member (who gets
+- It is immediate and cannot be undone: workspaces where the person is the only member, and deleted workspaces they
+  own alone that could still be restored, are deleted with their files; a shared workspace they own alone goes to its oldest admin-role member, else its oldest member (who gets
   a notification); their private pages are deleted; their shared pages, comments and versions stay without their
   name. Mentions other members wrote, and ids without a name in audit rows, stay (KNOWN-ISSUES LIMITS-8).
 - The admin's **Delete** in Admin › Users keeps its 0.21 behaviour (409 `SOLE_OWNER`, private pages to the trash).

@@ -955,8 +955,8 @@ Saved to your account (the same on every device):
 
 - **Account**: email verification, **Change password**, deleted workspaces, **Delete account**.
 
-**Delete account** (Settings → Account) first lists what goes: the workspaces where you are the only member, with their
-pages and files, your private pages in other workspaces, your account, sign-ins, tokens and connected apps. It also lists
+**Delete account** (Settings → Account) first lists what goes: the workspaces where you are the only member and the
+deleted workspaces you own alone, with their pages and files, your private pages in other workspaces, your account, sign-ins, tokens and connected apps. It also lists
 what stays for the other members: a shared workspace you own alone passes to another member, and your shared pages
 and comments stay without your name. Type the confirmation it shows (your email or ID) and your password, plus the
 two-step code when that is on; an account that signs in through another service must have signed in within the last

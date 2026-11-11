@@ -678,7 +678,7 @@ app, because they call the same REST routes; nothing is written when a call is r
 
 - **Limits.** A tool that would create past a limit gets the server's message and code, for example
   `Error: This workspace already has 300 of 300 pages (the trash counts too) (LIMIT_PAGES)` or `Error: File is too
-  large (max 5.0 MB on this server) (LIMIT_FILE)`. A 403 limit error is followed by the generic 403 hint ("you are not a member of that workspace or
+  large (max 2.0 MB on this server) (LIMIT_FILE)`. A 403 limit error is followed by the generic 403 hint ("you are not a member of that workspace or
   lack permission; …"), which is wrong for it: do not retry, and tell the user that the workspace is full
   (KNOWN-ISSUES LIMITS-7). A workspace past its storage limit is read-only: page writes, comments, uploads and imports
   answer `Error: This workspace has used up its storage. Delete files or pages (and empty the trash) to edit again

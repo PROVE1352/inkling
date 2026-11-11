@@ -1871,7 +1871,8 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   `INVALID_PASSWORD`) and, with two-step verification on, `code` (400 `TOTP_REQUIRED` when missing, 400
   `INVALID_TOTP_CODE` when wrong); failures count against the sign-in guard. Delegated and OIDC accounts need a
   session made in the last ten minutes (401 `REAUTH_REQUIRED`). The only admin 409 `LAST_ADMIN`. 10/min. Deletes at
-  once: workspaces where the person is the only member with their files; a shared workspace they own alone passes
+  once: workspaces where the person is the only member, and deleted (still restorable) workspaces they own alone,
+  with their files; a shared workspace they own alone passes
   to its oldest admin-role member, else its oldest member (notification type `workspace_owner`); private pages are
   deleted; shared pages, comments and versions stay with their author set to null.
 - `DELETE /api/workspaces/:id/members/:userId` for yourself, as the only member and last owner, with body

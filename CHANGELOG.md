@@ -19,14 +19,15 @@ except for what is listed under "What changes on every server" below.** One data
 its descriptions and the server instructions are unchanged. A preset for a demo server is in `deploy/demo/`, with the
 steps in [docs/DEMO.md](docs/DEMO.md); the settings reference is docs/OPERATIONS.md, section 17.
 
-Checked in Chrome only; not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
+Not tried in Safari, Firefox or on a real phone (docs/KNOWN-ISSUES.md, "Added in 0.22.0").
 
 ### What changes on every server
 These change with no new setting, on every server that upgrades:
 - **Every account can delete itself** (Settings → Account → **Delete account**, `DELETE /api/me`), from a browser
   session, with the current password (and two-step code), or within ten minutes of signing in for delegated and
-  OIDC accounts. It is immediate and **cannot be undone**: workspaces where the person is the only member are
-  deleted with their files, a shared workspace they own alone passes to its oldest admin, else its oldest member,
+  OIDC accounts. It is immediate and **cannot be undone**: workspaces where the person is the only member, and
+  deleted workspaces they own alone that could still be restored, are deleted with their files; a shared workspace
+  they own alone passes to its oldest admin-role member, else its oldest member;
   their private pages are deleted, and their shared pages, comments and versions stay without their name. The only
   admin cannot (409 `LAST_ADMIN`). Backups keep the data until they rotate out.
 - **A sole owner who is the workspace's only member can leave it, and the workspace is deleted at once** with its

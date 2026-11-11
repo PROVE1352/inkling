@@ -214,7 +214,7 @@ describe('[db] account deletion', { skip: !BASE_URL }, async () => {
     assert.equal(await exists('files', s.privBlob), false)
     assert.equal(existsSync(path.join(uploads, s.privBlob)), false)
     const log = (await db.execute(sql`SELECT page_id AS "pageId", actor_id AS "actorId" FROM page_changes WHERE page_id IN (${s.shared}, ${s.priv})`)) as unknown as { pageId: string; actorId: string | null }[]
-    assert.deepEqual(log, [{ pageId: s.shared, actorId: null }])
+    assert.deepEqual([...log], [{ pageId: s.shared, actorId: null }])
     const comments = await db.select().from(schema.comments).where(eq(schema.comments.pageId, s.bobPage))
     assert.equal(comments.length, 1)
     assert.equal(comments[0].authorId, null)

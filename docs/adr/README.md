@@ -996,6 +996,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2500](2500-restricted-mode-settings-inert-by-default.md) | Restricted mode: one settings module, every setting off unless set | Accepted |
 | [2501](2501-sign-up-hooks.md) | Sign-up hooks: checks before, records inside the account's transaction | Accepted |
 | [2502](2502-request-gates.md) | Request gates: one check list for every authenticated request | Accepted |
+| [2503](2503-restricted-mode-pieces-register-themselves.md) | Restricted mode: each piece registers itself from its own register.ts | Accepted |
 
 ## 099x Client updates
 

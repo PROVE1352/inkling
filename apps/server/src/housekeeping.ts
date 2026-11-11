@@ -12,6 +12,7 @@ import { purgeExpiredAccountTokens } from './accounts'
 import { purgeDeletedSubtrees, withTreeLock } from './pageTree'
 import { purgeExpiredWorkspaces } from './workspaceDeletion'
 import { workspaceRestoreDays } from './limits'
+import { runRegisteredHousekeepingTasks } from './restrictedExtras'
 import { purgeOldChanges } from './context/changeLog'
 import { purgeStaleSuggestionBases } from './suggestionMerge'
 import { scanReviewDigests, scoreAllWorkspaces } from './review'
@@ -156,4 +157,7 @@ export async function runHousekeeping(log: (msg: string) => void): Promise<void>
   } catch (err) {
     log(`[inkling] cleanup job failed: ${String(err)}`)
   }
+  // Jobs the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*), after the work
+  // above; each failure is one log line and the next job still runs.
+  await runRegisteredHousekeepingTasks(log)
 }

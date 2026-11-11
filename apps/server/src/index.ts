@@ -33,6 +33,7 @@ import { guardHook, initGuard, RATE_LIMIT_MESSAGE } from './guard'
 import { registerMcpRoutes } from './mcp'
 import { registerAdminRoutes } from './routes/admin'
 import { registerAuthRoutes } from './routes/auth'
+import { registerRestrictedMode } from './restricted'
 import { registerTwoFactorRoutes } from './routes/twoFactor'
 import { registerOidcRoutes } from './routes/oidc'
 import { assertOidcConfig, oidcEnabled } from './oidc'
@@ -539,6 +540,8 @@ async function main(): Promise<void> {
         return reply.code(ok ? 200 : 503).send({ ok, db: ok })
       })
       await registerAuthRoutes(api)
+      // Restricted mode pieces (docs/adr/2503-*): their routes, hooks, gates and jobs
+      await registerRestrictedMode(api)
       // Two-step verification settings (docs/adr/1061-*)
       await registerTwoFactorRoutes(api)
       // Sign-in with an OpenID Connect provider (docs/adr/1160-*)

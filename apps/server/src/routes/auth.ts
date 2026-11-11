@@ -61,6 +61,7 @@ import { normalizeLocale, requestLocale, resolveLocale, type Locale } from '../i
 import { toSidebarPrefsDTO } from './sidebarPrefs'
 import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits } from '../limits'
 import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
+import { authModeExtraFields, meExtraFields } from '../restrictedExtras'
 import { linkedLogins } from './oidc'
 import { oidcEnabled } from '../oidc'
 import {
@@ -248,6 +249,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     setupPending: await setupPending(),
     // Restricted mode (0.22): nothing here unless the operator set it.
     ...(await restrictedAuthMode()),
+    // Fields the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*); none = nothing.
+    ...(await authModeExtraFields()),
   }))
 
   /** Send the verification mail (issues the token). Failure is AppError(502). */
@@ -609,6 +612,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // Restricted mode (docs/adr/2500-*): when the account will be deleted (ACCOUNT_LIFETIME_DAYS).
     // Only accounts created while the setting was on have a date; the field is absent otherwise.
     if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
+    // Fields the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*); none = nothing.
+    Object.assign(out, await meExtraFields(user))
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
     if (user.isAdmin) {
       const [c] = await db

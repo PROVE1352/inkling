@@ -330,3 +330,59 @@ describe('sign-up hooks (pure)', () => {
     assert.equal(hasSignupHooks(), false)
   })
 })
+
+// --- registration places of the pieces (docs/adr/2503-*) ---------------------------------------------
+
+describe('restricted-mode registration places', () => {
+  it('housekeeping jobs run in order and one that throws does not stop the next', async () => {
+    const { registerHousekeepingTask, runRegisteredHousekeepingTasks } = await import('./restrictedExtras')
+    const ran: string[] = []
+    const logs: string[] = []
+    const offs = [
+      registerHousekeepingTask('first', async () => void ran.push('first')),
+      registerHousekeepingTask('broken', async () => {
+        ran.push('broken')
+        throw new Error('disk on fire')
+      }),
+      registerHousekeepingTask('last', async () => void ran.push('last')),
+    ]
+    assert.throws(() => registerHousekeepingTask('first', async () => {}), /already registered/)
+    await runRegisteredHousekeepingTasks((m) => logs.push(m))
+    assert.deepEqual(ran, ['first', 'broken', 'last'])
+    assert.deepEqual(logs, ['[inkling] housekeeping task broken failed: Error: disk on fire'])
+    for (const off of offs) off()
+    ran.length = 0
+    await runRegisteredHousekeepingTasks((m) => logs.push(m))
+    assert.deepEqual(ran, [])
+  })
+
+  it('auth/mode and me extras: none = {}, several merge in order, names are unique', async () => {
+    const x = await import('./restrictedExtras')
+    const user = { id: 'u1', email: 'e', name: 'n', isAdmin: false }
+    assert.deepEqual(await x.authModeExtraFields(), {})
+    assert.deepEqual(await x.meExtraFields(user), {})
+    const a = x.registerAuthModeExtra('a', () => ({ instanceLabel: 'A' }))
+    const b = x.registerAuthModeExtra('b', async () => ({ instanceLabel: 'B', signupFull: true }))
+    const m = x.registerMeExtra('m', async (u) => ({ expiresAt: `for ${u.id}` }))
+    assert.throws(() => x.registerAuthModeExtra('a', () => ({})), /already registered/)
+    assert.throws(() => x.registerMeExtra('m', () => ({})), /already registered/)
+    assert.deepEqual(await x.authModeExtraFields(), { instanceLabel: 'B', signupFull: true })
+    assert.deepEqual(await x.meExtraFields(user), { expiresAt: 'for u1' })
+    a()
+    b()
+    m()
+    assert.deepEqual(await x.authModeExtraFields(), {})
+    assert.deepEqual(await x.meExtraFields(user), {})
+  })
+
+  it('registerRestrictedMode can run for several apps in one process', async () => {
+    const Fastify = (await import('fastify')).default
+    const { registerRestrictedMode } = await import('./restricted')
+    for (let i = 0; i < 2; i++) {
+      const app = Fastify()
+      await app.register(async (api) => registerRestrictedMode(api), { prefix: '/api' })
+      await app.ready()
+      await app.close()
+    }
+  })
+})

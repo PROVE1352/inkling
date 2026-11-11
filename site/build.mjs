@@ -352,6 +352,7 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
 //   {{VERSION_NUMBER}}   0.20.0
 //   {{DOCS_INDEX}}       the docs index in this page's language
 //   {{DOC:NAME}}         href of a doc in this page's language (the Korean version on ko/ when it exists)
+//   {{MD:NAME}}          the same doc's Markdown source (docs/NAME.ko.md or docs/NAME.md)
 //   {{EN:NAME}}          on ko/: " (영어)" when the link above goes to an English doc, else nothing
 // ---------------------------------------------------------------------------
 function fillLanding(src, lang, prefix, where) {
@@ -363,6 +364,7 @@ function fillLanding(src, lang, prefix, where) {
       if (!hasDoc(n) && !hasDoc(`${n}.ko`)) warn(`${where}: no doc named ${n}`)
       return docLink(n, lang, prefix).href
     })
+    .replace(/\{\{MD:([A-Z0-9.-]+)\}\}/g, (_, n) => docLink(n, lang, prefix).href.replace(/\.html$/, '.md'))
     .replace(/\{\{EN:([A-Z0-9.-]+)\}\}/g, (_, n) => (docLink(n, lang, prefix).en ? EN_MARK : ''))
   for (const m of out.matchAll(/\{\{[^}]*\}\}/g)) warn(`${where}: unknown placeholder ${m[0]}`)
   return out

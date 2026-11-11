@@ -73,7 +73,7 @@
         </a>
       </div>
 
-      <p class="agent-links">For agents: <a href="llms.txt">summary for agents (llms.txt)</a> · <a href="docs/MCP.md">MCP guide as Markdown (docs/MCP.md)</a> · <a href="docs/DEPLOY.md">deployment guide as Markdown (docs/DEPLOY.md)</a></p>
+      <p class="agent-links">For agents: <a href="llms.txt">summary for agents (llms.txt)</a> · <a href="{{MD:MCP}}">MCP guide as Markdown</a> · <a href="{{MD:DEPLOY}}">deployment guide as Markdown</a></p>
     </div>
   </section>
 
@@ -164,7 +164,7 @@
       <p class="protocol"><b>Transport and sign-in.</b> MCP Streamable HTTP (stateless, JSON responses) at <code>/mcp</code>. Sign-in is OAuth 2.1 (dynamic client registration, and Client ID Metadata Documents when the server sets <code>OAUTH_CIMD=1</code>), or an agent connection token sent as <code>Authorization: Bearer</code>.</p>
       <h3 class="table-title">Tools agents use most</h3>
       <div class="table-scroll"><table class="tools"><thead><tr><th>Tool</th><th>Kind</th><th>What it does</th></tr></thead><tbody><tr><td><code>find_context</code></td><td>read</td><td>Ranked sections across your workspaces, packed into a token budget, each with page id, §anchor and version. Start here.</td></tr><tr><td><code>read_page</code></td><td>read</td><td>A page as Markdown; <code>outline=true</code> lists sections, <code>section=…</code> reads one.</td></tr><tr><td><code>patch_section</code></td><td>write</td><td>Change one section with <code>baseVersion</code>; a stale version returns a conflict with the current text.</td></tr><tr><td><code>claim_section</code></td><td>write</td><td>"Working on this section" for this connection, up to 30 minutes.</td></tr><tr><td><code>list_suggestions</code></td><td>read</td><td>Suggested edits and their outcome.</td></tr><tr><td><code>inbox</code></td><td>read</td><td>Mentions, replies, assignments and answers to suggestions, not yet acknowledged.</td></tr><tr><td><code>catch_up</code></td><td>read</td><td>What happened while the agent was away, most important first.</td></tr><tr><td><code>changes_since</code></td><td>read</td><td>What changed since a cursor, with per-section diffs.</td></tr><tr><td><code>get_instructions</code></td><td>read</td><td>The workspace's rules for agents from locked instruction pages.</td></tr><tr><td><code>trash_page</code></td><td>write</td><td>Move to trash, restorable for 30 days. There is no permanent-delete tool.</td></tr></tbody></table></div>
-      <p class="method">48 tools in all; 32 with <code>?profile=core</code>. The full list with arguments: <a href="{{DOC:MCP}}#what-it-can-do-tools">MCP connector</a> (<a href="docs/MCP.md">Markdown</a>).</p>
+      <p class="method">48 tools in all; 32 with <code>?profile=core</code>. The full list with arguments: <a href="{{DOC:MCP}}#what-it-can-do-tools">MCP connector</a> (<a href="{{MD:MCP}}">Markdown</a>).</p>
     </div>
   </section>
 
@@ -251,7 +251,7 @@ Current §checklist (v=96198f73e6eb):
           <div class="card"><p class="num">6 of 6</p><p>test scenarios where a person typing in the patched section keeps their text (was 1 of 6)</p></div>
           <p class="method">
             One sentence changed on the padded evaluation page; the typing scenarios run against the section patch code.
-            Token counts are estimates (<code>estimateTokens</code>). <a href="{{DOC:PERFORMANCE}}#retrieval--mcp">Performance log</a>
+            Token counts are estimates (<code>estimateTokens</code>). Performance log: <a href="{{DOC:PERFORMANCE}}#retrieval--mcp">tokens</a>, <a href="{{DOC:PERFORMANCE}}#sync--collaboration">concurrent typing</a>
           </p>
         </div>
       </div>
@@ -290,7 +290,7 @@ Current §checklist (v=96198f73e6eb):
         <div class="card">
           <h3>Every agent write is a version</h3>
           <p>
-            Each write is one "AI step" in the page history, labelled "&lt;person&gt; (via &lt;app&gt;)". People can revert
+            Each write is its own version in the page history ("AI edit"), labelled "&lt;person&gt; (via &lt;app&gt;)". People can revert
             one change or everything a connection changed on a page, and undo the revert.
           </p>
         </div>
@@ -458,7 +458,7 @@ Current §checklist (v=96198f73e6eb):
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security</a>
       <a href="llms.txt">Summary for agents (llms.txt)</a>
-      <a href="docs/MCP.md">MCP guide (Markdown)</a>
+      <a href="{{MD:MCP}}">MCP guide (Markdown)</a>
     </nav>
   </div>
 </footer>

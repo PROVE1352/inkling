@@ -22,6 +22,25 @@ import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
 import { collabStorageReadOnly, noteBodyStore } from './quota/storage'
+import {
+  admitCollabUpdate,
+  admitSocketFrame,
+  collabGuardsOn,
+  collabPendingBytes,
+  newByteBucket,
+  newSocketQueueGuard,
+  SOCKET_BURST_BYTES,
+  takeBytes,
+  noteCollabRefused,
+  noteCollabStored,
+  noteCollabUnloaded,
+  noteSocketConnected,
+  noteSocketDisconnected,
+  syncGrowthBytes,
+  type ByteBucket,
+  type SocketQueueGuard,
+} from './quota/collabGrowth'
+import { onInstanceFullChange } from './quota/instance'
 import { liveDocChangedSinceStore, liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
 import { parseCookies } from './util'
@@ -146,8 +165,11 @@ function storeLive(documentName: string, document: Y.Doc & { getConnectionsCount
   return serialStore(documentName, async () => {
     // Update counter at encode time: the live doc equals what this store writes (docs/adr/1041-*).
     const seq = liveDocSeq(document)
+    // the growth counted for the storage limit that this encode covers (quota/collabGrowth.ts)
+    const pending = collabPendingBytes(documentName)
     const state = Buffer.from(encodeStoredState(document))
-    await storeDocument(documentName, state, Buffer.from(Y.encodeStateVector(document)), document, socketId, document, seq)
+    const used = await storeDocument(documentName, state, Buffer.from(Y.encodeStateVector(document)), document, socketId, document, seq)
+    noteCollabStored(documentName, state.length, pending, used)
     clearStoreRetry(documentName, document)
   })
 }
@@ -273,7 +295,7 @@ async function storeDocument(
   socketId: string | undefined,
   live: Y.Doc | null = null,
   seq: number | null = null,
-): Promise<void> {
+): Promise<number | null> {
   const lastClientGone = document?.getConnectionsCount?.() === 0
   const immediate = socketId === 'server' || lastClientGone
   const digest = stateDigest(state)
@@ -290,16 +312,17 @@ async function storeDocument(
     if (live) noteLiveStored(live, seq, prev.stamp)
     storeStats.skipped++
     if (immediate) await flushDocIndex(documentName)
-    return
+    return null
   }
   storeStats.written++
   {
     // Auto snapshot of the state we are about to overwrite — decided and copied inside Postgres
     // (no full-state SELECT into Node), skipped from memory while the 10-min throttle is open.
     // Never throws (docs/adr/0750-*).
-    await maybeAutoSnapshotStored(documentName)
-    // Storage limit (docs/adr/2506-*): the cached use follows the body; never throws, never refuses.
-    await noteBodyStore(documentName, state.length + stateVector.length)
+    const snapshotBytes = await maybeAutoSnapshotStored(documentName)
+    // Storage limit (docs/adr/2506-*): the cached use follows the body and the version copy; never
+    // throws, never refuses (what does not fit is refused on arrival, beforeHandleMessage).
+    const used = await noteBodyStore(documentName, state.length + stateVector.length, snapshotBytes)
 
     // Persist the state and bump pages.updated_at in one round trip. A short database outage
     // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow. The store
@@ -336,6 +359,7 @@ async function storeDocument(
     // edits (REST/MCP/sync) and the final store after the last client leaves index right away;
     // live typing is debounced and diffed in docIndexer. Failures never fail the store.
     await scheduleDocIndex(documentName, state, immediate, stamp)
+    return used
   }
 }
 
@@ -401,11 +425,34 @@ export const hocuspocus = new Hocuspocus({
     const uid = (data.context as { userId?: unknown } | undefined)?.userId
     if (typeof uid === 'string' && isPageDocument(data.documentName)) noteLiveEdit(data.documentName, uid)
   },
+  // The storage counters of a page leave with it (quota/collabGrowth.ts).
+  async afterUnloadDocument({ documentName }) {
+    if (isPageDocument(documentName)) noteCollabUnloaded(documentName)
+  },
+  async onDisconnect({ documentName, context }) {
+    const guard = (context as { queueGuard?: SocketQueueGuard } | undefined)?.queueGuard
+    if (guard) noteSocketDisconnected(guard, documentName)
+  },
   // Document schema guard (docs/adr/2425-*), before every message a connection sends: a client older
   // than the page's newest node type never writes it. Hocuspocus checks `readOnly` when it applies the
   // message, after this hook, so an update sent after the page gained such a node is dropped
   // (SyncStatus false) even when the connection was authorised before. Cheap for current clients.
-  async beforeHandleMessage({ connection, context, document, documentName }) {
+  async beforeHandleMessage({ connection, context, document, documentName, update }) {
+    // Storage limit and instance fuse (contract §14, docs/adr/2530-*): an update that does not fit is
+    // never applied. Decided synchronously, before anything else here awaits.
+    if (!connection.readOnly && collabGuardsOn() && isPageDocument(documentName) && loadedDocs.has(document)) {
+      const bytes = syncGrowthBytes(update)
+      const ws = (context as { workspaceId?: unknown } | undefined)?.workspaceId
+      if (bytes > 0 && typeof ws === 'string') {
+        const verdict = admitCollabUpdate(documentName, ws, bytes, () => encodeStoredState(document).length)
+        if (verdict !== 'ok') {
+          connection.readOnly = true
+          if (verdict !== 'instance') noteCollabRefused(documentName)
+          reconnectForStorage(connection as unknown as SchemaConnection & { sendStateless?: (p: string) => void }, verdict)
+          return
+        }
+      }
+    }
     const client = (context as { schema?: unknown } | undefined)?.schema
     if (typeof client !== 'number' || client >= DOC_SCHEMA_VERSION || connection.readOnly) return
     if (!isPageDocument(documentName) || !loadedDocs.has(document)) return
@@ -500,11 +547,13 @@ export const hocuspocus = new Hocuspocus({
     // sessionToken lets liveConnections close exactly the sockets of revoked sessions.
     // docGen is read here, before any content is sent to this connection, and handed to it in
     // `connected` (docs/adr/2201-*): a client never pairs a newer generation with older content.
-    return { userId: user.id, sessionToken: token, docGen: page.docGen, schema, schemaNeeds }
+    // workspaceId: the storage counters of live editing (quota/collabGrowth.ts) are per workspace
+    return { userId: user.id, sessionToken: token, docGen: page.docGen, schema, schemaNeeds, workspaceId: page.workspaceId }
   },
   // The page's document generation for device copies (docs/adr/2201-*). Older clients ignore it.
-  async connected({ context, connectionInstance }) {
-    const ctx = context as { docGen?: unknown; schemaNeeds?: unknown } | undefined
+  async connected({ context, connectionInstance, documentName }) {
+    const ctx = context as { docGen?: unknown; schemaNeeds?: unknown; queueGuard?: SocketQueueGuard } | undefined
+    if (ctx?.queueGuard) noteSocketConnected(ctx.queueGuard, documentName)
     try {
       if (typeof ctx?.docGen === 'number') connectionInstance.sendStateless(JSON.stringify({ t: 'gen', gen: ctx.docGen }))
       // read-only because the page needs a newer app (docs/adr/2425-*): clients that know the
@@ -561,6 +610,59 @@ function reconnectForSchema(conns: SchemaConnection[]): void {
     }
   })
 }
+/** Close code of the storage reconnect: ordinary, so the provider connects again and is authorised read-only. */
+export const STORAGE_RECONNECT_CODE = 4000
+
+/**
+ * An update did not fit (docs/adr/2530-*): the connection is read-only already (so nothing more from it
+ * is applied); tell the client why and close its socket, so it reconnects and learns the read-only scope.
+ */
+function reconnectForStorage(conn: SchemaConnection & { sendStateless?: (p: string) => void }, why: string): void {
+  try {
+    conn.sendStateless?.(JSON.stringify({ t: 'storage', why }))
+  } catch {
+    // the socket is going away
+  }
+  setImmediate(() => {
+    try {
+      conn.webSocket?.close(STORAGE_RECONNECT_CODE, 'storage-full')
+    } catch {
+      // already closed
+    }
+  })
+}
+
+/**
+ * The instance fuse (quota/instance.ts) tripped or cleared: live editing connections close so they come
+ * back read-only, or read-only ones close so they are authorised anew. Only registered listeners run,
+ * and the fuse only measures with LIMIT_INSTANCE_STORAGE_MB set.
+ */
+onInstanceFullChange((full) => {
+  const sockets = new Set<{ close: (code?: number, reason?: string) => void }>()
+  try {
+    for (const [name, doc] of hocuspocus.documents) {
+      if (!isPageDocument(name)) continue
+      for (const conn of doc.getConnections()) {
+        if (full === conn.readOnly) continue
+        if (full) conn.readOnly = true
+        const ws = (conn as unknown as SchemaConnection).webSocket
+        if (ws) sockets.add(ws)
+      }
+    }
+  } catch (err) {
+    console.error('[inkling] instance fuse: collecting live connections failed', err)
+  }
+  setImmediate(() => {
+    for (const ws of sockets) {
+      try {
+        ws.close(STORAGE_RECONNECT_CODE, full ? 'instance-full' : 'instance-room')
+      } catch {
+        // already closed
+      }
+    }
+  })
+})
+
 // Before a server edit of a page someone is typing in, index the live document first, so the
 // typing is logged as the typist's and the edit's change rows hold only the edit (CF-2,
 // docs/adr/1625-*). The state indexed here is not stored yet; the edit's store follows at once.
@@ -631,6 +733,8 @@ export function attachCollab(httpServer: HttpServer): void {
 
   // Active connection count per client IP.
   const connCountByIp = new Map<string, number>()
+  // Storage guards (docs/adr/2530-*): the byte rate bucket per client IP.
+  const bucketByIp = new Map<string, ByteBucket>()
   // Recent upgrade-attempt timestamps per client IP (sliding window).
   const upgradeHits = new Map<string, number[]>()
 
@@ -640,7 +744,31 @@ export function attachCollab(httpServer: HttpServer): void {
   })
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
-    hocuspocus.handleConnection(socket, request)
+    if (!collabGuardsOn()) {
+      hocuspocus.handleConnection(socket, request)
+      return
+    }
+    // Storage limit or instance fuse set (docs/adr/2530-*): bound the bytes a socket sends per second
+    // and the frames Hocuspocus queues for documents not connected on it (it keeps them without
+    // limit). Listening before Hocuspocus does, so this runs first for every frame.
+    const ip = clientIp(request)
+    // kept after the last socket closes (a reconnect must not refill it); a bucket that has refilled
+    // completely says nothing and goes when the map grows
+    if (bucketByIp.size > 1024) for (const [k, b] of bucketByIp) if (!connCountByIp.has(k) && takeBytes(b, 0) && b.tokens >= SOCKET_BURST_BYTES) bucketByIp.delete(k)
+    let bucket = bucketByIp.get(ip)
+    if (!bucket) bucketByIp.set(ip, (bucket = newByteBucket()))
+    const queueGuard = newSocketQueueGuard(bucket)
+    let closing = false
+    socket.on('message', (data: Buffer) => {
+      if (closing) return
+      const why = admitSocketFrame(queueGuard, data)
+      if (!why) return
+      closing = true
+      console.warn(`[inkling] collab socket closed: ${why === 'rate' ? 'it sent faster than the storage guard allows' : 'too many bytes for documents it has not opened'}`)
+      // terminate, not close: the frames already received must not be handled while a close handshake runs
+      socket.terminate()
+    })
+    hocuspocus.handleConnection(socket, request, { queueGuard })
   })
 
   const reject = (socket: Duplex, status: string): void => {

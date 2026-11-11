@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { closePageConnections, closeWorkspaceConnections, reconnectReadOnlyWorkspaceConnections } from '../liveConnections'
+import { collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed } from './collabGrowth'
+import { instanceFullNow, instanceStorageLimitBytes } from './instance'
 import { pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
 
 /**
@@ -75,6 +77,7 @@ export async function recountWorkspaceStorage(workspaceId: string): Promise<Stor
      WHERE id = ${workspaceId}
     RETURNING (SELECT over_storage FROM old) AS was
   `)) as unknown as { was: boolean | null }[]
+  noteWorkspaceUsed(workspaceId, count.total)
   if (over && prev && !prev.was) await closeWorkspaceConnections(workspaceId)
   // back under the limit (files or pages deleted, the trash emptied): the read-only connections
   // reconnect and are authorised again, so editing comes back without reopening the page
@@ -109,26 +112,28 @@ export const STORE_RECOUNT_MS = 10 * 60 * 1000
 
 /**
  * The collab store is about to write `bytes` (state + state vector) for a page (collab.ts
- * storeDocument, before the upsert): moves the workspace's cached use by the body's growth, flips the
- * workspace read-only when that passes the limit (closing its live connections, which come back
- * read-only), and closes the page's own connections when this one body passes the per-page cap.
- * The store itself always goes through: refusing it would only arm the retry timer and pin the
- * document in memory. No limit → nothing at all. Never throws.
+ * storeDocument, before the upsert): moves the workspace's cached use by the body's growth (and by the
+ * auto version copy the store just took, `snapshotBytes`), flips the workspace read-only when that
+ * passes the limit (closing its live connections, which come back read-only), and closes the page's
+ * own connections when this one body passes the per-page cap. The store itself always goes through:
+ * refusing it would only arm the retry timer and pin the document in memory (what does not fit is
+ * refused before it is applied, quota/collabGrowth.ts). Returns the cached use after the move (null =
+ * no limit or the update failed). No limit → nothing at all. Never throws.
  */
-export async function noteBodyStore(pageId: string, bytes: number): Promise<void> {
+export async function noteBodyStore(pageId: string, bytes: number, snapshotBytes = 0): Promise<number | null> {
   const limit = storageLimitBytes()
-  if (limit == null) return
+  if (limit == null) return null
   try {
     const [r] = (await db.execute(sql`
       UPDATE workspaces w
-         SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} - coalesce(
+         SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} + ${snapshotBytes} - coalesce(
                (SELECT octet_length(d.state) + coalesce(octet_length(d.state_vector), 0) FROM page_docs d WHERE d.page_id = ${pageId}), 0))
         FROM pages p
        WHERE p.id = ${pageId} AND w.id = p.workspace_id
       RETURNING w.id AS "workspaceId", w.storage_bytes AS used, w.over_storage AS over,
                 (w.storage_checked_at IS NULL OR w.storage_checked_at < now() - make_interval(secs => ${STORE_RECOUNT_MS / 1000})) AS stale
     `)) as unknown as { workspaceId: string; used: string | number; over: boolean; stale: boolean }[]
-    if (!r) return
+    if (!r) return null
     const pageCap = pageBodyLimitBytes()
     if (pageCap != null && bytes > pageCap) closePageConnections([pageId])
     if (r.stale) {
@@ -138,16 +143,22 @@ export async function noteBodyStore(pageId: string, bytes: number): Promise<void
       await db.execute(sql`UPDATE workspaces SET over_storage = true WHERE id = ${r.workspaceId}`)
       await closeWorkspaceConnections(r.workspaceId)
     }
+    return Number(r.used)
   } catch (err) {
     console.warn('[inkling] storage note failed', pageId, err)
+    return null
   }
 }
 
 /**
- * A live editing connection to this page must be read-only for storage: the workspace is past its
- * limit, or the page's stored body is past the per-page cap. No limit → false without a read.
+ * A live editing connection to this page must be read-only for storage: the instance fuse has tripped
+ * (LIMIT_INSTANCE_STORAGE_MB), the workspace is past its limit, the page's stored body is past the
+ * per-page cap, or what is live in memory says so (an update to this page was refused lately, or the
+ * unsaved growth fills the workspace: quota/collabGrowth.ts). Notes the database's numbers for the
+ * live counters. Neither setting → false without a read.
  */
 export async function collabStorageReadOnly(pageId: string, workspaceId: string): Promise<boolean> {
+  if (instanceStorageLimitBytes() != null && instanceFullNow()) return true
   const limit = storageLimitBytes()
   if (limit == null) return false
   const pageCap = pageBodyLimitBytes()!
@@ -157,5 +168,6 @@ export async function collabStorageReadOnly(pageId: string, workspaceId: string)
       FROM workspaces w WHERE w.id = ${workspaceId}
   `)) as unknown as { over: boolean; used: string | number; body: number }[]
   if (!r) return false
-  return r.over || Number(r.used) >= limit || Number(r.body) > pageCap
+  noteCollabAuthorised(pageId, workspaceId, Number(r.body), Number(r.used))
+  return r.over || Number(r.used) >= limit || Number(r.body) > pageCap || collabFullInMemory(pageId, workspaceId)
 }

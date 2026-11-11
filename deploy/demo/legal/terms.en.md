@@ -11,7 +11,7 @@ These terms set the conditions for using the Inkling demo service at {{SERVICE_U
 - The demo service is provided free of charge. There is no payment and there are no ads.
 - The service is a demo server run by an individual so people can try Inkling. The operator provides it as is. The operator does not promise that it fits any particular purpose or that it will always work without errors.
 - The service runs on a single cloud server operated by an individual. Because of a server failure, the cloud provider taking the server back, or the operator's own circumstances, the service may stop, change, end, or have its data reset without advance notice. The operator will try to announce such events beforehand in the app and on the sign-in screen when possible, but does not guarantee advance notice. The service does not send email, so there is no email notice.
-- Every demo account and its data are deleted automatically 14 days after signup (section 9). The deletion date is always shown on the sign-in screen and in the app.
+- Every demo account and its data are deleted automatically 14 days after signup (section 9). The deletion date is always shown in the app once you sign in.
 - The operator makes backups, but does not guarantee that data will be kept or can be restored from a backup. Do not keep important material only in the service. Keep your own copy.
 - You can download your notes at any time as Markdown or zip files with the export feature in the app. Exporting a whole workspace may be limited to some roles by that workspace's settings.
 
@@ -31,13 +31,13 @@ These terms set the conditions for using the Inkling demo service at {{SERVICE_U
 The service has storage and usage limits. The limits that apply are the ones shown in the service. As of the effective date of these terms, the limits are, for example:
 
 - One file: 5 MB
-- Total files in one workspace: 20 MB
+- Storage of one workspace (files, page text and version history together): 20 MB
 - Workspaces one account can own: 2
 - Members in one workspace: 4
 - Pages in one workspace: 300
 - Accounts on the whole service: 50
 
-The operator may change the limits depending on the server's situation and will show any change in the service. If a lower limit leaves existing material over the limit, the operator will not delete that material without telling you first.
+When a workspace's storage is full, the workspace is read-only until you delete files or pages to make room. The operator may change the limits depending on the server's situation and will show any change in the service. If a lower limit leaves existing material over the limit, the operator will not delete that material without telling you first.
 
 ## 5. Your content
 
@@ -77,9 +77,9 @@ The same rules apply to AI tools you connect.
 ## 9. Deleting your account and data
 
 - **Deleting your account:** You can delete your account in Settings at any time. After you confirm once more, the account and your private notes and files are deleted right away, with no grace period, and cannot be restored. Export anything you need first.
-- **Shared workspaces:** Pages, comments and files you wrote in a workspace you share with other people stay in that workspace, and only your name as the author is removed. Your name is also removed from the admin log. If you are the only owner of a workspace that has other members, you must transfer ownership to another member before deleting your account.
+- **Shared workspaces:** Pages, comments and files you wrote in a workspace you share with other people stay in that workspace, and only your name as the author is removed. Your name is also removed from the admin log. Mentions of you in what other members wrote, and names other members typed themselves, are their writing and stay. The admin log may keep an internal ID number without a name. If you are the only owner of a workspace that has other members and you delete your account, ownership passes automatically to the longest-standing member with the admin role, or else to the longest-standing member, who is told in the app.
 - **Workspaces with no members left:** When no members are left in a workspace because they deleted their accounts or left, the workspace is deleted together with everything in it.
-- **Automatic deletion 14 days after signup:** Every demo account is deleted 14 days after signup, whether or not it is used, in the same way as deleting your account above. If you delete your account earlier, it is deleted at that moment. The deletion date is set at signup and always shown on the sign-in screen and in the app. No email is sent about it. To try the service again, sign up again. The same user ID can be used again after the account is deleted.
+- **Automatic deletion 14 days after signup:** Every demo account is deleted 14 days after signup, whether or not it is used, in the same way as deleting your account above. If you delete your account earlier, it is deleted at that moment. The deletion date is set at signup and always shown in the app once you sign in. No email is sent about it. To try the service again, sign up again. The same user ID can be used again after the account is deleted.
 - **Trash:** Pages and workspaces in the trash are permanently deleted after 7 days.
 - **Backups:** Deleted material stays in backup copies for up to 7 days and is then removed. We do not restore individual items from backups on request.
 
@@ -115,8 +115,8 @@ After checking the report, the operator takes the necessary steps, such as makin
 ## 14. Changes to these terms
 
 - The operator may change these terms. The operator will post the changes and their effective date in the app and on the sign-in screen at least 7 days before they take effect (no email is sent), or at least 30 days before if the change is unfavorable to you.
-- At your next sign-in after a change, we will show you the new terms and ask you to agree again. If you do not agree, you cannot keep using the service, but you can delete your account or export your material.
-- Earlier versions stay available in the service.
+- At your next sign-in after a change, we will show you the new terms and ask you to agree again. If you do not agree, you cannot keep using the service, but you can delete your account. Export is not available before you agree, so export what you need before the new terms take effect.
+- We send earlier versions on request to {{CONTACT_EMAIL}}.
 
 ## 15. Contact
 

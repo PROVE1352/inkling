@@ -929,13 +929,14 @@ No migration (a 0.20 database stays at 62 applied migrations), no new setting an
 procedure (Upgrades, above). The server code is the same as 0.20; the release changes the web app only. Ask people
 to reload tabs they left open: a tab still running 0.20 shows PDFs as a file name line until it is reloaded.
 
-### PDF preview (docs/adr/2480-* .. 2482-*)
+### PDF preview (docs/adr/2480-* .. 2483-*)
 - A PDF attached to a page shows its pages under the file name, drawn in the browser with pdf.js (`pdfjs-dist`
-  6.5.438). The server answers `GET /files/:id` as before: `Content-Disposition: attachment`, `nosniff` and its
-  `sandbox` CSP stay, and the app's CSP is unchanged. The preview fetches the file with the person's session like a
-  download and runs nothing from the PDF.
+  6.5.438, its legacy build). The server answers `GET /files/:id` as before: `Content-Disposition: attachment`,
+  `nosniff` and its `sandbox` CSP stay, and the app's CSP is unchanged. The preview fetches the file with the
+  person's session like a download and runs nothing from the PDF.
 - The preview's code, pdf.js, its worker (`assets/lazy/pdf.worker.min-*.mjs`) and its data files
-  (`assets/lazy/pdfjs-6.5.438/`: cMaps, standard fonts, wasm decoders, an ICC profile and their licence files) are
+  (`assets/lazy/pdfjs-6.5.438/`: pdf.js's `LICENSE`, cMaps, standard fonts, wasm decoders, an ICC profile and their
+  licence files) are
   served by the app from its own origin. No CDN and no outbound request.
 - A reverse proxy must pass `/assets/lazy/` unchanged. One that blocks or rewrites those paths stops the preview:
   it shows "The preview could not be loaded." with a download link. A proxy that serves `.mjs` with a type other
@@ -944,8 +945,19 @@ to reload tabs they left open: a tab still running 0.20 shows PDFs as a file nam
   comes near the screen; larger ones load when the reader presses "Load preview" (docs/adr/2482-*). At 20 Mbit/s a
   10 MB file takes about 4 s and a 25 MB file about 10 s ([PERFORMANCE.md](PERFORMANCE.md)).
 - pdf.js and its files are not in the PWA precache: they are fetched the first time a preview loads a file, and the
-  service worker keeps what was used in its `inkling-lazy-assets` cache, like Shiki and exceljs. Pages without a PDF
-  fetch none of it. Offline, the preview cannot ask the server for the file: it shows "The file could not be
-  loaded." with the download link and "Try again". Attachments are not part of offline copies.
-- No server cost beyond the file downloads themselves and one `GET /api/files/:id/meta` per preview (kept in the tab
-  for a minute).
+  service worker keeps what was used in a cache of their own, `inkling-pdfjs` (60 entries, 30 days), next to
+  `inkling-lazy-assets` (Shiki, exceljs). Pages without a PDF fetch none of it. Offline, the preview cannot ask the
+  server for the file: it shows "The file could not be loaded." with the download link and "Try again".
+  Attachments are not part of offline copies.
+- Browsers: pdf.js supports its legacy build in Firefox ESR, Chrome 125+ (Edge, Opera) and "mostly" Safari 18+.
+  The release was checked in Chrome 157 only (KNOWN-ISSUES PDFVIEW-1). An unsupported browser shows the preview's
+  error message and the download link.
+- Limits against hostile or huge files (docs/adr/2483-*): at most 5,000 pages, a page box of at most 5,000 CSS px at
+  100%, one page canvas of at most 8,388,608 pixels and 8,192 px a side, at most 8 pages drawn per pass, no image
+  over 2^26 pixels. A download that does not move for 30 s ends in "The file stopped loading." with "Try again". An
+  error inside one preview stays in its block.
+- No preview on a page with ink strokes or in pen mode (docs/adr/2481-*). A page with a PDF therefore asks for its
+  strokes, `GET /api/pages/:id/ink`, when it opens, every 60 s while it is open with pen mode off, and when the tab
+  comes back to the front: the server does not announce ink changes.
+- No other server cost beyond the file downloads themselves and one `GET /api/files/:id/meta` per preview (kept in
+  the tab for a minute).

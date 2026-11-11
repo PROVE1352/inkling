@@ -222,7 +222,12 @@ PDFs up to 10 MB open as soon as you scroll to them. A larger file shows **Load 
 decide when to spend the data (with the browser's data saver on, every PDF waits for that press). **Hide preview**
 folds it to one line, and this browser remembers that for you. The preview is only on your screen: scrolling or
 zooming changes nothing in the page for others, and each person reads at their own page. Password-protected or
-damaged PDFs cannot be previewed; download them instead. Public links show the file name only, as before.
+damaged PDFs cannot be previewed, nor PDFs of more than 5,000 pages; download them instead. Public links show the
+file name only, as before.
+
+On a page with handwriting and in pen mode, PDFs show only their file name, so the ink stays where you wrote it
+(ink is placed by the page's height, and you cannot write on a PDF). When someone else writes the first stroke on
+a page you have open, its previews go away within a minute.
 
 ### Verifying a page
 

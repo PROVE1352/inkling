@@ -10,12 +10,14 @@ folder. Each licence text travels with the files it covers.
 ## pdf.js (`pdfjs-dist` 6.5.438)
 
 Used by the PDF preview in the page editor ([ADR 2480](docs/adr/2480-pdf-preview-with-pdfjs-from-the-apps-own-origin.md)).
-The library and its worker are built into two files that load only when a preview loads a PDF. Its data files are
-copied unchanged to `assets/lazy/pdfjs-6.5.438/`, each with its licence file next to it.
+The app uses pdf.js's legacy build. The library and its worker are built into two files that load only when a
+preview loads a PDF; the worker keeps pdf.js's licence header, the bundled `pdfDocument-*.js` chunk does not.
+pdf.js's own licence text is copied to `assets/lazy/pdfjs-6.5.438/LICENSE`, and its data files are copied unchanged
+to the same folder, each with its licence file next to it.
 
 | Component | Files in the build | Licence | Copyright, as the licence files name it | Licence text in the build |
 |---|---|---|---|---|
-| pdf.js | `assets/lazy/pdfDocument-*.js`, `assets/lazy/pdf.worker.min-*.mjs` | Apache-2.0 | Mozilla Foundation (the licence header of `build/pdf.mjs` and `build/pdf.worker.min.mjs`) | `assets/lazy/pdfjs-6.5.438/LICENSE` |
+| pdf.js | `assets/lazy/pdfDocument-*.js`, `assets/lazy/pdf.worker.min-*.mjs` | Apache-2.0 | Mozilla Foundation (the licence header of `legacy/build/pdf.mjs` and `legacy/build/pdf.worker.min.mjs`) | `assets/lazy/pdfjs-6.5.438/LICENSE` |
 | Adobe CMaps (CJK text) | `assets/lazy/pdfjs-6.5.438/cmaps/*.bcmap` (168 files) | BSD-3-Clause | Adobe Systems Incorporated | `assets/lazy/pdfjs-6.5.438/cmaps/LICENSE` |
 | Foxit standard fonts | `assets/lazy/pdfjs-6.5.438/standard_fonts/Foxit*.pfb` (10 files) | BSD-3-Clause | The PDFium Authors | `assets/lazy/pdfjs-6.5.438/standard_fonts/LICENSE_FOXIT` |
 | Liberation Sans | `assets/lazy/pdfjs-6.5.438/standard_fonts/LiberationSans-*.ttf` (4 files) | GPL-2.0 with the font exception (Red Hat's Liberation licence agreement) | Red Hat, Inc. | `assets/lazy/pdfjs-6.5.438/standard_fonts/LICENSE_LIBERATION` |

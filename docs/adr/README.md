@@ -987,6 +987,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2480](2480-pdf-preview-with-pdfjs-from-the-apps-own-origin.md) | PDF preview: pdf.js in the web app, every file from the app's own origin, nothing in the PDF runs | Accepted (extends 0882 for one dependency) |
 | [2481](2481-pdf-preview-is-view-state-of-the-file-block.md) | The PDF preview is view state of the file block, drawn under its name line | Accepted |
 | [2482](2482-pdf-preview-loads-files-up-to-10-mb-on-sight.md) | PDF preview: files up to 10 MB load on sight, larger ones on a press | Accepted |
+| [2483](2483-pdf-preview-limits-against-hostile-files.md) | PDF preview: limits that keep a hostile or huge PDF inside its own block | Accepted |
 
 ## 099x Client updates
 

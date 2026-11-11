@@ -669,11 +669,14 @@ SELECT count(*) FROM user_onboarding o JOIN users u ON u.id = o.user_id
 ### 0.21로 업그레이드하기
 마이그레이션도 새 설정도 헤더 변경도 없으니, 평소 절차대로 하면 됩니다(위의 "업그레이드" 절). 0.20 데이터베이스는 적용된 마이그레이션이 62개 그대로입니다. 서버 코드는 0.20과 같고, 이번 릴리스는 웹 앱만 바뀝니다. 열어 둔 탭은 새로고침하라고 사람들에게 알리세요. 아직 0.20이 돌고 있는 탭은 새로고침하기 전까지 PDF를 파일 이름 줄로만 보여 줍니다.
 
-<a id="pdf-preview-docsadr2480---2482-"></a>
-### PDF 미리보기 (docs/adr/2480-* .. 2482-*)
-- 페이지에 붙인 PDF는 파일 이름 아래에 내용이 보입니다. 브라우저가 pdf.js(`pdfjs-dist` 6.5.438)로 그립니다. 서버는 `GET /files/:id`에 전과 똑같이 답합니다. `Content-Disposition: attachment`, `nosniff`, `sandbox` CSP는 그대로이고, 앱의 CSP도 바뀌지 않았습니다. 미리보기는 내려받기와 똑같이 그 사람의 세션으로 파일을 받아 오고, PDF 안의 어떤 것도 실행하지 않습니다.
-- 미리보기 코드, pdf.js, 그 워커(`assets/lazy/pdf.worker.min-*.mjs`), 데이터 파일(`assets/lazy/pdfjs-6.5.438/`: cMap, 표준 글꼴, wasm 디코더, ICC 프로필, 각각의 라이선스 파일)은 앱이 자기 출처에서 내줍니다. CDN도 바깥으로 나가는 요청도 없습니다.
+<a id="pdf-preview-docsadr2480---2483-"></a>
+### PDF 미리보기 (docs/adr/2480-* .. 2483-*)
+- 페이지에 붙인 PDF는 파일 이름 아래에 내용이 보입니다. 브라우저가 pdf.js(`pdfjs-dist` 6.5.438의 legacy 빌드)로 그립니다. 서버는 `GET /files/:id`에 전과 똑같이 답합니다. `Content-Disposition: attachment`, `nosniff`, `sandbox` CSP는 그대로이고, 앱의 CSP도 바뀌지 않았습니다. 미리보기는 내려받기와 똑같이 그 사람의 세션으로 파일을 받아 오고, PDF 안의 어떤 것도 실행하지 않습니다.
+- 미리보기 코드, pdf.js, 그 워커(`assets/lazy/pdf.worker.min-*.mjs`), 데이터 파일(`assets/lazy/pdfjs-6.5.438/`: pdf.js의 `LICENSE`, cMap, 표준 글꼴, wasm 디코더, ICC 프로필, 각각의 라이선스 파일)은 앱이 자기 출처에서 내줍니다. CDN도 바깥으로 나가는 요청도 없습니다.
 - 리버스 프록시는 `/assets/lazy/`를 그대로 넘겨야 합니다. 이 경로를 막거나 고쳐 쓰면 미리보기가 나오지 않고, 화면에는 "미리보기를 불러오지 못했습니다."(`The preview could not be loaded.`)와 내려받기 링크가 나옵니다. `.mjs`를 JavaScript가 아닌 타입으로 내주는 프록시도 미리보기를 막고, 이때는 오류 문구와 내려받기 링크가 나옵니다.
 - `/files/:id`는 바이트 범위를 보내지 않으므로, 1쪽을 그리려면 파일 전체가 필요합니다. 10 MB까지의 파일은 블록이 화면 가까이 오면 불러오고, 그보다 큰 파일은 읽는 사람이 "미리보기 불러오기"(`Load preview`)를 누를 때 불러옵니다(docs/adr/2482-*). 20 Mbit/s에서 10 MB 파일은 약 4 s, 25 MB 파일은 약 10 s가 걸립니다([PERFORMANCE.ko.md](PERFORMANCE.ko.md)).
-- pdf.js와 그 파일들은 PWA 프리캐시에 없습니다. 미리보기가 처음 파일을 불러올 때 받아 오고, 서비스 워커는 쓴 것을 `inkling-lazy-assets` 캐시에 남겨 둡니다(Shiki, exceljs와 같습니다). PDF가 없는 페이지는 아무것도 받지 않습니다. 오프라인에서는 미리보기가 서버에 파일을 물어볼 수 없어서 "파일을 불러오지 못했습니다."(`The file could not be loaded.`)와 내려받기 링크, "다시 시도"(`Try again`)가 나옵니다. 첨부 파일은 오프라인 사본에 들어가지 않습니다.
-- 서버 쪽 비용은 파일 내려받기 자체와, 미리보기마다 `GET /api/files/:id/meta` 한 번(탭에서 1분 동안 기억)뿐입니다.
+- pdf.js와 그 파일들은 PWA 프리캐시에 없습니다. 미리보기가 처음 파일을 불러올 때 받아 오고, 서비스 워커는 쓴 것을 따로 둔 `inkling-pdfjs` 캐시(60개, 30일)에 남겨 둡니다. Shiki와 exceljs가 쓰는 `inkling-lazy-assets` 캐시와는 다른 캐시입니다. PDF가 없는 페이지는 아무것도 받지 않습니다. 오프라인에서는 미리보기가 서버에 파일을 물어볼 수 없어서 "파일을 불러오지 못했습니다."(`The file could not be loaded.`)와 내려받기 링크, "다시 시도"(`Try again`)가 나옵니다. 첨부 파일은 오프라인 사본에 들어가지 않습니다.
+- 브라우저: pdf.js가 legacy 빌드의 지원 범위로 밝힌 것은 Firefox ESR, Chrome 125+(Edge, Opera), Safari 18+("mostly")입니다. 이번 릴리스는 Chrome 157에서만 확인했습니다(KNOWN-ISSUES PDFVIEW-1). 지원하지 않는 브라우저에서는 미리보기 오류 문구와 내려받기 링크가 나옵니다.
+- 적대적이거나 아주 큰 파일에 대한 상한(docs/adr/2483-*): 최대 5,000쪽, 100%에서 쪽 상자 최대 5,000 CSS px, 쪽 캔버스 한 장은 최대 8,388,608 픽셀에 한 변 8,192 px, 한 번에 그리는 쪽은 최대 8쪽, 2^26 픽셀이 넘는 이미지는 그리지 않습니다. 다운로드가 30초 동안 진행되지 않으면 "파일을 받다가 멈췄습니다."(`The file stopped loading.`)와 "다시 시도"가 나옵니다. 미리보기 하나에서 난 오류는 그 블록 안에 머뭅니다.
+- 필기 획이 있는 페이지와 필기 모드에서는 미리보기가 없습니다(docs/adr/2481-*). 그래서 PDF가 있는 페이지는 열 때, 필기 모드가 꺼진 채로 열려 있는 동안 60초마다, 탭이 다시 앞에 올 때 획 목록(`GET /api/pages/:id/ink`)을 요청합니다. 서버가 필기 변경을 알리지 않기 때문입니다.
+- 그 밖의 서버 쪽 비용은 파일 내려받기 자체와, 미리보기마다 `GET /api/files/:id/meta` 한 번(탭에서 1분 동안 기억)뿐입니다.

@@ -9,6 +9,7 @@ export default {
   'accountLifecycle.noRealNames': 'Do not put your real name, an email address or a phone number in your ID or nickname.',
   'accountLifecycle.invalidCredentials': 'Incorrect ID or password',
   'accountLifecycle.signInIdDesc': 'Your sign-in ID',
+  'accountLifecycle.searchKeys': 'Search keys, notes or IDs that used them',
   'accountLifecycle.searchUsers': 'Search ID or name',
   'accountLifecycle.membersSearch': 'Add people you work with by name or ID',
   'accountLifecycle.accessSearch': 'Add people by name or ID',

@@ -69,10 +69,10 @@ export function LeaveAloneModal({
           />
         </label>
         {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className={`${btnPlain} mr-auto`} onClick={onDelete}>
-            {t('accountLifecycle.deleteRestorable', { days: restoreDays })}
-          </button>
+        <button type="button" className="self-start text-xs text-accent underline-offset-2 hover:underline" onClick={onDelete}>
+          {t('accountLifecycle.deleteRestorable', { days: restoreDays })}
+        </button>
+        <div className="flex justify-end gap-2">
           <button type="button" className={btnPlain} onClick={onClose}>
             {t('common.cancel')}
           </button>

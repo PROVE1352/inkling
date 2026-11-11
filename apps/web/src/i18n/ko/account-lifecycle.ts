@@ -8,6 +8,7 @@ export default {
   'accountLifecycle.noRealNames': '아이디와 별명에 실명, 이메일 주소, 전화번호를 넣지 마세요.',
   'accountLifecycle.invalidCredentials': '아이디 또는 비밀번호가 올바르지 않습니다',
   'accountLifecycle.signInIdDesc': '로그인 아이디',
+  'accountLifecycle.searchKeys': '키 · 메모 · 가입자 아이디 검색',
   'accountLifecycle.searchUsers': '아이디 · 이름 검색',
   'accountLifecycle.membersSearch': '함께 일한 사람 이름·아이디로 추가',
   'accountLifecycle.accessSearch': '이름이나 아이디로 사람 추가',

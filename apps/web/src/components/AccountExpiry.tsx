@@ -31,7 +31,7 @@ export function AccountExpiry({ placement }: { placement: 'sidebar' | 'banner' }
         className={`mx-1 mt-1 rounded-md px-2 py-1 text-xs ${soon ? 'border border-amber-500/30 bg-amber-500/10 font-medium text-ink' : 'text-sub'}`}
       >
         {text}{' '}
-        <Link to={exportTo} className="underline hover:text-ink">
+        <Link to={exportTo} className="whitespace-nowrap underline hover:text-ink">
           {t('accountLifecycle.export')}
         </Link>
       </p>
@@ -41,14 +41,15 @@ export function AccountExpiry({ placement }: { placement: 'sidebar' | 'banner' }
     <div
       role={soon ? 'alert' : 'status'}
       data-testid="account-expiry-banner"
-      className={`${soon ? 'flex' : 'flex md:hidden'} shrink-0 items-center gap-2 border-b px-4 py-1.5 text-xs ${
+      className={`${soon ? 'flex' : 'flex md:hidden'} shrink-0 flex-wrap items-center gap-x-2 border-b py-1.5 pl-4 pr-14 text-xs ${
         soon
           ? 'border-amber-500/30 bg-amber-500/10 font-medium text-ink'
           : 'border-line bg-app text-sub'
       }`}
     >
-      <span className="min-w-0 flex-1">{text}</span>
-      <Link to={exportTo} className="shrink-0 underline">
+      {/* pr-14: the notification bell floats over the top right corner */}
+      <span className="min-w-0">{text}</span>
+      <Link to={exportTo} className="shrink-0 whitespace-nowrap underline">
         {t('accountLifecycle.export')}
       </Link>
     </div>

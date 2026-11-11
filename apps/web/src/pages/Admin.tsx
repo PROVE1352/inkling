@@ -926,7 +926,7 @@ export function Admin() {
             setKeyQuery(v)
             setKeyPage(1)
           }}
-          placeholder={t('admin.searchKeys')}
+          placeholder={(mode.data?.loginId === 'username' ? t('accountLifecycle.searchKeys') : t('admin.searchKeys'))}
         />
 
         {keys.isLoading ? (
@@ -1093,7 +1093,7 @@ export function Admin() {
                         </button>
                       )}
                       <AdminUserTokens userId={u.id} name={u.name} className={smallBtn} />
-                      {local && !u.emailVerifiedAt && (
+                      {local && !u.emailVerifiedAt && mode.data?.loginId !== 'username' && (
                         <>
                           {mailEnabled && (
                             <button

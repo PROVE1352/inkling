@@ -626,7 +626,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.post('/workspaces/:id/restore', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
     const id = idParam(req.params)
-    await assertUserRoom(db, user.id, { workspaces: 0 }) // not already over LIMIT_WORKSPACES (docs/adr/2505-*)
+    // not already over LIMIT_WORKSPACES: checked inside restoreWorkspace's transaction (docs/adr/2505-*)
     const res = await restoreWorkspace(user, id)
     invalidateWebhookCache(id)
     for (const uid of res.memberIds) broadcastToUser(uid, { t: 'notifications' })
@@ -642,7 +642,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const id = idParam(req.params)
     const { userId } = transferOwnershipSchema.parse(req.body)
     await requireMembership(id, user.id)
-    await assertUserRoom(db, userId, { workspaces: 1 }) // the new owner's LIMIT_WORKSPACES (docs/adr/2505-*)
+    // the new owner's LIMIT_WORKSPACES: checked inside transferOwnership's transaction (docs/adr/2505-*)
     await transferOwnership(user, id, userId)
     broadcastToUser(userId, { t: 'notifications' })
     const rows = await db

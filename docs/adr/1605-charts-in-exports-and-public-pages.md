@@ -1,6 +1,6 @@
 # 1605. Charts in exports and on public pages are tables, inside what is shared
 
-- Status: Accepted
+- Status: Accepted; amended by 2440 (a link can show charts, drawn as charts)
 - Date: 2026-11-10
 
 ## Context

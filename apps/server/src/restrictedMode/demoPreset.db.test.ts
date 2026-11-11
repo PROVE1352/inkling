@@ -126,7 +126,8 @@ describe('[db] the demo preset end to end', { skip: !HAS_DB }, async () => {
     const [u] = await db.select().from(schema.users).where(eq(schema.users.email, p.loginId))
     assert.equal(u.isAdmin, false)
     const days = (u.expiresAt!.getTime() - Date.now()) / 86_400_000
-    assert.ok(days > 13.99 && days <= 14, String(days))
+    // the database's clock may run a little ahead of this process's (a container VM): a minute of slack
+    assert.ok(days > 13.99 && days <= 14.001, String(days))
     const rows = await db.select().from(schema.userConsents).where(eq(schema.userConsents.userId, u.id))
     assert.deepEqual(rows.map((x) => x.itemId).sort(), [...REQUIRED].sort())
     assert.ok(rows.every((x) => x.version === legalInfo.version))

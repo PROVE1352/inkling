@@ -10,7 +10,6 @@ import {
   useMembers,
   useRemoveMember,
   useRestoreWorkspace,
-  useWorkspaceRestoreDays,
   useTransferOwnership,
   useWorkspaceDeletePreview,
 } from '../api'
@@ -20,6 +19,7 @@ import { Modal } from './Modal'
 import { Group, useSettingsFlat } from './SettingsRows'
 import { Spinner } from './Spinner'
 import { WorkspaceAvatar } from './WorkspaceAvatar'
+import { LeaveAloneModal, PurgeDeletedButton } from './account/LeaveAlone'
 
 // Workspace danger zone (docs/adr/0910-*, 0911-*): leave, transfer ownership, delete (soft, 30-day
 // restore) and the "Deleted workspaces" restore list used by Settings and the empty-state screen.
@@ -96,7 +96,6 @@ function LeaveWorkspaceModal({
   const me = useMe()
   const members = useMembers(wsId)
   const remove = useRemoveMember(wsId)
-  const restoreDays = useWorkspaceRestoreDays()
   const [error, setError] = useState<string | null>(null)
 
   const list = members.data ?? []
@@ -127,22 +126,9 @@ function LeaveWorkspaceModal({
     )
   }
 
-  if (soleOwner && alone) {
-    return (
-      <Modal open onClose={onClose} title={t('wsDanger.aloneTitle')}>
-        <div className="flex flex-col gap-4" data-testid="leave-alone">
-          <p className="text-sm text-sub">{t('wsDanger.aloneBody', { days: restoreDays })}</p>
-          <div className="flex justify-end gap-2">
-            <button type="button" className={btnPlain} onClick={onClose}>
-              {t('common.cancel')}
-            </button>
-            <button type="button" className={btnDanger} onClick={onDelete}>
-              {t('wsDanger.goDelete')}
-            </button>
-          </div>
-        </div>
-      </Modal>
-    )
+  // alone: leaving deletes the workspace for good, confirmed with its name (0.22, docs/adr/2513-*)
+  if (soleOwner && alone && me.data) {
+    return <LeaveAloneModal wsId={wsId} workspace={workspace} meId={me.data.id} onClose={onClose} onDelete={onDelete} />
   }
 
   if (soleOwner) {
@@ -411,6 +397,7 @@ export function DeletedWorkspacesList({ compact = false }: { compact?: boolean }
               >
                 <RestoreIcon size={14} /> {t('wsDanger.restore')}
               </button>
+              <PurgeDeletedButton ws={w} />
             </div>
           )
         })

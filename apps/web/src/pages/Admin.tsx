@@ -41,6 +41,7 @@ import { AdminStatusCards } from '../status/AdminStatusCards'
 import { fmtDate as fmtD, fmtDateTime as fmtDT, fmtList, t } from '../i18n'
 import { delegatedDisplayName } from './Login'
 import { AdminUserTokens } from '../components/AdminUserTokens'
+import { AdminExpiry } from '../components/account/AdminExpiry'
 
 const PER_PAGE = 5
 
@@ -929,7 +930,7 @@ export function Admin() {
             setKeyQuery(v)
             setKeyPage(1)
           }}
-          placeholder={t('admin.searchKeys')}
+          placeholder={(mode.data?.loginId === 'username' ? t('accountLifecycle.searchKeys') : t('admin.searchKeys'))}
         />
 
         {keys.isLoading ? (
@@ -1006,7 +1007,7 @@ export function Admin() {
             setUserQuery(v)
             setUserPage(1)
           }}
-          placeholder={t('admin.searchUsers')}
+          placeholder={mode.data?.loginId === 'username' ? t('accountLifecycle.searchUsers') : t('admin.searchUsers')}
         />
         {users.isLoading ? (
           <Spinner size={18} />
@@ -1040,7 +1041,8 @@ export function Admin() {
                               : delegatedName}
                       </Badge>
                       {local ? (
-                        u.emailVerifiedAt ? (
+                        // sign-in IDs (docs/adr/2512-*): no address to verify
+                        mode.data?.loginId === 'username' ? null : u.emailVerifiedAt ? (
                           <Badge cls="bg-emerald-500/10 text-emerald-600">{t('admin.verified')}</Badge>
                         ) : (
                           <Badge cls="bg-amber-500/10 text-amber-600">{t('admin.unverified')}</Badge>
@@ -1050,6 +1052,7 @@ export function Admin() {
                       )}
                       {u.isAdmin && <Badge cls="bg-accent/10 text-accent">{t('admin.adminBadge')}</Badge>}
                       {u.twoFactor && <Badge cls="bg-emerald-500/10 text-emerald-600">{t('admin.twofaBadge')}</Badge>}
+                      {u.expiresAt && <AdminExpiry userId={u.id} expiresAt={u.expiresAt} />}
                       <span className="ml-auto text-xs text-sub">{fmtDate(u.createdAt)}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-0.5">
@@ -1098,7 +1101,7 @@ export function Admin() {
                         </button>
                       )}
                       <AdminUserTokens userId={u.id} name={u.name} className={smallBtn} />
-                      {local && !u.emailVerifiedAt && (
+                      {local && !u.emailVerifiedAt && mode.data?.loginId !== 'username' && (
                         <>
                           {mailEnabled && (
                             <button

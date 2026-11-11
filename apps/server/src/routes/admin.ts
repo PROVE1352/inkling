@@ -21,10 +21,8 @@ import {
 import { getUser, requireAdmin, verifyPassword } from '../auth'
 import { banIp, guardPolicy, ipKey, isAllowlisted, listBans, unbanIp } from '../guard'
 import { db } from '../db/index'
-import { closeUserConnections } from '../liveConnections'
-import { lockWorkspaceMembers } from '../helpers'
-import { purgeWorkspacesTx, unlinkUploadBlobs } from '../workspaceDeletion'
-import { ipBans, pages, passwordResetCodes, passwordResetRequests, signupKeys, users, userTotp } from '../db/schema'
+import { adminDeletePreview, deleteAccount } from '../account/deletion'
+import { ipBans, passwordResetCodes, passwordResetRequests, signupKeys, users, userTotp } from '../db/schema'
 import { env, mailEnabled } from '../env'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { appOrigin, inviteMail, resetCodeMail, sendMail, tempPasswordMail, verifyMail } from '../mail'
@@ -239,14 +237,17 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         emailVerifiedAt: users.emailVerifiedAt,
         createdAt: users.createdAt,
         twoFactorAt: userTotp.enabledAt,
+        expiresAt: users.expiresAt,
       })
       .from(users)
       .leftJoin(signupKeys, eq(signupKeys.key, users.signupKey))
       .leftJoin(userTotp, eq(userTotp.userId, users.id))
       .orderBy(desc(users.createdAt))
     return {
-      users: rows.map(({ signupKeyMaxUses, signupKeyHint, twoFactorAt, ...u }) => ({
+      users: rows.map(({ signupKeyMaxUses, signupKeyHint, twoFactorAt, expiresAt, ...u }) => ({
         ...u,
+        // ACCOUNT_LIFETIME_DAYS (docs/adr/2515-*): only on accounts that have a date
+        ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
         // only a masked hint: users.signup_key is the key's SHA-256 (docs/adr/1110-*)
         signupKey: u.signupKey ? `••••-${signupKeyHint ?? '••••'}` : null,
         signupKeyRecovery: u.origin === 'local' && signupKeyMaxUses === 1,
@@ -303,67 +304,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     if (id === me.id) throw badRequest('You cannot delete your own account here')
     await loadUser(id)
 
-    const blobIds: string[] = []
-    let deletedWorkspaces = 0
-    await withAdminLock(async (tx) => {
-      const [self] = await tx.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, me.id))
-      if (!self?.isAdmin) throw forbidden('Admins only')
-      const [target] = await tx
-        .select({ isAdmin: users.isAdmin, signupKey: users.signupKey })
-        .from(users)
-        .where(eq(users.id, id))
-      if (!target) throw notFound('USER_NOT_FOUND', 'User not found')
-      if (target.isAdmin) {
-        const [c] = await tx
-          .select({ n: count() })
-          .from(users)
-          .where(and(eq(users.isAdmin, true), ne(users.id, id)))
-        if ((c?.n ?? 0) === 0) throw badRequest('You cannot delete the last admin')
-      }
-      // A workspace whose only owner disappears can no longer be managed (members, public
-      // links). Refuse until an admin/owner transfers ownership (C-H1); the list lets the UI
-      // show what to fix. Membership changes take the same per-workspace lock (ws-members).
-      // Workspaces where the user is the ONLY member (the auto-created personal workspace) are
-      // deleted with the account instead: nobody else could ever reach them (docs/adr/0813-*).
-      const memberOf = (await tx.execute(sql`
-        SELECT workspace_id AS id FROM workspace_members WHERE user_id = ${id} ORDER BY workspace_id
-      `)) as unknown as { id: string }[]
-      for (const w of memberOf) await lockWorkspaceMembers(tx, w.id)
-      const plan = await deletionPlan(tx, id)
-      if (plan.soleOwnedShared.length > 0) {
-        throw new AppError(
-          409,
-          'SOLE_OWNER',
-          'This user is the only owner of some shared workspaces. An owner of each must use "Transfer ownership" in the workspace menu, or delete the workspace, first.',
-          undefined,
-          { workspaces: plan.soleOwnedShared },
-        )
-      }
-      if (plan.personal.length > 0) {
-        // Same permanent deletion as the 30-day workspace purge (workspaceDeletion.ts): ws-members
-        // locks (above) → page-tree locks in id order → cascade; blobs are unlinked after commit.
-        blobIds.push(...(await purgeWorkspacesTx(tx, plan.personal.map((w) => w.id))))
-        deletedWorkspaces = plan.personal.length
-      }
-      // pages.created_by is ON DELETE SET NULL. The user's private pages go to the trash and
-      // become ownerless: visible to nobody, admins included (pageDto.visibleTo), and removed by
-      // the 30-day trash purge (docs/adr/0803-*). Nobody else gets to read them.
-      await tx
-        .update(pages)
-        .set({ deletedAt: sql`coalesce(${pages.deletedAt}, now())` })
-        .where(and(eq(pages.createdBy, id), eq(pages.scope, 'private')))
-      await tx.delete(users).where(eq(users.id, id))
-      if (target.signupKey) {
-        await tx
-          .update(signupKeys)
-          .set({ usedCount: sql`greatest(${signupKeys.usedCount} - 1, 0)` })
-          .where(eq(signupKeys.key, target.signupKey))
-      }
-    })
-    // Sessions are gone with the user row; also drop the live collab sockets (docs/adr/0754-*).
-    closeUserConnections(id, { includeInbox: true })
-    // Best-effort, after commit (same as the trash purge): a rolled-back delete keeps its blobs.
-    await unlinkUploadBlobs(blobIds)
+    // One deletion for every path (account/deletion.ts, docs/adr/2517-*); `admin` keeps the 0.21.1
+    // behaviour: last admin 400, sole owner of a shared workspace 409 SOLE_OWNER, personal
+    // workspaces deleted with the account, private pages to the trash, the signup key's use given back.
+    const { deletedWorkspaces } = await deleteAccount(id, { by: 'admin', actorId: me.id, log: (m) => req.log.warn(m) })
     return { ok: true, deletedWorkspaces }
   })
 
@@ -376,12 +320,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/admin/users/:id/delete-preview', admin, async (req) => {
     const { id } = req.params as { id: string }
     await loadUser(id)
-    const plan = await deletionPlan(db, id)
-    return {
-      personalWorkspaces: plan.personal.length,
-      personal: plan.personal,
-      soleOwnedShared: plan.soleOwnedShared,
-    }
+    return adminDeletePreview(id)
   })
 
   /** Issue a temporary password, returned once in the response. All of the user's sessions are deleted. */
@@ -587,33 +526,4 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     await unbanIp(row.ip)
     return { ok: true }
   })
-}
-
-type Exec = Pick<typeof db, 'execute'>
-type WsRef = { id: string; name: string }
-
-/**
- * Workspaces a forced deletion of `userId` affects (docs/adr/0813-*):
- *   personal        — the user is the only member, or the workspace is already soft-deleted and
- *                     the user is its only owner (nobody else could restore it, ADR 0910): deleted
- *                     together with the account.
- *   soleOwnedShared — other members exist but no other owner: the deletion is refused (409).
- */
-async function deletionPlan(tx: Exec, userId: string): Promise<{ personal: WsRef[]; soleOwnedShared: WsRef[] }> {
-  const rows = (await tx.execute(sql`
-    SELECT w.id, w.name, m.role, (w.deleted_at IS NOT NULL) AS deleted,
-           (SELECT count(*)::int FROM workspace_members a WHERE a.workspace_id = w.id) AS members
-      FROM workspaces w
-      JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id = ${userId}
-     WHERE NOT EXISTS (SELECT 1 FROM workspace_members o
-                        WHERE o.workspace_id = w.id AND o.role = 'owner' AND o.user_id <> ${userId})
-     ORDER BY w.name, w.id
-  `)) as unknown as { id: string; name: string; role: string; deleted: boolean; members: number }[]
-  const purge = (r: (typeof rows)[number]) => Number(r.members) <= 1 || (r.deleted && r.role === 'owner')
-  return {
-    personal: rows.filter(purge).map((r) => ({ id: r.id, name: r.name })),
-    soleOwnedShared: rows
-      .filter((r) => !purge(r) && r.role === 'owner')
-      .map((r) => ({ id: r.id, name: r.name })),
-  }
 }

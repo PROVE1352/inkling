@@ -45,6 +45,7 @@ import columns from './ko/columns'
 import pdfPreview from './ko/pdf-preview'
 import limits from './ko/limits'
 import legal from './ko/legal'
+import accountLifecycle from './ko/account-lifecycle'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -94,4 +95,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...pdfPreview,
   ...limits,
   ...legal,
+  ...accountLifecycle,
 }

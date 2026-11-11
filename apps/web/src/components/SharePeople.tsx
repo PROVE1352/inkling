@@ -21,6 +21,7 @@ import { useT } from '../i18n'
 import { CopyIcon, UserMinusIcon, XIcon } from './Icons'
 import { GuestBadge } from './GuestBadge'
 import { Spinner } from './Spinner'
+import { useIdMode } from './account/useIdMode'
 
 // "People" section of the share dialog (docs/adr/1250-* .. 1253-*): who has access to this page and
 // its subpages, at which level, and pending invitations for addresses without an account.
@@ -61,6 +62,7 @@ export function SharePeople({ pageId, ws, open }: { pageId: string; ws: Workspac
 
 function PeopleBody({ access, ws }: { access: PageAccessDTO; ws: WorkspaceDTO }) {
   const t = useT()
+  const idMode = useIdMode()
   const me = useMe()
   const pageId = access.pageId
   const setAccess = useSetPageAccess(pageId)
@@ -175,8 +177,8 @@ function PeopleBody({ access, ws }: { access: PageAccessDTO; ws: WorkspaceDTO })
                     choose({ kind: 'email', email: debounced })
                   }
                 }}
-                placeholder={t('access.searchPlaceholder')}
-                aria-label={t('access.searchPlaceholder')}
+                placeholder={idMode ? t('accountLifecycle.accessSearch') : t('access.searchPlaceholder')}
+                aria-label={idMode ? t('accountLifecycle.accessSearch') : t('access.searchPlaceholder')}
                 className="w-full rounded-md border border-line bg-app px-2.5 py-1.5 text-sm text-ink placeholder:text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
               {debounced && (
@@ -221,7 +223,7 @@ function PeopleBody({ access, ws }: { access: PageAccessDTO; ws: WorkspaceDTO })
                         </button>
                       )}
                       {list.length === 0 && !typedEmail && (
-                        <p className="px-2.5 py-1.5 text-xs text-sub">{t('access.noCandidates')}</p>
+                        <p className="px-2.5 py-1.5 text-xs text-sub">{idMode ? t('accountLifecycle.accessNoCandidates') : t('access.noCandidates')}</p>
                       )}
                     </>
                   )}

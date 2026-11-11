@@ -55,6 +55,7 @@ import {
 import { hashInviteCode } from '../secretsAtRest'
 import { twoFactorBlockedSql, twoFactorStatus, userSatisfiesTwoFactor } from '../twoFactorPolicy'
 import { bumpAcl } from '../aclVersion'
+import { afterLastMemberLeft, leaveAsLastMemberTx } from '../account/workspacePurge'
 import type { WorkspaceRole } from '@inkling/shared'
 import { pageColumns, toPageDTO, visibleTo } from '../pageDto'
 import { escapeLike } from '../util'
@@ -511,10 +512,15 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const { id, userId } = memberParamsSchema.parse(req.params)
 
       await requireMembership(id, user.id)
-      await removeMember(user, id, userId)
+      // The only member may leave with the workspace's name as confirmation: it is deleted (docs/adr/2513-*).
+      // (browser sessions only: tokens and agents never delete a workspace this way)
+      const confirmName =
+        req.authVia === 'cookie' && typeof (req.body as { name?: unknown } | undefined)?.name === 'string' ? (req.body as { name: string }).name : undefined
+      const purged = await removeMember(user, id, userId, { confirmName })
       // The removed member's open collab sockets in this workspace stop receiving/sending now
       // (authorisation is otherwise only checked at connect time — docs/adr/0754-*).
       await closeUserWorkspaceConnections(userId, id)
+      if (purged) await afterLastMemberLeft(id, purged, (m) => req.log.warn(m))
 
       return reply.code(204).send()
     },
@@ -992,9 +998,10 @@ export async function removeMember(
   actor: AuditActor,
   workspaceId: string,
   userId: string,
-): Promise<void> {
+  opts: { confirmName?: string } = {},
+): Promise<string[] | null> {
   const isSelf = actor.id === userId
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await lockWorkspaceMembers(tx, workspaceId)
     // Owned lock pages lose their owner below (an implicit editor of the lock): new access
     // version, taken before any page row is written (docs/adr/1071-*).
@@ -1008,6 +1015,9 @@ export async function removeMember(
       throw forbidden('Admins can only remove members; ask an owner to remove an owner or admin')
     }
     if (target === 'owner' && (await ownerCountTx(tx, workspaceId)) <= 1) {
+      // 0.22: the only member, confirming with the name, leaves and the workspace is deleted for good.
+      const purged = isSelf ? await leaveAsLastMemberTx(tx, workspaceId, opts.confirmName) : null
+      if (purged) return purged
       throw badRequest('The last owner cannot leave')
     }
     await tx
@@ -1044,5 +1054,6 @@ export async function removeMember(
       target: { type: 'user', id: userId, label: await userNameTx(tx, userId) },
       before: { role: target },
     })
+    return null
   })
 }

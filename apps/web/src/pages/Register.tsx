@@ -8,6 +8,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
 import { LegalLinks } from '../components/legal/LegalLinks'
 import { SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
+import { BotCheckField, SignupFullNotice, signupBody, useSignupShownAt } from '../components/account/SignupExtras'
 import { useT } from '../i18n'
 
 export function Register() {
@@ -24,6 +25,10 @@ export function Register() {
   const [setupCode, setSetupCode] = useState(params.get('code') ?? '')
 
   const [email, setEmail] = useState('')
+  // LOGIN_ID_MODE=username: a sign-in ID instead of the email (docs/adr/2512-*)
+  const [loginId, setLoginId] = useState('')
+  const [website, setWebsite] = useState('')
+  const shownAt = useSignupShownAt()
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   // Coming from an invite email / signup link (/register?key=) pre-fills the key
@@ -31,6 +36,7 @@ export function Register() {
   const [sentTo, setSentTo] = useState<{ email: string; mailSent: boolean } | null>(null)
   const [errors, setErrors] = useState<{
     email?: string
+    loginId?: string
     name?: string
     password?: string
     signupKey?: string
@@ -44,6 +50,9 @@ export function Register() {
   // Sign-up only creates Inkling's own accounts — unrelated to external accounts used for delegated sign-in.
   if (mode.isLoading) return <FullScreenSpinner />
   const keyRequired = !setupMode && (mode.data?.signupKeyRequired ?? false)
+  const idMode = mode.data?.loginId === 'username'
+  // SIGNUP_MAX_USERS reached: a notice instead of the form (the setup link still works)
+  if (mode.data?.signupFull && !setupMode) return <SignupFullNotice next={next} />
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -61,8 +70,8 @@ export function Register() {
 
     if (!consent.ready) return
 
-    const parsed = registerSchema.safeParse({
-      email,
+    const parsed = (idMode ? registerSchema.omit({ email: true }) : registerSchema).safeParse({
+      ...(idMode ? { loginId: loginId.trim() } : { email }),
       name,
       password,
       ...(setupMode
@@ -75,6 +84,7 @@ export function Register() {
     if (!parsed.success) {
       const next: {
         email?: string
+        loginId?: string
         name?: string
         password?: string
         signupKey?: string
@@ -82,6 +92,7 @@ export function Register() {
       for (const issue of parsed.error.issues) {
         const field = issue.path[0]
         if (field === 'email' && !next.email) next.email = t('auth.emailInvalid')
+        if (field === 'loginId' && !next.loginId) next.loginId = t('errors.LOGIN_ID_INVALID')
         if (field === 'name' && !next.name) next.name = t('register.nameInvalid')
         if (field === 'password' && !next.password)
           next.password = t('auth.passwordTooShort')
@@ -92,7 +103,7 @@ export function Register() {
       return
     }
 
-    register.mutate(parsed.data, {
+    register.mutate(signupBody(parsed.data, { checks: !!mode.data?.signupChecks, shownAt, website }), {
       onSuccess: (r) => {
         // Email verification enforced — no session; show the "check your inbox" screen
         if (r.verificationRequired) setSentTo({ email: r.user.email, mailSent: r.mailSent !== false })
@@ -101,6 +112,8 @@ export function Register() {
       onError: (err) => {
         if (err instanceof ApiError && err.code === 'EMAIL_TAKEN') {
           setServerError(t('register.emailTaken'))
+        } else if (err instanceof ApiError && (err.code === 'LOGIN_ID_INVALID' || err.code === 'LOGIN_ID_TAKEN')) {
+          setErrors({ loginId: err.message })
         } else if (
           err instanceof ApiError &&
           (err.code === 'INVALID_SIGNUP_KEY' || err.code === 'SIGNUP_KEY_REQUIRED')
@@ -160,6 +173,25 @@ export function Register() {
           onSubmit={submit}
           className="flex flex-col gap-3 rounded-lg border border-line bg-app p-6"
         >
+          {idMode ? (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-sub">{t('accountLifecycle.loginId')}</span>
+              <input
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                className="rounded-md border border-line bg-app px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+              {errors.loginId ? (
+                <span className="text-xs text-red-600">{errors.loginId}</span>
+              ) : (
+                <span className="text-xs text-sub">{t('accountLifecycle.loginIdHint')}</span>
+              )}
+            </label>
+          ) : (
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-sub">{t('common.email')}</span>
             <input
@@ -171,18 +203,20 @@ export function Register() {
             />
             {errors.email && <span className="text-xs text-red-600">{errors.email}</span>}
           </label>
+          )}
 
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-sub">{t('common.name')}</span>
+            <span className="text-xs font-medium text-sub">{idMode ? t('accountLifecycle.nickname') : t('common.name')}</span>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              autoComplete="name"
+              autoComplete={idMode ? 'nickname' : 'name'}
               className="rounded-md border border-line bg-app px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
             {errors.name && <span className="text-xs text-red-600">{errors.name}</span>}
           </label>
+          {idMode && <p className="text-xs leading-relaxed text-sub">{t('accountLifecycle.noRealNames')}</p>}
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-sub">{t('common.password')}</span>
@@ -236,6 +270,7 @@ export function Register() {
             </label>
           )}
 
+          {mode.data?.signupChecks && <BotCheckField value={website} onChange={setWebsite} />}
           <SignupConsent onChange={setConsent} />
 
           {serverError && <p className="text-xs text-red-600">{serverError}</p>}

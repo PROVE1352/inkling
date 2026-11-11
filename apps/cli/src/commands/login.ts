@@ -1,6 +1,6 @@
 import { boolFlag, strFlag } from '../args'
 import { DEFAULT_SERVER, loadConfig, saveConfig } from '../config'
-import { API_TOKEN_PREFIX, login } from '../http'
+import { API_TOKEN_PREFIX, login, signsInWithId, whoLabel } from '../http'
 import { me } from '../api'
 import { promptLine, promptPassword } from '../prompt'
 
@@ -39,12 +39,12 @@ export async function cmdLogin(flags: Record<string, string | boolean>): Promise
     const user = await me(server, token)
     if (!user) throw new Error('The server did not accept this token (expired, revoked or for another server)')
     await saveConfig({ ...config, server, token, cookie: undefined })
-    process.stdout.write(`Logged in with an API token: ${user.name} <${user.email}>\n`)
+    process.stdout.write(`Logged in with an API token: ${whoLabel(user)}\n`)
     process.stdout.write(`Config saved (~/.inkling.json, mode 0600)\n`)
     return
   }
 
-  const email = flagEmail || envEmail || (await promptLine('Email: '))
+  const email = flagEmail || envEmail || (await promptLine((await signsInWithId(server)) ? 'ID: ' : 'Email: '))
   const password = envPassword ?? (await promptPassword('Password: '))
 
   if (!email || !password) {
@@ -60,6 +60,6 @@ export async function cmdLogin(flags: Record<string, string | boolean>): Promise
   // a password login replaces a saved API token (one credential on disk)
   await saveConfig({ ...config, server, cookie, token: undefined })
 
-  process.stdout.write(`Logged in: ${user.name} <${user.email}>\n`)
+  process.stdout.write(`Logged in: ${whoLabel(user)}\n`)
   process.stdout.write(`Config saved (~/.inkling.json, mode 0600)\n`)
 }

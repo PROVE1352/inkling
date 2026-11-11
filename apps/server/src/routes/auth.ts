@@ -5,7 +5,6 @@ import {
   changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
-  registerSchema,
   resendVerificationSchema,
   resetPasswordSchema,
   verifyEmailSchema,
@@ -63,6 +62,7 @@ import { DEFAULT_WORKSPACE_RESTORE_DAYS, limits } from '../limits'
 import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
 import { authModeExtraFields, meExtraFields } from '../restrictedExtras'
 import { linkedLogins } from './oidc'
+import { parseRegisterBody, spendPasswordCheck } from '../account/loginId'
 import { oidcEnabled } from '../oidc'
 import {
   createLoginChallenge,
@@ -264,7 +264,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   }
 
   app.post('/auth/register', strictRateLimit, async (req, reply) => {
-    const body = registerSchema.parse(req.body)
+    // LOGIN_ID_MODE=username takes `loginId` instead of `email` (account/loginId.ts, docs/adr/2512-*).
+    const body = parseRegisterBody(req.body)
     const email = body.email.trim().toLowerCase()
 
     // Self-signup cannot take the namespace reserved for delegated-account mirrors.
@@ -368,7 +369,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       if (env.signupRequireKey && signupKey) await refundSignupKey(signupKey)
       if (setupCode && err instanceof AppError && err.code === 'SETUP_CLOSED') closeFirstAdminSetup()
       if (isUniqueViolation(err)) {
-        throw conflict('EMAIL_TAKEN', 'Email already in use')
+        throw limits.loginIdMode === 'username' ? conflict('LOGIN_ID_TAKEN', 'This ID is already taken') : conflict('EMAIL_TAKEN', 'Email already in use')
       }
       throw err
     }
@@ -472,7 +473,11 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     // --- 2) Delegate to the external auth server ---
     const delegatedUrl = env.delegatedAuthUrl
-    if (!delegatedUrl) throw await fail()
+    if (!delegatedUrl) {
+      // Sign-in IDs: an unknown ID costs the same password hash check as a known one (docs/adr/2512-*).
+      if (limits.loginIdMode === 'username') await spendPasswordCheck(body.password)
+      throw await fail()
+    }
 
     // Input in mirror-email form (<id>@<delegated domain>) is mapped back to the external ID.
     const username = localEmail.endsWith(DELEGATED_EMAIL_SUFFIX)

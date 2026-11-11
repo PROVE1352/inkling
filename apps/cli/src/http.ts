@@ -126,3 +126,22 @@ export async function login(
   const data = (await res.json()) as { user: LoginResult['user'] }
   return { cookie, user: data.user }
 }
+
+/**
+ * Whether the server signs in with IDs instead of emails (LOGIN_ID_MODE=username, docs/adr/2512-*):
+ * the login prompt then asks for an ID. false when the server cannot be asked.
+ */
+export async function signsInWithId(server: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(server, '/api/auth/mode', { method: 'GET' })
+    if (!res.ok) return false
+    return ((await res.json()) as { loginId?: unknown }).loginId === 'username'
+  } catch {
+    return false
+  }
+}
+
+/** "Name <email>", or "Name (id)" for a sign-in ID (it is not an address). */
+export function whoLabel(user: { name: string; email: string }): string {
+  return user.email.includes('@') ? `${user.name} <${user.email}>` : `${user.name} (${user.email})`
+}

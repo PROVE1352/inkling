@@ -1,5 +1,7 @@
 # Inkling Architecture
 
+한국어: [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md).
+
 ## Overview
 
 ```mermaid

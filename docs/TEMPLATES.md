@@ -2,7 +2,7 @@
 
 A template creates a page — or a whole structure of pages — with its text already laid out.
 Open the gallery from **New page ▾ → Start from template** (or the command palette), pick a
-template, answer its questions and press **Create**.
+template, answer its questions and press **Create**. 한국어: [TEMPLATES.ko.md](TEMPLATES.ko.md).
 
 Design records: [ADR 0920](adr/0920-template-model.md) (model and clean-up),
 [0921](adr/0921-structure-templates-atomic-instantiation.md) (structures),

@@ -1,7 +1,7 @@
 # Query blocks
 
 A **Query block** shows a live table or list of pages, written in a subset of the
-[Obsidian Dataview](https://blacksmithgu.github.io/obsidian-dataview/) query language.
+[Obsidian Dataview](https://blacksmithgu.github.io/obsidian-dataview/) query language. 한국어: [QUERY.ko.md](QUERY.ko.md).
 
 Insert one with **/ → Query**. The block is a code block whose language is `dataview`; the
 results render underneath and refresh when pages in the workspace change. Because it is a plain

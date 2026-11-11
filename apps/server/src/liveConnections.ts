@@ -126,6 +126,27 @@ export async function closeWorkspaceConnections(workspaceId: string): Promise<nu
 }
 
 /**
+ * Every connection to a page document whose page row no longer exists: after a workspace was deleted
+ * for good (leaving as its last member, "delete now", an account deletion purging it). The workspace's
+ * pages are gone by then, so closeWorkspaceConnections, which finds them by workspace, would close
+ * nothing; this looks the other way round, from the open documents (0.22 integration).
+ */
+export async function closeConnectionsOfGonePages(): Promise<number> {
+  const open = openPageDocNames().filter((n) => UUID.test(n))
+  if (!open.length) return 0
+  try {
+    const rows = await db.select({ id: pages.id }).from(pages).where(inArray(pages.id, open))
+    const live = new Set(rows.map((r) => r.id))
+    return closeWhere((name) => UUID.test(name) && !live.has(name))
+  } catch (err) {
+    console.error('[inkling] closeConnectionsOfGonePages failed', err)
+    return 0
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * After pages became private: closes connections of everyone who can no longer see them
  * (private pages are visible to their creator only, ownerless ones to nobody; see pageDto.visibleTo).
  */

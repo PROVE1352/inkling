@@ -9,7 +9,7 @@ import { env } from '../env'
 import { AppError, badRequest, forbidden, notFound } from '../errors'
 import { lockWorkspaceMembers } from '../helpers'
 import { limits } from '../limits'
-import { closeUserConnections, closeWorkspaceConnections } from '../liveConnections'
+import { closeConnectionsOfGonePages, closeUserConnections } from '../liveConnections'
 import { broadcastToUser } from '../collab'
 import { lockTree, purgeDeletedSubtrees, type Tx } from '../pageTree'
 import { recordAudit } from '../workspaceAdmin'
@@ -274,7 +274,8 @@ export async function deleteAccount(userId: string, opts: DeleteAccountOptions):
     // Sessions and tokens are gone with the row; open collab sockets and the inbox channel close now
     // (docs/adr/0754-*). MCP and API tokens are checked per request, so they stop with the rows.
     closeUserConnections(userId, { includeInbox: true })
-    for (const id of purgedIds) await closeWorkspaceConnections(id)
+    // the purged workspaces' pages are gone: find their sockets (page guests' too) from the open documents
+    if (purgedIds.length > 0) await closeConnectionsOfGonePages()
     for (const uid of notified) broadcastToUser(uid, { t: 'notifications' })
     await unlinkBlobs(blobIds, log)
   }

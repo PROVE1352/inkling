@@ -6,7 +6,7 @@ import { lockWorkspaceMembers, memberRoleTx } from '../helpers'
 import type { Tx } from '../pageTree'
 import { isTwoFactorBlocked, twoFactorRequired } from '../twoFactorPolicy'
 import { purgeWorkspacesTx } from '../workspaceDeletion'
-import { closeWorkspaceConnections } from '../liveConnections'
+import { closeConnectionsOfGonePages } from '../liveConnections'
 import { invalidateWebhookCache } from '../webhooks'
 import { unlinkBlobs } from './deletion'
 
@@ -58,9 +58,13 @@ export async function purgeDeletedWorkspace(actorId: string, workspaceId: string
   })
 }
 
-/** After the commit of a deletion of `workspaceId`: close its sockets, tell nobody (no members), unlink its blobs. */
+/**
+ * After the commit of a deletion of `workspaceId`: close its sockets, tell nobody (no members), unlink
+ * its blobs. Its pages are gone, so the sockets are found from the open documents whose page no longer
+ * exists (page guests' included), not by workspace.
+ */
 export async function afterLastMemberLeft(workspaceId: string, blobIds: string[], log: (msg: string) => void): Promise<void> {
   invalidateWebhookCache(workspaceId)
-  await closeWorkspaceConnections(workspaceId)
+  await closeConnectionsOfGonePages()
   await unlinkBlobs(blobIds, log)
 }

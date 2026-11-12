@@ -33,10 +33,10 @@ describe('[db] indexes count toward workspace storage', { skip: !process.env.DAT
 
   const word = () => randomBytes(6).toString('base64').replace(/[^a-z]/gi, 'q').slice(0, 2 + Math.floor(Math.random() * 7)).toLowerCase()
   const text = (bytes: number) => Array.from({ length: Math.ceil(bytes / 480) }, () => Array.from({ length: 80 }, word).join(' ')).join('\n\n').slice(0, bytes)
-  const indexRows = async (ws: string) =>
+  const indexRows = async (exec: Pick<typeof db, 'execute'>, ws: string) =>
     Number(
       (
-        (await db.execute(sql`
+        (await exec.execute(sql`
           SELECT (SELECT coalesce(sum(pg_column_size(t.*)), 0) FROM page_texts t WHERE page_id IN (SELECT id FROM pages WHERE workspace_id = ${ws}))
                + (SELECT coalesce(sum(pg_column_size(c.*)), 0) FROM page_chunks c WHERE workspace_id = ${ws})
                + (SELECT coalesce(sum(pg_column_size(v.*)), 0) FROM page_chunk_vectors v WHERE workspace_id = ${ws})
@@ -77,17 +77,23 @@ describe('[db] indexes count toward workspace storage', { skip: !process.env.DAT
     }
     const { flushDocIndexes } = await import('../docIndexer')
     await flushDocIndexes()
-    const rows = await indexRows(ws.id)
+    // a store or index pass that lands after the flush must not fall between the reads: all three see one snapshot
+    const { rows, plain, counted } = await db.transaction(
+      async (tx) => {
+        const rows = await indexRows(tx, ws.id)
+        const plain = await S.countWorkspaceStorage(tx, ws.id)
+        const restore2 = L.setLimitsForTests({ workspaceStorageMb: 2 })
+        try {
+          return { rows, plain, counted: await S.countWorkspaceStorage(tx, ws.id) }
+        } finally {
+          restore2()
+        }
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    )
     assert.ok(rows > 100_000, `index rows were written: ${rows}`)
-    const plain = await S.countWorkspaceStorage(db, ws.id)
-    const restore2 = L.setLimitsForTests({ workspaceStorageMb: 2 })
-    try {
-      const counted = await S.countWorkspaceStorage(db, ws.id)
-      assert.equal(counted.total - plain.total, rows, 'with a limit the count adds exactly the index rows')
-      assert.equal(counted.fileBytes, plain.fileBytes)
-    } finally {
-      restore2()
-    }
+    assert.equal(counted.total - plain.total, rows, 'with a limit the count adds exactly the index rows')
+    assert.equal(counted.fileBytes, plain.fileBytes)
   })
 
   it('without a storage limit: the body store moves no cache (0.22.0)', async () => {

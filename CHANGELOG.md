@@ -14,7 +14,7 @@ LIMITS-37 to LIMITS-42), and a memory fault present since 0.21.1 on every server
 run the server out of memory. **A public demo for strangers can run from 0.22.1 on**, on a filesystem of its own
 (docs/DEMO.md, step 0). No database migration (63 applied migrations, as 0.22.0), no new setting for the app, no new
 dependency, no API route added or removed, and the MCP tool list and server instructions are unchanged. Design
-notes are docs/adr/2540-* .. 2551-*. What is left is in docs/KNOWN-ISSUES.md, "Added in 0.22.1".
+notes are docs/adr/2540-* .. 2552-*. What is left is in docs/KNOWN-ISSUES.md, "Added in 0.22.1".
 
 Not tried in Safari, Firefox or on a real phone; the memory numbers below were measured on macOS, not in a Linux
 container (KNOWN-ISSUES, "Added in 0.22.1").

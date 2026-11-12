@@ -291,7 +291,10 @@ off your main disk.
 The app runs with a 448 MB heap in a 768 MB container (`NODE_OPTIONS`, `APP_MEM_LIMIT`), the database in 384 MB
 and the backups in 256 MB. None of the three can use swap (`memswap_limit` equal to `mem_limit` in
 `compose.demo.yaml`; `demo.sh` refuses a configuration where they differ or a limit is missing), so a container that
-runs out is stopped and restarted instead of moving into the host's swap.
+runs out is stopped and restarted instead of moving into the host's swap. None of the three writes a core dump
+(`ulimits: core: 0` in `compose.demo.yaml`, which `demo.sh` checks): when the host's
+`/proc/sys/kernel/core_pattern` is a pipe (`|…`, as with systemd-coredump or apport), a crash in a container is handed
+to the host's handler, memory and all. Check that file on the server before you open the demo.
 
 Measured for 0.22.1 with the production build (on macOS): an open page holds about 20 times its stored size in
 memory. Three accounts filling pages at the largest size (2.5 MB, a quarter of a workspace's 10 MB) in both of their

@@ -81,6 +81,12 @@ services:
     memswap_limit: ${APP_MEM_LIMIT:?set in deploy/demo/demo.env}
     cpus: ${APP_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${APP_PIDS_LIMIT:?set in deploy/demo/demo.env}
+    # No core dumps (0.22.1): when the host's /proc/sys/kernel/core_pattern is a pipe, a crash in the
+    # container hands its memory to the host's handler. demo.sh refuses a service without these.
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
 
   db:
     environment:
@@ -93,6 +99,10 @@ services:
     memswap_limit: ${PG_MEM_LIMIT:?set in deploy/demo/demo.env}
     cpus: ${PG_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${PG_PIDS_LIMIT:?set in deploy/demo/demo.env}
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     # The demo database is never published on the host (Docker-internal traffic only).
     ports: !override []
 
@@ -102,6 +112,10 @@ services:
     memswap_limit: 256m
     cpus: ${BACKUP_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${BACKUP_PIDS_LIMIT:?set in deploy/demo/demo.env}
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     environment:
       PGUSER: inkling_demo
       PGDATABASE: inkling_demo

@@ -1310,15 +1310,18 @@ No migration and no new setting for the app (docs/adr/2540-* .. 2551-*; CHANGELO
   General of your largest workspaces after the upgrade to see the new numbers. To make room: delete pages or files
   and empty the trash, or raise `LIMIT_WORKSPACE_STORAGE_MB` and restart. Without the setting nothing changes in the
   count.
-- **On every server** the inbox document is read-only, awareness messages have caps (4 client ids per document
-  connection, 16 KB per state, 64 KB per message, 256 KB per socket), and the cap of 40 collaboration sockets per
+- **On every server** the inbox document is read-only, awareness messages have caps (4 client ids of its own per document
+  connection, other clients' states sent back not counted; new ids 64 at once then one a second per socket; 1024 ids
+  per document; 16 KB per state, 1 MB per message, 256 KB per socket, changed states 128 KB at once then 16 KB a
+  second per socket), and the cap of 40 collaboration sockets per
   address counts an IPv6 /64 as one address. The 40 is a constant in the code (`MAX_CONN_PER_IP` in
   `apps/server/src/collab.ts`), not a setting: many people behind one IPv6 /64 who open many tabs can get 429 on the
   socket.
 - **New log lines** (every server), when the server cuts a socket that sent what the web app never sends. The line
   names the reason only, not the account or the address:
   - `[inkling] collab socket closed: awareness message` (and `awareness state`, `awareness clients`,
-    `awareness socket`, `awareness malformed`: the cap that was passed)
+    `awareness new-ids`, `awareness document`, `awareness socket`, `awareness rate`, `awareness malformed`: the cap
+    that was passed)
   - `[inkling] collab socket closed: an update to the inbox`
 - With a storage limit, two new error lines of the reconnect when a workspace goes over its limit:
   `[inkling] storage close: collecting live connections failed` and

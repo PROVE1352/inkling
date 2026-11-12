@@ -423,6 +423,14 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     let sentBytes = 0
     const t0 = Date.now()
     const dropped0 = A.awarenessStats.dropped
+    // rounds the document took in: its awareness says so once per applied message (the clock is no count, a
+    // round let in late carries a high clock)
+    let applied = 0
+    const onUpdate = (ch: { added: number[]; updated: number[] }) => {
+      if (ch.added.includes(8_000_001) || ch.updated.includes(8_000_001)) applied++
+    }
+    const liveAw = docAw() as unknown as { on(e: 'update', f: typeof onUpdate): void; off(e: 'update', f: typeof onUpdate): void }
+    liveAw.on('update', onUpdate)
     for (let c = 1; c < 200 && sd.closed === null; c++) {
       sd.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((x): [number, number, string] => [8_000_000 + x, c, st])))
       sentBytes += 4 * st.length
@@ -430,7 +438,7 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     }
     await sleep(200)
     const secs = (Date.now() - t0) / 1000
-    const applied = docAw().meta.get(8_000_001)?.clock ?? 0 // rounds that changed the document: one clock step each
+    liveAw.off('update', onUpdate)
     const appliedBytes = applied * 4 * st.length
     console.log(`[fix5] own ids re-sent: sent ${(sentBytes / 1024).toFixed(0)} KB in ${secs.toFixed(1)} s, applied about ${(appliedBytes / 1024).toFixed(0)} KB (burst ${A.AWARENESS_BYTES_BURST / 1024} KB), dropped ${A.awarenessStats.dropped - dropped0}; socket ${sd.closed === null ? 'open' : 'closed'}`)
     assert.equal(sd.closed, null, 'a message past the changed-bytes rate is dropped, the socket stays')

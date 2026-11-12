@@ -218,6 +218,8 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     // the review's frame: 90 new ids of 16 KB each (1.4 MB)
     const r1 = await raw(reader.cookie)
     await openDoc(r1, page.id)
+    // the server registers a connection a moment after it answers the handshake
+    await until(() => (collab.hocuspocus.documents.get(page.id)?.getConnections().length ?? 0) === 2, 'both connections registered')
     assert.deepEqual(collab.hocuspocus.documents.get(page.id)!.getConnections().map((c) => c.readOnly).sort(), [false, true], 'the reader is read-only')
     let next = 1_000_000
     const flood = () => Array.from({ length: 90 }, (): [number, number, string] => [next++, 1, state])
@@ -294,7 +296,8 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
       [...p.provider.awareness.getStates().values()].map((s: { user?: { name?: string } }) => s.user?.name).filter(Boolean).sort()
     await until(() => people.every((p) => names(p).length === 3), 'everyone sees three people')
     assert.deepEqual(names(people[0]), ['n1c-a', 'n1c-b', 'n1c-c'])
-    assert.ok([...people[1].provider.awareness.getStates().values()].every((s: { cursor?: unknown }) => s.cursor), 'cursors arrive')
+    // the cursor is a second awareness update of each client: it may arrive after the name
+    await until(() => [...people[1].provider.awareness.getStates().values()].every((s: { cursor?: unknown }) => s.cursor), 'cursors arrive')
     const largest = A.awarenessStats.largestState
     // a tab closes
     people[2].provider.destroy()

@@ -4,6 +4,8 @@
 #   site/deploy.sh               build, commit to gh-pages, push to origin
 #   DRY_RUN=1 site/deploy.sh     build and commit, print the commit, do not push
 #   ALLOW_WARNINGS=1 ...         publish even if the build reports missing files or anchors
+#   DEMO_URL=https://… ...       link a public demo server from both home pages and llms.txt (https only;
+#                                publish again without it to take the link down)
 #   REMOTE=origin BRANCH=gh-pages NODE=node   (defaults)
 #
 # The commit is made in a temporary detached worktree with `git commit-tree`, so the current

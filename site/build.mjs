@@ -13,6 +13,7 @@
 //     no local link ends at a folder (file:// would show a directory listing there)
 //
 // Usage (Node 22+): node site/build.mjs [--strict]
+//   DEMO_URL=https://demo.example.org node site/build.mjs   also links a public demo server (see DEMO_URL below)
 // The Markdown renderer (marked, pinned in site/package.json) is installed into site/node_modules on
 // the first run. site/ is not part of the pnpm workspace, so the repo's lockfile is not touched.
 
@@ -31,6 +32,23 @@ const BRANCH = 'main'
 /** Where GitHub Pages publishes the site; used for canonical, hreflang and Open Graph URLs only. */
 const BASE_URL = 'https://prove1352.github.io/inkling/'
 const VERSION = JSON.parse(readFileSync(join(REPO, 'apps/server/package.json'), 'utf8')).version
+/**
+ * A public demo server to link from the landing pages and llms.txt, given at build time
+ * (DEMO_URL=https://… node site/build.mjs). Unset or empty, the output has no demo link at all, byte for
+ * byte the same as before the demo existed; the repository never names a demo server.
+ */
+const DEMO_URL = process.env.DEMO_URL || ''
+if (DEMO_URL) {
+  let ok = false
+  try {
+    const u = new URL(DEMO_URL)
+    ok = DEMO_URL.startsWith('https://') && u.protocol === 'https:' && Boolean(u.hostname) && !/[\s"'<>()`\\]/.test(DEMO_URL)
+  } catch {}
+  if (!ok) {
+    console.error(`DEMO_URL must be an https:// address (got ${JSON.stringify(DEMO_URL)})`)
+    process.exit(1)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // marked (pinned in site/package.json)
@@ -503,13 +521,17 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
 //   {{FIG:name}}         a drawing from figures.mjs in this page's language
 //   {{ICON:name}}        a small icon from figures.mjs
 //   {{SECTIONS}}         links to the page's sections, named by each section's kicker
+//   {{#DEMO}}…{{/DEMO}}  kept, with {{DEMO_URL}} in it filled in, only when DEMO_URL is set; dropped
+//                        otherwise. Open it at the end of an existing line so nothing is left behind.
+//                        llms.txt uses the same markers.
 // ---------------------------------------------------------------------------
+const demoBlocks = (s, url) => s.replace(/\{\{#DEMO\}\}([\s\S]*?)\{\{\/DEMO\}\}/g, (_, inner) => (DEMO_URL ? inner.replace(/\{\{DEMO_URL\}\}/g, url) : ''))
 function sectionStrip(src, lang) {
   const links = [...src.matchAll(/<section class="block[^"]*" id="([a-z-]+)"[\s\S]*?<p class="kicker">([^<]+)<\/p>/g)].map(([, id, label]) => `<a href="#${id}">${label}</a>`)
   return `<nav class="sections" data-sections aria-label="${lang === 'ko' ? '이 쪽의 절' : 'Sections of this page'}"><div class="wrap">${links.join('')}</div></nav>`
 }
 function fillLanding(src, lang, prefix, where) {
-  const out = src
+  const out = demoBlocks(src, esc(DEMO_URL))
     .replace(/\{\{SECTIONS\}\}/g, () => sectionStrip(src, lang))
     .replace(/\{\{FIG:([a-z]+)\}\}/g, (all, n) => figure(n, lang) ?? all)
     .replace(/\{\{ICON:([a-z]+)\}\}/g, (all, n) => iconSvg(n) ?? all)
@@ -543,7 +565,7 @@ cpSync(join(SITE, 'assets'), join(OUT, 'assets'), { recursive: true, filter: (p)
     const info = DOC_INFO.get(baseOf(n))
     koDocs.push([n, `${info ? info[3] : baseOf(n)} (${info ? info[1] : baseOf(n)}, Korean)`, `docs/${n}.md`])
   }
-  const llms = readFileSync(join(SITE, 'llms.txt'), 'utf8')
+  const llms = demoBlocks(readFileSync(join(SITE, 'llms.txt'), 'utf8'), DEMO_URL)
     .replace(/\{\{VERSION\}\}/g, `v${VERSION}`)
     .replace('{{KO_DOCS}}', koDocs.map(([, label, href]) => `- [${label}](${href})`).join('\n'))
   for (const m of llms.matchAll(/\{\{[^}]*\}\}/g)) warn(`llms.txt: unknown placeholder ${m[0]}`)

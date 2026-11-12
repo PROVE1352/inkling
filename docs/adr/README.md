@@ -1023,6 +1023,18 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2537](2537-sign-up-counting-keys-and-hourly-cap.md) | Sign-up counting keys, an hourly cap and limited taken-ID answers | Accepted |
 | [2538](2538-demo-runs-through-a-script-with-fixed-names.md) | The demo runs through a script, with its names written out | Accepted |
 | [2539](2539-deletion-preview-is-session-only.md) | The deletion preview answers browser sessions only | Accepted |
+| [2540](2540-live-page-struct-cap.md) | A live page holds at most 300k Yjs structs (servers with a storage limit or the fuse) | Accepted |
+| [2541](2541-awareness-caps-per-connection-and-socket.md) | Awareness: four client ids per connection, 16 KB per state, 64 KB per message, 256 KB per socket | Accepted |
+| [2542](2542-inbox-document-is-read-only.md) | The inbox document is read-only and refuses updates | Accepted |
+| [2543](2543-unsaved-growth-is-what-the-document-took-in.md) | Unsaved growth is what the document took in, not the frame length | Accepted |
+| [2544](2544-collab-socket-cap-per-ipv6-64.md) | The collab socket cap and byte bucket count an IPv6 /64 as one address | Accepted |
+| [2545](2545-small-files-and-indexes-count-toward-storage.md) | Small files and search indexes count toward storage; the fuse counts disk blocks | Accepted |
+| [2546](2546-demo-image-name-and-volume-filesystem.md) | The demo runs its own image name, with its volumes on a filesystem of their own | Accepted |
+| [2547](2547-page-access-audit-ids-and-rename-after-edit-check.md) | Page access audit rows keep the person's id; a rename checks storage after the edit check | Accepted |
+| [2548](2548-store-estimates-stay-until-a-recount-sees-them.md) | Live editing is admitted with its index rows, and a store's estimate stays until a recount sees it | Accepted |
+| [2549](2549-storage-limit-closes-editing-as-a-reconnect.md) | Going over the storage limit reconnects editing read-only; the demo's containers get no swap | Accepted |
+| [2550](2550-edit-budget-for-one-replace.md) | One replace has an edit budget; past it a changed block's content is swapped whole | Accepted (amends 0940, 1500) |
+| [2551](2551-memory-of-a-large-markdown-replace.md) | Memory of a large Markdown replace: what holds it, what was cut, what is left | Accepted |
 
 ## 099x Client updates
 

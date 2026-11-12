@@ -244,7 +244,9 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     assert.ok(A.awarenessStats.refused - refusedBefore >= 3)
     assert.ok(states, 'the page is still open')
     assert.equal(states.states.size, 0, 'no state of a closed socket is kept')
-    assert.ok(states.meta.size <= 1, 'nor its clock records (the server keeps its own)')
+    // its clock records stay a minute (an echo of the removal must still find them, ADR 2552), then go
+    A.sweepAwarenessMeta(states as never, Date.now() + A.AWARENESS_META_KEEP_MS + 1, true)
+    assert.ok(states.meta.size <= 1, 'nor its clock records once swept (the server keeps its own)')
     // and closing over and over leaves nothing behind either
     for (let k = 0; k < 5; k++) {
       const r = await raw(reader.cookie)
@@ -255,8 +257,10 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
       await until(() => r.closed !== null, 'close')
     }
     await sleep(200)
-    const meta = (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { meta: Map<number, unknown> } }).awareness.meta.size
-    assert.ok(meta <= 1, `clock records after five connect-and-close rounds: ${meta}`)
+    const aw = (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { meta: Map<number, unknown> } }).awareness
+    A.sweepAwarenessMeta(aw as never, Date.now() + A.AWARENESS_META_KEEP_MS + 1, true)
+    const meta = aw.meta.size
+    assert.ok(meta <= 1, `clock records after five connect-and-close rounds, swept: ${meta}`)
     assert.equal(keeper.closed, null, 'the owner was never disconnected')
     keeper.ws.close()
   })

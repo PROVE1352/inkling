@@ -306,4 +306,33 @@ describe('deploy/demo/demo.sh', { skip: !usable && 'needs docker compose, python
     }
     assert.deepEqual(calls(), [])
   })
+
+  it('0.22.1 fix 5: app, db and backup run without core dumps (ulimits core 0); a missing or non-zero one is refused', () => {
+    const ok = run(['config'])
+    assert.equal(ok.code, 0, ok.out + ok.err)
+    // compose config --format json prints `core: {soft: 0, hard: 0}` as "core": {} (zeros left out)
+    for (const s of ['app', 'db', 'backup']) assert.match(ok.out, new RegExp(`ok {6}service ${s}: ulimits core \\{\\} \\(core dumps off\\)`), ok.out)
+    const file = path.join(root, 'deploy/demo/compose.demo.yaml')
+    const base = readFileSync(file, 'utf8')
+    const block = '    ulimits:\n      core:\n        soft: 0\n        hard: 0\n'
+    assert.equal(base.split(block).length, 4, 'three services carry the block')
+    const nth = (n: number, repl: string) => {
+      let i = -1
+      for (let k = 0; k <= n; k++) i = base.indexOf(block, i + 1)
+      return base.slice(0, i) + repl + base.slice(i + block.length)
+    }
+    const cases: [string, RegExp][] = [
+      [nth(0, ''), /REFUSED service app: ulimits core null/],
+      [nth(1, '    ulimits:\n      core:\n        soft: 0\n        hard: -1\n'), /REFUSED service db: ulimits core \{"hard": -1\}/],
+      [nth(2, '    ulimits:\n      core: 1024\n'), /REFUSED service backup: ulimits core \{"soft": 1024, "hard": 1024\}|REFUSED service backup: ulimits core 1024/],
+    ]
+    for (const [text, refusal] of cases) {
+      writeFileSync(file, text)
+      const r = run(['config'])
+      assert.equal(r.code, 3, r.out + r.err)
+      assert.match(r.out, refusal)
+      assert.equal(run(['up']).code, 3)
+    }
+    assert.deepEqual(calls(), [])
+  })
 })

@@ -45,7 +45,7 @@ import {
 } from './quota/collabGrowth'
 import { onInstanceFullChange } from './quota/instance'
 import { liveStructCount, pendingUpdateBytes, structGrowthBound, syncUpdateBounds, updateShape } from './collabUpdateShape'
-import { admitAwarenessFrame, frameMessageType, newSocketAwareness, releaseAwareness, type SocketAwareness } from './collabAwareness'
+import { admitAwarenessFrame, frameMessageType, newSocketAwareness, releaseAwareness, type AwarenessLike, type SocketAwareness } from './collabAwareness'
 import { ipPrefixKey } from './ipPrefix'
 import { liveDocChangedSinceStore, liveDocSeq, noteLiveStored, registerHocuspocus, trackLiveDoc } from './liveConnections'
 import { createHash } from 'node:crypto'
@@ -452,10 +452,10 @@ export const hocuspocus = new Hocuspocus({
   async afterUnloadDocument({ documentName }) {
     if (isPageDocument(documentName)) noteCollabUnloaded(documentName)
   },
-  async onDisconnect({ documentName, context, document }) {
+  async onDisconnect({ documentName, context }) {
     const ctx = context as { queueGuard?: SocketQueueGuard; awareness?: SocketAwareness } | undefined
     if (ctx?.queueGuard) noteSocketDisconnected(ctx.queueGuard, documentName)
-    if (ctx) releaseAwareness(ctx, ctx.awareness, (document as unknown as { awareness?: { states: Map<number, unknown>; meta: Map<number, unknown> } }).awareness)
+    if (ctx) releaseAwareness(ctx, ctx.awareness)
   },
   // Document schema guard (docs/adr/2425-*), before every message a connection sends: a client older
   // than the page's newest node type never writes it. Hocuspocus checks `readOnly` when it applies the
@@ -467,7 +467,7 @@ export const hocuspocus = new Hocuspocus({
     // applies their awareness too.
     if (frameMessageType(update) === AWARENESS_MESSAGE) {
       const ctx = (context ?? {}) as { awareness?: SocketAwareness }
-      const why = admitAwarenessFrame(update, ctx, ctx.awareness)
+      const why = admitAwarenessFrame(update, ctx, ctx.awareness, (document as unknown as { awareness?: AwarenessLike }).awareness)
       if (why) refuseFrame(connection, `awareness ${why}`)
     }
     // The inbox (0.22.1 N1(b)): the server only sends on it (stateless notices) and the web app never

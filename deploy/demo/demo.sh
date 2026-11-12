@@ -159,6 +159,12 @@ for s_name in ("app", "db", "backup"):
     say(num(mem) > 0 and num(swap) == num(mem), "service %s: mem_limit %s, memswap_limit %s (both set and equal: no swap past the limit)" % (s_name, mem, swap))
     say(num(s.get("pids_limit")) > 0, "service %s: pids_limit %s" % (s_name, s.get("pids_limit")))
     say(num(s.get("cpus")) > 0, "service %s: cpus %s" % (s_name, s.get("cpus")))
+    # no core dumps: a crash must not hand the memory of the container to the core_pattern handler of the host.
+    # compose config --format json prints core: {soft: 0, hard: 0} as "core": {} (zeros left out), so a
+    # core entry whose values are all absent or 0 is the only thing that passes
+    core = ((s or {}).get("ulimits") or {}).get("core")
+    zero = core == 0 or (isinstance(core, dict) and all(num(v) == 0 for v in core.values()))
+    say(core is not None and zero, "service %s: ulimits core %s (core dumps off)" % (s_name, json.dumps(core)))
 print("info    public address %r" % (((svc.get("app") or {}).get("environment") or {}).get("PUBLIC_URL")))
 if strict:
     env = (svc.get("app") or {}).get("environment") or {}

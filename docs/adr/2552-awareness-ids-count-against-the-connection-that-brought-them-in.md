@@ -30,13 +30,19 @@ is the tab's shared socket, so all its documents reconnect. This happened on eve
   awareness is at most 1024 × 16 KB whatever the number of connections.
 - The states a socket's connections brought in count against its 256 KB (not the states it echoes). A message may be
   **1 MB** (was 64 KB): the provider's echo after it joins carries everyone's state (12 people: 2.8 KB measured).
+- A socket may change **128 KB** of states at once and then **16 KB a second**, counting only entries that change
+  something (echoes are free). Hocuspocus sends every change on to every connection of the document, so without a
+  rate four ids of one's own re-sent fast multiplied into the other connections' send buffers: 30 sockets re-sending
+  four 15 KB states every 100 ms took a server without limits from 217 MB to 3.4 GB of RSS in 15 s (possible since
+  ADR 2541). Measured with the real provider: tabs moving their cursors change 0.4–0.6 KB a second each.
 - Clock records without a state are no longer dropped when a connection closes (an echo of the removal still on
   its way would bring the id back): they are swept once a minute old, when a document holds more than 256 of them.
 
 The ways the "not counted when already there" rule could be turned around were tested: a socket that keeps
 updating ids another socket brought in adds nothing of its own (they stay the other's, and leave when it closes);
 ids handed over (one removes, the other re-adds with a newer clock) count against the one that re-adds them; a socket
-that brings in and removes ids without end runs out of its 64.
+that brings in and removes ids without end runs out of its 64; one that re-sends its own four ids fast runs out of
+its byte rate.
 
 ## Consequences
 - Ordinary use is never cut: tested with the real provider (5, 8, 12 tabs; 20 reopens; one socket with 20 pages in

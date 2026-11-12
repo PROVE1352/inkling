@@ -2061,8 +2061,9 @@ No route added or removed, no migration (docs/adr/2540-* .. 2551-*). What a clie
   - Awareness: a document connection may bring at most 4 client ids of its own into the document (an id counts against
     the connection whose message added it while the document had no state for it; resending other clients' states,
     as the Hocuspocus provider does, never counts), a socket may add new client ids 64 at once and then one a second,
-    a document holds at most 1024 ids, a state at most 16 KB, a message at most 1 MB, and the states a socket's
-    connections brought in at most 256 KB together. A message past one of them is never applied and the socket is
+    a document holds at most 1024 ids, a state at most 16 KB, a message at most 1 MB, the states a socket's
+    connections brought in at most 256 KB together, and a socket may change 128 KB of states at once and then 16 KB
+    a second (entries that change nothing are free). A message past one of them is never applied and the socket is
     cut. The ids a closed connection brought in are removed.
   - A cut socket is terminated without a close frame (a browser reports 1006); the provider reconnects.
   - At most 40 sockets per client address (a constant, `MAX_CONN_PER_IP` in `collab.ts`), with an IPv6 /64 counted as

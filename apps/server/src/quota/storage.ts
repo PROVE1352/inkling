@@ -173,7 +173,7 @@ export function noteBodyStoreWritten(pageId: string, passSeq: number, written = 
   }
 }
 
-/** An index pass numbered `seq` wrote the rows of `pageId` (docIndexer.ts onIndexPassDone). */
+/** An index pass numbered `seq` wrote the rows of `pageId` (called by docIndexer.ts runSerial). */
 export function noteIndexPassDone(pageId: string, seq: number): void {
   if (!estimatePage.size) return
   const ws = estimatePage.get(pageId)

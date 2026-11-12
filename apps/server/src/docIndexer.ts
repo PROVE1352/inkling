@@ -12,6 +12,8 @@ import { extractTasks, reindexPageTasks } from './md/taskIndex'
 import { blocksToPlainText, reindexPageText } from './md/textIndex'
 import { beginIndexWindow, endIndexWindow, indexActor } from './context/attribution'
 import { mentionSignature, syncDocMentions } from './notify/producers'
+// a function called only once a pass has run (no use while modules load, so a cycle through it is harmless)
+import { noteIndexPassDone } from './quota/storage'
 
 /**
  * Derived-index pipeline for live collaborative documents (docs/adr/0750-*).
@@ -183,17 +185,12 @@ async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | n
 /**
  * Index passes are numbered when their state is chosen (0.22.1, docs/adr/2548-*): the storage limit's
  * estimate of a store's index rows (quota/storage.ts) stands until a pass numbered after that store has
- * written its rows. Without a storage limit nothing listens.
+ * written its rows (noteIndexPassDone, which returns at once without a storage limit).
  */
 let passSeq = 0
-let passDone: ((pageId: string, seq: number) => void) | null = null
 /** The number the next index pass will be given is greater than this. */
 export function indexPassSeq(): number {
   return passSeq
-}
-/** One listener for "the pass numbered `seq` of this page wrote its rows" (quota/storage.ts). */
-export function onIndexPassDone(fn: ((pageId: string, seq: number) => void) | null): void {
-  passDone = fn
 }
 
 function runSerial(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
@@ -203,7 +200,7 @@ function runSerial(pageId: string, state: Uint8Array, stamp: string | null): Pro
     .catch(() => {})
     .then(async () => {
       await runIndex(pageId, state, stamp)
-      passDone?.(pageId, seq)
+      noteIndexPassDone(pageId, seq)
     })
     .catch((err) => console.error('[inkling] store indexing failed', pageId, err))
   running.set(pageId, job)

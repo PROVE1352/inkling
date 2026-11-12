@@ -18,10 +18,10 @@ import { peopleScopeFor, runAsGuest } from './pageGrants'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { isTwoFactorBlocked } from './twoFactorPolicy'
-import { flushDocIndex, flushDocIndexes, indexPassSeq, onIndexPassDone, scheduleDocIndex } from './docIndexer'
+import { flushDocIndex, flushDocIndexes, indexPassSeq, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
-import { collabStorageReadOnly, noteBodyStore, noteBodyStoreWritten, noteIndexPassDone } from './quota/storage'
+import { collabStorageReadOnly, noteBodyStore, noteBodyStoreWritten } from './quota/storage'
 import {
   admitCollabUpdate,
   admitSocketFrame,
@@ -621,8 +621,6 @@ export const hocuspocus = new Hocuspocus({
 })
 
 registerHocuspocus(hocuspocus)
-// an index pass that wrote a page's rows lets a recount drop that page's store estimates (docs/adr/2548-*)
-onIndexPassDone(noteIndexPassDone)
 
 type SchemaConnection = { readOnly: boolean; context?: unknown; webSocket?: { close: (code?: number, reason?: string) => void } }
 

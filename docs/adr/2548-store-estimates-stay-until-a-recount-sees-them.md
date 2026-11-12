@@ -41,7 +41,7 @@ With a storage limit (nothing of this runs without one):
 3. **Estimates a recount has not seen stay in the cache.** Each body store adds an entry per page: the body's
    change and its index estimate. The body part is seen by a recount that starts after the store's upsert; the
    index part by one that starts after an index pass numbered after that upsert has written its rows
-   (`docIndexer.ts` numbers passes when their state is chosen and reports finished ones, `onIndexPassDone`). A
+   (`docIndexer.ts` numbers passes when their state is chosen and reports finished ones to `noteIndexPassDone`). A
    recount writes `count + entries it did not see` and forgets the rest. Body stores and recounts of one
    workspace take turns in the process, so a recount sees a store's delta and entry together or neither. A pass
    that lands schedules a recount 0.5 s later (the 40 s one stays as the fallback, re-armed while entries

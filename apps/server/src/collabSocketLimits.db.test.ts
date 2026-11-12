@@ -154,7 +154,9 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
       const u2 = Y.encodeStateAsUpdate(doc, sv)
       r.ws.send(updateFrame(name, u2))
       sent += u2.length
-      await sleep(30)
+      // give the close time to arrive before the next update: on a slow machine (CI) the client sees it late,
+      // and the point is that the server closes on the first updates, not how fast this loop can send
+      for (let k = 0; k < 40 && r.closed === null; k++) await sleep(25)
     }
     await until(() => r.closed !== null, 'the socket to close')
     const live = collab.hocuspocus.documents.get(name)

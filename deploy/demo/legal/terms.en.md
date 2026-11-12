@@ -37,7 +37,7 @@ The service has storage and usage limits. The limits that apply are the ones sho
 - Pages in one workspace: 300
 - Accounts on the whole service: 50
 
-When a workspace's storage is full, the workspace is read-only until you delete files or pages to make room. The operator may change the limits depending on the server's situation and will show any change in the service. If a lower limit leaves existing material over the limit, the operator will not delete that material without telling you first.
+When a workspace's storage is full, the workspace is read-only until you delete files or pages to make room. Each file counts as at least 5 KB, and text written in the editor is counted together with its search index in advance, so editing can stop before the limit is reached. The operator may change the limits depending on the server's situation and will show any change in the service. If a lower limit leaves existing material over the limit, the operator will not delete that material without telling you first.
 
 ## 5. Your content
 

@@ -34,7 +34,8 @@ filesystems. One way on Linux is an image file with ext4, mounted at every boot:
 sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
 sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
 sudo mkdir -p /srv/inkling-demo-data
-echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec 0 2' | sudo tee -a /etc/fstab
+sudo chattr +i /srv/inkling-demo-data               # the empty mount point: nothing can be created in it while unmounted
+echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount /srv/inkling-demo-data
 sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
 findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
@@ -48,7 +49,10 @@ an empty mount point is on the root filesystem, so `up` refuses it rather than w
 (`restart: unless-stopped` in `compose.yaml`), so the check of `up` does not run. If the filesystem failed to mount,
 what keeps the demo off the root disk is only that the four folders are missing from the empty mount point: the
 volumes are binds of those folders, so they should fail to mount and the containers should not start (not tried on
-Linux, KNOWN-ISSUES LIMITS-51). So never create `db`, `data`, `backups` or `backup-ctl` while the filesystem is not
+Linux, KNOWN-ISSUES LIMITS-51). Two things in the commands above are for this case: `nofail` lets the server finish booting when the image cannot
+be mounted (without it a failed mount can stop the boot of the whole server), and `chattr +i` on the empty mount
+point keeps anything, Docker included, from creating folders in it on the root disk (`chattr -i` before you ever
+remove the mount point). So never create `db`, `data`, `backups` or `backup-ctl` while the filesystem is not
 mounted, check `findmnt` after every reboot, and if you would rather start the demo yourself after a planned reboot,
 run `deploy/demo/demo.sh down` before it (the data stays).
 

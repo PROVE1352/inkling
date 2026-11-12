@@ -20,7 +20,8 @@
 sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
 sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
 sudo mkdir -p /srv/inkling-demo-data
-echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec 0 2' | sudo tee -a /etc/fstab
+sudo chattr +i /srv/inkling-demo-data               # the empty mount point: nothing can be created in it while unmounted
+echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount /srv/inkling-demo-data
 sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
 findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
@@ -28,7 +29,7 @@ findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/ink
 
 그다음 `demo.env`에 `DEMO_VOLUME_ROOT=/srv/inkling-demo-data`를 적습니다. 따로 둔 디스크, 파티션, LVM 볼륨, 가상 머신도 됩니다. 재부팅한 뒤에는 `deploy/demo/demo.sh up` 전에 `findmnt`로 마운트되어 있는지 확인합니다. 마운트되지 않은 빈 폴더는 루트 파일시스템에 있으므로 `up`이 본 디스크에 쓰지 않고 거절합니다.
 
-**재부팅은 `demo.sh`를 기다리지 않습니다.** Docker가 데모 컨테이너를 스스로 다시 띄우므로(`compose.yaml`의 `restart: unless-stopped`) `up`의 검사가 돌지 않습니다. 파일시스템의 마운트가 실패했다면, 데모가 루트 디스크에 쓰지 못하게 막는 것은 빈 마운트 지점에 폴더 네 개가 없다는 사실뿐입니다. 볼륨이 그 폴더들을 연결하는 것이라서 연결이 실패하고 컨테이너가 뜨지 않을 것입니다(리눅스에서 해 보지 않았습니다, KNOWN-ISSUES LIMITS-51). 그러니 파일시스템이 마운트되지 않은 동안에는 `db`, `data`, `backups`, `backup-ctl`을 만들지 말고, 재부팅할 때마다 `findmnt`를 확인하고, 계획한 재부팅 뒤 데모를 직접 띄우고 싶으면 그 전에 `deploy/demo/demo.sh down`을 실행합니다(데이터는 남습니다).
+**재부팅은 `demo.sh`를 기다리지 않습니다.** Docker가 데모 컨테이너를 스스로 다시 띄우므로(`compose.yaml`의 `restart: unless-stopped`) `up`의 검사가 돌지 않습니다. 파일시스템의 마운트가 실패했다면, 데모가 루트 디스크에 쓰지 못하게 막는 것은 빈 마운트 지점에 폴더 네 개가 없다는 사실뿐입니다. 볼륨이 그 폴더들을 연결하는 것이라서 연결이 실패하고 컨테이너가 뜨지 않을 것입니다(리눅스에서 해 보지 않았습니다, KNOWN-ISSUES LIMITS-51). 위 명령의 두 가지가 이 경우를 위한 것입니다. `nofail`은 이미지를 마운트하지 못해도 서버가 부팅을 마치게 하고(없으면 마운트 실패가 서버 전체의 부팅을 멈출 수 있습니다), 빈 마운트 지점의 `chattr +i`는 Docker를 포함해 누구도 루트 디스크의 그 폴더 안에 폴더를 만들지 못하게 합니다(마운트 지점을 지울 일이 생기면 먼저 `chattr -i`). 그러니 파일시스템이 마운트되지 않은 동안에는 `db`, `data`, `backups`, `backup-ctl`을 만들지 말고, 재부팅할 때마다 `findmnt`를 확인하고, 계획한 재부팅 뒤 데모를 직접 띄우고 싶으면 그 전에 `deploy/demo/demo.sh down`을 실행합니다(데이터는 남습니다).
 
 **크기**는 퓨즈 + WAL 2 GB + 백업 벌 수 × 퓨즈 + 여유입니다. 프리셋(`LIMIT_INSTANCE_STORAGE_MB=3000`, 매일 백업 7벌)이면 3 + 2 + 7 × 3 = 26 GB이고, 여유를 두어 30 GB입니다. 퓨즈나 백업 벌 수를 바꾸면 크기도 맞춰 바꿉니다. **inode**는, 프리셋에서 세는 파일이 많아야 워크스페이스 100개 × 10 MB / 5 KB(파일 하나는 적어도 5 KB로 셈), 약 205,000개이고 여기에 데이터베이스와 백업의 파일이 더해집니다. `-N 600000`은 inode 수를 묶으면서 그만큼의 여유를 둡니다.
 

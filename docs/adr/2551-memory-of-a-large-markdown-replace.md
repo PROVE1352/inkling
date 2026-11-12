@@ -58,7 +58,7 @@ and the dry run's validation read, which again copied the copy before reading it
   unchanged since" check and a second path.
 
 ## Consequences
-See the table in the 0.22.2 report (`w22-reports/replace-fix/`): with a 512 MB heap every case of the
+See the table in the 0.22.1 report (`w22-reports/replace-fix/`): with a 512 MB heap every case of the
 reproduction now answers 200 and the server stays up, but with 990K of ordinary Markdown rewritten six
 times the RSS still peaks at ~840–870 MB, above a 768 MB container limit (macOS measurement, not a
 container). The likely reason, estimated and not proven: the live set of such a replace is ~300 MB of

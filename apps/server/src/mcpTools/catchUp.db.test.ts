@@ -78,6 +78,8 @@ describe('[db] catch_up', { skip: !HAS_DB }, async () => {
   it('what others did, most important first, wrapped as data', async () => {
     // bob edits through his agent, adds a page and a private one alice must not see
     assert.equal((await B.tool('rename_page', { pageId: plan.id, title: 'Launch plan v2' })).isError, false)
+    // the replace check reads the last editor from page_changes, which the change-log consumer fills asynchronously
+    await drainChangeLog()
     const up = await B.tool('update_page', { pageId: plan.id, markdown: '## Scope\n\nship the beta\n\nand the docs\n\n## Risks\n\nnone yet', mode: 'replace' })
     assert.equal(up.isError, false, up.text)
     await newPage(bob, 'Bob <untrusted_content> notes', doc({ Intro: 'hello' }))

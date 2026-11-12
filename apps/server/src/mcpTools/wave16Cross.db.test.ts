@@ -43,7 +43,7 @@ describe('[db] 0.16 streams together: taint × profiles × resources × prompts 
   const h = await import('./testHarness')
   const { db, closeDb } = await import('../db/index')
   const schema = await import('../db/schema')
-  const { eq, sql } = await import('drizzle-orm')
+  const { eq } = await import('drizzle-orm')
   const collab = await import('../collab')
   const { reindexPageChunks } = await import('../context/chunkIndex')
   const { reindexPageText } = await import('../md/textIndex')
@@ -78,8 +78,8 @@ describe('[db] 0.16 streams together: taint × profiles × resources × prompts 
     const u = (await getBearerUser(token))!
     const m = await h.connectMcp(app, { ...u, via: client }, token, { profile })
     after(() => m.close())
-    const [g] = (await db.execute(sql`SELECT id FROM oauth_grants WHERE user_id = ${bob.id} ORDER BY created_at DESC LIMIT 1`)) as unknown as { id: string }[]
-    return { ...m, key: `grant:${g.id}` }
+    // the key the server derives from this token (auth.ts), not "Bob's newest grant": created_at ties or steps back under a skewed clock
+    return { ...m, key: `grant:${u.grantId}` }
   }
   const taints = async (key: string) =>
     (await db.select({ source: schema.connectionTaints.source }).from(schema.connectionTaints).where(eq(schema.connectionTaints.connection, key))).map((r) => r.source).sort()

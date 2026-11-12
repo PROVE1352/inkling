@@ -1313,15 +1313,16 @@ No migration and no new setting for the app (docs/adr/2540-* .. 2551-*; CHANGELO
 - **On every server** the inbox document is read-only, awareness messages have caps (4 client ids of its own per document
   connection, other clients' states sent back not counted; new ids 64 at once then one a second per socket; 1024 ids
   per document; 16 KB per state, 1 MB per message, 256 KB per socket, changed states 128 KB at once then 16 KB a
-  second per socket), and the cap of 40 collaboration sockets per
+  second per socket; past one of these two rates the message is dropped and the socket stays, past another cap the
+  socket is cut), and the cap of 40 collaboration sockets per
   address counts an IPv6 /64 as one address. The 40 is a constant in the code (`MAX_CONN_PER_IP` in
   `apps/server/src/collab.ts`), not a setting: many people behind one IPv6 /64 who open many tabs can get 429 on the
   socket.
 - **New log lines** (every server), when the server cuts a socket that sent what the web app never sends. The line
   names the reason only, not the account or the address:
   - `[inkling] collab socket closed: awareness message` (and `awareness state`, `awareness clients`,
-    `awareness new-ids`, `awareness document`, `awareness socket`, `awareness rate`, `awareness malformed`: the cap
-    that was passed)
+    `awareness document`, `awareness socket`, `awareness malformed`: the cap that was passed; a message past the
+    new-id or the changed-state rate is dropped without a log line)
   - `[inkling] collab socket closed: an update to the inbox`
 - With a storage limit, two new error lines of the reconnect when a workspace goes over its limit:
   `[inkling] storage close: collecting live connections failed` and

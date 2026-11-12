@@ -1020,14 +1020,14 @@ deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
 - **모든 서버에서** 수신함 문서는 읽기 전용이고, awareness 메시지에는 상한이 있으며(문서 연결마다 스스로 들여온 클라이언트
   id 4개. 되돌려 보낸 다른 클라이언트의 상태는 세지 않음. 새 id는 소켓마다 한 번에 64개, 그 뒤로 1초에 하나. 문서마다 id
   1024개. 상태 하나 16 KB, 메시지 하나 1 MB, 소켓마다 256 KB, 소켓이 바꾸는 상태는 한 번에 128 KB, 그 뒤로 1초에
-  16 KB), 주소마다 협업 소켓 40개 상한은 IPv6 /64를 주소 하나로 셉니다. 40은
+  16 KB. 이 두 속도 상한을 넘은 메시지는 버리고 소켓은 그대로 두며, 그 밖의 상한을 넘으면 소켓을 끊음), 주소마다 협업 소켓 40개 상한은 IPv6 /64를 주소 하나로 셉니다. 40은
   설정이 아니라 코드의 상수(`apps/server/src/collab.ts`의 `MAX_CONN_PER_IP`)입니다. IPv6 /64 하나 뒤의 여러 사람이 탭을
   많이 열면 소켓에서 429를 받을 수 있습니다.
 - **새 로그 줄**(모든 서버): 웹 앱이 보내지 않는 것을 보낸 소켓을 서버가 끊을 때 남습니다. 줄에는 이유만 있고 계정이나
   주소는 없습니다.
   - `[inkling] collab socket closed: awareness message`(그리고 `awareness state`, `awareness clients`,
-    `awareness new-ids`, `awareness document`, `awareness socket`, `awareness rate`, `awareness malformed`: 넘은
-    상한)
+    `awareness document`, `awareness socket`, `awareness malformed`: 넘은 상한. 새 id 속도나 바꾸는 상태 속도를 넘은
+    메시지는 로그 없이 버립니다)
   - `[inkling] collab socket closed: an update to the inbox`
 - 저장 한도가 있으면, 워크스페이스가 한도를 넘을 때 다시 붙이는 과정의 새 오류 줄 두 개:
   `[inkling] storage close: collecting live connections failed`와

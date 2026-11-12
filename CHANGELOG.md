@@ -29,8 +29,10 @@ These change with no setting, on every server that upgrades:
   into a document (ids already there, which the web app's provider sends back for everyone else, do not count), a
   socket may add new client ids 64 at once and then one a second, a document holds at most 1024, a state at most
   16 KB, a message at most 1 MB, the states a socket brought in at most 256 KB, and a socket may change 128 KB of
-  states at once and then 16 KB a second (resent states that change nothing are free). A message past one of them is
-  never applied and the server cuts the socket; the provider reconnects. The web app brings in one id per document.
+  states at once and then 16 KB a second (resent states that change nothing are free). A message past one of the two
+  rates (new ids, changed states) is dropped: it is not applied and nobody is sent it, the socket stays, and the next
+  state the client sends replaces it, so a cursor moved very fast only skips positions. A message past one of the
+  other caps is never applied and the server cuts the socket; the provider reconnects. The web app brings in one id per document.
   Before, a member could fill the server's memory with awareness states, also from a read-only connection.
 - **The cap of 40 collaboration sockets per client address counts an IPv6 /64 as one address** (docs/adr/2544-*), as
   the request rate limit does since 0.22.0. Everyone behind one IPv6 /64 now shares 40 sockets (the web app opens one

@@ -395,6 +395,10 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     // new ids without end: bring one in, remove it, bring the next in …
     const sc = await raw(u.cookie)
     await openRaw(sc, page.id)
+    // past the new-id rate a message is dropped (emptied in place), not refused: the socket stays, the
+    // document gains no clock record for it
+    const docAw = () => (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { meta: Map<number, { clock: number }> } }).awareness
+    const droppedBefore = A.awarenessStats.dropped
     let k = 0
     while (sc.closed === null && k < 200) {
       sc.ws.send(awarenessFrame(page.id, [[7_000_000 + k, 1, small]]))
@@ -402,22 +406,37 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       k++
       await sleep(5)
     }
-    await until(() => sc.closed !== null, 'the new-id bucket runs out')
-    console.log(`[fix5] new ids before the socket closed: ${k} (bucket ${A.AWARENESS_NEW_IDS_BURST})`)
-    assert.ok(k <= A.AWARENESS_NEW_IDS_BURST + 5)
+    await sleep(200)
+    const recorded = [...docAw().meta.keys()].filter((id) => id >= 7_000_000 && id < 7_000_200).length
+    console.log(`[fix5] new ids: sent ${k}, recorded ${recorded} (bucket ${A.AWARENESS_NEW_IDS_BURST}), dropped messages ${A.awarenessStats.dropped - droppedBefore}; socket ${sc.closed === null ? 'open' : 'closed'}`)
+    assert.equal(sc.closed, null, 'a message past the new-id rate is dropped, the socket stays')
+    assert.ok(recorded <= A.AWARENESS_NEW_IDS_BURST + 5, `clock records for its ids: ${recorded}`)
+    assert.ok(A.awarenessStats.dropped - droppedBefore >= k - A.AWARENESS_NEW_IDS_BURST - 5)
+    sc.ws.close()
     sa.ws.close()
     // its own four ids re-sent fast with bigger and bigger clocks: every change goes on to every connection
     const sd = await raw(u.cookie)
     await openRaw(sd, page.id)
     const st = JSON.stringify({ blob: 'z'.repeat(15_000) })
+    // past the changed-bytes rate a message is dropped too: the socket stays, and what the document took in
+    // (and sent on to every connection) is the burst plus the refill, not what was sent
     let sentBytes = 0
+    const t0 = Date.now()
+    const dropped0 = A.awarenessStats.dropped
     for (let c = 1; c < 200 && sd.closed === null; c++) {
       sd.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((x): [number, number, string] => [8_000_000 + x, c, st])))
       sentBytes += 4 * st.length
       await sleep(5)
     }
-    await until(() => sd.closed !== null, 'the changed-bytes rate runs out')
-    console.log(`[fix5] own ids re-sent: closed after ${(sentBytes / 1024).toFixed(0)} KB (burst ${A.AWARENESS_BYTES_BURST / 1024} KB)`)
-    assert.ok(sentBytes <= A.AWARENESS_BYTES_BURST + 8 * 4 * st.length)
+    await sleep(200)
+    const secs = (Date.now() - t0) / 1000
+    const applied = docAw().meta.get(8_000_001)?.clock ?? 0 // rounds that changed the document: one clock step each
+    const appliedBytes = applied * 4 * st.length
+    console.log(`[fix5] own ids re-sent: sent ${(sentBytes / 1024).toFixed(0)} KB in ${secs.toFixed(1)} s, applied about ${(appliedBytes / 1024).toFixed(0)} KB (burst ${A.AWARENESS_BYTES_BURST / 1024} KB), dropped ${A.awarenessStats.dropped - dropped0}; socket ${sd.closed === null ? 'open' : 'closed'}`)
+    assert.equal(sd.closed, null, 'a message past the changed-bytes rate is dropped, the socket stays')
+    assert.ok(appliedBytes <= A.AWARENESS_BYTES_BURST + (secs + 1) * A.AWARENESS_BYTES_PER_SEC + 4 * st.length, `applied ${appliedBytes} bytes`)
+    assert.ok(A.awarenessStats.dropped - dropped0 > 100)
+    // and after the flood a normal state of a higher clock goes in again once the bucket has refilled
+    sd.ws.close()
   })
 })

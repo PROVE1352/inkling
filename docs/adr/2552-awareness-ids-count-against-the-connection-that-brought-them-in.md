@@ -50,3 +50,19 @@ its byte rate.
 - The floods of ADR 2541 are still refused at the first frame (1.4 MB of new ids, a fifth own id, a 17 KB state).
 - A document that already holds 1024 live ids refuses newcomers' awareness, which closes their socket: someone with
   access to the page and ~256 connections could keep others off it. Not seen in ordinary use by orders of magnitude.
+
+## Past a rate the message is dropped, the socket stays (same release, after the first cut of this ADR)
+
+The two rates (new ids: 64 at once then one a second; changed states: 128 KB at once then 16 KB a second) first
+closed the socket like the other caps. That was measured with a bare provider (0.4 to 0.6 KB a second per tab). An
+editor sends its cursor with every selection change, so a held arrow key or a drag is tens of states a second, the
+same order as the rate, and closing the socket there would have repeated the fault this ADR fixes. Raising the rate
+instead (1 MB at once, 256 KB a second) let the flood through again: 30 sockets re-sending their own four ids took
+the server to 1.3 GB (demo preset) and 3.1 GB (no limits) of RSS.
+
+So past one of the two rates the frame is emptied in place (its entry count set to zero; Hocuspocus hands the hook
+the buffer it decodes afterwards), y-protocols applies an empty update, nobody is sent anything, and the socket
+stays. The next state the client sends has a higher clock and replaces what was skipped. A person loses cursor
+positions in between at most; a flood loses everything past the rate. The other caps (4 ids of its own, 16 KB a
+state, 1 MB a message, 256 KB a socket, 1024 ids a document) still close the socket: a web client never reaches
+them. `awarenessStats.dropped` counts the dropped messages; nothing is logged for them.

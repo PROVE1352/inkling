@@ -36,7 +36,12 @@ export const AWARENESS_NEW_IDS_PER_SEC = 1
  * State bytes a socket may change per second (128 KB at once, then 16 KB a second), counting only entries that
  * change something (echoes are free). Every change is sent on to every connection of the document, so without a
  * rate four ids of one's own re-sent fast multiply into the other connections' send buffers (measured: 30 sockets,
- * 3.4 GB of RSS in 15 s). An editor's cursor is ~0.4 KB per move.
+ * 3.4 GB of RSS in 15 s). An editor's cursor is ~0.4 KB per move, and it moves with every selection change: a held
+ * arrow key or a drag is tens of moves a second, which is the same order as this rate. So a message past this rate
+ * (or past the new-id rate above) is DROPPED, not refused: the frame's entry count is set to zero in place, Hocuspocus
+ * applies an empty update, nobody is sent anything, and the socket stays. The next state the client sends carries a
+ * higher clock and replaces what was skipped, so a person only loses cursor positions in between; a flood loses
+ * everything past the rate (raising the rate to 256 KB a second instead let the same flood reach 1.3 to 3.1 GB).
  */
 export const AWARENESS_BYTES_BURST = 128 * 1024
 export const AWARENESS_BYTES_PER_SEC = 16 * 1024
@@ -86,7 +91,7 @@ const pendingByDoc = new WeakMap<object, Map<number, { clock: number; live: bool
 const byContext = new WeakMap<object, ConnectionAwareness>()
 
 /** Test and log hook. */
-export const awarenessStats = { refused: 0, largestState: 0, largestMessage: 0, mostOwned: 0, newIds: 0, changedBytes: 0 }
+export const awarenessStats = { refused: 0, dropped: 0, largestState: 0, largestMessage: 0, mostOwned: 0, newIds: 0, changedBytes: 0 }
 
 export type AwarenessRefusal = 'message' | 'state' | 'clients' | 'new-ids' | 'document' | 'socket' | 'rate' | 'malformed'
 
@@ -127,6 +132,18 @@ export function admitAwarenessFrame(
   return why
 }
 
+/**
+ * Empties an Awareness frame in place: its entry count becomes zero (a var-uint of the same length), so
+ * y-protocols reads no entry and changes nothing. The rest of the bytes stay and are skipped with the payload.
+ * Hocuspocus hands the hook the very buffer it decodes afterwards (Connection.handleMessage).
+ */
+function dropFrame(frame: Uint8Array, from: number, to: number): null {
+  for (let i = from; i < to - 1; i++) frame[i] = 0x80
+  frame[to - 1] = 0x00
+  awarenessStats.dropped++
+  return null
+}
+
 function check(frame: Uint8Array, context: object, socket: SocketAwareness | undefined, awareness: AwarenessLike | undefined): AwarenessRefusal | null {
   if (frame.length > AWARENESS_MAX_MESSAGE_BYTES) return 'message'
   const [nameLen, p1] = readVarUint(frame, 0)
@@ -138,6 +155,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   const end = p3 + len
   let [n, pos] = readVarUint(frame, p3)
   if (n < 0) return 'malformed'
+  const countEnd = pos // the entry count is frame[p3 .. countEnd)
   const states = awareness?.states ?? new Map<number, unknown>()
   const meta = awareness?.meta ?? new Map<number, { clock: number; lastUpdated: number }>()
   const conn = byContext.get(context) ?? { owned: new Map<number, number>(), fresh: new Set<number>(), bytes: 0 }
@@ -191,14 +209,14 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   if (changed > 0 && socket) {
     const now = Date.now()
     const tokens = Math.min(AWARENESS_BYTES_BURST, socket.byteTokens + ((now - socket.byteAt) / 1000) * AWARENESS_BYTES_PER_SEC)
-    if (tokens < changed) return 'rate'
+    if (tokens < changed) return dropFrame(frame, p3, countEnd)
     socket.byteTokens = tokens - changed
     socket.byteAt = now
   }
   if (newIds > 0 && socket) {
     const now = Date.now()
     const tokens = Math.min(AWARENESS_NEW_IDS_BURST, socket.tokens + ((now - socket.at) / 1000) * AWARENESS_NEW_IDS_PER_SEC)
-    if (tokens < newIds) return 'new-ids'
+    if (tokens < newIds) return dropFrame(frame, p3, countEnd)
     socket.tokens = tokens - newIds
     socket.at = now
   }

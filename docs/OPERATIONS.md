@@ -1019,8 +1019,8 @@ the number of people, and a demo server that strangers can sign up to. Setting u
   and are refused the same way. Every limit error carries `{ limit, used }` (API.md, "v0.22.0 additions").
 - `LIMIT_FILE_MB` without `LIMIT_WORKSPACE_STORAGE_MB` still lets a workspace grow without bound; with both, the worst
   case on disk is about the number of accounts × owned workspaces × the storage limit (with `LIMIT_WORKSPACES_TOTAL`,
-  at most that number × the storage limit), plus what is not counted (indexes, audit and notification rows, OAuth
-  clients) and the backups. `LIMIT_INSTANCE_STORAGE_MB` is a fuse over the database and the data folder (below), not
+  at most that number × the storage limit), plus what is not counted (Postgres index entries and dead rows, audit and
+  notification rows, OAuth clients) and the backups. `LIMIT_INSTANCE_STORAGE_MB` is a fuse over the database and the data folder (below), not
   a bound on the disk.
 
 ### When the server refuses to start
@@ -1069,15 +1069,24 @@ semantic search, OpenID Connect and mail. MCP stays on.
 - `LIMIT_WORKSPACE_STORAGE_MB` counts what members can grow without bound: uploaded files, page bodies, version
   history, handwriting, comments, the page rows themselves (titles, properties, icons), database fields, views and
   row templates, custom templates, the texts the change log keeps, and agent suggestions. Pages in the trash count
-  until they are purged. Search indexes, audit events, notifications, the outbox, per-person tables, OAuth clients
-  and backups do not count.
-- Two limits of 0.22.0 (KNOWN-ISSUES LIMITS-38, LIMITS-39, to be fixed in 0.22.1): a very small file counts as its
-  size, far less than the disk block and inode it takes, and the search index built from page bodies is not counted,
-  so the database can grow well past the sum of the counted workspaces.
+  until they are purged. Since 0.22.1 it also counts the rows of the search and section indexes built from the
+  bodies (`page_texts`, `page_chunks`, `page_chunk_vectors`, `page_tasks`, `page_links`, `page_tags`,
+  `page_former_titles`), and every file as at least 5 KB: `max(size, 4,096) + 1,024` bytes, for the disk block and
+  the inode it takes (docs/adr/2545-*). Postgres index entries and dead rows, audit events, notifications, the
+  outbox, per-person tables, OAuth clients and backups do not count. Without the setting none of this is counted
+  (the usage card counts files at their size and leaves the indexes out, as in 0.22.0).
 - The count is kept in `workspaces.storage_bytes`. Uploads add their bytes in their own transaction; each save of a
   page body adds the body's growth; housekeeping counts every workspace again each hour; Workspace settings ›
   General counts it again when the stored count is more than a minute old (at most once a minute per workspace);
   deleting for good counts it again.
+- **Estimates until a recount sees them** (docs/adr/2548-*). The index rows of a saved body are written 8–30 s
+  after the save, so each save also adds 2 bytes per byte the body grew, as an estimate of its index. The estimate
+  stays in the count until a recount that starts after an index pass of that save has written its rows; a recount
+  runs 0.5 s after such a pass, and 40 s after a save that grew a body. A recount writes what it measured plus the
+  estimates it could not see yet, so `storageBytes` of the usage route can include them. The estimates are kept in
+  the server's memory only: after a restart the count keeps them as written until the first recount, which counts
+  what is stored then. Estimates older than 10 minutes are dropped. A save that finds the count more than 10 minutes
+  old recounts the workspace after its own write.
 - A workspace that has reached its limit is read-only. Every write that can grow what it keeps is refused with 413
   `LIMIT_STORAGE` (docs/adr/2533-*): new pages, uploads, imports, templates, comments and edited comment bodies,
   handwriting, manual versions, body writes by REST and MCP, quick tasks, vault sync, rows and row properties,
@@ -1095,29 +1104,47 @@ semantic search, OpenID Connect and mail. MCP stays on.
 - The writes above move the stored count by the request's size at once (an upper bound), so close to the limit a
   large write can be refused although it would fit; before refusing, the server counts the workspace again when its
   count is more than 10 seconds old, which keeps that short.
-- Live edits are counted when they arrive, before they are applied (docs/adr/2530-*). An edit that would take the
-  page body past a quarter of the limit or the workspace past its limit, or that arrives while the instance storage
-  fuse is tripped, is not applied and not stored: the connection becomes read-only and reconnects read-only, and
-  for the next 10 minutes (or until a count finds room in the workspace, or the server restarts) connections to that
-  page are opened read-only. What the person typed or pasted then stays only in their editor and on their device
-  (KNOWN-ISSUES LIMITS-24).
+- Live edits are counted when they arrive, before they are applied (docs/adr/2530-*). Since 0.22.1 an edit is
+  counted with its index to come: it passes while `cached count + 3 × (unsaved growth + the edit) + the next version
+  copy` stays within the limit (docs/adr/2548-*), and it counts what the document really took in, so a copy of an
+  update the page already holds counts 0 bytes (docs/adr/2543-*). An edit that would take the page body past a
+  quarter of the limit or the workspace past its limit, that would take the page past 300,000 Yjs structures
+  (docs/adr/2540-*), or that arrives while the instance storage fuse is tripped, is not applied and not stored: the
+  connection becomes read-only and reconnects read-only, and for the next 10 minutes (or until a count finds room in
+  the workspace, or the server restarts) connections to that page are opened read-only. A page refused for its
+  structures stays read-only for the 10 minutes even when a count finds room. What the person typed or pasted then
+  stays only in their editor and on their device (KNOWN-ISSUES LIMITS-24).
+- Because of the factor 3, a workspace filled through the editor stops short of its limit: with the demo preset a
+  burst of pastes of about 1 MB ended at 71 % of a 10 MB limit with prose and 91 % with random words after the
+  recount. REST and
+  MCP body writes are checked against "full" and can end one write past it (KNOWN-ISSUES LIMITS-44, LIMITS-45).
+- **When a workspace goes over its limit** (a save or a recount finds it there) or a page body over its cap, every
+  editing connection to it becomes read-only at once, gets the stateless message `{"t":"storage","why":"workspace"}`
+  (or `"page"`), and its socket is closed with code 4000 `storage-full`. The editor reconnects at once, read-only;
+  when a recount finds room, the read-only connections are closed again and come back able to edit, without a reload
+  (docs/adr/2549-*). In 0.22.0 they were closed with 4403 `permission-changed`, and the web app showed the page as
+  disconnected until a reload. The web app does not show the `storage` message yet (KNOWN-ISSUES LIMITS-3).
 - With `LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB` set, the collaboration socket also bounds what a
-  client sends: the sockets of one client address share 16 MB, refilled at 4 MB a second, and one socket may hold
-  at most 8 MB of messages for documents it has not opened yet; past either the socket is cut. With neither setting
-  none of these checks runs.
+  client sends: the sockets of one client address (an IPv6 /64 counts as one address since 0.22.1) share 16 MB,
+  refilled at 4 MB a second, and one socket may hold at most 8 MB of messages for documents it has not opened yet;
+  past either the socket is cut. With neither setting none of these checks runs, and neither do the structure cap
+  and the factor 3 above.
 
 ### Instance storage fuse
 `LIMIT_INSTANCE_STORAGE_MB` (docs/adr/2532-*) stops writes on a server that strangers could fill, such as a demo.
 It is weaker than a filesystem with a size limit (KNOWN-ISSUES LIMITS-27); give a demo one of its own as well (below).
-In 0.22.0 it also sees very small files at their size rather than the disk they take, and it can trip before the
-workspaces reach their limits, because the search index and dead space count in the database but not in any
-workspace (LIMITS-38, LIMITS-39). A public demo for strangers needs 0.22.1 ([DEMO.md](DEMO.md)).
+Since 0.22.1 it counts the disk blocks files take, and the workspaces count their search indexes, so 100 full
+workspaces of the demo preset fit under its 3,000 MB (docs/adr/2545-*, 2548-*). Dead space and Postgres index entries
+are still counted by the fuse and by no workspace (LIMITS-50).
 
-- **What it measures**: `pg_database_size` of the app's database plus the bytes of every file under the data folder
-  (`DATA_DIR`: uploads, the import and export scratch folder, plugins), walked on disk. It measures at most once a
-  minute: when a check finds the last measurement older than that, from the hourly housekeeping, and in the
-  background while live edits arrive. A failed measurement keeps the last answer. The log has one line when the fuse
-  trips and one when the server is under it again.
+- **What it measures**: `pg_database_size` of the app's database plus what every file and folder under the data
+  folder (`DATA_DIR`: uploads, the import and export scratch folder, plugins) takes on disk, `max(size, blocks × 512)`
+  (since 0.22.1; before, the size), walked with 64 `lstat` calls at a time. It measures at most once a minute: when a
+  check finds the last measurement older than that, from the hourly housekeeping, and in the background while live
+  edits arrive. Since 0.22.1 a check answers from the last measurement and measures again in the background, so a
+  write never waits for the walk; only the first check after a start (or after the limit changed) waits. A failed
+  measurement keeps the last answer. The log has one line when the fuse trips (`[inkling] instance storage fuse
+  tripped: …`) and one when the server is under it again (`[inkling] instance storage is under its fuse again: …`).
 - **What stops when it is full** (the sum has reached the limit): every POST, PUT and PATCH under `/api` answers 503
   `INSTANCE_FULL` before sign-in is checked, and so does sign-up (not the setup-code sign-up). A new OIDC account is
   refused, `POST /oauth/register` answers 503 `temporarily_unavailable`, and live editing connections become
@@ -1130,6 +1157,8 @@ workspace (LIMITS-38, LIMITS-39). A public demo for strangers needs 0.22.1 ([DEM
   threads), what only removes or hands over (rejecting and withdrawing suggestions, unpublishing, removing guests,
   releasing connections, transferring ownership) and the admin routes (`/api/admin/**`). When a measurement finds the
   server under the limit again, writes work at once and read-only editing connections reconnect and can edit.
+  Because a check answers from the last measurement, the first write after you make room can still get 503 once
+  (it starts the measurement that finds the room).
 - Admin › Status lists **Server storage limit** with use, limit, database and files: red when tripped, amber from
   90 %.
 
@@ -1137,7 +1166,8 @@ workspace (LIMITS-38, LIMITS-39). A public demo for strangers needs 0.22.1 ([DEM
 the space for reuse inside each table. Measured for 0.22.0 (ADR 2532): 60 × 5 MB took the database from 11.4 MB to
 322.6 MB; deleting every row left 322.6 MB; with half the rows deleted, `VACUUM` left 326.2 MB, still tripped;
 `VACUUM FULL` of the table brought it to 167.0 MB and released the fuse. So members deleting pages will usually not
-release it. To release it:
+release it. In the 0.22.1 rehearsal (demo preset, local Docker) a tripped fuse was released this way: `VACUUM FULL`
+took the database from 219 MB to 13.7 MB, and writes worked again after one more refused write. To release it:
 
 1. Find the largest tables (with their TOAST data and indexes). Usually `page_docs` and `page_snapshots` lead.
 2. Have what should go deleted: workspaces deleted for good, trashes emptied, accounts that should go deleted.
@@ -1159,9 +1189,10 @@ address can send 4 MB a second over the collaboration socket (about 240 MB a min
 at full rate for a minute or two can trip a 3,000 MB fuse on a demo holding 2,000 MB of counted data. Only that
 server stops, but it stays stopped until the operator acts.
 
-Disk budget for a fuse of `L` MB: live data `L` plus a minute of growth, WAL about 1 GB, each daily backup set at
-most `L` (content that does not compress), and the logs. With the demo preset (3,000 MB, 7 daily sets) that is about
-3 + 1 + 7 × 3 = 25 GB in the worst case. Put a demo's Docker volumes on a separate filesystem with a size limit, so
+Disk budget for a fuse of `L` MB: live data `L` plus a minute of growth, 2 GB for the WAL (the 0.22.1 rehearsal
+measured 880 MB after about 200 MB of database writes), each daily backup set at most `L` (content that does not
+compress), and the logs. With the demo preset (3,000 MB, 7 daily sets) that is 3 + 2 + 7 × 3 = 26 GB in the worst
+case; [DEMO.md](DEMO.md) sizes the demo's filesystem at 30 GB. Put a demo's Docker volumes on a separate filesystem with a size limit, so
 that whatever the fuse misses cannot fill the disk the main instance uses.
 
 ### Terms and consent (`LEGAL_DIR`)
@@ -1258,8 +1289,10 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
   with the same name never change. A name written without an id beside it stays, also in rows 0.22.0 writes: the
   person of the page access rows (sharing a page with a person, changing or removing that access, accepting a page
   invitation) and the invited address of page invitations; rows written before 0.22.0 also keep the names of
-  locking a page, changing a lock's editors, and blocking and unblocking an agent. 0.22.1 is to remove them
-  (KNOWN-ISSUES LIMITS-8).
+  locking a page, changing a lock's editors, and blocking and unblocking an agent (KNOWN-ISSUES LIMITS-8).
+- Since 0.22.1 the page access rows keep `personId` beside the name, so deletion clears them, and deletion also
+  clears the invited address of `page.guest_invited` rows whose address is the account's own sign-in email or ID
+  (docs/adr/2547-*). Rows written before 0.22.1 keep the name (KNOWN-ISSUES LIMITS-52).
 - The preview of what deletion removes (`GET /api/me/delete-preview`) answers browser sessions only.
 - The admin's **Delete** in Admin › Users keeps its 0.21 behaviour (409 `SOLE_OWNER`, private pages to the trash).
 
@@ -1268,3 +1301,45 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
   production without `SIGNUP_MAX_USERS`. **Account lifetime**, shown while `ACCOUNT_LIFETIME_DAYS` or the dry run is
   set: amber during a dry run.
 - With `LIMIT_INSTANCE_STORAGE_MB`, the storage group lists **Server storage limit** (above, "Instance storage fuse").
+
+### Upgrading from 0.22.0 to 0.22.1
+No migration and no new setting for the app (docs/adr/2540-* .. 2551-*; CHANGELOG, 0.22.1).
+- **With `LIMIT_WORKSPACE_STORAGE_MB`, workspaces count more**: the search indexes and the 5 KB minimum per file are
+  new in the count. A workspace near its limit can turn read-only at its first recount after the upgrade (the hourly
+  housekeeping, or Workspace settings › General when its count is more than a minute old). Open Workspace settings ›
+  General of your largest workspaces after the upgrade to see the new numbers. To make room: delete pages or files
+  and empty the trash, or raise `LIMIT_WORKSPACE_STORAGE_MB` and restart. Without the setting nothing changes in the
+  count.
+- **On every server** the inbox document is read-only, awareness messages have caps (4 client ids per document
+  connection, 16 KB per state, 64 KB per message, 256 KB per socket), and the cap of 40 collaboration sockets per
+  address counts an IPv6 /64 as one address. The 40 is a constant in the code (`MAX_CONN_PER_IP` in
+  `apps/server/src/collab.ts`), not a setting: many people behind one IPv6 /64 who open many tabs can get 429 on the
+  socket.
+- **New log lines** (every server), when the server cuts a socket that sent what the web app never sends. The line
+  names the reason only, not the account or the address:
+  - `[inkling] collab socket closed: awareness message` (and `awareness state`, `awareness clients`,
+    `awareness socket`, `awareness malformed`: the cap that was passed)
+  - `[inkling] collab socket closed: an update to the inbox`
+- With a storage limit, two new error lines of the reconnect when a workspace goes over its limit:
+  `[inkling] storage close: collecting live connections failed` and
+  `[inkling] reconnectWorkspaceForStorage failed`.
+- **A demo started with 0.22.0** keeps its volumes on Docker's disk until it is moved: docs/DEMO.md, "Moving a demo
+  from 0.22.0".
+
+### Memory of large pages
+This applies to every server, with or without limits (docs/adr/2550-*, 2551-*).
+- The default `compose.yaml` runs the app with a 512 MB heap (`NODE_OPTIONS=--max-old-space-size=512`) in a 768 MB
+  container (`APP_MEM_LIMIT=768m`), which leaves about 250 MB outside the heap. Buffers, Yjs documents and the parsed
+  documents of a Markdown conversion live partly outside it.
+- Since 0.22.1 a replace of a large range has an edit budget, so rewriting about 1 MB of different text no longer
+  runs the server out of memory (before: on the second request). But rewriting about 990 KB of ordinary Markdown
+  six times in a row still peaked at 832–856 MB of resident memory with a 512 MB heap (production build on macOS,
+  not in a container; KNOWN-ISSUES LIMITS-54), which is more than the default container allows: the container would
+  be stopped and restarted, and edits not yet saved would be lost.
+- If agents or people rewrite large pages on your server, give the app more room outside the heap: for example
+  `APP_MEM_LIMIT=1g` with the default heap. That value is not measured in a container; the measurements above were
+  made on macOS, where resident memory can differ from a Linux container. In the demo's live-editing runs the server
+  used 255–325 MB besides its heap; in the replace runs above resident memory went up to 344 MB past a 512 MB heap.
+- The demo preset runs a 448 MB heap in a 768 MB container, and app, database and backup get `memswap_limit` equal to
+  `mem_limit`, so a container that runs out is stopped and restarted instead of using the host's swap; `demo.sh`
+  refuses a configuration without these limits ([DEMO.md](DEMO.md), "Memory").

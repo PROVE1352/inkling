@@ -32,13 +32,14 @@ filesystems. One way on Linux is an image file with ext4, mounted at every boot:
 
 ```bash
 sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
-sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
+sudo mkfs.ext4 -F -m 0 -N 600000 -E nodiscard -L inkling-demo /var/lib/inkling-demo.img   # nodiscard: mkfs would otherwise give the space back
 sudo mkdir -p /srv/inkling-demo-data
 sudo chattr +i /srv/inkling-demo-data               # the empty mount point: nothing can be created in it while unmounted
 echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount /srv/inkling-demo-data
 sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
 findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
+sudo du -h /var/lib/inkling-demo.img                  # the full size, not a few MB: the image really holds its space
 ```
 
 Then set `DEMO_VOLUME_ROOT=/srv/inkling-demo-data` in `demo.env`. A separate disk, partition, LVM volume or a

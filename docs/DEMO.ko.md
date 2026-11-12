@@ -18,13 +18,14 @@
 
 ```bash
 sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
-sudo mkfs.ext4 -F -m 0 -N 600000 -L inkling-demo /var/lib/inkling-demo.img
+sudo mkfs.ext4 -F -m 0 -N 600000 -E nodiscard -L inkling-demo /var/lib/inkling-demo.img   # nodiscard: mkfs would otherwise give the space back
 sudo mkdir -p /srv/inkling-demo-data
 sudo chattr +i /srv/inkling-demo-data               # the empty mount point: nothing can be created in it while unmounted
 echo '/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount /srv/inkling-demo-data
 sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
 findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/inkling-demo-data
+sudo du -h /var/lib/inkling-demo.img                  # the full size, not a few MB: the image really holds its space
 ```
 
 그다음 `demo.env`에 `DEMO_VOLUME_ROOT=/srv/inkling-demo-data`를 적습니다. 따로 둔 디스크, 파티션, LVM 볼륨, 가상 머신도 됩니다. 재부팅한 뒤에는 `deploy/demo/demo.sh up` 전에 `findmnt`로 마운트되어 있는지 확인합니다. 마운트되지 않은 빈 폴더는 루트 파일시스템에 있으므로 `up`이 본 디스크에 쓰지 않고 거절합니다.

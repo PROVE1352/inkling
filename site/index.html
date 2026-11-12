@@ -226,7 +226,7 @@
 
       <div class="split">
         <div class="transcript">
-          <p class="quick-label">An agent asks a question. Real output from a demo workspace on 0.20; ids differ on every server.</p>
+          <p class="quick-label">An agent asks a question. Real output from a demo workspace; ids differ on every server.</p>
           <div class="term">
 <pre><code><span class="k">› find_context</span>(query: "launch checklist status page")
 1 result(s) for "launch checklist status page", ~63/3500 tokens
@@ -244,6 +244,7 @@ Title matches without text:
 
 Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
           </div>
+          <p class="method read-one">Measured once on 2026-11-12 by one agent connected over remote MCP to a server running 0.22.1: on a 1,332-line page, <code>read_page</code> for one section took 147&nbsp;ms and returned 1.2&nbsp;KB, and reading the whole page took 2,564&nbsp;ms and returned 385&nbsp;KB.</p>
         </div>
         <div class="metrics">
           {{FIG:budget}}

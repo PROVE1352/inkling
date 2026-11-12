@@ -431,6 +431,60 @@ function head({ lang, title, description, canonical, alternates, ogImage, ogType
 }
 
 // ---------------------------------------------------------------------------
+// link previews: og:image size and alt, and the twitter card, added to every page that has an og:image
+// ---------------------------------------------------------------------------
+/** Width and height of a PNG, read from its IHDR chunk. */
+const pngSizes = new Map()
+function pngSize(file) {
+  if (!pngSizes.has(file)) {
+    let size = null
+    if (existsSync(file)) {
+      const b = readFileSync(file)
+      if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47 && b.toString('latin1', 12, 16) === 'IHDR') size = { width: b.readUInt32BE(16), height: b.readUInt32BE(20) }
+    }
+    pngSizes.set(file, size)
+  }
+  return pngSizes.get(file)
+}
+/** "assets/en/review-light.png" -> the alt text the landing pages give that picture (kept as written there). */
+const IMG_ALT = new Map()
+for (const f of ['index.html', 'ko/index.html'])
+  for (const m of readFileSync(join(SITE, f), 'utf8').matchAll(/<img src="(?:\.\.\/)?(assets\/[^"]+)"[^>]*\salt="([^"]+)"/g)) if (!IMG_ALT.has(m[1])) IMG_ALT.set(m[1], m[2])
+
+/**
+ * Adds og:image:width/height/alt and the twitter card tags after a page's og:image, from its own og:title,
+ * og:description and og:image. The size is read from the image file; the alt text is the one the landing
+ * pages use for the same picture.
+ */
+function cardMeta(html, where) {
+  const og = (p) => html.match(new RegExp(`<meta property="${p}" content="([^"]*)">`))?.[1]
+  const [image, title, description] = [og('og:image'), og('og:title'), og('og:description')]
+  if (!image || !image.startsWith(BASE_URL)) {
+    warn(`${where}: no og:image under ${BASE_URL}`)
+    return html
+  }
+  const rel = image.slice(BASE_URL.length)
+  const size = pngSize(join(SITE, rel))
+  const alt = IMG_ALT.get(rel)
+  if (!size) warn(`${where}: og:image ${rel} is not a PNG in site/`)
+  if (!alt) warn(`${where}: no alt text for og:image ${rel} (give it an <img alt> on a landing page)`)
+  // A doc with no description of its own (one listed under "More") gets the docs index's plain line.
+  const ko = /<html lang="ko"/.test(html)
+  const cardDescription = description ?? (where.startsWith('docs/') ? (ko ? 'Inkling 문서' : 'Inkling documentation') : null)
+  if (!cardDescription) warn(`${where}: no og:description for the twitter card`)
+  const tags = [
+    size && `<meta property="og:image:width" content="${size.width}">`,
+    size && `<meta property="og:image:height" content="${size.height}">`,
+    alt && `<meta property="og:image:alt" content="${alt}">`,
+    '<meta name="twitter:card" content="summary_large_image">',
+    `<meta name="twitter:title" content="${title ?? ''}">`,
+    cardDescription && `<meta name="twitter:description" content="${cardDescription}">`,
+    `<meta name="twitter:image" content="${image}">`,
+  ].filter(Boolean)
+  return html.replace(/^([ \t]*)(<meta property="og:image" content="[^"]*">)$/m, (all, indent) => [all, ...tags.map((t) => indent + t)].join('\n'))
+}
+
+// ---------------------------------------------------------------------------
 // docs layout
 // ---------------------------------------------------------------------------
 function page({ lang, name, title, description, body, toc, mdHref }) {
@@ -555,8 +609,8 @@ rmSync(OUT, { recursive: true, force: true })
 mkdirSync(join(OUT, 'docs'), { recursive: true })
 mkdirSync(join(OUT, 'ko'), { recursive: true })
 
-writeFileSync(join(OUT, 'index.html'), fillLanding(readFileSync(join(SITE, 'index.html'), 'utf8'), 'en', 'docs/', 'index.html'))
-writeFileSync(join(OUT, 'ko', 'index.html'), fillLanding(readFileSync(join(SITE, 'ko', 'index.html'), 'utf8'), 'ko', '../docs/', 'ko/index.html'))
+writeFileSync(join(OUT, 'index.html'), cardMeta(fillLanding(readFileSync(join(SITE, 'index.html'), 'utf8'), 'en', 'docs/', 'index.html'), 'index.html'))
+writeFileSync(join(OUT, 'ko', 'index.html'), cardMeta(fillLanding(readFileSync(join(SITE, 'ko', 'index.html'), 'utf8'), 'ko', '../docs/', 'ko/index.html'), 'ko/index.html'))
 cpSync(join(SITE, 'assets'), join(OUT, 'assets'), { recursive: true, filter: (p) => !/\.DS_Store$/.test(p) })
 {
   // llms.txt: the version, and the Korean docs that exist in this build
@@ -586,7 +640,7 @@ for (const name of SOURCES.keys()) {
   const group = GROUPS.find((g) => g.docs.some((d) => d[0] === baseOf(name)))
   // Page head: the group as a small label, the title, the one-line description, then where the text comes from.
   const top = `<header class="doc-head">${group ? `<p class="doc-kicker">${esc(ko ? group.ko : group.en)}</p>` : ''}${h1}${description ? `<p class="doc-desc">${esc(description)}</p>` : ''}<p class="doc-meta doc-meta-top">${ko ? '이 문서는 저장소의' : 'Rendered from'} <code>${esc(from)}</code>${ko ? '을 그대로 옮겼습니다.' : ' in the repository.'} <a href="${name}.md" type="text/markdown">${ko ? 'Markdown 원문' : 'Markdown source'}</a></p></header>`
-  writeFileSync(join(OUT, 'docs', `${name}.html`), page({ lang, name, title, description, body: top + html + meta, toc, mdHref: `${name}.md` }))
+  writeFileSync(join(OUT, 'docs', `${name}.html`), cardMeta(page({ lang, name, title, description, body: top + html + meta, toc, mdHref: `${name}.md` }), `docs/${name}.html`))
 }
 
 // docs indexes, English and Korean
@@ -613,7 +667,7 @@ for (const lang of ['en', 'ko']) {
   const name = ko ? 'index.ko' : 'index'
   writeFileSync(
     join(OUT, 'docs', `${name}.html`),
-    page({ lang, name, title: ko ? '문서' : 'Documentation', description: ko ? 'Inkling 문서 목록' : 'Inkling documentation', body, toc: null }),
+    cardMeta(page({ lang, name, title: ko ? '문서' : 'Documentation', description: ko ? 'Inkling 문서 목록' : 'Inkling documentation', body, toc: null }), `docs/${name}.html`),
   )
 }
 
@@ -742,8 +796,94 @@ for (const lang of ['en', 'ko']) {
   const dir = join(OUT, lang === 'ko' ? 'ko' : '', 'tour')
   mkdirSync(dir, { recursive: true })
   const { html, md } = tourPage(lang)
-  writeFileSync(join(dir, 'index.html'), html)
+  writeFileSync(join(dir, 'index.html'), cardMeta(html, `${lang === 'ko' ? 'ko/' : ''}tour/index.html`))
   writeFileSync(join(dir, 'index.md'), md)
+}
+
+// ---------------------------------------------------------------------------
+// 404.html: GitHub Pages answers every missing address, at any depth, with this file. Every link, the
+// stylesheet and the icon are therefore absolute (BASE_URL), and it says the same thing in both languages.
+// ---------------------------------------------------------------------------
+{
+  const B = BASE_URL
+  const html = `<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found · Inkling</title>
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="${B}assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="${B}assets/site.css">
+  <script src="${B}assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="${B}index.html"><img src="${B}assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="${B}tour/index.html">Tour</a>
+      <a href="${B}docs/index.html">Docs</a>
+      <a class="hide-sm" href="${GH}">GitHub</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="notfound">
+  <div class="wrap">
+    <section class="nf" aria-labelledby="nf-en">
+      <p class="doc-kicker">404</p>
+      <h1 id="nf-en">Page not found</h1>
+      <p>There is no page at this address.</p>
+      <nav class="cta" aria-label="Where to go"><a class="btn primary" href="${B}index.html">Home</a><a class="btn" href="${B}docs/index.html">Docs</a><a class="btn" href="${B}tour/index.html">Tour</a></nav>
+    </section>
+    <section class="nf" lang="ko" aria-labelledby="nf-ko">
+      <h2 id="nf-ko">없는 페이지입니다</h2>
+      <p>이 주소에는 페이지가 없습니다.</p>
+      <nav class="cta" aria-label="갈 곳"><a class="btn primary" href="${B}ko/index.html">첫 화면</a><a class="btn" href="${B}docs/index.ko.html">문서</a><a class="btn" href="${B}ko/tour/index.html">둘러보기</a></nav>
+    </section>
+  </div>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <span>Inkling ${esc(`v${VERSION}`)}</span>
+    <nav aria-label="Footer">
+      <a href="${GH}">GitHub</a>
+      <a href="${B}llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
+`
+  writeFileSync(join(OUT, '404.html'), html)
+}
+
+// ---------------------------------------------------------------------------
+// sitemap.xml: every HTML page but 404.html, at its canonical address, with the hreflang pairs the page
+// itself declares. No robots.txt: the site lives under /inkling/, not at the host root, where crawlers look.
+// ---------------------------------------------------------------------------
+{
+  const walkHtml = (dir) => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? walkHtml(join(dir, f)) : f.endsWith('.html') ? [join(dir, f)] : []))
+  const urls = walkHtml(OUT)
+    .map((f) => relative(OUT, f).split(/[\\/]/).join('/'))
+    .filter((r) => r !== '404.html')
+    .sort()
+    .map((r) => {
+      const s = readFileSync(join(OUT, r), 'utf8')
+      const loc = `${BASE_URL}${r}`
+      const canonical = s.match(/<link rel="canonical" href="([^"]+)">/)?.[1]
+      if (canonical !== loc) warn(`sitemap: ${r} has canonical ${canonical ?? '(none)'}, expected ${loc}`)
+      const alts = [...s.matchAll(/<link rel="alternate" hreflang="([^"]+)" href="([^"]+)">/g)].map(([, l, h]) => `    <xhtml:link rel="alternate" hreflang="${esc(l)}" href="${esc(h)}"/>`)
+      return `  <url>\n    <loc>${esc(loc)}</loc>\n${alts.map((a) => a + '\n').join('')}  </url>`
+    })
+  writeFileSync(
+    join(OUT, 'sitemap.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -773,6 +913,12 @@ for (const file of htmlFiles) {
   const where = relative(OUT, file)
   for (const m of s.matchAll(/\s(href|src|srcset|poster)="([^"]*)"/g)) {
     const raw = decode(m[2])
+    // An absolute address on this site (404.html, canonical and hreflang links) must name a built file.
+    if (raw.startsWith(BASE_URL)) {
+      const t = join(OUT, raw.slice(BASE_URL.length).split('#')[0])
+      if (!existsSync(t) || statSync(t).isDirectory()) warn(`${where}: missing ${raw}`)
+      continue
+    }
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(raw)) continue
     const [path, hash] = raw.split('#')
     if (path.startsWith('/')) {

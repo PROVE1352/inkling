@@ -406,6 +406,41 @@ interface InlinePlan {
   textOps: number
 }
 
+/**
+ * What the character diff compares, as one string: the text runs with their Markdown marks (keys
+ * sorted, as `markChange` compares them key by key) and the known inline nodes' keys; embeds and
+ * unknown inline nodes are left out as `tokens` leaves them out. Equal keys mean the diff of the two
+ * nodes has no edit at all.
+ */
+function inlineKey(content: Y.XmlElement): string {
+  const known = knownInlineNodes()
+  const parts: string[][] = []
+  let text = ''
+  let sig: string | null = null
+  const flush = () => {
+    if (text) parts.push([sig ?? '', text])
+    text = ''
+    sig = null
+  }
+  for (const child of content.toArray()) {
+    if (child instanceof Y.XmlText) {
+      for (const op of child.toDelta() as { insert: unknown; attributes?: Attrs }[]) {
+        if (typeof op.insert !== 'string' || !op.insert) continue
+        const marks = markdownMarks(op.attributes ?? {})
+        const s = JSON.stringify(Object.keys(marks).sort().map((k) => [k, marks[k]]))
+        if (s !== sig) flush()
+        sig = s
+        text += op.insert
+      }
+    } else if (isEl(child) && known.has(child.nodeName)) {
+      flush()
+      parts.push([`\u0000${child.nodeName}${JSON.stringify(child.getAttributes())}`])
+    }
+  }
+  flush()
+  return JSON.stringify(parts)
+}
+
 /** Characters (and inline nodes) of a content node, counted without tokenizing it. */
 function inlineLength(content: Y.XmlElement): number {
   let n = 0
@@ -428,6 +463,9 @@ function reconcileInline(oldContent: Y.XmlElement, newContent: Y.XmlElement): vo
  * what is left of the replace's budget; the caller then swaps the content node instead.
  */
 function planInline(oldContent: Y.XmlElement, newContent: Y.XmlElement, budget: EditBudget | null): InlinePlan | null {
+  // Same characters and Markdown marks: the diff would find nothing, so it is not run (and a block
+  // the agent left alone is never swapped, whatever is left of the budget).
+  if (budget && inlineKey(oldContent) === inlineKey(newContent)) return { content: oldContent, old: [], edits: [], textOps: 0 }
   if (budget) {
     // every character becomes a token object: a pair too large to tokenize is not diffed at all
     if (budget.textOps <= 0 || budget.diffWork <= 0) return null

@@ -129,6 +129,29 @@ describe('replace edit budget (docs/adr/2550-*)', () => {
     assert.equal(blocks[4].props?.textColor, 'red')
   })
 
+  it('past the budget a block the agent did not change is still left alone (no echo, every block paired)', async () => {
+    setReplaceBudgetForTests({ textOps: 0, diffWork: 0 })
+    const server = await docFromMarkdown(PAGE)
+    const [, alpha] = topContainers(server)
+    firstText(alpha).format(0, 5, { underline: {} })
+    const ids = topContainers(server).map((c) => String(c.getAttribute('id')))
+    const client = new Y.Doc()
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server))
+    const sv = Y.encodeStateVector(client)
+    firstText(topContainers(client)[1]).insert(0, '[A]')
+    const typed = Y.encodeStateAsUpdate(client, sv)
+    client.destroy()
+    // Alpha unchanged, the other three paragraphs changed; no echo, so every block is a pair
+    const body = AGENT.replace('Alpha paragraph one two three. More.', 'Alpha paragraph one two three.')
+    applyDocumentReplace(server, await markdownToBlocks(body, noTitles), null)
+    assert.deepEqual(lastReplaceWork(), { textOps: 0, diffWork: 0, swapped: 3 })
+    Y.applyUpdate(server, typed)
+    const top = topContainers(server)
+    assert.deepEqual(top.map((c) => String(c.getAttribute('id'))), ids)
+    assert.equal(textOf(top[1]), '[A]Alpha paragraph one two three.')
+    assert.deepEqual((readBlocks(server)[1].content as unknown[])[1], { type: 'text', text: 'Alpha', styles: { underline: true } })
+  })
+
   it('a large page with a few words changed is edited in place without touching the budget', async () => {
     const md = mixed(300_000, 7)
     const doc = await docFromMarkdown(md)

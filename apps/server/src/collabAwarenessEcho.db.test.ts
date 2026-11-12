@@ -140,6 +140,9 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       synced: () => synced,
       move: (n: number) => provider.setAwarenessField('cursor', cursor(n)),
       names: () => [...provider.awareness.getStates().values()].map((st: { user?: { name?: string } }) => st.user?.name).filter(Boolean) as string[],
+      /** This tab holds `who`'s cursor moved to `n` (the move went through the server). */
+      sees: (who: string, n: number) =>
+        [...provider.awareness.getStates().values()].some((st: { user?: { name?: string }; cursor?: { anchor?: { type?: { clock?: number } } } }) => st.user?.name === who && st.cursor?.anchor?.type?.clock === n),
     }
   }
   const closesOf = (socks: Sock[]) => socks.reduce((n, s) => n + s.closes, 0)
@@ -173,6 +176,9 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     }
     const expected = tabs.reduce((len, _t, i) => len + `${i}.`.length * 5, 0)
     await until(() => tabs.every((t) => t.doc.getText('t').length === expected), 'every keystroke everywhere')
+    // waits for every tab's last cursor move to reach every tab through the server; the echoes those
+    // moves start change nothing on the server, so a short grace for them stays
+    await until(() => tabs.every((t) => people.every((_u, j) => t.sees(`person ${j}`, 5))), 'every last cursor everywhere')
     await sleep(1000)
     const seen = tabs.map((t) => t.names().length)
     const rate = (A.awarenessStats.changedBytes - changed0) / n / ((Date.now() - t0) / 1000)
@@ -238,6 +244,9 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const at = pages.slice(20).map((p) => openDoc(mine, p.id, 'me'))
     await until(() => at.every((t) => t.synced() && t.names().length === 2), '8 pages at once')
     for (const t of at) t.move(2)
+    // waits for the 8 moves to reach the other person on each page through the server; their echoes change
+    // nothing on the server, so a short grace for them stays
+    await until(() => theirTabs.slice(20).every((t) => t.sees('me', 2)), 'the 8 moves seen by the other person')
     await sleep(1000)
     console.log(`[fix5] one socket, 20 pages in turn and 8 at once: closes ${mine.closes} / ${theirs.closes}`)
     assert.equal(mine.closes, 0)
@@ -271,6 +280,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       for (const t of tabs) t.move(r)
       await sleep(100)
     }
+    // waits for the last moves to reach all three tabs through the server
+    await until(() => tabs.every((t) => [owner, reader, guest].every((u) => t.sees(u.name, 4))), 'the last cursors everywhere')
     // the inbox: what AppLayout opens in every tab, with no awareness field set
     const inboxSocks = Array.from({ length: 5 }, () => newSocket(owner.cookie))
     const inbox = inboxSocks.map((s) => openDoc(s, `inbox:${owner.id}`, 'inbox', false))
@@ -308,7 +319,10 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     await sleep(200)
     await s.socket.connect()
     await until(() => live().getText('t').toString() === 'typed offline', 'back online')
-    await sleep(300)
+    // waits for the tab's awareness after the return (the cursor moved offline) to be applied on the server, not 300 ms
+    const cursorOnServer = () =>
+      ((live() as unknown as { awareness: { states: Map<number, { cursor?: { anchor?: { type?: { clock?: number } } } }> } }).awareness.states.get(t.doc.clientID)?.cursor?.anchor?.type?.clock)
+    await until(() => cursorOnServer() === 5, 'the offline cursor on the server')
     const states = (live() as unknown as { awareness: { states: Map<number, unknown> } }).awareness.states
     console.log(`[fix5] own ids: after a reconnect and an offline return the page holds ${states.size} states; new ids recorded ${A.awarenessStats.newIds - before}; most ids one connection brought in ${A.awarenessStats.mostOwned}`)
     assert.equal(states.size, 2, 'one id each: the tab’s own and the other person’s')
@@ -335,13 +349,27 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       ws.on('error', () => {})
       ws.on('open', () => resolve(r))
     })
+  /**
+   * A sync step 1 and the server's step 2 back: Hocuspocus handles one connection's frames in order, so
+   * once it has answered this one it has handled every frame this socket sent before it.
+   */
+  const roundTrip = async (r: Raw, name: string) => {
+    const from = r.got.length
+    r.ws.send(step1Frame(name))
+    // waits for the server's sync step 2 to this step 1 (or the socket to close)
+    await until(() => r.closed !== null || r.got.slice(from).some((m) => m[0] === name.length && m[1 + name.length] === 0 && m[2 + name.length] === 1), `sync round trip on ${name}`)
+  }
   const openRaw = async (r: Raw, name: string) => {
     const from = r.got.length
     r.ws.send(authFrame(name))
     await until(() => r.got.slice(from).some((m) => m[0] === name.length && m[1 + name.length] === 2), `auth of ${name}`)
-    r.ws.send(step1Frame(name))
-    await sleep(100)
+    // waits for the server to answer the document's first sync step (the connection is set up), not 100 ms
+    await roundTrip(r, name)
   }
+  /** The page's awareness on the server (undefined while the page is not loaded). */
+  const awOf = (name: string) =>
+    (collab.hocuspocus.documents.get(name) as unknown as { awareness: { states: Map<number, unknown>; meta: Map<number, { clock: number }> } } | undefined)?.awareness
+  const clockOf = (name: string, id: number) => awOf(name)?.meta.get(id)?.clock ?? 0
   const small = JSON.stringify({ user: { name: 'x', color: '#000' } })
 
   it('R-N1c still: a 1.4 MB frame of new ids, a fifth id of its own, a 17 KB state', async () => {
@@ -356,7 +384,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const r2 = await raw(u.cookie)
     await openRaw(r2, page.id)
     for (let i = 0; i < 4; i++) r2.ws.send(awarenessFrame(page.id, [[2_000_000 + i, 1, small]]))
-    await sleep(200)
+    // waits for the four ids to be applied on the server (or the socket to close), not 200 ms
+    await until(() => r2.closed !== null || [0, 1, 2, 3].every((i) => awOf(page.id)?.states.has(2_000_000 + i)), 'four ids of its own applied')
     assert.equal(r2.closed, null)
     r2.ws.send(awarenessFrame(page.id, [[2_000_009, 1, small]]))
     await until(() => r2.closed !== null, 'a fifth id of its own')
@@ -377,17 +406,21 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const big = JSON.stringify({ blob: 'y'.repeat(4_000) })
     // a brings in four ids; b keeps updating them (bigger states, newer clocks): they stay a's, never b's
     sa.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((k): [number, number, string] => [5_000_000 + k, 1, small])))
-    await sleep(100)
+    // waits for a's four ids to be in the document (brought in by a) before b touches them, not 100 ms
+    await until(() => [1, 2, 3, 4].every((k) => awOf(page.id)?.states.has(5_000_000 + k) && clockOf(page.id, 5_000_000 + k) === 1), "a's four ids applied")
     for (let c = 2; c < 8; c++) sb.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((k): [number, number, string] => [5_000_000 + k, c, big])))
-    await sleep(200)
+    // waits for b's last update (clock 7) to be applied (or b to be closed), not 200 ms
+    await until(() => sb.closed !== null || [1, 2, 3, 4].every((k) => clockOf(page.id, 5_000_000 + k) === 7), "b's updates applied")
     assert.equal(sb.closed, null, 'updating ids already there is an echo, allowed')
     // so b still has room for exactly four of its own
     sb.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((k): [number, number, string] => [6_000_000 + k, 1, small])))
-    await sleep(200)
+    // waits for b's own four ids to be applied (or b to be closed), not 200 ms
+    await until(() => sb.closed !== null || [1, 2, 3, 4].every((k) => awOf(page.id)?.states.has(6_000_000 + k)), "b's own four ids applied")
     assert.equal(sb.closed, null)
     // a swaps out: removes its ids, and b takes them over with newer clocks: now they count against b
     sa.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((k): [number, number, string] => [5_000_000 + k, 9, 'null'])))
-    await sleep(100)
+    // waits for a's removal (clock 9, no state) to be applied before b takes the id over, not 100 ms
+    await until(() => [1, 2, 3, 4].every((k) => clockOf(page.id, 5_000_000 + k) === 9 && !awOf(page.id)?.states.has(5_000_000 + k)), "a's removal applied")
     sb.ws.send(awarenessFrame(page.id, [[5_000_001, 10, small]]))
     await until(() => sb.closed !== null, 'b past four ids of its own')
     const states = (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { states: Map<number, unknown> } }).awareness.states
@@ -406,7 +439,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       k++
       await sleep(5)
     }
-    await sleep(200)
+    // waits for the server to have handled every frame of the flood (a sync round trip behind them), not 200 ms
+    await roundTrip(sc, page.id)
     const recorded = [...docAw().meta.keys()].filter((id) => id >= 7_000_000 && id < 7_000_200).length
     console.log(`[fix5] new ids: sent ${k}, recorded ${recorded} (bucket ${A.AWARENESS_NEW_IDS_BURST}), dropped messages ${A.awarenessStats.dropped - droppedBefore}; socket ${sc.closed === null ? 'open' : 'closed'}`)
     assert.equal(sc.closed, null, 'a message past the new-id rate is dropped, the socket stays')
@@ -436,7 +470,9 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
       sentBytes += 4 * st.length
       await sleep(5)
     }
-    await sleep(200)
+    // waits for the server to have handled every frame of the flood (a sync round trip behind them), not
+    // 200 ms: no frame is left unapplied while counting, and the seconds below cover all the refill it had
+    await roundTrip(sd, page.id)
     const secs = (Date.now() - t0) / 1000
     liveAw.off('update', onUpdate)
     const appliedBytes = applied * 4 * st.length

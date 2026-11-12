@@ -125,9 +125,14 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     const before = r.got.length
     r.ws.send(authFrame(name))
     await until(() => r.got.slice(before).some((m) => m.includes(Buffer.from(name)) && m[1 + name.length] === 2), `auth of ${name}`)
+    const from = r.got.length
     r.ws.send(step1Frame(name))
-    await sleep(100)
+    // waits for the server's sync step 2 to this step 1 (the connection is set up and handled it), not 100 ms
+    await until(() => r.closed !== null || r.got.slice(from).some((m) => m[0] === name.length && m[1 + name.length] === 0 && m[2 + name.length] === 1), `sync of ${name}`)
   }
+  /** The page's awareness on the server (undefined while the page is not loaded). */
+  const awOf = (name: string) =>
+    (collab.hocuspocus.documents.get(name) as unknown as { awareness: { states: Map<number, unknown>; meta: Map<number, unknown> } } | undefined)?.awareness
 
   const socketFor = (cookie: string) => {
     class CookieSocket extends WebSocket {
@@ -231,7 +236,8 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     await openDoc(r2, page.id)
     const small = JSON.stringify({ user: { name: 'r', color: '#000' } })
     for (let i = 0; i < 4; i++) r2.ws.send(awarenessFrame(page.id, [[2_000_000 + i, 1, small]]))
-    await sleep(200)
+    // waits for the four ids to be applied on the server (or the socket to close), not 200 ms
+    await until(() => r2.closed !== null || [0, 1, 2, 3].every((i) => awOf(page.id)?.states.has(2_000_000 + i)), 'four ids applied')
     assert.equal(r2.closed, null, 'four ids are fine')
     r2.ws.send(awarenessFrame(page.id, [[2_000_010, 1, small]]))
     await until(() => r2.closed !== null, 'the fifth id to close the socket')
@@ -241,6 +247,8 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     await openDoc(r3, page.id)
     r3.ws.send(awarenessFrame(page.id, [[3_000_000, 1, JSON.stringify({ blob: 'x'.repeat(17 * 1024) })]]))
     await until(() => r3.closed !== null, 'the large state to close the socket')
+    // waits for the server to have dropped the three closed connections (and the states they brought in)
+    await until(() => collab.hocuspocus.documents.get(page.id)?.getConnections().length === 1, 'only the owner left on the server')
 
     const live = collab.hocuspocus.documents.get(page.id)
     const states = live ? (live as unknown as { awareness: { states: Map<number, unknown>; meta: Map<number, unknown> } }).awareness : null
@@ -256,11 +264,13 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
       const r = await raw(reader.cookie)
       await openDoc(r, page.id)
       r.ws.send(awarenessFrame(page.id, [[4_000_000 + k, 1, small]]))
-      await sleep(50)
+      // waits for the id to be applied (a clock record exists) before the close, not 50 ms
+      await until(() => awOf(page.id)?.meta.has(4_000_000 + k) === true, 'the id applied')
       r.ws.close()
       await until(() => r.closed !== null, 'close')
     }
-    await sleep(200)
+    // waits for the server to have dropped the five connections and their states, not 200 ms
+    await until(() => collab.hocuspocus.documents.get(page.id)?.getConnections().length === 1 && [0, 1, 2, 3, 4].every((k) => !awOf(page.id)?.states.has(4_000_000 + k)), 'the five closed on the server')
     const aw = (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { meta: Map<number, unknown> } }).awareness
     A.sweepAwarenessMeta(aw as never, Date.now() + A.AWARENESS_META_KEEP_MS + 1, true)
     const meta = aw.meta.size
@@ -320,8 +330,20 @@ describe('[db] collab sockets on every server: inbox, awareness, per-address cap
     // and the count goes back down as sockets close
     sockets[0].ws.close()
     await until(() => sockets[0].closed !== null, 'close')
-    await sleep(100)
-    const again = await raw(u.cookie, '2001:db8:77:1::fffe')
+    // waits for the server's side of the close to lower the count (it is not observable, so a new address of
+    // the /64 is tried until one is let in; each try its own address, so the upgrade throttle is not hit), not 100 ms
+    const letIn: Raw[] = []
+    let tries = 0
+    await until(async () => {
+      try {
+        letIn.push(await raw(u.cookie, `2001:db8:77:1::${(0xfffe - tries++).toString(16)}`))
+        return true
+      } catch (e) {
+        if (/upgrade 429/.test(String(e))) return false
+        throw e
+      }
+    }, 'a socket of the /64 let in again after one closed')
+    const again = letIn[0]
     assert.equal(again.ws.readyState, WebSocket.OPEN)
     for (const s of [...sockets, other, again]) s.ws.close()
   })

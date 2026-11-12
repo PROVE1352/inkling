@@ -2873,14 +2873,15 @@ table.tools td:nth-child(2) {
   gap: 10px;
 }
 .landing .points li {
-  padding: 14px 16px 14px 20px;
+  padding: 14px 16px 14px 26px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--app);
   box-shadow: var(--shadow-sm);
 }
+/* the marker sits inside the row: on the border it stuck out past the rounded corners */
 .landing .points li::before {
-  left: -1px;
+  left: 11px;
   top: 14px;
   bottom: 14px;
   width: 3px;

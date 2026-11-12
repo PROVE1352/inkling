@@ -2043,8 +2043,9 @@ No route added or removed, no migration (docs/adr/2540-* .. 2551-*). What a clie
   - An update that does not fit is not applied; the connection becomes read-only, gets the stateless message
     `{"t":"storage","why":W}` and is closed with code 4000 `storage-full`. `W` is `"workspace"` (the workspace's
     room), `"page"` (the page body's cap), `"structs"` (new: the page would pass 300,000 Yjs structures, docs/adr/2540-*)
-    or `"instance"` (the fuse). The provider reconnects and gets the read-only scope; the page opens read-only for
-    10 minutes, or until a recount finds room (not for `"structs"`).
+    or `"instance"` (the fuse). The provider reconnects and gets the read-only scope. After `"workspace"` or `"page"`
+    the page opens read-only for 10 minutes or until a recount finds room, after `"structs"` for the 10 minutes, and
+    after `"instance"` while the fuse is tripped.
   - When a save or a recount takes the workspace over its limit, or a page body over its cap, every editing
     connection gets `{"t":"storage","why":"workspace"}` or `{"t":"storage","why":"page"}` and the same close 4000
     `storage-full` (before 0.22.1: close 4403 `permission-changed`, after which the web app did not reconnect). When a
@@ -2061,8 +2062,8 @@ No route added or removed, no migration (docs/adr/2540-* .. 2551-*). What a clie
     of states per socket across its documents. A message past one of them is never applied and the socket is cut.
     The ids a closed connection announced are removed.
   - A cut socket is terminated without a close frame (a browser reports 1006); the provider reconnects.
-  - At most 40 sockets per client address (`MAX_CONN_PER_IP`), with an IPv6 /64 counted as one address; past it the
-    upgrade answers 429.
+  - At most 40 sockets per client address (a constant, `MAX_CONN_PER_IP` in `collab.ts`), with an IPv6 /64 counted as
+    one address; past it the upgrade answers 429.
 - **Replace** (`POST /api/pages/:id/content` with `replace`, `update_page` and `patch_section` with `replace`,
   `patch_sections`, reverts; every server, docs/adr/2550-*): when the old and new blocks of the range hold more than
   128 KiB of characters together, the edit has a budget (2,000 Yjs text operations, 40 million diff steps). Past it,

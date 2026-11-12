@@ -31,8 +31,9 @@ These change with no setting, on every server that upgrades:
   bytes. Before, a member could fill the server's memory with awareness states, also from a read-only connection.
 - **The cap of 40 collaboration sockets per client address counts an IPv6 /64 as one address** (docs/adr/2544-*), as
   the request rate limit does since 0.22.0. Everyone behind one IPv6 /64 now shares 40 sockets (the web app opens one
-  per tab, so about 40 tabs), as everyone behind one IPv4 NAT always has. Raise `MAX_CONN_PER_IP` if an office on
-  one /64 gets 429 on the socket. The upgrade-attempt throttle stays per full address.
+  per tab, so about 40 tabs), as everyone behind one IPv4 NAT always has. The 40 is a constant in the code
+  (`MAX_CONN_PER_IP` in `apps/server/src/collab.ts`), not a setting. The upgrade-attempt throttle stays per full
+  address.
 - **Rewriting a large range of a page has an edit budget** (docs/adr/2550-*, 2551-*): `update_page` and
   `patch_section` with `replace`, `patch_sections`, a revert batch, `POST /api/pages/:id/content` with `replace` and
   the other paths of the minimal edit. When the old and new blocks of the range hold more than 128 KiB of characters together, the edit
@@ -72,8 +73,8 @@ structure cap with either). A server with neither counts and answers as 0.22.0.
 - **Live editing is admitted with its index to come** (docs/adr/2548-*): an update over the collaboration socket
   passes when `cached use + 3 × (unsaved growth + the update) + the next version copy` stays within the limit. The
   index comes to about twice the body, so a workspace filled through the editor stops below its limit: measured with
-  the demo preset, a burst of pastes into a 10 MB workspace ended at 71 % of it with prose and 91 % with random words
-  after the recount (counting the body alone, the same burst ended at 214 % and 274 %). Content that has no search
+  the demo preset, a burst of pastes of about 1 MB into a 10 MB workspace ended at 71 % of it with prose and 91 % with
+  random words after the recount (counting the body alone, the same burst ended at 214 % and 274 %). Content that has no search
   index (text outside the page body) is counted × 3 too until a recount, for up to 40 s. A 1 MB paste followed by
   typing first met a read-only moment at a real use of 5.5 MB. REST and MCP body writes are checked against "full",
   not against their size, so they can still end one write past the limit (115 % and 131 % with 1 MB appends).

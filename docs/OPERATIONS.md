@@ -1115,7 +1115,8 @@ semantic search, OpenID Connect and mail. MCP stays on.
   structures stays read-only for the 10 minutes even when a count finds room. What the person typed or pasted then
   stays only in their editor and on their device (KNOWN-ISSUES LIMITS-24).
 - Because of the factor 3, a workspace filled through the editor stops short of its limit: with the demo preset a
-  burst of pastes ended at 71 % of a 10 MB limit with prose and 91 % with random words after the recount. REST and
+  burst of pastes of about 1 MB ended at 71 % of a 10 MB limit with prose and 91 % with random words after the
+  recount. REST and
   MCP body writes are checked against "full" and can end one write past it (KNOWN-ISSUES LIMITS-44, LIMITS-45).
 - **When a workspace goes over its limit** (a save or a recount finds it there) or a page body over its cap, every
   editing connection to it becomes read-only at once, gets the stateless message `{"t":"storage","why":"workspace"}`
@@ -1311,14 +1312,17 @@ No migration and no new setting for the app (docs/adr/2540-* .. 2551-*; CHANGELO
   count.
 - **On every server** the inbox document is read-only, awareness messages have caps (4 client ids per document
   connection, 16 KB per state, 64 KB per message, 256 KB per socket), and the cap of 40 collaboration sockets per
-  address (`MAX_CONN_PER_IP`) counts an IPv6 /64 as one address. Raise `MAX_CONN_PER_IP` if many people share one
-  IPv6 /64 and get 429 when they open pages.
-- **New log lines** (every server), when the server cuts a socket that sent what the web app never sends:
-  `[inkling] collab socket closed: awareness message`, `… awareness state`, `… awareness clients`, `… awareness
-  socket`, `… awareness malformed` (the cap that was passed), and `[inkling] collab socket closed: an update to the
-  inbox`. One such line now and then can be an old or foreign client; many from one address are someone probing.
-  With a storage limit, `[inkling] storage close: collecting live connections failed` and `[inkling]
-  reconnectWorkspaceForStorage failed` are errors of the reconnect when a workspace goes over its limit.
+  address counts an IPv6 /64 as one address. The 40 is a constant in the code (`MAX_CONN_PER_IP` in
+  `apps/server/src/collab.ts`), not a setting: many people behind one IPv6 /64 who open many tabs can get 429 on the
+  socket.
+- **New log lines** (every server), when the server cuts a socket that sent what the web app never sends. The line
+  names the reason only, not the account or the address:
+  - `[inkling] collab socket closed: awareness message` (and `awareness state`, `awareness clients`,
+    `awareness socket`, `awareness malformed`: the cap that was passed)
+  - `[inkling] collab socket closed: an update to the inbox`
+- With a storage limit, two new error lines of the reconnect when a workspace goes over its limit:
+  `[inkling] storage close: collecting live connections failed` and
+  `[inkling] reconnectWorkspaceForStorage failed`.
 - **A demo started with 0.22.0** keeps its volumes on Docker's disk until it is moved: docs/DEMO.md, "Moving a demo
   from 0.22.0".
 
@@ -1334,8 +1338,8 @@ This applies to every server, with or without limits (docs/adr/2550-*, 2551-*).
   be stopped and restarted, and edits not yet saved would be lost.
 - If agents or people rewrite large pages on your server, give the app more room outside the heap: for example
   `APP_MEM_LIMIT=1g` with the default heap. That value is not measured in a container; the measurements above were
-  made on macOS, where resident memory can differ from a Linux container. Keep the heap below the container limit
-  by at least the 250–325 MB the server was measured to use outside its heap.
+  made on macOS, where resident memory can differ from a Linux container. In the demo's live-editing runs the server
+  used 255–325 MB besides its heap; in the replace runs above resident memory went up to 344 MB past a 512 MB heap.
 - The demo preset runs a 448 MB heap in a 768 MB container, and app, database and backup get `memswap_limit` equal to
   `mem_limit`, so a container that runs out is stopped and restarted instead of using the host's swap; `demo.sh`
   refuses a configuration without these limits ([DEMO.md](DEMO.md), "Memory").

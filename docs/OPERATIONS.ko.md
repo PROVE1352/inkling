@@ -826,7 +826,7 @@ null이거나 고정 기본값)입니다. 0.21 데이터베이스는 적용된 �
   다시 붙으며, 그 뒤 10분 동안(또는 워크스페이스에 공간이 생긴 것을 계산이 확인하거나 서버가 재시작할 때까지) 그
   페이지의 연결은 읽기 전용으로 열립니다. 구조 수 때문에 거절된 페이지는 계산이 공간을 찾아도 그 10분 동안 읽기
   전용입니다. 그때 입력하거나 붙여 넣은 내용은 그 사람의 편집기와 기기에만 남습니다(KNOWN-ISSUES LIMITS-24).
-- 이 3배 때문에 편집기로 채우는 워크스페이스는 한도에 못 미쳐 멈춥니다. 데모 기본값에서 붙여넣기를 몰아서 보내면 재계산
+- 이 3배 때문에 편집기로 채우는 워크스페이스는 한도에 못 미쳐 멈춥니다. 데모 기본값에서 약 1 MB 붙여넣기를 몰아서 보내면 재계산
   뒤 10 MB 한도의 71 %(산문), 91 %(무작위 단어)에서 끝났습니다. REST와 MCP의 본문 쓰기는 "가득 찼는지"로 검사하므로
   쓰기 하나만큼 한도를 넘을 수 있습니다(KNOWN-ISSUES LIMITS-44, LIMITS-45).
 - **워크스페이스가 한도를 넘으면**(저장이나 재계산이 그것을 보면), 또는 페이지 본문이 상한을 넘으면, 그곳의 편집 연결은
@@ -1018,14 +1018,17 @@ deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
   열어 새 숫자를 보세요. 자리를 만들려면 페이지나 파일을 지우고 휴지통을 비우거나, `LIMIT_WORKSPACE_STORAGE_MB`를 올리고
   재시작합니다. 이 설정이 없으면 세는 방식은 바뀌지 않습니다.
 - **모든 서버에서** 수신함 문서는 읽기 전용이고, awareness 메시지에는 상한이 있으며(문서 연결마다 클라이언트 id 4개, 상태
-  하나 16 KB, 메시지 하나 64 KB, 소켓마다 256 KB), 주소마다 협업 소켓 40개 상한(`MAX_CONN_PER_IP`)은 IPv6 /64를 주소
-  하나로 셉니다. 여러 사람이 IPv6 /64 하나를 나눠 쓰다가 페이지를 열 때 429를 받으면 `MAX_CONN_PER_IP`를 올리세요.
-- **새 로그 줄**(모든 서버): 웹 앱이 보내지 않는 것을 보낸 소켓을 서버가 끊을 때 남습니다.
-  `[inkling] collab socket closed: awareness message`, `… awareness state`, `… awareness clients`, `… awareness
-  socket`, `… awareness malformed`(넘은 상한)와 `[inkling] collab socket closed: an update to the inbox`입니다. 가끔
-  한 줄은 오래되었거나 다른 클라이언트일 수 있고, 한 주소에서 많이 나오면 누군가 떠보는 것입니다. 저장 한도가 있으면
-  `[inkling] storage close: collecting live connections failed`와 `[inkling] reconnectWorkspaceForStorage failed`는
-  워크스페이스가 한도를 넘을 때 다시 붙이는 과정의 오류입니다.
+  하나 16 KB, 메시지 하나 64 KB, 소켓마다 256 KB), 주소마다 협업 소켓 40개 상한은 IPv6 /64를 주소 하나로 셉니다. 40은
+  설정이 아니라 코드의 상수(`apps/server/src/collab.ts`의 `MAX_CONN_PER_IP`)입니다. IPv6 /64 하나 뒤의 여러 사람이 탭을
+  많이 열면 소켓에서 429를 받을 수 있습니다.
+- **새 로그 줄**(모든 서버): 웹 앱이 보내지 않는 것을 보낸 소켓을 서버가 끊을 때 남습니다. 줄에는 이유만 있고 계정이나
+  주소는 없습니다.
+  - `[inkling] collab socket closed: awareness message`(그리고 `awareness state`, `awareness clients`,
+    `awareness socket`, `awareness malformed`: 넘은 상한)
+  - `[inkling] collab socket closed: an update to the inbox`
+- 저장 한도가 있으면, 워크스페이스가 한도를 넘을 때 다시 붙이는 과정의 새 오류 줄 두 개:
+  `[inkling] storage close: collecting live connections failed`와
+  `[inkling] reconnectWorkspaceForStorage failed`.
 - **0.22.0으로 띄운 데모**는 옮기기 전까지 볼륨이 Docker 디스크에 있습니다. docs/DEMO.ko.md의 "0.22.0 데모 옮기기"를
   보세요.
 
@@ -1040,7 +1043,8 @@ deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
   컨테이너가 허용하는 것보다 많으므로 컨테이너가 멈추고 다시 시작되고, 아직 저장되지 않은 편집은 사라질 것입니다.
 - 에이전트나 사람이 서버에서 큰 페이지를 바꿔 쓴다면 앱에 힙 밖의 자리를 더 주세요. 예를 들어 기본 힙에
   `APP_MEM_LIMIT=1g`입니다. 이 값은 컨테이너에서 잰 것이 아닙니다. 위 측정은 macOS에서 했고, 리눅스 컨테이너의 상주
-  메모리는 다를 수 있습니다. 힙은 서버가 힙 밖에 쓰는 것으로 잰 250–325 MB 이상만큼 컨테이너 한도보다 작게 두세요.
+  메모리는 다를 수 있습니다. 데모의 실시간 편집 측정에서 서버는 힙 말고도 255–325 MB를 썼고, 위의 replace 측정에서는
+  상주 메모리가 512 MB 힙보다 344 MB까지 더 올라갔습니다.
 - 데모 기본값은 768 MB 컨테이너에서 448 MB 힙을 쓰고, 앱, 데이터베이스, 백업에 `mem_limit`과 같은 `memswap_limit`을
   줍니다. 그래서 메모리가 모자란 컨테이너는 호스트의 swap을 쓰지 않고 멈췄다가 다시 시작됩니다. 이 상한이 없는 설정은
   `demo.sh`가 거절합니다([DEMO.ko.md](DEMO.ko.md)의 "메모리").

@@ -145,6 +145,20 @@ for s_name, s in sorted(svc.items()):
         say(pub != "3000", "service %s publishes %s:%s (3000 is the production port)" % (s_name, p.get("host_ip") or "0.0.0.0", pub))
     if s_name == "db":
         say(not (s or {}).get("ports"), "the database publishes no port")
+# 0.22.1: every service has its own memory, process and CPU limits, and no swap past its memory limit
+# (compose config prints mem_limit and memswap_limit in bytes; without memswap_limit a container may use as
+# much swap again on the host)
+def num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0
+for s_name in ("app", "db", "backup"):
+    s = svc.get(s_name) or {}
+    mem, swap = s.get("mem_limit"), s.get("memswap_limit")
+    say(num(mem) > 0 and num(swap) == num(mem), "service %s: mem_limit %s, memswap_limit %s (both set and equal: no swap past the limit)" % (s_name, mem, swap))
+    say(num(s.get("pids_limit")) > 0, "service %s: pids_limit %s" % (s_name, s.get("pids_limit")))
+    say(num(s.get("cpus")) > 0, "service %s: cpus %s" % (s_name, s.get("cpus")))
 print("info    public address %r" % (((svc.get("app") or {}).get("environment") or {}).get("PUBLIC_URL")))
 if strict:
     env = (svc.get("app") or {}).get("environment") or {}

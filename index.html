@@ -19,6 +19,13 @@
   <meta property="og:description" content="A self-hosted notes app with a built-in MCP server. Each person connects their own agent; agents read sections within a token budget and edit one section at a time.">
   <meta property="og:url" content="https://prove1352.github.io/inkling/index.html">
   <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/review-light.png">
+  <meta property="og:image:width" content="1440">
+  <meta property="og:image:height" content="900">
+  <meta property="og:image:alt" content="The review dialog for a section an agent suggested to change: the suggestion as a diff, with Reject and Accept">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Inkling: team notes that AI agents read and edit over MCP">
+  <meta name="twitter:description" content="A self-hosted notes app with a built-in MCP server. Each person connects their own agent; agents read sections within a token budget and edit one section at a time.">
+  <meta name="twitter:image" content="https://prove1352.github.io/inkling/assets/en/review-light.png">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="ko_KR">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
@@ -261,7 +268,7 @@
 
       <div class="split">
         <div class="transcript">
-          <p class="quick-label">An agent asks a question. Real output from a demo workspace on 0.20; ids differ on every server.</p>
+          <p class="quick-label">An agent asks a question. Real output from a demo workspace; ids differ on every server.</p>
           <div class="term">
 <pre><code><span class="k">› find_context</span>(query: "launch checklist status page")
 1 result(s) for "launch checklist status page", ~63/3500 tokens
@@ -279,6 +286,7 @@ Title matches without text:
 
 Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
           </div>
+          <p class="method read-one">Measured once on 2026-11-12 by one agent connected over remote MCP to a server running 0.22.1: on a 1,332-line page, <code>read_page</code> for one section took 147&nbsp;ms and returned 1.2&nbsp;KB, and reading the whole page took 2,564&nbsp;ms and returned 385&nbsp;KB.</p>
         </div>
         <div class="metrics">
           <div class="ill ill-budget" role="img" aria-label="Three ranked sections fit in the token budget; the fourth is left outside it.">

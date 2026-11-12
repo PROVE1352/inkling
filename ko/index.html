@@ -19,6 +19,13 @@
   <meta property="og:description" content="MCP 서버가 들어 있는 셀프호스트 노트 앱입니다. 사람마다 자기 에이전트를 연결하고, 에이전트는 토큰 예산 안에서 섹션만 읽고 섹션 하나씩 고칩니다.">
   <meta property="og:url" content="https://prove1352.github.io/inkling/ko/index.html">
   <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/review-light.png">
+  <meta property="og:image:width" content="1440">
+  <meta property="og:image:height" content="900">
+  <meta property="og:image:alt" content="에이전트가 고치자고 제안한 섹션의 검토 창. 제안이 바뀐 줄로 보이고 거절과 수락 버튼이 있습니다">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Inkling: AI 에이전트가 MCP로 읽고 고치는 팀 노트">
+  <meta name="twitter:description" content="MCP 서버가 들어 있는 셀프호스트 노트 앱입니다. 사람마다 자기 에이전트를 연결하고, 에이전트는 토큰 예산 안에서 섹션만 읽고 섹션 하나씩 고칩니다.">
+  <meta name="twitter:image" content="https://prove1352.github.io/inkling/assets/ko/review-light.png">
   <meta property="og:locale" content="ko_KR">
   <meta property="og:locale:alternate" content="en_US">
   <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -260,7 +267,7 @@
 
       <div class="split">
         <div class="transcript">
-          <p class="quick-label">에이전트가 질문을 보낸 예입니다. 0.20 데모 워크스페이스의 실제 출력이고, id는 서버마다 다릅니다.</p>
+          <p class="quick-label">에이전트가 질문을 보낸 예입니다. 데모 워크스페이스의 실제 출력이고, id는 서버마다 다릅니다.</p>
           <div class="term">
 <pre><code><span class="k">› find_context</span>(query: "출시 체크리스트 상태 페이지")
 1 result(s) for "출시 체크리스트 상태 페이지", ~87/3500 tokens
@@ -278,6 +285,7 @@ Title matches without text:
 
 Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
           </div>
+          <p class="method read-one">2026-11-12에 0.22.1을 돌리는 서버 한 대에 원격 MCP로 붙은 에이전트 하나가 한 번 잰 값으로는, 1,332줄짜리 페이지에서 <code>read_page</code>로 섹션 하나를 읽으면 147&nbsp;ms에 1.2&nbsp;KB, 같은 페이지를 통째로 읽으면 2,564&nbsp;ms에 385&nbsp;KB였습니다.</p>
         </div>
         <div class="metrics">
           <div class="ill ill-budget" role="img" aria-label="순위대로 고른 섹션 세 개가 토큰 예산 안에 담기고, 네 번째 섹션은 예산 밖에 남습니다.">

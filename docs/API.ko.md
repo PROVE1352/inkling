@@ -1753,7 +1753,7 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   `workspace_owner`). 개인 페이지는 지우고, 공유 페이지·댓글·버전은 작성자를 null로 두고 남깁니다. 감사 기록에 옮겨
   적힌 이름과 가입 때 생긴 워크스페이스의 이름은 계정 id로만 찾습니다(docs/adr/2535-*). 옆에 id 없이 쓰인 이름은 새 행에서도
   남습니다. `page.access_granted`, `page.access_changed`, `page.access_removed`의 `person`과 `page.guest_invited`의
-  `email`입니다(KNOWN-ISSUES LIMITS-8).
+  `email`입니다(KNOWN-ISSUES LIMITS-8). 0.22.1부터는 그때부터 쓰인 행에서 이것도 지웁니다("v0.22.1 변경 사항").
 - 감사 이벤트(`GET /api/workspaces/:id/audit`): `page.locked`와 `page.lock_editors_changed`는 이제 `editors` 옆에
   `editorIds`를, `agent.blocked`와 `agent.unblocked`는 `user` 옆에 `userId`를 저장해서 계정 삭제가 이름을 id로 찾을 수
   있습니다. 감사 라우트는 `before`와 `after`에서 이 id 키를 빼고 돌려줍니다.
@@ -1854,7 +1854,7 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 | 403 | `LIMIT_WORKSPACES` | 만들기, 넘겨받기, 소유자로 승격, 복원이 `LIMIT_WORKSPACES_PER_USER`를 넘음 | `{ limit, used }` |
 | 403 | `LIMIT_MEMBERS` | 참여나 바로 추가가 `LIMIT_MEMBERS_PER_WORKSPACE`를 넘음 | `{ limit, used }` |
 | 403 | `LIMIT_PAGES` | 페이지를 만드는 모든 경로가 `LIMIT_PAGES_PER_WORKSPACE`를 넘음(휴지통 포함) | `{ limit, used }` |
-| 413 | `LIMIT_STORAGE` | 워크스페이스가 `LIMIT_WORKSPACE_STORAGE_MB`에 닿았거나 이 쓰기로 넘음. 또는 페이지 본문이 그 1/4을 넘음 | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_STORAGE` | 워크스페이스가 `LIMIT_WORKSPACE_STORAGE_MB`에 닿았거나 이 쓰기로 넘음. 또는 페이지 본문이 그 1/4을 넘음 | `{ limit, used, unit: 'bytes' }`. 그 워크스페이스의 페이지 손님에게는 없음(0.22.1부터) |
 | 413 | `LIMIT_FILE` | `LIMIT_FILE_MB`보다 큰 업로드 | `{ limit, used, unit: 'bytes' }`. `used`는 `limit` + 1(업로드를 거기서 끊으므로 실제 크기는 모름) |
 | 400 | `LIMIT_TRASH_DAYS` | `trashRetentionDays`가 `LIMIT_TRASH_DAYS`보다 큰 `PATCH /api/workspaces/:id/settings` | `{ limit }` |
 | 409 | `LAST_ADMIN` | 유일한 관리자의 `DELETE /api/me` | — |
@@ -1880,3 +1880,50 @@ OAuth 라우트는 OAuth 오류 형식(`{ error, error_description }`)으로 답
 <a id="mcp-tools-11"></a>
 ### MCP 도구
 새 도구도 서버 지침 변경도 없습니다. 수치는 0.21과 같습니다(full 48개, core 32개). `LIMIT_FILE_MB`가 `AGENT_UPLOAD_MAX_MB`보다 작으면 `upload_file`의 설명에 작은 쪽 크기가 적힙니다. 도구는 자기가 부르는 REST 라우트를 거치므로 같은 한도, 기능 끄기, 동의에 똑같이 걸리고, 이 코드들의 오류에는 각자의 다음 할 일 안내가 붙습니다(`INSTANCE_FULL`도 그렇습니다. 아무것도 쓰지 않았고, 다시 시도하지 말고, 운영자가 공간을 비워야 한다고 알립니다). `list_trash`의 날짜는 `LIMIT_TRASH_DAYS`를 따릅니다. 자세한 내용: [MCP.ko.md](MCP.ko.md).
+
+<a id="v0221-changes"></a>
+## v0.22.1 변경 사항
+
+추가하거나 없앤 라우트도, 마이그레이션도 없습니다(docs/adr/2540-* .. 2551-*). 클라이언트나 연동이 알아챌 수 있는 것은
+다음과 같습니다.
+
+- **사용량**(`GET /api/workspaces/:id/usage`): `LIMIT_WORKSPACE_STORAGE_MB`가 있으면 `storageBytes`는 검색·섹션 색인의
+  행도 세고, 파일 하나를 `max(size, 4,096) + 1,024`바이트로 셉니다(`fileBytes`도). 이 값은 캐시해 둔 수치라서, 아직
+  재계산이 보지 못한 저장의 추정값이 들어 있을 수 있습니다. 본문이 늘어난 바이트마다 색인 행 몫으로 2바이트이고, 색인
+  패스 뒤의 재계산까지 남습니다(docs/adr/2545-*, 2548-*). 이 설정이 없으면 둘 다 0.22.0처럼 셉니다.
+- **페이지 손님에게 가는 413 `LIMIT_STORAGE`**에는 코드와 메시지만 있고 `limit`, `used`, `unit`은 없습니다
+  (docs/adr/2547-*). 멤버는 여전히 받습니다. 협업 소켓은 이 숫자를 보내지 않습니다.
+- **`PATCH /api/pages/:id`**는 저장 한도가 있을 때 멤버십과 편집 권한을 저장 용량보다 먼저 확인합니다. 페이지를 읽기만
+  할 수 있는 사람은 413이 아니라 편집 검사의 403을 받습니다(docs/adr/2547-*).
+- **감사 이벤트**: `page.access_granted`, `page.access_changed`, `page.access_removed`와 페이지 초대 수락의 접근 부여는
+  `person` 옆에 `personId`를 남깁니다. `GET /api/workspaces/:id/audit`은 다른 id 키처럼 `personId`를 빼고 보여 줍니다.
+  본인이나 만료로 계정을 삭제하면 `personId`가 그 계정 id인 곳의 `person`과 `personId`를 null로 바꾸고, 계정 자신의 로그인 이메일이나 아이디를
+  주소로 적은 `page.guest_invited` 행의 `email`을 null로 바꿉니다.
+- **협업 소켓, 저장 용량**(`LIMIT_WORKSPACE_STORAGE_MB`나 `LIMIT_INSTANCE_STORAGE_MB`가 있을 때만):
+  - 들어가지 않는 갱신은 적용하지 않습니다. 연결은 읽기 전용이 되고, 상태 메시지 `{"t":"storage","why":W}`를 받고,
+    닫힘 코드 4000 `storage-full`로 닫힙니다. `W`는 `"workspace"`(워크스페이스의 자리), `"page"`(페이지 본문의 상한),
+    `"structs"`(새 값: 페이지가 Yjs 구조 300,000개를 넘게 됨, docs/adr/2540-*), `"instance"`(퓨즈)입니다. 프로바이더는
+    다시 붙어 읽기 전용 범위를 받고, 그 페이지는 10분 동안, 또는 재계산이 자리를 찾을 때까지(`"structs"`는 아님) 읽기
+    전용으로 열립니다.
+  - 저장이나 재계산으로 워크스페이스가 한도를 넘거나 페이지 본문이 상한을 넘으면, 모든 편집 연결이
+    `{"t":"storage","why":"workspace"}`나 `{"t":"storage","why":"page"}`를 받고 같은 닫힘 4000 `storage-full`로 닫힙니다
+    (0.22.1 전: 닫힘 4403 `permission-changed`, 그 뒤 웹 앱이 다시 붙지 않았음). 재계산이 자리를 찾으면 읽기 전용
+    연결을 4000으로 닫고, 연결은 읽기·쓰기 범위로 돌아옵니다. 4403은 접근이 바뀐 경우에만 씁니다.
+  - 갱신은 `센 값 + 3 × (저장 안 된 증가분 + 이 갱신) + 다음 버전 사본`이 들어갈 때 받아들입니다. 저장 안 된 증가분은
+    문서가 실제로 받아들인 만큼이라서, 문서가 이미 가진 갱신을 다시 보내도 늘지 않습니다(docs/adr/2543-*, 2548-*).
+- **협업 소켓, 모든 서버**(docs/adr/2541-*, 2542-*, 2544-*). 클라이언트를 만드는 사람이 알아야 할 것입니다.
+  - 수신함 문서(`inbox:<userId>`)는 읽기 전용으로 인증됩니다. 구조나 삭제가 든 Sync 갱신이나 sync step 2를 보내면
+    거절하고 소켓을 끊습니다. 빈 step 2만 통과합니다. 서버가 이 문서로 보내는 상태 메시지 알림은 그대로입니다.
+  - awareness: 문서 연결마다 서로 다른 클라이언트 id 4개, 상태 하나 16 KB, 메시지 하나 64 KB, 소켓 하나의 모든 문서에
+    걸친 상태 합계 256 KB까지입니다. 하나라도 넘는 메시지는 적용하지 않고 소켓을 끊습니다. 닫힌 연결이 알린 id는
+    지웁니다.
+  - 끊는 소켓은 닫힘 프레임 없이 끝냅니다(브라우저는 1006으로 보고합니다). 프로바이더는 다시 붙습니다.
+  - 클라이언트 주소마다 소켓은 40개까지이고(`MAX_CONN_PER_IP`), IPv6 /64는 주소 하나로 셉니다. 넘으면 업그레이드 요청에
+    429로 답합니다.
+- **replace**(`POST /api/pages/:id/content`의 `replace`, `update_page`와 `patch_section`의 `replace`, `patch_sections`,
+  되돌리기. 모든 서버, docs/adr/2550-*): 범위의 옛 블록과 새 블록의 글자가 합쳐 128 KiB를 넘으면 편집에 예산이 붙습니다
+  (Yjs 텍스트 연산 2,000번, diff 4천만(40 million) 단계). 예산을 넘으면 바뀐 블록은 id, 색, 정렬, 토글을 지키고 내용만
+  통째로 바뀝니다. 응답은 그대로입니다. 128 KiB 이하의 범위는 전과 똑같이 편집합니다.
+- **AI 단계**(`GET /api/pages/:id/snapshots`의 `step`): 에이전트의 `update_page` replace는 새 본문이 2,000블록을 넘거나
+  마크다운이 262,144자를 넘으면 `added`와 `removed`가 없습니다. 원래 페이지가 2,000블록을 넘었을 때와 같습니다
+  (docs/adr/2551-*).

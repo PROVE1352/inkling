@@ -1890,7 +1890,8 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   deleted; shared pages, comments and versions stay with their author set to null. Names copied into audit rows and
   the sign-up workspace's name are found by the account's id only (docs/adr/2535-*); names written without an id
   stay, also in new rows: `person` of `page.access_granted`, `page.access_changed` and `page.access_removed`, and
-  `email` of `page.guest_invited` (KNOWN-ISSUES LIMITS-8).
+  `email` of `page.guest_invited` (KNOWN-ISSUES LIMITS-8). Since 0.22.1 these are removed too, in rows written from
+  then on ("v0.22.1 changes").
 - Audit events (`GET /api/workspaces/:id/audit`): `page.locked` and `page.lock_editors_changed` now store
   `editorIds` beside `editors`, and `agent.blocked` and `agent.unblocked` store `userId` beside `user`, so account
   deletion can find the names by id. The audit route leaves these id keys out of `before` and `after`.
@@ -1992,7 +1993,7 @@ Only while `LEGAL_DIR` is set; otherwise these routes are 404 and nothing below 
 | 403 | `LIMIT_WORKSPACES` | Creating, taking over, promotion to owner or restoring past `LIMIT_WORKSPACES_PER_USER` | `{ limit, used }` |
 | 403 | `LIMIT_MEMBERS` | Joining or direct add past `LIMIT_MEMBERS_PER_WORKSPACE` | `{ limit, used }` |
 | 403 | `LIMIT_PAGES` | Any page-creating path past `LIMIT_PAGES_PER_WORKSPACE` (trash included) | `{ limit, used }` |
-| 413 | `LIMIT_STORAGE` | The workspace has reached `LIMIT_WORKSPACE_STORAGE_MB` or the write would pass it; or a page body past a quarter of it | `{ limit, used, unit: 'bytes' }` |
+| 413 | `LIMIT_STORAGE` | The workspace has reached `LIMIT_WORKSPACE_STORAGE_MB` or the write would pass it; or a page body past a quarter of it | `{ limit, used, unit: 'bytes' }`; none for a page guest of the workspace (since 0.22.1) |
 | 413 | `LIMIT_FILE` | An upload larger than `LIMIT_FILE_MB` | `{ limit, used, unit: 'bytes' }`; `used` is `limit` + 1 (the upload is cut there, its size is not known) |
 | 400 | `LIMIT_TRASH_DAYS` | `PATCH /api/workspaces/:id/settings` with `trashRetentionDays` above `LIMIT_TRASH_DAYS` | `{ limit }` |
 | 409 | `LAST_ADMIN` | `DELETE /api/me` by the only admin | — |
@@ -2020,3 +2021,53 @@ No new tool and no server instruction change: the same numbers as 0.21 (full 48 
 `LIMIT_FILE_MB` below `AGENT_UPLOAD_MAX_MB`, `upload_file`'s description names the smaller size. The tools are refused
 by the same limits, features and consent through the REST routes they call, and the errors of these codes carry a
 next step of their own (`INSTANCE_FULL` too: nothing was written, do not retry, the operator has to make room). `list_trash` dates follow `LIMIT_TRASH_DAYS`. Details: [MCP.md](MCP.md).
+
+## v0.22.1 changes
+
+No route added or removed, no migration (docs/adr/2540-* .. 2551-*). What a client or an integration can notice:
+
+- **Usage** (`GET /api/workspaces/:id/usage`): with `LIMIT_WORKSPACE_STORAGE_MB`, `storageBytes` also counts the rows
+  of the search and section indexes, and every file as `max(size, 4,096) + 1,024` bytes (in `fileBytes` too). It is
+  the cached count, which can hold estimates of saves that no recount has seen yet: 2 bytes per byte a body grew, for
+  its index rows, until a recount after the index pass (docs/adr/2545-*, 2548-*). Without the setting both are counted
+  as in 0.22.0.
+- **413 `LIMIT_STORAGE` to a page guest** of the workspace carries the code and the message only, without `limit`,
+  `used` and `unit` (docs/adr/2547-*). Members still get them. The collaboration socket never sends the numbers.
+- **`PATCH /api/pages/:id`** with a storage limit checks membership and edit rights before storage: someone who may
+  only read the page gets the 403 of the edit check, not a 413 (docs/adr/2547-*).
+- **Audit events**: `page.access_granted`, `page.access_changed`, `page.access_removed` and the grant of an accepted
+  page invitation store `personId` beside `person`. `GET /api/workspaces/:id/audit` leaves `personId` out, as it does
+  the other id keys. Account deletion by the person or by expiry sets `person` and `personId` to null where `personId`
+  is the account's id, and sets `email` to null in `page.guest_invited` rows whose address is the account's own sign-in email or ID.
+- **Collaboration socket, storage** (only with `LIMIT_WORKSPACE_STORAGE_MB` or `LIMIT_INSTANCE_STORAGE_MB`):
+  - An update that does not fit is not applied; the connection becomes read-only, gets the stateless message
+    `{"t":"storage","why":W}` and is closed with code 4000 `storage-full`. `W` is `"workspace"` (the workspace's
+    room), `"page"` (the page body's cap), `"structs"` (new: the page would pass 300,000 Yjs structures, docs/adr/2540-*)
+    or `"instance"` (the fuse). The provider reconnects and gets the read-only scope; the page opens read-only for
+    10 minutes, or until a recount finds room (not for `"structs"`).
+  - When a save or a recount takes the workspace over its limit, or a page body over its cap, every editing
+    connection gets `{"t":"storage","why":"workspace"}` or `{"t":"storage","why":"page"}` and the same close 4000
+    `storage-full` (before 0.22.1: close 4403 `permission-changed`, after which the web app did not reconnect). When a
+    recount finds room, read-only connections are closed with 4000 and come back with the read-write scope. 4403
+    stays for access that changed.
+  - An update is admitted while `cached count + 3 × (unsaved growth + the update) + the next version copy` fits; the
+    unsaved growth is what the document took in, so re-sending an update it already holds adds nothing
+    (docs/adr/2543-*, 2548-*).
+- **Collaboration socket, every server** (docs/adr/2541-*, 2542-*, 2544-*), for anyone who writes a client:
+  - The inbox document (`inbox:<userId>`) is authorised read-only. A Sync update or sync step 2 to it that carries a
+    structure or a deletion is refused and the socket is cut; only the empty step 2 passes. The server's stateless
+    notices on it are unchanged.
+  - Awareness: at most 4 distinct client ids per document connection, 16 KB per state, 64 KB per message, and 256 KB
+    of states per socket across its documents. A message past one of them is never applied and the socket is cut.
+    The ids a closed connection announced are removed.
+  - A cut socket is terminated without a close frame (a browser reports 1006); the provider reconnects.
+  - At most 40 sockets per client address (`MAX_CONN_PER_IP`), with an IPv6 /64 counted as one address; past it the
+    upgrade answers 429.
+- **Replace** (`POST /api/pages/:id/content` with `replace`, `update_page` and `patch_section` with `replace`,
+  `patch_sections`, reverts; every server, docs/adr/2550-*): when the old and new blocks of the range hold more than
+  128 KiB of characters together, the edit has a budget (2,000 Yjs text operations, 40 million diff steps). Past it,
+  a changed block keeps its id, colors, alignment and toggle and its content is replaced whole. The answer is
+  unchanged. Ranges up to 128 KiB are edited exactly as before.
+- **AI steps** (`GET /api/pages/:id/snapshots`, `step`): an agent's `update_page` replace has no `added` and
+  `removed` when the new body has more than 2,000 blocks or more than 262,144 characters of Markdown, as when the
+  page had more than 2,000 blocks before (docs/adr/2551-*).

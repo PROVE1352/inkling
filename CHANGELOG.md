@@ -7,6 +7,149 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-12
+
+A patch release that fixes what the second security review of 0.22.0 left open for a public demo (KNOWN-ISSUES
+LIMITS-37 to LIMITS-42), and a memory fault present since 0.21.1 on every server: rewriting a large page body could
+run the server out of memory. **A public demo for strangers can run from 0.22.1 on**, on a filesystem of its own
+(docs/DEMO.md, step 0). No database migration (63 applied migrations, as 0.22.0), no new setting for the app, no new
+dependency, no API route added or removed, and the MCP tool list and server instructions are unchanged. Design
+notes are docs/adr/2540-* .. 2551-*. What is left is in docs/KNOWN-ISSUES.md, "Added in 0.22.1".
+
+Not tried in Safari, Firefox or on a real phone; the memory numbers below were measured on macOS, not in a Linux
+container (KNOWN-ISSUES, "Added in 0.22.1").
+
+### What changes on every server
+These change with no setting, on every server that upgrades:
+- **The inbox document is read-only** (docs/adr/2542-*). The server only sends notices on it and the web app never
+  writes to it. Its connection is now authorised read-only, and an update to it that carries any content is
+  refused before it is decoded: the server cuts that socket. Before, any signed-in account could grow its own inbox
+  document in the server's memory without bound (since 0.21.1). Notifications are unchanged.
+- **Awareness has caps** (docs/adr/2541-*): at most 4 client ids per document connection, 16 KB per state, 64 KB per
+  message and 256 KB of states per socket across its documents. A message past one of them is never applied and the
+  server cuts the socket; the provider reconnects. The web app sends one id per document and frames of a few hundred
+  bytes. Before, a member could fill the server's memory with awareness states, also from a read-only connection.
+- **The cap of 40 collaboration sockets per client address counts an IPv6 /64 as one address** (docs/adr/2544-*), as
+  the request rate limit does since 0.22.0. Everyone behind one IPv6 /64 now shares 40 sockets (the web app opens one
+  per tab, so about 40 tabs), as everyone behind one IPv4 NAT always has. Raise `MAX_CONN_PER_IP` if an office on
+  one /64 gets 429 on the socket. The upgrade-attempt throttle stays per full address.
+- **Rewriting a large range of a page has an edit budget** (docs/adr/2550-*, 2551-*): `update_page` and
+  `patch_section` with `replace`, `patch_sections`, a revert batch, `POST /api/pages/:id/content` with `replace` and
+  the other paths of the minimal edit. When the old and new blocks of the range hold more than 128 KiB of characters together, the edit
+  gets a budget (2,000 Yjs text operations, 40 million diff steps); past it, a changed block keeps its id, colors,
+  alignment and toggle, and its content is replaced whole instead of edited character by character. What such a
+  block loses: characters someone typed into it at the same moment, underline and text colors (Markdown cannot carry
+  them), and inline nodes the Markdown did not carry. Comments and block links stay (they point at the block id).
+  Ranges up to 128 KiB are edited exactly as before. Before, rewriting about 1 MB of different text ran the server
+  out of memory on the second request, with a 320 MB and with a 512 MB heap (present since 0.21.1); the numbers are
+  in docs/PERFORMANCE.md. After a large Markdown body is parsed the server lets go of the parsed document at once.
+- **An agent's replace of a body over 2,000 blocks or over 256 Ki characters of Markdown records no line counts** in
+  its AI step (`±lines`), as a replace of a page over 2,000 blocks already did. Counting meant exporting the whole
+  body once more.
+- **Page access audit rows keep the person's id** (`personId` beside `person` in `page.access_granted`,
+  `page.access_changed`, `page.access_removed` and the grant of an accepted page invitation; docs/adr/2547-*), so an
+  account that deletes itself or expires loses its name from them. The audit screen and route do not show `personId`.
+  Rows written before 0.22.1 have no id and keep the name.
+- **Account deletion (by the person or by expiry) also clears the invited address of `page.guest_invited` rows** whose
+  address is the account's own sign-in email or ID. Another account cannot have that address, so a namesake's rows
+  are not touched. An admin's deletion is unchanged.
+- Each search index pass counts itself and makes one call that returns at once without a storage limit (the
+  storage count below waits for it). Nothing else changes for a server without limits.
+
+### Only with a storage limit or the fuse
+What follows runs only with `LIMIT_WORKSPACE_STORAGE_MB` (the fuse items with `LIMIT_INSTANCE_STORAGE_MB`, the
+structure cap with either). A server with neither counts and answers as 0.22.0.
+- **Small files count as at least 5 KB** (docs/adr/2545-*): an upload counts `max(size, 4,096) + 1,024` bytes in the
+  workspace's storage, in the recount, in the upload's check and in `GET /api/workspaces/:id/usage` (`storageBytes`
+  and `fileBytes`). Empty uploads are still allowed; they are no longer free. A workspace of 10 MB therefore holds at
+  most 2,048 files.
+- **The search and section indexes count** (docs/adr/2545-*): the recount adds the rows of `page_texts`, `page_chunks`,
+  `page_chunk_vectors`, `page_tasks`, `page_links`, `page_tags` and `page_former_titles`. They are written 8–30 s after
+  a body is stored, so the store reserves 2 bytes per byte the body grew, and the reservation stays in the count until
+  a recount has seen the index pass's rows (docs/adr/2548-*). A recount 0.5 s after that pass, or 40 s after the
+  store, puts in the real number. A store that finds the count more than 10 minutes old recounts after its own write,
+  not beside it.
+- **Live editing is admitted with its index to come** (docs/adr/2548-*): an update over the collaboration socket
+  passes when `cached use + 3 × (unsaved growth + the update) + the next version copy` stays within the limit. The
+  index comes to about twice the body, so a workspace filled through the editor stops below its limit: measured with
+  the demo preset, a burst of pastes into a 10 MB workspace ended at 71 % of it with prose and 91 % with random words
+  after the recount (counting the body alone, the same burst ended at 214 % and 274 %). Content that has no search
+  index (text outside the page body) is counted × 3 too until a recount, for up to 40 s. A 1 MB paste followed by
+  typing first met a read-only moment at a real use of 5.5 MB. REST and MCP body writes are checked against "full",
+  not against their size, so they can still end one write past the limit (115 % and 131 % with 1 MB appends).
+- **A live page holds at most 300,000 Yjs structures** (docs/adr/2540-*). The bound of an update is read from its
+  bytes before it is applied; an update past it is refused and connections to that page open read-only for 10
+  minutes, also when a recount finds room in the workspace. Ordinary pages measured far below it (207,000 for 4.1 MB
+  of stored Markdown).
+- **Unsaved growth is what the document took in** (docs/adr/2543-*): an update the page already held counts 0 bytes
+  (before, each re-sent copy counted its length).
+- **Going over the limit reconnects editing read-only** (docs/adr/2549-*). When a store or a recount takes a workspace
+  past its limit, or a page body past its cap, each editing connection gets the stateless message
+  `{"t":"storage","why":…}` and its socket is closed with code 4000 `storage-full`; the provider reconnects at once,
+  read-only, and is closed again and comes back able to edit when a recount finds room. Before, these connections got
+  4403 `permission-changed`, the web app showed the page as disconnected and typing never reached the server again
+  until a reload. 4403 stays for access that changed.
+- **The fuse counts disk blocks** (docs/adr/2545-*): every file and folder under the data folder counts
+  `max(size, blocks × 512)`, walked 64 at a time. A measurement older than a minute is answered from the last one
+  and measured again in the background, so a write never waits for the walk; only the first answer after a start
+  waits. So the first write after the fuse is released can still be refused once.
+- **A 413 `LIMIT_STORAGE` to a page guest carries no `used` and `limit`** (docs/adr/2547-*); members still get them.
+  `PATCH /api/pages/:id` checks storage only after the edit check, so someone who can only read the page can neither
+  move the cached count nor read it from the answer.
+
+### Demo preset
+- `DEMO_IMAGE` (docs/adr/2546-*): the demo runs an image name of its own (`inkling-demo:local` in the example).
+  `demo.sh` refuses a name without `demo` in it and production's image name; `up` builds it when it is missing, and the
+  new `demo.sh build` rebuilds it after an update.
+- `DEMO_VOLUME_ROOT`: the four volumes are folders under one absolute path, where the operator mounts a filesystem
+  of its own. `demo.sh up` refuses a path on the root filesystem or on Docker's data folder's filesystem;
+  `DEMO_ALLOW_SHARED_DISK=1`, set in the shell for one command, lets a laptop trial go on with a warning. `destroy`
+  never deletes files on the host: it prints where they are.
+- `LIMIT_WORKSPACE_STORAGE_MB` 20 → 10 (with the indexes counted, 100 full workspaces fit under the 3,000 MB fuse).
+- The app's heap 320 → 448 MB in a 768 MB container (was 512 MB), and app, database and backup get `memswap_limit`
+  equal to `mem_limit` (no swap past the limit). `demo.sh` refuses a configuration where one of the three lacks
+  `mem_limit`, an equal `memswap_limit`, `pids_limit` or `cpus`.
+- The terms templates name what the storage counts (files, page text, version history and the search index).
+
+### Fixed
+The 0.22.0 known issues for a public demo (docs/KNOWN-ISSUES.md, "Added in 0.22.0"):
+- LIMITS-37 (memory through live-editing connections): the inbox, awareness and structure caps, the /64 socket key and
+  the admission with the index close the ways the review used. Pages made of many tiny map entries can still run a
+  448 MB heap out of memory with one account; on the demo the container restarts (LIMITS-43).
+- LIMITS-38 (small files): files count as at least 5 KB, and the fuse counts disk blocks without making a write wait.
+- LIMITS-39 (the index not counted, preset values): the indexes count, and the preset is 10 MB per workspace. Filled
+  once, a workspace grew the database by at most 25.6 MB in the runs of this release, so 100 of them stay under the
+  3,000 MB fuse. Random text written on purpose can still trip it (LIMITS-50).
+- LIMITS-40 (one member makes the count look full): re-sent updates count what they add, and a store's estimate stays
+  only until a recount sees the index. What is left: content without an index is counted × 3 for up to 40 s
+  (LIMITS-46).
+- LIMITS-41 (`PATCH /api/pages/:id` before the edit check): fixed as above.
+- LIMITS-42 (the demo's image name): the demo has its own.
+- LIMITS-8, in part: page access rows and guest invitations written from 0.22.1 on lose the name; older rows keep it
+  (LIMITS-52).
+
+### Security
+- The fixes above close the second review's findings for a public demo, except the known issues listed in
+  KNOWN-ISSUES "Added in 0.22.1". The three ways to block sign-up on a public server (LIMITS-28) are unchanged.
+- The large replace fault needed a member with edit rights; on a demo, any account that signed up.
+
+### Upgrade notes
+- **No migration**; the database stays at 63 applied migrations.
+- **A server with `LIMIT_WORKSPACE_STORAGE_MB` counts more after the upgrade**: the search indexes and the 5 KB
+  minimum per file are new in the count. A workspace near its limit can turn read-only at its first recount (within
+  an hour, or when Workspace settings › General is opened). To see it before: open Workspace settings › General of
+  the large workspaces after the upgrade. To undo it: delete pages or files and empty the trash, or raise
+  `LIMIT_WORKSPACE_STORAGE_MB` and restart. A server without the limit counts as before.
+- **A demo started with 0.22.0** has its volumes on Docker's disk. Moving it to a filesystem of its own means an
+  export, `destroy` and a new `up` (docs/DEMO.md, "Moving a demo from 0.22.0").
+- **"Do not open a public demo with 0.22.0" is lifted for 0.22.1**, with its condition: the demo's volumes on a
+  filesystem of its own (docs/DEMO.md, step 0).
+- **Every server: the default `compose.yaml` runs a 512 MB heap in a 768 MB container**, which leaves about 250 MB
+  outside the heap. Rewriting about 1 MB of ordinary Markdown six times peaked at 832–856 MB of resident memory with a
+  512 MB heap (macOS, not a container). If agents rewrite large pages on your server, give the app more room
+  (docs/OPERATIONS.md, section 17, "Memory of large pages").
+- The web app is unchanged; open tabs need no reload.
+
 ## [0.22.0] - 2026-11-12
 
 A minor release for operators who want to bound disk use and the number of people on their server, and for those

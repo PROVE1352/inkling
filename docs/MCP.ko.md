@@ -368,6 +368,22 @@ MCP로 한 편집, 코멘트, 만든 페이지는 버전 히스토리, 코멘트
 - **기능 끄기.** `DISABLED_FEATURES`로 끌 수 있는 기능에 속한 도구는 없습니다. 그래도 그런 REST 호출을 만나면 "찾지 못함" 안내가 아니라 `FEATURE_DISABLED`와 "this server has turned … off for everyone; it is not a missing id or a permission"으로 답합니다. `notion-import`가 꺼져 있으면 `import_zip`은 Notion에서 내보낸 것처럼 보이는 zip을 `NOTION_IMPORT_IN_APP`으로 거절하지 않고 일반 Markdown 파일로 가져옵니다.
 - **아이디 로그인.** `LOGIN_ID_MODE=username`이면 사람들은 이메일 주소 대신 아이디와 별명을 씁니다. 도구는 이메일을 보여 주던 자리에 아이디를 보여 줍니다.
 
+<a id="rewriting-large-pages-0221"></a>
+### 큰 페이지 바꿔 쓰기 (0.22.1)
+
+0.22.1부터 모든 서버에서([ADR 2550](adr/2550-edit-budget-for-one-replace.md),
+[2551](adr/2551-memory-of-a-large-markdown-replace.md)):
+
+- `mode: "replace"`인 `update_page`, `replace`인 `patch_section`, `patch_sections`는 여전히 최소한으로 고칩니다. 범위의 옛
+  블록과 새 블록의 글자가 합쳐 128 KiB를 넘으면 편집에 예산이 붙고, 예산을 다 쓰면 그 뒤의 바뀐 블록은 id(그래서 코멘트와
+  링크가 남습니다), 색, 정렬, 토글을 지키고 내용만 통째로 바뀝니다. 이런 블록은 그 순간 사람이 친 글자, 밑줄과 글자색,
+  보낸 마크다운에 실리지 않은 인라인 노드를 잃습니다(멘션은 표기법으로 다시 보냈을 때만 남습니다). 128 KiB 이하의 범위는
+  전과 같이 고칩니다.
+- 그러니 큰 페이지에서는 바꿀 것만 바꾸세요. 해당 섹션에 `patch_section`을, 여러 섹션이면 `patch_sections`를 씁니다. 큰
+  페이지의 본문 전체를 `update_page`로 바꿔 쓰면 서버의 메모리도 많이 씁니다(KNOWN-ISSUES LIMITS-54).
+- 새 본문이 2,000블록을 넘거나 마크다운이 262,144자를 넘는 `update_page` replace는, 2,000블록이 넘는 페이지의 replace처럼
+  `list_versions`에 `±lines` 없이 나옵니다.
+
 <a id="disconnecting-and-api-tokens"></a>
 ## 연결 끊기와 API 토큰
 

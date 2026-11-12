@@ -713,6 +713,23 @@ app, because they call the same REST routes; nothing is written when a call is r
 - **Sign-in IDs.** With `LOGIN_ID_MODE=username` people have an ID and a nickname instead of an email address;
   tools show the ID where they showed the email.
 
+### Rewriting large pages (0.22.1)
+
+On every server since 0.22.1 ([ADR 2550](adr/2550-edit-budget-for-one-replace.md),
+[2551](adr/2551-memory-of-a-large-markdown-replace.md)):
+
+- `update_page` with `mode: "replace"`, `patch_section` with `replace` and `patch_sections` still make a minimal edit.
+  When the old and new blocks of the range hold more than 128 KiB of characters together, the edit has a budget;
+  once it is spent, each further changed block keeps its id (so its comments and links stay), its colors, alignment
+  and toggle, and its content is replaced whole. Such a block loses what a person typed into it at that moment,
+  underline and text colors, and inline nodes your Markdown did not carry (a mention survives only if you send it
+  back in the notation). Ranges up to 128 KiB are edited as before.
+- So on a large page, change only what has to change: `patch_section` on the sections concerned, or `patch_sections`
+  for several at once. Rewriting the whole body of a large page with `update_page` also takes a lot of memory on the
+  server (KNOWN-ISSUES LIMITS-54).
+- An `update_page` replace whose new body has more than 2,000 blocks or more than 262,144 characters of Markdown is
+  listed in `list_versions` without `±lines`, as a replace of a page over 2,000 blocks already was.
+
 ## Disconnecting and API tokens
 
 On the web, open the command palette (⌘P, or Ctrl+P on Windows and Linux; ⌘K is search) → **Manage MCP connections** (`/settings/connections`), or Settings → Connections → **Manage connections**, then **Disconnect** next to the app.

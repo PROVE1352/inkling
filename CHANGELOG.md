@@ -25,10 +25,12 @@ These change with no setting, on every server that upgrades:
   writes to it. Its connection is now authorised read-only, and an update to it that carries any content is
   refused before it is decoded: the server cuts that socket. Before, any signed-in account could grow its own inbox
   document in the server's memory without bound (since 0.21.1). Notifications are unchanged.
-- **Awareness has caps** (docs/adr/2541-*): at most 4 client ids per document connection, 16 KB per state, 64 KB per
-  message and 256 KB of states per socket across its documents. A message past one of them is never applied and the
-  server cuts the socket; the provider reconnects. The web app sends one id per document and frames of a few hundred
-  bytes. Before, a member could fill the server's memory with awareness states, also from a read-only connection.
+- **Awareness has caps** (docs/adr/2541-*, 2552-*): a document connection may bring at most 4 client ids of its own
+  into a document (ids already there, which the web app's provider sends back for everyone else, do not count), a
+  socket may add new client ids 64 at once and then one a second, a document holds at most 1024, a state at most
+  16 KB, a message at most 1 MB, and the states a socket brought in at most 256 KB. A message past one of them is
+  never applied and the server cuts the socket; the provider reconnects. The web app brings in one id per document.
+  Before, a member could fill the server's memory with awareness states, also from a read-only connection.
 - **The cap of 40 collaboration sockets per client address counts an IPv6 /64 as one address** (docs/adr/2544-*), as
   the request rate limit does since 0.22.0. Everyone behind one IPv6 /64 now shares 40 sockets (the web app opens one
   per tab, so about 40 tabs), as everyone behind one IPv4 NAT always has. The 40 is a constant in the code

@@ -1035,6 +1035,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2549](2549-storage-limit-closes-editing-as-a-reconnect.md) | Going over the storage limit reconnects editing read-only; the demo's containers get no swap | Accepted |
 | [2550](2550-edit-budget-for-one-replace.md) | One replace has an edit budget; past it a changed block's content is swapped whole | Accepted (amends 0940, 1500) |
 | [2551](2551-memory-of-a-large-markdown-replace.md) | Memory of a large Markdown replace: what holds it, what was cut, what is left | Accepted |
+| [2552](2552-awareness-ids-count-against-the-connection-that-brought-them-in.md) | Awareness ids count against the connection that brought them in (corrects 2541) | Accepted |
 
 ## 099x Client updates
 

@@ -197,6 +197,16 @@ describe('replace edit budget (docs/adr/2550-*)', () => {
     assert.equal(spent.swapped, 1)
   })
 
+  it('a range up to 128 KiB has no budget: a whole rewrite of a 50K body is edited in place as before', async () => {
+    for (const bytes of [5_000, 50_000]) {
+      const doc = await docFromMarkdown(randomWords(bytes, 5))
+      await replace(doc, randomWords(bytes, 6))
+      const used = lastReplaceWork()
+      assert.equal(used.swapped, 0, `${bytes}: ${JSON.stringify(used)}`)
+      assert.ok(used.textOps > REPLACE_BUDGET.textOps || bytes < 10_000, `${bytes}: ${JSON.stringify(used)}`)
+    }
+  })
+
   it('rewriting a 300K body of random words stops at the budget', async () => {
     const doc = await docFromMarkdown(randomWords(300_000, 3))
     await replace(doc, randomWords(300_000, 4))

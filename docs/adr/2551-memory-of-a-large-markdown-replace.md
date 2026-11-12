@@ -59,10 +59,12 @@ and the dry run's validation read, which again copied the copy before reading it
 
 ## Consequences
 See the table in the 0.22.2 report (`w22-reports/replace-fix/`): with a 512 MB heap every case of the
-reproduction now answers 200 and the server stays up. With 990K of ordinary Markdown the RSS still peaks
-above 768 MB at a 512 MB heap: V8 grows the heap towards its limit when the live set is ~300 MB, and the
-process carries ~140 MB outside the heap. With a 320 MB heap a 990K ordinary-Markdown rewrite still runs
-the heap out of memory; see the report for the size it starts at.
+reproduction now answers 200 and the server stays up, but with 990K of ordinary Markdown rewritten six
+times the RSS still peaks at ~840–870 MB, above a 768 MB container limit (macOS measurement, not a
+container). The likely reason, estimated and not proven: the live set of such a replace is ~300 MB of
+heap (the table above), V8 lets the heap grow towards its limit, and the process carries ~140 MB outside
+the heap at rest. With a 320 MB heap, six rewrites of 800K of ordinary Markdown survive and 900K dies at
+the third to sixth rewrite (the document grows with every rewrite, so survival depends on how many).
 
 ## References
 - apps/server/src/md/convert.ts (`releaseParseDom`), apps/server/src/pageContentWrite.ts (line counts)

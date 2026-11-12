@@ -364,6 +364,24 @@ export const REPLACE_BUDGET: Readonly<EditBudget> = { textOps: 2_000, diffWork: 
 /** A pair whose two content nodes hold more characters than this together is never diffed. */
 const INLINE_MAX_TOKENS = 200_000
 let budgetOverride: EditBudget | null = null
+/**
+ * A replace whose old and new blocks hold at most this many characters together has no budget: its
+ * edit is the same as before the budget, byte for byte (a whole rewrite of a 50K body included). The
+ * cost the budget bounds is operations × structs, which only a large range makes large.
+ */
+const BUDGET_FREE_CHARS = 128 * 1024
+const UNBOUNDED: Readonly<EditBudget> = { textOps: Number.MAX_SAFE_INTEGER, diffWork: Number.MAX_SAFE_INTEGER }
+
+/** Characters of blocks as the budget gate counts them: inline text, other content as JSON, children too. */
+function blockChars(blocks: AnyBlock[]): number {
+  let n = 0
+  for (const b of blocks) {
+    if (Array.isArray(b.content)) n += inlinesText(b.content).length
+    else if (b.content != null) n += JSON.stringify(b.content).length
+    n += blockChars(b.children ?? [])
+  }
+  return n
+}
 
 /**
  * A budget several patches share (patch_sections, a revert batch): each patch spends from what the
@@ -1077,6 +1095,9 @@ function replaceRange(
   const { tmp, els, read } = buildIncoming(incoming)
   try {
     if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
+    // A small range is edited exactly as before the budget (docs/adr/2550-*): decided once, from the
+    // blocks alone, so the dry run and the live edit (and a batch's copy run) agree.
+    const small = !budgetOverride && blockChars(r.blocks) + blockChars(read) <= BUDGET_FREE_CHARS
     /**
      * Runs the edit on `target` (one transaction) for the range starting at top-level index `from`;
      * returns its stats, expectations and first new id.
@@ -1086,7 +1107,7 @@ function replaceRange(
       const tTop = tGroup.toArray() as Y.XmlElement[]
       const tLive = new Map<string, Y.XmlElement>()
       indexContainers(tGroup, tLive)
-      const start: EditBudget = shared ? { ...shared } : newReplaceBudget()
+      const start: EditBudget = small ? { ...UNBOUNDED } : shared ? { ...shared } : newReplaceBudget()
       const budget: EditBudget = { ...start }
       const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [], budget, swapped: 0 }
       const startRef = from > 0 ? tTop[from - 1] : null
@@ -1139,8 +1160,8 @@ function replaceRange(
     // The same deterministic edit on the live document (same content, same structure as the copy),
     // written by the live doc's own client so concurrent client edits merge as usual.
     const res = editOn(doc, strategy, r.from)
-    // what is left goes to the next patch of the same run
-    if (shared) Object.assign(shared, res.budget)
+    // what is left goes to the next patch of the same run (a small range spends nothing from it)
+    if (shared && !small) Object.assign(shared, res.budget)
     return { stats: res.stats, firstId: res.firstId }
   } finally {
     tmp.destroy()

@@ -24,6 +24,13 @@ where the same body built fresh has 5k; six 100K replaces add ~31k structs each.
   written); when its operations do not fit in what is left, or nothing is left, or the pair holds more
   than 200,000 characters, the block keeps its container and id but its content node is replaced by the
   new one (`swapContent`), carrying block colors, alignment and the toggle node as a retype does.
+- **Only large ranges have a budget**: when the old and new blocks of the range hold at most 128 KiB
+  of characters together (`BUDGET_FREE_CHARS`), the edit runs without one, exactly as before. Measured
+  with the budget on every range, a whole rewrite of a 5K body of random words already swapped 3 of 11
+  paragraphs (it takes ~2,500 operations), and touching 15% of the words in every paragraph of a 50K
+  body swapped 15 of 104; with the gate none of these is swapped. The cost the budget bounds is
+  operations × structs, which only a large range makes large. The gate is decided once from the blocks,
+  so the dry run, the live edit and a batch's copy run agree.
 - **A block whose characters and Markdown marks did not change is never swapped**: before any diff,
   the two content nodes are compared as one key (text runs with their Markdown marks, known inline
   nodes; `inlineKey`), and equal keys skip the diff, which would have found no edit anyway. This matters
@@ -34,9 +41,11 @@ where the same body built fresh has 5k; six 100K replaces add ~31k structs each.
 - **Values from the test suites, not from page sizes**: every replace in the unit and database suites
   was recorded (one temporary counter, both suites): at most **23** text operations (sectionLinks.db),
   **4.0M** diff steps (mcpFixes013.db: one pair at the per-pair Myers cap), **16,498** characters in one
-  pair. The budget is 87×, 10× (ten pairs at the per-pair cap) and 12× those. A no-op or small edit of a
-  1 MB page with more than 2,000 blocks (no echo, every block paired) tokenizes ~2M characters, well
-  inside 40M (`replaceBudget.test.ts`: 300K page, three words changed, nothing swapped).
+  pair. The budget is 87×, 10× (ten pairs at the per-pair cap) and 12× those. A small edit of a large
+  page with more than 2,000 blocks (no echo, every block paired) diffs only the changed blocks
+  (`replaceBudget.test.ts`: 300K page, three words changed, 3 operations, nothing swapped). A large
+  range that rewrites much more than that (an agent translating or reformatting a whole long page) does
+  reach the budget, and its later changed blocks are swapped.
 - **Ceiling**: on the 990K random-words body a replace now takes ~1.1 s for both runs together
   (pure), the server answers in ~2 s and its event loop stalls ~1 s (was: out of memory).
 - Also in the same path: deletions of many blocks take one `toArray` (was one per deleted block,
@@ -63,9 +72,12 @@ where the same body built fresh has 5k; six 100K replaces add ~31k structs each.
 - **Timing the edit**: not deterministic; the dry run and the live run could diverge.
 
 ## Consequences
-- Edits within the budget are byte-identical to before: a differential run of the 1e1d0cb module
-  against the new one on 400 seeded pages up to 50K with random edits (document and section replaces,
-  with and without echo, fixed client id) gave identical encoded documents and stats in 400/400.
+- Ranges up to 128 KiB and edits within the budget are byte-identical to before: a differential run of
+  the 1e1d0cb module against the new one on 400 seeded pages up to 50K (random edits, whole-body
+  rewrites and every-paragraph edits; document and section replaces, with and without echo, fixed
+  client id) gave identical encoded documents and stats in 400/400.
+- Below the gate nothing changed, including the old cost: repeatedly rewriting a page of up to ~60K
+  with entirely different text still adds tens of thousands of structs per rewrite (pre-existing).
 - Every rewrite still leaves tombstones (a deleted item stays where a live block points at it):
   about one struct per swapped block plus about two per text operation, so a page rewritten many
   times still grows, linearly and by at most about its own size per rewrite.

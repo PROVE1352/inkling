@@ -76,6 +76,9 @@ services:
       # Terms, privacy policy and sign-up texts (deploy/demo/legal is the template with placeholders).
       - ${DEMO_LEGAL_DIR:?set in deploy/demo/demo.env}:/legal:ro
     mem_limit: ${APP_MEM_LIMIT:?set in deploy/demo/demo.env}
+    # No swap past the memory limit (0.22.1): without this a container may also use as much swap again,
+    # on the host's swap device. demo.sh refuses a service whose memswap_limit differs from its mem_limit.
+    memswap_limit: ${APP_MEM_LIMIT:?set in deploy/demo/demo.env}
     cpus: ${APP_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${APP_PIDS_LIMIT:?set in deploy/demo/demo.env}
 
@@ -87,12 +90,16 @@ services:
       PGUSER: inkling_demo
       PGDATABASE: inkling_demo
     mem_limit: ${PG_MEM_LIMIT:?set in deploy/demo/demo.env}
+    memswap_limit: ${PG_MEM_LIMIT:?set in deploy/demo/demo.env}
     cpus: ${PG_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${PG_PIDS_LIMIT:?set in deploy/demo/demo.env}
     # The demo database is never published on the host (Docker-internal traffic only).
     ports: !override []
 
   backup:
+    # compose.yaml's 256m, written out here so its swap limit can match it
+    mem_limit: 256m
+    memswap_limit: 256m
     cpus: ${BACKUP_CPUS:?set in deploy/demo/demo.env}
     pids_limit: ${BACKUP_PIDS_LIMIT:?set in deploy/demo/demo.env}
     environment:

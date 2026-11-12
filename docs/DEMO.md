@@ -219,6 +219,7 @@ One line each; the full reference is in the operations docs.
 | `AGENT_UPLOAD_MAX_MB`, `AGENT_UPLOAD_DAILY_MB` | `5`, `10` | Uploads by AI agents: per file, per account per day |
 | `LIMIT_WORKSPACES_TOTAL` | `100` | Workspaces on the whole server, deleted ones still restorable included; at it sign-up and new workspaces are refused |
 | `LIMIT_INSTANCE_STORAGE_MB` | `3000` | Storage fuse: database plus uploads, measured once a minute; at it the demo only reads and deletes ("Disk and the storage fuse" below) |
+| `APP_MEM_LIMIT`, `NODE_OPTIONS` | `768m`, `--max-old-space-size=448` | The app container's memory and the server's heap inside it ("Memory" below) |
 | `DISABLED_FEATURES` | see `demo.env.example` | Features turned off on the whole server |
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
 | `INSTANCE_LABEL` | `Demo` | The label every screen shows |
@@ -261,10 +262,27 @@ for them. Measured for 0.22.1 with the production build: about 880 MB of WAL aft
 
 What one workspace can make the database grow by, measured for 0.22.1: a workspace's storage counts its files,
 page bodies, version history and the rows of its search indexes, but not Postgres's index entries and the space
-that rewriting leaves. Filled once with text, a 10 MB workspace grew the database by about 1.3–1.5 × its limit
-with prose and about 3.7–7.3 × with random words written on purpose. 100 workspaces of 10 MB filled with prose
-come to about 1.5 GB, under the 3,000 MB fuse; a few accounts writing random text can still trip the fuse on purpose. That
-stops only the demo, and the filesystem keeps it off your main disk.
+that rewriting leaves. Filled once with text, through the editor's live connection or through the API, a 10 MB
+workspace grew the database by 9–19 MB with prose and 19–25 MB with random words written on purpose. 100
+workspaces filled that way come to at most about 2.5 GB, under the 3,000 MB fuse; a few accounts deleting and
+writing again and again can still trip the fuse on purpose. That stops only the demo, and the filesystem keeps it
+off your main disk.
+
+### Memory
+
+The app runs with a 448 MB heap in a 768 MB container (`NODE_OPTIONS`, `APP_MEM_LIMIT`), the database in 384 MB
+and the backups in 256 MB. None of the three can use swap (`memswap_limit` equal to `mem_limit` in
+`compose.demo.yaml`; `demo.sh` refuses a configuration where they differ or a limit is missing), so a container that
+runs out is stopped and restarted instead of moving into the host's swap.
+
+Measured for 0.22.1 with the production build (on macOS): an open page holds about 20 times its stored size in
+memory. Three accounts filling pages at the largest size (2.5 MB, a quarter of a workspace's 10 MB) in both of their
+workspaces, with every page kept open, peaked at a 332 MB heap and 588 MB of memory with the 448 MB heap (the
+storage limit refused the rest after one such page per workspace). Before the limit counted live edits with their
+index, the same run filled more and peaked at a 434 MB heap and 734 MB, and ran out of memory with 320 MB and
+384 MB heaps. If you raise the heap, raise `APP_MEM_LIMIT` with it: the server took 255–325 MB besides its heap.
+Pages of many tiny map entries can still run a 448 MB heap out of memory (one account, two pages); the container
+then restarts.
 
 ### Posting a notice
 

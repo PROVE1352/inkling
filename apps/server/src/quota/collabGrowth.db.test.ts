@@ -309,18 +309,19 @@ describe('collab growth counters (no database)', () => {
     const restore = L.setLimitsForTests({ workspaceStorageMb: 1 }) // 1 MiB, page cap 256 KiB
     try {
       const KB = 1024
-      G.noteCollabAuthorised('a', 'w', 0, 600 * KB)
-      G.noteCollabAuthorised('b', 'w', 0, 600 * KB)
+      // 0.22.1 (docs/adr/2548-*): unsaved growth counts with its index rows to come, × 3
+      G.noteCollabAuthorised('a', 'w', 0, 200 * KB)
+      G.noteCollabAuthorised('b', 'w', 0, 200 * KB)
       assert.equal(G.admitCollabUpdate('a', 'w', 200 * KB, () => 0), 'ok')
       assert.equal(G.admitCollabUpdate('a', 'w', 100 * KB, () => 0), 'page') // 300 KB > 256 KB
-      assert.equal(G.admitCollabUpdate('b', 'w', 200 * KB, () => 0), 'ok') // 600 + 400 = 1000 KB
-      assert.equal(G.admitCollabUpdate('b', 'w', 40 * KB, () => 0), 'workspace') // 1040 KB > 1024 KB
-      assert.equal(G.collabUnsavedBytes('w'), 400 * KB)
-      // a store of page a covered its 200 KB: they move from "unsaved" into the cached use
+      assert.equal(G.admitCollabUpdate('b', 'w', 70 * KB, () => 0), 'ok') // 200 + 270 × 3 = 1010 KB
+      assert.equal(G.admitCollabUpdate('b', 'w', 10 * KB, () => 0), 'workspace') // 200 + 280 × 3 > 1024 KB
+      assert.equal(G.collabUnsavedBytes('w'), 270 * KB * 3)
+      // a store of page a covered its 200 KB: they move from "unsaved" into the cached use (with the estimate)
       G.noteCollabStored('a', 200 * KB, 200 * KB, 800 * KB)
-      assert.equal(G.collabUnsavedBytes('w'), 200 * KB)
+      assert.equal(G.collabUnsavedBytes('w'), 70 * KB * 3)
       assert.equal(G.collabFullInMemory('b', 'w'), false)
-      assert.equal(G.admitCollabUpdate('b', 'w', 40 * KB, () => 0), 'workspace') // 800 + 200 + 40 > 1024
+      assert.equal(G.admitCollabUpdate('b', 'w', 10 * KB, () => 0), 'workspace') // 800 + 80 × 3 > 1024
       G.noteCollabRefused('b')
       assert.equal(G.collabFullInMemory('b', 'w'), true, 'a refused page authorises read-only')
       G.noteCollabUnloaded('b')
@@ -340,9 +341,9 @@ describe('collab growth counters (no database)', () => {
       const KB = 1024
       // a stored body of 200 KB; the workspace uses 800 KB; the next store may copy the 200 KB
       G.noteCollabAuthorised('fresh-page', 'w2', 200 * KB, 800 * KB)
-      assert.equal(G.admitCollabUpdate('fresh-page', 'w2', 50 * KB, () => 0), 'workspace') // 800 + 200 copy + 50 > 1024
-      assert.equal(G.admitCollabUpdate('fresh-page', 'w2', 10 * KB, () => 0), 'ok') // 800 + 200 copy + 10 fits
-      assert.equal(G.collabUnsavedBytes('w2'), 210 * KB)
+      assert.equal(G.admitCollabUpdate('fresh-page', 'w2', 50 * KB, () => 0), 'workspace') // 800 + 200 copy + 50 × 3 > 1024
+      assert.equal(G.admitCollabUpdate('fresh-page', 'w2', 5 * KB, () => 0), 'ok') // 800 + 200 copy + 5 × 3 fits (0.22.1: × 3)
+      assert.equal(G.collabUnsavedBytes('w2'), 215 * KB)
     } finally {
       restore()
       G._resetCollabGrowth()

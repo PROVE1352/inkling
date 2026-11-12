@@ -276,4 +276,34 @@ describe('deploy/demo/demo.sh', { skip: !usable && 'needs docker compose, python
     assert.match(d.out, /the demo's files are still in \S+\/vol\/\{db,data,backups,backup-ctl\}; delete them yourself/)
     assert.ok(existsSync(path.join(root, 'vol')), 'the script never deletes host folders')
   })
+
+  it('0.22.1: app, db and backup each have mem_limit, an equal memswap_limit (no host swap), pids_limit and cpus; a missing or different one is refused', () => {
+    const ok = run(['config'])
+    assert.equal(ok.code, 0, ok.out + ok.err)
+    for (const s of ['app', 'db', 'backup']) {
+      assert.match(ok.out, new RegExp(`ok {6}service ${s}: mem_limit \\d+, memswap_limit \\d+ \\(both set and equal`), ok.out)
+      assert.match(ok.out, new RegExp(`ok {6}service ${s}: pids_limit \\d+`))
+      assert.match(ok.out, new RegExp(`ok {6}service ${s}: cpus [\\d.]+`))
+    }
+    // the preset's pair (docs/DEMO.md "Memory"): 768 MB with a 448 MB heap
+    assert.match(ok.out, /service app: mem_limit 805306368, memswap_limit 805306368/)
+    const file = path.join(root, 'deploy/demo/compose.demo.yaml')
+    const base = readFileSync(file, 'utf8')
+    const cases: [string, RegExp][] = [
+      [base.replace(/^    memswap_limit: \$\{APP_MEM_LIMIT[^\n]*\n/m, ''), /REFUSED service app: mem_limit \d+, memswap_limit None/],
+      [base.replace(/^    memswap_limit: \$\{PG_MEM_LIMIT[^\n]*\n/m, '    memswap_limit: 1g\n'), /REFUSED service db: mem_limit \d+, memswap_limit \d+/],
+      [base.replace(/^    memswap_limit: 256m\n/m, ''), /REFUSED service backup: mem_limit \d+, memswap_limit None/],
+      [base.replace(/^    pids_limit: \$\{APP_PIDS_LIMIT[^\n]*\n/m, ''), /REFUSED service app: pids_limit None/],
+      [base.replace(/^    cpus: \$\{PG_CPUS[^\n]*\n/m, ''), /REFUSED service db: cpus None/],
+    ]
+    for (const [text, refusal] of cases) {
+      assert.notEqual(text, base, 'the fixture edit applied')
+      writeFileSync(file, text)
+      const r = run(['config'])
+      assert.equal(r.code, 3, r.out)
+      assert.match(r.out, refusal)
+      assert.equal(run(['up']).code, 3)
+    }
+    assert.deepEqual(calls(), [])
+  })
 })

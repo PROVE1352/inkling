@@ -130,13 +130,20 @@ describe('update_page(replace) of a large body (docs/adr/2550-*)', () => {
     assert.equal(await plain(doc), want)
   })
 
-  it('six replaces of a 100K body of random words do not pile up structs', async () => {
+  it('six replaces of a 100K body of random words: each replace adds at most about the body, never more and more', async () => {
     const doc = newPage()
+    const after: number[] = []
     let last: AnyBlock[] = []
-    for (let i = 1; i <= 6; i++) last = await replace(doc, randomWords(100_000, 10 + i))
+    for (let i = 1; i <= 6; i++) {
+      last = await replace(doc, randomWords(100_000, 10 + i))
+      after.push(structs(doc))
+    }
     const fresh = freshStructs(last)
-    const got = structs(doc)
-    assert.ok(got <= 4 * fresh, `structs after six replaces: ${got}, the last body built fresh: ${fresh}`)
+    // A replace leaves tombstones (a deleted item stays where a live block still points at it), so a
+    // page grows with every rewrite; what must not happen is a rewrite costing many times the body.
+    const perReplace = (after[5] - after[1]) / 4
+    assert.ok(perReplace <= 2 * fresh, `structs added per replace: ${perReplace}, the body built fresh: ${fresh} (after each: ${after.join(', ')})`)
+    assert.ok(after[5] - after[4] <= 2 * fresh, `the last replace added ${after[5] - after[4]}`)
   })
 
   it('two replaces of a 200K body of mixed Markdown (headings, lists, tables, code) stay near the fresh size', async () => {

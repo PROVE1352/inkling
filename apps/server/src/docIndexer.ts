@@ -180,11 +180,31 @@ async function runIndexPass(pageId: string, state: Uint8Array, stamp: string | n
 }
 
 /** Runs one index pass for the page, chained after any pass already in flight for it. */
+/**
+ * Index passes are numbered when their state is chosen (0.22.1, docs/adr/2548-*): the storage limit's
+ * estimate of a store's index rows (quota/storage.ts) stands until a pass numbered after that store has
+ * written its rows. Without a storage limit nothing listens.
+ */
+let passSeq = 0
+let passDone: ((pageId: string, seq: number) => void) | null = null
+/** The number the next index pass will be given is greater than this. */
+export function indexPassSeq(): number {
+  return passSeq
+}
+/** One listener for "the pass numbered `seq` of this page wrote its rows" (quota/storage.ts). */
+export function onIndexPassDone(fn: ((pageId: string, seq: number) => void) | null): void {
+  passDone = fn
+}
+
 function runSerial(pageId: string, state: Uint8Array, stamp: string | null): Promise<void> {
   const before = running.get(pageId) ?? Promise.resolve()
+  const seq = ++passSeq
   const job = before
     .catch(() => {})
-    .then(() => runIndex(pageId, state, stamp))
+    .then(async () => {
+      await runIndex(pageId, state, stamp)
+      passDone?.(pageId, seq)
+    })
     .catch((err) => console.error('[inkling] store indexing failed', pageId, err))
   running.set(pageId, job)
   void job.finally(() => {

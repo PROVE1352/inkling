@@ -14,8 +14,9 @@ import { instanceFullNow } from './instance'
  * await before the decision would let a burst through):
  *
  *   - per page: stored body + unsaved growth + this update ≤ the page body cap (¼ of the limit);
- *   - per workspace: cached use (`workspaces.storage_bytes`) + unsaved growth of its live pages + the
- *     version copy the next store may take + this update ≤ the workspace limit;
+ *   - per workspace: cached use (`workspaces.storage_bytes`) + (unsaved growth of its live pages + this
+ *     update) × STORE_BYTES_PER_UNSAVED_BYTE (the body and its index rows to come, 0.22.1) + the version
+ *     copy the next store may take ≤ the workspace limit;
  *   - the instance fuse (LIMIT_INSTANCE_STORAGE_MB, quota/instance.ts) is not tripped.
  *
  * An update that does not fit is never applied or stored: collab.ts makes the connection read-only
@@ -35,6 +36,22 @@ import { instanceFullNow } from './instance'
  * Nothing here runs without LIMIT_WORKSPACE_STORAGE_MB or LIMIT_INSTANCE_STORAGE_MB: collab.ts asks
  * collabGuardsOn() first, so a server without them has no new read, close or refusal on its editing path.
  */
+
+/**
+ * Bytes a recount finds, besides the body itself, per byte a stored body grows: the index rows (page_texts,
+ * page_chunks with their tsvector, tasks, links, tags). quota/storage.ts noteBodyStore reserves them at
+ * store time until a recount sees the rows (review N3, docs/adr/2545-*). 2 since 0.22.1 (docs/adr/2548-*):
+ * measured over the collab socket the rows came to 1.98 × the body for prose and 2.73 × for random words,
+ * and the change log kept no copy of pasted text (2545's 2.2–2.3 + 1 came from REST appends).
+ */
+export const INDEX_BYTES_PER_BODY_BYTE = 2
+
+/**
+ * What an unsaved byte of live editing is counted as when an update is admitted (0.22.1, docs/adr/2548-*):
+ * the body plus its index rows, the same estimate the store reserves (INDEX_BYTES_PER_BODY_BYTE). Counting
+ * the body alone let a burst admitted before any store end at 2.1–3.2 × the limit once indexed.
+ */
+export const STORE_BYTES_PER_UNSAVED_BYTE = 1 + INDEX_BYTES_PER_BODY_BYTE
 
 /** A page refused for storage authorises read-only for this long (or until the server restarts). */
 export const REFUSED_PAGE_MS = 10 * 60_000
@@ -157,7 +174,7 @@ export function collabFullInMemory(pageId: string, workspaceId: string): boolean
   const limit = storageLimit()
   if (limit == null) return false
   const w = wsAcc.get(workspaceId)
-  if (w && w.used + w.pending + w.reserve >= limit) return true
+  if (w && w.used + STORE_BYTES_PER_UNSAVED_BYTE * w.pending + w.reserve >= limit) return true
   const p = pageAcc.get(pageId)
   return !!p && p.base + p.pending > Math.floor(limit / 4)
 }
@@ -230,7 +247,8 @@ function admit(pageId: string, workspaceId: string, bytes: number, liveBody: () 
   if (p.base + p.pending + bytes > Math.floor(limit / 4)) return 'page'
   // the next store copies the stored body into the version history when the throttle is open
   const reserve = p.reserve === 0 && p.base > 0 && autoSnapshotMayBeDue(pageId) ? p.base : 0
-  if (w.used + w.pending + w.reserve + reserve + bytes > limit) return 'workspace'
+  // the unsaved growth with its index rows to come (STORE_BYTES_PER_UNSAVED_BYTE, docs/adr/2548-*)
+  if (w.used + STORE_BYTES_PER_UNSAVED_BYTE * (w.pending + bytes) + w.reserve + reserve > limit) return 'workspace'
   if (s && structs) s.held += structs.growth
   p.pending += bytes
   p.held += bytes
@@ -367,13 +385,13 @@ export function noteWorkspaceUsed(workspaceId: string, used: number): void {
 }
 
 /**
- * Bytes of live editing in the workspace that its cached use does not hold yet (unsaved growth and the
- * version copies reserved for the next stores). The REST storage checks add them (quota/room.ts), so
+ * Bytes of live editing in the workspace that its cached use does not hold yet (unsaved growth with its
+ * index rows to come, STORE_BYTES_PER_UNSAVED_BYTE, and the version copies reserved for the next stores). The REST storage checks add them (quota/room.ts), so
  * an upload and a burst of typing cannot both take the same room.
  */
 export function collabUnsavedBytes(workspaceId: string): number {
   const w = wsAcc.get(workspaceId)
-  return w ? w.pending + w.reserve : 0
+  return w ? STORE_BYTES_PER_UNSAVED_BYTE * w.pending + w.reserve : 0
 }
 
 /** Test hook: forget every counter. */

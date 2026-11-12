@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { db } from '../db/index'
-import { closePageConnections, closeWorkspaceConnections, reconnectReadOnlyWorkspaceConnections } from '../liveConnections'
-import { clearCollabRefusals, collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed, setCollabRecountHook } from './collabGrowth'
+import { reconnectPagesForStorage, reconnectReadOnlyWorkspaceConnections, reconnectWorkspaceForStorage } from '../liveConnections'
+import { INDEX_BYTES_PER_BODY_BYTE, clearCollabRefusals, collabFullInMemory, noteCollabAuthorised, noteWorkspaceUsed, setCollabRecountHook } from './collabGrowth'
 import { instanceFullNow, instanceStorageLimitBytes } from './instance'
 import { fileStorageSql, pageBodyLimitBytes, storageLimitBytes, type QuotaExec } from './room'
 
@@ -25,6 +25,11 @@ import { fileStorageSql, pageBodyLimitBytes, storageLimitBytes, type QuotaExec }
  * `workspaces.storage_bytes` caches the sum: recounted by the hourly housekeeping, by the usage
  * route when it is older than a minute, after purges, and moved by cheap deltas on the write paths
  * (uploads reserve their bytes in assertWorkspaceRoom, collab stores add the body's growth).
+ *
+ * With a limit, what a recount cannot see yet stays in the cache (0.22.1, docs/adr/2548-*): a body store's
+ * delta until its upsert is in, and its index estimate until an index pass numbered after the store has
+ * written the rows. A recount writes `measured + those estimates`, so a recount that runs early (the
+ * first store of a workspace, a refusal, the settings screen) no longer wipes them.
  */
 
 export interface StorageCount {
@@ -82,35 +87,211 @@ export async function countWorkspaceStorage(exec: QuotaExec, workspaceId: string
   return { fileBytes, total: fileBytes + Number(r?.other ?? 0) }
 }
 
+// ---------------------------------------------------------------------------
+// Store estimates a recount has not seen yet (0.22.1, docs/adr/2548-*)
+// ---------------------------------------------------------------------------
+
+interface StoreEstimate {
+  /** The body's change (state + state vector) this store added to the cache. */
+  body: number
+  /** Its index rows, estimated (INDEX_BYTES_PER_BODY_BYTE per byte the body grew). */
+  index: number
+  /** indexPassSeq() once the store's upsert was in; null while it is in flight. */
+  armedAt: number | null
+  /** An index pass numbered after armedAt wrote its rows: a recount that starts now sees them. */
+  indexed: boolean
+  at: number
+}
+
+/** Workspace → page → the estimates of its stores that no recount has seen yet. */
+const estimates = new Map<string, Map<string, StoreEstimate[]>>()
+/** The workspace of each page in `estimates` (the store's upsert and the index pass name only the page). */
+const estimatePage = new Map<string, string>()
+/** Pages whose store found the cache stale: recounted once their upsert is in (noteBodyStoreWritten). */
+const staleAfterStore = new Map<string, string>()
+/** Estimates older than this are dropped by the next recount (an index pass that never ran). */
+export const ESTIMATE_MAX_AGE_MS = 10 * 60 * 1000
+/** At most this many estimates per page: older ones merge into the next (counted until the later is seen). */
+const ESTIMATES_PER_PAGE = 8
+
+/**
+ * Body stores and recounts of one workspace take turns (in this process): a store's delta and its
+ * estimate go in together, so a recount either sees both or neither. Only with a storage limit.
+ */
+const wsTurns = new Map<string, Promise<unknown>>()
+function inTurn<T>(workspaceId: string, run: () => Promise<T>): Promise<T> {
+  const prev = wsTurns.get(workspaceId) ?? Promise.resolve()
+  const job = prev.catch(() => {}).then(run)
+  const tail = job.catch(() => {})
+  wsTurns.set(workspaceId, tail)
+  void tail.then(() => {
+    if (wsTurns.get(workspaceId) === tail) wsTurns.delete(workspaceId)
+  })
+  return job
+}
+
+function addEstimate(workspaceId: string, pageId: string, body: number, index: number): void {
+  let pagesOf = estimates.get(workspaceId)
+  if (!pagesOf) estimates.set(workspaceId, (pagesOf = new Map()))
+  let list = pagesOf.get(pageId)
+  if (!list) pagesOf.set(pageId, (list = []))
+  list.push({ body, index, armedAt: null, indexed: false, at: Date.now() })
+  if (list.length > ESTIMATES_PER_PAGE) {
+    const [a] = list.splice(0, 1)
+    list[0].body += a.body
+    list[0].index += a.index
+  }
+  estimatePage.set(pageId, workspaceId)
+}
+
+/** Bytes of the workspace's estimates no recount has seen (what the cache holds beyond the last count). */
+export function unseenEstimateBytes(workspaceId: string): number {
+  let n = 0
+  for (const list of estimates.get(workspaceId)?.values() ?? []) for (const e of list) n += e.body + e.index
+  return n
+}
+
+/**
+ * The store's upsert of `pageId` is in (written) or failed: its estimates are armed with the index pass
+ * number now, so a pass numbered after it (scheduled right after this call, collab.ts storeDocument) marks
+ * the index rows as written. A failed store drops its estimate: the cache keeps the delta as an upper
+ * bound until the next recount. A store that found the cache stale recounts now, after its upsert
+ * (0.22.1: it used to recount beside the upsert and count the page without its new body).
+ */
+export function noteBodyStoreWritten(pageId: string, passSeq: number, written = true): void {
+  if (!estimatePage.size && !staleAfterStore.size) return // no storage limit: nothing was noted
+  const ws = estimatePage.get(pageId)
+  const list = ws ? estimates.get(ws)?.get(pageId) : undefined
+  if (ws && list) {
+    if (written) for (const e of list) e.armedAt ??= passSeq
+    else dropPage(ws, pageId, (e) => e.armedAt === null)
+  }
+  const stale = staleAfterStore.get(pageId)
+  if (stale !== undefined) {
+    staleAfterStore.delete(pageId)
+    recountSoon(stale)
+  }
+}
+
+/** An index pass numbered `seq` wrote the rows of `pageId` (docIndexer.ts onIndexPassDone). */
+export function noteIndexPassDone(pageId: string, seq: number): void {
+  if (!estimatePage.size) return
+  const ws = estimatePage.get(pageId)
+  let landed = false
+  for (const e of (ws && estimates.get(ws)?.get(pageId)) || [])
+    if (e.armedAt !== null && seq > e.armedAt && !e.indexed) landed = e.indexed = true
+  // the rows are in: a recount now puts them in place of the estimate (instead of up to 40 s later), so a
+  // count that ran while the pass was writing does not hold rows and estimate together for long
+  if (ws && landed && !indexedRecount.has(ws)) {
+    const t = setTimeout(() => {
+      indexedRecount.delete(ws)
+      recountSoon(ws)
+    }, INDEXED_RECOUNT_MS)
+    t.unref?.()
+    indexedRecount.set(ws, t)
+  }
+}
+/** Index passes that land together (several pages, one pass after another) share one recount. */
+const INDEXED_RECOUNT_MS = 500
+const indexedRecount = new Map<string, NodeJS.Timeout>()
+
+function dropPage(workspaceId: string, pageId: string, drop: (e: StoreEstimate) => boolean): void {
+  const pagesOf = estimates.get(workspaceId)
+  const list = pagesOf?.get(pageId)
+  if (!pagesOf || !list) return
+  const keep = list.filter((e) => !drop(e))
+  if (keep.length) pagesOf.set(pageId, keep)
+  else {
+    pagesOf.delete(pageId)
+    estimatePage.delete(pageId)
+    if (!pagesOf.size) estimates.delete(workspaceId)
+  }
+}
+
+/** Before a count: what it will see. The body of an armed store (its upsert is in), the index of an indexed one. */
+function seenNow(workspaceId: string): Map<StoreEstimate, { body: boolean; index: boolean }> {
+  const seen = new Map<StoreEstimate, { body: boolean; index: boolean }>()
+  const old = Date.now() - ESTIMATE_MAX_AGE_MS
+  for (const list of estimates.get(workspaceId)?.values() ?? [])
+    for (const e of list) {
+      const expired = e.at < old
+      seen.set(e, { body: expired || e.armedAt !== null, index: expired || e.indexed })
+    }
+  return seen
+}
+
+/** After a count: forget what it saw; returns the bytes of what it did not see. */
+function settleSeen(workspaceId: string, seen: Map<StoreEstimate, { body: boolean; index: boolean }>): number {
+  const pagesOf = estimates.get(workspaceId)
+  if (!pagesOf) return 0
+  for (const [page, list] of [...pagesOf]) {
+    for (const e of list) {
+      const s = seen.get(e)
+      if (!s) continue
+      if (s.body) e.body = 0
+      if (s.index) e.index = 0
+    }
+    dropPage(workspaceId, page, (e) => e.body === 0 && e.index === 0)
+  }
+  return unseenEstimateBytes(workspaceId)
+}
+
+/** Test hook: forget every estimate. */
+export function _resetStoreEstimates(): void {
+  for (const t of indexedRecount.values()) clearTimeout(t)
+  indexedRecount.clear()
+  estimates.clear()
+  estimatePage.clear()
+  staleAfterStore.clear()
+}
+
+const recounts = new Set<Promise<unknown>>()
+/** Test hook: resolves when no recount started by recountSoon is running. */
+export async function storageRecountsSettled(): Promise<void> {
+  while (recounts.size) await Promise.allSettled([...recounts])
+}
+
 /**
  * Recount one workspace and store the cache (storage_bytes, storage_checked_at, over_storage).
- * A workspace that just went past its limit has its live editing connections closed: they come back
- * read-only (collab.ts). Returns the count.
+ * With a limit the cache is the count plus the store estimates the count could not see yet (above).
+ * A workspace that just went past its limit has its live editing connections made read-only and
+ * reconnected (liveConnections.ts reconnectWorkspaceForStorage). Returns the count; `total` is what the
+ * cache holds now.
  */
 export async function recountWorkspaceStorage(workspaceId: string): Promise<StorageCount & { over: boolean }> {
   const limit = storageLimitBytes()
-  const count = await countWorkspaceStorage(db, workspaceId)
-  // full = the limit is reached (>=), the same boundary as assertWorkspaceRoom and the web's isStorageFull
-  const over = limit != null && count.total >= limit
-  const [prev] = (await db.execute(sql`
-    WITH old AS (SELECT over_storage FROM workspaces WHERE id = ${workspaceId})
-    UPDATE workspaces SET storage_bytes = ${count.total}, storage_checked_at = now(), over_storage = ${over}
-     WHERE id = ${workspaceId}
-    RETURNING (SELECT over_storage FROM old) AS was
-  `)) as unknown as { was: boolean | null }[]
-  noteWorkspaceUsed(workspaceId, count.total)
-  if (over && prev && !prev.was) await closeWorkspaceConnections(workspaceId)
+  const run = async () => {
+    const seen = limit == null ? null : seenNow(workspaceId)
+    const count = await countWorkspaceStorage(db, workspaceId)
+    const total = count.total + (seen ? settleSeen(workspaceId, seen) : 0)
+    // full = the limit is reached (>=), the same boundary as assertWorkspaceRoom and the web's isStorageFull
+    const over = limit != null && total >= limit
+    const [prev] = (await db.execute(sql`
+      WITH old AS (SELECT over_storage FROM workspaces WHERE id = ${workspaceId})
+      UPDATE workspaces SET storage_bytes = ${total}, storage_checked_at = now(), over_storage = ${over}
+       WHERE id = ${workspaceId}
+      RETURNING (SELECT over_storage FROM old) AS was
+    `)) as unknown as { was: boolean | null }[]
+    return { count, total, over, prev }
+  }
+  const { count, total, over, prev } = limit == null ? await run() : await inTurn(workspaceId, run)
+  noteWorkspaceUsed(workspaceId, total)
+  if (over && prev && !prev.was) await reconnectWorkspaceForStorage(workspaceId)
   // back under the limit (files or pages deleted, the trash emptied), or room found after live updates
   // were refused on a cached number (quota/collabGrowth.ts): the read-only connections reconnect and
   // are authorised again, so editing comes back without reopening the page
   else if (!over && (clearCollabRefusals(workspaceId) > 0 || prev?.was)) await reconnectReadOnlyWorkspaceConnections(workspaceId)
-  return { ...count, over }
+  // estimates still waiting for their index pass: another recount once it has had time to land
+  if (limit != null && estimates.has(workspaceId)) recountAfterIndex(workspaceId)
+  return { ...count, total, over }
 }
 
 /** Recount when a limit is set (after a purge, an emptied trash); never throws. */
 export function recountSoon(workspaceId: string): void {
   if (storageLimitBytes() == null) return
-  void recountWorkspaceStorage(workspaceId).catch((err: unknown) => console.warn('[inkling] storage recount failed', workspaceId, err))
+  const job = recountWorkspaceStorage(workspaceId).catch((err: unknown) => console.warn('[inkling] storage recount failed', workspaceId, err))
+  recounts.add(job)
+  void job.finally(() => recounts.delete(job))
 }
 
 // a live update refused for the workspace's use recounts it (the cache may hold upper bounds)
@@ -135,14 +316,8 @@ export async function recountAllWorkspaces(): Promise<number> {
 /** A full recount from the store path at most this often per workspace (the deltas fill the gaps). */
 export const STORE_RECOUNT_MS = 10 * 60 * 1000
 
-/**
- * Bytes the recount will find, besides the body itself, per byte a stored body grows: the index rows
- * (page_texts, page_chunks with their tsvector, tasks, links, tags; 2.2 on prose-like text and 2.3 on the
- * review's random words, measured for 0.22.1 with 1 MB appends) and the change log's copy of the new text
- * (about 1). Reserved at store time until the recount sees the real rows (review N3); the recount 40 s
- * later puts the real number in either way (docs/adr/2545-*).
- */
-export const INDEX_BYTES_PER_BODY_BYTE = 3
+/** Index bytes estimated per byte a stored body grows: defined with the collab admission (quota/collabGrowth.ts). */
+export { INDEX_BYTES_PER_BODY_BYTE }
 
 /** The recount after a body grew waits this long: past the index pass's longest wait (30 s, docIndexer.ts). */
 export const INDEX_SETTLE_MS = 40_000
@@ -165,44 +340,55 @@ export function recountAfterIndex(workspaceId: string): void {
 
 /**
  * The collab store is about to write `bytes` (state + state vector) for a page (collab.ts
- * storeDocument, before the upsert): moves the workspace's cached use by the body's growth (and by the
- * auto version copy the store just took, `snapshotBytes`), flips the workspace read-only when that
- * passes the limit (closing its live connections, which come back read-only), and closes the page's
- * own connections when this one body passes the per-page cap. The store itself always goes through:
- * refusing it would only arm the retry timer and pin the document in memory (what does not fit is
- * refused before it is applied, quota/collabGrowth.ts). Returns the cached use after the move (null =
- * no limit or the update failed). No limit → nothing at all. Never throws.
+ * storeDocument, before the upsert): moves the workspace's cached use by the body's growth, its index
+ * estimate and the auto version copy the store just took (`snapshotBytes`), keeps the body's change and
+ * the estimate as an estimate a recount has not seen (docs/adr/2548-*; noteBodyStoreWritten arms it once the
+ * upsert is in), flips the workspace read-only when the cache passes the limit (its editing connections
+ * reconnect read-only, liveConnections.ts reconnectWorkspaceForStorage), and makes the page's own
+ * connections read-only when this one body passes the per-page cap. The store itself always goes through:
+ * refusing it would only arm the retry timer and pin the document in memory (what does not fit is refused
+ * before it is applied, quota/collabGrowth.ts). Returns the cached use after the move (null = no limit or
+ * the update failed). No limit → nothing at all. Never throws.
  */
 export async function noteBodyStore(pageId: string, bytes: number, snapshotBytes = 0): Promise<number | null> {
   const limit = storageLimitBytes()
   if (limit == null) return null
   try {
+    const [page] = (await db.execute(sql`SELECT workspace_id AS ws FROM pages WHERE id = ${pageId}`)) as unknown as { ws: string }[]
+    if (!page) return null
     // The search and section indexes of the new text are written 8–30 s later (docIndexer.ts, debounced):
-    // their bytes are reserved now as an estimate, INDEX_BYTES_PER_BODY_BYTE per byte the body grew, and a
-    // recount once the index pass has landed puts the real number in (review N3, docs/adr/2545-*).
-    const [r] = (await db.execute(sql`
-      WITH old AS (
-        SELECT coalesce((SELECT octet_length(d.state) + coalesce(octet_length(d.state_vector), 0) FROM page_docs d WHERE d.page_id = ${pageId}), 0) AS n
-      )
-      UPDATE workspaces w
-         SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} + ${snapshotBytes} - old.n
-                                         + ${INDEX_BYTES_PER_BODY_BYTE} * greatest(0, ${bytes} - old.n))
-        FROM pages p, old
-       WHERE p.id = ${pageId} AND w.id = p.workspace_id
-      RETURNING w.id AS "workspaceId", w.storage_bytes AS used, w.over_storage AS over,
-                (w.storage_checked_at IS NULL OR w.storage_checked_at < now() - make_interval(secs => ${STORE_RECOUNT_MS / 1000})) AS stale,
-                (${bytes} - old.n) AS growth
-    `)) as unknown as { workspaceId: string; used: string | number; over: boolean; stale: boolean; growth: string | number }[]
+    // their bytes are reserved now as an estimate, INDEX_BYTES_PER_BODY_BYTE per byte the body grew, and
+    // stay in the cache until a recount sees the rows (review N3, docs/adr/2545-*, 2548-*).
+    const r = await inTurn(page.ws, async () => {
+      const [row] = (await db.execute(sql`
+        WITH old AS (
+          SELECT coalesce((SELECT octet_length(d.state) + coalesce(octet_length(d.state_vector), 0) FROM page_docs d WHERE d.page_id = ${pageId}), 0) AS n
+        )
+        UPDATE workspaces w
+           SET storage_bytes = greatest(0, w.storage_bytes + ${bytes} + ${snapshotBytes} - old.n
+                                           + ${INDEX_BYTES_PER_BODY_BYTE} * greatest(0, ${bytes} - old.n))
+          FROM pages p, old
+         WHERE p.id = ${pageId} AND w.id = p.workspace_id
+        RETURNING w.id AS "workspaceId", w.storage_bytes AS used, w.over_storage AS over,
+                  (w.storage_checked_at IS NULL OR w.storage_checked_at < now() - make_interval(secs => ${STORE_RECOUNT_MS / 1000})) AS stale,
+                  (${bytes} - old.n) AS growth
+      `)) as unknown as { workspaceId: string; used: string | number; over: boolean; stale: boolean; growth: string | number }[]
+      if (row) {
+        const growth = Number(row.growth)
+        addEstimate(row.workspaceId, pageId, growth, INDEX_BYTES_PER_BODY_BYTE * Math.max(0, growth))
+      }
+      return row
+    })
     if (!r) return null
     if (Number(r.growth) > 0) recountAfterIndex(r.workspaceId)
     const pageCap = pageBodyLimitBytes()
-    if (pageCap != null && bytes > pageCap) closePageConnections([pageId])
+    if (pageCap != null && bytes > pageCap) reconnectPagesForStorage([pageId])
     if (r.stale) {
-      // after this store's upsert, so the recount sees the new body
-      setImmediate(() => recountSoon(r.workspaceId))
+      // once this store's upsert is in (noteBodyStoreWritten), so the recount sees the new body
+      staleAfterStore.set(pageId, r.workspaceId)
     } else if (!r.over && Number(r.used) >= limit) {
       await db.execute(sql`UPDATE workspaces SET over_storage = true WHERE id = ${r.workspaceId}`)
-      await closeWorkspaceConnections(r.workspaceId)
+      await reconnectWorkspaceForStorage(r.workspaceId)
     }
     return Number(r.used)
   } catch (err) {

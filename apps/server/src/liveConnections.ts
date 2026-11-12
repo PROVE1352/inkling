@@ -173,6 +173,70 @@ export async function reconnectReadOnlyWorkspaceConnections(workspaceId: string)
 const RECONNECT_CODE = 4000
 
 /**
+ * Live connections that can edit, made read-only for the storage limit (0.22.1, docs/adr/2549-*): a
+ * workspace that went past its limit, or a page past its body cap. Each one is read-only at once (nothing
+ * more it sends is applied), is told why (`{"t":"storage"}`, as collab.ts reconnectForStorage), and its
+ * socket is closed with an ordinary close (4000 `storage-full`): the provider reconnects at once and is
+ * authorised read-only, and once a recount finds room reconnectReadOnlyWorkspaceConnections lets it edit
+ * again. closeWorkspaceConnections (4403 `permission-changed`) is for access that really changed: the web
+ * app marks such a page as denied and never reconnects it without a reload (measured with Chrome, 0.22.1).
+ */
+function storageCloseWhere(docs: Set<string>, why: string): number {
+  if (!instance || !docs.size) return 0
+  const sockets = new Set<{ close: (code?: number, reason?: string) => void }>()
+  try {
+    for (const [name, doc] of instance.documents) {
+      if (!docs.has(name)) continue
+      for (const conn of doc.getConnections()) {
+        if (conn.readOnly) continue
+        conn.readOnly = true
+        try {
+          ;(conn as unknown as { sendStateless?: (p: string) => void }).sendStateless?.(JSON.stringify({ t: 'storage', why }))
+        } catch {
+          // the socket is going away
+        }
+        const ws = (conn as unknown as { webSocket?: { close: (code?: number, reason?: string) => void } }).webSocket
+        if (ws) sockets.add(ws)
+      }
+    }
+  } catch (err) {
+    console.error('[inkling] storage close: collecting live connections failed', err)
+  }
+  // after this turn, so the stateless message goes out first (as collab.ts reconnectForStorage)
+  setImmediate(() => {
+    for (const ws of sockets) {
+      try {
+        ws.close(RECONNECT_CODE, 'storage-full')
+      } catch {
+        // already closed
+      }
+    }
+  })
+  return sockets.size
+}
+
+/** Editing connections of one workspace past its storage limit: read-only, reconnected (see storageCloseWhere). */
+export async function reconnectWorkspaceForStorage(workspaceId: string): Promise<number> {
+  const open = openPageDocNames()
+  if (!open.length) return 0
+  try {
+    const rows = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.workspaceId, workspaceId), inArray(pages.id, open)))
+    return storageCloseWhere(new Set(rows.map((r) => r.id)), 'workspace')
+  } catch (err) {
+    console.error('[inkling] reconnectWorkspaceForStorage failed', err)
+    return 0
+  }
+}
+
+/** Editing connections of pages whose stored body passed the per-page cap: read-only, reconnected. */
+export function reconnectPagesForStorage(pageIds: string[]): number {
+  return storageCloseWhere(new Set(pageIds), 'page')
+}
+
+/**
  * Every connection to a page document whose page row no longer exists: after a workspace was deleted
  * for good (leaving as its last member, "delete now", an account deletion purging it). The workspace's
  * pages are gone by then, so closeWorkspaceConnections, which finds them by workspace, would close

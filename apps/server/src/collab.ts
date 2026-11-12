@@ -18,10 +18,10 @@ import { peopleScopeFor, runAsGuest } from './pageGrants'
 import { CAP_EDIT, capsFor } from './editLock'
 import { liveWorkspace } from './workspaceLive'
 import { isTwoFactorBlocked } from './twoFactorPolicy'
-import { flushDocIndex, flushDocIndexes, scheduleDocIndex } from './docIndexer'
+import { flushDocIndex, flushDocIndexes, indexPassSeq, onIndexPassDone, scheduleDocIndex } from './docIndexer'
 import { noteLiveEdit, registerTypingFlush } from './context/attribution'
 import { maybeAutoSnapshotStored } from './snapshotStore'
-import { collabStorageReadOnly, noteBodyStore } from './quota/storage'
+import { collabStorageReadOnly, noteBodyStore, noteBodyStoreWritten, noteIndexPassDone } from './quota/storage'
 import {
   admitCollabUpdate,
   admitSocketFrame,
@@ -334,27 +334,38 @@ async function storeDocument(
     // must not drop edits: retry with backoff (3 retries, ~1.75 s total), then rethrow. The store
     // hook then arms a retry timer and the unload guard keeps the document in memory until a store
     // succeeds (B-H1, docs/adr/1921-*).
-    const rows = (await withRetry(
-      () =>
-        db.execute(sql`
-          WITH d AS (
-            INSERT INTO page_docs (page_id, state, state_format, state_vector, updated_at)
-            VALUES (${documentName}, ${state}, ${STATE_V2}, ${stateVector}, now())
-            ON CONFLICT (page_id) DO UPDATE
-              SET state = EXCLUDED.state, state_format = EXCLUDED.state_format,
-                  state_vector = EXCLUDED.state_vector, updated_at = now()
-            RETURNING page_id, updated_at
-          ), u AS (
-            UPDATE pages SET updated_at = now() WHERE id IN (SELECT page_id FROM d)
-          )
-          SELECT updated_at::text AS stamp FROM d
-        `),
-      {
-        attempts: 4,
-        onRetry: (err, n) =>
-          console.error(`[inkling] collab store of ${documentName} failed (retry ${n}/3)`, err),
-      },
-    )) as unknown as { stamp: string }[]
+    let rows: { stamp: string }[]
+    try {
+      rows = (await withRetry(
+        () =>
+          db.execute(sql`
+            WITH d AS (
+              INSERT INTO page_docs (page_id, state, state_format, state_vector, updated_at)
+              VALUES (${documentName}, ${state}, ${STATE_V2}, ${stateVector}, now())
+              ON CONFLICT (page_id) DO UPDATE
+                SET state = EXCLUDED.state, state_format = EXCLUDED.state_format,
+                    state_vector = EXCLUDED.state_vector, updated_at = now()
+              RETURNING page_id, updated_at
+            ), u AS (
+              UPDATE pages SET updated_at = now() WHERE id IN (SELECT page_id FROM d)
+            )
+            SELECT updated_at::text AS stamp FROM d
+          `),
+        {
+          attempts: 4,
+          onRetry: (err, n) =>
+            console.error(`[inkling] collab store of ${documentName} failed (retry ${n}/3)`, err),
+        },
+      )) as unknown as { stamp: string }[]
+    } catch (err) {
+      // the storage limit's estimate of this store goes (the cache keeps its delta until a recount)
+      noteBodyStoreWritten(documentName, indexPassSeq(), false)
+      throw err
+    }
+    // The upsert is in: the storage limit's estimate of this store is armed with the index pass number
+    // now, before the pass for this state is scheduled below (docs/adr/2548-*), and a stale cache is
+    // recounted now that the new body is in page_docs. No limit → nothing.
+    noteBodyStoreWritten(documentName, indexPassSeq())
     const stamp = rows[0]?.stamp ?? null
     if (live) {
       persisted.set(live, { digest, stamp, legacy: false })
@@ -610,6 +621,8 @@ export const hocuspocus = new Hocuspocus({
 })
 
 registerHocuspocus(hocuspocus)
+// an index pass that wrote a page's rows lets a recount drop that page's store estimates (docs/adr/2548-*)
+onIndexPassDone(noteIndexPassDone)
 
 type SchemaConnection = { readOnly: boolean; context?: unknown; webSocket?: { close: (code?: number, reason?: string) => void } }
 

@@ -635,6 +635,8 @@ describe('[db] change feed', { skip: !HAS_DB }, async () => {
     const cursor = await start()
     const rn = await A.tool('rename_page', { pageId: pg.id, title: 'Agent edited v2' })
     assert.equal(rn.isError, false, rn.text)
+    // the replace check reads the last editor from page_changes, which the change-log consumer fills asynchronously
+    await drainChangeLog()
     const up = await A.tool('update_page', { pageId: pg.id, markdown: '## Steps\n\none\n\ntwo', mode: 'replace' })
     assert.equal(up.isError, false, up.text)
     const out = await since(B, cursor)

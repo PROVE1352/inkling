@@ -92,7 +92,11 @@ describe('[db] indexes count toward workspace storage', { skip: !process.env.DAT
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     )
     assert.ok(rows > 100_000, `index rows were written: ${rows}`)
-    assert.equal(counted.total - plain.total, rows, 'with a limit the count adds exactly the index rows')
+    // one snapshot, yet the two statements can differ by a few bytes on a loaded machine (seen: 3 either way in
+    // 1.7 MB): pg_column_size of a whole row is not the same number in every statement. The allowance is the one
+    // storeEstimates.db.test.ts uses; what is checked is that the index rows (over 100 KB here) are counted.
+    const added = counted.total - plain.total
+    assert.ok(Math.abs(added - rows) <= 4096, `with a limit the count adds the index rows: added ${added}, index rows ${rows}`)
     assert.equal(counted.fileBytes, plain.fileBytes)
   })
 

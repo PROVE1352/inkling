@@ -511,57 +511,51 @@ Under investigation: v0.2.0 vs v0.1.0 comparison.
 
 MCP `search` / `list_pages` (v0.1.0 → v0.2.0): re-measured interleaved on one seed and machine, p50 11.6 → 12.4–13.6 ms (+7–17%) and 49.1–49.4 → 51.5–52.5 ms (+4–7%), one statement more per call (agent-block check). The +56% / +36% of the first comparison were within that run's round-to-round noise. The extra statement is gone with ADR 1071 (row under "Rejected / no effect": latency within noise).
 
-## How to add an entry
+## Measuring tools
 
-- A pull request that changes an algorithm or data structure for performance must add a row to
-  the matching table above, with before and after numbers and how they were measured. A change
-  that was measured and not kept goes under "Rejected / no effect"; a measured slowdown goes under
-  "Regressions".
-- Measure before and after on the same data and machine, following the principles at the top.
-  Record data size, concurrency, p50/p95 (or median and range), run count, Node and Postgres
-  versions, browser engine and build type.
-- Put the reasoning in an ADR and link it in Source; add the commit hash once the change is merged.
-- Re-use the existing harnesses where they fit:
-  - `apps/server/scripts/context-bench.ts` (find_context vs the old search + read flow, tokens,
-    calls, success, latency)
-  - `apps/server/src/context/context.db.test.ts` (retrieval assertions and token log lines,
-    patch_section tokens)
-  - `apps/server/src/context/sectionPatch.test.ts` (patch_section concurrency and fuzz)
-  - `apps/server/scripts/section-write-bench.ts` (read_page section / patch_section / update_page
-    replace core latency, no database) and `apps/server/src/context/notationRoundTrip.test.ts`
-    (element × scenario preservation census)
-  - `apps/server/src/context/changeFeed.test.ts` (changes_since recall and tokens)
-  - `apps/server/src/collectionQuery/collectionQuery.db.test.ts` (query_rows tokens)
-  - `apps/server/src/perf.test.ts` and `apps/web/src/lib/perf.test.ts`
-  - `apps/server/scripts/snapshot-chain-bench.ts` (version history: a page replayed as N appends, snapshot
-    rows raw / on disk, page_docs size, version preview / compare / restore, store and index pass)
-  - `apps/server/scripts/large-page-bench.ts` (large pages: index coverage, outline/section, append and
-    patch_section latency, event-loop stalls and other requests during the call; `--state` for a real page)
-  - `apps/server/scripts/cache-sim.ts` (cache replacement: LRU, SIEVE, S3-FIFO and the OPT bound on
-    the same traces and capacities; add a trace before changing a cache's size or policy)
-  - `apps/server/src/unionFind.test.ts` (union-find hop counts on worst-case inputs)
-  - `apps/server/scripts/mcp-token-bench.ts` (tokens an agent receives: 3 agents re-reading with and without
-    `known`, list_pages json/lines/compact on 2,000 pages, dated folders, search, patch_sections vs patch_section)
-  - `apps/server/scripts/multi-query-bench.ts` and `apps/server/src/mcpTools/multiQuery.db.test.ts` (find_context
-    with several phrasings vs one call per phrasing: calls, tokens, answer sections)
-  - `apps/server/src/context/semantic.db.test.ts` with the fake endpoint of `semanticTestServer.ts` (semantic
-    search on and off; off must stay at 0 queries and 0 requests)
-  - `apps/server/src/teamAgents.test.ts` and `apps/server/src/teamAgents.db.test.ts` (inbox hand-off lines and the
-    catch_up team group, tokens with `TOKENS=1`)
-  - `apps/server/src/mcpTools/rowStatus.db.test.ts` (status lines after update_row / create_row / query_rows, tokens
-    with `TOKENS=1`)
-  - `apps/server/scripts/mcp-tools-list-cost.ts [--profile core|full] [--by-tool] [--surface] [--json]` (fixed MCP
-    cost per session: tools/list per profile and per tool, server instructions, and with `--surface` the initialize
-    result, resource templates and prompts; no database, exact for a build)
-  - `apps/server/scripts/search-bench.ts` (MCP search latency over 1, 5 and 10 workspaces of 5,000 pages, before and
-    after interleaved; scratch database)
-  - `apps/server/scripts/ai-step-bench.ts [--writes N]` (version rows per agent write: rows, raw and on-disk bytes,
-    write latency on a small note and a large log)
-  - `apps/server/scripts/collection017-bench.ts` (page, row, property and section writes with the 0.17 triggers,
-    bulk inserts, query_rows with and without automatic fields)
-  - `apps/server/src/routes/vaultSyncScale.db.test.ts` with `VSYNC_SCALE_N=1000` (vault sync both ways, rate limiter
-    off and on)
+These are the scripts and tests that produced the numbers in the tables above; each can be run again
+from the repository.
+
+- `apps/server/scripts/context-bench.ts` (find_context vs the old search + read flow, tokens,
+  calls, success, latency)
+- `apps/server/src/context/context.db.test.ts` (retrieval assertions and token log lines,
+  patch_section tokens)
+- `apps/server/src/context/sectionPatch.test.ts` (patch_section concurrency and fuzz)
+- `apps/server/scripts/section-write-bench.ts` (read_page section / patch_section / update_page
+  replace core latency, no database) and `apps/server/src/context/notationRoundTrip.test.ts`
+  (element × scenario preservation census)
+- `apps/server/src/context/changeFeed.test.ts` (changes_since recall and tokens)
+- `apps/server/src/collectionQuery/collectionQuery.db.test.ts` (query_rows tokens)
+- `apps/server/src/perf.test.ts` and `apps/web/src/lib/perf.test.ts`
+- `apps/server/scripts/snapshot-chain-bench.ts` (version history: a page replayed as N appends, snapshot
+  rows raw / on disk, page_docs size, version preview / compare / restore, store and index pass)
+- `apps/server/scripts/large-page-bench.ts` (large pages: index coverage, outline/section, append and
+  patch_section latency, event-loop stalls and other requests during the call; `--state` for a real page)
+- `apps/server/scripts/cache-sim.ts` (cache replacement: LRU, SIEVE, S3-FIFO and the OPT bound on
+  the same traces and capacities; add a trace before changing a cache's size or policy)
+- `apps/server/src/unionFind.test.ts` (union-find hop counts on worst-case inputs)
+- `apps/server/scripts/mcp-token-bench.ts` (tokens an agent receives: 3 agents re-reading with and without
+  `known`, list_pages json/lines/compact on 2,000 pages, dated folders, search, patch_sections vs patch_section)
+- `apps/server/scripts/multi-query-bench.ts` and `apps/server/src/mcpTools/multiQuery.db.test.ts` (find_context
+  with several phrasings vs one call per phrasing: calls, tokens, answer sections)
+- `apps/server/src/context/semantic.db.test.ts` with the fake endpoint of `semanticTestServer.ts` (semantic
+  search on and off; off must stay at 0 queries and 0 requests)
+- `apps/server/src/teamAgents.test.ts` and `apps/server/src/teamAgents.db.test.ts` (inbox hand-off lines and the
+  catch_up team group, tokens with `TOKENS=1`)
+- `apps/server/src/mcpTools/rowStatus.db.test.ts` (status lines after update_row / create_row / query_rows, tokens
+  with `TOKENS=1`)
+- `apps/server/scripts/mcp-tools-list-cost.ts [--profile core|full] [--by-tool] [--surface] [--json]` (fixed MCP
+  cost per session: tools/list per profile and per tool, server instructions, and with `--surface` the initialize
+  result, resource templates and prompts; no database, exact for a build)
+- `apps/server/scripts/search-bench.ts` (MCP search latency over 1, 5 and 10 workspaces of 5,000 pages, before and
+  after interleaved; scratch database)
+- `apps/server/scripts/ai-step-bench.ts [--writes N]` (version rows per agent write: rows, raw and on-disk bytes,
+  write latency on a small note and a large log)
+- `apps/server/scripts/collection017-bench.ts` (page, row, property and section writes with the 0.17 triggers,
+  bulk inserts, query_rows with and without automatic fields)
+- `apps/server/src/routes/vaultSyncScale.db.test.ts` with `VSYNC_SCALE_N=1000` (vault sync both ways, rate limiter
+  off and on)
 - Browser measurements in the existing entries (React commits, long tasks, editor repros) were made
   with out-of-tree Playwright scripts. Describe the script in the ADR precisely enough to repeat it.
-- Do not round or restate a number differently here than in its source. If the source does not
-  record the conditions, write "conditions not recorded".
+
+The rules for adding a row to this log are in [CONTRIBUTING.md](../CONTRIBUTING.md#performance-changes).

@@ -516,33 +516,32 @@ DATABASE_URL=postgres://nodian:nodian@localhost:55432/inkling_bench npx tsx scri
 
 MCP `search` / `list_pages`(v0.1.0 → v0.2.0): 한 시드와 한 기계에서 번갈아 다시 재 보니 p50이 11.6 → 12.4–13.6 ms(+7–17%), 49.1–49.4 → 51.5–52.5 ms(+4–7%)였고, 호출마다 SQL 문이 하나 더 있었습니다(에이전트 차단 확인). 처음 비교에서 나온 +56% / +36%는 그 실행의 라운드 사이 잡음 범위 안이었습니다. 늘어난 SQL 문은 ADR 1071로 없어졌습니다("채택하지 않음 / 효과 없음"의 행: 지연 시간은 잡음 범위 안).
 
-<a id="how-to-add-an-entry"></a>
-## 항목 추가하는 방법
+<a id="measuring-tools"></a>
+## 측정 도구
 
-- 성능을 위해 알고리즘이나 자료 구조를 바꾸는 풀 리퀘스트는 위의 알맞은 표에 행을 하나 더해야 합니다. 전후 수치와 잰 방법을 함께 적습니다. 측정했지만 남기지 않은 변경은 "채택하지 않음 / 효과 없음"에, 측정한 느려짐은 "회귀(느려진 것)"에 넣습니다.
-- 전과 후는 같은 데이터, 같은 기계에서 맨 위의 원칙에 따라 잽니다. 데이터 크기, 동시성, p50/p95(또는 중앙값과 범위), 실행 횟수, Node와 Postgres 버전, 브라우저 엔진과 빌드 종류를 기록합니다.
-- 판단 근거는 ADR에 쓰고 출처 칸에 링크합니다. 변경이 병합되면 커밋 해시를 더합니다.
-- 들어맞는 경우에는 이미 있는 측정 도구를 다시 씁니다.
-  - `apps/server/scripts/context-bench.ts`(find_context 대 이전 search + read 흐름: 토큰, 호출 수, 성공률, 지연 시간)
-  - `apps/server/src/context/context.db.test.ts`(검색 단언과 토큰 로그 줄, patch_section 토큰)
-  - `apps/server/src/context/sectionPatch.test.ts`(patch_section 동시 편집과 퍼즈)
-  - `apps/server/scripts/section-write-bench.ts`(read_page 섹션 / patch_section / update_page 바꾸기의 핵심 지연 시간, 데이터베이스 없음)와 `apps/server/src/context/notationRoundTrip.test.ts`(요소 × 시나리오 보존 전수 조사)
-  - `apps/server/src/context/changeFeed.test.ts`(changes_since recall과 토큰)
-  - `apps/server/src/collectionQuery/collectionQuery.db.test.ts`(query_rows 토큰)
-  - `apps/server/src/perf.test.ts`와 `apps/web/src/lib/perf.test.ts`
-  - `apps/server/scripts/snapshot-chain-bench.ts`(버전 기록: 페이지 하나를 N번 덧붙이기로 재생, 스냅샷 행의 원본 / 디스크 크기, page_docs 크기, 버전 미리보기 / 비교 / 복원, 저장과 인덱스 패스)
-  - `apps/server/scripts/large-page-bench.ts`(큰 페이지: 인덱스 범위, 개요/섹션, 덧붙이기와 patch_section 지연 시간, 호출 중 이벤트 루프 멈춤과 다른 요청; 실제 페이지에는 `--state`)
-  - `apps/server/scripts/cache-sim.ts`(캐시 교체: 같은 트레이스와 용량에서 LRU, SIEVE, S3-FIFO와 OPT 상한을 비교; 캐시의 크기나 정책을 바꾸기 전에 트레이스를 더합니다)
-  - `apps/server/src/unionFind.test.ts`(최악의 입력에서 union-find 홉 수)
-  - `apps/server/scripts/mcp-token-bench.ts`(에이전트가 받는 토큰: `known`을 쓸 때와 안 쓸 때 다시 읽는 에이전트 3개, 페이지 2,000개에서 list_pages json/lines/compact, 날짜 폴더, search, patch_sections 대 patch_section)
-  - `apps/server/scripts/multi-query-bench.ts`와 `apps/server/src/mcpTools/multiQuery.db.test.ts`(여러 표현을 한 번에 넣은 find_context 대 표현마다 한 번씩 호출: 호출 수, 토큰, 답 섹션)
-  - `apps/server/src/context/semantic.db.test.ts`와 `semanticTestServer.ts`의 가짜 엔드포인트(의미 검색 켬과 끔; 끄면 쿼리 0개, 요청 0개를 유지해야 함)
-  - `apps/server/src/teamAgents.test.ts`와 `apps/server/src/teamAgents.db.test.ts`(inbox 인계 줄과 catch_up 팀 묶음, `TOKENS=1`로 토큰)
-  - `apps/server/src/mcpTools/rowStatus.db.test.ts`(update_row / create_row / query_rows 뒤의 상태 줄, `TOKENS=1`로 토큰)
-  - `apps/server/scripts/mcp-tools-list-cost.ts [--profile core|full] [--by-tool] [--surface] [--json]`(세션마다 드는 고정 MCP 비용: 프로필별·도구별 tools/list, 서버 지침, `--surface`를 주면 initialize 결과, 리소스 템플릿, 프롬프트까지; 데이터베이스 없음, 빌드 하나에 대해 정확함)
-  - `apps/server/scripts/search-bench.ts`(페이지 5,000개짜리 워크스페이스 1, 5, 10개에서 MCP search 지연 시간, 전후 번갈아; 임시 데이터베이스)
-  - `apps/server/scripts/ai-step-bench.ts [--writes N]`(에이전트 쓰기마다 생기는 버전 행: 행 수, 원본과 디스크 바이트, 작은 노트와 큰 로그에서의 쓰기 지연 시간)
-  - `apps/server/scripts/collection017-bench.ts`(0.17 트리거가 있을 때 페이지, 행, 속성, 섹션 쓰기, 대량 삽입, 자동 필드가 있을 때와 없을 때 query_rows)
-  - `apps/server/src/routes/vaultSyncScale.db.test.ts`와 `VSYNC_SCALE_N=1000`(양방향 볼트 동기화, 속도 제한 끔과 켬)
+위 표의 숫자를 잰 스크립트와 테스트입니다. 모두 저장소에서 다시 돌려 볼 수 있습니다.
+
+- `apps/server/scripts/context-bench.ts`(find_context 대 이전 search + read 흐름: 토큰, 호출 수, 성공률, 지연 시간)
+- `apps/server/src/context/context.db.test.ts`(검색 단언과 토큰 로그 줄, patch_section 토큰)
+- `apps/server/src/context/sectionPatch.test.ts`(patch_section 동시 편집과 퍼즈)
+- `apps/server/scripts/section-write-bench.ts`(read_page 섹션 / patch_section / update_page 바꾸기의 핵심 지연 시간, 데이터베이스 없음)와 `apps/server/src/context/notationRoundTrip.test.ts`(요소 × 시나리오 보존 전수 조사)
+- `apps/server/src/context/changeFeed.test.ts`(changes_since recall과 토큰)
+- `apps/server/src/collectionQuery/collectionQuery.db.test.ts`(query_rows 토큰)
+- `apps/server/src/perf.test.ts`와 `apps/web/src/lib/perf.test.ts`
+- `apps/server/scripts/snapshot-chain-bench.ts`(버전 기록: 페이지 하나를 N번 덧붙이기로 재생, 스냅샷 행의 원본 / 디스크 크기, page_docs 크기, 버전 미리보기 / 비교 / 복원, 저장과 인덱스 패스)
+- `apps/server/scripts/large-page-bench.ts`(큰 페이지: 인덱스 범위, 개요/섹션, 덧붙이기와 patch_section 지연 시간, 호출 중 이벤트 루프 멈춤과 다른 요청; 실제 페이지에는 `--state`)
+- `apps/server/scripts/cache-sim.ts`(캐시 교체: 같은 트레이스와 용량에서 LRU, SIEVE, S3-FIFO와 OPT 상한을 비교; 캐시의 크기나 정책을 바꾸기 전에 트레이스를 더합니다)
+- `apps/server/src/unionFind.test.ts`(최악의 입력에서 union-find 홉 수)
+- `apps/server/scripts/mcp-token-bench.ts`(에이전트가 받는 토큰: `known`을 쓸 때와 안 쓸 때 다시 읽는 에이전트 3개, 페이지 2,000개에서 list_pages json/lines/compact, 날짜 폴더, search, patch_sections 대 patch_section)
+- `apps/server/scripts/multi-query-bench.ts`와 `apps/server/src/mcpTools/multiQuery.db.test.ts`(여러 표현을 한 번에 넣은 find_context 대 표현마다 한 번씩 호출: 호출 수, 토큰, 답 섹션)
+- `apps/server/src/context/semantic.db.test.ts`와 `semanticTestServer.ts`의 가짜 엔드포인트(의미 검색 켬과 끔; 끄면 쿼리 0개, 요청 0개를 유지해야 함)
+- `apps/server/src/teamAgents.test.ts`와 `apps/server/src/teamAgents.db.test.ts`(inbox 인계 줄과 catch_up 팀 묶음, `TOKENS=1`로 토큰)
+- `apps/server/src/mcpTools/rowStatus.db.test.ts`(update_row / create_row / query_rows 뒤의 상태 줄, `TOKENS=1`로 토큰)
+- `apps/server/scripts/mcp-tools-list-cost.ts [--profile core|full] [--by-tool] [--surface] [--json]`(세션마다 드는 고정 MCP 비용: 프로필별·도구별 tools/list, 서버 지침, `--surface`를 주면 initialize 결과, 리소스 템플릿, 프롬프트까지; 데이터베이스 없음, 빌드 하나에 대해 정확함)
+- `apps/server/scripts/search-bench.ts`(페이지 5,000개짜리 워크스페이스 1, 5, 10개에서 MCP search 지연 시간, 전후 번갈아; 임시 데이터베이스)
+- `apps/server/scripts/ai-step-bench.ts [--writes N]`(에이전트 쓰기마다 생기는 버전 행: 행 수, 원본과 디스크 바이트, 작은 노트와 큰 로그에서의 쓰기 지연 시간)
+- `apps/server/scripts/collection017-bench.ts`(0.17 트리거가 있을 때 페이지, 행, 속성, 섹션 쓰기, 대량 삽입, 자동 필드가 있을 때와 없을 때 query_rows)
+- `apps/server/src/routes/vaultSyncScale.db.test.ts`와 `VSYNC_SCALE_N=1000`(양방향 볼트 동기화, 속도 제한 끔과 켬)
 - 지금 있는 항목의 브라우저 측정(React 커밋, 긴 작업, 편집기 재현)은 트리 밖 Playwright 스크립트로 했습니다. 그 스크립트는 다시 돌릴 수 있을 만큼 ADR에 자세히 적습니다.
-- 여기 적는 숫자는 출처와 다르게 반올림하거나 바꿔 말하지 않습니다. 출처에 조건이 기록되어 있지 않으면 "조건 기록 안 됨"이라고 씁니다.
+
+이 기록에 행을 더하는 규칙은 [CONTRIBUTING.md](../CONTRIBUTING.md#performance-changes)에 있습니다.

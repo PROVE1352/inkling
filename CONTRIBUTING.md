@@ -130,6 +130,22 @@ area in blocks of a hundred (for example 01xx accounts and auth, 02xx vault sync
 Keep it short and concrete: name files, functions and numbers. An ADR is not edited after it is
 accepted except to change its status; a new decision supersedes it.
 
+## Performance changes
+
+- A pull request that changes an algorithm or data structure for performance must add a row to
+  the matching table in [docs/PERFORMANCE.md](docs/PERFORMANCE.md), with before and after numbers
+  and how they were measured. A change that was measured and not kept goes under "Rejected / no
+  effect"; a measured slowdown goes under "Regressions".
+- Measure before and after on the same data and machine, following the
+  [measurement principles](docs/PERFORMANCE.md#measurement-principles). Record data size,
+  concurrency, p50/p95 (or median and range), run count, Node and Postgres versions, browser engine
+  and build type.
+- Put the reasoning in an ADR and link it in Source; add the commit hash once the change is merged.
+- Re-use the existing harnesses where they fit; they are listed under
+  [Measuring tools](docs/PERFORMANCE.md#measuring-tools).
+- Do not round or restate a number differently in the log than in its source. If the source does
+  not record the conditions, write "conditions not recorded".
+
 ## Dependency policy
 
 - Do not add a dependency for something the platform or an existing dependency already does.

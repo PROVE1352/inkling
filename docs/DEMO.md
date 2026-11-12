@@ -1,9 +1,10 @@
 # Running a demo instance
 
-> **Do not open a public demo for strangers with 0.22.0.** The security review before release left problems open
-> for a demo server that shares the disk and memory of one machine with other services; 0.22.1 fixes them. Using
-> limits and features turned off on a server for people you know is not affected. Details: [KNOWN-ISSUES.md,
-> "Added in 0.22.0"](KNOWN-ISSUES.md#added-in-0220) (LIMITS-37 to LIMITS-42).
+> **Open a public demo for strangers only with 0.22.1 or later, and only with its data on a filesystem of its own
+> (step 0).** 0.22.0 left problems open for a demo that shares the disk and memory of one machine with other
+> services (LIMITS-37 to LIMITS-42); 0.22.1 fixes them. What is still known is in [KNOWN-ISSUES.md, "Added in
+> 0.22.1"](KNOWN-ISSUES.md#added-in-0221). A demo already started with 0.22.0 has to be moved first ("Moving a demo
+> from 0.22.0" below).
 
 A demo instance is a second Inkling server that strangers can sign up to and try. It runs next to your own
 server but shares nothing with it: its own compose project, database, volumes, network and port. The
@@ -15,7 +16,7 @@ the disk your main instance uses (step 0). 한국어: [DEMO.ko.md](DEMO.ko.md).
 
 The files are in [`deploy/demo/`](../deploy/demo/): `demo.sh` (the only way to start, stop and check the
 demo), `compose.demo.yaml` (an overlay on `compose.yaml`), `demo.env.example` (the settings) and `legal/`
-(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2539 and 2545–2547.
+(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2551.
 
 ## 0. A filesystem for the demo's data
 
@@ -42,6 +43,14 @@ findmnt /srv/inkling-demo-data && df -h /srv/inkling-demo-data && df -i /srv/ink
 Then set `DEMO_VOLUME_ROOT=/srv/inkling-demo-data` in `demo.env`. A separate disk, partition, LVM volume or a
 virtual machine works as well. After a reboot, check with `findmnt` that it is mounted before `demo.sh up`:
 an empty mount point is on the root filesystem, so `up` refuses it rather than writing to the main disk.
+
+**A reboot does not wait for `demo.sh`.** Docker starts the demo's containers again by itself
+(`restart: unless-stopped` in `compose.yaml`), so the check of `up` does not run. If the filesystem failed to mount,
+what keeps the demo off the root disk is only that the four folders are missing from the empty mount point: the
+volumes are binds of those folders, so they should fail to mount and the containers should not start (not tried on
+Linux, KNOWN-ISSUES LIMITS-51). So never create `db`, `data`, `backups` or `backup-ctl` while the filesystem is not
+mounted, check `findmnt` after every reboot, and if you would rather start the demo yourself after a planned reboot,
+run `deploy/demo/demo.sh down` before it (the data stays).
 
 **Size**: fuse + 2 GB for the WAL + the number of backup sets × the fuse + headroom. With the preset
 (`LIMIT_INSTANCE_STORAGE_MB=3000`, 7 daily backup sets) that is 3 + 2 + 7 × 3 = 26 GB, so 30 GB with
@@ -90,6 +99,11 @@ below). The app listens on `127.0.0.1:3100` only (`DEMO_PORT`); nothing is publi
 
 To update the demo to a new release: `git pull` (or check out the release) in the demo's folder, then
 `deploy/demo/demo.sh build` and `deploy/demo/demo.sh up`. `up` alone keeps running the image it built before.
+
+**Before you open it** (before the proxy of step 3), run `deploy/demo/demo.sh config` and `deploy/demo/demo.sh up` on
+the server without `DEMO_ALLOW_SHARED_DISK`. Both have to pass with `ok` lines only, and `up` has to print
+`ok      DEMO_VOLUME_ROOT is a filesystem of its own`. If `up` refuses `DEMO_VOLUME_ROOT`, fix step 0; do not go on
+with the override.
 
 ### Secrets
 
@@ -263,8 +277,8 @@ for them. Measured for 0.22.1 with the production build: about 880 MB of WAL aft
 What one workspace can make the database grow by, measured for 0.22.1: a workspace's storage counts its files,
 page bodies, version history and the rows of its search indexes, but not Postgres's index entries and the space
 that rewriting leaves. Filled once with text, through the editor's live connection or through the API, a 10 MB
-workspace grew the database by 9–19 MB with prose and 19–25 MB with random words written on purpose. 100
-workspaces filled that way come to at most about 2.5 GB, under the 3,000 MB fuse; a few accounts deleting and
+workspace grew the database by 9–19 MB with prose and 19–25.6 MB with random words written on purpose. 100
+workspaces filled that way come to at most about 2.6 GB, under the 3,000 MB fuse; a few accounts deleting and
 writing again and again can still trip the fuse on purpose. That stops only the demo, and the filesystem keeps it
 off your main disk.
 
@@ -307,6 +321,22 @@ Delete the four folders yourself (as root, after checking the path), or unmount 
 its image file. The main instance is not touched. Also delete
 remote backup copies if `BACKUP_RCLONE_REMOTE` was set, the proxy's access log for the demo host, the
 filled terms folder and `demo.env`. If the server stopped suddenly, do this as soon as you can reach it.
+
+### Moving a demo from 0.22.0
+
+A demo started with 0.22.0 keeps its volumes as named volumes on Docker's disk, runs production's image name, and
+has the 0.22.0 preset (20 MB per workspace, a 320 MB heap in 512 MB). Nothing moves it by itself, and its data is
+not carried over (docs/adr/2546-*):
+
+1. Tell its users with `INSTANCE_NOTICE` when the demo will be reset, so they can export what they want to keep.
+2. In the demo's 0.22.0 checkout, run `deploy/demo/demo.sh destroy` (it deletes the demo's containers, volumes and
+   data; the main instance is not touched). Run it before updating the checkout: the 0.22.1 script expects the new
+   settings.
+3. Make the filesystem of step 0, update the checkout to 0.22.1, and fill `demo.env` again from the new
+   `demo.env.example` (`DEMO_IMAGE`, `DEMO_VOLUME_ROOT`, `LIMIT_WORKSPACE_STORAGE_MB=10`, `APP_MEM_LIMIT=768m`,
+   `NODE_OPTIONS=--max-old-space-size=448`), keeping new secrets.
+4. Fill the terms folder again from the 0.22.1 templates (the storage sentence changed), then follow steps 1 to 5:
+   the operator account is made again with the setup link.
 
 ### These files are not legal advice
 

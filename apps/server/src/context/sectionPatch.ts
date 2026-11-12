@@ -253,8 +253,11 @@ function knownInlineNodes(): Set<string> {
 
 type Op = { t: '='; i: number; j: number } | { t: '-'; i: number } | { t: '+'; j: number }
 
-/** Edit script between two key lists (common prefix/suffix, then Myers); over the caps: replace all. */
-function align(a: string[], b: string[], maxD: number, maxWork: number): Op[] {
+/**
+ * Edit script between two key lists (common prefix/suffix, then Myers); over the caps: replace all.
+ * `used.work` (optional) is increased by the Myers work this call took (docs/adr/2550-*).
+ */
+function align(a: string[], b: string[], maxD: number, maxWork: number, used?: { work: number }): Op[] {
   let pre = 0
   while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++
   let suf = 0
@@ -263,7 +266,9 @@ function align(a: string[], b: string[], maxD: number, maxWork: number): Op[] {
   const bm = b.slice(pre, b.length - suf)
   const out: Op[] = []
   for (let k = 0; k < pre; k++) out.push({ t: '=', i: k, j: k })
-  const mid = am.length && bm.length ? myers(am, bm, maxD, { left: maxWork }) : null
+  const budget = { left: maxWork }
+  const mid = am.length && bm.length ? myers(am, bm, maxD, budget) : null
+  if (used) used.work += maxWork - Math.max(0, budget.left)
   if (mid) {
     let i = pre
     let j = pre
@@ -341,7 +346,125 @@ function markChange(from: Attrs, to: Attrs): Attrs {
 const INLINE_MAX_D = 4_000
 const INLINE_MAX_WORK = 4_000_000
 
+/**
+ * What one replace (patch_section or update_page) may spend on character-level edits
+ * (docs/adr/2550-*). Each Yjs text operation can split an item, and a split moves the rest of the
+ * writing client's struct array, so a replace that pairs hundreds of rewritten paragraphs costs
+ * operations × structs; past the budget a changed block keeps its id but has its content node
+ * swapped whole (`swapContent`). Counted, never timed, so the dry run and the live edit take the same
+ * path. The values sit far above what any edit in the test suites uses (measured, see the ADR).
+ */
+export interface EditBudget {
+  /** Yjs text operations (insert / delete / format calls) left. */
+  textOps: number
+  /** Diff work left: characters tokenized + Myers steps. */
+  diffWork: number
+}
+export const REPLACE_BUDGET: Readonly<EditBudget> = { textOps: 2_000, diffWork: 40_000_000 }
+/** A pair whose two content nodes hold more characters than this together is never diffed. */
+const INLINE_MAX_TOKENS = 200_000
+let budgetOverride: EditBudget | null = null
+/**
+ * A replace whose old and new blocks hold at most this many characters together has no budget: its
+ * edit is the same as before the budget, byte for byte (a whole rewrite of a 50K body included). The
+ * cost the budget bounds is operations × structs, which only a large range makes large.
+ */
+const BUDGET_FREE_CHARS = 128 * 1024
+const UNBOUNDED: Readonly<EditBudget> = { textOps: Number.MAX_SAFE_INTEGER, diffWork: Number.MAX_SAFE_INTEGER }
+
+/** Characters of blocks as the budget gate counts them: inline text, other content as JSON, children too. */
+function blockChars(blocks: AnyBlock[]): number {
+  let n = 0
+  for (const b of blocks) {
+    if (Array.isArray(b.content)) n += inlinesText(b.content).length
+    else if (b.content != null) n += JSON.stringify(b.content).length
+    n += blockChars(b.children ?? [])
+  }
+  return n
+}
+
+/**
+ * A budget several patches share (patch_sections, a revert batch): each patch spends from what the
+ * previous ones left. Make one per run over the edits, so a dry run and the live run start equal.
+ */
+export function newReplaceBudget(): EditBudget {
+  return { ...(budgetOverride ?? REPLACE_BUDGET) }
+}
+
+/** Tests only: a smaller budget (null restores the default). */
+export function setReplaceBudgetForTests(b: Partial<EditBudget> | null): void {
+  budgetOverride = b ? { ...REPLACE_BUDGET, ...b } : null
+}
+
+/** What the last replace edit (its live run) used; for tests and benches. */
+export interface ReplaceWork {
+  textOps: number
+  diffWork: number
+  /** Changed blocks whose content node was swapped whole because the budget was spent. */
+  swapped: number
+}
+let lastWork: ReplaceWork = { textOps: 0, diffWork: 0, swapped: 0 }
+export function lastReplaceWork(): ReplaceWork {
+  return { ...lastWork }
+}
+
 type Cursor = { k: 'text'; seg: Y.XmlText; off: number } | { k: 'after'; ref: Y.XmlElement | Y.XmlText | null }
+
+type InlineEdit =
+  | { kind: 'del'; pos: number; seg: Y.XmlText; off: number; len: number }
+  | { kind: 'delEl'; pos: number; el: Y.XmlElement }
+  | { kind: 'fmt'; pos: number; seg: Y.XmlText; off: number; len: number; change: Attrs; sig: string }
+  | { kind: 'ins'; pos: number; toks: Tok[] }
+
+/** A planned character-level edit of one content node, and the Yjs operations it will take. */
+interface InlinePlan {
+  content: Y.XmlElement
+  old: Tok[]
+  edits: InlineEdit[]
+  textOps: number
+}
+
+/**
+ * What the character diff compares, as one string: the text runs with their Markdown marks (keys
+ * sorted, as `markChange` compares them key by key) and the known inline nodes' keys; embeds and
+ * unknown inline nodes are left out as `tokens` leaves them out. Equal keys mean the diff of the two
+ * nodes has no edit at all.
+ */
+function inlineKey(content: Y.XmlElement): string {
+  const known = knownInlineNodes()
+  const parts: string[][] = []
+  let text = ''
+  let sig: string | null = null
+  const flush = () => {
+    if (text) parts.push([sig ?? '', text])
+    text = ''
+    sig = null
+  }
+  for (const child of content.toArray()) {
+    if (child instanceof Y.XmlText) {
+      for (const op of child.toDelta() as { insert: unknown; attributes?: Attrs }[]) {
+        if (typeof op.insert !== 'string' || !op.insert) continue
+        const marks = markdownMarks(op.attributes ?? {})
+        const s = JSON.stringify(Object.keys(marks).sort().map((k) => [k, marks[k]]))
+        if (s !== sig) flush()
+        sig = s
+        text += op.insert
+      }
+    } else if (isEl(child) && known.has(child.nodeName)) {
+      flush()
+      parts.push([`\u0000${child.nodeName}${JSON.stringify(child.getAttributes())}`])
+    }
+  }
+  flush()
+  return JSON.stringify(parts)
+}
+
+/** Characters (and inline nodes) of a content node, counted without tokenizing it. */
+function inlineLength(content: Y.XmlElement): number {
+  let n = 0
+  for (const child of content.toArray()) n += child instanceof Y.XmlText ? child.length : 1
+  return n
+}
 
 /**
  * Turns the inline content of `oldContent` into that of `newContent` with character-level
@@ -349,15 +472,32 @@ type Cursor = { k: 'text'; seg: Y.XmlText; off: number } | { k: 'after'; ref: Y.
  * recorded for earlier tokens stay valid.
  */
 function reconcileInline(oldContent: Y.XmlElement, newContent: Y.XmlElement): void {
+  applyInline(planInline(oldContent, newContent, null)!)
+}
+
+/**
+ * The edit of `reconcileInline`, planned without touching the document. With a budget
+ * (docs/adr/2550-*): null — and nothing charged but the diff work — when this edit does not fit in
+ * what is left of the replace's budget; the caller then swaps the content node instead.
+ */
+function planInline(oldContent: Y.XmlElement, newContent: Y.XmlElement, budget: EditBudget | null): InlinePlan | null {
+  // Same characters and Markdown marks: the diff would find nothing, so it is not run (and a block
+  // the agent left alone is never swapped, whatever is left of the budget).
+  if (budget && inlineKey(oldContent) === inlineKey(newContent)) return { content: oldContent, old: [], edits: [], textOps: 0 }
+  if (budget) {
+    // every character becomes a token object: a pair too large to tokenize is not diffed at all
+    if (budget.textOps <= 0 || budget.diffWork <= 0) return null
+    const size = inlineLength(oldContent) + inlineLength(newContent)
+    if (size > INLINE_MAX_TOKENS) return null
+    budget.diffWork -= size
+  }
   const a = tokens(oldContent)
   const b = tokens(newContent)
-  const ops = align(a.map(tokKey), b.map(tokKey), INLINE_MAX_D, INLINE_MAX_WORK)
+  const used = { work: 0 }
+  const ops = align(a.map(tokKey), b.map(tokKey), INLINE_MAX_D, INLINE_MAX_WORK, used)
+  if (budget) budget.diffWork -= used.work
 
-  type Edit =
-    | { kind: 'del'; pos: number; seg: Y.XmlText; off: number; len: number }
-    | { kind: 'delEl'; pos: number; el: Y.XmlElement }
-    | { kind: 'fmt'; pos: number; seg: Y.XmlText; off: number; len: number; change: Attrs; sig: string }
-    | { kind: 'ins'; pos: number; toks: Tok[] }
+  type Edit = InlineEdit
   const edits: Edit[] = []
   let last: Edit | null = null
   let consumed = 0 // old tokens before the current op = the gap an insertion goes into
@@ -399,7 +539,35 @@ function reconcileInline(oldContent: Y.XmlElement, newContent: Y.XmlElement): vo
   }
   // Backwards; at equal positions deletions/formats of token `pos` before insertions in gap `pos`.
   edits.sort((x, y) => y.pos - x.pos || (x.kind === 'ins' ? 1 : 0) - (y.kind === 'ins' ? 1 : 0))
-  for (const e of edits) {
+  let textOps = 0
+  for (const e of edits) textOps += e.kind === 'ins' ? insertRuns(e.toks) : 1
+  if (budget) {
+    if (textOps > budget.textOps) return null
+    budget.textOps -= textOps
+  }
+  return { content: oldContent, old: a, edits, textOps }
+}
+
+/** Yjs calls `insertTokens` makes for `toks`: one per inline node, one per run of equal marks. */
+function insertRuns(toks: Tok[]): number {
+  let n = 0
+  let sig: string | null = null
+  for (const t of toks) {
+    if (t.k === 'e') {
+      n++
+      sig = null
+      continue
+    }
+    const s = JSON.stringify(t.attrs)
+    if (s !== sig) n++
+    sig = s
+  }
+  return n
+}
+
+function applyInline(plan: InlinePlan): void {
+  const { content: oldContent, old: a } = plan
+  for (const e of plan.edits) {
     if (e.kind === 'del') e.seg.delete(e.off, e.len)
     else if (e.kind === 'fmt') e.seg.format(e.off, e.len, e.change as Record<string, unknown>)
     else if (e.kind === 'delEl') {
@@ -517,6 +685,9 @@ interface Ctx {
   stats: PatchStats
   /** Edited/inserted blocks and the content they must read back as (validation). */
   expect: { id: string; block: AnyBlock | null }[]
+  /** What is left of this edit's budget (docs/adr/2550-*); one per run, so the dry run and the live edit agree. */
+  budget: EditBudget
+  swapped: number
 }
 
 function countBlocks(blocks: AnyBlock[] | undefined): number {
@@ -532,6 +703,24 @@ function reconcileAttrs(oldContent: Y.XmlElement, newContent: Y.XmlElement): voi
     if (NON_MARKDOWN_PROPS.has(k)) continue
     if (JSON.stringify(cur[k]) !== JSON.stringify(v)) oldContent.setAttribute(k, v as never)
   }
+}
+
+/**
+ * Over the edit budget (docs/adr/2550-*): the changed block's content node is replaced by the new
+ * one inside the same container, so the block id (comment anchors, block links) stays. Block colors,
+ * alignment and toggles are carried over as in a retype; the old text's items are deleted, so marks Markdown
+ * cannot express, inline nodes the server does not know (mention chips not in the new Markdown) and
+ * characters typed into this block concurrently are lost, as in a table edit.
+ */
+function swapContent(oldEl: Y.XmlElement, oc: Y.XmlElement, nc: Y.XmlElement, ctx: Ctx): void {
+  // a toggle item paired with a bullet item stays a toggle, as in the in-place edit
+  const el = new Y.XmlElement(pairType(oc.nodeName) === pairType(nc.nodeName) ? oc.nodeName : nc.nodeName)
+  oldEl.insert(0, [el])
+  const oldAttrs = oc.getAttributes()
+  for (const [k, v] of Object.entries(nc.getAttributes())) el.setAttribute(k, (NON_MARKDOWN_PROPS.has(k) && k in oldAttrs ? oldAttrs[k] : v) as never)
+  el.insert(0, nc.toArray().map((c) => (c as Y.XmlElement | Y.XmlText).clone()))
+  oldEl.delete(1, 1)
+  ctx.swapped++
 }
 
 /** Content nodes a retype can carry inline content between (code blocks take no marks). */
@@ -563,24 +752,34 @@ function reconcileBlock(
     ctx.expect.push({ id: oldBlock.id as string, block: newBlock })
     const sameNode = oc.nodeName === nc.nodeName || (pairType(oc.nodeName) === pairType(nc.nodeName))
     if (!sameNode && retypable(oc) && retypable(nc)) {
-      // Retyped (paragraph → list item, …): a node of the new type that starts from the old inline
-      // content — marks Markdown cannot express and mention chips stay — then the character diff.
-      // Block colors / alignment the new type also has are carried over (docs/adr/1500-*).
-      const el = new Y.XmlElement(nc.nodeName)
-      oldEl.insert(0, [el])
-      const newAttrs = nc.getAttributes()
-      const oldAttrs = oc.getAttributes()
-      for (const [k, v] of Object.entries(newAttrs)) el.setAttribute(k, (NON_MARKDOWN_PROPS.has(k) && k in oldAttrs ? oldAttrs[k] : v) as never)
-      el.insert(0, oc.toArray().map((c) => (c as Y.XmlElement | Y.XmlText).clone()))
-      oldEl.delete(1, 1)
-      reconcileInline(el, nc)
+      if (!planInline(oc, nc, ctx.budget)) {
+        // over the budget (docs/adr/2550-*): the new content, block colors and alignment kept
+        swapContent(oldEl, oc, nc, ctx)
+      } else {
+        // Retyped (paragraph → list item, …): a node of the new type that starts from the old inline
+        // content — marks Markdown cannot express and mention chips stay — then the character diff.
+        // Block colors / alignment the new type also has are carried over (docs/adr/1500-*).
+        const el = new Y.XmlElement(nc.nodeName)
+        oldEl.insert(0, [el])
+        const newAttrs = nc.getAttributes()
+        const oldAttrs = oc.getAttributes()
+        for (const [k, v] of Object.entries(newAttrs)) el.setAttribute(k, (NON_MARKDOWN_PROPS.has(k) && k in oldAttrs ? oldAttrs[k] : v) as never)
+        el.insert(0, oc.toArray().map((c) => (c as Y.XmlElement | Y.XmlText).clone()))
+        oldEl.delete(1, 1)
+        reconcileInline(el, nc)
+      }
     } else if (!sameNode || oc.nodeName === 'table' || !hasInlineContent(oc) || !hasInlineContent(nc)) {
       // Tables (and anything that is not inline content) are replaced as a whole node; the block id stays.
       oldEl.insert(0, [nc.clone()])
       oldEl.delete(1, 1)
     } else {
-      reconcileAttrs(oc, nc)
-      reconcileInline(oc, nc)
+      const plan = planInline(oc, nc, ctx.budget)
+      if (plan) {
+        reconcileAttrs(oc, nc)
+        applyInline(plan)
+      } else {
+        swapContent(oldEl, oc, nc, ctx)
+      }
     }
   }
   // children
@@ -757,11 +956,28 @@ function syncList(
     })
   }
   for (const p of pairs) reconcileBlock(oldEls[p.i], oldBlocks[p.i], newEls[p.j], newBlocks[p.j], p.same, ctx)
-  for (const el of deletes) {
-    const idx = group.toArray().indexOf(el)
-    if (idx >= 0) group.delete(idx, 1)
-  }
+  deleteChildren(group, deletes)
   ctx.stats.deleted += deletes.length
+}
+
+/**
+ * Deletes `els` from `group`: their positions from one pass over the group, then from the last one
+ * backwards in runs, so earlier positions stay valid (one `toArray` per call instead of one per
+ * deleted block, which made a whole-page rewrite quadratic; docs/adr/2550-*). The same items are
+ * deleted as one by one.
+ */
+function deleteChildren(group: Y.XmlElement, els: Y.XmlElement[]): void {
+  if (!els.length) return
+  const at = new Map<unknown, number>()
+  group.toArray().forEach((el, i) => at.set(el, i))
+  const idx = els.map((el) => at.get(el)).filter((i): i is number => i !== undefined)
+  idx.sort((x, y) => y - x)
+  for (let k = 0; k < idx.length; ) {
+    let n = 1
+    while (k + n < idx.length && idx[k + n] === idx[k] - n) n++
+    group.delete(idx[k] - n + 1, n)
+    k += n
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -780,7 +996,9 @@ function buildIncoming(blocks: AnyBlock[]): { tmp: Y.Doc; els: Y.XmlElement[]; r
   // a top-level block is a blockContainer or a group of columns (docs/adr/2420-*)
   const els = g.toArray().filter((c) => isEl(c, 'blockContainer') || isEl(c, 'columnList')) as Y.XmlElement[]
   // The server's own reading of the new blocks (normalized: "\n" → hardBreak → "\n", default props).
-  const read = readBlocks(tmp)
+  // Read directly: `tmp` is a throwaway BlockNote built with the server schema, so the read has nothing
+  // unknown to remove (copying it first doubled the peak memory of a large replace, docs/adr/2550-*).
+  const read = editor.yDocToBlocks(tmp, 'document') as unknown as AnyBlock[]
   return { tmp, els, read }
 }
 
@@ -817,7 +1035,7 @@ function liveIndexOf(top: Y.XmlElement[], live: Map<string, Y.XmlElement>, b: An
   return idx
 }
 
-/** Validates a patched copy: known blocks all survive a BlockNote read; edited/inserted ones read back as asked. */
+/** Validates a patched copy (never the live doc): known blocks all survive a BlockNote read; edited/inserted ones read back as asked. */
 function validate(doc: Y.Doc, expect: Ctx['expect']): string | null {
   // ids of containers whose content node the server schema knows (and whose ancestors it knows)
   const schema = getServerEditor().editor.pmSchema
@@ -839,7 +1057,9 @@ function validate(doc: Y.Doc, expect: Ctx['expect']): string | null {
     }
   }
   walk(topGroup(doc))
-  const blocks = readBlocks(doc)
+  // `doc` is the dry run's throwaway copy: read it directly (readBlocks would copy it once more only
+  // to protect a live document from the destructive read; docs/adr/2550-*)
+  const blocks = getServerEditor().yDocToBlocks(doc, 'document') as unknown as AnyBlock[]
   const byId = new Map<string, AnyBlock>()
   const index = (bs: AnyBlock[]) => {
     for (const b of bs) {
@@ -870,10 +1090,14 @@ function replaceRange(
   incoming: AnyBlock[],
   echo: EchoIndex | null,
   forced: 'merge' | 'splice' | undefined,
+  shared?: EditBudget,
 ): { stats: PatchStats; firstId: string | null } {
   const { tmp, els, read } = buildIncoming(incoming)
   try {
     if (read.length !== els.length) throw badRequest('Could not convert the Markdown')
+    // A small range is edited exactly as before the budget (docs/adr/2550-*): decided once, from the
+    // blocks alone, so the dry run and the live edit (and a batch's copy run) agree.
+    const small = !budgetOverride && blockChars(r.blocks) + blockChars(read) <= BUDGET_FREE_CHARS
     /**
      * Runs the edit on `target` (one transaction) for the range starting at top-level index `from`;
      * returns its stats, expectations and first new id.
@@ -883,7 +1107,9 @@ function replaceRange(
       const tTop = tGroup.toArray() as Y.XmlElement[]
       const tLive = new Map<string, Y.XmlElement>()
       indexContainers(tGroup, tLive)
-      const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [] }
+      const start: EditBudget = small ? { ...UNBOUNDED } : shared ? { ...shared } : newReplaceBudget()
+      const budget: EditBudget = { ...start }
+      const ctx: Ctx = { echo, live: tLive, stats: { strategy, kept: 0, edited: 0, inserted: 0, deleted: 0 }, expect: [], budget, swapped: 0 }
       const startRef = from > 0 ? tTop[from - 1] : null
       target.transact(() => {
         if (strategy === 'merge') {
@@ -893,10 +1119,7 @@ function replaceRange(
           const olds = r.blocks.map((b) => tLive.get(String(b.id))!)
           const clones = els.map((e) => e.clone())
           tGroup.insertAfter(startRef, clones)
-          for (const el of olds) {
-            const idx = tGroup.toArray().indexOf(el)
-            if (idx >= 0) tGroup.delete(idx, 1)
-          }
+          deleteChildren(tGroup, olds)
           ctx.stats.inserted = countBlocks(read)
           ctx.stats.deleted = countBlocks(r.blocks)
           clones.forEach((c, n) => ctx.expect.push({ id: String(c.getAttribute('id')), block: read[n] }))
@@ -906,7 +1129,8 @@ function replaceRange(
       const firstEl = (tGroup.toArray() as Y.XmlElement[]).find(
         (el) => isEl(el, 'blockContainer') && ctx.expect.some((e) => e.id === el.getAttribute('id')),
       )
-      return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null }
+      lastWork = { textOps: start.textOps - budget.textOps, diffWork: start.diffWork - budget.diffWork, swapped: ctx.swapped }
+      return { stats: ctx.stats, expect: ctx.expect, firstId: firstEl ? String(firstEl.getAttribute('id')) : null, budget }
     }
     /**
      * Dry run on a copy of the edited region (the range plus the container before it, the insert
@@ -936,6 +1160,8 @@ function replaceRange(
     // The same deterministic edit on the live document (same content, same structure as the copy),
     // written by the live doc's own client so concurrent client edits merge as usual.
     const res = editOn(doc, strategy, r.from)
+    // what is left goes to the next patch of the same run (a small range spends nothing from it)
+    if (shared && !small) Object.assign(shared, res.budget)
     return { stats: res.stats, firstId: res.firstId }
   } finally {
     tmp.destroy()
@@ -955,7 +1181,7 @@ export function applySectionPatch(
   mode: PatchMode,
   baseVersion: string | undefined,
   echo: EchoIndex | null = null,
-  opts: { strategy?: 'merge' | 'splice' } = {},
+  opts: { strategy?: 'merge' | 'splice'; budget?: EditBudget } = {},
 ): PatchOutcome {
   const blocks = readBlocks(doc)
   const sections = splitSections(blocks)
@@ -1012,7 +1238,7 @@ export function applySectionPatch(
     const blockFrom = replacesHeading ? sec.start : bodyBlock
     const r = liveRange(top, live, blocks, blockFrom, sec.end, replacesHeading ? secLive : bodyLive)
     ;[liveA, liveB, visA, visB] = [r.from, r.to, blockFrom, sec.end]
-    const res = replaceRange(doc, group, r, incoming, echo, opts.strategy)
+    const res = replaceRange(doc, group, r, incoming, echo, opts.strategy, opts.budget)
     Object.assign(stats, res.stats)
     firstNewId = res.firstId
   }

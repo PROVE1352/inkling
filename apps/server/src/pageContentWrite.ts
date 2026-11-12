@@ -23,6 +23,8 @@ import { isAgentVia } from './agentVia'
 
 /** Blocks above which update_page(replace) computes no echo (≈ 0.4 ms per block). */
 const REPLACE_ECHO_MAX_BLOCKS = 2_000
+/** Markdown above which an agent's replace reports no line counts (docs/adr/2551-*). */
+const REPLACE_LINE_COUNT_MAX_CHARS = 256 * 1024
 
 function countBlocks(blocks: { children?: unknown }[]): number {
   let n = 0
@@ -78,8 +80,11 @@ export async function writePageContentAs(
     await withEditActor([id], actorOf(user), () => writeBlocksToDoc(id, incoming, body.mode, gate, echo))
     if (!agent) return { result: undefined, step: null }
     const md = async (blocks: AnyBlock[]) => (blocks.length ? (await blocksToMarkdown(blocks, { assetMode: 'absolute', notation: 'agent' })).markdown.trim() : '')
-    // A very large replaced page (no echo) reports no line counts: the whole body was written.
-    const delta = body.mode === 'append' ? lineDelta('', await md(incoming)) : old ? lineDelta(await md(old), await md(incoming)) : {}
+    // A very large replaced page (no echo) reports no line counts: the whole body was written. The
+    // same for a very large new body (docs/adr/2551-*): exporting it to count lines costs a DOM of the
+    // whole body that BlockNote's exporter keeps alive afterwards (~130 MB for 1 MB).
+    const countLines = old && countBlocks(incoming) <= REPLACE_ECHO_MAX_BLOCKS && body.markdown.length <= REPLACE_LINE_COUNT_MAX_CHARS
+    const delta = body.mode === 'append' ? lineDelta('', await md(incoming)) : countLines ? lineDelta(await md(old!), await md(incoming)) : {}
     return { result: undefined, step: { tool: 'update_page', mode: body.mode, ...delta } }
   })
 }

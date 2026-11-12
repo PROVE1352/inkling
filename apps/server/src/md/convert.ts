@@ -276,6 +276,20 @@ export async function blocksToMarkdown(
 export type ResolveTitle = (title: string) => string | null
 export type ResolveAsset = (relPath: string) => string | null
 
+/** Markdown longer than this is followed by `releaseParseDom` (docs/adr/2551-*). */
+const RELEASE_PARSE_DOM_ABOVE = 64 * 1024
+
+/**
+ * BlockNote parses the HTML of a Markdown body inside one HTML document it keeps for the life of the
+ * process, and that document's selector engine (nwsapi) remembers the element of its last list
+ * query, which keeps the whole parsed DOM of the previous body alive: about 100 MB of heap after a
+ * 1 MB body, held until the next parse with a list (measured with heap snapshots, docs/adr/2551-*).
+ * Parsing a one-item list moves that reference to a tiny element.
+ */
+async function releaseParseDom(): Promise<void> {
+  await getServerEditor().tryParseMarkdownToBlocks('- x')
+}
+
 export async function markdownToBlocks(
   md: string,
   resolveTitle: ResolveTitle,
@@ -288,6 +302,7 @@ export async function markdownToBlocks(
   // `$$…$$` / `$…$` are cut out before BlockNote's parser sees them (md/math.ts, ADR 0996)
   const math = extractMath(marks.markdown)
   const blocks = marks.restore(math.restore((await editor.tryParseMarkdownToBlocks(math.markdown)) as unknown as AnyBlock[]))
+  if (math.markdown.length > RELEASE_PARSE_DOM_ABOVE) await releaseParseDom()
 
   // Split [[title]] inside text inlines and replace it with a link/literal. Not in code blocks: their
   // text is code (a Mermaid subroutine node is `A[[Name]]`, docs/adr/2104-*) and must come back as written.

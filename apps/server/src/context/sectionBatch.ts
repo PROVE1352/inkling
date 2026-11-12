@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import type { AnyBlock } from '../md/convert'
 import { INTRO_ANCHOR, splitSections } from './chunker'
 import type { Section } from './chunker'
-import { applySectionPatch, readBlocks } from './sectionPatch'
+import { applySectionPatch, newReplaceBudget, readBlocks } from './sectionPatch'
 import type { EchoIndex, PatchMode } from './sectionPatch'
 
 /**
@@ -51,11 +51,13 @@ function findTarget(sections: Section[], e: BatchEdit): Section | undefined {
 function runAll(doc: Y.Doc, edits: BatchEdit[]): { results: (Section | null)[]; sections: number; failure?: BatchFailure } {
   const results: (Section | null)[] = []
   let sections = 0
+  // one edit budget for the whole batch (docs/adr/2550-*), fresh per run so the dry run and the live run agree
+  const budget = newReplaceBudget()
   for (let i = 0; i < edits.length; i++) {
     const e = edits[i]
     let out
     try {
-      out = applySectionPatch(doc, refOf(e), e.incoming, e.mode, undefined, e.echo)
+      out = applySectionPatch(doc, refOf(e), e.incoming, e.mode, undefined, e.echo, { budget })
     } catch (err) {
       return { results, sections, failure: { index: i, reason: 'invalid', message: err instanceof Error ? err.message : String(err) } }
     }

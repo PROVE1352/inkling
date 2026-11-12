@@ -32,6 +32,14 @@ export const AWARENESS_MAX_SOCKET_BYTES = 256 * 1024
 export const AWARENESS_MAX_DOC_IDS = 1024
 export const AWARENESS_NEW_IDS_BURST = 64
 export const AWARENESS_NEW_IDS_PER_SEC = 1
+/**
+ * State bytes a socket may change per second (128 KB at once, then 16 KB a second), counting only entries that
+ * change something (echoes are free). Every change is sent on to every connection of the document, so without a
+ * rate four ids of one's own re-sent fast multiply into the other connections' send buffers (measured: 30 sockets,
+ * 3.4 GB of RSS in 15 s). An editor's cursor is ~0.4 KB per move.
+ */
+export const AWARENESS_BYTES_BURST = 128 * 1024
+export const AWARENESS_BYTES_PER_SEC = 16 * 1024
 /** A clock record without a state is dropped this long after its last change (sweepAwarenessMeta). */
 export const AWARENESS_META_KEEP_MS = 60_000
 
@@ -42,10 +50,13 @@ export interface SocketAwareness {
   /** New-id tokens (a bucket of AWARENESS_NEW_IDS_BURST refilled at AWARENESS_NEW_IDS_PER_SEC). */
   tokens: number
   at: number
+  /** Changed-state byte tokens (AWARENESS_BYTES_BURST refilled at AWARENESS_BYTES_PER_SEC). */
+  byteTokens: number
+  byteAt: number
 }
 
 export function newSocketAwareness(): SocketAwareness {
-  return { bytes: 0, tokens: AWARENESS_NEW_IDS_BURST, at: Date.now() }
+  return { bytes: 0, tokens: AWARENESS_NEW_IDS_BURST, at: Date.now(), byteTokens: AWARENESS_BYTES_BURST, byteAt: Date.now() }
 }
 
 /** The document awareness as y-protocols keeps it (the fields this module reads). */
@@ -75,9 +86,9 @@ const pendingByDoc = new WeakMap<object, Map<number, { clock: number; live: bool
 const byContext = new WeakMap<object, ConnectionAwareness>()
 
 /** Test and log hook. */
-export const awarenessStats = { refused: 0, largestState: 0, largestMessage: 0, mostOwned: 0, newIds: 0 }
+export const awarenessStats = { refused: 0, largestState: 0, largestMessage: 0, mostOwned: 0, newIds: 0, changedBytes: 0 }
 
-export type AwarenessRefusal = 'message' | 'state' | 'clients' | 'new-ids' | 'document' | 'socket' | 'malformed'
+export type AwarenessRefusal = 'message' | 'state' | 'clients' | 'new-ids' | 'document' | 'socket' | 'rate' | 'malformed'
 
 function readVarUint(buf: Uint8Array, pos: number): [number, number] {
   let n = 0
@@ -137,6 +148,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   const pending = awareness ? pendingByDoc.get(awareness) : undefined
   let newIds = 0
   let broughtIn = 0
+  let changed = 0
   for (let i = 0; i < n; i++) {
     let id: number
     let clock: number
@@ -159,6 +171,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
     if (!(curClock < clock || (curClock === clock && isNull && curLive))) continue // an echo: nothing happens
     if (!seen && !meta.has(id) && !pending?.has(id)) newIds++ // a clock record the document did not have
     clocks.set(id, { clock, live: !isNull })
+    changed += stateLen
     if (isNull) {
       owned.delete(id)
       fresh.delete(id)
@@ -175,6 +188,13 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   for (const id of owned.keys()) if (!fresh.has(id) && !states.has(id)) owned.delete(id)
   if (owned.size > AWARENESS_MAX_CLIENTS) return 'clients'
   if (broughtIn > 0 && states.size + broughtIn > AWARENESS_MAX_DOC_IDS) return 'document'
+  if (changed > 0 && socket) {
+    const now = Date.now()
+    const tokens = Math.min(AWARENESS_BYTES_BURST, socket.byteTokens + ((now - socket.byteAt) / 1000) * AWARENESS_BYTES_PER_SEC)
+    if (tokens < changed) return 'rate'
+    socket.byteTokens = tokens - changed
+    socket.byteAt = now
+  }
   if (newIds > 0 && socket) {
     const now = Date.now()
     const tokens = Math.min(AWARENESS_NEW_IDS_BURST, socket.tokens + ((now - socket.at) / 1000) * AWARENESS_NEW_IDS_PER_SEC)
@@ -204,6 +224,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   if (frame.length > awarenessStats.largestMessage) awarenessStats.largestMessage = frame.length
   if (owned.size > awarenessStats.mostOwned) awarenessStats.mostOwned = owned.size
   awarenessStats.newIds += newIds
+  awarenessStats.changedBytes += changed
   if (awareness) sweepAwarenessMeta(awareness)
   return null
 }

@@ -153,6 +153,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const people = [owner, ...others]
     const socks: Sock[] = []
     const tabs: ReturnType<typeof openDoc>[] = []
+    const changed0 = A.awarenessStats.changedBytes
+    const t0 = Date.now()
     for (const [i, u] of people.entries()) {
       const s = newSocket(u.cookie)
       socks.push(s)
@@ -173,7 +175,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     await until(() => tabs.every((t) => t.doc.getText('t').length === expected), 'every keystroke everywhere')
     await sleep(1000)
     const seen = tabs.map((t) => t.names().length)
-    console.log(`[fix5] ${n} tabs on one page: socket closes ${closesOf(socks)}; each sees ${JSON.stringify(seen)}; most ids one connection brought in ${A.awarenessStats.mostOwned}; largest echo ${A.awarenessStats.largestMessage} B`)
+    const rate = (A.awarenessStats.changedBytes - changed0) / n / ((Date.now() - t0) / 1000)
+    console.log(`[fix5] ${n} tabs on one page: socket closes ${closesOf(socks)}; each sees ${JSON.stringify(seen)}; most ids one connection brought in ${A.awarenessStats.mostOwned}; largest echo ${A.awarenessStats.largestMessage} B; changed state bytes per socket ${rate.toFixed(0)} B/s`)
     assert.equal(closesOf(socks), 0, 'no socket closed')
     assert.ok(seen.every((k) => k === n), 'each tab sees everyone')
     assert.equal(A.awarenessStats.refused, refused, 'nothing refused')
@@ -371,7 +374,7 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const sb = await raw(u.cookie)
     await openRaw(sa, page.id)
     await openRaw(sb, page.id)
-    const big = JSON.stringify({ blob: 'y'.repeat(15_000) })
+    const big = JSON.stringify({ blob: 'y'.repeat(4_000) })
     // a brings in four ids; b keeps updating them (bigger states, newer clocks): they stay a's, never b's
     sa.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((k): [number, number, string] => [5_000_000 + k, 1, small])))
     await sleep(100)
@@ -403,5 +406,18 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     console.log(`[fix5] new ids before the socket closed: ${k} (bucket ${A.AWARENESS_NEW_IDS_BURST})`)
     assert.ok(k <= A.AWARENESS_NEW_IDS_BURST + 5)
     sa.ws.close()
+    // its own four ids re-sent fast with bigger and bigger clocks: every change goes on to every connection
+    const sd = await raw(u.cookie)
+    await openRaw(sd, page.id)
+    const st = JSON.stringify({ blob: 'z'.repeat(15_000) })
+    let sentBytes = 0
+    for (let c = 1; c < 200 && sd.closed === null; c++) {
+      sd.ws.send(awarenessFrame(page.id, [1, 2, 3, 4].map((x): [number, number, string] => [8_000_000 + x, c, st])))
+      sentBytes += 4 * st.length
+      await sleep(5)
+    }
+    await until(() => sd.closed !== null, 'the changed-bytes rate runs out')
+    console.log(`[fix5] own ids re-sent: closed after ${(sentBytes / 1024).toFixed(0)} KB (burst ${A.AWARENESS_BYTES_BURST / 1024} KB)`)
+    assert.ok(sentBytes <= A.AWARENESS_BYTES_BURST + 8 * 4 * st.length)
   })
 })

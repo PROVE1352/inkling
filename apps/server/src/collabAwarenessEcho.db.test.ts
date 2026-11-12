@@ -316,7 +316,8 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     s.socket.disconnect()
     t.doc.getText('t').insert(0, 'typed offline')
     t.move(5)
-    await sleep(200)
+    // waits for the server to have dropped the tab's connection (only the other person left), not 200 ms
+    await until(() => live().getConnections().length === 1, 'the tab offline on the server')
     await s.socket.connect()
     await until(() => live().getText('t').toString() === 'typed offline', 'back online')
     // waits for the tab's awareness after the return (the cursor moved offline) to be applied on the server, not 300 ms
@@ -432,6 +433,7 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     // document gains no clock record for it
     const docAw = () => (collab.hocuspocus.documents.get(page.id) as unknown as { awareness: { meta: Map<number, { clock: number }> } }).awareness
     const droppedBefore = A.awarenessStats.dropped
+    const tNew = Date.now()
     let k = 0
     while (sc.closed === null && k < 200) {
       sc.ws.send(awarenessFrame(page.id, [[7_000_000 + k, 1, small]]))
@@ -441,11 +443,13 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     }
     // waits for the server to have handled every frame of the flood (a sync round trip behind them), not 200 ms
     await roundTrip(sc, page.id)
+    // the refill the bucket had during the flood, from the time it actually took (1 id a second), not a fixed 5
+    const refill = Math.ceil(((Date.now() - tNew) / 1000) * A.AWARENESS_NEW_IDS_PER_SEC) + 1
     const recorded = [...docAw().meta.keys()].filter((id) => id >= 7_000_000 && id < 7_000_200).length
     console.log(`[fix5] new ids: sent ${k}, recorded ${recorded} (bucket ${A.AWARENESS_NEW_IDS_BURST}), dropped messages ${A.awarenessStats.dropped - droppedBefore}; socket ${sc.closed === null ? 'open' : 'closed'}`)
     assert.equal(sc.closed, null, 'a message past the new-id rate is dropped, the socket stays')
-    assert.ok(recorded <= A.AWARENESS_NEW_IDS_BURST + 5, `clock records for its ids: ${recorded}`)
-    assert.ok(A.awarenessStats.dropped - droppedBefore >= k - A.AWARENESS_NEW_IDS_BURST - 5)
+    assert.ok(recorded <= A.AWARENESS_NEW_IDS_BURST + refill, `clock records for its ids: ${recorded} (refill ${refill})`)
+    assert.ok(A.awarenessStats.dropped - droppedBefore >= k - A.AWARENESS_NEW_IDS_BURST - refill)
     sc.ws.close()
     sa.ws.close()
     // its own four ids re-sent fast with bigger and bigger clocks: every change goes on to every connection

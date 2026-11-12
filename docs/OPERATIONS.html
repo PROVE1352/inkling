@@ -1,0 +1,1240 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operations: deployment checklist, performance, caches and database tuning · Inkling</title>
+  <meta name="description" content="Deployment checklist, upgrades, the status summary, database tuning.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/OPERATIONS.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/OPERATIONS.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/OPERATIONS.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Operations: deployment checklist, performance, caches and database tuning · Inkling">
+  <meta property="og:description" content="Deployment checklist, upgrades, the status summary, database tuning.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/OPERATIONS.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="OPERATIONS.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="OPERATIONS.ko.html" hreflang="ko" lang="ko">한국어</a><a href="OPERATIONS.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html" aria-current="page">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Running a server</p><h1 id="operations-deployment-checklist-performance-caches-and-database-tuning">Operations: deployment checklist, performance, caches and database tuning</h1><p class="doc-desc">Deployment checklist, upgrades, the status summary, database tuning.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/OPERATIONS.md</code> in the repository. <a href="OPERATIONS.md" type="text/markdown">Markdown source</a></p></header><p>Companion to <code>deploy/DEPLOY.md</code> and <code>docs/BACKUP.md</code>. Design records: <code>docs/adr/0750</code>–<code>0759</code>. Known, accepted issues: <a href="KNOWN-ISSUES.html">KNOWN-ISSUES.md</a>. 한국어: <a href="OPERATIONS.ko.html">OPERATIONS.ko.md</a>.</p>
+<h2 id="0-deployment-checklist">0. Deployment checklist</h2>
+<h3 id="before-first-deploy">Before first deploy</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Run behind TLS: <code>docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d</code>. Never expose the base compose&#39;s <code>3000:3000</code> to the internet (plain HTTP).</li>
+<li><input disabled="" type="checkbox"> Set a strong <code>POSTGRES_PASSWORD</code> in <code>.env</code> (required; compose does not start without it).</li>
+<li><input disabled="" type="checkbox"> Set <code>PUBLIC_URL</code> (or <code>APP_URL</code>) to the external origin. Example: <code class="long">PUBLIC_URL=https://notes.example.com</code>. It is the only source for mail links, the OAuth issuer and <code>og:url</code>; the <code>Host</code> header is never trusted for them. When SMTP mail is enabled and neither variable is set, the server refuses to boot.
+Browsers opening the app under any other origin (a LAN IP, another domain) can read but every write is refused with 403 <code>CROSS_SITE_REQUEST</code> (docs/adr/1062-*).</li>
+<li><input disabled="" type="checkbox"> Set <code>APP_SECRET_KEY</code> (≥ 32 characters, <code>openssl rand -base64 32</code>) before anyone turns on two-step verification, and store it outside the database/data backups. Changing it makes existing two-step setups unreadable (recovery codes and the admin reset still work). From 0.5.0 it also seals the &quot;copy link&quot; copies of share links, invite codes and signup keys and the webhook and sheet-sync URLs; without it those copies and URLs stay in plaintext (boot warning) and are sealed at the first boot after the key is set (docs/adr/1110-<em>, 1111-</em>).</li>
+<li><input disabled="" type="checkbox"> Cookies: when <code>PUBLIC_URL</code> is <code>https</code>, session cookies are <code>Secure</code> automatically. <code>COOKIE_SECURE</code> is passed through from <code>.env</code> (default <code>0</code>); the Caddy overlay sets it to <code>1</code>.</li>
+<li><input disabled="" type="checkbox"> Signup keys: with <code>NODE_ENV=production</code>, signups require a signup key unless <code>SIGNUP_REQUIRE_KEY=0</code> is set explicitly. Create the first admin&#39;s key with <code>./deploy/signup-key.sh new &quot;&lt;name&gt;&quot;</code> (the server logs this hint at boot).</li>
+<li><input disabled="" type="checkbox"> OpenID Connect sign-in (optional, deploy/DEPLOY.md &quot;3-G&quot;): register <code class="long">&lt;PUBLIC_URL&gt;/api/auth/oidc/callback</code> at the provider and set <code>OIDC_ISSUER</code>, <code>OIDC_CLIENT_ID</code>, <code>OIDC_CLIENT_SECRET</code>. A half-filled set or a missing <code>PUBLIC_URL</code> stops the boot. Signup keys do not apply to it: with <code>OIDC_AUTO_CREATE=1</code> also set <code>OIDC_ALLOWED_DOMAINS</code>. Keep <code>OIDC_LINK_EXISTING=0</code> unless the provider verifies email addresses (docs/adr/1161-<em>), and decide whether workspace two-step verification may trust the provider (<code>OIDC_REQUIRE_MFA</code>, docs/adr/1162-</em>). Sign in once as the first admin with a password before turning on <code>OIDC_AUTO_CREATE</code> on an empty instance.</li>
+<li><input disabled="" type="checkbox"> Semantic search (optional, off by default, section 5): set <code>EMBEDDING_URL</code> and <code>EMBEDDING_MODEL</code> only if you want find_context to also rank by meaning. Chunk text is sent to that endpoint; with a hosted provider that is a third party, so prefer a local model server when notes must not leave the machine. A half-filled set stays off with one boot warning (docs/adr/1740-*).</li>
+<li><input disabled="" type="checkbox"> Slack app (optional, section 6): needs <code>PUBLIC_URL</code> with a domain name (link unfurls and the <code>/inkling link</code> URL) and <code>APP_SECRET_KEY</code> (otherwise the bot token and signing secret are stored unencrypted; the settings page warns). No Slack variable is needed: each workspace owner pastes their own app&#39;s token and secret in Workspace settings → Slack.</li>
+<li><input disabled="" type="checkbox"> Set <code>TZ</code> to the users&#39; timezone (reminders, daily notes, the backup schedule and GFS buckets use it). Compose defaults to <code>UTC</code>; a Korean deployment sets <code>TZ=Asia/Seoul</code>.</li>
+<li><input disabled="" type="checkbox"> Set <code>DEFAULT_LOCALE</code> (<code>en</code> | <code>ko</code>, default <code>en</code>): language of emails and built-in templates for users who have not chosen one, and the web UI default before the browser language (docs/adr/0901-<em>, 0903-</em>). A Korean deployment sets <code>DEFAULT_LOCALE=ko</code>.</li>
+<li><input disabled="" type="checkbox"> All server environment variables are passed through <code>compose.yaml</code> as <code>${X:-}</code>, so setting them in <code>.env</code> is enough (<code>.env</code> itself is not copied into the image). If you use a <code>compose.override.yaml</code>, check that it does not replace the <code>environment:</code> entries you need.</li>
+<li><input disabled="" type="checkbox"> Confirm <code>NODE_ENV=production</code> in the running container (it also disables loopback test switches such as <code>WEBHOOK_TEST_ALLOW_LOOPBACK</code>).</li>
+<li><input disabled="" type="checkbox"> Decide <code>BACKUP_PASSPHRASE</code> and store it outside the server; losing it makes encrypted sets unrecoverable.</li>
+<li><input disabled="" type="checkbox"> Configure an off-site copy (<code class="long">deploy/compose.backup-rclone.yaml</code>); local backup sets live on the same disk as the database.</li>
+</ul>
+<h3 id="resource-limits">Resource limits</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Host disk: keep at least 2x (database size + data volume) free; backups, the weekly restore test and uploads share it.</li>
+<li><input disabled="" type="checkbox"> Raise <code>BACKUP_MIN_FREE_MB</code> above the 256 MB default on small disks. Backup prune runs before the free-space check (the newest set is always kept), so a full disk no longer blocks pruning.</li>
+<li><input disabled="" type="checkbox"> Container memory: <code>APP_MEM_LIMIT</code> / <code>NODE_OPTIONS</code> and <code>PG_MEM_LIMIT</code> / <code>PG_SHM_SIZE</code> (see sections 1 and 2); backup sidecar 256m.</li>
+<li><input disabled="" type="checkbox"> Base <code>compose.yaml</code> services share the <code>x-logging</code> anchor; overlay files (Caddy, rclone) cannot reuse it, so give their services their own <code>logging:</code> block.</li>
+<li><input disabled="" type="checkbox"> Import limits: folder depth 32, pages created per import capped by <code>IMPORT_MAX_PAGES</code> (default 5000), zip entries measured by actual decompressed bytes. Size caps are env-configurable: <code>IMPORT_MAX_UPLOAD_MB</code> (25), <code>IMPORT_MAX_UNPACKED_MB</code> (50), <code>IMPORT_MAX_ENTRY_MB</code> (25), <code>IMPORT_MAX_FILES</code> (300). Raising them for Notion exports raises peak memory by about the upload size (twice for nested part archives); see docs/adr/0961-*.</li>
+<li><input disabled="" type="checkbox"> Heavy-job cap (docs/adr/1240-*): imports (Markdown, zip, Notion, folder), zip exports and subtree duplicates take one of <code>HEAVY_JOBS_MAX</code> slots (default 2; set <code>1</code> on containers under 768 MB or when the <code>IMPORT_MAX_*</code> caps are raised). Others wait in a fair queue of <code>HEAVY_JOBS_QUEUE_MAX</code> (16) for at most <code>HEAVY_JOBS_WAIT_MS</code> (60000) and then get <code>503 HEAVY_JOBS_BUSY</code> with <code>Retry-After</code>; one person may have <code>HEAVY_JOBS_PER_USER</code> (2) running or waiting, one more gets <code>429 HEAVY_JOBS_PER_USER</code>. A zip export holds its slot until the download ends or the client disconnects. The limits are per process.</li>
+</ul>
+<h3 id="database-timeouts">Database timeouts</h3>
+<p>The app sets these on every pool connection: <code>statement_timeout</code> 15 s, <code class="long">idle_in_transaction_session_timeout</code> 60 s, <code>lock_timeout</code> 10 s, and a 10 s <code>connect_timeout</code>. Do <strong>not</strong> set them at role or database level: the backup sidecar&#39;s <code>pg_dump</code> uses the same role. The backup scripts export <code>PGOPTIONS</code> with <code>statement_timeout=0</code>.</p>
+<h3 id="shutdown-and-crashes">Shutdown and crashes</h3>
+<ul>
+<li><code>stop_grace_period: 30s</code> is set on <code>app</code> in <code>compose.yaml</code>. On SIGTERM the app stops accepting collaboration upgrades, flushes open documents (10 s cap), closes HTTP (bounded), stops the optional semantic indexer (2 s; an embedding request in flight is abandoned), then closes the database pool. A 25 s watchdog forces exit.</li>
+<li><code>unhandledRejection</code> is logged and the process keeps running. <code>uncaughtException</code> is logged and triggers the graceful shutdown above; the container restart policy brings the app back.</li>
+<li>Since 0.15.1 a document save that failed after its retries is retried in the background (5 s, doubling up to 60 s), and a page with unsaved changes stays in memory until a save succeeds, also after its last editor left. The single-instance lock is released last, after open documents are saved (section 9, docs/adr/1921-<em>, 1925-</em>).</li>
+<li>A crash or kill (OOM, power loss, <code>docker kill</code>) still loses what was typed in the last 2–10 s (the store is debounced); a graceful stop saves everything first. Pages whose index pass was lost in a crash are re-indexed at the next boot (section 9).</li>
+</ul>
+<h3 id="monitoring">Monitoring</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <code>GET /api/health</code> is liveness only. <code>GET /api/health/ready</code> runs <code>select 1</code> with a 2 s timeout (cached 5 s) and returns 503 when the database is unreachable; use it for external monitors. The compose healthcheck can keep using <code>/api/health</code>.</li>
+<li><input disabled="" type="checkbox"> Docker does not restart <code>unhealthy</code> containers; use an external monitor or autoheal.</li>
+<li><input disabled="" type="checkbox"> Watch for app restarts: a crash loop usually means the database is down or its disk is full.</li>
+<li><input disabled="" type="checkbox"> Admin › Backups shows the last success, the last restore test and the sidecar heartbeat.</li>
+<li><input disabled="" type="checkbox"> Check free disk weekly.</li>
+</ul>
+<h3 id="reading-the-status-summary">Reading the status summary</h3>
+<p>Admins see a server status summary at the top of <strong>Admin</strong>, and a one-line banner at the top of the
+app when something needs attention (docs/adr/1230-<em>, 1233-</em>). The same data is
+<code>GET /api/admin/status</code> (admin, browser session only; <code>?refresh=1</code> skips the 5-minute cache).</p>
+<ul>
+<li><strong>Colours.</strong> Green = ok, amber = warning, red = problem, grey = switched off or not set up here.
+Grey rows never raise the banner. Outside <code>NODE_ENV=production</code> the settings checks (secret key,
+<code>PUBLIC_URL</code>, cookies, sign-ups, database password, missing sidecar) are grey: they are meant for
+the production server.</li>
+<li><strong>The banner</strong> shows the first problem and how many more there are. A problem (item + level) is
+shown at most once a day per admin and browser; a new problem, or a warning that becomes a
+problem, shows at once. Opening Admin counts as seeing them. Closing it hides it for the session.</li>
+<li><strong>Freshness.</strong> Disk space, database size, uploads, large pages, stored secrets and migrations are
+measured at most every 5 minutes (&quot;Checked … ago&quot;, <strong>Check again</strong> to measure now). Backup state,
+restarts, errors and settings are read on every request.</li>
+</ul>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Card · row</th><th scope="col">What it means</th><th scope="col">What to do</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Card · row">Backups · Backup service</td><td class="c-field c-wide" data-label="What it means">The sidecar&#39;s heartbeat (every 60 s). Red after 10 minutes of silence.</td><td class="c-field c-wide" data-label="What to do"><code>docker compose ps backup</code>, <code>docker compose logs backup</code> (BACKUP.md &quot;Troubleshooting&quot;).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">Backups · Last backup</td><td class="c-field c-wide" data-label="What it means">Amber when one scheduled run was missed (older than 2 × the schedule interval + 1 h), red when the last run failed or the newest set is over 7 days old.</td><td class="c-field c-wide" data-label="What to do">Admin › Backups shows the failure message; fix it, then <strong>Back up now</strong>.</td></tr><tr class="rec"><td class="c-title" data-label="Card · row">Backups · Verification / Restore test</td><td class="c-field c-wide" data-label="What it means">Red when the last check failed; the restore test is amber when older than 2 × <code>BACKUP_RESTORE_TEST_DAYS</code>.</td><td class="c-field c-wide" data-label="What to do"><code>./deploy/backup.sh restore-test</code>, BACKUP.md &quot;What a backup set contains&quot; (<strong>Restore test</strong>).</td></tr><tr class="rec"><td class="c-title" data-label="Card · row">Backups · Off-site copy / Encryption</td><td class="c-field c-wide" data-label="What it means">Grey when no <code>BACKUP_RCLONE_REMOTE</code> (still worth fixing: 3-2-1 rule). Encryption is amber only when unencrypted sets are copied off-site. The passphrase itself is never shown.</td><td class="c-field c-wide" data-label="What to do">BACKUP.md &quot;Off-site copies with rclone&quot;, &quot;Encryption&quot;.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">Storage · Data disk</td><td class="c-field c-wide" data-label="What it means">Free space on the <code>DATA_DIR</code> volume. Amber below 2 × (database + uploads) or 10 %, red below 512 MB or 3 %.</td><td class="c-field c-wide" data-label="What to do">Free space or grow the disk before the database runs out (section &quot;Incidents&quot;).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">Storage · Backup disk</td><td class="c-field c-wide" data-label="What it means">Amber below 2 × the last set + <code>BACKUP_MIN_FREE_MB</code>, red when the next run would not fit. &quot;Same disk as the data&quot; means one disk holds both.</td><td class="c-field c-wide" data-label="What to do">Lower <code>BACKUP_KEEP_*</code>, move the backup volume, add an off-site copy.</td></tr><tr class="rec"><td class="c-title" data-label="Card · row">Storage · Database / Uploads / Large pages</td><td class="c-field c-wide" data-label="What it means">Facts. Large pages (≥ 1 MiB of state or ≥ 50k tokens, docs/adr/1103-*) are listed per workspace in its settings.</td><td class="c-field" data-label="What to do">Split long logs into subpages.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">App · Restarts in 24 h</td><td class="c-field c-wide" data-label="What it means">From <code>DATA_DIR/status/boots.json</code>. Amber at any restart without a clean shutdown (OOM kill, crash, <code>docker kill</code>), or at 3 clean restarts in production; red at 3 unclean ones (crash loop). Deploys count as clean restarts.</td><td class="c-field c-wide" data-label="What to do"><code>docker compose logs --tail 200 app</code>; exit 137 = memory (section 2).</td></tr><tr class="rec"><td class="c-title" data-label="Card · row">App · Errors logged in 24 h</td><td class="c-field c-wide" data-label="What it means">Log records at level error/fatal. Amber at 10 in 24 h, red at 50 in one hour. Only the count is kept.</td><td class="c-field" data-label="What to do"><code>docker compose logs app | grep &#39;&quot;level&quot;:50&#39;</code>.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">App · Database schema</td><td class="c-field c-wide" data-label="What it means">Applied migrations vs. the ones this server ships. Red when they differ (e.g. a database restored from a newer release).</td><td class="c-field c-wide" data-label="What to do">Upgrade to the release that wrote the database (section &quot;Upgrades&quot;).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">App · Web push</td><td class="c-field c-wide" data-label="What it means">Devices, failing devices and deliveries given up in 24 h (0.18). Grey with <code>WEB_PUSH=off</code>; amber at 20 given up in 24 h, or &quot;Cannot send: VAPID key problem (…)&quot;.</td><td class="c-field c-wide" data-label="What to do">Section 12 &quot;Web push&quot;: egress to the push services, <code>APP_SECRET_KEY</code>, the VAPID env pair.</td></tr><tr class="rec"><td class="c-title" data-label="Card · row">App · Database automations</td><td class="c-field c-wide" data-label="What it means">Rules on, runs queued, runs failed in 24 h (0.18). Grey when there are no rules; amber when a due run has waited 15 minutes or more (&quot;the automation queue is not keeping up&quot;).</td><td class="c-field c-wide" data-label="What to do">Section 12 &quot;Database automations&quot;; look for a rule in a loop or a slow webhook.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">Security settings</td><td class="c-field c-wide" data-label="What it means">Amber in production when <code>APP_SECRET_KEY</code> or <code>PUBLIC_URL</code> is missing, cookies are not <code>Secure</code>, anyone can sign up (<code>SIGNUP_REQUIRE_KEY=0</code>, or <code>OIDC_AUTO_CREATE=1</code> without <code>OIDC_ALLOWED_DOMAINS</code>), or the database password is empty, equal to the user name, a common default or shorter than 12 characters (judged on the server; the value is never shown). Red when sealed secrets exist but <code>APP_SECRET_KEY</code> is gone.</td><td class="c-field" data-label="What to do">Section 0 &quot;Before first deploy&quot;.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Card · row">Updates</td><td class="c-field c-wide" data-label="What it means">Grey unless <code>UPDATE_CHECK=github</code>. Amber when a newer release exists, red when a release newer than this server has a &quot;Security&quot; section in its notes (docs/adr/1232-*).</td><td class="c-field" data-label="What to do">Section &quot;Upgrades&quot;.</td></tr></tbody></table></div>
+<h3 id="upgrades">Upgrades</h3>
+<p>Releases are published as a multi-arch image, <code class="long">ghcr.io/prove1352/inkling:&lt;X.Y.Z&gt;</code> (also <code>X.Y</code> and
+<code>latest</code>; docs/adr/1050-*). The procedure, with your <code>-f</code> files added to each compose command:</p>
+<pre><code class="language-bash">./deploy/backup.sh                 # 1. backup (ends with &quot;ok set=&lt;id&gt; ...&quot;)
+git pull                           # 2. compose files and deploy scripts of the new release
+#    optional: INKLING_VERSION=X.Y.Z (or X.Y) in .env to pin the release (empty = latest)
+docker compose pull app            # 3. fetch the image
+docker compose up -d app           # 4. restart; migrations run in one transaction at boot
+docker compose logs --tail 50 app  #    check the migration result and &quot;Server listening&quot;
+</code></pre>
+<ul>
+<li><p>Source builds use <code>compose.build.yaml</code> (or its two lines in <code>compose.override.yaml</code>) and
+<code>up -d --build app</code> instead of steps 3–4 (deploy/DEPLOY.md &quot;Image or source build&quot;, docs/adr/1051-*).</p>
+</li>
+<li><p>Moving from source builds to the published image changes no data. Do not pull a release older than
+the code that last migrated the database (an install built from <code>main</code> after the latest release waits
+for the next release).</p>
+</li>
+<li><p>No downgrades: an older release does not know the newer schema. Roll back by restoring the backup from
+step 1 and pinning <code>INKLING_VERSION</code> to the old release.
+From 0.5.0 this matters more: page states are written in Yjs V2 and share links, invite codes and
+signup keys are kept as hashes, which 0.4.x cannot read. If newer edits must survive a rollback, stop
+the server, run <code class="long">apps/server/scripts/states-to-v1.ts</code> (try <code>--dry-run</code> first) and accept that existing
+share links, invite codes and signup keys stop working (docs/adr/1101-<em>, 1110-</em>).</p>
+</li>
+<li><p>Every release is tested for an upgrade from each earlier release, with data, before its image is
+published (<code>.github/workflows/upgrade.yml</code>, docs/adr/1052-*).</p>
+</li>
+<li><p>0.14 → 0.15 applies 4 migrations (43 → 47 rows in <code>drizzle.__drizzle_migrations</code>): <code>0043_v015_slack</code>,
+<code>0044_wave13_forms</code>, <code class="long">0045_wave13_verify_present_status</code> and <code>0046_wave13_team_agents</code>. All four only add tables,
+nullable columns or columns with a constant default (metadata-only on Postgres 11+) and an index on an all-NULL
+column, with no backfill, so they are safe inside the boot transaction. No new environment variable is required.</p>
+</li>
+<li><p>0.15 → 0.15.1 applies 1 migration (47 → 48 rows): <code>0047_v0151_index_stamp</code> adds the nullable column
+<code class="long">page_chunk_index.doc_updated_at</code> and fills it from <code>page_docs.updated_at</code> for existing rows (one UPDATE, one row
+per page), so the first boot re-indexes nothing. It assumes the 0.15 process stopped gracefully (it flushes its
+queued index passes on SIGTERM); <code>docker compose up -d app</code> does that. New, optional: <code>SINGLE_INSTANCE</code> and
+<code>SINGLE_INSTANCE_WAIT</code> (section 9). Vaults synced with an older server need no action: the first <code>inklingctl sync</code>
+after the upgrade re-reads pages changed since the last sync and merges notes edited locally once, without
+overwriting anything or marking a conflict (docs/adr/1920-*).</p>
+</li>
+<li><p>0.15.1 → 0.16 applies 3 migrations (48 → 51 rows): <code>0048_wave16_taint</code> (table <code>connection_taints</code>, column
+<code>workspaces.agent_taint_demote</code> with the constant default <code>true</code>), <code>0049_wave16_agent_tokens</code> (<code>oauth_grants.kind</code>
+with the constant default <code>&#39;oauth&#39;</code>, nullable <code>oauth_grants.token_prefix</code>) and <code>0050_wave16_agent_uploads</code> (nullable
+<code>workspaces.agent_uploads</code> and <code>files.uploaded_via</code>, and a partial index on <code>files</code> over rows where <code>uploaded_via</code>
+is set, which is none at upgrade time). No backfill. New dependency <code>unpdf</code> 1.9.1 in the image (pure JavaScript, no
+system package). New, optional: <code>AGENT_UPLOADS</code>, <code>AGENT_UPLOAD_MAX_MB</code>, <code>AGENT_UPLOAD_DAILY_MB</code> (section 10). After
+the upgrade, agents that read suspicious text only suggest for an hour in every workspace (section 10).</p>
+</li>
+<li><p>0.16 → 0.17 applies 3 migrations (51 → 54 rows): <code>0051_v017_collection_rows</code> (<code>collections.row_seq</code> with the
+constant default <code>0</code>; nullable <code>pages.row_number</code>, <code>pages.edited_by</code> with a foreign key, <code>pages.edited_via</code>; a partial
+unique index on <code>pages (parent_id, row_number)</code> over rows with a number, which is none at upgrade time; three
+triggers that hand out ID numbers), <code>0052_page_link_sections</code> (nullable <code>page_links.sections</code>) and
+<code>0053_v017_snapshot_steps</code> (nullable <code>page_snapshots.digest</code> and <code>step</code>). No backfill; building the empty index and
+checking the new foreign key read <code>pages</code> once inside the boot transaction. New dependency <code>mermaid</code> 12.3.0 in the
+web bundle only (section 11). New, optional: <code>INKLING_PORT</code>, <code>INKLING_DB_PORT</code> (compose). Every agent write now
+stores a version row (section 11); zip imports refuse unsafe archives; a server with no account prints a setup link
+at boot.</p>
+</li>
+<li><p>0.17 → 0.18 applies 5 migrations (54 → 59 rows): <code>0054_w18_web_push</code> (tables <code>push_subscriptions</code>,
+<code>push_vapid_keys</code>, <code>push_settings</code>), <code>0055_w18_automations</code> (<code>collection_automations</code>, <code>automation_runs</code>),
+<code>0056_offline_doc_gen</code> (<code>pages.doc_gen integer not null default 0</code>, a constant default), <code>0057_workspace_listings</code>
+(<code>workspace_list_groups</code>, <code>workspace_listings</code>) and <code>0058_row_number_tid</code> (a new body for the trigger function
+<code>inkling_row_number()</code>; no table, index or trigger definition changes). No backfill; they run in milliseconds. No
+new dependency. New, optional: <code>WEB_PUSH</code>, <code>VAPID_PUBLIC_KEY</code>, <code>VAPID_PRIVATE_KEY</code>, <code>VAPID_SUBJECT</code>,
+<code>WEB_PUSH_ALLOWED_HOSTS</code>, <code>OAUTH_CIMD</code>, <code>OAUTH_CIMD_ALLOWED_HOSTS</code> (section 12; <code>compose.yaml</code> passes them through).
+After the upgrade: tell people to reload every open tab and installed app before they use button blocks (a 0.17
+client that edits a page with a button deletes it); web push needs outbound HTTPS from the server to the push
+services and makes its VAPID key on first use; <code>/push-sw.js</code> is served <code>no-cache</code> (section 4); the web clipper&#39;s
+&quot;Article text&quot; makes outbound HTTP(S) requests; a 15-minute automation timer runs per process. Nothing else changes
+for people until they turn something on.</p>
+</li>
+<li><p>0.18 → 0.19 needs one line in <code>.env</code> before compose starts again: <code>INKLING_DATA_NAME=nodian</code> on an existing
+install (see &quot;Upgrading to 0.19&quot; below), then optionally <code>deploy/rename-from-nodian.sh</code>. It applies 2 migrations
+(59 → 61 rows in <code>drizzle.__drizzle_migrations</code>): <code>0059_share_allow_download</code> adds
+<code>pages.share_allow_download boolean not null default false</code> (a constant default: metadata-only, no backfill,
+milliseconds), and <code>0060_onboarding</code> creates <code>user_onboarding</code> and inserts one <code>{&quot;legacy&quot;: true}</code> row per existing
+account (one INSERT…SELECT over <code>users</code>). No new dependency. New: <code>INKLING_DATA_NAME</code> (required), and the optional
+<code>ONBOARDING</code>, <code>ONBOARDING_EXISTING_USERS</code> (section 13). Going back to 0.18.0 after 0059 alone needed no restore:
+0.18.0 started on the 60-row database (the extra column has a default and 0.18.0 does not read it; checked on a
+near-empty database, KNOWN-ISSUES SHARE-5). With 0060 as well it was not checked again (ONBOARD-5).</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 
+Take a manual backup first: <code>./deploy/backup.sh</code>.</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 
+Do not deploy during the backup window (default 03:00).</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 
+Never run <code>drizzle-kit push</code> against production (see section 1).</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 
+Single app instance only: reminders, sheet sync, the webhook queue, Hocuspocus state and the hourly cap of public form answers are per process. Since 0.15.1 the server refuses to start while another Inkling process uses the same database (section 9).</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 
+After an upgrade, check the boot log for migration success and the list of enabled experimental features.</p>
+</li>
+</ul>
+<h3 id="upgrading-to-019-the-nodian--inkling-names">Upgrading to 0.19: the nodian → inkling names</h3>
+<p>Up to 0.18 the compose project, the volumes, the database role and the database were all named <code>nodian</code>, the
+project&#39;s old name. From 0.19 they come from <code>INKLING_DATA_NAME</code> in <code>.env</code> (docs/adr/2340-*): <code>inkling</code> gives
+project <code>inkling</code>, volumes <code>inkling_inkling-db</code>, <code>-data</code>, <code>-backups</code>, <code>-backup-ctl</code>, role and database <code>inkling</code>;
+<code>nodian</code> gives exactly the names of 0.18. The variable has no default, so an install that upgrades without
+reading this does not come up on new, empty volumes: every compose command refuses before it creates or stops
+anything, and the running stack keeps running:</p>
+<pre><code>error while interpolating name: required variable INKLING_DATA_NAME is missing a value: set INKLING_DATA_NAME
+in .env: nodian if this server ran Inkling 0.18 or older (keeps its data), inkling for a new install. ...
+</code></pre>
+<p>Two ways on, both supported:</p>
+<ol>
+<li><strong>Keep the old names</strong> (no data moves): add <code>INKLING_DATA_NAME=nodian</code> to <code>.env</code> and upgrade as usual.
+Containers, volumes and backups stay what they were. Supported at least until 1.0; dropping it would be
+announced in the CHANGELOG one minor release ahead.</li>
+<li><strong>Move to the new names</strong>, any time after step 1 (recommended order: the upgrade first, checked, then the
+rename, so a migration and a rename never happen in one go):</li>
+</ol>
+<pre><code class="language-bash">./deploy/backup.sh
+printf &#39;\nINKLING_DATA_NAME=nodian\n&#39; &gt;&gt; .env       # 1. keep the old names for the upgrade
+git pull                                         #    (or copy the new release&#39;s files)
+docker compose pull app &amp;&amp; docker compose up -d  #    or `up -d --build` for source builds
+./deploy/rename-from-nodian.sh --dry-run         # 2. plan: volumes, sizes, free disk, downtime
+./deploy/rename-from-nodian.sh                   #    the rename (asks once)
+</code></pre>
+<p>What <code>deploy/rename-from-nodian.sh</code> does (docs/adr/2341-*), with the compose files you use (an override is read
+as usual; otherwise <code>COMPOSE=&quot;docker compose -f compose.yaml -f deploy/compose.caddy.yaml&quot; ./deploy/…</code>):</p>
+<ul>
+<li>Stops the app (it saves open documents), takes a pre-rename backup through the backup sidecar (or a <code>pg_dump</code>
+into <code class="long">./backups/rename-nodian-to-inkling/</code> when no sidecar runs), records every table&#39;s row count, and stops
+the stack (<code>down</code>, never <code>-v</code>).</li>
+<li><strong>Copies</strong> every volume whose name changes (database, data, backups, backup control, the rclone binary,
+Caddy&#39;s certificates) into a volume with the new name. The old volumes are only read; it never changes or
+deletes them.</li>
+<li>Renames the role and the database inside the copy, on a temporary server with no network, and sets the role&#39;s
+password again from <code>POSTGRES_PASSWORD</code> in <code>.env</code> (renaming clears an MD5 password; a SCRAM one would survive).
+Ownership, grants, sequences and the <code>pg_trgm</code> extension follow the role. Row counts must match.</li>
+<li>Sets <code>INKLING_DATA_NAME=inkling</code> in <code>.env</code> (a copy of the old <code>.env</code> stays in
+<code class="long">./backups/rename-nodian-to-inkling/env.before</code>), starts the stack with the same image, and checks
+<code>/api/health/ready</code>, migrations, accounts, pages, collection rows, share links, files and one backup under the
+new role.</li>
+</ul>
+<p>Downtime is the app stop, the dump, the copy and a boot: about a minute for a server with a 65 MB dump;
+<code>--dry-run</code> prints the estimate for yours. It needs free space for a copy of the volumes plus a dump, and
+warns below twice the volumes&#39; size. Interrupted, or failed halfway: run it again and it continues. Back to the
+old names at any point, also after it finished: <code>./deploy/rename-from-nodian.sh --rollback</code> (what was written
+under the new names since then is not in the old volumes). When all is well for a few days, delete the old
+volumes with the <code>docker volume rm …</code> line it printed.</p>
+<p>Notes:</p>
+<ul>
+<li>A local trial (<code>deploy/local.sh</code>) needs nothing: the new <code>local.sh</code> adds <code>INKLING_DATA_NAME=nodian</code> to the
+<code>.env</code> it wrote. Plain <code>docker compose</code> there before running <code>local.sh</code> once asks for the line like anywhere.</li>
+<li><code>COMPOSE_PROJECT_NAME</code> or <code>-p</code> keep working: the project stays yours, only the volume, role and database names
+change.</li>
+<li>An override that names old volume keys (<code>nodian-data:/…</code>) must use the new ones (<code>data</code>, <code>db</code>, <code>backups</code>,
+<code>backup-ctl</code>, <code>rclone-bin</code>); compose says &quot;undefined volume&quot; until then. The script lists such lines.</li>
+<li><code>POSTGRES_USER</code>/<code>POSTGRES_DB</code> in <code>.env</code> were never read by compose and still are not; delete them.</li>
+<li>Cron lines or other stacks that call containers by name (<code>nodian-backup-1</code>, <code>nodian-app-1</code>) need the new
+names (<code>inkling-backup-1</code>, …). The rclone remote path (<code>BACKUP_RCLONE_REMOTE</code>) does not change.</li>
+<li>Set <code>inkling</code> on an old server by mistake: compose starts an empty <code>inkling</code> project next to the untouched old
+volumes. Put <code>INKLING_DATA_NAME=nodian</code> back, <code>docker compose -p inkling down</code>, <code>docker compose up -d</code>, and
+delete the empty <code>inkling_inkling-*</code> volumes.</li>
+<li>Servers that run Docker through sudo: run the rename script the way you run compose,
+<code>sudo ./deploy/rename-from-nodian.sh --dry-run</code>. It writes <code>.env</code> in place (owner and mode kept) and its state
+under <code class="long">./backups/rename-nodian-to-inkling/</code> (root-owned when run with sudo). The <code>printf … &gt;&gt; .env</code> line above
+needs a shell that may write <code>.env</code>: <code>sudo sh -c &quot;printf &#39;\nINKLING_DATA_NAME=nodian\n&#39; &gt;&gt; .env&quot;</code> when the file
+belongs to root.</li>
+</ul>
+<h3 id="client-updates">Client updates</h3>
+<p>Open tabs learn about a deploy from the <code>X-Inkling-Build</code> header on every <code>/api</code> response (the id
+the web build wrote to <code>WEB_DIST/build.json</code>; docs/adr/0990-*). What they do is set by:</p>
+<div class="table-wrap"><table class="t-auto" data-cols="4"><thead><tr><th scope="col">Env</th><th scope="col">Values</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Env"><code>UPDATE_MODE</code></td><td class="c-field" data-label="Values"><code>prompt</code>, <code>force</code></td><td class="c-field" data-label="Default"><code>prompt</code></td><td class="c-field c-wide" data-label="Effect"><code>prompt</code>: a &quot;A new version is available · Reload&quot; banner on every screen. <code>force</code>: the tab reloads by itself once its document edits are acknowledged by the server, no request is in flight and the user has been idle 3 s; a freshly opened tab on an old bundle reloads at once; after 2 minutes without a safe moment, or right after an automatic reload, it shows the banner instead (docs/adr/0991-<em>, 0992-</em>).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Env"><code>UPDATE_CHECK</code></td><td class="c-field" data-label="Values"><code>github</code> or empty</td><td class="c-field" data-label="Default">empty (off)</td><td class="c-field c-wide" data-label="Effect">Once a day (on the first admin visit), compare the server version with the latest GitHub release and show &quot;Inkling X.Y.Z is available&quot; in the Admin screen. Only the repository path is requested; nothing about the instance is sent (docs/adr/0994-*).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Env"><code>UPDATE_CHECK_REPO</code></td><td class="c-field" data-label="Values"><code>owner/name</code></td><td class="c-field c-wide" data-label="Default"><code>PROVE1352/inkling</code></td><td class="c-field c-wide" data-label="Effect">Repository for <code>UPDATE_CHECK=github</code>.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Env"><code>INKLING_BUILD</code></td><td class="c-field" data-label="Values">build-time arg / env</td><td class="c-field" data-label="Default">build-time hash</td><td class="c-field c-wide" data-label="Effect">Docker: <code>docker build --build-arg INKLING_BUILD=$(git rev-parse --short HEAD) .</code> tags the build. At runtime it is only a fallback when <code>WEB_DIST</code> has no <code>build.json</code>.</td></tr></tbody></table></div>
+<ul>
+<li><input disabled="" type="checkbox"> <code>GET /api/version</code> returns <code>{ build, version, updateMode }</code>; <code>curl -sI &lt;url&gt;/api/health | grep -i x-inkling-build</code> shows the id the server advertises.</li>
+<li><input disabled="" type="checkbox"> A reverse proxy or CDN must not strip <code>X-Inkling-Build</code> or cache <code>/api/*</code>.</li>
+<li><input disabled="" type="checkbox"> Rebuilding without changes still produces a new id (time-based) and one &quot;new version&quot; notice; pass <code>INKLING_BUILD</code> to avoid that.</li>
+</ul>
+<h3 id="backup-and-restore">Backup and restore</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Restore is CLI only: run <code>./deploy/restore.sh --dry-run &lt;set&gt;</code> first. Details: <a href="BACKUP.html">BACKUP.md</a>.</li>
+<li><input disabled="" type="checkbox"> Test a real restore into a scratch environment at least once per quarter.</li>
+</ul>
+<h3 id="accounts">Accounts</h3>
+<ul>
+<li><p>Forced account deletion (admin): the user&#39;s private pages go to the trash with no owner. They are visible to nobody, admins included, and are purged after 30 days. Deletion is refused with 409 while the user is the sole owner of a workspace; transfer ownership first.</p>
+</li>
+<li><p>Ownerless private pages created before this behaviour (by older versions) stay hidden and are not deleted.</p>
+</li>
+<li><p>OpenID Connect: a person&#39;s connected sign-ins are listed in <code>user_identities</code> (issuer, subject, user). The app has no &quot;disconnect&quot; yet; remove a wrong connection with <code>DELETE FROM user_identities WHERE user_id = &#39;&lt;id&gt;&#39; AND issuer = &#39;&lt;issuer&gt;&#39;</code>. Changing <code>OIDC_ISSUER</code> does not move connections: people connect again in Settings › Account (or are linked by verified email with <code>OIDC_LINK_EXISTING=1</code>).</p>
+</li>
+</ul>
+<h3 id="incidents">Incidents</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Database down or disk full: stop the app first, fix the database or disk, then start the app.</li>
+<li><input disabled="" type="checkbox"> OOM kill (exit 137): check for concurrent large imports, exports or duplications.</li>
+<li><input disabled="" type="checkbox"> Webhook deliveries queued in memory are lost on restart.</li>
+</ul>
+<h2 id="1-postgresql-tuning">1. PostgreSQL tuning</h2>
+<p>All settings are passed as <code>-c</code> arguments by the <code>db</code> service in <code>compose.yaml</code> and can be overridden in <code>.env</code>. Defaults are small so the stack still fits a 1 GB host.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">variable</th><th scope="col">default</th><th scope="col">example for a 4-core / 24 GB ARM VM shared with other services</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_MEM_LIMIT</code></td><td class="c-field" data-label="default"><code>512m</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>2g</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_SHARED_BUFFERS</code></td><td class="c-field" data-label="default"><code>128MB</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>512MB</code> (≈25% of the container limit)</td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_EFFECTIVE_CACHE_SIZE</code></td><td class="c-field" data-label="default"><code>384MB</code></td><td class="c-field c-wide" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>1536MB</code> (shared_buffers + page cache the container may keep)</td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_WORK_MEM</code></td><td class="c-field" data-label="default"><code>4MB</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>16MB</code> (per sort/hash node; 10 app connections)</td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_MAINTENANCE_WORK_MEM</code></td><td class="c-field" data-label="default"><code>64MB</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>128MB</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_RANDOM_PAGE_COST</code></td><td class="c-field" data-label="default"><code>1.1</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>1.1</code> (block volumes are SSD-backed)</td></tr><tr class="rec"><td class="c-title" data-label="variable"><code>PG_EFFECTIVE_IO_CONCURRENCY</code></td><td class="c-field" data-label="default"><code>100</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>100</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_SHM_SIZE</code></td><td class="c-field" data-label="default"><code>128m</code></td><td class="c-field" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>256m</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="variable"><code>PG_PRELOAD_LIBRARIES</code></td><td class="c-field" data-label="default"><em>(empty)</em></td><td class="c-field c-wide" data-label="example for a 4-core / 24 GB ARM VM shared with other services"><code>pg_stat_statements</code> while investigating</td></tr></tbody></table></div>
+<p>Notes</p>
+<ul>
+<li><code>shared_buffers</code> and <code>shared_preload_libraries</code> need <code>docker compose up -d db</code> (container restart). The others can also be changed live with <code>ALTER SYSTEM</code> + <code>SELECT pg_reload_conf()</code>, but the compose arguments win at the next restart.</li>
+<li>The container&#39;s page cache counts against <code>mem_limit</code>. Keep <code>effective_cache_size</code> at most <code>PG_MEM_LIMIT</code> minus <code>shared_buffers</code> (both columns above sit exactly there: <code>512m</code> − <code>128MB</code> = <code>384MB</code>, <code>2g</code> − <code>512MB</code> = <code>1536MB</code>), otherwise the planner assumes cache that the cgroup will evict.</li>
+<li>If you use a <code>compose.override.yaml</code> that defines its own <code>command:</code> for <code>db</code>, it replaces this one entirely — merge the flags there.</li>
+</ul>
+<h3 id="query-statistics-opt-in">Query statistics (opt-in)</h3>
+<pre><code class="language-sh"># .env
+PG_PRELOAD_LIBRARIES=pg_stat_statements
+docker compose up -d db
+docker compose exec db psql -c &#39;CREATE EXTENSION IF NOT EXISTS pg_stat_statements&#39;
+</code></pre>
+<p>Top statements by total time:</p>
+<pre><code class="language-sql">SELECT calls, round(total_exec_time::numeric, 1) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms,
+       rows / greatest(calls, 1) AS rows_per_call, left(regexp_replace(query, &#39;\s+&#39;, &#39; &#39;, &#39;g&#39;), 120) AS query
+FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;
+-- reset: SELECT pg_stat_statements_reset();
+</code></pre>
+<h3 id="is-the-working-set-in-memory">Is the working set in memory?</h3>
+<pre><code class="language-sql">-- Buffer cache hit ratio per database (aim for &gt; 0.99 once warm)
+SELECT datname, blks_hit, blks_read,
+       round(blks_hit::numeric / nullif(blks_hit + blks_read, 0), 4) AS hit_ratio
+FROM pg_stat_database WHERE datname = current_database();
+
+-- Per table (heap + index)
+SELECT relname,
+       round(heap_blks_hit::numeric / nullif(heap_blks_hit + heap_blks_read, 0), 4) AS heap_hit,
+       round(idx_blks_hit::numeric / nullif(idx_blks_hit + idx_blks_read, 0), 4)   AS idx_hit
+FROM pg_statio_user_tables ORDER BY heap_blks_read + idx_blks_read DESC LIMIT 15;
+
+-- Database size vs shared_buffers
+SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size, current_setting(&#39;shared_buffers&#39;);
+</code></pre>
+<h3 id="hot-updates-fillfactor">HOT updates (fillfactor)</h3>
+<p>Migration 0024 sets <code>fillfactor = 85</code> on <code>pages</code> and <code>90</code> on <code>page_docs</code> so the frequent <code>updated_at</code> bumps can be HOT updates (no index writes). Existing heap pages stay packed until rewritten. Check and, optionally, rewrite once during a quiet moment (takes an exclusive lock for a few seconds on small tables):</p>
+<pre><code class="language-sql">SELECT relname, n_tup_upd, n_tup_hot_upd,
+       round(n_tup_hot_upd::numeric / nullif(n_tup_upd, 0), 3) AS hot_ratio
+FROM pg_stat_user_tables WHERE relname IN (&#39;pages&#39;, &#39;page_docs&#39;);
+
+VACUUM (FULL, ANALYZE) pages;   -- optional one-time rewrite
+</code></pre>
+<p>Measured on a 5k-page seed: 0.1% HOT before, 91% after <code>fillfactor = 85</code> + rewrite.</p>
+<h3 id="never-drizzle-kit-push-against-production">Never <code>drizzle-kit push</code> against production</h3>
+<p>Push diffs the live database against <code>schema.ts</code> and drops anything not declared there. It already removed the hand-written trigram and &quot;perf&quot; indexes once; since migration 0024 they are declared in the schema and recreated with <code>IF NOT EXISTS</code>. Always use generated migrations (<code>pnpm db:generate</code>, applied at boot).</p>
+<h2 id="2-node-process">2. Node process</h2>
+<ul>
+<li><code>APP_MEM_LIMIT</code> (default <code>768m</code>) and <code>NODE_OPTIONS</code> (default <code>--max-old-space-size=512</code>): keep the heap cap at ~65% of the container limit; Buffers, Yjs documents and code live outside the V8 heap.</li>
+<li><code>UV_THREADPOOL_SIZE</code> (default 4) is shared by argon2 hashing, file streaming and zlib. Consider <code>8</code> if logins and large uploads coincide.</li>
+<li>Streaming imports/exports use <code>DATA_DIR/tmp</code> (cleared at every boot) and <code>DATA_DIR/uploads/.upload-*</code> for in-flight uploads. Keep free disk space ≥ the largest import/export (folder import ≤ 50 MB, zip export ≤ 300 MB of attachments).</li>
+</ul>
+<h2 id="3-in-process-caches-and-maps-single-instance">3. In-process caches and maps (single instance)</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="4"><thead><tr><th scope="col">where</th><th scope="col">content</th><th scope="col">bound</th><th scope="col">expiry / invalidation</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="where"><code>linkPreview.ts</code></td><td class="c-field" data-label="content">URL → preview card</td><td class="c-field" data-label="bound">1,000 LRU</td><td class="c-field" data-label="expiry / invalidation">6 h (10 min for failures)</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>routes/query.ts</code></td><td class="c-field" data-label="content">query-block results per user</td><td class="c-field" data-label="bound">200 LRU</td><td class="c-field c-wide" data-label="expiry / invalidation">60 s; key includes workspace version + index epoch</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>routes/public.ts</code></td><td class="c-field" data-label="content">public page HTML / allowed file ids</td><td class="c-field" data-label="bound">200 entries + 32 MB / 500 + 8 MB</td><td class="c-field c-wide" data-label="expiry / invalidation">10 min; key includes <code>pages.updated_at</code>; checked after the token/scope gate</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>docIndexer.ts</code></td><td class="c-field" data-label="content">pending index passes / change signatures</td><td class="c-field" data-label="bound">200 pending / 2,000 signatures</td><td class="c-field c-wide" data-label="expiry / invalidation">8–30 s debounce / 10 min TTL; flushed at shutdown</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>snapshotStore.ts</code></td><td class="c-field" data-label="content">last auto-snapshot time per page</td><td class="c-field" data-label="bound">5,000 LRU</td><td class="c-field" data-label="expiry / invalidation">only used to skip the 10-min throttle check</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>webhooks.ts</code></td><td class="c-field" data-label="content">delivery queue, per-workspace counters</td><td class="c-field" data-label="bound">5,000 jobs (200 per workspace)</td><td class="c-field" data-label="expiry / invalidation">lost on restart (by design)</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>guard.ts</code></td><td class="c-field" data-label="content">login failure counters / IP bans</td><td class="c-field" data-label="bound">20,000 per map / bans until expiry</td><td class="c-field" data-label="expiry / invalidation">swept every 5 min; reset on restart</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>collab.ts</code></td><td class="c-field" data-label="content">per-IP socket counts and upgrade timestamps</td><td class="c-field" data-label="bound">swept above 1,024 IPs</td><td class="c-field" data-label="expiry / invalidation">10 s window</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>hocuspocus.documents</code></td><td class="c-field" data-label="content">open Yjs documents</td><td class="c-field" data-label="bound">open documents</td><td class="c-field" data-label="expiry / invalidation">unloaded when the last client leaves</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>context/contextCache.ts</code></td><td class="c-field c-wide" data-label="content">find_context results per person (ADR 1550), single queries and merged bundles (ADR 1721)</td><td class="c-field" data-label="bound">1,000 LRU + 32 MB (shared)</td><td class="c-field c-wide" data-label="expiry / invalidation">5 min; key includes access version, page marker and section index epoch of every searched workspace; a bundle key also the query list, a digest of the extra ranked lists and, with semantic search on, each workspace&#39;s vector epoch (ADR 1723)</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>context/semantic.ts</code></td><td class="c-field c-wide" data-label="content">semantic search only (off by default): chunk vectors per workspace, query vectors (ADR 1741)</td><td class="c-field c-wide" data-label="bound"><code>EMBEDDING_CACHE_MB</code> (128 MB) for all workspaces; a workspace that does not fit is scored in SQL / 256 query vectors</td><td class="c-field c-wide" data-label="expiry / invalidation">loaded on the first query, updated after indexer writes / 10 min</td></tr><tr class="rec"><td class="c-title" data-label="where"><code>context/embeddings.ts</code>, <code>semanticIndexer.ts</code></td><td class="c-field c-wide" data-label="content">endpoint health and backoff, refused chunks (ADR 1742)</td><td class="c-field" data-label="bound">one state / 10,000 refused chunk hashes</td><td class="c-field c-wide" data-label="expiry / invalidation">backoff 5 s → 10 min; refused chunks until restart</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>connectionUsage.ts</code></td><td class="c-field c-wide" data-label="content">usage numbers per connection and per (workspace, connection) (ADR 1552)</td><td class="c-field" data-label="bound">5,000 + 20,000 LRU</td><td class="c-field" data-label="expiry / invalidation">lost on restart (by design)</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>context/changeWait.ts</code></td><td class="c-field" data-label="content">changes_since calls waiting (ADR 1551)</td><td class="c-field" data-label="bound">256 per process, 4 per connection</td><td class="c-field" data-label="expiry / invalidation">25 s each; released at shutdown</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>slack/config.ts</code></td><td class="c-field c-wide" data-label="content">Slack settings per workspace for the notification consumer (ADR 1802)</td><td class="c-field" data-label="bound">10,000 workspaces</td><td class="c-field c-wide" data-label="expiry / invalidation">60 s; dropped when the settings are saved or removed</td></tr><tr class="rec"><td class="c-title c-name" data-label="where"><code>routes/forms.ts</code></td><td class="c-field c-wide" data-label="content">public form answers per form in the last hour (ADR 1822)</td><td class="c-field" data-label="bound">5,000 forms, oldest forgotten first</td><td class="c-field" data-label="expiry / invalidation">sliding hour; lost on restart</td></tr></tbody></table></div>
+<p>No cache holds sessions, memberships or page visibility; those are read from the database on every request. The find_context cache holds answers, not rights: its key carries the workspace access version and the person&#39;s permission inputs, so a membership, lock, block or visibility change makes the next call search again. The only long-lived authorisation — an open collaboration socket — is revoked on member removal, a page becoming private, force delete and password change/session revocation (<code>liveConnections.ts</code>, ADR 0754).</p>
+<h2 id="4-http-caching">4. HTTP caching</h2>
+<ul>
+<li><code>assets/*</code>, <code>workbox-*.js</code>: <code>public, max-age=31536000, immutable</code>. <code>index.html</code>, <code>sw.js</code>, <code>push-sw.js</code> (0.18: the service worker imports it, and imports go through the HTTP cache on worker updates), <code>registerSW.js</code>, <code>manifest.webmanifest</code>, SPA routes: <code>no-cache</code>. Other static files: one day.</li>
+<li>API: <code>private, no-store</code> by default. Large GETs (page tree, graph, due list, collections) carry a weak ETag and <code>private, no-cache</code> and answer <code>If-None-Match</code> with 304 before doing the work; other GET JSON ≥ 1 KB gets a content-hash ETag.</li>
+<li>Compression happens only in Caddy (<code>encode gzip zstd</code>). Quick check through the proxy:</li>
+</ul>
+<pre><code class="language-sh">curl -sI --compressed -H &quot;cookie: inkling_sid=…&quot; https://&lt;host&gt;/api/workspaces/&lt;id&gt;/pages | grep -i &#39;etag\|cache-control\|content-encoding&#39;
+curl -s -o /dev/null -w &#39;%{http_code}\n&#39; -H &#39;If-None-Match: &lt;etag from above&gt;&#39; -H &quot;cookie: inkling_sid=…&quot; https://&lt;host&gt;/api/workspaces/&lt;id&gt;/pages   # 304
+</code></pre>
+<h2 id="5-semantic-search-optional">5. Semantic search (optional)</h2>
+<p>Off unless both <code>EMBEDDING_URL</code> and <code>EMBEDDING_MODEL</code> are set (docs/adr/1740-*). When on, the server sends the text of
+every section chunk (page title, heading path, chunk text) to that endpoint, once per change, and find_context also
+ranks sections by meaning. With a hosted provider that is a third party: use a local model server if notes must not
+leave the machine. Turned off, nothing of it runs: no request, no timer, no query.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_URL</code></td><td class="c-field" data-label="Default">—</td><td class="c-field c-wide" data-label="Meaning">Base URL of an OpenAI-compatible API (<code>https://api.openai.com/v1</code>, Ollama <code>http://host:11434/v1</code>, text-embeddings-inference <code>http://tei:8080/v1</code>) or the full <code>…/embeddings</code> URL</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_MODEL</code></td><td class="c-field" data-label="Default">—</td><td class="c-field c-wide" data-label="Meaning">Model name; stored with every vector, so changing it re-embeds everything</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_API_KEY</code></td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Sent as <code>Authorization: Bearer …</code>; never logged or shown</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_DIMENSIONS</code></td><td class="c-field" data-label="Default">model default</td><td class="c-field c-wide" data-label="Meaning">Sent as <code>dimensions</code> (models that can shorten vectors, e.g. text-embedding-3-*)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_BATCH_SIZE</code></td><td class="c-field" data-label="Default">32</td><td class="c-field" data-label="Meaning">Chunks per request (1–256)</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>EMBEDDING_REQUESTS_PER_MINUTE</code></td><td class="c-field" data-label="Default">60</td><td class="c-field" data-label="Meaning">Indexer request rate; one request in flight</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_TIMEOUT_MS</code></td><td class="c-field" data-label="Default">30000</td><td class="c-field" data-label="Meaning">Indexer request timeout</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>EMBEDDING_QUERY_TIMEOUT_MS</code></td><td class="c-field" data-label="Default">3000</td><td class="c-field c-wide" data-label="Meaning">Timeout of the one query embedding per search; on timeout search answers lexically</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_MAX_CHARS</code></td><td class="c-field" data-label="Default">4000</td><td class="c-field" data-label="Meaning">Characters of one chunk sent to the model</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_CACHE_MB</code></td><td class="c-field" data-label="Default">128</td><td class="c-field c-wide" data-label="Meaning">In-process vector cache for queries; a workspace that does not fit is scored in SQL (slower)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_QUERY_PREFIX</code></td><td class="c-field" data-label="Default">empty</td><td class="c-field c-wide" data-label="Meaning">Role prefix put before every search query (0.20, docs/adr/2404-*)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>EMBEDDING_PASSAGE_PREFIX</code></td><td class="c-field" data-label="Default">empty</td><td class="c-field c-wide" data-label="Meaning">Role prefix put before every section sent for embedding (0.20)</td></tr></tbody></table></div>
+<p><code>EMBEDDING_QUERY_PREFIX</code> / <code>EMBEDDING_PASSAGE_PREFIX</code> are for models trained with role prefixes (e5:
+<code>EMBEDDING_QUERY_PREFIX=&quot;query: &quot;</code>, <code class="long">EMBEDDING_PASSAGE_PREFIX=&quot;passage: &quot;</code>; quote them in <code>.env</code> so the space is
+kept). Vectors are stored under the model name plus a short hash of the prefixes, so setting, changing or removing a
+prefix re-embeds every section and the clean-up deletes the old vectors, exactly as after a model change. The admin
+status keeps showing the model. <code>multilingual-e5-small</code> with these prefixes was measured on 0.20 and not adopted:
+page@1 went up on some question sets and down on others, while answers took 1.7 to 7.5 times the tokens
+(docs/PERFORMANCE.md, &quot;Rejected / no effect&quot;).</p>
+<p><code>compose.yaml</code> passes all twelve through, so setting them in <code>.env</code> is enough (examples in <code>.env.example</code>). A half-filled
+set (URL without model or the reverse) stays off and logs one warning at boot. Multilingual models work best for mixed
+Korean/English notes (e.g. <code>bge-m3</code>, <code>multilingual-e5-large</code>, <code>text-embedding-3-small</code>).</p>
+<p>Docker: inside the container <code>localhost</code> is the container. For Ollama on the Docker host use
+<code class="long">http://host.docker.internal:11434/v1</code> (Docker Desktop) or the host&#39;s LAN address, and make Ollama listen on it
+(<code>OLLAMA_HOST=0.0.0.0</code>). A redirecting <code>EMBEDDING_URL</code> (e.g. http → https) is refused and reported as &quot;connection
+failed&quot;; configure the final URL.</p>
+<ul>
+<li><strong>Boot log when on:</strong> <code>[inkling] semantic search: on — model &lt;model&gt; at &lt;scheme://host/path&gt;, 32 chunks/request, 60 requests/min</code>.</li>
+<li><strong>Backfill:</strong> migration 0042 creates <code>page_chunk_vectors</code>. The first time it is on, the indexer embeds every live
+chunk in the background (only changed chunks afterwards); search answers from what is already embedded meanwhile.</li>
+<li><strong>Endpoint failures:</strong> one line <code>[inkling] semantic index: &lt;host/path&gt;: &lt;reason&gt;; retrying later</code> per new error;
+requests back off from 5 s to 10 minutes. Searches answer lexically meanwhile; saves are never affected. Chunks the
+endpoint refuses on their own (400/413/422) are skipped until restart; lower <code>EMBEDDING_MAX_CHARS</code> if a model has a
+small context.</li>
+<li><strong>Progress:</strong> Admin › Server status shows &quot;Semantic search&quot; (sections indexed / waiting, chunks refused, last
+error, pause end). <code>GET /api/admin/status</code> → <code>semantic</code> (docs/API.md, counts cached 30 s).</li>
+<li><strong>find_context:</strong> each query takes up to 8 semantic candidates, those with a cosine of at least 0.6 × the best one
+(<code>context/semanticFind.ts</code>), merged with the word search by RRF (docs/adr/1723-*).</li>
+<li><strong>Memory:</strong> plan for <code>EMBEDDING_CACHE_MB</code> (default 128 MB) on top of the usual process memory (section 2).</li>
+<li><strong>Health:</strong> <code>/api/health</code> and <code>/api/health/ready</code> do not depend on the embedding endpoint.</li>
+<li><strong>Backups:</strong> <code>page_chunk_vectors</code> is in the database dump. It is derived data; truncate it before a dump to save
+space (it is rebuilt in the background).</li>
+<li><strong>Turning it off:</strong> remove the variables and restart. The table stays (nothing reads it);
+<code>TRUNCATE page_chunk_vectors;</code> frees the space. Turning it on again embeds only what changed.</li>
+<li><strong>Switching models:</strong> change <code>EMBEDDING_MODEL</code> and restart; every chunk is embedded again in the background, and the
+10-minute clean-up deletes the old model&#39;s rows.</li>
+<li><strong>Size:</strong> query time grows with the chunks of the searched workspaces (about 10 ms per 2,700 cached 768-dim
+vectors, docs/PERFORMANCE.md). Past ~50k chunks per workspace pgvector (docs/adr/1214-*) would be the fix
+(docs/KNOWN-ISSUES.md).</li>
+</ul>
+<h2 id="6-slack-app-per-workspace">6. Slack app (per workspace)</h2>
+<p>Each Inkling workspace can connect its own Slack app (docs/adr/1800-*). There is no central Inkling app and no Slack
+setting in <code>.env</code>; a workspace owner creates the app in their Slack workspace and pastes its credentials.</p>
+<ol>
+<li>Set <code>PUBLIC_URL</code> (needed for link unfurls and for the <code>/inkling link</code> URL) and <code>APP_SECRET_KEY</code> (otherwise the token
+and secret are stored unencrypted; the settings page warns).</li>
+<li>In Inkling: Workspace settings → Slack (owners). Copy the manifest (JSON).</li>
+<li><a href="https://api.slack.com/apps">https://api.slack.com/apps</a> → Create New App → From an app manifest → choose the Slack workspace → paste the
+manifest → Create. If Slack rejects a field, create the app by hand with the values listed on the page: slash
+command <code>/inkling</code> with the command URL, Event Subscriptions request URL with the bot events <code>link_shared</code>,
+<code>app_uninstalled</code>, <code>tokens_revoked</code>, App unfurl domain = your <code>PUBLIC_URL</code> host, bot scopes
+<code>chat:write chat:write.public commands links:read links:write users:read users:read.email</code>.</li>
+<li>Install to Workspace. Copy <strong>OAuth &amp; Permissions → Bot User OAuth Token</strong> (<code>xoxb-…</code>) and
+<strong>Basic Information → Signing Secret</strong>.</li>
+<li>Back in Inkling: paste both, enter the channel <strong>ID</strong> (channel details → bottom, <code>C…</code>), choose the updates, Save
+(Inkling calls <code>auth.test</code>). For a private channel, <code>/invite @&lt;app name&gt;</code> there first.</li>
+<li>Press Test. <code>not_in_channel</code> = invite the bot; <code>invalid_auth</code> = wrong token.</li>
+<li>Members: type <code>/inkling help</code>. If their Slack email differs from their Inkling email, <code>/inkling link</code>.</li>
+</ol>
+<p>Slack checks the Event Subscriptions URL when the app is created from the manifest, before the token and secret are
+saved in Inkling; Inkling answers that first check for a live workspace without a saved app. If Slack still shows the
+URL as unverified, open Event Subscriptions after step 5 and press Retry.</p>
+<ul>
+<li><strong>Failed posts:</strong> outbox topic <code>slack</code>; failed jobs end as <code>state = &#39;dead&#39;</code> with Slack&#39;s code in <code>last_error</code>:
+<code>SELECT state, last_error, count(*) FROM outbox WHERE topic = &#39;slack&#39; GROUP BY 1, 2;</code></li>
+<li><strong>Paused posts:</strong> a revoked token or a bot removed from the channel shows as <code>blocked_reason</code> on the settings page;
+saving the settings or a passing Test resumes.</li>
+<li><strong>Housekeeping (hourly):</strong> queues the daily summary (once per local day) and prunes <code>slack_request_nonces</code>
+(older than 15 minutes) and expired <code>slack_link_codes</code>.</li>
+<li><strong>Rotating the token or secret:</strong> paste the new value and Save; omitted fields keep the stored value. If
+<code>APP_SECRET_KEY</code> is lost or changed, the stored values cannot be read and must be entered again.</li>
+<li><strong>Disconnecting</strong> removes links, link codes and pending Slack jobs; the app itself is removed in Slack.</li>
+<li><strong>Work handed to an agent connection</strong> is not posted to the channel (docs/adr/1870-*).</li>
+<li><strong>Test hook only:</strong> <code class="long">SLACK_TEST_API_URL=http://127.0.0.1:&lt;port&gt;/api</code> with <code>WEBHOOK_TEST_ALLOW_LOOPBACK=1</code> (ignored
+when <code>NODE_ENV=production</code>).</li>
+</ul>
+<h2 id="7-public-forms">7. Public forms</h2>
+<p>A form view can get a public link (<code>/f/&lt;token&gt;</code>, API <code>/api/public/forms/&lt;token&gt;</code>; docs/adr/1821-<em>, 1822-</em>). It is the
+only route where a visitor without an account writes data.</p>
+<ul>
+<li><strong>Limits:</strong> 10 answers per minute per IP (the <code>@fastify/rate-limit</code> route config), 60 form reads per minute per IP,
+and 300 answers per form per hour counted <strong>in memory per process</strong> (several processes multiply it). A body is at
+most 32 KiB, a text answer 5,000 characters. A filled honeypot field is answered like a success and writes nothing.</li>
+<li><strong>Guessed tokens</strong> count as failures for the IP ban (<code>guard.ts</code>, reason <code>form-token</code>), like page link tokens.</li>
+<li><strong>Closing:</strong> turning public links off in the workspace settings closes every public form at once. A form also
+closes when its collection is trashed or made private, or when the member who turned the link on can no longer add
+rows (removed from the workspace, or the collection locked against them): each answer is made as that member.</li>
+<li><strong>Labels:</strong> answers are rows created by the publisher <code>via public form</code>; activity, the &quot;Written by AI&quot; badge and the
+AI summaries count them as people&#39;s input (docs/adr/1870-*).</li>
+</ul>
+<h2 id="8-page-verification-scheduled-links-member-status-and-team-agents">8. Page verification, scheduled links, member status and team agents</h2>
+<ul>
+<li>Migration 0045 adds a nullable column (<code>pages.share_starts_at</code>) and two small tables (<code>page_verifications</code>,
+<code>user_statuses</code>); no backfill, no long locks. Verification expiry, scheduled link starts and status clearing are
+compared at read time with the server clock: no new job and no new variable.</li>
+<li>Migration 0046 adds <code>notifications.connection</code>, <code>notifications.person_too</code> and
+<code class="long">user_notification_settings.agent_handoff_copy</code> (constant defaults, metadata-only) and the partial index
+<code>notifications_connection_idx</code> on an all-NULL column (empty when built).</li>
+<li>Hourly housekeeping hands back unacknowledged items of connections that are no longer live in their workspace
+(expired grant or token, block, person left, range change) with one UPDATE over that partial index. The disconnect
+and token delete routes do it at once for their connection.</li>
+</ul>
+<h2 id="9-single-instance-boot-re-index-and-saving-0151">9. Single instance, boot re-index and saving (0.15.1)</h2>
+<h3 id="single-instance-docsadr1925-">Single instance (docs/adr/1925-*)</h3>
+<ul>
+<li>Inkling runs one server process per database. At boot, before migrations, the server takes a Postgres advisory
+lock on its own connection (<code>application_name = inkling-instance-lock</code>, visible in <code>pg_stat_activity</code>) and keeps it
+until it exits; it releases it last, after saving open documents.</li>
+<li>If another process holds it, the log says which and the server waits:
+<code>[inkling] another Inkling process uses this database (pid …, application &quot;inkling-instance-lock&quot;, from …, connected since …); waiting up to 60 s for it to stop</code>. When the other process stops, the boot continues. After
+<code>SINGLE_INSTANCE_WAIT</code> seconds (default 60) it exits with <code>[inkling] refusing to start: another Inkling process is running against this database (…)</code>. With <code>restart: unless-stopped</code> the container keeps retrying and starts once
+the other process is gone.</li>
+<li><code>docker compose up -d</code> stops the old container before it starts the new one, so a normal deploy is not delayed. A
+replacement started while the old container is still shutting down (up to its 30 s stop grace period) waits for
+it. Nothing in <code>compose.yaml</code> waits on the app&#39;s health; the healthcheck (start period 10 s, interval 30 s, 3
+retries) turns unhealthy only after about 100 s, so a replacement waiting the default 60 s still turns healthy.</li>
+<li>The lock is checked every 30 s. After a database restart the server takes it again; if another process took it
+first, the server shuts down (<code>lost the instance lock to another process</code>).</li>
+<li><code>SINGLE_INSTANCE=0</code> (also <code>false</code>, <code>off</code>, <code>no</code>) turns the guard off, with a warning at boot. Use it only for a
+deliberate extra process against a live database (a one-off maintenance script), never for a second web server,
+and behind a transaction-mode pooler (PgBouncer <code>pool_mode=transaction</code>), where a session lock means nothing.
+Tests are unaffected: they never boot <code>index.ts</code>.</li>
+<li>A 0.15.0 process takes no lock, so the guard cannot see one during a mixed-version overlap. A compose deploy never
+overlaps (stop, then start).</li>
+</ul>
+<h3 id="boot-re-index-of-stale-pages-docsadr1924-">Boot re-index of stale pages (docs/adr/1924-*)</h3>
+<ul>
+<li>A crash between a save and its queued index pass used to leave the page&#39;s search text, sections, links, tags and
+tasks describing the old content until the next edit. From 10 s after the server listens, a background pass
+re-indexes pages whose stored content is newer than <code class="long">page_chunk_index.doc_updated_at</code>, about ten pages a second
+and at most 20,000 per boot, and logs <code>[inkling] re-indexed N page(s) whose last index pass was lost (crash or kill)</code>. Nothing is logged when nothing was stale.</li>
+</ul>
+<h3 id="saving-documents-docsadr1921-">Saving documents (docs/adr/1921-*)</h3>
+<ul>
+<li><code>[inkling] collab store of &lt;page&gt; failed; retrying in the background</code>, then <code>collab store retry N of &lt;page&gt; failed</code>: the database refused the document save; retries every 5 s, doubling to 60 s.</li>
+<li><code>[inkling] &lt;page&gt; has unsaved changes and the store failed; keeping it in memory</code>: the last editor left before a
+save succeeded; the page stays loaded until one does.</li>
+<li>At shutdown, <code>[inkling] shutting down with unsaved changes in N document(s): …</code> names what could not be saved.</li>
+<li>In the browser, while edits have not reached the server the page&#39;s connection dot turns amber and reads &quot;Not saved
+yet&quot;, and the tab asks before it is closed or reloaded (docs/adr/1926-<em>). Without an offline copy of the page (the
+per-device setting in section 12, off by default in a browser tab) nothing is kept in the browser&#39;s storage: edits
+made offline survive only while the tab stays open. With the setting on, the edits are also written to the device;
+the dot reads &quot;Not uploaded yet&quot; and they are sent on the next connection (docs/adr/2204-</em>).</li>
+</ul>
+<h3 id="vault-sync-revisions-docsadr1920-">Vault sync revisions (docs/adr/1920-*)</h3>
+<ul>
+<li>Revisions include the document&#39;s deletions since 0.15.1, so <code>inklingctl sync</code> no longer brings back text deleted on
+the server. Server-only change: old CLIs keep working. A revision from an older server is recognised (no <code>-</code> in
+it): a write with it is refused once with the current version and the CLI merges; a delete with it succeeds when
+nothing was inserted or reformatted since. A note deleted locally before the upgrade is still trashed on the
+server.</li>
+<li>A vault write is applied as a minimal edit; when that does not validate the server rewrites the whole document
+and logs <code>[vault-sync] minimal replace not applied</code>.</li>
+</ul>
+<h2 id="10-mcp-and-ai-agents-016">10. MCP and AI agents (0.16)</h2>
+<h3 id="tool-profiles-and-the-mcp-query-string-docsadr2000-">Tool profiles and the <code>/mcp</code> query string (docs/adr/2000-*)</h3>
+<ul>
+<li><code>/mcp</code> takes a query string (<code>?profile=core</code>). A proxy that drops or rewrites the query turns every connection into
+the full profile (Caddy and nginx pass it through by default). An unknown value is HTTP 400.</li>
+</ul>
+<h3 id="uploads-by-ai-agents-docsadr2044--2045--2065-">Uploads by AI agents (docs/adr/2044-<em>, 2045-</em>, 2065-*)</h3>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>AGENT_UPLOADS</code></td><td class="c-field" data-label="Default"><code>on</code></td><td class="c-field c-wide" data-label="Meaning"><code>on</code>: agents may upload unless a workspace turns it off. <code>off</code>: only workspaces that turn it on. <code>never</code>: off everywhere; the workspace setting is shown disabled with the reason. Any other value boots with a warning and counts as <code>off</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>AGENT_UPLOAD_MAX_MB</code></td><td class="c-field" data-label="Default"><code>5</code></td><td class="c-field c-wide" data-label="Meaning">Largest file an MCP connection, agent token or API token may upload, at most 64 (a larger value is cut to 64 with a warning; 0 or a non-number keeps 5 with a warning)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>AGENT_UPLOAD_DAILY_MB</code></td><td class="c-field" data-label="Default"><code>200</code></td><td class="c-field c-wide" data-label="Meaning">Per account per rolling 24 hours, over the files its connections uploaded (<code>files.uploaded_via</code>); <code>0</code> = no budget. People&#39;s uploads in the browser have no budget and are never counted</td></tr></tbody></table></div>
+<ul>
+<li>Workspace owners and admins choose &quot;Uploads by AI agents&quot; (server default, on, off) in Workspace settings ›
+Connected agents › File uploads. People&#39;s uploads are not affected.</li>
+<li><strong>Memory.</strong> One upload_file call holds the JSON body, the parsed base64 string and the decoded bytes, about four
+times the file, for each upload in flight; with a 64 MB cap that is ~256 MB per concurrent upload. Above 8 MB the
+<code>/mcp</code> body limit grows to base64 of the cap + 1 MB, for upload_file calls only; every other MCP request keeps
+12 MB. API-token uploads (multipart) stream to disk. Raise the cap only with memory to spare.</li>
+<li>The boot log prints the limits in use when they differ from the defaults (per-file cap, MCP body limit for
+upload_file calls, budget); a value that was cut or ignored is a boot warning and a warning in Admin › Status
+(<code>security.agentUploads</code>).</li>
+<li>There is still no storage quota for people, and files are never garbage-collected: reverting an agent&#39;s upload
+removes the link, not the file.</li>
+</ul>
+<h3 id="suggest-only-after-suspicious-content-docsadr2040---2043-">Suggest-only after suspicious content (docs/adr/2040-* .. 2043-*)</h3>
+<ul>
+<li>A connection (OAuth, agent connection token or personal API token) that is handed text the injection heuristics
+flag writes only suggestions for 60 minutes after the last such read; its other writes answer
+<code>403 CONNECTION_SUGGEST_ONLY</code>. On in every workspace after the upgrade.</li>
+<li>Turn it off per workspace: Workspace settings › Connected agents › Suspicious content (owners and admins). Lift it
+early for one connection: its owner in Settings › Connections (<strong>Allow edits again</strong>), or a workspace owner/admin on
+the team agents board (<strong>Allow edits here</strong>, for content that was in that workspace).</li>
+<li>The audit log shows <code>agent.tainted</code> (the source page or file and the rules, never the text) and
+<code>agent.taint_released</code>. Refused writes are not audited one by one.</li>
+<li>The hourly housekeeping deletes <code>connection_taints</code> rows older than 30 days.</li>
+<li>The heuristics are short, English/Korean phrase lists; expect misses and some false alarms (a CSV of long hex ids
+can trip <code>encoded-blob</code>). If one workspace&#39;s content trips it all the time, switch the rule off there rather than
+for the server.</li>
+</ul>
+<h3 id="agent-connection-tokens-docsadr2060---2063-">Agent connection tokens (docs/adr/2060-* .. 2063-*)</h3>
+<ul>
+<li>Agent connection tokens are <code>oauth_grants</code> rows with <code>kind = &#39;token&#39;</code> and an <code>oauth_clients</code> row <code>ink_tc_…</code> each;
+the hourly housekeeping deletes expired ones (by <code>refresh_expires_at</code>, which equals the expiry) and client rows left
+without a grant. At most 20 live tokens per account; expiry 7, 30, 90 or 365 days, no &quot;never&quot;.</li>
+<li>Secret scanning: <code>ink_agt_[A-Za-z0-9_-]{43}</code> (agent connection token, works at <code>/mcp</code> only) next to
+<code>ink_pat_[A-Za-z0-9_-]{43}</code> (API token). A leaked agent token is revoked by its owner in Settings › Connections or,
+for the whole account, by a password reset (deletes every grant).</li>
+<li>The IP ban (<code>AUTH_GUARD_*</code>) also counts unknown <code>ink_agt_</code> tokens at <code>/mcp</code>; an expired token that exists and OAuth
+access tokens are not counted.</li>
+</ul>
+<h3 id="pdf-text-docsadr2047--2048-">PDF text (docs/adr/2047-<em>, 2048-</em>)</h3>
+<ul>
+<li><code>read_file</code> reads the text layer of PDFs with <code>unpdf</code> 1.9.1 (bundles pdf.js; Node 22 or newer). In the built image
+the package is about 2.5 MB.</li>
+<li>Each call parses in a short-lived worker thread: 256 MB heap cap, 10 s wall time, at most two PDFs at once per
+process (more wait for a slot); files over 20 MB are not parsed (metadata only), at most 50 pages per call. Nothing
+to configure. No OCR: scanned PDFs have no text.</li>
+</ul>
+<h2 id="11-local-trial-setup-link-zips-versions-and-diagrams-017">11. Local trial, setup link, zips, versions and diagrams (0.17)</h2>
+<h3 id="first-admin-setup-link-docsadr2160-">First-admin setup link (docs/adr/2160-*)</h3>
+<ul>
+<li>A server with no account prints, once per boot, a framed block to stdout: &quot;No accounts yet. Create the first
+administrator account here: <code>&lt;PUBLIC_URL&gt;/setup?code=…</code>&quot;. Find it with <code>docker compose logs app | grep setup</code>. A
+restart prints a new code and the old one stops working. The account made with it is the admin; the link closes as
+soon as any account exists. Servers that already have accounts print nothing.</li>
+<li><strong>Security.</strong> The code is in memory only, works once and counts wrong guesses towards the IP ban, but it is
+readable by anyone who can read the container&#39;s stdout until the first account exists. If logs go to a shared
+service, create the first account right after the first start, or use a signup key (<code>./deploy/signup-key.sh new &quot;first admin&quot;</code>, deploy/DEPLOY.md 3-C). There is no switch to turn the link off yet (KNOWN-ISSUES SETUP-1).</li>
+</ul>
+<h3 id="local-trial-docsadr2161-">Local trial (docs/adr/2161-*)</h3>
+<ul>
+<li><code>./deploy/local.sh</code> (start; <code>--build</code> builds the checkout instead of pulling the image), <code>./deploy/local.sh stop</code>,
+<code>./deploy/local.sh destroy</code> (deletes the trial&#39;s containers and volumes; the <code>.env</code> stays). It writes a <code>.env</code> marked
+<code># made by deploy/local.sh</code> with a random hex <code>POSTGRES_PASSWORD</code>, a random base64 <code>APP_SECRET_KEY</code>, <code class="long">PUBLIC_URL=http://localhost:&lt;port&gt;</code>,
+<code>INKLING_PORT=127.0.0.1:&lt;port&gt;</code>, <code>BACKUP_ENABLED=0</code>, <code>INKLING_DATA_NAME=inkling</code>,
+<code class="long">COMPOSE_FILE=compose.yaml:compose.local.yaml</code> and <code class="long">COMPOSE_PROJECT_NAME=inkling-local</code>, so plain
+<code>docker compose …</code> and the other <code>deploy/*.sh</code> scripts act on that stack. A <code>.env</code> without the marker is never
+changed; a marked one from before 0.19 gets <code>INKLING_DATA_NAME=nodian</code> (its old volume and role names).</li>
+<li>It is not for a server other people use: http only, reachable from this machine only, no backups, no database host
+port. It needs bash, curl and Docker Compose v2.24 or newer (<code>!override</code>); on Windows run it from WSL or Git Bash.</li>
+<li>Without <code>--build</code> it pulls <code class="long">ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}</code>; an image older than 0.17 prints
+no setup link, and the script then says to make the first signup key with <code>./deploy/signup-key.sh</code>.</li>
+<li><code>compose.yaml</code> reads <code>INKLING_PORT</code> (the app&#39;s host port or <code>ip:port</code>, default <code>3000</code>) and <code>INKLING_DB_PORT</code> (the
+loopback database port, default <code>55432</code>).</li>
+</ul>
+<h3 id="zip-imports-docsadr2162--2163-">Zip imports (docs/adr/2162-<em>, 2163-</em>)</h3>
+<ul>
+<li>Every zip import (web and MCP) refuses an archive with a <code>..</code> entry or a symbolic link and stops an entry that
+inflates more than 200 times its packed size past 1 MB (400 <code>ZIP_RATIO</code>). Names are normalized (NFC, <code>\</code>, leading
+<code>/</code>, drive letters); names that are not UTF-8 are read as CP949.</li>
+<li>A zip posted with a connection&#39;s token (MCP <code>import_zip</code>, or a bearer <code>POST /api/workspaces/:id/import</code>) is at most
+<code>min(IMPORT_MAX_UPLOAD_MB, AGENT_UPLOAD_MAX_MB)</code> (default 5 MB). Its <code>assets/</code> attachments follow the agent upload
+switch, the per-file cap, the type check and the daily budget (section 10) and are recorded with <code>uploaded_via</code>; a
+bearer <code>import-folder</code> does the same for its attachments. Browser imports keep <code>IMPORT_MAX_UPLOAD_MB</code> and no budget.</li>
+<li>An <code>import_zip</code> call carries the zip as base64 in one MCP request; above 8 MB of <code>AGENT_UPLOAD_MAX_MB</code> the <code>/mcp</code>
+body limit grows for it as for upload_file (about four times the file in memory per call in flight).</li>
+</ul>
+<h3 id="versions-ai-steps-docsadr2180-">Versions: AI steps (docs/adr/2180-*)</h3>
+<ul>
+<li>Every agent write stores one <code>page_snapshots</code> row (an &quot;AI step&quot;): usually a small Yjs diff (median about 0.7 KB in
+the benchmark), a whole state every 10th row of a chain (docs/adr/1100-*). Each client keeps its newest 20 steps per
+page, a page at most 30 steps, and the 50-version cap per page is unchanged; step rows are pruned first, and the
+diffs of dropped rows are merged into the next kept row instead of rebuilding it.</li>
+<li>Storage: 30 agent writes to a 12 KB note keep 21 rows, 34.3 KB on disk (0.16: 1 row, 4.5 KB); to a 4.1 MB log,
+2.37 MB on disk (0.16: 1.07 MB). The bound is the 50-version budget of a page (docs/PERFORMANCE.md). An agent
+appending often to a multi-megabyte page writes about the page&#39;s size per 10 writes; logs should use child pages
+(docs/adr/1140-*).</li>
+<li>Write cost: two short transactions and two content digests per agent write, +6–9 ms on small pages.</li>
+</ul>
+<h3 id="mermaid-diagrams-docsadr2104--2191-">Mermaid diagrams (docs/adr/2104-<em>, 2191-</em>)</h3>
+<ul>
+<li><code>mermaid</code> 12.3.0 is in the web bundle under <code>assets/lazy/</code> (about 90 files, 5.16 MB, 1.44 MB gzip, over every
+diagram type) and is not precached by the service worker: a browser fetches it on the first page with a diagram
+(about 246 kB gzip for a flowchart). A browser that has never drawn a diagram cannot draw one offline. Nothing runs on
+the server; public pages draw diagrams in the reader&#39;s browser.</li>
+</ul>
+<h2 id="12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018">12. Offline copies, web push, automations, the web clipper and CIMD (0.18)</h2>
+<h3 id="offline-copies-docsadr2200---2204-">Offline copies (docs/adr/2200-* .. 2204-*)</h3>
+<ul>
+<li>Offline copies live in each person&#39;s browser (IndexedDB <code>inkling-offline</code>); the server stores nothing new apart
+from <code>pages.doc_gen</code> and answers one <code>GET /api/pages/:id/sync-check</code> per open of a page with a copy and per
+reconnect. Nothing to configure.</li>
+<li>The setting &quot;Keep offline copies on this device&quot; is per device: on by default in the installed app, off in a
+browser tab. Copies are not encrypted; anyone with access to the browser profile can read them. On shared or public
+computers tell people to use a browser tab with the setting off (the default) and to log out: logging out, an
+expired or revoked session and another account signing in delete every copy on that device.</li>
+<li>Logging out while offline deletes the copies and the browser&#39;s push subscription at once, but cannot end the
+session on the server; it stays valid until it expires (30 days) or is revoked. There is no &quot;sign out everywhere&quot;
+button yet: the person changes their password, or an admin issues a reset code or temporary password in Admin ›
+Users, which signs out every session (KNOWN-ISSUES OFFLINE-LOGOUT).</li>
+<li>After <code>deploy/restore.sh</code> (restore from a backup), browsers with unsent edits newer than the backup turn them into
+recovery items on their next connection; tell people to look in Settings › Offline › Recovery.</li>
+</ul>
+<h3 id="web-push-docsadr2220---2223-">Web push (docs/adr/2220-* .. 2223-*)</h3>
+<ul>
+<li><strong>HTTPS is required.</strong> Browsers allow push (and service workers) only on <code>https://</code> origins and on
+<code>http://localhost</code>. Behind a reverse proxy (Caddy, nginx) serve the app over HTTPS as usual; the proxy needs no extra
+route: <code>/sw.js</code>, <code>/push-sw.js</code> and <code>/api/push/*</code> are ordinary app paths. The server sends <code>/sw.js</code> and
+<code>/push-sw.js</code> with <code>Cache-Control: no-cache</code> (section 4); a proxy must not override it.</li>
+<li><strong>iPhone and iPad:</strong> push works only in the Home Screen app (Safari → Share → Add to Home Screen), iOS/iPadOS 16.4
+or later; a Safari tab shows how to do that. Apple checks the VAPID <code>sub</code> claim: set
+<code class="long">VAPID_SUBJECT=mailto:you@your-domain</code> (or rely on an https <code>PUBLIC_URL</code>); the placeholder
+<code>mailto:webpush@inkling.invalid</code> used when neither is set may be refused by Apple.</li>
+<li><strong>Outbound connections</strong> (HTTPS, port 443) from the server to the push services browsers use: <code>fcm.googleapis.com</code>
+(and the legacy <code>android.googleapis.com</code>) for Chrome, Edge on Android, Samsung Internet and Opera;
+<code class="long">updates.push.services.mozilla.com</code> / <code>*.push.services.mozilla.com</code> for Firefox; <code>web.push.apple.com</code> /
+<code>*.push.apple.com</code> for Safari; <code>*.notify.windows.com</code> for Edge on Windows. An egress firewall must allow them.
+Other hosts are refused unless listed in <code>WEB_PUSH_ALLOWED_HOSTS</code> (comma-separated, <code>host</code> or <code>*.suffix</code>); every
+target must still resolve to public addresses, no redirects are followed and at most 4 KiB of a response is read.</li>
+</ul>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>WEB_PUSH</code></td><td class="c-field" data-label="Default">on</td><td class="c-field c-wide" data-label="Meaning"><code>off</code> switches push off server-wide: nothing is queued, queued deliveries are dropped, the routes answer unavailable</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>VAPID_PUBLIC_KEY</code>, <code>VAPID_PRIVATE_KEY</code></td><td class="c-field c-wide" data-label="Default">empty (a key made on first use, kept in <code>push_vapid_keys</code>)</td><td class="c-field c-wide" data-label="Meaning">both or neither; base64url raw keys as printed by <code>npx web-push generate-vapid-keys</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>VAPID_SUBJECT</code></td><td class="c-field c-wide" data-label="Default"><code>PUBLIC_URL</code> when https, else <code>mailto:webpush@inkling.invalid</code></td><td class="c-field" data-label="Meaning">the VAPID <code>sub</code> claim</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>WEB_PUSH_ALLOWED_HOSTS</code></td><td class="c-field" data-label="Default">empty</td><td class="c-field c-wide" data-label="Meaning">more push service hosts, comma-separated, <code>host</code> or <code>*.suffix</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>PUSH_TEST_ALLOW_LOOPBACK</code></td><td class="c-field" data-label="Default">off</td><td class="c-field c-wide" data-label="Meaning">tests only; ignored with <code>NODE_ENV=production</code></td></tr></tbody></table></div>
+<ul>
+<li><strong>The key.</strong> The generated private key is sealed with <code>APP_SECRET_KEY</code> (rows written before the key was set are
+sealed at the next boot), like subscription endpoints and their auth secrets. Changing the VAPID key (setting the
+env pair later, or a new generated key) voids every subscription (deliveries to old ones are dropped and the rows removed; devices subscribe again when the person
+opens the app). The key lives in its database: pointing the server at a different database (another instance&#39;s,
+or a fresh one) or deleting the row means another key, while restoring this database&#39;s own backup keeps it, as
+long as the same <code>APP_SECRET_KEY</code> is set (keep a copy off the server, outside the backups). To start over with a new generated key: <code>DELETE FROM push_vapid_keys;</code> and restart. If Server status shows
+&quot;VAPID key problem (stored_unreadable)&quot;, <code>APP_SECRET_KEY</code> is missing or changed: restore it, or delete the row.
+<code>env_incomplete</code> / <code>env_invalid</code>: fix the env pair.</li>
+<li><strong>Subscriptions</strong> belong to the login session that made them and are deleted with it (logout, password change,
+an admin&#39;s revoke of sessions, the 30-day expiry). At most 20 devices per person.</li>
+<li><strong>Delivery:</strong> outbox topic <code>push</code>, 4 requests at a time per process, retries 10 s → 30 s → 90 s → … (capped at 30
+minutes, 5 attempts, the push service&#39;s Retry-After honoured); a device is removed on 404/410 or after 10 failures
+in a row. TTL 24 h at the push service. A burst on one page or thread within 30 s sends one push per device; at
+most 100 pending pushes per person (newer ones are dropped beyond that). Watch Server status › Web push.</li>
+<li><strong>What pushes.</strong> A push follows a notification row: the person&#39;s push kinds (mention, assigned, reply, comment,
+approval, reminder; <code>updates</code> is off by default) and the page&#39;s visibility are checked again when it is sent.
+Automation notices (a rule&#39;s &quot;notify&quot; action, and &quot;turned off after five failures&quot;) push as mentions, written
+<code>Alice via automation: Ping reviewer mentioned you in &quot;Draft 3&quot;</code> (a failing-rule notice has no person:
+<code>automation: &lt;rule&gt; mentioned you in &quot;&lt;database&gt;&quot;</code>). System notices (<code>workspace_added</code>, <code>workspace_deleted</code>,
+<code>webhook_disabled</code>, <code>backup_failed</code>, <code>large_page</code>) only show in the bell. Archiving a workspace in one&#39;s own switcher
+does not stop its pushes.</li>
+</ul>
+<h3 id="database-automations-and-buttons-docsadr2240---2244-">Database automations and buttons (docs/adr/2240-* .. 2244-*)</h3>
+<ul>
+<li>Rules are queued by the change-log consumer from events writers already log and run through outbox topic
+<code>automation</code> (pending and done rows in <code>outbox</code>; done rows are kept 7 days, as for every topic, which also serves
+the &quot;date reached&quot; dedupe). Server status shows &quot;Database automations&quot; (section &quot;Reading the status summary&quot;).</li>
+<li>A timer per process queues &quot;date reached&quot; rules every 15 minutes (the first 20 s after boot), by the server&#39;s local
+date. A rule turned on after the day passed does not catch up.</li>
+<li>Limits per process: 30 runs per rule per minute, 120 per workspace per minute, loop depth 3, 50 runs kept per
+rule, five failures in a row turn a rule off. At most 20 rules per database, 5 actions per rule or button.</li>
+<li>Outbound actions go only to webhooks a workspace owner registered (Workspace settings › Webhooks), through the
+existing webhook queue.</li>
+<li>Nothing to configure. To stop all automations in an emergency: <code>UPDATE collection_automations SET enabled = false;</code> (authors turn their rules on again in the database menu › Automations).</li>
+</ul>
+<h3 id="web-clipper-docsadr2260---2263-">Web clipper (docs/adr/2260-* .. 2263-*)</h3>
+<ul>
+<li>&quot;Article text&quot; clips make the server fetch the page: an outbound GET through the SSRF guard (public addresses only,
+each redirect checked again, at most 3 redirects, 10 s, 2 MiB read, HTML only, ports 80/443), user agent
+<code>Mozilla/5.0 (compatible; InklingBot/1.0)</code>. A server that blocks outbound traffic saves every article as a link
+(<code>fallback: fetch_failed</code>).</li>
+<li>Limits, in memory per process: 10 article fetches per person per minute, 2 at once per person, 8 per server; the
+route allows 30 requests per minute. Only browser sessions may fetch articles; tokens save links.</li>
+<li>Extraction runs on the request thread: about 0.3–0.9 s CPU for a 1.6 MB page, bounded by a cut at 20,000 tags and a
+refusal of nesting deeper than 400 levels. Article images stay on the original site (at most 100 per clip).</li>
+<li><code>CLIP_TEST_ALLOW_LOOPBACK</code> is for tests only and ignored with <code>NODE_ENV=production</code>. No other variable.</li>
+<li>The Android share target and the bookmarklet only open <code>/clip</code> in the app; there is no proxy route to add.</li>
+</ul>
+<h3 id="oauth-client-id-metadata-documents-docsadr2280---2282-">OAuth Client ID Metadata Documents (docs/adr/2280-* .. 2282-*)</h3>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>OAUTH_CIMD</code></td><td class="c-field" data-label="Default">off</td><td class="c-field c-wide" data-label="Meaning"><code>1</code> = accept OAuth clients whose <code>client_id</code> is an https URL of a metadata document</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>OAUTH_CIMD_ALLOWED_HOSTS</code></td><td class="c-field" data-label="Default">empty (any public host)</td><td class="c-field c-wide" data-label="Meaning">comma or space separated hosts, exact or <code>*.suffix</code>; e.g. <code>claude.ai</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>OAUTH_CIMD_TEST_ALLOW_LOOPBACK</code></td><td class="c-field" data-label="Default">off</td><td class="c-field c-wide" data-label="Meaning">tests only: documents on <code>http://127.0.0.1</code>; ignored with <code>NODE_ENV=production</code></td></tr></tbody></table></div>
+<ul>
+<li><strong>Outbound connections.</strong> With it on, the server fetches the client_id URL (HTTPS GET, <code>Accept: application/json</code>)
+when a signed-in person opens a consent link and when such a connection refreshes its token after its cached copy
+expired. Through <code>safeFetch</code>: https only, public addresses only (private, loopback, link-local, CGNAT and metadata
+addresses refused; DNS pinned), no redirects, 5 KB, 5 s. Cached per URL for the response&#39;s <code>max-age</code> (60 s–24 h; 5
+minutes without one; Claude&#39;s: 5 minutes), one cache per process; while the host fails, a copy that was valid is
+used for up to 7 days. A failed URL is not fetched again for 30 s; at most 60 fetches a minute in total. A firewall
+that blocks egress breaks only these clients (they see &quot;could not be loaded&quot;); allow <code>claude.ai:443</code> if you limit
+egress.</li>
+<li><code class="long">OAUTH_CIMD_ALLOWED_HOSTS=claude.ai</code> is the narrow setting for a team that uses only Claude.</li>
+<li>Anonymous requests cannot make the server fetch: the consent info route needs a browser session, and the token
+endpoint fetches only for a refresh token it already knows. None of the document&#39;s content is logged.</li>
+<li>Turning it off again: connections made through it stop at their next token refresh (within an hour); they stay in
+the Connections list until disconnected. Before relying on it, run the real-client checklist at the end of
+<a href="MCP.html">MCP.md</a>.</li>
+</ul>
+<h3 id="workspace-groups-and-archive-docsadr2300---2305-">Workspace groups and archive (docs/adr/2300-* .. 2305-*)</h3>
+<ul>
+<li>Nothing to configure. The rows go with the account, with the workspace&#39;s purge, and when a member leaves or is
+removed; a soft-deleted workspace keeps them for a restore. Downgrading to 0.17 leaves the two tables unused.</li>
+</ul>
+<h2 id="13-public-page-downloads-start-up-notices-and-onboarding-019">13. Public page downloads, start-up notices and onboarding (0.19)</h2>
+<h3 id="public-page-downloads-docsadr2360---2363-">Public page downloads (docs/adr/2360-* .. 2363-*)</h3>
+<ul>
+<li>Public links can offer a Markdown download (per link, off by default). Responses are <code>no-store</code> and
+<code>noindex</code>; they are rate-limited with the other public routes (60/min per route and IP). Downloads are
+not logged beyond the request log. Image and file addresses in the file use <code>PUBLIC_URL</code>.</li>
+<li>To find links with downloads on: <code>SELECT id, title FROM pages WHERE share_token IS NOT NULL AND share_allow_download;</code>
+To turn them all off: <code>UPDATE pages SET share_allow_download = false WHERE share_allow_download;</code></li>
+<li>Wide view and Save as PDF run in the visitor&#39;s browser; nothing to configure.</li>
+</ul>
+<h3 id="start-up-and-screen-notices-docsadr2324-">Start-up and screen notices (docs/adr/2324-*)</h3>
+<ul>
+<li><code>index.html</code> carries a short static notice (English and Korean) with a reload link, revealed by CSS after 12 s if
+the app&#39;s script never started. It needs no script, so the shell&#39;s <code>script-src &#39;self&#39;</code> is unchanged. A proxy that
+rewrites or caches <code>index.html</code> must keep it <code>no-cache</code> (section 4) as before.</li>
+<li>A screen that fails to render shows &quot;This screen could not be shown&quot; with a Reload button and the error under
+Details. Ask people who report a blank or broken screen for that Details text.</li>
+<li>In a browser whose IndexedDB never answers, a page with offline copies on opens from the server after 5 s instead
+of waiting on &quot;Connecting…&quot;. That tab then works without device copies until it is reloaded, and Settings ›
+Offline says the device storage is unavailable.</li>
+</ul>
+<h3 id="onboarding-docsadr2380---2383-">Onboarding (docs/adr/2380-* .. 2383-*)</h3>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>ONBOARDING</code></td><td class="c-field" data-label="Default">on</td><td class="c-field c-wide" data-label="Meaning"><code>off</code> (or <code>0</code>, <code>false</code>, <code>no</code>): no intro, no Getting started card, no sample page, for everyone. Use it when your organisation has its own guide. Accounts first seen while it is off count as existing accounts if you turn it on later.</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>ONBOARDING_EXISTING_USERS</code></td><td class="c-field" data-label="Default">off</td><td class="c-field c-wide" data-label="Meaning"><code>once</code>: accounts that existed before onboarding (and accounts first seen while <code>ONBOARDING=off</code>) also see the intro once, on their next app load. Only the intro: their checklist stays off and no sample page is made. Stored per person (<code>introSeenAt</code>): restarts with the variable still set do not repeat it; unsetting it later changes nothing. <code>ONBOARDING=off</code> wins.</td></tr></tbody></table></div>
+<p>Both are read per request and passed through by <code>compose.yaml</code>; recreate the app container after changing them
+(<code>docker compose up -d app</code>). The routes are for browser sessions only; agents and tokens never see onboarding.</p>
+<p>After setting <code>ONBOARDING_EXISTING_USERS=once</code> in <code>.env</code> and recreating the container, check that it arrived:
+<code>docker compose exec app printenv ONBOARDING_EXISTING_USERS</code> prints <code>once</code> (an empty line means unset). How many
+accounts it will reach: existing accounts that have not closed the intro, minus guests, who never get it (&quot;guest&quot; is
+the rule of <code>audienceOf</code> in <code class="long">apps/server/src/onboarding/state.ts</code>):</p>
+<pre><code class="language-sql">SELECT count(*) FROM user_onboarding o JOIN users u ON u.id = o.user_id
+ WHERE (o.state-&gt;&gt;&#39;legacy&#39; = &#39;true&#39; OR o.state-&gt;&gt;&#39;off&#39; = &#39;true&#39;) AND o.state-&gt;&#39;introSeenAt&#39; IS NULL
+   AND NOT (NOT u.is_admin
+     AND NOT EXISTS (SELECT 1 FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
+                      WHERE m.user_id = u.id AND w.deleted_at IS NULL AND m.role &lt;&gt; &#39;owner&#39;)
+     AND EXISTS (SELECT 1 FROM page_grants g JOIN pages p ON p.id = g.page_id
+                  WHERE g.user_id = u.id AND NOT EXISTS (SELECT 1 FROM workspace_members m2
+                                                          WHERE m2.workspace_id = p.workspace_id AND m2.user_id = u.id)));
+</code></pre>
+<p>An account counts as having seen it only once it closes the intro (Skip, Esc or the last scene); closing the tab
+while it plays shows it again on the next app load (KNOWN-ISSUES ONBOARD-6).</p>
+<p>Onboarding state lives in <code>user_onboarding</code> (one row per account, deleted with the account). To show the intro
+again to one person, the simplest way is theirs: Settings › About › Watch the intro again. By SQL,
+<code>UPDATE user_onboarding SET state = state - &#39;introSeenAt&#39; WHERE user_id = &#39;…&#39;;</code> plays it again on their next app
+load for an account made after the upgrade (or for any account while <code>ONBOARDING_EXISTING_USERS=once</code> is set).
+Removing <code>legacy</code> as well (<code>state - &#39;introSeenAt&#39; - &#39;legacy&#39;</code>) makes an older account count as new: the checklist
+comes back too, and if the account is the server&#39;s first account and an admin, its next load also makes the sample
+page. The first admin of a new server gets a sample page in their private pages on their first app load; nobody else
+gets one unless they press the card&#39;s button.</p>
+<h2 id="14-columns-and-tabs-of-older-releases-020">14. Columns and tabs of older releases (0.20)</h2>
+<h3 id="upgrading-to-020">Upgrading to 0.20</h3>
+<p>One migration and no required setting: the usual procedure (Upgrades, above). Migration 0061 adds three columns to
+<code>pages</code> for charts on public links (section 15); a 0.19 database goes from 61 to 62 applied migrations. Every
+existing link keeps charts off, so public pages look as before until a manager (a workspace owner or admin) turns them on. Afterwards, ask people
+to reload tabs they left open: a tab still running 0.19 or older can read pages with columns but not edit them
+(below). Going back to 0.19.1 should need no restore (0.19 does not read the three new columns; starting it on a database
+with 0061 was not tried), but 0.19&#39;s editor deletes a
+group of columns with its content when it opens such a page (it has no guard); do not go back once columns are in
+use. A link that showed charts and is published again while 0.19 runs keeps its chart setting (KNOWN-ISSUES SHARE-9).</p>
+<h3 id="older-tabs-and-the-document-schema-docsadr2425-">Older tabs and the document schema (docs/adr/2425-*)</h3>
+<ul>
+<li>Each client sends the document schema it knows on the collaboration socket (<code>/collab?schema=2</code> in 0.20; 0.19 and
+older send nothing and count as 1). On a page holding a node type the client does not know (columns for 0.19), its
+connection is read-only. A 0.19 tab then shows the page without the group under its lock line (&quot;Locked … You can
+read and comment, but not edit&quot;); after a reload it runs 0.20 and edits normally. Pages without columns are not
+affected.</li>
+<li>When a group is added to a page a 0.19 tab has open, the server turns that connection read-only in the same
+moment and closes its socket (WebSocket close code 4000, reason <code>document-schema</code>); the tab reconnects at once.
+A few such closes in the log after an upgrade are expected.</li>
+<li>Reverse proxies must pass the query string of <code>/collab</code> (Caddy and nginx path rules do). Without it every tab
+counts as 0.19 and pages with columns become read-only for everyone in the browser.</li>
+<li>With offline copies on, edits a 0.19 tab kept on the device for a page with columns are not sent after the reload:
+they become a recovery item (&quot;Made by an older version of the app&quot;, Settings › Offline).</li>
+<li>Agents and the REST API write through the server&#39;s own schema and are not affected.</li>
+<li>Cost: an older client&#39;s connection walks the page once (from <code>page_docs</code> when the page is not open); current
+clients pay one comparison per message.</li>
+</ul>
+<h2 id="15-charts-on-public-links-020">15. Charts on public links (0.20)</h2>
+<h3 id="charts-on-public-links-docsadr2440---2444-">Charts on public links (docs/adr/2440-* .. 2444-*)</h3>
+<ul>
+<li>Public links can show chart aggregates (per link, off by default), computed with the access of the owner/admin
+who turned it on (<code>pages.share_charts_by</code>) while they are a workspace member. The public page answer is cached
+per page revision for up to 10 minutes; chart numbers can be that old. Membership and the switch are read on every
+request.</li>
+<li>Only charts of sources approved by a manager (an owner or admin of the workspace; <code>pages.share_chart_sources</code>) are aggregated with that manager&#39;s
+access; turning charts on and &quot;Publish these charts too&quot; also read the link&#39;s documents (as the count below).
+Charts inside columns count and are approved like any other.</li>
+<li>To find links with charts on: <code>SELECT id, title, share_charts_by FROM pages WHERE share_token IS NOT NULL AND share_include_charts;</code>
+To turn them all off: <code>UPDATE pages SET share_include_charts = false, share_charts_by = NULL, share_chart_sources = NULL WHERE share_include_charts;</code></li>
+<li>The share dialog&#39;s chart count reads the documents of a folder link&#39;s pages (at most 300) that contain a chart
+block: about 0.3 s for a folder of 300 large pages that all hold charts; also on every link setting change.</li>
+<li>Each visit of a public page with charts runs the chart aggregates when its render is not cached (the 60 s
+aggregate cache, docs/adr/1602-*, still applies); public routes stay at 60/min per route and IP.</li>
+<li>No new setting. Public page HTML also changed for callouts (icon, then text) and keeps text and background colours
+(docs/adr/2387-*); the in-memory render cache starts empty after the restart, so nothing needs clearing.</li>
+</ul>
+<h2 id="16-pdf-preview-021">16. PDF preview (0.21)</h2>
+<h3 id="upgrading-to-021">Upgrading to 0.21</h3>
+<p>No migration (a 0.20 database stays at 62 applied migrations), no new setting and no header change: the usual
+procedure (Upgrades, above). The server code is the same as 0.20; the release changes the web app only. Ask people
+to reload tabs they left open: a tab still running 0.20 shows PDFs as a file name line until it is reloaded.</p>
+<h3 id="pdf-preview-docsadr2480---2483-">PDF preview (docs/adr/2480-* .. 2483-*)</h3>
+<ul>
+<li>A PDF attached to a page shows its pages under the file name, drawn in the browser with pdf.js (<code>pdfjs-dist</code>
+6.5.438, its legacy build). The server answers <code>GET /files/:id</code> as before: <code>Content-Disposition: attachment</code>,
+<code>nosniff</code> and its <code>sandbox</code> CSP stay, and the app&#39;s CSP is unchanged. The preview fetches the file with the
+person&#39;s session like a download and runs nothing from the PDF.</li>
+<li>The preview&#39;s code, pdf.js, its worker (<code class="long">assets/lazy/pdf.worker.min-*.mjs</code>) and its data files
+(<code>assets/lazy/pdfjs-6.5.438/</code>: pdf.js&#39;s <code>LICENSE</code>, cMaps, standard fonts, wasm decoders, an ICC profile and their
+licence files) are
+served by the app from its own origin. No CDN and no outbound request.</li>
+<li>A reverse proxy must pass <code>/assets/lazy/</code> unchanged. One that blocks or rewrites those paths stops the preview:
+it shows &quot;The preview could not be loaded.&quot; with a download link. A proxy that serves <code>.mjs</code> with a type other
+than JavaScript also stops it, with an error message and the download link.</li>
+<li>Page 1 needs the whole file, because <code>/files/:id</code> sends no byte ranges. Files up to 10 MB load when the block
+comes near the screen; larger ones load when the reader presses &quot;Load preview&quot; (docs/adr/2482-*). At 20 Mbit/s a
+10 MB file takes about 4 s and a 25 MB file about 10 s (<a href="PERFORMANCE.html">PERFORMANCE.md</a>).</li>
+<li>pdf.js and its files are not in the PWA precache: they are fetched the first time a preview loads a file, and the
+service worker keeps what was used in a cache of their own, <code>inkling-pdfjs</code> (60 entries, 30 days), next to
+<code>inkling-lazy-assets</code> (Shiki, exceljs). Pages without a PDF fetch none of it. Offline, the preview cannot ask the
+server for the file: it shows &quot;The file could not be loaded.&quot; with the download link and &quot;Try again&quot;.
+Attachments are not part of offline copies.</li>
+<li>Browsers: pdf.js supports its legacy build in Firefox ESR, Chrome 125+ (Edge, Opera) and &quot;mostly&quot; Safari 18+.
+The release was checked in Chrome 157 only (KNOWN-ISSUES PDFVIEW-1). An unsupported browser shows the preview&#39;s
+error message and the download link.</li>
+<li>Limits against hostile or huge files (docs/adr/2483-*): at most 5,000 pages, a page box of at most 5,000 CSS px at
+100%, one page canvas of at most 8,388,608 pixels and 8,192 px a side, at most 8 pages drawn per pass, no image
+over 2^26 pixels. A download that does not move for 30 s ends in &quot;The file stopped loading.&quot; with &quot;Try again&quot;. An
+error inside one preview stays in its block.</li>
+<li>No preview on a page with ink strokes or in pen mode (docs/adr/2481-*). A page with a PDF therefore asks for its
+strokes, <code>GET /api/pages/:id/ink</code>, when it opens, every 60 s while it is open with pen mode off, and when the tab
+comes back to the front: the server does not announce ink changes.</li>
+<li>No other server cost beyond the file downloads themselves and one <code>GET /api/files/:id/meta</code> per preview (kept in
+the tab for a minute).</li>
+</ul>
+<h2 id="17-limits-and-restricted-mode-022">17. Limits and restricted mode (0.22)</h2>
+<h3 id="upgrading-to-022">Upgrading to 0.22</h3>
+<p>One migration, <code>0062_limits_accounts</code>, additive only: two tables (<code>signup_events</code>, <code>user_consents</code>) and four
+columns (<code>users.expires_at</code>, <code>workspaces.storage_bytes</code>, <code>workspaces.storage_checked_at</code>, <code>workspaces.over_storage</code>,
+all null or with a constant default). A 0.21 database goes from 62 to 63 applied migrations. Every new setting below
+is optional. With none of them set the server behaves as 0.21.1, except for the changes that 0.22 makes on every
+server (CHANGELOG, &quot;What changes on every server&quot;): every account can delete itself, a sole owner who is the only
+member can leave a workspace (it is deleted at once), an owner can delete a deleted workspace for good, the
+hourly housekeeping deletes <code>ip_bans</code> rows whose ban ended more than 30 days ago, the request rate limit counts an
+IPv6 client by its /64, the deletion preview answers browser sessions only, account deletion finds the copied names
+by the account&#39;s id only, and the OAuth token exchange is one transaction.</p>
+<p><code>compose.yaml</code> passes all twenty-two 0.22 variables to the app as <code>${VAR:-}</code>, and <code>.env.example</code> has a commented
+example of each, so setting one in <code>.env</code> is enough. An empty value means the same as an unset one, for every one of
+them. <code>LEGAL_DIR</code> is a path inside the container, so the folder has to be mounted as well (the demo overlay,
+<code>deploy/demo/compose.demo.yaml</code>, shows how).</p>
+<h3 id="limits-and-restricted-mode-docsadr2500---2521-">Limits and restricted mode (docs/adr/2500-* .. 2521-*)</h3>
+<p>Restricted mode is a set of settings for two kinds of servers: an install whose operator wants to cap disk use and
+the number of people, and a demo server that strangers can sign up to. Setting up a demo server, in order, is in
+<a href="DEMO.html">DEMO.md</a>; this section is the reference.</p>
+<div class="table-wrap has-cards"><table class="t-recs cards" data-cols="5"><thead><tr><th scope="col">Variable</th><th scope="col">Format</th><th scope="col">Default</th><th scope="col">Meaning</th><th scope="col">Error when it applies</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LOGIN_ID_MODE</code></td><td class="c-field" data-label="Format"><code>email</code> or <code>username</code></td><td class="c-field" data-label="Default"><code>email</code></td><td class="c-field c-wide" data-label="Meaning"><code>username</code>: sign-up takes an ID and a nickname instead of an email address. An ID is 3–30 characters of <code>a-z 0-9 . _ -</code>, starting with a letter or digit, stored lower-cased in the email column; reserved names (admin, root, support, inkling and others) are refused</td><td class="c-field c-wide" data-label="Error when it applies">400 <code>LOGIN_ID_INVALID</code>, 409 <code>LOGIN_ID_TAKEN</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_MAX_USERS</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Accounts on the server in total (all <code>users</code> rows, admins included), counted again inside the sign-up transaction. The first admin made with the setup code is not refused</td><td class="c-field" data-label="Error when it applies">403 <code>SIGNUP_FULL</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_PER_IP_PER_DAY</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Sign-ups from one address (an IPv4 address or an IPv6 /56) in 24 hours. While it is set, one address also gets at most 10 &quot;this email or ID is taken&quot; answers in 24 hours (below)</td><td class="c-field" data-label="Error when it applies">429 <code>SIGNUP_IP_LIMIT</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>ACCOUNT_LIFETIME_DAYS</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Accounts that sign up while it is set are deleted this many days after sign-up. Admins and accounts made before it was set never expire</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>ACCOUNT_LIFETIME_DRY_RUN</code></td><td class="c-field" data-label="Format"><code>1</code> or <code>0</code></td><td class="c-field" data-label="Default"><code>0</code></td><td class="c-field c-wide" data-label="Meaning"><code>1</code>: the hourly job logs the accounts it would delete and deletes nothing</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_WORKSPACES_PER_USER</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Workspaces a person owns: the one made at sign-up and deleted ones that can still be restored count</td><td class="c-field" data-label="Error when it applies">403 <code>LIMIT_WORKSPACES</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_MEMBERS_PER_WORKSPACE</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Members of a workspace, owners included; page guests are not members and do not count</td><td class="c-field" data-label="Error when it applies">403 <code>LIMIT_MEMBERS</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_PAGES_PER_WORKSPACE</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Pages of a workspace: documents, database rows, folders and canvases, the trash included</td><td class="c-field" data-label="Error when it applies">403 <code>LIMIT_PAGES</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_FILE_MB</code></td><td class="c-field" data-label="Format">number &gt; 0, at most 25 (decimals allowed)</td><td class="c-field" data-label="Default">none (25 MB)</td><td class="c-field c-wide" data-label="Meaning">Size of one uploaded file. Connections and tokens get <code>min(AGENT_UPLOAD_MAX_MB, LIMIT_FILE_MB)</code></td><td class="c-field" data-label="Error when it applies">413 <code>LIMIT_FILE</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_WORKSPACE_STORAGE_MB</code></td><td class="c-field" data-label="Format">number &gt; 0 (decimals allowed)</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Storage of a workspace (below). One page body may hold at most a quarter of it</td><td class="c-field" data-label="Error when it applies">413 <code>LIMIT_STORAGE</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_VERSIONS_PER_PAGE</code></td><td class="c-field" data-label="Format">whole number 1–50</td><td class="c-field" data-label="Default">none (50)</td><td class="c-field c-wide" data-label="Meaning">Versions kept per page. It can only lower the budget of 50; the shares that AI steps may take shrink with it (40 % per connection, 60 % for all connections)</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DISABLED_FEATURES</code></td><td class="c-field" data-label="Format">comma-separated names</td><td class="c-field" data-label="Default">empty</td><td class="c-field" data-label="Meaning">Features turned off on the whole server (below)</td><td class="c-field" data-label="Error when it applies">404 <code>FEATURE_DISABLED</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>WORKSPACE_RESTORE_DAYS</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default"><code>30</code></td><td class="c-field c-wide" data-label="Meaning">Days an owner can restore a deleted workspace; housekeeping deletes it for good after that</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LEGAL_DIR</code></td><td class="c-field" data-label="Format">path of a folder</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Terms, privacy policy and sign-up consent (below)</td><td class="c-field c-wide" data-label="Error when it applies">400 <code>CONSENT_REQUIRED</code> at sign-up, 403 <code>CONSENT_REQUIRED</code> on other requests</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>INSTANCE_LABEL</code></td><td class="c-field" data-label="Format">up to 20 characters, no control characters</td><td class="c-field" data-label="Default">none</td><td class="c-field" data-label="Meaning">A label every screen shows, for example <code>Demo</code></td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_TRASH_DAYS</code></td><td class="c-field" data-label="Format">whole number ≥ 7</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Upper bound of page trash retention: pages stay in the trash min(the workspace&#39;s &quot;Keep trash for&quot;, this value) days, and MCP <code>list_trash</code> gives the same date. The stored workspace value is not rewritten; Workspace settings show the bound and do not take a larger value</td><td class="c-field c-wide" data-label="Error when it applies">400 <code>LIMIT_TRASH_DAYS</code> when a workspace asks for more</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>INSTANCE_NOTICE</code></td><td class="c-field c-wide" data-label="Format">up to 500 characters of plain text (not HTML); line breaks allowed</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">An operator notice under the title of the sign-in, sign-up, consent and setup-waiting screens and as a strip above every app screen, which nobody can close. Shown as text, without links. For servers that send no mail: changes, interruptions, incidents</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_PER_HOUR</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Accounts the whole server makes in one hour, counted again under one lock inside the sign-up transaction. The setup-code sign-up does not count and is not refused</td><td class="c-field c-wide" data-label="Error when it applies">429 <code>SIGNUP_RATE_LIMIT</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>OAUTH_UNUSED_CLIENT_HOURS</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Self-registered OAuth clients that were never used are deleted by the hourly housekeeping this many hours after registering (below)</td><td class="c-field" data-label="Error when it applies">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>OAUTH_UNUSED_CLIENT_MAX</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Most never-used self-registered OAuth clients kept: a new registration first deletes the oldest, never one younger than 15 minutes (below)</td><td class="c-field c-wide" data-label="Error when it applies">503 <code>temporarily_unavailable</code> on <code>/oauth/register</code> when only younger ones are left</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_WORKSPACES_TOTAL</code></td><td class="c-field" data-label="Format">whole number ≥ 1</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Workspaces on the whole server, deleted ones that can still be restored included, counted under one server-wide lock. Sign-up makes a personal workspace, so it is refused at the limit too (the setup code is not)</td><td class="c-field c-wide" data-label="Error when it applies">403 <code>LIMIT_WORKSPACES_TOTAL</code>; 403 <code>SIGNUP_FULL</code> at sign-up</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_INSTANCE_STORAGE_MB</code></td><td class="c-field" data-label="Format">number &gt; 0 (decimals allowed)</td><td class="c-field" data-label="Default">none</td><td class="c-field c-wide" data-label="Meaning">Storage fuse of the whole server: the database size plus the files under the data folder, measured at most once a minute. At it the server only reads, signs in, exports and deletes (below)</td><td class="c-field c-wide" data-label="Error when it applies">503 <code>INSTANCE_FULL</code>; 503 <code>temporarily_unavailable</code> on <code>/oauth/register</code></td></tr></tbody></table></div>
+<ul>
+<li>Megabytes are 1,048,576 bytes. A value that is unset or empty means &quot;no limit&quot; (or off); with nothing set the
+server answers as 0.21.1 and runs none of the checks below.</li>
+<li>The limits are checked by the server inside the transaction that creates the page, row, file, member or
+workspace, under a lock, so concurrent requests cannot pass a limit together. Transferring ownership and restoring
+a workspace check the new owner&#39;s owned workspaces in their own transaction; the handover when an account is
+deleted does not look at the limit. MCP tools call the same REST routes
+and are refused the same way. Every limit error carries <code>{ limit, used }</code> (API.md, &quot;v0.22.0 additions&quot;).</li>
+<li><code>LIMIT_FILE_MB</code> without <code>LIMIT_WORKSPACE_STORAGE_MB</code> still lets a workspace grow without bound; with both, the worst
+case on disk is about the number of accounts × owned workspaces × the storage limit (with <code>LIMIT_WORKSPACES_TOTAL</code>,
+at most that number × the storage limit), plus what is not counted (Postgres index entries and dead rows, audit and
+notification rows, OAuth clients) and the backups. <code>LIMIT_INSTANCE_STORAGE_MB</code> is a fuse over the database and the data folder (below), not
+a bound on the disk.</li>
+</ul>
+<h3 id="when-the-server-refuses-to-start">When the server refuses to start</h3>
+<p>The log names the variable and the reason. The server does not start when:</p>
+<ul>
+<li>a value cannot be read as written: not a whole number where one is needed, below 1, a decimal written with an
+exponent, <code>LIMIT_FILE_MB</code> above 25, <code>LIMIT_VERSIONS_PER_PAGE</code> above 50, <code>ACCOUNT_LIFETIME_DRY_RUN</code> other than <code>1</code>
+or <code>0</code>, <code>LOGIN_ID_MODE</code> other than <code>email</code> or <code>username</code>, an unknown name in <code>DISABLED_FEATURES</code>, an
+<code>INSTANCE_LABEL</code> over 20 characters or with a control character, <code>LIMIT_TRASH_DAYS</code> below 7, an
+<code>INSTANCE_NOTICE</code> over 500 characters or with a control character other than a line break;</li>
+<li><code>LOGIN_ID_MODE=username</code> is set together with <code>DELEGATED_AUTH_URL</code>, OpenID Connect or SMTP mail, or without
+<code>password-reset</code> in <code>DISABLED_FEATURES</code> (an ID is not an address that mail can reach);</li>
+<li><code>LEGAL_DIR</code> is not a readable folder, has no <code>signup.json</code>, or a file in it is malformed (below).</li>
+</ul>
+<p>It starts with a warning when <code>ACCOUNT_LIFETIME_DRY_RUN=1</code> is set without <code>ACCOUNT_LIFETIME_DAYS</code>, when
+<code>SIGNUP_PER_IP_PER_DAY</code> is set with <code>TRUST_PROXY=false</code>, and when a file of <code>LEGAL_DIR</code> still has template
+placeholders. The start log has one line for the limits that are on, one for the features that are off and, with
+<code>ACCOUNT_LIFETIME_DAYS</code>, one saying how many existing accounts it leaves alone.</p>
+<h3 id="features-turned-off-disabled_features">Features turned off (<code>DISABLED_FEATURES</code>)</h3>
+<p>The routes stay registered and answer 404 <code>FEATURE_DISABLED</code> before sign-in is checked. What was set up before
+stops working but is not deleted, and the routes that remove it stay open, so an owner can still clean up. The app
+hides the menus of a feature that is off.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Name</th><th scope="col">Turned off</th><th scope="col">Still works</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Name"><code>public-links</code></td><td class="c-field c-wide" data-label="Turned off">Publishing and changing public links, <code>/api/public/*</code>; <code>/s/:token</code> serves the plain app shell</td><td class="c-field" data-label="Still works">Unpublishing</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>public-forms</code></td><td class="c-field c-wide" data-label="Turned off">Turning on and reading a form link, the public form and its answers</td><td class="c-field" data-label="Still works">Removing a form link</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>webhooks</code></td><td class="c-field c-wide" data-label="Turned off">Listing, adding, changing, testing webhooks, their secret and deliveries; nothing is sent (queued deliveries wait)</td><td class="c-field" data-label="Still works">Deleting a webhook</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>slack</code></td><td class="c-field c-wide" data-label="Turned off">Slack settings, test, the link flow, <code>/inkling</code> commands and events; nothing is posted</td><td class="c-field" data-label="Still works">Removing the Slack settings and links</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>link-preview</code></td><td class="c-field c-wide" data-label="Turned off">Link preview cards (<code>GET /api/link-preview</code>)</td><td class="c-field" data-label="Still works">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>web-clipper</code></td><td class="c-field c-wide" data-label="Turned off">Saving from the web (<code>POST /api/clip</code>) and its lookup</td><td class="c-field" data-label="Still works">—</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>ical</code></td><td class="c-field c-wide" data-label="Turned off">The iCal feed URL in Settings, and <code>/ical/:file</code> answers 404</td><td class="c-field" data-label="Still works">Revoking the feed</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>notion-import</code></td><td class="c-field c-wide" data-label="Turned off">An import that asks for Notion is refused; a zip that looks like a Notion export is imported as plain Markdown</td><td class="c-field" data-label="Still works">Markdown, zip and folder imports</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>web-push</code></td><td class="c-field c-wide" data-label="Turned off">Subscribing, push settings, test, and sending (queued pushes wait)</td><td class="c-field" data-label="Still works">Unsubscribing a device</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>password-reset</code></td><td class="c-field c-wide" data-label="Turned off">Forgot password, reset with a code, and the admin&#39;s temporary password, reset code, send credentials and reset request queue</td><td class="c-field" data-label="Still works">Changing your own password while signed in</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>email-invites</code></td><td class="c-field c-wide" data-label="Turned off">Mailing a signup key from Admin; page invitations are not mailed (the link is shown instead)</td><td class="c-field" data-label="Still works">Copying keys and links</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>automations-webhooks</code></td><td class="c-field c-wide" data-label="Turned off">Button blocks and automation actions that call a webhook (the action is skipped, the rule stays on)</td><td class="c-field" data-label="Still works">Every other automation action</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>oauth-cimd</code></td><td class="c-field c-wide" data-label="Turned off">OAuth Client ID Metadata Documents, also with <code>OAUTH_CIMD=1</code></td><td class="c-field" data-label="Still works">Dynamic client registration</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>embeds</code></td><td class="c-field c-wide" data-label="Turned off">Frames from other sites: the app&#39;s CSP keeps only <code>frame-src &#39;self&#39;</code></td><td class="c-field" data-label="Still works">Page embeds of this server&#39;s pages</td></tr><tr class="rec"><td class="c-title c-name" data-label="Name"><code>member-direct-add</code></td><td class="c-field c-wide" data-label="Turned off">Adding an existing account to a workspace without an invite link, and the candidate list</td><td class="c-field" data-label="Still works">Invite links</td></tr></tbody></table></div>
+<p>Not in the list, because they are already off until configured: experimental features (<code>EXPERIMENTAL_FEATURES</code>),
+semantic search, OpenID Connect and mail. MCP stays on.</p>
+<h3 id="storage-and-read-only-workspaces">Storage and read-only workspaces</h3>
+<ul>
+<li><code>LIMIT_WORKSPACE_STORAGE_MB</code> counts what members can grow without bound: uploaded files, page bodies, version
+history, handwriting, comments, the page rows themselves (titles, properties, icons), database fields, views and
+row templates, custom templates, the texts the change log keeps, and agent suggestions. Pages in the trash count
+until they are purged. Since 0.22.1 it also counts the rows of the search and section indexes built from the
+bodies (<code>page_texts</code>, <code>page_chunks</code>, <code>page_chunk_vectors</code>, <code>page_tasks</code>, <code>page_links</code>, <code>page_tags</code>,
+<code>page_former_titles</code>), and every file as at least 5 KB: <code>max(size, 4,096) + 1,024</code> bytes, for the disk block and
+the inode it takes (docs/adr/2545-*). Postgres index entries and dead rows, audit events, notifications, the
+outbox, per-person tables, OAuth clients and backups do not count. Without the setting none of this is counted
+(the usage card counts files at their size and leaves the indexes out, as in 0.22.0).</li>
+<li>The count is kept in <code>workspaces.storage_bytes</code>. Uploads add their bytes in their own transaction; each save of a
+page body adds the body&#39;s growth; housekeeping counts every workspace again each hour; Workspace settings ›
+General counts it again when the stored count is more than a minute old (at most once a minute per workspace);
+deleting for good counts it again.</li>
+<li><strong>Estimates until a recount sees them</strong> (docs/adr/2548-*). The index rows of a saved body are written 8–30 s
+after the save, so each save also adds 2 bytes per byte the body grew, as an estimate of its index. The estimate
+stays in the count until a recount that starts after an index pass of that save has written its rows; a recount
+runs 0.5 s after such a pass, and 40 s after a save that grew a body. A recount writes what it measured plus the
+estimates it could not see yet, so <code>storageBytes</code> of the usage route can include them. The estimates are kept in
+the server&#39;s memory only: after a restart the count keeps them as written until the first recount, which counts
+what is stored then. Estimates older than 10 minutes are dropped. A save that finds the count more than 10 minutes
+old recounts the workspace after its own write.</li>
+<li>A workspace that has reached its limit is read-only. Every write that can grow what it keeps is refused with 413
+<code>LIMIT_STORAGE</code> (docs/adr/2533-*): new pages, uploads, imports, templates, comments and edited comment bodies,
+handwriting, manual versions, body writes by REST and MCP, quick tasks, vault sync, rows and row properties,
+database fields, views and row templates, a page&#39;s title, icon, cover, aliases and date property, and agent
+suggestions; new automations, webhooks and share links too. Live editing connections become read-only. Settings
+of bounded size replaced in place, ticking a task, membership, restoring and removing stay open (API.md lists
+them). Members see a notice above the page (&quot;This workspace has used up its storage,
+so it is read-only. …&quot;). Deleting pages and files,
+emptying the trash, clearing handwriting and exporting always work.</li>
+<li>To make it writable again, delete files or pages and empty the trash, then open Workspace settings › General
+(which counts again) or wait for the hourly count. The count that finds the workspace under its limit closes its
+read-only editing connections; they reconnect at once and can edit (KNOWN-ISSUES LIMITS-3).</li>
+<li>One page body may hold at most a quarter of the limit. Past that, REST and MCP writes to that page are refused
+and its live connections become read-only; splitting it into subpages is the way out (KNOWN-ISSUES LIMITS-2).</li>
+<li>The writes above move the stored count by the request&#39;s size at once (an upper bound), so close to the limit a
+large write can be refused although it would fit; before refusing, the server counts the workspace again when its
+count is more than 10 seconds old, which keeps that short.</li>
+<li>Live edits are counted when they arrive, before they are applied (docs/adr/2530-<em>). Since 0.22.1 an edit is
+counted with its index to come: it passes while <code>cached count + 3 × (unsaved growth + the edit) + the next version copy</code> stays within the limit (docs/adr/2548-</em>), and it counts what the document really took in, so a copy of an
+update the page already holds counts 0 bytes (docs/adr/2543-<em>). An edit that would take the page body past a
+quarter of the limit or the workspace past its limit, that would take the page past 300,000 Yjs structures
+(docs/adr/2540-</em>), or that arrives while the instance storage fuse is tripped, is not applied and not stored: the
+connection becomes read-only and reconnects read-only, and for the next 10 minutes (or until a count finds room in
+the workspace, or the server restarts) connections to that page are opened read-only. A page refused for its
+structures stays read-only for the 10 minutes even when a count finds room. What the person typed or pasted then
+stays only in their editor and on their device (KNOWN-ISSUES LIMITS-24).</li>
+<li>Because of the factor 3, a workspace filled through the editor stops short of its limit: with the demo preset a
+burst of pastes of about 1 MB ended at 71 % of a 10 MB limit with prose and 91 % with random words after the
+recount. REST and
+MCP body writes are checked against &quot;full&quot; and can end one write past it (KNOWN-ISSUES LIMITS-44, LIMITS-45).</li>
+<li><strong>When a workspace goes over its limit</strong> (a save or a recount finds it there) or a page body over its cap, every
+editing connection to it becomes read-only at once, gets the stateless message <code class="long">{&quot;t&quot;:&quot;storage&quot;,&quot;why&quot;:&quot;workspace&quot;}</code>
+(or <code>&quot;page&quot;</code>), and its socket is closed with code 4000 <code>storage-full</code>. The editor reconnects at once, read-only;
+when a recount finds room, the read-only connections are closed again and come back able to edit, without a reload
+(docs/adr/2549-*). In 0.22.0 they were closed with 4403 <code>permission-changed</code>, and the web app showed the page as
+disconnected until a reload. The web app does not show the <code>storage</code> message yet (KNOWN-ISSUES LIMITS-3).</li>
+<li>With <code>LIMIT_WORKSPACE_STORAGE_MB</code> or <code>LIMIT_INSTANCE_STORAGE_MB</code> set, the collaboration socket also bounds what a
+client sends: the sockets of one client address (an IPv6 /64 counts as one address since 0.22.1) share 16 MB,
+refilled at 4 MB a second, and one socket may hold at most 8 MB of messages for documents it has not opened yet;
+past either the socket is cut. With neither setting none of these checks runs, and neither do the structure cap
+and the factor 3 above.</li>
+</ul>
+<h3 id="instance-storage-fuse">Instance storage fuse</h3>
+<p><code>LIMIT_INSTANCE_STORAGE_MB</code> (docs/adr/2532-<em>) stops writes on a server that strangers could fill, such as a demo.
+It is weaker than a filesystem with a size limit (KNOWN-ISSUES LIMITS-27); give a demo one of its own as well (below).
+Since 0.22.1 it counts the disk blocks files take, and the workspaces count their search indexes, so 100 full
+workspaces of the demo preset fit under its 3,000 MB (docs/adr/2545-</em>, 2548-*). Dead space and Postgres index entries
+are still counted by the fuse and by no workspace (LIMITS-50).</p>
+<ul>
+<li><strong>What it measures</strong>: <code>pg_database_size</code> of the app&#39;s database plus what every file and folder under the data
+folder (<code>DATA_DIR</code>: uploads, the import and export scratch folder, plugins) takes on disk, <code>max(size, blocks × 512)</code>
+(since 0.22.1; before, the size), walked with 64 <code>lstat</code> calls at a time. It measures at most once a minute: when a
+check finds the last measurement older than that, from the hourly housekeeping, and in the background while live
+edits arrive. Since 0.22.1 a check answers from the last measurement and measures again in the background, so a
+write never waits for the walk; only the first check after a start (or after the limit changed) waits. A failed
+measurement keeps the last answer. The log has one line when the fuse trips (<code>[inkling] instance storage fuse tripped: …</code>) and one when the server is under it again (<code>[inkling] instance storage is under its fuse again: …</code>).</li>
+<li><strong>What stops when it is full</strong> (the sum has reached the limit): every POST, PUT and PATCH under <code>/api</code> answers 503
+<code>INSTANCE_FULL</code> before sign-in is checked, and so does sign-up (not the setup-code sign-up). A new OIDC account is
+refused, <code>POST /oauth/register</code> answers 503 <code>temporarily_unavailable</code>, and live editing connections become
+read-only and reconnect read-only. The app shows a strip (&quot;This server&#39;s storage is full. For now you can only read
+and delete.&quot;), and MCP tools tell the agent not to retry.</li>
+<li><strong>What keeps working</strong>: GET and DELETE always pass, so reading, exporting, and deleting pages, files, workspaces,
+the trash and one&#39;s own account work. Of the other writes these stay open (<code>quota/instanceGate.ts</code>): signing in and
+out, two-step sign-in, changing and resetting a password, two-step setup, agreeing to the terms, reads sent as POST
+(database query, chart aggregate, vault sync read, unlocking a public link), read marks (inbox, notifications,
+threads), what only removes or hands over (rejecting and withdrawing suggestions, unpublishing, removing guests,
+releasing connections, transferring ownership) and the admin routes (<code>/api/admin/**</code>). When a measurement finds the
+server under the limit again, writes work at once and read-only editing connections reconnect and can edit.
+Because a check answers from the last measurement, the first write after you make room can still get 503 once
+(it starts the measurement that finds the room).</li>
+<li>Admin › Status lists <strong>Server storage limit</strong> with use, limit, database and files: red when tripped, amber from
+90 %.</li>
+</ul>
+<p><strong>A tripped fuse usually needs the operator.</strong> Deleting rows does not make the database file smaller: Postgres keeps
+the space for reuse inside each table. Measured for 0.22.0 (ADR 2532): 60 × 5 MB took the database from 11.4 MB to
+322.6 MB; deleting every row left 322.6 MB; with half the rows deleted, <code>VACUUM</code> left 326.2 MB, still tripped;
+<code>VACUUM FULL</code> of the table brought it to 167.0 MB and released the fuse. So members deleting pages will usually not
+release it. In the 0.22.1 rehearsal (demo preset, local Docker) a tripped fuse was released this way: <code>VACUUM FULL</code>
+took the database from 219 MB to 13.7 MB, and writes worked again after one more refused write. To release it:</p>
+<ol>
+<li>Find the largest tables (with their TOAST data and indexes). Usually <code>page_docs</code> and <code>page_snapshots</code> lead.</li>
+<li>Have what should go deleted: workspaces deleted for good, trashes emptied, accounts that should go deleted.</li>
+<li>Run <code>VACUUM FULL</code> on those tables, one at a time. It locks the table while it runs and needs free disk about the
+size of the table&#39;s live data.</li>
+<li>Or raise <code>LIMIT_INSTANCE_STORAGE_MB</code> and restart. Until one of these is done, the server only reads and deletes.</li>
+</ol>
+<pre><code class="language-sh"># a demo (deploy/demo/demo.sh); on a main instance: docker compose exec db psql -c &quot;…&quot;
+deploy/demo/demo.sh exec db psql -c &quot;SELECT relname, pg_size_pretty(pg_total_relation_size(oid)) FROM pg_class WHERE relkind = &#39;r&#39; AND relnamespace = &#39;public&#39;::regnamespace ORDER BY pg_total_relation_size(oid) DESC LIMIT 10&quot;
+deploy/demo/demo.sh exec db psql -c &#39;VACUUM FULL page_snapshots&#39;
+</code></pre>
+<p><strong>What the fuse cannot bound.</strong> It does not see the WAL (up to <code>max_wal_size</code>, 1 GB by default, more while a backup
+or a long transaction holds it), the backup sets, container logs (3 × 10 MB per service), what grows in the minute
+between two measurements, or what still grows after it trips (sessions, audit rows of the writes that stay open).
+Rewrites bloat the database too: rewriting one 5 MB value 40 times in 8 seconds grew it by 207.5 MB, and one client
+address can send 4 MB a second over the collaboration socket (about 240 MB a minute), so a few addresses writing
+at full rate for a minute or two can trip a 3,000 MB fuse on a demo holding 2,000 MB of counted data. Only that
+server stops, but it stays stopped until the operator acts.</p>
+<p>Disk budget for a fuse of <code>L</code> MB: live data <code>L</code> plus a minute of growth, 2 GB for the WAL (the 0.22.1 rehearsal
+measured 880 MB after about 200 MB of database writes), each daily backup set at most <code>L</code> (content that does not
+compress), and the logs. With the demo preset (3,000 MB, 7 daily sets) that is 3 + 2 + 7 × 3 = 26 GB in the worst
+case; <a href="DEMO.html">DEMO.md</a> sizes the demo&#39;s filesystem at 30 GB. Put a demo&#39;s Docker volumes on a separate filesystem with a size limit, so
+that whatever the fuse misses cannot fill the disk the main instance uses.</p>
+<h3 id="terms-and-consent-legal_dir">Terms and consent (<code>LEGAL_DIR</code>)</h3>
+<ul>
+<li>The folder holds <code>terms.ko.md</code>, <code>terms.en.md</code>, <code>privacy.ko.md</code>, <code>privacy.en.md</code> (those present) and <code>signup.json</code>
+(the notice at the top of the sign-up form and the tick boxes: <code>id</code>, <code>required</code>, <code>label</code>, optional <code>doc</code> and
+<code>details</code>). <a href="DEMO.html">DEMO.md</a> describes the files, and <code>deploy/demo/legal/</code> has templates.</li>
+<li>The server reads the folder once, at start. It refuses to start for a malformed <code>signup.json</code> (not JSON, an
+unknown key, an empty label, a duplicate id, a <code>doc</code> whose file is missing, more than 32 items) and for an empty
+document or one over 512 KB. Other files in the folder are ignored and listed in the log.</li>
+<li>The version is the first 12 hex characters of a SHA-256 over the documents and <code>signup.json</code>. Any edit therefore
+needs a restart, and after it everyone, admins included, agrees again before they can go on.</li>
+<li>Consent is asked at sign-up and stored per item (<code>user_consents</code>, with the version and the address). Accounts
+made another way (delegated sign-in, OIDC) and everyone after a change see a consent screen
+instead of the app. Until they agree, every request of theirs is refused with 403 <code>CONSENT_REQUIRED</code>: the browser,
+personal API tokens, MCP connections (the <code>/mcp</code> request itself is refused with HTTP 403) and the collaboration
+socket. Signing out, reading the documents, agreeing, and deleting the account still work: the consent screen
+has <strong>Delete my account</strong>, without export (export is not open before consent, and the dialog says so).
+Automation rules set up earlier keep running.</li>
+<li><code>/terms</code> and <code>/privacy</code> open without signing in; the sign-in and sign-up screens and Settings link to them.</li>
+</ul>
+<h3 id="sign-up-limits-and-trust_proxy">Sign-up limits and <code>TRUST_PROXY</code></h3>
+<ul>
+<li><code>SIGNUP_PER_IP_PER_DAY</code> needs the client&#39;s real address. It is taken from <code>X-Forwarded-For</code> only on connections
+from a <code>TRUST_PROXY</code> address. The default, <code>loopback,uniquelocal</code>, also trusts every private range (10/8,
+172.16/12, 192.168/16, fc00::/7): anyone who can reach the app port from such a network can send a made-up
+address. Set <code>TRUST_PROXY</code> to your reverse proxy&#39;s address only, and do not publish the app port beyond
+<code>127.0.0.1</code>. A sign-up that arrives from a private or loopback address is logged once as a hint that the proxy
+does not send the header.</li>
+<li>The sign-up limits count an IPv6 client by its /56 (one subscriber usually holds at least that much), an IPv4
+client by its address, and an IPv4-mapped IPv6 address as the IPv4 address. The request rate limit of every server
+counts IPv6 by /64; the sign-in failure bans are unchanged.</li>
+<li>While <code>SIGNUP_MAX_USERS</code>, <code>SIGNUP_PER_IP_PER_DAY</code> or <code>SIGNUP_PER_HOUR</code> is set, the sign-up form also has a hidden
+field that must stay empty and must have been on screen for two seconds (400 <code>SIGNUP_CHECK_FAILED</code> otherwise).
+These checks stop only simple scripts; the caps are what bound the damage, and they slow filling the server
+rather than prevent it (KNOWN-ISSUES LIMITS-10, LIMITS-28).</li>
+<li><code>SIGNUP_PER_HOUR</code> counts the accounts the server made in the last hour (429 <code>SIGNUP_RATE_LIMIT</code>, &quot;Try again in an
+hour&quot;). The setup-code sign-up neither counts nor is refused.</li>
+<li>While <code>SIGNUP_PER_IP_PER_DAY</code> is set, a sign-up refused because the email or ID is taken is recorded for the
+address (in <code>signup_events</code>, as <code>taken:</code> and the address). After 10 such answers in 24 hours the address gets 429
+<code>SIGNUP_IP_LIMIT</code> for every sign-up, before the server says whether a name is taken. Without
+<code>SIGNUP_PER_IP_PER_DAY</code> nothing is recorded and the answers are not limited.</li>
+<li>Sign-up address records are deleted after 30 days. The hourly housekeeping also deletes <code>ip_bans</code> rows whose ban
+ended more than 30 days ago, on every server; an active ban is never touched.</li>
+<li>Open sign-up (<code>SIGNUP_REQUIRE_KEY=0</code>) on a server without an admin: the first account becomes the admin. Under
+restricted sign-up (<code>SIGNUP_MAX_USERS</code>, <code>SIGNUP_PER_IP_PER_DAY</code> or <code>ACCOUNT_LIFETIME_DAYS</code> set, or
+<code>LOGIN_ID_MODE=username</code>; <code>SIGNUP_PER_HOUR</code> alone is not restricted sign-up) a server without an admin refuses sign-ups without the setup code (403
+<code>SETUP_REQUIRED</code>, before any other check) and its sign-up screen only says it is waiting for its operator. Create
+the operator account with the setup link from the log (<code>/setup?code=…</code>, opened at the <code>PUBLIC_URL</code> address); after
+that, sign-up is open as configured. Sign-in still promotes: with OIDC or delegated sign-in on (possible with the
+caps or the lifetime, not with sign-in IDs), and on a server that has accounts but no admin, the first account to
+sign in becomes the admin (KNOWN-ISSUES LIMITS-19, LIMITS-20).</li>
+</ul>
+<h3 id="unused-oauth-clients">Unused OAuth clients</h3>
+<p><code>POST /oauth/register</code> needs no account, and every call stores a client row (up to about 20 KB). Two settings bound
+these rows on a server open to strangers (docs/adr/2536-*). Both are off by default; without them nothing is deleted.</p>
+<ul>
+<li><strong>Never used</strong> means a self-registered client (<code>ink_c_…</code>) that nothing points at: no authorization code, no grant,
+no agent access record and no agent block. An expired grant still counts as use until the hourly OAuth purge
+removes it (60 days after its last refresh). Agent connection tokens (<code>ink_tc_…</code>) and metadata-document clients
+(whose id is a URL) are never deleted this way, and neither is a client someone has connected with.</li>
+<li><code>OAUTH_UNUSED_CLIENT_HOURS</code>: the hourly housekeeping deletes never-used clients registered more than this many
+hours ago.</li>
+<li><code>OAUTH_UNUSED_CLIENT_MAX</code>: a registration that would pass this many never-used clients first deletes the oldest
+ones. It never deletes one registered in the last 15 minutes (someone may be on the sign-in or consent screen with
+it); when only those are left, the registration is refused with 503 <code>temporarily_unavailable</code> and <code>Retry-After</code>.</li>
+<li>An app whose client was deleted is refused at the authorization step (400 <code>INVALID_CLIENT</code>) and has to register
+again (KNOWN-ISSUES LIMITS-30).</li>
+<li>With the demo values (24 hours, 500) the never-used rows stay under about 500 × 23 KB.</li>
+</ul>
+<h3 id="account-lifetime">Account lifetime</h3>
+<ul>
+<li><code>ACCOUNT_LIFETIME_DAYS</code> gives an expiry date only to accounts that sign up while it is set, and never to admins.
+Turning it on later leaves existing accounts alone; turning it off stops all deletion, also for accounts that
+have a date.</li>
+<li><strong>Turning it off and on again</strong> keeps the dates that accounts got earlier: at the next hourly run every account
+whose date passed while it was off is deleted at once. Before turning it back on, look at the dates in Admin ›
+Users and move or lift the ones that should not apply (KNOWN-ISSUES LIMITS-33).</li>
+<li>Each hour up to 50 expired accounts are deleted, oldest date first, each in its own transaction; a failure is
+one log line and the next account still runs. Log lines carry the account id and counts, never a name or ID.</li>
+<li>Start with <code>ACCOUNT_LIFETIME_DRY_RUN=1</code>: the job logs one line per account it would delete (&quot;would delete user
+…, N workspace(s) deleted, M handed over&quot;) and deletes nothing. When the first accounts pass their date and the
+log lists exactly those, remove the value and restart.</li>
+<li>An expired account goes as if it had deleted itself (below). Backups keep it until they rotate out.</li>
+<li>Admin › Users shows the date and <strong>Lift expiry</strong>. <code>GET</code> and <code>PATCH /api/admin/users/:id/expiry</code> read, move or lift
+a date; they never give a date to an account that has none.</li>
+</ul>
+<h3 id="account-deletion">Account deletion</h3>
+<ul>
+<li>Every account can delete itself on every server (Settings › Account › <strong>Delete account</strong>, <code>DELETE /api/me</code>), from
+a browser session only, with the current password (and the two-step code when it is on) or, for delegated and OIDC
+accounts, within ten minutes of signing in. The only admin cannot.</li>
+<li>It is immediate and cannot be undone: workspaces where the person is the only member, and deleted workspaces they
+own alone that could still be restored, are deleted with their files; a shared workspace they own alone goes to its oldest admin-role member, else its oldest member (who gets
+a notification); their private pages are deleted; their shared pages, comments and versions stay without their
+name. Mentions other members wrote, and ids without a name in audit rows, stay (KNOWN-ISSUES LIMITS-8).</li>
+<li>Copied names are found by the account&#39;s id only: the name in audit rows (actor, target, and the names write sites
+keep beside an id) and the workspace this account made at sign-up (<code>&lt;name&gt;&#39;s workspace</code>). Records of another person
+with the same name never change. A name written without an id beside it stays, also in rows 0.22.0 writes: the
+person of the page access rows (sharing a page with a person, changing or removing that access, accepting a page
+invitation) and the invited address of page invitations; rows written before 0.22.0 also keep the names of
+locking a page, changing a lock&#39;s editors, and blocking and unblocking an agent (KNOWN-ISSUES LIMITS-8).</li>
+<li>Since 0.22.1 the page access rows keep <code>personId</code> beside the name, so deletion clears them, and deletion also
+clears the invited address of <code>page.guest_invited</code> rows whose address is the account&#39;s own sign-in email or ID
+(docs/adr/2547-*). Rows written before 0.22.1 keep the name (KNOWN-ISSUES LIMITS-52).</li>
+<li>The preview of what deletion removes (<code>GET /api/me/delete-preview</code>) answers browser sessions only.</li>
+<li>The admin&#39;s <strong>Delete</strong> in Admin › Users keeps its 0.21 behaviour (409 <code>SOLE_OWNER</code>, private pages to the trash).</li>
+</ul>
+<h3 id="admin-status">Admin status</h3>
+<ul>
+<li>The &quot;Security settings&quot; card gains two items. <strong>Account cap</strong>, shown while anyone can sign up: amber in
+production without <code>SIGNUP_MAX_USERS</code>. <strong>Account lifetime</strong>, shown while <code>ACCOUNT_LIFETIME_DAYS</code> or the dry run is
+set: amber during a dry run.</li>
+<li>With <code>LIMIT_INSTANCE_STORAGE_MB</code>, the storage group lists <strong>Server storage limit</strong> (above, &quot;Instance storage fuse&quot;).</li>
+</ul>
+<h3 id="upgrading-from-0220-to-0221">Upgrading from 0.22.0 to 0.22.1</h3>
+<p>No migration and no new setting for the app (docs/adr/2540-* .. 2551-*; CHANGELOG, 0.22.1).</p>
+<ul>
+<li><strong>With <code>LIMIT_WORKSPACE_STORAGE_MB</code>, workspaces count more</strong>: the search indexes and the 5 KB minimum per file are
+new in the count. A workspace near its limit can turn read-only at its first recount after the upgrade (the hourly
+housekeeping, or Workspace settings › General when its count is more than a minute old). Open Workspace settings ›
+General of your largest workspaces after the upgrade to see the new numbers. To make room: delete pages or files
+and empty the trash, or raise <code>LIMIT_WORKSPACE_STORAGE_MB</code> and restart. Without the setting nothing changes in the
+count.</li>
+<li><strong>On every server</strong> the inbox document is read-only, awareness messages have caps (4 client ids of its own per document
+connection, other clients&#39; states sent back not counted; new ids 64 at once then one a second per socket; 1024 ids
+per document; 16 KB per state, 1 MB per message, 256 KB per socket, changed states 128 KB at once then 16 KB a
+second per socket; past one of these two rates the message is dropped and the socket stays, past another cap the
+socket is cut), and the cap of 40 collaboration sockets per
+address counts an IPv6 /64 as one address. The 40 is a constant in the code (<code>MAX_CONN_PER_IP</code> in
+<code>apps/server/src/collab.ts</code>), not a setting: many people behind one IPv6 /64 who open many tabs can get 429 on the
+socket.</li>
+<li><strong>New log lines</strong> (every server), when the server cuts a socket that sent what the web app never sends. The line
+names the reason only, not the account or the address:<ul>
+<li><code>[inkling] collab socket closed: awareness message</code> (and <code>awareness state</code>, <code>awareness clients</code>,
+<code>awareness document</code>, <code>awareness socket</code>, <code>awareness malformed</code>: the cap that was passed; a message past the
+new-id or the changed-state rate is dropped without a log line)</li>
+<li><code>[inkling] collab socket closed: an update to the inbox</code></li>
+</ul>
+</li>
+<li>With a storage limit, two new error lines of the reconnect when a workspace goes over its limit:
+<code>[inkling] storage close: collecting live connections failed</code> and
+<code>[inkling] reconnectWorkspaceForStorage failed</code>.</li>
+<li><strong>A demo started with 0.22.0</strong> keeps its volumes on Docker&#39;s disk until it is moved: docs/DEMO.md, &quot;Moving a demo
+from 0.22.0&quot;.</li>
+</ul>
+<h3 id="memory-of-large-pages">Memory of large pages</h3>
+<p>This applies to every server, with or without limits (docs/adr/2550-<em>, 2551-</em>).</p>
+<ul>
+<li>The default <code>compose.yaml</code> runs the app with a 512 MB heap (<code class="long">NODE_OPTIONS=--max-old-space-size=512</code>) in a 768 MB
+container (<code>APP_MEM_LIMIT=768m</code>), which leaves about 250 MB outside the heap. Buffers, Yjs documents and the parsed
+documents of a Markdown conversion live partly outside it.</li>
+<li>Since 0.22.1 a replace of a large range has an edit budget, so rewriting about 1 MB of different text no longer
+runs the server out of memory (before: on the second request). But rewriting about 990 KB of ordinary Markdown
+six times in a row still peaked at 832–856 MB of resident memory with a 512 MB heap (production build on macOS,
+not in a container; KNOWN-ISSUES LIMITS-54), which is more than the default container allows: the container would
+be stopped and restarted, and edits not yet saved would be lost.</li>
+<li>If agents or people rewrite large pages on your server, give the app more room outside the heap: for example
+<code>APP_MEM_LIMIT=1g</code> with the default heap. That value is not measured in a container; the measurements above were
+made on macOS, where resident memory can differ from a Linux container. In the demo&#39;s live-editing runs the server
+used 255–325 MB besides its heap; in the replace runs above resident memory went up to 344 MB past a 512 MB heap.</li>
+<li>The demo preset runs a 448 MB heap in a 768 MB container, and app, database and backup get <code>memswap_limit</code> equal to
+<code>mem_limit</code>, so a container that runs out is stopped and restarted instead of using the host&#39;s swap; <code>demo.sh</code>
+refuses a configuration without these limits (<a href="DEMO.html">DEMO.md</a>, &quot;Memory&quot;).</li>
+</ul>
+<p class="doc-meta"><a href="OPERATIONS.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/OPERATIONS.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#0-deployment-checklist">0. Deployment checklist</a></li><li><a href="#1-postgresql-tuning">1. PostgreSQL tuning</a></li><li><a href="#2-node-process">2. Node process</a></li><li><a href="#3-in-process-caches-and-maps-single-instance">3. In-process caches and maps (single instance)</a></li><li><a href="#4-http-caching">4. HTTP caching</a></li><li><a href="#5-semantic-search-optional">5. Semantic search (optional)</a></li><li><a href="#6-slack-app-per-workspace">6. Slack app (per workspace)</a></li><li><a href="#7-public-forms">7. Public forms</a></li><li><a href="#8-page-verification-scheduled-links-member-status-and-team-agents">8. Page verification, scheduled links, member status and team agents</a></li><li><a href="#9-single-instance-boot-re-index-and-saving-0151">9. Single instance, boot re-index and saving (0.15.1)</a></li><li><a href="#10-mcp-and-ai-agents-016">10. MCP and AI agents (0.16)</a></li><li><a href="#11-local-trial-setup-link-zips-versions-and-diagrams-017">11. Local trial, setup link, zips, versions and diagrams (0.17)</a></li><li><a href="#12-offline-copies-web-push-automations-the-web-clipper-and-cimd-018">12. Offline copies, web push, automations, the web clipper and CIMD (0.18)</a></li><li><a href="#13-public-page-downloads-start-up-notices-and-onboarding-019">13. Public page downloads, start-up notices and onboarding (0.19)</a></li><li><a href="#14-columns-and-tabs-of-older-releases-020">14. Columns and tabs of older releases (0.20)</a></li><li><a href="#15-charts-on-public-links-020">15. Charts on public links (0.20)</a></li><li><a href="#16-pdf-preview-021">16. PDF preview (0.21)</a></li><li><a href="#17-limits-and-restricted-mode-022">17. Limits and restricted mode (0.22)</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

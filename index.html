@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en" class="no-js landing">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling: team notes that AI agents read and edit over MCP</title>
+  <meta name="description" content="Inkling is a self-hosted notes app with a built-in MCP server. People and their AI agents work on the same notes: agents find sections within a token budget, edit one section against the version they read, and can leave suggestions for people to accept.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/index.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/index.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/ko/index.html">
+  <link rel="alternate" hreflang="x-default" href="https://prove1352.github.io/inkling/index.html">
+  <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Inkling: team notes that AI agents read and edit over MCP">
+  <meta property="og:description" content="A self-hosted notes app with a built-in MCP server. Each person connects their own agent; agents read sections within a token budget and edit one section at a time.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/index.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/review-light.png">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ko_KR">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Inkling",
+    "description": "A self-hosted notes app with a built-in MCP server, where people and their AI agents read and write the same notes.",
+    "url": "https://prove1352.github.io/inkling/index.html",
+    "softwareVersion": "0.22.1",
+    "operatingSystem": "Docker (amd64, arm64)",
+    "inLanguage": ["en", "ko"],
+    "sameAs": "https://github.com/PROVE1352/inkling"
+  }
+  </script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="tour/index.html">Tour</a>
+      <a href="docs/index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="ko/index.html" hreflang="ko" lang="ko">한국어</a><a href="index.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+  <nav class="sections" data-sections aria-label="Sections of this page"><div class="wrap"><a href="#start">Quick start</a><a href="#connect">Connect</a><a href="#watch">Video</a><a href="#find">Find</a><a href="#edit">Edit</a><a href="#decide">People decide</a><a href="#scope">Scope</a><a href="#handoff">Hand off</a><a href="#fit">Who it is for</a><a href="#notes">The notes app</a><a href="#install">Install</a><a href="#docs">Documentation</a></div></nav>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+      <p class="eyebrow"><b>v0.22.1</b> self-hosted</p>
+      <h1 id="hero-title">AI agents read and edit the notes your team writes</h1>
+      <p class="lede">
+        Inkling is a notes app that runs on your own server, with an MCP server built in. Each person connects their own
+        agent. The agent finds the sections it needs within a token budget, changes one section against the version it
+        read, and can leave its edits as suggestions for a person to accept.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="#start">Quick start</a>
+        <a class="btn" href="tour/index.html">Take the tour</a>
+        <a class="btn" href="https://demo.inkling.kro.kr">Try the demo</a>
+        <a class="btn" href="#connect">Connect to a server</a>
+        <a class="btn" href="https://github.com/PROVE1352/inkling">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+
+      <div class="callout" style="margin:0 0 24px">
+        <strong>The demo server.</strong>
+        Sign up with a user ID instead of an email address and try Inkling right away. Its limits are tight, accounts and
+        what is in them are deleted 14 days after sign-up, and it may close without notice, so keep nothing important
+        there. If sign-up is closed, <a href="tour/index.html">take the tour</a> or
+        <a href="#start">run Inkling yourself with Docker</a>.
+      </div>
+
+      <p class="agent-links">For agents: <a href="llms.txt">summary for agents (llms.txt)</a> · <a href="docs/MCP.md">MCP guide as Markdown</a> · <a href="docs/DEPLOY.md">deployment guide as Markdown</a></p>
+      </div>
+      <figure class="demo" data-demo="15">
+  <div class="demo-stage" role="img" aria-label="Animated example. An agent finds the Checklist section of the &quot;Q4 launch plan&quot; page with find_context, then appends one line, &quot;Changelog post&quot;, to that section with patch_section. In the note the line is marked Priya Nair (via Claude Code).">
+    <div class="win demo-note">
+      <div class="win-bar" aria-hidden="true"><i></i><i></i><i></i><span>Q4 launch plan</span></div>
+      <div class="note">
+        <div class="note-h1">Q4 launch plan</div>
+        <div class="note-sec"><div class="note-h2">Schedule</div><div class="note-line" style="width:82%"></div><div class="note-line" style="width:58%"></div></div>
+        <div class="note-sec is-target">
+          <span class="note-ring" data-at="2.4" data-fx="ring" data-hold="9.6"></span>
+          <div class="note-h2">Checklist<span class="note-ver" data-at="9" data-fx="line">v=1ae7c0</span></div>
+          <div class="note-item is-done">Pricing page copy</div>
+          <div class="note-item is-done">Status page, owner Sam Ortiz</div>
+          <div class="note-item">Support macros for the new plans</div>
+          <div class="note-item is-new" data-at="9" data-fx="grow">Changelog post<span class="note-by">Priya Nair (via Claude Code)</span></div>
+        </div>
+        <div class="note-sec"><div class="note-h2">Owners</div><div class="note-line" style="width:66%"></div></div>
+      </div>
+    </div>
+    <div class="win term demo-term">
+      <div class="win-bar" aria-hidden="true"><i></i><i></i><i></i><span>Claude Code · inkling</span></div>
+      <pre><code><span class="dl" data-at="0.2"><span class="k">› find_context</span>(query: "launch checklist status page")</span>
+<span class="dl c" data-at="1.5">1 result(s), ~63/3500 tokens</span>
+<span class="dl" data-at="2.4">[1] Q4 launch plan › Checklist</span>
+<span class="dl" data-at="5.2"><span class="k">› patch_section</span>(section: "checklist", mode: "append",</span>
+<span class="dl" data-at="5.9">    markdown: "- [ ] Changelog post", baseVersion: "96198f73e6eb")</span>
+<span class="dl o" data-at="9">Done (append): §checklist is now v=1ae7c04d3487.<span class="caret" aria-hidden="true"></span></span></code></pre>
+    </div>
+  </div>
+  <figcaption>A short form of the real output printed in the find and edit sections below.</figcaption>
+</figure>
+    </div>
+    <div class="wrap"><div class="stats"><a class="stat" href="#connect"><span class="stat-num"><span data-count="">48</span></span><span class="stat-label">MCP tools</span><span class="stat-note">32 with the core profile</span></a><a class="stat" href="#find"><span class="stat-num"><span data-count="">72</span><small>%</small></span><span class="stat-label">fewer tokens</span><span class="stat-note">2,254 → 624 per question</span></a><a class="stat" href="#find"><span class="stat-num"><span data-count="3.68">1.00</span></span><span class="stat-label">tool call</span><span class="stat-note">was 3.68 per question</span></a><a class="stat" href="#edit"><span class="stat-num"><span data-count="">6</span><small> of 6</small></span><span class="stat-label">typists keep their text</span><span class="stat-note">in the section an agent patches</span></a></div></div>
+  </section>
+
+  <section class="block start side" id="start" aria-labelledby="start-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">Quick start</p>
+        <h2 id="start-title">Try it on your computer with an agent</h2>
+        <p>Needs Docker Compose v2.24 or newer, bash and curl. The commands below are for a local trial; a server with a domain and HTTPS is under <a href="#install">Install</a>.</p>
+      </div>
+      </div>
+      <div class="side-body">
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>Start Inkling</h3>
+          <p>Downloads Inkling and starts it with generated secrets on a free local port (usually 3000).</p>
+          <div class="term" data-copy><pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git <span class="k">&amp;&amp;</span> <span class="k">cd</span> inkling
+<span class="k">./deploy/local.sh</span></code></pre></div>
+          <p class="after">When the server is up, the script prints a one-time setup link (<code>/setup?code=…</code>) and the MCP address. <code>./deploy/local.sh stop</code> stops the trial, <code>./deploy/local.sh destroy</code> deletes it.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Check that it answers</h3>
+          <p>Asks the server for its version (use the port the script printed).</p>
+          <div class="term" data-copy><pre><code><span class="k">curl</span> http://localhost:3000/api/version</code></pre></div>
+          <p class="after">The answer is JSON with <code>build</code>, <code>version</code> and <code>updateMode</code>.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Create the first account</h3>
+          <p>A person does this step: open the setup link in a browser and create an account. It becomes the administrator.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Make an agent connection token</h3>
+          <p>A person does this step. Sign-in does not work at a plain <code>http://</code> address, so the trial uses a token: open <code>http://localhost:3000/settings/connections</code>, make an <b>agent connection token</b> named after the client, read and write, 7 days. Copy it when it is shown; it is shown once.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Add the server to Claude Code</h3>
+          <p>Adds Inkling under the name <code>inkling</code> and sends the token as a header (put in your port and token).</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling http://localhost:3000/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre></div>
+        </div></li>
+        <li class="step"><div>
+          <h3>Check the connection</h3>
+          <p>Ask the agent to create a page, or to <code>find_context</code> something. In Inkling, its edits show "you (via Claude Code)".</p>
+        </div></li>
+      </ol>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="block side" id="connect" aria-labelledby="connect-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">Connect</p>
+        <h2 id="connect-title">One address, signed in as each person</h2>
+        <p>
+          The MCP server is part of the app, at <code>https://&lt;your domain&gt;/mcp</code>. Each person connects their
+          own client with OAuth 2.1, and the agent sees only what that person can see in the web app. There are 48 tools.
+        </p>
+      </div>
+      <div class="ill ill-connect" role="img" aria-label="Each person connects their own agent to the same /mcp address with OAuth, and the agent sees only what that person can see on the web.">
+  <div class="ill-people"><div class="ill-person"><span class="ill-avatar">P</span><span class="ill-name">Priya<small>Claude Code</small></span></div><div class="ill-person"><span class="ill-avatar">S</span><span class="ill-name">Sam<small>Cursor</small></span></div><div class="ill-person"><span class="ill-avatar">T</span><span class="ill-name">Teammate<small>claude.ai</small></span></div></div>
+  <div class="ill-wires" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="ill-hub"><small>one address</small><code>/mcp</code><small>OAuth 2.1</small></div>
+  <svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="ill-app"><b>Inkling</b><small>only what each person can see on the web</small></div>
+</div>
+      </div>
+      <div class="side-body">
+
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>Add the server to your client</h3>
+          <p>Adds Inkling to Claude Code under the name <code>inkling</code>.</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling https://notes.example.com/mcp</code></pre></div>
+          <p class="after">In claude.ai, add a custom connector with the same address. claude.ai connects from Anthropic's servers, so the server must be reachable from the internet.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Sign in as yourself</h3>
+          <p>
+            A person does this step. In Claude Code run <code>/mcp</code>, choose <code>inkling</code> and Authenticate.
+            Inkling's consent screen opens in the browser: sign in, choose <b>Read and write</b> or <b>Read only</b> and what
+            the connection may see, then click <b>Allow</b>. Tokens refresh by themselves.
+          </p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Optional: list fewer tools</h3>
+          <p>Connects with the core profile: 32 tools instead of 48, about 7,900 tokens of tool list per session instead of 13,200. The other tools stay one <code>more_tools</code> call away.</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling "https://notes.example.com/mcp?profile=core"</code></pre></div>
+        </div></li>
+      </ol>
+
+      <div class="callout" style="margin-top:28px">
+        <strong>Apps that cannot sign in.</strong>
+        Some apps cannot sign in to an MCP server, and sign-in does not work at a plain <code>http://</code> address. For
+        those, a person makes an <b>agent connection token</b> in Settings › Connections (read only or read and write, an
+        expiry of 7 to 365 days, shown once) and the app sends it as a header. The same screen, under
+        <b>Connect an AI app</b>, writes the settings for Claude Code, claude.ai and Claude Desktop, Cursor, VS Code and a
+        generic <code>mcpServers</code> JSON. Details: <a href="docs/MCP.html">MCP connector</a>.
+      </div>
+      <p class="protocol"><b>Transport and sign-in.</b> MCP Streamable HTTP (stateless, JSON responses) at <code>/mcp</code>. Sign-in is OAuth 2.1 (dynamic client registration, and Client ID Metadata Documents when the server sets <code>OAUTH_CIMD=1</code>), or an agent connection token sent as <code>Authorization: Bearer</code>.</p>
+      </div>
+    </div>
+    <div class="wrap">
+      <h3 class="table-title">Tools agents use most</h3>
+      <div class="table-scroll"><table class="tools"><thead><tr><th>Tool</th><th>Kind</th><th>What it does</th></tr></thead><tbody><tr><td><code>find_context</code></td><td>read</td><td>Ranked sections across your workspaces, packed into a token budget, each with page id, §anchor and version. Start here.</td></tr><tr><td><code>read_page</code></td><td>read</td><td>A page as Markdown; <code>outline=true</code> lists sections, <code>section=…</code> reads one.</td></tr><tr><td><code>patch_section</code></td><td>write</td><td>Change one section with <code>baseVersion</code>; a stale version returns a conflict with the current text.</td></tr><tr><td><code>claim_section</code></td><td>write</td><td>"Working on this section" for this connection, up to 30 minutes.</td></tr><tr><td><code>list_suggestions</code></td><td>read</td><td>Suggested edits and their outcome.</td></tr><tr><td><code>inbox</code></td><td>read</td><td>Mentions, replies, assignments and answers to suggestions, not yet acknowledged.</td></tr><tr><td><code>catch_up</code></td><td>read</td><td>What happened while the agent was away, most important first.</td></tr><tr><td><code>changes_since</code></td><td>read</td><td>What changed since a cursor, with per-section diffs.</td></tr><tr><td><code>get_instructions</code></td><td>read</td><td>The workspace's rules for agents from locked instruction pages.</td></tr><tr><td><code>trash_page</code></td><td>write</td><td>Move to trash, restorable for 30 days. There is no permanent-delete tool.</td></tr></tbody></table></div>
+      <p class="method">48 tools in all; 32 with <code>?profile=core</code>. The full list with arguments: <a href="docs/MCP.html#what-it-can-do-tools">MCP connector</a> (<a href="docs/MCP.md">Markdown</a>).</p>
+    </div>
+  </section>
+
+
+  <section class="block promo band-dark" id="watch" aria-labelledby="watch-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Video</p>
+        <h2 id="watch-title">Watch it work</h2>
+        <p>The video has no sound. What it shows is written out below it, scene by scene.</p>
+      </div>
+      <figure class="shot promo-shot">
+        <video src="assets/promo.mp4" poster="assets/promo-poster.png" width="1920" height="1080" controls preload="none" playsinline muted aria-describedby="watch-scenes"></video>
+      </figure>
+      <ol class="scenes" id="watch-scenes">
+        <li class="scene"><b>Notes you write together.</b> Two people edit the same page with live cursors, a <code>[[link]]</code> connects two pages, and a database inside a page shows as a board.</li>
+        <li class="scene"><b>Your AI agents read the notes.</b> Someone asks the agent when the launch is and who sends the email. <code>find_context</code> lights up only the two sections that answer it, one in each of two pages, <code>read_page</code> reads them, and the answer cites both. The screen shows "48 MCP tools" and "−72% tokens", the numbers under <a href="#connect">Connect</a> and <a href="#find">Find</a>.</li>
+        <li class="scene"><b>Agents edit, you decide.</b> <code>patch_section</code> leaves a suggested edit on the page; a person opens Review and accepts it, and the version line offers Revert for the accepted edit. Then <code>update_row</code> moves a card on the database board from To do to In progress.</li>
+        <li class="scene"><b>On your own server.</b> A laptop and a phone stay connected to your server; the laptop goes offline, still shows its page, and syncs again when it reconnects.</li>
+      </ol>
+    </div>
+  </section>
+  <section class="block" id="find" aria-labelledby="find-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Find</p>
+        <h2 id="find-title">One call returns the sections that answer</h2>
+        <p>
+          <code>find_context(query)</code> ranks sections across your workspaces and packs them into a token budget
+          (3,500 by default). Each result carries its page id, <code>§anchor</code> and version, which the edit tools take.
+          <code>queries=[…]</code> searches several phrasings at once, such as a question and its translation.
+        </p>
+      </div>
+
+      <div class="split">
+        <div class="transcript">
+          <p class="quick-label">An agent asks a question. Real output from a demo workspace on 0.20; ids differ on every server.</p>
+          <div class="term">
+<pre><code><span class="k">› find_context</span>(query: "launch checklist status page")
+1 result(s) for "launch checklist status page", ~63/3500 tokens
+<span class="c">&lt;untrusted_content source="find_context"&gt;</span>
+[1] Q4 launch plan › Checklist
+(page bf62b053; §checklist v=3a3739a2f5ab; can: read,comment,edit; edited by Priya Nair)
+- [x] Pricing page copy
+- [ ] Status page, owner Sam Ortiz, due 2026-11-20
+- [ ] Support macros for the new plans
+
+Title matches without text:
+- Pricing page copy (page b4b7b832, doc)
+- Status page (page 20f7143e, doc)
+<span class="c">&lt;/untrusted_content&gt;</span>
+
+Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="ill ill-budget" role="img" aria-label="Three ranked sections fit in the token budget; the fourth is left outside it.">
+  <div class="ill-row"><span class="ill-chip">question</span><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="ill-chip is-code">find_context</span></div>
+  <div class="ill-pack"><div class="ill-fit"><span class="ill-seg" style="flex:5"><b>rank 1</b></span><span class="ill-seg" style="flex:3"><b>rank 2</b></span><span class="ill-seg" style="flex:2"><b>rank 3</b></span><span class="ill-free" style="flex:1"></span></div><span class="ill-seg is-over" style="flex:3"><b>rank 4</b></span></div>
+  <div class="ill-legend"><span>token budget (3,500 by default)</span><span>over budget</span></div>
+</div>
+          <div class="card"><p class="num">2,254 → 624 <small>tokens</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:28%"></span></span><p>per question, −72%, and 3.68 → 1.00 tool calls</p></div>
+          <p class="method">
+            Measured when <code>find_context</code> replaced search plus whole-page reads: 28 questions in English and
+            Korean over a 25-page wiki padded to 1–2k tokens a page, plus 5,000 unrelated pages. Ranking by words only.
+            Token counts are estimates (<code>estimateTokens</code>), not a model's tokenizer.
+            <a href="docs/PERFORMANCE.html#retrieval--mcp">Performance log</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="edit" aria-labelledby="edit-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Edit</p>
+        <h2 id="edit-title">Change one section, against the version it read</h2>
+        <p>
+          <code>patch_section(pageId, section, markdown, mode, baseVersion)</code> changes one section. If the section
+          changed since the agent read it, nothing is written and the answer carries the current text to merge. A person
+          typing in the same section keeps their text. <code>claim_section</code> holds a section for up to 30 minutes:
+          other agents' direct edits to it are refused, and people are never blocked.
+        </p>
+      </div>
+
+      <div class="split flip">
+        <div class="transcript">
+          <p class="quick-label">Sam ticked a box after the agent read the section, so the first edit is refused and the retry goes through. Real output.</p>
+          <div class="term">
+<pre><code><span class="k">› patch_section</span>(pageId: "bf62b053", section: "checklist", mode: "append",
+                markdown: "- [ ] Changelog post", baseVersion: "3a3739a2f5ab")
+Conflict: Section "checklist" changed since baseVersion 3a3739a2f5ab; nothing was written. Merge your edit into the current content and retry with baseVersion 96198f73e6eb.
+
+Current §checklist (v=96198f73e6eb):
+## Checklist
+
+* [x] Pricing page copy
+* [x] Status page, owner Sam Ortiz, due 2026-11-20
+* [ ] Support macros for the new plans
+
+<span class="k">› patch_section</span>(…, baseVersion: "96198f73e6eb")
+<span class="o">Done (append): §checklist is now v=1ae7c04d3487.</span></code></pre>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="ill ill-patch" role="img" aria-label="Of four sections on a page only the Checklist section is edited and gets a new version. The others stay as they are.">
+  <div class="ill-sec"><span class="ill-sec-name">§ Goals</span><span class="ill-lines"><i style="width:64%"></i><i style="width:42%"></i></span><span class="ill-tag">untouched</span></div>
+  <div class="ill-sec"><span class="ill-sec-name">§ Schedule</span><span class="ill-lines"><i style="width:80%"></i><i style="width:55%"></i></span><span class="ill-tag">untouched</span></div>
+  <div class="ill-sec is-hit"><span class="ill-sec-name">§ Checklist</span><span class="ill-lines"><i style="width:74%"></i><i style="width:52%"></i><i class="is-new" style="width:40%"></i></span><span class="ill-tag is-accent">this section only</span><span class="ill-vers"><code>v=96198f</code><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><code>v=1ae7c0</code></span></div>
+  <div class="ill-sec"><span class="ill-sec-name">§ Owners</span><span class="ill-lines"><i style="width:58%"></i><i style="width:36%"></i></span><span class="ill-tag">untouched</span></div>
+</div>
+          <div class="card"><p class="num">~2,415 → ~222 <small>tokens</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:9%"></span></span><p>to change one sentence: read and replace the page, or <code>patch_section</code></p></div>
+          <div class="card"><p class="num">6 of 6</p><p>test scenarios where a person typing in the patched section keeps their text (was 1 of 6)</p></div>
+          <p class="method">
+            One sentence changed on the padded evaluation page; the typing scenarios run against the section patch code.
+            Token counts are estimates (<code>estimateTokens</code>). Performance log: <a href="docs/PERFORMANCE.html#retrieval--mcp">tokens</a>, <a href="docs/PERFORMANCE.html#sync--collaboration">concurrent typing</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block band" id="decide" aria-labelledby="decide-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">People decide</p>
+        <h2 id="decide-title">Suggestions, history and locks stay with people</h2>
+      </div>
+
+      <div class="ill ill-flow" role="img" aria-label="An agent suggests an edit, a person looks at the changed lines and accepts or rejects it, and an accepted edit becomes a version that can be undone."><div class="ill-step"><small>Agent</small><b>leaves the edit as a suggestion</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step"><small>Person</small><b>reviews the changed lines</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step is-accent"><small>Person</small><b>accepts, rejects, or picks parts</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step"><small>History</small><b>an &quot;AI edit&quot; version, undoable</b></div></div>
+
+      <figure class="shot wide-shot">
+        <picture>
+          <source srcset="assets/en/review-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="assets/en/review-light.png" width="1440" height="900" loading="lazy" alt="The review dialog for a section an agent suggested to change: the suggestion as a diff, with Reject and Accept">
+        </picture>
+      </figure>
+      <div class="grid two">
+        <div class="card">
+          <h3>Suggestions</h3>
+          <p>
+            <code>suggest=true</code>, a workspace setting or a page's lock turns agent edits into suggestions. A person
+            sees each one as a diff and accepts it, rejects it or takes only some of its changes. The agent finds the
+            answer in its inbox. No tool lets an agent accept.
+          </p>
+        </div>
+        <div class="card">
+          <h3>How agents edit, per workspace</h3>
+          <p>
+            Owners and admins choose: edit directly (the default), accept by rules (for example additions at the end of a
+            section), or review everything. A rule accepts an edit only while its section is exactly as the agent read it.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Every agent write is a version</h3>
+          <p>
+            Each write is its own version in the page history ("AI edit"), labelled "&lt;person&gt; (via &lt;app&gt;)". People can revert
+            one change or everything a connection changed on a page, and undo the revert.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Edit locks and rules for agents</h3>
+          <p>
+            A locked page tree can hold agents to suggestions, comments or reading, separately from people. Workspace rules
+            for agents live in locked pages that <code>get_instructions</code> returns. Agents cannot change locks.
+          </p>
+        </div>
+      </div>
+
+      <div class="pair" style="margin-top:32px">
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/lock-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/lock-light.png" width="1440" height="900" loading="lazy" alt="The edit lock dialog with a separate setting for AI agents"></picture></div><figcaption>The edit lock dialog: people and agents get separate settings.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/activity-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/activity-light.png" width="1440" height="900" loading="lazy" alt="The Activity screen listing recent changes by people and by agents"></picture></div><figcaption>Activity: changes by people and through agents, newest first.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="block side" id="scope" aria-labelledby="scope-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">Scope</p>
+        <h2 id="scope-title">What limits an agent</h2>
+        <p>An agent acts as the person who connected it and sees only what that person can see in the web app. On top of that:</p>
+      </div>
+      <div class="ill ill-scope" role="img" aria-label="A connection can reach one of three ranges: everything the person can see, some workspaces, or one page and the pages under it. Each connection is read-only or read and write.">
+  <div class="ill-ring"><span>Everything the person can see</span>
+    <div class="ill-ring"><span>Some workspaces</span>
+      <div class="ill-ring is-accent"><span>One page and the pages under it</span></div>
+    </div>
+  </div>
+  <div class="ill-modes"><span class="ill-chip">Read-only</span><span class="ill-chip is-on">Read and write</span></div>
+</div>
+      </div>
+      <div class="side-body">
+      <ul class="points">
+        <li><b>Read only, or read and write.</b> Chosen per connection on the consent screen; a read-only connection's write tools refuse.</li>
+        <li><b>A range.</b> Everything the person can see, only some workspaces, or one page and the pages under it. It can be changed later without reconnecting.</li>
+        <li><b>Suggestions a person accepts.</b> A workspace set to review everything, or a lock set to suggestions only, holds every agent edit until a person accepts or rejects it. No tool lets an agent accept.</li>
+        <li><b>Edit locks and agent blocks.</b> A locked page tree can hold agents to comments or reading; owners and admins can block an agent in their workspace. Agents cannot change locks.</li>
+        <li><b>No permanent delete.</b> There is no tool for it; <code>trash_page</code> can be undone for 30 days.</li>
+      </ul>
+      <p class="method">
+        Text that members wrote reaches the agent inside <code>&lt;untrusted_content&gt;</code>, a marker that helps the agent
+        tell members' text from instructions; text that looks like a prompt injection is flagged and makes the connection
+        suggest-only for an hour. Both are mitigations, not permission checks: detection can be evaded and a model can still
+        be misled.
+      </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="handoff" aria-labelledby="handoff-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Hand off</p>
+        <h2 id="handoff-title">Give work to one person's agent</h2>
+        <p>
+          In a comment or a to-do, mention an entry like "Bob · Claude Code", or pick an agent in a database person cell.
+          Only that agent's inbox lists it. <b>Team agents</b>, in the header of Activity, shows what each connection is on:
+          the sections it claimed, its suggestions waiting for a person and what it did today.
+        </p>
+      </div>
+      <div class="feature">
+        <div class="feature-text">
+          <h3>When an agent comes back</h3>
+          <ul>
+            <li><code>catch_up()</code> ranks what happened since its last visit: things for its person, due tasks, comments, changes by others.</li>
+            <li><code>inbox(cursor)</code> lists mentions, replies, assignments and the answers to its suggestions; <code>ack</code> marks them handled.</li>
+            <li><code>changes_since(cursor)</code> returns what changed, with per-section diffs, so a local copy stays in sync.</li>
+          </ul>
+        </div>
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/team-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/team-light.png" width="1440" height="900" loading="lazy" alt="The Team agents board listing each person's agent connections with claimed sections, waiting suggestions and today's work"></picture></div><figcaption>Team agents: what each person's agent is working on.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block fit band" id="fit" aria-labelledby="fit-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Who it is for</p>
+        <h2 id="fit-title">Several people and several agents on the same notes</h2>
+        <p>
+          If you keep notes alone in one folder, Obsidian and an agent that reads the files directly are enough.
+          Inkling is for the case where several people and several agents work on the same notes, such as a small team of
+          three to five people who each work with their own agent. Inkling has no AI model of its own; writing and
+          summarizing are done by the agents you connect.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="notes" aria-labelledby="notes-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">The notes app</p>
+        <h2 id="notes-title">What people write in</h2>
+        <p>The pages agents read are ordinary team notes, edited in real time in the browser.</p>
+      </div>
+      <div class="grid">
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M9.5 9.5v10M15 9.5v10"/></svg><h3>Databases</h3><p>Table, board, calendar, gallery, timeline, chart, form and list views, with relations, rollups, formulas and automations.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><h3>Links, graph and canvas</h3><p><code>[[wikilinks]]</code>, backlinks, a workspace and local graph, and a canvas compatible with JSON Canvas.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg><h3>Tasks and calendar</h3><p>A checklist item with a date is a task, listed in the Due view and on the workspace calendar.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="3"/><path d="M3.5 19c.6-3 2.7-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/><path d="M15.5 6.300a3 3 0 0 1 0 5.400M17.5 14.800c1.6.600 2.6 2 3 4.2"/></svg><h3>Real-time editing</h3><p>Co-editing with Yjs, comments on pages and sections, version history and the trash.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="M8.7 10.800l6.6-3.600M8.7 13.200l6.6 3.6"/></svg><h3>Sharing</h3><p>Roles, per-page levels and guests; public links with expiry, password and a scheduled start.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.500c2.5 2.3 3.8 5.1 3.8 8.500s-1.3 6.2-3.8 8.500c-2.5-2.3-3.8-5.1-3.8-8.500s1.3-6.2 3.8-8.500z"/></svg><h3>English and Korean</h3><p>The interface comes in both languages, installs as a PWA and has light and dark themes.</p></div>
+      </div>
+      <div class="pair" style="margin-top:32px">
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/doc-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/doc-light.png" width="1440" height="900" loading="lazy" alt="A meeting-notes page with wiki links and tasks; the right panel shows the outline, backlinks, outgoing links and tags"></picture></div><figcaption>A page with its backlinks and outgoing links in the right panel.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="assets/en/board-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/en/board-light.png" width="1440" height="900" loading="lazy" alt="A roadmap database shown as a board grouped by status"></picture></div><figcaption>A database as a board, grouped by status.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block side" id="install" aria-labelledby="install-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">Install</p>
+        <h2 id="install-title">Run it on a server</h2>
+        <p>You need Docker with the Compose plugin. The app is the prebuilt image <code>ghcr.io/prove1352/inkling</code> (amd64 and arm64), so a 1 GB server builds nothing.</p>
+      </div>
+      <div class="ill ill-stack" role="img" aria-label="Only ports 80 and 443 of Caddy face the internet; behind it are the Inkling app, PostgreSQL and the backup sidecar.">
+  <div class="ill-box is-plain"><b>Internet</b><small>:80 · :443</small></div><span class="ill-down" aria-hidden="true"></span><div class="ill-box"><b>Caddy</b><small>gets and renews the HTTPS certificate</small></div><span class="ill-down" aria-hidden="true"></span><div class="ill-box is-accent"><b>Inkling app</b><small>ghcr.io/prove1352/inkling</small></div><span class="ill-down" aria-hidden="true"></span>
+  <div class="ill-pair"><div class="ill-box"><b>PostgreSQL</b><small>not reachable from outside</small></div><div class="ill-box"><b>Backup sidecar</b><small>scheduled, verified every run</small></div></div>
+</div>
+      </div>
+      <div class="side-body">
+
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>Run it on a server</h3>
+          <p>Point a domain at the server (ports 80 and 443 open) and start it with the Caddy overlay, which obtains the certificate and keeps the app and database ports private. Fill in <code>.env</code> first:</p>
+          <div class="term" data-copy><pre><code><span class="k">cp</span> .env.example .env
+<span class="c"># in .env: PUBLIC_URL=https://notes.example.com   DOMAIN=notes.example.com</span>
+<span class="c">#          POSTGRES_PASSWORD=&lt;long random string&gt;  BACKUP_PASSPHRASE=&lt;keep a copy off the server&gt;</span>
+<span class="c">#          APP_SECRET_KEY=&lt;openssl rand -base64 32&gt;   (keep INKLING_DATA_NAME=inkling)</span>
+<span class="k">docker</span> compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
+<span class="k">./deploy/signup-key.sh</span> new "first admin"   <span class="c"># prints https://notes.example.com/register</span></code></pre></div>
+          <p class="after">The last command prints the signup link (<code>https://notes.example.com/register</code>); open it to create the first account. Backups run in a sidecar: scheduled, verified, optionally encrypted, with weekly restore tests. To upgrade, take a backup, pull the new image and restart; migrations run on boot. See <a href="docs/DEPLOY.html">Deployment</a>, <a href="docs/OPERATIONS.html">Operations</a> and <a href="docs/BACKUP.html">Backup</a>.</p>
+        </div></li>
+      </ol>
+
+      <div class="callout honest">
+        <strong>Before you rely on it</strong>
+        <ul>
+          <li>It needs PostgreSQL (there is no SQLite mode) and runs as a single instance.</li>
+          <li>There are no native desktop or mobile apps; the web app installs as a PWA.</li>
+          <li>Without semantic search, which is off by default, <code>find_context</code> matches words: an English question does not find a note written only in Korean unless the agent passes <code>queries=[question, translation]</code>.</li>
+          <li>It was tested mostly in Chrome.</li>
+          <li>It is a young project with a small user base, written with heavy use of AI coding agents and then reviewed for concurrency, resource use and security. Open problems: <a href="docs/KNOWN-ISSUES.html">Known issues</a>.</li>
+        </ul>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block band" id="docs" aria-labelledby="docs-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Documentation</p>
+        <h2 id="docs-title">Docs</h2>
+        <p>Every docs page links its Markdown source. The <a href="llms.txt">summary for agents (llms.txt)</a> lists them all.</p>
+      </div>
+      <div class="grid">
+        <a class="card" href="docs/MCP.html"><h3>MCP connector and agent guide</h3><p>Connecting clients, every tool, and the order an agent should use them in.</p></a>
+        <a class="card" href="docs/GUIDE.html"><h3>User guide</h3><p>Where things are, for people using a server someone else runs.</p></a>
+        <a class="card" href="docs/DEPLOY.html"><h3>Deployment</h3><p>A Linux server step by step: HTTPS, signup keys, mail, sign-in options, semantic search.</p></a>
+        <a class="card" href="docs/OPERATIONS.html"><h3>Operations</h3><p>Deployment checklist, upgrades, the status summary and database tuning.</p></a>
+        <a class="card" href="docs/PERFORMANCE.html"><h3>Performance log</h3><p>Every performance change with numbers before and after, and how they were measured.</p></a>
+        <a class="card" href="docs/index.html"><h3>All docs</h3><p>Backup, REST API, webhooks, templates, query blocks, recipes, architecture, roadmap.</p></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>Inkling v0.22.1 · self-hosted team notes with a built-in MCP server</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security</a>
+      <a href="llms.txt">Summary for agents (llms.txt)</a>
+      <a href="docs/MCP.md">MCP guide (Markdown)</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

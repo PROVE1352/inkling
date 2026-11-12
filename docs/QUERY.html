@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Query blocks · Inkling</title>
+  <meta name="description" content="The Dataview subset: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/QUERY.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/QUERY.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/QUERY.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Query blocks · Inkling">
+  <meta property="og:description" content="The Dataview subset: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/QUERY.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="QUERY.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="QUERY.ko.html" hreflang="ko" lang="ko">한국어</a><a href="QUERY.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html" aria-current="page">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Using Inkling</p><h1 id="query-blocks">Query blocks</h1><p class="doc-desc">The Dataview subset: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/QUERY.md</code> in the repository. <a href="QUERY.md" type="text/markdown">Markdown source</a></p></header><p>A <strong>Query block</strong> shows a live table or list of pages, written in a subset of the
+<a href="https://blacksmithgu.github.io/obsidian-dataview/">Obsidian Dataview</a> query language. 한국어: <a href="QUERY.ko.html">QUERY.ko.md</a>.</p>
+<p>Insert one with <strong>/ → Query</strong>. The block is a code block whose language is <code>dataview</code>; the
+results render underneath and refresh when pages in the workspace change. Because it is a plain
+<code>```dataview</code> fence, the query survives markdown export, the MCP connector and vault sync
+unchanged — an Obsidian vault with the Dataview plugin runs the same query.</p>
+<pre><code class="language-dataview">TABLE status, due, file.tags
+FROM #project AND &quot;Work/Clients&quot;
+WHERE status != &quot;done&quot; AND due &lt; date(today)
+SORT due ASC
+LIMIT 50
+</code></pre>
+<h2 id="query-shape">Query shape</h2>
+<pre><code>TABLE [WITHOUT ID] &lt;expr&gt; [AS &quot;Label&quot;], …   |   LIST [&lt;expr&gt;]   |   TASK
+[FROM &lt;source&gt;]
+[WHERE &lt;expr&gt;]
+[SORT &lt;expr&gt; [ASC|DESC], …]
+[LIMIT &lt;n&gt;]
+</code></pre>
+<ul>
+<li>Keywords are case-insensitive. <code>FROM</code> must come first; <code>WHERE</code>, <code>SORT</code>, <code>LIMIT</code> may appear in
+any order, each at most once.</li>
+<li><code>TABLE</code> shows a page-link column first unless <code>WITHOUT ID</code> is given.</li>
+<li><code>LIST &lt;expr&gt;</code> shows the value next to each page link.</li>
+<li><code>TASK</code> lists checklist items <strong>that carry a date</strong> (the <code>page_tasks</code> index — the same items the
+calendar and the due view show). Undated checklist items are not indexed and do not appear.</li>
+</ul>
+<h2 id="sources-from">Sources (<code>FROM</code>)</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Source</th><th scope="col">Matches</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Source"><code>#tag</code></td><td class="c-field c-wide" data-label="Matches">pages with the tag in their text or in a <code>tags</code> property. Case-insensitive; <code>#a</code> also matches nested <code>#a/b</code>.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Source"><code>&quot;Folder/Sub&quot;</code></td><td class="c-field c-wide" data-label="Matches">pages anywhere below that page path (titles joined by <code>/</code>, as in the sidebar tree), plus the page at that exact path</td></tr><tr class="rec"><td class="c-title c-name" data-label="Source"><code>[[Page]]</code></td><td class="c-field" data-label="Matches">pages that link <strong>to</strong> <code>Page</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Source"><code>-src</code>, <code>NOT src</code></td><td class="c-field" data-label="Matches">negation</td></tr><tr class="rec"><td class="c-title c-name" data-label="Source"><code>a AND b</code>, <code>a OR b</code>, <code>( … )</code></td><td class="c-field" data-label="Matches">combinations</td></tr></tbody></table></div>
+<p>Without <code>FROM</code>, every document page you can see in the workspace is considered.</p>
+<h2 id="fields">Fields</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.name</code>, <code>file.link</code></td><td class="c-field" data-label="Value">page title</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.ctime</code>, <code>file.mtime</code></td><td class="c-field" data-label="Value">created / last modified (timestamp)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.cday</code>, <code>file.mday</code></td><td class="c-field c-wide" data-label="Value">created / modified date (<code>YYYY-MM-DD</code>, in your time zone)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.tags</code></td><td class="c-field c-wide" data-label="Value">list of <code>#tags</code> (text tags and the <code>tags</code> property)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.folder</code></td><td class="c-field c-wide" data-label="Value">path of the parent (<code>Work/Clients</code>), <code>&quot;&quot;</code> at the root</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>file.path</code></td><td class="c-field" data-label="Value">path of the page itself</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field">any other name</td><td class="c-field c-wide" data-label="Value">the page <strong>property</strong> with that name (case-insensitive), else — for collection rows — the <strong>collection field</strong> with that name. Select options show their label. A person field shows the member&#39;s name and a relation field links to the rows you can see (rows you cannot see are left out) (docs/adr/1320-<em>). <code>WHERE</code> and <code>SORT</code> use the same: a person field compares as the member&#39;s name, a relation field as the titles of the linked rows you can see (<code>SORT</code> uses them joined with &quot;, &quot;), so <code>WHERE Owner = &quot;Priya Nair&quot;</code> matches. <code>=</code>, <code>!=</code> and <code>contains()</code> also match the stored id of a member or of a visible linked row. Names and titles match exactly, case included (docs/adr/1352-</em>).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>`Name with spaces`</code></td><td class="c-field" data-label="Value">back-ticks quote a property name</td></tr><tr class="rec"><td class="c-title" data-label="Field"><code>text</code>, <code>due</code>, <code>completed</code> / <code>checked</code></td><td class="c-field c-wide" data-label="Value"><strong>TASK only</strong>: the item text, its date, its check state</td></tr></tbody></table></div>
+<h2 id="expressions">Expressions</h2>
+<ul>
+<li>Literals: <code>&quot;text&quot;</code>, <code>42</code>, <code>3.5</code>, <code>true</code>, <code>false</code>, <code>null</code></li>
+<li>Dates: <code>date(today)</code>, <code>date(tomorrow)</code>, <code>date(yesterday)</code>, <code>date(&quot;2026-11-07&quot;)</code>.
+<code>today</code> is the viewer&#39;s local date.</li>
+<li>Comparison: <code>=</code> <code>!=</code> <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code><ul>
+<li><code>field = &quot;x&quot;</code> is also true when the field is a <strong>list</strong> containing <code>&quot;x&quot;</code>.</li>
+<li>Comparing with a number compares numerically (numeric strings count).</li>
+<li>Comparing with a date compares the <code>YYYY-MM-DD</code> part; <code>file.ctime</code> / <code>file.mtime</code> compare
+against local midnight of that date.</li>
+</ul>
+</li>
+<li><code>contains(list, &quot;x&quot;)</code> — list membership, or substring for text values.</li>
+<li>Boolean: <code>AND</code> / <code>&amp;&amp;</code>, <code>OR</code> / <code>||</code>, <code>NOT</code> / <code>!</code>, parentheses. A bare field is true when it is
+set and not <code>false</code>, <code>0</code>, <code>&quot;&quot;</code> or <code>[]</code>.</li>
+</ul>
+<h2 id="limits">Limits</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Limit</th><th scope="col">Value</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Limit">query length</td><td class="c-field" data-label="Value">2 000 characters, 400 tokens, nesting depth 24</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">columns / sort keys</td><td class="c-field" data-label="Value">20 / 5</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">rows</td><td class="c-field c-wide" data-label="Value"><code>LIMIT</code> ≤ 500 (default 200); the block says when results were cut off</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">execution</td><td class="c-field c-wide" data-label="Value">3 s statement timeout — narrow the query with <code>FROM</code> / <code>WHERE</code> if it is hit</td></tr></tbody></table></div>
+<p>Results only include pages you are allowed to see (shared pages and your own private pages);
+trashed pages and templates are excluded.</p>
+<h2 id="errors">Errors</h2>
+<p>Syntax errors are shown inside the block with the line, column and a caret under the problem.
+The same parser runs in the browser and on the server (<code>packages/shared/src/query.ts</code>).</p>
+<h2 id="differences-from-dataview">Differences from Dataview</h2>
+<p>Not supported: <code>CALENDAR</code> queries, <code>GROUP BY</code>, <code>FLATTEN</code>, inline fields (<code>key:: value</code>),
+arithmetic, durations (<code>date(today) - dur(1 week)</code>), regex functions, DataviewJS, and
+<code>FROM</code> on outgoing links (<code>outgoing([[Page]])</code>). <code>TASK</code> covers dated checklist items only.</p>
+<h2 id="api">API</h2>
+<p><code>POST /api/workspaces/:id/query</code> — see <a href="API.html#query-blocks">API.md</a>.</p>
+<p class="doc-meta"><a href="QUERY.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/QUERY.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#query-shape">Query shape</a></li><li><a href="#sources-from">Sources (FROM)</a></li><li><a href="#fields">Fields</a></li><li><a href="#expressions">Expressions</a></li><li><a href="#limits">Limits</a></li><li><a href="#errors">Errors</a></li><li><a href="#differences-from-dataview">Differences from Dataview</a></li><li><a href="#api">API</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

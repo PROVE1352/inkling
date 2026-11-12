@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plugins (API v0, experimental) · Inkling</title>
+  <meta name="description" content="Sandboxed iframe plugins: manifest, runtime API, security model.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/PLUGINS.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/PLUGINS.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/PLUGINS.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Plugins (API v0, experimental) · Inkling">
+  <meta property="og:description" content="Sandboxed iframe plugins: manifest, runtime API, security model.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/PLUGINS.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="PLUGINS.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="PLUGINS.ko.html" hreflang="ko" lang="ko">한국어</a><a href="PLUGINS.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html" aria-current="page">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Integrating</p><h1 id="plugins-api-v0-experimental">Plugins (API v0, experimental)</h1><p class="doc-desc">Sandboxed iframe plugins: manifest, runtime API, security model.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/PLUGINS.md</code> in the repository. <a href="PLUGINS.md" type="text/markdown">Markdown source</a></p></header><p>Inkling can run small third-party plugins that add <strong>command palette entries</strong> and <strong>custom
+blocks</strong>, read or (with confirmation) write pages, and keep a little per-user data. Security comes
+first: every plugin runs in a sandboxed iframe with an opaque origin, no network access and no
+access to the app&#39;s cookies, DOM or storage. Only the server operator can install plugins. 한국어: <a href="PLUGINS.ko.html">PLUGINS.ko.md</a>.</p>
+<blockquote>
+<p>Status: <strong>experimental</strong>. Enable with <code>EXPERIMENTAL_FEATURES=plugins</code>. With the flag off, no
+plugin route is registered and no plugin UI is shown; plugin blocks already in documents render
+as inert placeholders and keep their data.</p>
+</blockquote>
+<ul>
+<li><a href="#non-goals-obsidian-compatibility">Non-goals: Obsidian compatibility</a></li>
+<li><a href="#installing-a-plugin-operators">Installing a plugin (operators)</a></li>
+<li><a href="#writing-a-plugin">Writing a plugin</a></li>
+<li><a href="#manifestjson-reference">manifest.json reference</a></li>
+<li><a href="#runtime-api-reference">Runtime API reference</a></li>
+<li><a href="#limits">Limits</a></li>
+<li><a href="#security-model">Security model</a></li>
+<li><a href="#threat-checklist-and-verification-status">Threat checklist and verification status</a></li>
+<li><a href="#known-limitations-and-residual-risks">Known limitations and residual risks</a></li>
+<li><a href="#verifying-the-sandbox-yourself">Verifying the sandbox yourself</a></li>
+</ul>
+<h2 id="non-goals-obsidian-compatibility">Non-goals: Obsidian compatibility</h2>
+<p>Inkling&#39;s plugin API does <strong>not</strong> try to run Obsidian plugins, and is not designed to grow into
+that. The reasons are structural, not a matter of effort:</p>
+<ol>
+<li><strong>Different editor and storage model.</strong> Obsidian plugins manipulate a CodeMirror editor and a
+folder of Markdown files (<code>app.vault</code>, <code>app.workspace</code>, <code>MarkdownView</code>…). Inkling documents are
+Yjs CRDTs rendered by BlockNote/ProseMirror and shared live between users; &quot;the file&quot; does not
+exist and most Obsidian APIs have no meaningful equivalent.</li>
+<li><strong>Electron/Node dependence.</strong> Obsidian plugins run with full Node.js and Electron privileges
+(filesystem, child processes, arbitrary network). A web app that serves many users cannot hand
+that to third-party code, and a browser cannot provide it anyway.</li>
+<li><strong>Multi-user security.</strong> Obsidian&#39;s model is &quot;one user, one machine, trust what you install&quot;.
+An Inkling server is shared: a plugin runs in <em>every</em> user&#39;s browser, against data with
+per-user visibility (private sections, workspace membership). That demands sandboxing,
+explicit permissions and administrator approval — the opposite of Obsidian&#39;s open model.</li>
+</ol>
+<h2 id="installing-a-plugin-operators">Installing a plugin (operators)</h2>
+<p>Plugins are installed <strong>only by the server operator</strong>; there is no upload or in-app install in v0.</p>
+<ol>
+<li><p>Enable the experiment: <code>EXPERIMENTAL_FEATURES=plugins</code> (comma-separated with other experiments).</p>
+</li>
+<li><p>Put each plugin in its own directory under <code>PLUGINS_DIR</code> (default <code>./data/plugins</code>, i.e.
+<code>DATA_DIR/plugins</code>):</p>
+<pre><code>data/plugins/
+  word-stats/
+    manifest.json
+    main.js          # the single pre-bundled entry named in manifest.json
+</code></pre>
+<p>The directory name must equal the manifest <code>id</code>. Symlinked directories/files are ignored.
+Nothing else in the directory is ever read or served.</p>
+</li>
+<li><p>Open <strong>Admin → Plugins (experimental)</strong>. Review the description, the requested permissions and
+the declared commands/blocks. Untick any permission you do not want to grant, then
+<strong>Approve &amp; enable</strong>.</p>
+</li>
+</ol>
+<p>Approval is pinned to a SHA-256 of <code>manifest.json</code> + the entry bundle. If either file changes on
+disk (an update, or tampering), the plugin immediately stops being served or listed and shows
+<strong>Changed — needs re-approval</strong> until an administrator approves the new content. <strong>Disable</strong> turns
+a plugin off; <strong>Forget &amp; delete data</strong> removes the approval and every user&#39;s stored data for it.</p>
+<p>Example plugins live in <a href="https://github.com/PROVE1352/inkling/tree/main/examples/plugins"><code>examples/plugins/</code></a>: <code>word-stats</code> (command + notice</p>
+<ul>
+<li>storage) and <code>progress-bar</code> (two custom blocks). The deliberately malicious test plugin
+<code>security-probe</code> lives with the server tests in
+<a href="https://github.com/PROVE1352/inkling/tree/main/apps/server/src/plugins/fixtures"><code class="long">apps/server/src/plugins/fixtures/</code></a> — never enable it on a
+real server.</li>
+</ul>
+<h2 id="writing-a-plugin">Writing a plugin</h2>
+<p>A plugin is one plain JavaScript file plus a manifest. The app injects a frozen global <code>inkling</code>
+(the SDK) before your script runs. There is no build step requirement; if you use dependencies,
+bundle them into the single entry file (≤ 1 MB). The script runs in a sandboxed document with:</p>
+<ul>
+<li>no network (<code>fetch</code>, XHR, WebSocket, EventSource, beacons and remote images are all blocked),</li>
+<li>no cookies, <code>localStorage</code>, <code>sessionStorage</code> or IndexedDB (opaque origin),</li>
+<li>no <code>eval</code>/<code>new Function</code>, no extra <code>&lt;script&gt;</code> elements (only the two nonce-pinned scripts run),</li>
+<li>inline styles allowed (<code>&lt;style&gt;</code> and <code>style=</code>), images only from <code>data:</code>/<code>blob:</code> URLs.</li>
+</ul>
+<pre><code class="language-js">// main.js — a command
+inkling.commands.register(&#39;count-words&#39;, async (ctx) =&gt; {
+  if (!ctx.pageId) return inkling.ui.notice(&#39;Open a page first.&#39;)
+  const page = await inkling.pages.get(ctx.pageId)        // needs &quot;read:pages&quot;
+  const words = (page.markdown.match(/\p{L}+/gu) || []).length
+  await inkling.ui.notice(`${words} words`)
+})
+</code></pre>
+<pre><code class="language-js">// main.js — a block
+inkling.blocks.register(&#39;counter&#39;, {
+  render(root, { data, editable, setData }) {
+    root.textContent = &#39;&#39;
+    const b = document.createElement(&#39;button&#39;)
+    b.textContent = `Count: ${data.count ?? 0}`
+    b.disabled = !editable
+    b.onclick = () =&gt; setData({ ...data, count: (data.count ?? 0) + 1 })
+    root.append(b)
+  },
+  // optional: update(root, props) — called instead of render() on later data changes
+})
+</code></pre>
+<p>Every command id and block type you register must be declared in <code>manifest.json</code>; anything else
+is refused.</p>
+<h2 id="manifestjson-reference">manifest.json reference</h2>
+<pre><code class="language-json">{
+  &quot;id&quot;: &quot;progress-bar&quot;,
+  &quot;name&quot;: &quot;Progress Blocks&quot;,
+  &quot;version&quot;: &quot;1.0.0&quot;,
+  &quot;minAppVersion&quot;: &quot;0.1.0&quot;,
+  &quot;description&quot;: &quot;Optional, ≤ 300 chars&quot;,
+  &quot;author&quot;: &quot;Optional, ≤ 100 chars&quot;,
+  &quot;entry&quot;: &quot;main.js&quot;,
+  &quot;permissions&quot;: [&quot;blocks&quot;],
+  &quot;commands&quot;: [{ &quot;id&quot;: &quot;count-words&quot;, &quot;title&quot;: &quot;Word stats: count words&quot; }],
+  &quot;blocks&quot;: [
+    {
+      &quot;type&quot;: &quot;progress&quot;,
+      &quot;title&quot;: &quot;Progress bar&quot;,
+      &quot;description&quot;: &quot;Optional slash-menu subtitle&quot;,
+      &quot;defaultData&quot;: { &quot;value&quot;: 30, &quot;max&quot;: 100 },
+      &quot;height&quot;: 72
+    }
+  ]
+}
+</code></pre>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Field</th><th scope="col">Rules</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Field"><code>id</code></td><td class="c-field c-wide" data-label="Rules"><code>^[a-z0-9][a-z0-9-]{1,63}$</code>, equal to the directory name</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>name</code></td><td class="c-field" data-label="Rules">1–60 chars</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>version</code>, <code>minAppVersion</code></td><td class="c-field c-wide" data-label="Rules">semver <code>x.y.z</code>; <code>minAppVersion</code> greater than the server&#39;s version is rejected</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>entry</code></td><td class="c-field c-wide" data-label="Rules">bare file name ending in <code>.js</code> (no <code>/</code>, <code>\</code>, <code>..</code>), regular file, ≤ 1 MB</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>permissions</code></td><td class="c-field c-wide" data-label="Rules">subset of <code>commands</code>, <code>read:pages</code>, <code>write:pages</code>, <code>blocks</code>, <code>storage</code>; no repeats</td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>commands</code></td><td class="c-field c-wide" data-label="Rules">≤ 20; <code>id</code> <code>^[a-z0-9][a-z0-9-]{0,63}$</code>, <code>title</code> 1–80 chars; requires <code>commands</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Field"><code>blocks</code></td><td class="c-field c-wide" data-label="Rules">≤ 10; <code>type</code> same pattern, <code>title</code> 1–60; <code>defaultData</code> JSON object ≤ 4 KB; <code>height</code> 40–800 px; requires <code>blocks</code></td></tr></tbody></table></div>
+<p>Unknown keys are rejected (strict schema). <code>manifest.json</code> itself must be ≤ 64 KB.</p>
+<h2 id="runtime-api-reference">Runtime API reference</h2>
+<p>All methods return Promises. Failures reject with an <code>Error</code> whose <code>code</code> is one of
+<code>PERMISSION_DENIED</code>, <code>BAD_REQUEST</code>, <code>NOT_DECLARED</code>, <code>BUSY</code>, <code>RATE_LIMITED</code>, <code>DENIED</code>, <code>TIMEOUT</code>,
+<code>READ_ONLY</code>, or a server error code (<code>NOT_FOUND</code>, <code>PLUGIN_PERMISSION</code>, <code>PLUGIN_STORAGE_QUOTA</code>…).</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">API</th><th scope="col">Permission</th><th scope="col">Notes</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="API"><code>inkling.ready</code></td><td class="c-field" data-label="Permission">–</td><td class="c-field c-wide" data-label="Notes">Promise resolving to the context after the handshake</td></tr><tr class="rec"><td class="c-title c-name" data-label="API"><code>inkling.context()</code></td><td class="c-field" data-label="Permission">–</td><td class="c-field c-wide" data-label="Notes"><code>{ pluginId, mode: &#39;worker&#39;|&#39;block&#39;, workspaceId, pageId, theme, blockType, data, editable }</code></td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.commands.register(id, handler)</code></td><td class="c-field" data-label="Permission"><code>commands</code></td><td class="c-field c-wide" data-label="Notes"><code>handler(ctx)</code> gets <code>{ workspaceId, pageId }</code> of the page the user ran it on</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.blocks.register(type, { render, update? })</code></td><td class="c-field" data-label="Permission"><code>blocks</code></td><td class="c-field" data-label="Notes"><code>render(root, { data, editable, setData })</code></td></tr><tr class="rec"><td class="c-title" data-label="API"><code>setData(data)</code> (inside a block)</td><td class="c-field" data-label="Permission"><code>blocks</code></td><td class="c-field c-wide" data-label="Notes">Saves the block&#39;s JSON (≤ 16 KB) into the document; refused when read-only; coalesced to ≤ 4 writes/s</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.pages.get(pageId)</code></td><td class="c-field" data-label="Permission"><code>read:pages</code></td><td class="c-field c-wide" data-label="Notes"><code>{ id, workspaceId, title, kind, updatedAt, markdown }</code>; exactly the user&#39;s visibility</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.pages.search(query, workspaceId?)</code></td><td class="c-field" data-label="Permission"><code>read:pages</code></td><td class="c-field c-wide" data-label="Notes">≤ 20 results <code>{ id, title, kind, updatedAt, snippet }</code>; defaults to the current workspace</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.pages.update(pageId, markdown, { mode })</code></td><td class="c-field" data-label="Permission"><code>write:pages</code></td><td class="c-field c-wide" data-label="Notes"><code>mode</code>: <code>replace</code> (default) or <code>append</code>. The user confirms every call; <code>replace</code> keeps a snapshot</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.storage.get(key)</code> / <code>set(key, value)</code> / <code>delete(key)</code> / <code>keys()</code></td><td class="c-field" data-label="Permission"><code>storage</code></td><td class="c-field c-wide" data-label="Notes">Per plugin <strong>and</strong> per user; key <code>^[A-Za-z0-9_.:-]{1,128}$</code>, JSON value</td></tr><tr class="rec"><td class="c-title" data-label="API"><code>inkling.ui.notice(message)</code></td><td class="c-field" data-label="Permission">–</td><td class="c-field c-wide" data-label="Notes">Toast, prefixed with the plugin name, ≤ 300 chars, ≤ 1/s</td></tr></tbody></table></div>
+<p>Block frames resize themselves automatically (the SDK reports the body height; clamped to
+40–1200 px). Theme changes are applied as <code>data-theme=&quot;light|dark&quot;</code> on <code>&lt;html&gt;</code>.</p>
+<h3 id="rest-endpoints-used-by-the-app-not-by-plugins">REST endpoints (used by the app, not by plugins)</h3>
+<p>See <a href="API.html#plugins-experimental">API.md</a>. Plugins cannot call the server: the app (parent window)
+calls these with the user&#39;s own session after checking the approved permissions.</p>
+<h2 id="limits">Limits</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Limit</th><th scope="col">Value</th><th scope="col">Enforced in</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Limit">Incoming message size</td><td class="c-field" data-label="Value">256 KB (strings only)</td><td class="c-field" data-label="Enforced in">parent broker</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Message rate per frame</td><td class="c-field" data-label="Value">burst 60, 30/s steady</td><td class="c-field" data-label="Enforced in">parent broker</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Violations before kill</td><td class="c-field" data-label="Value">100 (or 3 oversized messages)</td><td class="c-field" data-label="Enforced in">parent broker</td></tr><tr class="rec"><td class="c-title" data-label="Limit">Concurrent RPCs per frame</td><td class="c-field" data-label="Value">16</td><td class="c-field" data-label="Enforced in">parent broker</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Heartbeat</td><td class="c-field" data-label="Value">ping every 4 s, killed after 12 s without pong</td><td class="c-field" data-label="Enforced in">parent host</td></tr><tr class="rec"><td class="c-title" data-label="Limit">Handshake / command registration</td><td class="c-field" data-label="Value">10 s / 5 s</td><td class="c-field" data-label="Enforced in">parent host</td></tr><tr class="rec"><td class="c-title" data-label="Limit">Plugin frames alive at once</td><td class="c-field" data-label="Value">8 (idle command workers evicted first)</td><td class="c-field" data-label="Enforced in">parent host</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Idle command worker</td><td class="c-field" data-label="Value">torn down after 60 s</td><td class="c-field" data-label="Enforced in">parent host</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Block frames</td><td class="c-field c-wide" data-label="Value">created only when (nearly) on screen, removed 3 s after leaving it</td><td class="c-field" data-label="Enforced in">parent host</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit"><code>pages.update</code></td><td class="c-field c-wide" data-label="Value">one pending confirmation per plugin, ≥ 3 s apart; 30/min/IP server-side</td><td class="c-field" data-label="Enforced in">parent host + server</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Storage</td><td class="c-field c-wide" data-label="Value">value 64 KB, 500 keys, 1 MB total per plugin per user</td><td class="c-field" data-label="Enforced in">server</td></tr><tr class="rec"><td class="c-title c-name" data-label="Limit">Bundle / manifest</td><td class="c-field" data-label="Value">1 MB / 64 KB, ≤ 50 plugin directories scanned</td><td class="c-field" data-label="Enforced in">server</td></tr></tbody></table></div>
+<h2 id="security-model">Security model</h2>
+<pre><code class="language-mermaid">flowchart LR
+  subgraph Browser
+    subgraph App[&quot;App window (inkling origin, session cookie)&quot;]
+      H[&quot;host.ts — frames, heartbeat, slots&quot;]
+      B[&quot;broker.ts — size, rate, schema, permission&quot;]
+    end
+    subgraph F[&quot;iframe sandbox=allow-scripts (opaque origin)&quot;]
+      SDK[&quot;SDK (nonce)&quot;] --- P[&quot;plugin main.js (nonce)&quot;]
+    end
+  end
+  S[&quot;Server /api/plugins/* — re-checks approval + permission, then user visibility&quot;]
+  P -- &quot;MessagePort (JSON strings)&quot; --&gt; B
+  B --&gt; H -- &quot;fetch with the user&#39;s session&quot; --&gt; S
+</code></pre>
+<p><strong>Trust boundaries.</strong> The administrator decides <em>which code</em> runs (approval pinned to a hash).
+The sandbox decides <em>what that code can touch</em>: nothing but one MessagePort. The parent decides
+<em>which requests</em> are honoured (approved permissions, declared contributions, limits). The server
+decides <em>which data</em> the user may see (the same visibility/membership checks as the rest of the
+app), and independently re-checks that the plugin is active and holds the permission.</p>
+<ol>
+<li><strong>Isolation.</strong> <code>&lt;iframe sandbox=&quot;allow-scripts&quot;&gt;</code> — never <code>allow-same-origin</code>, so the frame has
+an opaque origin: no cookies, no Web Storage, no access to <code>window.parent</code>&#39;s DOM. The frame
+document is served with its own CSP that repeats <code>sandbox allow-scripts</code> (so it is opaque even
+when opened as a top-level page), <code>default-src &#39;none&#39;</code>, <code>script-src &#39;nonce-…&#39;</code> (fresh nonce
+per response; only the SDK and the approved bundle run), <code>connect-src &#39;none&#39;</code>,
+<code>form-action &#39;none&#39;</code>, <code>base-uri &#39;none&#39;</code>, <code>frame-ancestors &#39;self&#39;</code>, plus <code>nosniff</code>,
+<code>Referrer-Policy: no-referrer</code> and a deny-all <code>Permissions-Policy</code>. The iframe also gets
+<code>allow=&quot;&quot;</code>, <code>referrerpolicy=&quot;no-referrer&quot;</code> and <code>credentialless</code> where supported.</li>
+<li><strong>Channel.</strong> On the frame&#39;s first <code>load</code>, the parent transfers a <code>MessagePort</code> with
+<code>postMessage(…, &#39;*&#39;, [port])</code> to that exact <code>contentWindow</code> (an opaque origin cannot be named,
+so <code>&#39;*&#39;</code> is required; the capability is the port, not the origin). All further traffic uses the
+port, so other windows cannot inject messages and the parent never broadcasts. A second <code>load</code>
+(the plugin navigated its frame) kills the frame.</li>
+<li><strong>Parent broker.</strong> Every message must be a JSON string ≤ 256 KB (checked before parsing), pass
+the token bucket, carry a positive integer request id and a known method with valid params
+(UUIDs for page ids, so nothing can be injected into proxied URLs), and the method&#39;s permission
+must be in the <strong>approved</strong> set. Responses carry the request id.</li>
+<li><strong>Server.</strong> <code>/api/plugins/:id/*</code> routes are cookie-session only (no MCP bearer tokens), return
+404 unless the plugin is approved, enabled and its on-disk hash still matches, check the
+permission again, then call the same guards the app uses (<code>findVisiblePage</code> +
+<code>requireMembership</code>, or an internal request to the existing route with the user&#39;s own cookie).
+There are no plugin tokens: a plugin can never act as anyone but the signed-in user, and never
+see more than that user can.</li>
+<li><strong>Supply chain.</strong> No install API; files are read from <code>PLUGINS_DIR</code> only, symlinks refused,
+entry confined to the plugin directory, approval bound to content hash, admin approves the hash
+they reviewed (409 if the files changed in between).</li>
+</ol>
+<h2 id="threat-checklist-and-verification-status">Threat checklist and verification status</h2>
+<p>&quot;Browser&quot; rows were exercised with the real parent broker and real server-served frames in
+<strong>headless Chrome 157</strong> (harness in <code class="long">apps/server/src/plugins/browser-harness/</code>). &quot;Server&quot; rows are
+covered by <code>plugins.test.ts</code> and the HTTP smoke. Other browsers are <strong>not verified</strong>.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Malicious behaviour</th><th scope="col">Expected</th><th scope="col">Status</th></tr></thead><tbody><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Read parent DOM (<code>window.parent.document</code>, <code>top.document</code>)</td><td class="c-field" data-label="Expected"><code>SecurityError</code></td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Read/write <code>document.cookie</code></td><td class="c-field" data-label="Expected"><code>SecurityError</code></td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Malicious behaviour"><code>localStorage</code></td><td class="c-field" data-label="Expected"><code>SecurityError</code></td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour"><code>fetch</code> same-origin API / external, XHR, WebSocket</td><td class="c-field" data-label="Expected">blocked by CSP</td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Inject <code>&lt;script&gt;</code> without nonce, <code>eval</code></td><td class="c-field" data-label="Expected">blocked by CSP</td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour"><code>window.open</code> popup, remote image beacon</td><td class="c-field" data-label="Expected">blocked (sandbox / CSP)</td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Frame URL opened top-level</td><td class="c-field c-wide" data-label="Expected">opaque origin (<code>self.origin === &quot;null&quot;</code>), no cookie/storage</td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour"><code>pages.update</code> without <code>write:pages</code></td><td class="c-field c-wide" data-label="Expected"><code>PERMISSION_DENIED</code> in parent; 403 server</td><td class="c-field" data-label="Status">Browser ✔ + Server ✔ + unit</td></tr><tr class="rec"><td class="c-title c-name" data-label="Malicious behaviour">Undeclared command/block</td><td class="c-field" data-label="Expected"><code>NOT_DECLARED</code></td><td class="c-field" data-label="Status">unit</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Oversized messages (2 MB × 5)</td><td class="c-field" data-label="Expected">dropped before parse, frame killed after 3</td><td class="c-field" data-label="Status">Browser ✔ + unit</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Message flood (20 000 messages)</td><td class="c-field" data-label="Expected">≤ burst reaches handlers, frame killed</td><td class="c-field" data-label="Status">Browser ✔ + unit</td></tr><tr class="rec"><td class="c-title c-name" data-label="Malicious behaviour">Infinite loop</td><td class="c-field c-wide" data-label="Expected">no pong for 12 s → frame removed, app stays responsive</td><td class="c-field c-wide" data-label="Status">Browser ✔ (Chrome runs the sandboxed frame out of process); <strong>unverified elsewhere</strong></td></tr><tr class="rec"><td class="c-title c-name" data-label="Malicious behaviour">Navigate own frame</td><td class="c-field" data-label="Expected">second <code>load</code> → frame killed</td><td class="c-field" data-label="Status">Browser ✔ (Chrome)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Read another user&#39;s private page via plugin</td><td class="c-field" data-label="Expected">404</td><td class="c-field" data-label="Status">Server ✔</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Plugin storage of another user / plugin</td><td class="c-field" data-label="Expected">isolated by (plugin, user) key</td><td class="c-field" data-label="Status">Server ✔</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Swap the bundle after approval</td><td class="c-field" data-label="Expected">not served / listed until re-approved</td><td class="c-field" data-label="Status">Server ✔</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Path traversal / symlink in plugin dir, entry, URL</td><td class="c-field" data-label="Expected">refused / 404</td><td class="c-field" data-label="Status">Server ✔</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Approve with stale hash or unrequested permission</td><td class="c-field" data-label="Expected">409 / 400</td><td class="c-field" data-label="Status">Server ✔</td></tr><tr class="rec"><td class="c-title c-name" data-label="Malicious behaviour">Spoofing app toasts</td><td class="c-field" data-label="Expected">notices always prefixed with plugin name</td><td class="c-field" data-label="Status">structural</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Spamming write confirmations</td><td class="c-field" data-label="Expected">one pending per plugin, ≥ 3 s apart</td><td class="c-field" data-label="Status">structural (not browser-tested)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">App integration: slash menu inserts <code>pluginBlock</code>, block frame renders and auto-resizes, palette command runs in a hidden worker frame and shows its notice, admin section renders</td><td class="c-field" data-label="Expected">works</td><td class="c-field c-wide" data-label="Status">Browser ✔ (Chrome, vite dev against a disposable server)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour"><code>pages.update</code> <em>with</em> <code>write:pages</code> (confirm dialog → snapshot → write)</td><td class="c-field" data-label="Expected">user confirms</td><td class="c-field c-wide" data-label="Status"><strong>unverified in a browser</strong> (server route covered by the existing content route)</td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour"><code>setData</code> round-trip from a click inside a block; collaborator change pushed back into the frame</td><td class="c-field" data-label="Expected">document updated / frame re-renders</td><td class="c-field" data-label="Status"><strong>unverified in a browser</strong></td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">More than 8 visible plugin frames (slot cap, LRU worker eviction, &quot;paused&quot; placeholder)</td><td class="c-field" data-label="Expected">capped</td><td class="c-field" data-label="Status"><strong>unverified in a browser</strong></td></tr><tr class="rec"><td class="c-title" data-label="Malicious behaviour">Firefox / Safari behaviour of everything above</td><td class="c-field" data-label="Expected">—</td><td class="c-field" data-label="Status"><strong>unverified</strong></td></tr></tbody></table></div>
+<h2 id="known-limitations-and-residual-risks">Known limitations and residual risks</h2>
+<ul>
+<li><strong>Exfiltration by navigation.</strong> Browsers offer no way to stop a frame from navigating itself
+(<code>navigate-to</code> was never shipped). A malicious plugin that was granted <code>read:pages</code> can send
+what it read to another site by navigating its own frame; the parent detects the navigation and
+kills the frame, but the request has already left. Administrator approval is therefore the trust
+boundary for <em>data the plugin is allowed to read</em>. The sandbox protects everything else
+(session, other data, the app UI).</li>
+<li><strong>Pre-load navigation.</strong> If a plugin navigates during its very first load, the handshake port
+is delivered to the page it navigated to. That page has no more power than the plugin itself
+(same permissions, same opaque sandbox), but it is no longer bound by our CSP.</li>
+<li><strong>Same-process browsers.</strong> Killing a busy-looping frame needs the parent to keep running. Chrome
+isolates sandboxed frames in their own process (verified); browsers that do not would stall the
+whole tab until their own &quot;page unresponsive&quot; handling kicks in.</li>
+<li><strong>Server export.</strong> Like <code>pageEmbed</code>/<code>callout</code>, the server-side BlockNote schema does not know
+<code>pluginBlock</code>, so Markdown/Notion export and server-side Markdown writes drop plugin blocks. The
+block is preserved in the live document.</li>
+<li><code>style-src &#39;unsafe-inline&#39;</code> is allowed inside the frame (styling is harmless inside an opaque
+sandbox). Fonts and images are limited to <code>data:</code>/<code>blob:</code>.</li>
+<li>No plugin settings UI, no per-workspace enablement, no update channel in v0.</li>
+<li>The read-only transclusion viewer (<code>![[page]]</code> embeds) uses its own schema without
+<code>pluginBlock</code>, so plugin blocks are not shown inside embeds (the source page is unaffected).</li>
+<li>Frame assets (<code>/api/plugin-frame/…</code>, <code>/api/plugin-sdk/…</code>) are unauthenticated by design
+(opaque-origin frames send no cookies); they only exist for approved plugins and only expose
+the approved bundle.</li>
+</ul>
+<h2 id="verifying-the-sandbox-yourself">Verifying the sandbox yourself</h2>
+<ol>
+<li>Start a disposable server with <code>EXPERIMENTAL_FEATURES=plugins</code>, <code>PLUGINS_DIR</code> pointing at a
+scratch directory holding copies of both <code>examples/plugins/*</code> and
+<code class="long">apps/server/src/plugins/fixtures/*</code>, and <code>WEB_DIST=&lt;harness dir&gt;</code>; register <code>admin@example.com</code> /
+<code>password123</code>; approve <code>security-probe</code> (<code>commands</code>, <code>read:pages</code>) and <code>progress-bar</code>.</li>
+<li><code class="long">apps/server/src/plugins/browser-harness/run.sh &lt;harness dir&gt;</code> (copies the harness and bundles
+the real <code>broker.ts</code> with esbuild), restart the server so the files are served.</li>
+<li>Start headless Chrome with <code>--remote-debugging-port=9613</code>, then <code>node cdp.mjs</code>. Every probe in
+<code>escape</code> must print <code>:ok</code>; <code>write</code> must be <code>PERMISSION_DENIED</code>; <code>huge</code>/<code>flood</code>/<code>navigate</code>/<code>loop</code>
+must report <code>oversize</code>/<code>flood</code>/<code>navigated</code>/<code>unresponsive</code>.</li>
+</ol>
+<p>Unit tests: <code class="long">cd apps/server &amp;&amp; npx tsx --test src/plugins/plugins.test.ts ../web/src/plugins/broker.test.ts</code>.</p>
+<p class="doc-meta"><a href="PLUGINS.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/PLUGINS.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#non-goals-obsidian-compatibility">Non-goals: Obsidian compatibility</a></li><li><a href="#installing-a-plugin-operators">Installing a plugin (operators)</a></li><li><a href="#writing-a-plugin">Writing a plugin</a></li><li><a href="#manifestjson-reference">manifest.json reference</a></li><li><a href="#runtime-api-reference">Runtime API reference</a></li><li><a href="#limits">Limits</a></li><li><a href="#security-model">Security model</a></li><li><a href="#threat-checklist-and-verification-status">Threat checklist and verification status</a></li><li><a href="#known-limitations-and-residual-risks">Known limitations and residual risks</a></li><li><a href="#verifying-the-sandbox-yourself">Verifying the sandbox yourself</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>쿼리 블록 · Inkling</title>
+  <meta name="description" content="Dataview 문법 일부: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/QUERY.ko.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/QUERY.ko.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/QUERY.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="쿼리 블록 · Inkling">
+  <meta property="og:description" content="Dataview 문법 일부: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/QUERY.ko.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/doc-light.png">
+  <meta property="og:locale" content="ko_KR">
+  <link rel="alternate" type="text/markdown" href="QUERY.ko.md" title="이 문서의 Markdown 원문">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../ko/index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="주 메뉴">
+      <a class="hide-sm" href="../ko/tour/index.html">둘러보기</a>
+      <a href="index.ko.html">문서</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="언어"><a href="QUERY.ko.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="QUERY.html" hreflang="en" lang="en">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="문서 목록"><h2>Inkling 쓰기</h2><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html" aria-current="page">쿼리 블록</a></li></ul><h2>서버 운영</h2><ul><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li></ul><h2>연동</h2><ul><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li></ul><h2>프로젝트</h2><ul><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li></ul><h2>그 밖의 문서</h2><ul><li><a href="DEMO.ko.html">DEMO</a></li></ul><h2>GitHub에서</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">설계 결정(ADR) <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.ko.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">기여 안내 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">보안 정책 <span class="en-mark">(영어)</span></a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>문서 목록</summary><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html">쿼리 블록</a></li><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li><li><a href="DEMO.ko.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Inkling 쓰기</p><h1 id="쿼리-블록">쿼리 블록</h1><p class="doc-desc">Dataview 문법 일부: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.</p><p class="doc-meta doc-meta-top">이 문서는 저장소의 <code>docs/QUERY.ko.md</code>을 그대로 옮겼습니다. <a href="QUERY.ko.md" type="text/markdown">Markdown 원문</a></p></header><p><strong>쿼리 블록</strong>은 페이지를 실시간 표나 목록으로 보여 줍니다. 쿼리는 <a href="https://blacksmithgu.github.io/obsidian-dataview/">Obsidian Dataview</a> 쿼리 언어의 일부를 그대로 써서 적습니다. English: <a href="QUERY.html">QUERY.md</a>.</p>
+<p>블록은 <strong>/ › 쿼리</strong>(<code>/ → Query</code>)로 넣습니다. 쿼리 블록은 언어가 <code>dataview</code>인 코드 블록입니다. 결과는 그 아래에 나오고, 워크스페이스의 페이지가 바뀌면 결과도 따라 바뀝니다. 평범한 <code>```dataview</code> 코드 블록이라서 Markdown으로 내보내도, MCP 커넥터나 볼트 동기화를 거쳐도 쿼리가 바뀌지 않습니다. Dataview 플러그인을 켠 옵시디언 볼트에서도 같은 쿼리가 그대로 돕니다.</p>
+<pre><code class="language-dataview">TABLE status, due, file.tags
+FROM #project AND &quot;Work/Clients&quot;
+WHERE status != &quot;done&quot; AND due &lt; date(today)
+SORT due ASC
+LIMIT 50
+</code></pre>
+<p><a id="query-shape"></a></p>
+<h2 id="쿼리-구조">쿼리 구조</h2>
+<pre><code>TABLE [WITHOUT ID] &lt;expr&gt; [AS &quot;Label&quot;], …   |   LIST [&lt;expr&gt;]   |   TASK
+[FROM &lt;source&gt;]
+[WHERE &lt;expr&gt;]
+[SORT &lt;expr&gt; [ASC|DESC], …]
+[LIMIT &lt;n&gt;]
+</code></pre>
+<ul>
+<li>키워드는 대소문자를 가리지 않습니다. <code>FROM</code>은 다른 절보다 앞에 와야 합니다. <code>WHERE</code>, <code>SORT</code>, <code>LIMIT</code>는 순서에 상관없이 쓸 수 있고, 각각 한 번씩만 쓸 수 있습니다.</li>
+<li><code>TABLE</code>은 맨 앞 열에 페이지 링크를 보여 줍니다. <code>WITHOUT ID</code>를 붙이면 이 열이 빠집니다.</li>
+<li><code>LIST &lt;expr&gt;</code>는 페이지 링크 옆에 그 값을 보여 줍니다.</li>
+<li><code>TASK</code>는 <strong>날짜가 붙은</strong> 체크리스트 항목을 나열합니다. <code>page_tasks</code> 색인을 쓰기 때문에 캘린더와 &#39;마감&#39; 화면에 나오는 항목과 같습니다. 날짜가 없는 체크리스트 항목은 색인되지 않아서 나오지 않습니다.</li>
+</ul>
+<p><a id="sources-from"></a></p>
+<h2 id="소스from">소스(<code>FROM</code>)</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">소스</th><th scope="col">가져오는 페이지</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="소스"><code>#tag</code></td><td class="c-field c-wide" data-label="가져오는 페이지">본문이나 <code>tags</code> 속성에 그 태그가 있는 페이지. 대소문자를 가리지 않고, <code>#a</code>로 찾으면 그 아래 태그인 <code>#a/b</code>도 함께 나옵니다.</td></tr><tr class="rec"><td class="c-title c-name" data-label="소스"><code>&quot;Folder/Sub&quot;</code></td><td class="c-field c-wide" data-label="가져오는 페이지">그 페이지 경로 아래에 있는 모든 페이지와, 딱 그 경로에 있는 페이지. 경로는 사이드바 트리처럼 제목을 <code>/</code>로 이어서 씁니다.</td></tr><tr class="rec"><td class="c-title c-name" data-label="소스"><code>[[Page]]</code></td><td class="c-field" data-label="가져오는 페이지"><code>Page</code><strong>로 가는</strong> 링크가 있는 페이지</td></tr><tr class="rec"><td class="c-title c-name" data-label="소스"><code>-src</code>, <code>NOT src</code></td><td class="c-field" data-label="가져오는 페이지">제외</td></tr><tr class="rec"><td class="c-title c-name" data-label="소스"><code>a AND b</code>, <code>a OR b</code>, <code>( … )</code></td><td class="c-field" data-label="가져오는 페이지">조합</td></tr></tbody></table></div>
+<p><code>FROM</code>을 쓰지 않으면 워크스페이스에서 내가 볼 수 있는 문서 페이지 전부가 대상입니다.</p>
+<p><a id="fields"></a></p>
+<h2 id="필드">필드</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">필드</th><th scope="col">값</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.name</code>, <code>file.link</code></td><td class="c-field" data-label="값">페이지 제목</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.ctime</code>, <code>file.mtime</code></td><td class="c-field" data-label="값">만든 시각 / 마지막으로 고친 시각(타임스탬프)</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.cday</code>, <code>file.mday</code></td><td class="c-field" data-label="값">만든 날짜 / 고친 날짜(<code>YYYY-MM-DD</code>, 내 시간대 기준)</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.tags</code></td><td class="c-field" data-label="값"><code>#tags</code> 목록(본문에 쓴 태그와 <code>tags</code> 속성)</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.folder</code></td><td class="c-field c-wide" data-label="값">부모 페이지의 경로(<code>Work/Clients</code>). 최상위 페이지는 <code>&quot;&quot;</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>file.path</code></td><td class="c-field" data-label="값">페이지 자신의 경로</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드">그 밖의 이름</td><td class="c-field c-wide" data-label="값">그 이름의 페이지 <strong>속성</strong>(대소문자 구분 없음). 그런 속성이 없고 데이터베이스 행이면 그 이름의 <strong>데이터베이스 속성</strong>을 씁니다. 선택 옵션은 라벨로 보입니다. 사람 속성은 멤버 이름으로 보이고, 관계형 속성은 내가 볼 수 있는 행으로 가는 링크로 보입니다(볼 수 없는 행은 빠집니다)(docs/adr/1320-<em>). <code>WHERE</code>와 <code>SORT</code>도 같은 값을 씁니다. 사람 속성은 멤버 이름으로, 관계형 속성은 내가 볼 수 있는 연결된 행의 제목으로 비교합니다(<code>SORT</code>는 이 제목들을 &quot;, &quot;로 이어서 씁니다). 그래서 <code>WHERE Owner = &quot;Priya Nair&quot;</code>로 찾을 수 있습니다. <code>=</code>, <code>!=</code>, <code>contains()</code>는 저장된 id로도 맞춰 봅니다. 멤버의 id와, 내가 볼 수 있는 연결된 행의 id가 그렇습니다. 이름과 제목은 대소문자까지 똑같아야 맞습니다(docs/adr/1352-</em>).</td></tr><tr class="rec"><td class="c-title c-name" data-label="필드"><code>`Name with spaces`</code></td><td class="c-field" data-label="값">속성 이름에 공백이 있으면 백틱으로 감쌉니다</td></tr><tr class="rec"><td class="c-title" data-label="필드"><code>text</code>, <code>due</code>, <code>completed</code> / <code>checked</code></td><td class="c-field" data-label="값"><strong><code>TASK</code> 전용</strong>: 항목의 글, 날짜, 체크 상태</td></tr></tbody></table></div>
+<p><a id="expressions"></a></p>
+<h2 id="표현식">표현식</h2>
+<ul>
+<li>리터럴: <code>&quot;text&quot;</code>, <code>42</code>, <code>3.5</code>, <code>true</code>, <code>false</code>, <code>null</code></li>
+<li>날짜: <code>date(today)</code>, <code>date(tomorrow)</code>, <code>date(yesterday)</code>, <code>date(&quot;2026-11-07&quot;)</code>. <code>today</code>는 보는 사람의 현지 날짜입니다.</li>
+<li>비교: <code>=</code> <code>!=</code> <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code><ul>
+<li>필드가 <code>&quot;x&quot;</code>를 담은 <strong>목록</strong>이어도 <code>field = &quot;x&quot;</code>는 참입니다.</li>
+<li>숫자와 비교하면 숫자로 비교합니다. 숫자로 된 문자열도 숫자로 칩니다.</li>
+<li>날짜와 비교하면 <code>YYYY-MM-DD</code> 부분만 비교합니다. <code>file.ctime</code> / <code>file.mtime</code>은 그 날짜의 현지 시간 자정과 비교합니다.</li>
+</ul>
+</li>
+<li><code>contains(list, &quot;x&quot;)</code>: 목록에 그 값이 들어 있는지 봅니다. 텍스트 값이면 그 문자열이 들어 있는지 봅니다.</li>
+<li>논리: <code>AND</code> / <code>&amp;&amp;</code>, <code>OR</code> / <code>||</code>, <code>NOT</code> / <code>!</code>, 괄호. 필드 이름만 쓰면 그 값이 있고 <code>false</code>, <code>0</code>, <code>&quot;&quot;</code>, <code>[]</code>가 아닐 때 참입니다.</li>
+</ul>
+<p><a id="limits"></a></p>
+<h2 id="제한">제한</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">항목</th><th scope="col">값</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="항목">쿼리 길이</td><td class="c-field" data-label="값">2,000자, 토큰 400개, 중첩 깊이 24</td></tr><tr class="rec"><td class="c-title c-name" data-label="항목">열 / 정렬 키</td><td class="c-field" data-label="값">20개 / 5개</td></tr><tr class="rec"><td class="c-title c-name" data-label="항목">행</td><td class="c-field" data-label="값"><code>LIMIT</code> ≤ 500(기본 200). 결과가 잘리면 블록에 그렇게 나옵니다</td></tr><tr class="rec"><td class="c-title c-name" data-label="항목">실행</td><td class="c-field c-wide" data-label="값">쿼리 한 번에 3초 제한(statement timeout). 이 제한에 걸리면 <code>FROM</code> / <code>WHERE</code>로 범위를 좁히세요</td></tr></tbody></table></div>
+<p>결과에는 내가 볼 수 있는 페이지(공유 페이지와 내 개인 페이지)만 나옵니다. 휴지통에 있는 페이지와 템플릿은 빠집니다.</p>
+<p><a id="errors"></a></p>
+<h2 id="오류">오류</h2>
+<p>문법 오류는 블록 안에 나옵니다. 줄과 열 번호를 알려 주고, 문제가 있는 곳 밑을 캐럿으로 가리킵니다. 브라우저와 서버는 같은 파서(<code>packages/shared/src/query.ts</code>)를 씁니다.</p>
+<p><a id="differences-from-dataview"></a></p>
+<h2 id="dataview와-다른-점">Dataview와 다른 점</h2>
+<p>지원하지 않는 것은 <code>CALENDAR</code> 쿼리, <code>GROUP BY</code>, <code>FLATTEN</code>, 인라인 필드(<code>key:: value</code>), 산술 연산, 기간(<code>date(today) - dur(1 week)</code>), 정규식 함수, DataviewJS, 나가는 링크로 거르는 <code>FROM</code>(<code>outgoing([[Page]])</code>)입니다. <code>TASK</code>는 날짜가 붙은 체크리스트 항목만 다룹니다.</p>
+<p><a id="api"></a></p>
+<h2 id="api">API</h2>
+<p><code>POST /api/workspaces/:id/query</code>입니다. 자세한 내용은 <a href="API.ko.html#query-blocks">API.ko.md</a>를 보세요.</p>
+<p class="doc-meta"><a href="QUERY.ko.md" type="text/markdown">Markdown 원문</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/QUERY.ko.md">GitHub에서 보기</a><a href="index.ko.html">전체 문서</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="이 문서의 목차" data-toc><h2>목차</h2><ul><li><a href="#쿼리-구조">쿼리 구조</a></li><li><a href="#소스from">소스(FROM)</a></li><li><a href="#필드">필드</a></li><li><a href="#표현식">표현식</a></li><li><a href="#제한">제한</a></li><li><a href="#오류">오류</a></li><li><a href="#dataview와-다른-점">Dataview와 다른 점</a></li><li><a href="#api">API</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="바닥글">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

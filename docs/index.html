@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentation · Inkling</title>
+  <meta name="description" content="Inkling documentation">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/index.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/index.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/index.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Documentation · Inkling">
+  <meta property="og:description" content="Inkling documentation">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/index.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html" aria-current="page">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="index.ko.html" hreflang="ko" lang="ko">한국어</a><a href="index.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="doc-index">
+    
+    <h1>Documentation</h1><p>Rendered from the repository's <code>docs/</code> folder and <code>deploy/DEPLOY.md</code> for Inkling v0.22.1. Every page links its Markdown source.</p><h2>Using Inkling</h2><div class="grid two"><a class="card" href="GUIDE.html"><h3>User guide</h3><p>Where things are, for people using a server someone else runs.</p></a><a class="card" href="MCP.html"><h3>MCP connector and agent guide</h3><p>Connecting Claude and other MCP clients, every tool, and a guide for agents.</p></a><a class="card" href="RECIPES.html"><h3>Recipes with other MCP servers</h3><p>Inkling next to game engines, design tools and code hosts.</p></a><a class="card" href="TEMPLATES.html"><h3>Templates</h3><p>Page and structure templates, variables, prompts and row templates.</p></a><a class="card" href="QUERY.html"><h3>Query blocks</h3><p>The Dataview subset: TABLE, LIST, TASK, FROM, WHERE, SORT, LIMIT.</p></a></div><h2>Running a server</h2><div class="grid two"><a class="card" href="DEPLOY.html"><h3>Deployment</h3><p>A Linux server step by step: HTTPS, signup keys, mail, sign-in options, semantic search, updates.</p></a><a class="card" href="OPERATIONS.html"><h3>Operations</h3><p>Deployment checklist, upgrades, the status summary, database tuning.</p></a><a class="card" href="BACKUP.html"><h3>Backup and restore</h3><p>Schedules, encryption, GFS retention, restore tests, rclone copies.</p></a><a class="card" href="KNOWN-ISSUES.html"><h3>Known issues</h3><p>Open problems by area and severity.</p></a></div><h2>Integrating</h2><div class="grid two"><a class="card" href="API.html"><h3>REST API</h3><p>The REST contract shared by the web app, scripts and the MCP tools.</p></a><a class="card" href="WEBHOOKS.html"><h3>Webhooks</h3><p>Receiving workspace events on your own endpoint.</p></a><a class="card" href="PLUGINS.html"><h3>Plugins (experimental)</h3><p>Sandboxed iframe plugins: manifest, runtime API, security model.</p></a><a class="card" href="VAULT-SYNC.html"><h3>Vault sync (experimental)</h3><p>Two-way sync with an Obsidian vault through inklingctl.</p></a></div><h2>Project</h2><div class="grid two"><a class="card" href="ARCHITECTURE.html"><h3>Architecture</h3><p>How the server, collaboration and web app fit together.</p></a><a class="card" href="ROADMAP.html"><h3>Roadmap</h3><p>Planned work and non-goals.</p></a><a class="card" href="PERFORMANCE.html"><h3>Performance log</h3><p>Every performance change with numbers before and after, and how they were measured.</p></a></div><h2>More</h2><div class="grid two"><a class="card" href="DEMO.html"><h3>DEMO</h3></a></div><h2>On GitHub</h2><div class="grid two"><a class="card" href="https://github.com/PROVE1352/inkling/tree/main/docs/adr"><h3>Design decisions (ADRs)</h3></a><a class="card" href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md"><h3>Changelog</h3></a><a class="card" href="https://github.com/PROVE1352/inkling/blob/main/README.md"><h3>README</h3></a><a class="card" href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md"><h3>Contributing</h3></a><a class="card" href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md"><h3>Security policy</h3></a></div>
+  </main>
+  
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running a demo instance · Inkling</title>
+  
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/DEMO.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/DEMO.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/DEMO.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Running a demo instance · Inkling">
+  
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/DEMO.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="DEMO.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="DEMO.ko.html" hreflang="ko" lang="ko">한국어</a><a href="DEMO.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html" aria-current="page">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">More</p><h1 id="running-a-demo-instance">Running a demo instance</h1><p class="doc-meta doc-meta-top">Rendered from <code>docs/DEMO.md</code> in the repository. <a href="DEMO.md" type="text/markdown">Markdown source</a></p></header><blockquote>
+<p><strong>Open a public demo for strangers only with 0.22.1 or later, and only with its data on a filesystem of its own
+(step 0).</strong> 0.22.0 left problems open for a demo that shares the disk and memory of one machine with other
+services (LIMITS-37 to LIMITS-42); 0.22.1 fixes them. What is still known is in <a href="KNOWN-ISSUES.html#added-in-0221">KNOWN-ISSUES.md, &quot;Added in
+0.22.1&quot;</a>. A demo already started with 0.22.0 has to be moved first (&quot;Moving a demo
+from 0.22.0&quot; below).</p>
+</blockquote>
+<p>A demo instance is a second Inkling server that strangers can sign up to and try. It runs next to your own
+server but shares nothing with it: its own compose project, database, volumes, network and port. The
+restricted mode of 0.22 turns on what such a server needs: sign-in IDs instead of email addresses, an
+account cap, per-IP and hourly sign-up limits, accounts deleted 14 days after sign-up, limits on workspaces, members,
+pages and storage, a storage fuse for the whole server, server-wide switches for features that send data outside, terms and consent at sign-up,
+and a &quot;Demo&quot; label on every screen. Its data lives on a filesystem of its own, with its own size and inode limits, so it cannot fill
+the disk your main instance uses (step 0). 한국어: <a href="DEMO.ko.html">DEMO.ko.md</a>.</p>
+<p>The files are in <a href="https://github.com/PROVE1352/inkling/tree/main/deploy/demo"><code>deploy/demo/</code></a>: <code>demo.sh</code> (the only way to start, stop and check the
+demo), <code>compose.demo.yaml</code> (an overlay on <code>compose.yaml</code>), <code>demo.env.example</code> (the settings) and <code>legal/</code>
+(templates of the terms, privacy policy and sign-up texts). Design notes: ADR 2500–2551.</p>
+<h2 id="0-a-filesystem-for-the-demos-data">0. A filesystem for the demo&#39;s data</h2>
+<p>Make this on the server before the first <code>up</code>. The demo&#39;s database, uploads, backups and backup control files
+go in four folders (<code>db</code>, <code>data</code>, <code>backups</code>, <code>backup-ctl</code>) under one path, <code>DEMO_VOLUME_ROOT</code>. Mount a
+filesystem made only for the demo there. The storage fuse (<code>LIMIT_INSTANCE_STORAGE_MB</code>) does not see the WAL,
+the backups or the logs, and it trips only after the fact. A filesystem with its own size is what keeps a demo
+user from filling the disk your main instance uses. <code>demo.sh up</code> refuses a <code>DEMO_VOLUME_ROOT</code> on the root
+filesystem (or on the filesystem of Docker&#39;s data folder).</p>
+<p>You do this yourself, as root on the server: this page and the scripts never create, mount or delete
+filesystems. One way on Linux is an image file with ext4, mounted at every boot:</p>
+<pre><code class="language-bash">sudo fallocate -l 30G /var/lib/inkling-demo.img     # takes the 30 GB at once (not a sparse file)
+sudo mkfs.ext4 -F -m 0 -N 600000 -E nodiscard -L inkling-demo /var/lib/inkling-demo.img   # nodiscard: mkfs would otherwise give the space back
+sudo mkdir -p /srv/inkling-demo-data
+sudo chattr +i /srv/inkling-demo-data               # the empty mount point: nothing can be created in it while unmounted
+echo &#39;/var/lib/inkling-demo.img /srv/inkling-demo-data ext4 loop,nodev,nosuid,noexec,nofail 0 2&#39; | sudo tee -a /etc/fstab
+sudo mount /srv/inkling-demo-data
+sudo mkdir -p /srv/inkling-demo-data/db /srv/inkling-demo-data/data /srv/inkling-demo-data/backups /srv/inkling-demo-data/backup-ctl
+findmnt /srv/inkling-demo-data &amp;&amp; df -h /srv/inkling-demo-data &amp;&amp; df -i /srv/inkling-demo-data
+sudo du -h /var/lib/inkling-demo.img                  # the full size, not a few MB: the image really holds its space
+</code></pre>
+<p>Then set <code class="long">DEMO_VOLUME_ROOT=/srv/inkling-demo-data</code> in <code>demo.env</code>. A separate disk, partition, LVM volume or a
+virtual machine works as well. After a reboot, check with <code>findmnt</code> that it is mounted before <code>demo.sh up</code>:
+an empty mount point is on the root filesystem, so <code>up</code> refuses it rather than writing to the main disk.</p>
+<p><strong>A reboot does not wait for <code>demo.sh</code>.</strong> Docker starts the demo&#39;s containers again by itself
+(<code>restart: unless-stopped</code> in <code>compose.yaml</code>), so the check of <code>up</code> does not run. If the filesystem failed to mount,
+what keeps the demo off the root disk is only that the four folders are missing from the empty mount point: the
+volumes are binds of those folders, so they should fail to mount and the containers should not start (not tried on
+Linux, KNOWN-ISSUES LIMITS-51). Two things in the commands above are for this case: <code>nofail</code> lets the server finish booting when the image cannot
+be mounted (without it a failed mount can stop the boot of the whole server), and <code>chattr +i</code> on the empty mount
+point keeps anything, Docker included, from creating folders in it on the root disk (<code>chattr -i</code> before you ever
+remove the mount point). So never create <code>db</code>, <code>data</code>, <code>backups</code> or <code>backup-ctl</code> while the filesystem is not
+mounted, check <code>findmnt</code> after every reboot, and if you would rather start the demo yourself after a planned reboot,
+run <code>deploy/demo/demo.sh down</code> before it (the data stays).</p>
+<p><strong>Size</strong>: fuse + 2 GB for the WAL + the number of backup sets × the fuse + headroom. With the preset
+(<code>LIMIT_INSTANCE_STORAGE_MB=3000</code>, 7 daily backup sets) that is 3 + 2 + 7 × 3 = 26 GB, so 30 GB with
+headroom. If you change the fuse or the backup sets, change the size to match. <strong>Inodes</strong>: with the preset, the
+counted files are at most 100 workspaces × 10 MB / 5 KB (each file counts at least 5 KB), about 205,000, plus
+the database&#39;s and the backups&#39; files. <code>-N 600000</code> bounds the inodes and leaves room for them.</p>
+<p>For a trial on a laptop without such a filesystem, <code>DEMO_ALLOW_SHARED_DISK=1 deploy/demo/demo.sh up</code> goes on with
+a warning. Never do this for a public demo. On macOS a disk image works as a real one
+(<code>hdiutil create -size 2g -fs APFS -volname demo demo.dmg</code>, then <code>hdiutil attach -mountpoint &lt;folder&gt; demo.dmg</code>).</p>
+<h2 id="1-start-it-as-a-separate-instance">1. Start it as a separate instance</h2>
+<p>Deploy the demo from a folder of its own: a second checkout of the same release, not the folder your main
+instance runs from (that folder&#39;s <code>.env</code> and its usual commands belong to production). It can run on the
+same machine:</p>
+<pre><code class="language-bash">git clone &lt;the Inkling repository&gt; /srv/inkling-demo/inkling    # a second copy, at the release you run
+cd /srv/inkling-demo/inkling
+cp deploy/demo/demo.env.example deploy/demo/demo.env
+# fill in DEMO_POSTGRES_PASSWORD and DEMO_APP_SECRET_KEY (new values, see &quot;Secrets&quot; below),
+# PUBLIC_URL: the public https address people will use (for example https://demo.example.com)
+# and DEMO_VOLUME_ROOT: the filesystem of step 0
+deploy/demo/demo.sh config     # check what would run; changes nothing
+deploy/demo/demo.sh up         # builds the demo&#39;s own image (DEMO_IMAGE) the first time
+</code></pre>
+<p>Run every demo command through <code>deploy/demo/demo.sh</code> (<code>config</code>, <code>up</code>, <code>build</code>, <code>down</code>, <code>destroy</code>, <code>ps</code>, <code>logs</code>,
+<code>exec</code>), never plain <code>docker compose</code>. The script always uses the project name <code>inkling-demo</code>, both compose
+files and <code>deploy/demo/demo.env</code> (another file with <code>--env-file</code>), and passes nothing from your shell but
+<code>PATH</code>, <code>HOME</code> and Docker&#39;s connection variables. It stops at once when <code>COMPOSE_PROJECT_NAME</code>,
+<code>COMPOSE_FILE</code> or <code>INKLING_DATA_NAME</code> is set in the shell. Before <code>up</code>, <code>down</code> and <code>destroy</code> it reads the
+resolved configuration and refuses, doing nothing, unless the project is <code>inkling-demo</code>, every volume and
+the network are named <code>inkling-demo_…</code>, the database and its role are <code>inkling_demo</code> and no port is 3000
+(production&#39;s default); <code>config</code> prints the same checks, and <code>up</code> also refuses secrets still marked
+<code>CHANGE-ME</code>. The app image must be the demo&#39;s own name (<code>DEMO_IMAGE</code>, <code>inkling-demo:local</code> in the example; a name
+without <code>demo</code>, or production&#39;s <code>ghcr.io/prove1352/inkling</code>, is refused), so building or pulling for the demo never
+replaces the image your main instance&#39;s next <code>up</code> runs. Every volume must be a folder under <code>DEMO_VOLUME_ROOT</code>,
+written as an absolute path; before <code>up</code> that folder must exist on a filesystem of its own (step 0), and <code>up</code> makes
+the four folders in it. These names are written out in <code>compose.demo.yaml</code> itself, so no variable your main instance
+uses can point the demo at production&#39;s data, and plain <code>docker compose</code> with the overlay stops with a
+message. Every demo setting is required, so the production <code>.env</code> can never start a demo with no limits.
+<code>down</code> keeps the demo&#39;s volumes; <code>destroy</code> deletes them after you type the project name (&quot;Closing the demo&quot;
+below). The app listens on <code>127.0.0.1:3100</code> only (<code>DEMO_PORT</code>); nothing is public until step 3.</p>
+<p>To update the demo to a new release: <code>git pull</code> (or check out the release) in the demo&#39;s folder, then
+<code>deploy/demo/demo.sh build</code> and <code>deploy/demo/demo.sh up</code>. <code>up</code> alone keeps running the image it built before.</p>
+<p><strong>Before you open it</strong> (before the proxy of step 3), run <code>deploy/demo/demo.sh config</code> and <code>deploy/demo/demo.sh up</code> on
+the server without <code>DEMO_ALLOW_SHARED_DISK</code>. Both have to pass with <code>ok</code> lines only, and <code>up</code> has to print
+<code>ok      DEMO_VOLUME_ROOT is a filesystem of its own</code>. If <code>up</code> refuses <code>DEMO_VOLUME_ROOT</code>, fix step 0; do not go on
+with the override.</p>
+<h3 id="secrets">Secrets</h3>
+<p>Make new secrets for the demo; never copy the main instance&#39;s values. Sessions and tokens of one instance
+do not work on the other only while these differ.</p>
+<pre><code class="language-bash">openssl rand -base64 32    # DEMO_POSTGRES_PASSWORD
+openssl rand -base64 32    # DEMO_APP_SECRET_KEY
+openssl rand -base64 32    # DEMO_BACKUP_PASSPHRASE, only if BACKUP_RCLONE_REMOTE is set
+</code></pre>
+<p>They have demo-only names, so a production value exported in your shell is never picked up.</p>
+<p>Until the operator account exists (step 4), the server takes no sign-up at all except the one made with
+the setup link: a server with sign-up limits, an account lifetime or sign-in IDs and no administrator
+answers every other sign-up with <code>SETUP_REQUIRED</code>, and its sign-up screen only says that it is waiting for
+its operator. So the first stranger can never become the administrator, whatever the order of the steps.</p>
+<h2 id="2-fill-in-the-terms-folder">2. Fill in the terms folder</h2>
+<p>Do this before anyone signs up, the operator included: everyone agrees to the folder&#39;s version, and an
+edit made later asks everyone to agree again.</p>
+<p><code>deploy/demo/legal/</code> is a template with four placeholders: <code>{{OPERATOR_NAME}}</code>, <code>{{CONTACT_EMAIL}}</code>,
+<code>{{SERVICE_URL}}</code> and <code>{{EFFECTIVE_DATE}}</code>. Copy it out of the repository, fill it in, and point
+<code>DEMO_LEGAL_DIR</code> in <code>demo.env</code> at the copy:</p>
+<pre><code class="language-bash">sudo mkdir -p /srv/inkling-demo &amp;&amp; sudo cp -r deploy/demo/legal /srv/inkling-demo/legal
+# edit the four placeholders in /srv/inkling-demo/legal/*.md, then in demo.env:
+#   DEMO_LEGAL_DIR=/srv/inkling-demo/legal
+deploy/demo/demo.sh up
+</code></pre>
+<p>The server reads the folder once at start. A malformed <code>signup.json</code> stops it with the file and the reason
+in the log; a placeholder left in a document is a warning at every start. The folder&#39;s version is a hash of
+its files, so any edit followed by a restart asks every account, yours included, to agree again on the next
+request. A restart also closes the open editing connections, so nobody keeps working on the old terms.</p>
+<p>What the folder holds:</p>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">File</th><th scope="col">Use</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="File"><code>terms.ko.md</code>, <code>terms.en.md</code></td><td class="c-field" data-label="Use">Terms of Service, shown at <code>/terms</code></td></tr><tr class="rec"><td class="c-title" data-label="File"><code>privacy.ko.md</code>, <code>privacy.en.md</code></td><td class="c-field" data-label="Use">Privacy Policy, shown at <code>/privacy</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="File"><code>signup.json</code></td><td class="c-field c-wide" data-label="Use">The notice at the top of the sign-up form and the tick boxes (<code>id</code>, <code>required</code>, <code>label</code>, optional <code>doc</code> and <code>details</code>)</td></tr></tbody></table></div>
+<p>A document with only one language is shown in that language to everyone. Documents are Markdown; HTML in
+them is shown as text, and links work only for <code>http</code>, <code>https</code> and <code>mailto</code>.</p>
+<p>The templates describe what the app does with the settings of this page. If you change a setting, check
+the sentences about it (deletion after 14 days, trash 7 days, limits, features turned off).</p>
+<h2 id="3-proxy">3. Proxy</h2>
+<p>Put HTTPS for the address in <code>PUBLIC_URL</code> in front of <code>127.0.0.1:3100</code>. With an https address the session
+cookie is Secure. With Caddy on the host:</p>
+<pre><code class="long">demo.example.com {
+	encode gzip zstd
+	reverse_proxy 127.0.0.1:3100
+	header {
+		Strict-Transport-Security &quot;max-age=31536000&quot;
+		X-Content-Type-Options &quot;nosniff&quot;
+		Referrer-Policy &quot;strict-origin-when-cross-origin&quot;
+	}
+}
+</code></pre>
+<p><code class="long">TRUST_PROXY=loopback,uniquelocal</code> makes the server take the client address from <code>X-Forwarded-For</code> when the
+request comes from the proxy, which the per-IP sign-up limit needs. If the proxy keeps an access log, that
+log holds IP addresses too. The privacy policy template describes the app&#39;s own logs (three files of 10 MB,
+the oldest dropped first): keep the proxy&#39;s log on a rule no longer than that, or write its rule into the
+policy.</p>
+<h2 id="4-create-the-operator-account-with-the-setup-link">4. Create the operator account with the setup link</h2>
+<pre><code class="language-bash">deploy/demo/demo.sh logs app | grep -A2 &#39;No accounts yet&#39;
+</code></pre>
+<p>Open the <code>/setup?code=…</code> link from the log. It is built from <code>PUBLIC_URL</code>, so it opens at the public address
+through the proxy. The server refuses form posts from any origin other than <code>PUBLIC_URL</code>, so use that address
+(not <code>localhost:3100</code> through a tunnel, unless <code>PUBLIC_URL</code> says so). The link works once, only while there
+are no accounts; a restart before that prints a new one. The setup form shows the same consent boxes as the
+sign-up form: the operator agrees to the terms too. Administrator accounts never expire. Once the account
+exists, the sign-up form opens to everyone.</p>
+<h2 id="5-check-before-you-announce-it">5. Check before you announce it</h2>
+<ul>
+<li>The start log has a line for the limits that are on, one for the features that are off, one for
+<code>LEGAL_DIR</code> with its version, and no placeholder warning.</li>
+<li><code class="long">curl -s https://demo.example.com/api/auth/mode</code> shows <code>loginId</code>, <code>instanceLabel</code>, <code>legal</code>, <code>limits</code> (with
+<code>trashDays</code>) and <code>disabledFeatures</code>, and <code>setupPending</code> is <code>false</code>.</li>
+<li>In a private window: the sign-up form asks for an ID, shows the notice and six unticked boxes, and the
+button stays off until all are ticked. <code>/terms</code> and <code>/privacy</code> open without signing in.</li>
+<li>After signing up, the deletion date is shown, and the &quot;Demo&quot; label is visible on a phone and on a computer.</li>
+<li><code>deploy/demo/demo.sh config</code> prints only <code>ok</code> lines, and <code>deploy/demo/demo.sh ps</code> shows no published
+database port and only <code>127.0.0.1:3100</code> for the app.</li>
+<li><code>deploy/demo/demo.sh up</code> printed <code>ok      DEMO_VOLUME_ROOT is a filesystem of its own</code>, and <code>df -h</code> of that folder
+shows the size you chose in step 0.</li>
+<li>Admin › Backups shows 7 daily, 0 weekly and 0 monthly sets, and Admin › Status lists <strong>Server storage limit</strong>.</li>
+<li>From one network, a third sign-up in a day is refused (the proxy passes the real address).</li>
+</ul>
+<h2 id="settings">Settings</h2>
+<p>One line each; the full reference is in the operations docs.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Demo value</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LOGIN_ID_MODE</code></td><td class="c-field" data-label="Demo value"><code>username</code></td><td class="c-field c-wide" data-label="Meaning">Sign up with an ID and a nickname instead of an email address</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_REQUIRE_KEY</code></td><td class="c-field" data-label="Demo value"><code>0</code></td><td class="c-field" data-label="Meaning">Anyone can sign up without a key</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_MAX_USERS</code></td><td class="c-field" data-label="Demo value"><code>50</code></td><td class="c-field c-wide" data-label="Meaning">Most accounts on the server, administrators included</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_PER_IP_PER_DAY</code></td><td class="c-field" data-label="Demo value"><code>2</code></td><td class="c-field" data-label="Meaning">Sign-ups from one address in 24 hours</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>ACCOUNT_LIFETIME_DAYS</code></td><td class="c-field" data-label="Demo value"><code>14</code></td><td class="c-field c-wide" data-label="Meaning">Accounts made from now on are deleted this many days after sign-up</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>ACCOUNT_LIFETIME_DRY_RUN</code></td><td class="c-field" data-label="Demo value">empty</td><td class="c-field c-wide" data-label="Meaning"><code>1</code> logs what would be deleted and deletes nothing</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_WORKSPACES_PER_USER</code></td><td class="c-field" data-label="Demo value"><code>2</code></td><td class="c-field c-wide" data-label="Meaning">Workspaces one person owns, deleted ones still restorable included</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_MEMBERS_PER_WORKSPACE</code></td><td class="c-field" data-label="Demo value"><code>4</code></td><td class="c-field" data-label="Meaning">Members of one workspace</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_PAGES_PER_WORKSPACE</code></td><td class="c-field" data-label="Demo value"><code>300</code></td><td class="c-field" data-label="Meaning">Pages of one workspace, trash included</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_FILE_MB</code></td><td class="c-field" data-label="Demo value"><code>5</code></td><td class="c-field" data-label="Meaning">Size of one uploaded file</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_WORKSPACE_STORAGE_MB</code></td><td class="c-field" data-label="Demo value"><code>10</code></td><td class="c-field c-wide" data-label="Meaning">Files (each counted as at least 5 KB), page bodies, version history and search indexes of one workspace</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_VERSIONS_PER_PAGE</code></td><td class="c-field" data-label="Demo value"><code>10</code></td><td class="c-field" data-label="Meaning">Version history kept per page</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_TRASH_DAYS</code></td><td class="c-field" data-label="Demo value"><code>7</code></td><td class="c-field c-wide" data-label="Meaning">Trashed pages are deleted for good after at most this many days, whatever a workspace sets</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>WORKSPACE_RESTORE_DAYS</code></td><td class="c-field" data-label="Demo value"><code>7</code></td><td class="c-field" data-label="Meaning">Days a deleted workspace can be restored</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>AGENT_UPLOAD_MAX_MB</code>, <code>AGENT_UPLOAD_DAILY_MB</code></td><td class="c-field" data-label="Demo value"><code>5</code>, <code>10</code></td><td class="c-field c-wide" data-label="Meaning">Uploads by AI agents: per file, per account per day</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LIMIT_WORKSPACES_TOTAL</code></td><td class="c-field" data-label="Demo value"><code>100</code></td><td class="c-field c-wide" data-label="Meaning">Workspaces on the whole server, deleted ones still restorable included; at it sign-up and new workspaces are refused</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>LIMIT_INSTANCE_STORAGE_MB</code></td><td class="c-field" data-label="Demo value"><code>3000</code></td><td class="c-field c-wide" data-label="Meaning">Storage fuse: database plus uploads, measured once a minute; at it the demo only reads and deletes (&quot;Disk and the storage fuse&quot; below)</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>APP_MEM_LIMIT</code>, <code>NODE_OPTIONS</code></td><td class="c-field c-wide" data-label="Demo value"><code>768m</code>, <code>--max-old-space-size=448</code></td><td class="c-field c-wide" data-label="Meaning">The app container&#39;s memory and the server&#39;s heap inside it (&quot;Memory&quot; below)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DISABLED_FEATURES</code></td><td class="c-field" data-label="Demo value">see <code>demo.env.example</code></td><td class="c-field" data-label="Meaning">Features turned off on the whole server</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>LEGAL_DIR</code></td><td class="c-field" data-label="Demo value"><code>/legal</code></td><td class="c-field c-wide" data-label="Meaning">The terms folder inside the container (<code>DEMO_LEGAL_DIR</code> on the host)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>INSTANCE_LABEL</code></td><td class="c-field" data-label="Demo value"><code>Demo</code></td><td class="c-field" data-label="Meaning">The label every screen shows</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>INSTANCE_NOTICE</code></td><td class="c-field" data-label="Demo value">empty</td><td class="c-field c-wide" data-label="Meaning">A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters)</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>BACKUP_KEEP_DAILY</code>, <code>BACKUP_KEEP_WEEKLY</code>, <code>BACKUP_KEEP_MONTHLY</code></td><td class="c-field" data-label="Demo value"><code>7</code>, <code>0</code>, <code>0</code></td><td class="c-field" data-label="Meaning">Backup sets kept</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>SIGNUP_PER_HOUR</code></td><td class="c-field" data-label="Demo value"><code>10</code></td><td class="c-field c-wide" data-label="Meaning">Accounts the whole server makes in one hour (the setup link&#39;s account does not count)</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>OAUTH_UNUSED_CLIENT_HOURS</code></td><td class="c-field" data-label="Demo value"><code>24</code></td><td class="c-field c-wide" data-label="Meaning">Self-registered OAuth clients that were never used are deleted this many hours after registering</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>OAUTH_UNUSED_CLIENT_MAX</code></td><td class="c-field" data-label="Demo value"><code>500</code></td><td class="c-field c-wide" data-label="Meaning">Most never-used self-registered OAuth clients kept; a new one removes the oldest (never one younger than 15 minutes)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DEMO_PORT</code></td><td class="c-field" data-label="Demo value"><code>127.0.0.1:3100</code></td><td class="c-field" data-label="Meaning">The demo&#39;s host port (not 3000)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DEMO_IMAGE</code></td><td class="c-field c-wide" data-label="Demo value"><code>inkling-demo:local</code></td><td class="c-field c-wide" data-label="Meaning">The demo&#39;s own image name, never production&#39;s (step 1)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DEMO_VOLUME_ROOT</code></td><td class="c-field" data-label="Demo value">the filesystem of step 0</td><td class="c-field c-wide" data-label="Meaning">Absolute path; the demo&#39;s four volumes are folders in it</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>DEMO_ALLOW_SHARED_DISK</code></td><td class="c-field" data-label="Demo value">not set</td><td class="c-field c-wide" data-label="Meaning">Set to <code>1</code> in the shell for one <code>up</code> only: goes on, with a warning, when <code>DEMO_VOLUME_ROOT</code> is on the root filesystem (a trial, never a public demo)</td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>DEMO_POSTGRES_PASSWORD</code>, <code>DEMO_APP_SECRET_KEY</code>, <code>DEMO_BACKUP_PASSPHRASE</code></td><td class="c-field" data-label="Demo value">new values</td><td class="c-field" data-label="Meaning">The demo&#39;s own secrets (&quot;Secrets&quot; above)</td></tr></tbody></table></div>
+<p>Mail, OIDC, semantic search and experimental features stay off by leaving their variables empty. MCP stays on.</p>
+<h2 id="what-the-operator-should-know">What the operator should know</h2>
+<h3 id="accounts-are-really-deleted">Accounts are really deleted</h3>
+<p><code>ACCOUNT_LIFETIME_DAYS=14</code> deletes an account, its private pages and files, and the workspaces only it was
+in, 14 days after sign-up, whether or not it was used. Backups keep them for up to 7 more days. Accounts
+made before the setting was on, and administrators, are never deleted by it.</p>
+<p>To see what it would do before it deletes anything, start with <code>ACCOUNT_LIFETIME_DRY_RUN=1</code>. The hourly
+housekeeping then logs one line per account it would delete (the account id and how many workspaces would
+go) and deletes nothing. Once the first accounts pass their date and the log lists exactly those, empty the
+value and run <code>deploy/demo/demo.sh up</code> again.</p>
+<h3 id="disk-and-the-storage-fuse">Disk and the storage fuse</h3>
+<p><code>LIMIT_INSTANCE_STORAGE_MB=3000</code> stops writes when the database and the uploads (their disk blocks) reach 3,000 MB: the demo then
+only reads, signs in, exports and deletes, and the app shows a strip saying so. It usually stays that way until you make
+room by hand, since deleting rows does not shrink the database file; what to do is in
+<a href="OPERATIONS.html#instance-storage-fuse">OPERATIONS.md, &quot;Instance storage fuse&quot;</a>. A few addresses writing at full
+speed for a minute or two can trip it on purpose; only the demo stops.</p>
+<p>The fuse does not see the WAL, the backups or the logs; the demo&#39;s filesystem (step 0) holds them all and is sized
+for them. Measured for 0.22.1 with the production build: about 880 MB of WAL after 200 MB of database writes.</p>
+<p>What one workspace can make the database grow by, measured for 0.22.1: a workspace&#39;s storage counts its files,
+page bodies, version history and the rows of its search indexes, but not Postgres&#39;s index entries and the space
+that rewriting leaves. Filled once with text, through the editor&#39;s live connection or through the API, a 10 MB
+workspace grew the database by 9–19 MB with prose and up to 25.6 MB with random words written on purpose. 100
+workspaces filled that way come to at most about 2.6 GB, under the 3,000 MB fuse; a few accounts deleting and
+writing again and again can still trip the fuse on purpose. That stops only the demo, and the filesystem keeps it
+off your main disk.</p>
+<h3 id="memory">Memory</h3>
+<p>The app runs with a 448 MB heap in a 768 MB container (<code>NODE_OPTIONS</code>, <code>APP_MEM_LIMIT</code>), the database in 384 MB
+and the backups in 256 MB. None of the three can use swap (<code>memswap_limit</code> equal to <code>mem_limit</code> in
+<code>compose.demo.yaml</code>; <code>demo.sh</code> refuses a configuration where they differ or a limit is missing), so a container that
+runs out is stopped and restarted instead of moving into the host&#39;s swap. None of the three writes a core dump
+(<code>ulimits: core: 0</code> in <code>compose.demo.yaml</code>, which <code>demo.sh</code> checks): when the host&#39;s
+<code>/proc/sys/kernel/core_pattern</code> is a pipe (<code>|…</code>, as with systemd-coredump or apport), a crash in a container is handed
+to the host&#39;s handler, memory and all. Check that file on the server before you open the demo.</p>
+<p>Measured for 0.22.1 with the production build (on macOS): an open page holds about 20 times its stored size in
+memory. Three accounts filling pages at the largest size (2.5 MB, a quarter of a workspace&#39;s 10 MB) in both of their
+workspaces, with every page kept open, peaked at a 332 MB heap and 588 MB of memory with the 448 MB heap (the
+storage limit refused the rest after one such page per workspace). Before the limit counted live edits with their
+index, the same run filled more and peaked at a 434 MB heap and 734 MB, and ran out of memory with 320 MB and
+384 MB heaps. If you raise the heap, raise <code>APP_MEM_LIMIT</code> with it: the server took 255–325 MB besides its heap.
+Pages of many tiny map entries can still run a 448 MB heap out of memory (one account, two pages); the container
+then restarts.</p>
+<h3 id="posting-a-notice">Posting a notice</h3>
+<p>The demo sends no mail, and the terms template says that notices (changed terms, changes, outages, a data
+breach) appear in the app and on the sign-in screen. That is <code>INSTANCE_NOTICE</code>: set it in <code>demo.env</code>
+(double quotes, <code>\n</code> for a line break, at most 500 characters) and run <code>deploy/demo/demo.sh up</code> again;
+empty it the same way. It is shown as plain text, without links, and nobody can close it. A restart closes open editing
+connections; they reconnect at once.</p>
+<h3 id="closing-the-demo-without-notice">Closing the demo without notice</h3>
+<p>If you shut the demo down, the privacy policy template promises that the database, the files and the
+backups are deleted without delay:</p>
+<pre><code class="language-bash">deploy/demo/demo.sh destroy    # asks you to type inkling-demo
+</code></pre>
+<p><code>destroy</code> stops the demo after the same checks as <code>up</code>, removes its volumes and its image, and prints where the
+files still are: the volumes are folders under <code>DEMO_VOLUME_ROOT</code>, and the script never deletes files on the host.
+Delete the four folders yourself (as root, after checking the path), or unmount the filesystem of step 0 and delete
+its image file. The main instance is not touched. Also delete
+remote backup copies if <code>BACKUP_RCLONE_REMOTE</code> was set, the proxy&#39;s access log for the demo host, the
+filled terms folder and <code>demo.env</code>. If the server stopped suddenly, do this as soon as you can reach it.</p>
+<h3 id="moving-a-demo-from-0220">Moving a demo from 0.22.0</h3>
+<p>A demo started with 0.22.0 keeps its volumes as named volumes on Docker&#39;s disk, runs production&#39;s image name, and
+has the 0.22.0 preset (20 MB per workspace, a 320 MB heap in 512 MB). Nothing moves it by itself, and its data is
+not carried over (docs/adr/2546-*):</p>
+<ol>
+<li>Tell its users with <code>INSTANCE_NOTICE</code> when the demo will be reset, so they can export what they want to keep.</li>
+<li>In the demo&#39;s 0.22.0 checkout, run <code>deploy/demo/demo.sh destroy</code> (it deletes the demo&#39;s containers, volumes and
+data; the main instance is not touched). Run it before updating the checkout: the 0.22.1 script expects the new
+settings.</li>
+<li>Make the filesystem of step 0, update the checkout to 0.22.1, and fill <code>demo.env</code> again from the new
+<code>demo.env.example</code> (<code>DEMO_IMAGE</code>, <code>DEMO_VOLUME_ROOT</code>, <code>LIMIT_WORKSPACE_STORAGE_MB=10</code>, <code>APP_MEM_LIMIT=768m</code>,
+<code class="long">NODE_OPTIONS=--max-old-space-size=448</code>), keeping new secrets.</li>
+<li>Fill the terms folder again from the 0.22.1 templates (the storage sentence changed), then follow steps 1 to 5:
+the operator account is made again with the setup link.</li>
+</ol>
+<h3 id="these-files-are-not-legal-advice">These files are not legal advice</h3>
+<p>The templates in <code>deploy/demo/legal/</code> and this page are a starting point written for one operator&#39;s demo,
+not legal advice. Read them, adapt them to your situation and your country, and have them checked if you
+are unsure. Sentences in the templates that describe what the app does were written for the settings
+above; change a setting and you may need to change the text.</p>
+<p class="doc-meta"><a href="DEMO.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/DEMO.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#0-a-filesystem-for-the-demos-data">0. A filesystem for the demo&#39;s data</a></li><li><a href="#1-start-it-as-a-separate-instance">1. Start it as a separate instance</a></li><li><a href="#2-fill-in-the-terms-folder">2. Fill in the terms folder</a></li><li><a href="#3-proxy">3. Proxy</a></li><li><a href="#4-create-the-operator-account-with-the-setup-link">4. Create the operator account with the setup link</a></li><li><a href="#5-check-before-you-announce-it">5. Check before you announce it</a></li><li><a href="#settings">Settings</a></li><li><a href="#what-the-operator-should-know">What the operator should know</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

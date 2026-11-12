@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ko" class="no-js landing">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling: AI 에이전트가 MCP로 읽고 고치는 팀 노트</title>
+  <meta name="description" content="Inkling은 MCP 서버가 들어 있는 셀프호스트 노트 앱입니다. 사람과 AI 에이전트가 같은 노트를 씁니다. 에이전트는 토큰 예산 안에서 필요한 섹션만 읽고, 읽은 버전을 확인한 뒤 섹션 하나만 고치며, 고친 내용을 사람이 받아들일 제안으로 남길 수 있습니다.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/ko/index.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/ko/index.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/index.html">
+  <link rel="alternate" hreflang="x-default" href="https://prove1352.github.io/inkling/index.html">
+  <link rel="alternate" type="text/plain" href="../llms.txt" title="llms.txt">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Inkling: AI 에이전트가 MCP로 읽고 고치는 팀 노트">
+  <meta property="og:description" content="MCP 서버가 들어 있는 셀프호스트 노트 앱입니다. 사람마다 자기 에이전트를 연결하고, 에이전트는 토큰 예산 안에서 섹션만 읽고 섹션 하나씩 고칩니다.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/ko/index.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/review-light.png">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:locale:alternate" content="en_US">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Inkling",
+    "description": "MCP 서버가 들어 있는 셀프호스트 노트 앱입니다. 사람과 AI 에이전트가 같은 노트를 읽고 씁니다.",
+    "url": "https://prove1352.github.io/inkling/ko/index.html",
+    "softwareVersion": "0.22.1",
+    "operatingSystem": "Docker (amd64, arm64)",
+    "inLanguage": ["ko", "en"],
+    "sameAs": "https://github.com/PROVE1352/inkling"
+  }
+  </script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="주 메뉴">
+      <a class="hide-sm" href="tour/index.html">둘러보기</a>
+      <a href="../docs/index.ko.html">문서</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="언어"><a href="index.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="../index.html" hreflang="en" lang="en">English</a></span>
+    </nav>
+  </div>
+  <nav class="sections" data-sections aria-label="이 쪽의 절"><div class="wrap"><a href="#start">빠른 시작</a><a href="#connect">연결</a><a href="#watch">영상</a><a href="#find">찾기</a><a href="#edit">고치기</a><a href="#decide">사람이 정합니다</a><a href="#scope">범위</a><a href="#handoff">일 넘기기</a><a href="#fit">누구에게 맞는가</a><a href="#notes">노트 앱</a><a href="#install">설치</a><a href="#docs">문서</a></div></nav>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+      <p class="eyebrow"><b>v0.22.1</b> 셀프호스트</p>
+      <h1 id="hero-title">팀이 쓰는 노트를 AI 에이전트가 같은 자리에서 읽고 고칩니다</h1>
+      <p class="lede">
+        Inkling은 내 서버에서 돌리는 노트 앱이고, MCP 서버가 앱 안에 들어 있습니다. 사람마다 자기 에이전트를 연결합니다.
+        에이전트는 토큰 예산 안에서 필요한 섹션만 찾아 읽고, 읽은 버전을 확인한 뒤 섹션 하나만 고치며, 고친 내용을 사람이
+        받아들일 제안으로 남길 수도 있습니다.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="#start">빠른 시작</a>
+        <a class="btn" href="tour/index.html">둘러보기</a>
+        <a class="btn" href="https://demo.inkling.kro.kr">데모 써 보기</a>
+        <a class="btn" href="#connect">서버에 연결하기</a>
+        <a class="btn" href="https://github.com/PROVE1352/inkling">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+
+      <div class="callout" style="margin:0 0 24px">
+        <strong>데모 서버.</strong>
+        이메일 없이 아이디만으로 가입해서 바로 써 볼 수 있습니다. 사용량 제한이 빠듯하고, 계정과 그 안의 내용은 가입 14일
+        뒤에 지워지며, 예고 없이 닫힐 수 있으니 중요한 내용은 두지 마세요. 가입이 마감됐다면
+        <a href="tour/index.html">둘러보기</a>를 보시거나 <a href="#start">Docker로 직접 설치</a>해서 써 보세요.
+      </div>
+
+      <p class="agent-links">에이전트용: <a href="../llms.txt">에이전트용 요약(llms.txt)</a> · <a href="../docs/MCP.ko.md">MCP 안내 Markdown 원문</a> · <a href="../docs/DEPLOY.ko.md">배포 안내 Markdown 원문</a></p>
+      </div>
+      <figure class="demo" data-demo="15">
+  <div class="demo-stage" role="img" aria-label="움직이는 예시. 에이전트가 find_context로 &quot;4분기 출시 계획&quot; 페이지의 체크리스트 섹션을 찾고, patch_section으로 그 섹션에 &quot;변경 사항 공지&quot; 한 줄을 덧붙입니다. 노트에는 그 줄이 박서준 (Claude Code 경유)로 표시됩니다.">
+    <div class="win demo-note">
+      <div class="win-bar" aria-hidden="true"><i></i><i></i><i></i><span>4분기 출시 계획</span></div>
+      <div class="note">
+        <div class="note-h1">4분기 출시 계획</div>
+        <div class="note-sec"><div class="note-h2">일정</div><div class="note-line" style="width:82%"></div><div class="note-line" style="width:58%"></div></div>
+        <div class="note-sec is-target">
+          <span class="note-ring" data-at="2.4" data-fx="ring" data-hold="9.6"></span>
+          <div class="note-h2">체크리스트<span class="note-ver" data-at="9" data-fx="line">v=ef9b6c</span></div>
+          <div class="note-item is-done">요금 페이지 문구</div>
+          <div class="note-item is-done">상태 페이지, 담당 이지원</div>
+          <div class="note-item">새 요금제용 고객지원 답변 템플릿</div>
+          <div class="note-item is-new" data-at="9" data-fx="grow">변경 사항 공지<span class="note-by">박서준 (Claude Code 경유)</span></div>
+        </div>
+        <div class="note-sec"><div class="note-h2">담당</div><div class="note-line" style="width:66%"></div></div>
+      </div>
+    </div>
+    <div class="win term demo-term">
+      <div class="win-bar" aria-hidden="true"><i></i><i></i><i></i><span>Claude Code · inkling</span></div>
+      <pre><code><span class="dl" data-at="0.2"><span class="k">› find_context</span>(query: "출시 체크리스트 상태 페이지")</span>
+<span class="dl c" data-at="1.5">1 result(s), ~87/3500 tokens</span>
+<span class="dl" data-at="2.4">[1] 4분기 출시 계획 › 체크리스트</span>
+<span class="dl" data-at="5.2"><span class="k">› patch_section</span>(section: "체크리스트", mode: "append",</span>
+<span class="dl" data-at="5.9">    markdown: "- [ ] 변경 사항 공지", baseVersion: "54b8bd8b3ec8")</span>
+<span class="dl o" data-at="9">Done (append): §체크리스트 is now v=ef9b6c9a294f.<span class="caret" aria-hidden="true"></span></span></code></pre>
+    </div>
+  </div>
+  <figcaption>아래 찾기와 고치기 절에 실린 실제 출력을 줄여서 보여 줍니다.</figcaption>
+</figure>
+    </div>
+    <div class="wrap"><div class="stats"><a class="stat" href="#connect"><span class="stat-num"><span data-count="">48</span></span><span class="stat-label">MCP 도구</span><span class="stat-note">core 프로필로는 32개</span></a><a class="stat" href="#find"><span class="stat-num"><span data-count="">72</span><small>%</small></span><span class="stat-label">적은 토큰</span><span class="stat-note">질문당 평균 2,254 → 624</span></a><a class="stat" href="#find"><span class="stat-num"><span data-count="3.68">1.00</span><small>번</small></span><span class="stat-label">도구 호출</span><span class="stat-note">예전에는 질문당 3.68번</span></a><a class="stat" href="#edit"><span class="stat-num"><span data-count="">6</span><small> / 6</small></span><span class="stat-label">사람 글 보존</span><span class="stat-note">에이전트가 고치는 섹션에서</span></a></div></div>
+  </section>
+
+  <section class="block start side" id="start" aria-labelledby="start-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">빠른 시작</p>
+        <h2 id="start-title">내 컴퓨터에서 에이전트와 같이 써 보기</h2>
+        <p>Docker Compose v2.24 이상, bash, curl이 필요합니다. 아래 명령은 내 컴퓨터에서 써 보는 순서이고, 도메인과 HTTPS가 있는 서버는 <a href="#install">설치</a>에 있습니다.</p>
+      </div>
+      </div>
+      <div class="side-body">
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>Inkling 띄우기</h3>
+          <p>Inkling을 받아서 비밀번호와 키를 만들어 넣고, 비어 있는 로컬 포트(보통 3000)로 띄우는 명령입니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">git</span> clone https://github.com/PROVE1352/inkling.git <span class="k">&amp;&amp;</span> <span class="k">cd</span> inkling
+<span class="k">./deploy/local.sh</span></code></pre></div>
+          <p class="after">서버가 뜨면 스크립트가 한 번만 쓰는 설정 링크(<code>/setup?code=…</code>)와 MCP 주소를 보여 줍니다. 끄려면 <code>./deploy/local.sh stop</code>, 지우려면 <code>./deploy/local.sh destroy</code>를 실행합니다.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>서버가 답하는지 확인하기</h3>
+          <p>서버에 버전을 묻는 명령입니다. 포트는 스크립트가 보여 준 것으로 바꿉니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">curl</span> http://localhost:3000/api/version</code></pre></div>
+          <p class="after"><code>build</code>, <code>version</code>, <code>updateMode</code>가 든 JSON이 돌아옵니다.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>첫 계정 만들기</h3>
+          <p>이 단계는 사람이 합니다. 설정 링크를 브라우저로 열고 계정을 만들면 그 계정이 관리자가 됩니다.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>에이전트 연결 토큰 만들기</h3>
+          <p>이 단계도 사람이 합니다. <code>http://</code> 주소에서는 로그인이 되지 않으므로 토큰을 씁니다. <code>http://localhost:3000/settings/connections</code>를 열고 클라이언트 이름으로 <b>에이전트 연결 토큰</b>을 만듭니다(읽기와 쓰기, 7일). 토큰은 한 번만 보여 주니 바로 복사합니다.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>Claude Code에 서버 추가하기</h3>
+          <p>Inkling을 <code>inkling</code>이라는 이름으로 추가하고 토큰을 헤더로 보내는 명령입니다. 포트와 토큰은 바꿔 넣습니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling http://localhost:3000/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre></div>
+        </div></li>
+        <li class="step"><div>
+          <h3>연결 확인하기</h3>
+          <p>에이전트에게 페이지를 하나 만들거나 <code>find_context</code>로 무언가를 찾아 보라고 합니다. Inkling에서 에이전트가 고친 곳에 '내 이름 (Claude Code 경유)'이 표시됩니다.</p>
+        </div></li>
+      </ol>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="block side" id="connect" aria-labelledby="connect-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">연결</p>
+        <h2 id="connect-title">주소 하나에, 사람마다 자기 계정으로</h2>
+        <p>
+          MCP 서버는 앱에 들어 있고 주소는 <code>https://&lt;도메인&gt;/mcp</code>입니다. 사람마다 OAuth 2.1로 자기
+          클라이언트를 연결하기 때문에, 에이전트는 연결한 사람이 웹에서 볼 수 있는 것만 봅니다. 도구는 48개입니다.
+        </p>
+      </div>
+      <div class="ill ill-connect" role="img" aria-label="사람마다 자기 에이전트를 같은 주소 /mcp에 OAuth로 연결하고, 에이전트는 그 사람이 웹에서 볼 수 있는 것만 봅니다.">
+  <div class="ill-people"><div class="ill-person"><span class="ill-avatar">이</span><span class="ill-name">이지원<small>Claude Code</small></span></div><div class="ill-person"><span class="ill-avatar">박</span><span class="ill-name">박서준<small>Cursor</small></span></div><div class="ill-person"><span class="ill-avatar">팀</span><span class="ill-name">팀원<small>claude.ai</small></span></div></div>
+  <div class="ill-wires" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="ill-hub"><small>주소 하나</small><code>/mcp</code><small>OAuth 2.1</small></div>
+  <svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="ill-app"><b>Inkling</b><small>각자 웹에서 볼 수 있는 것만</small></div>
+</div>
+      </div>
+      <div class="side-body">
+
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>클라이언트에 서버 추가하기</h3>
+          <p>Claude Code에 Inkling을 <code>inkling</code>이라는 이름으로 추가하는 명령입니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling https://notes.example.com/mcp</code></pre></div>
+          <p class="after">claude.ai에서는 같은 주소로 커스텀 커넥터를 추가합니다. claude.ai는 Anthropic 서버에서 접속하기 때문에 서버가 인터넷에서 보여야 합니다.</p>
+        </div></li>
+        <li class="step"><div>
+          <h3>내 계정으로 로그인하기</h3>
+          <p>
+            이 단계는 사람이 합니다. Claude Code에서 <code>/mcp</code>를 실행하고 <code>inkling</code>을 고른 뒤
+            Authenticate를 누릅니다. 브라우저에 Inkling 동의 화면이 열리면 로그인하고, <b>읽기와 쓰기</b>, <b>읽기 전용</b> 중
+            하나와 연결이 볼 범위를 고른 다음 <b>허용</b>을 누릅니다. 토큰은 저절로 갱신됩니다.
+          </p>
+        </div></li>
+        <li class="step"><div>
+          <h3>필요하면 도구 수 줄이기</h3>
+          <p>core 프로필로 연결하는 명령입니다. 도구가 48개 대신 32개만 보이고, 세션마다 드는 도구 목록이 약 13,200토큰에서 약 7,900토큰으로 줄어듭니다. 나머지 도구는 <code>more_tools</code>로 한 번 더 부르면 씁니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">claude</span> mcp add --transport http inkling "https://notes.example.com/mcp?profile=core"</code></pre></div>
+        </div></li>
+      </ol>
+
+      <div class="callout" style="margin-top:28px">
+        <strong>로그인을 못 하는 앱.</strong>
+        MCP 서버에 로그인하는 기능이 없는 앱이 있고, 서버 주소가 <code>http://</code>이면 로그인이 되지 않습니다. 이럴 때는
+        사람이 설정 › 연결에서 <b>에이전트 연결 토큰</b>을 만들고(읽기 전용 또는 읽기와 쓰기, 만료 7일에서 365일, 한 번만
+        보여 줍니다) 앱이 그 토큰을 헤더로 보냅니다. 같은 화면의 <b>AI 앱 연결</b>에서 Claude Code, claude.ai와 Claude
+        Desktop, Cursor, VS Code, 일반 <code>mcpServers</code> JSON 설정을 만들어 줍니다. 자세한 내용은
+        <a href="../docs/MCP.ko.html">MCP 연결 문서</a>에 있습니다.
+      </div>
+      <p class="protocol"><b>전송과 인증.</b> MCP Streamable HTTP(상태를 두지 않고 JSON으로 응답)이고 주소는 <code>/mcp</code>입니다. 인증은 OAuth 2.1(동적 클라이언트 등록, 서버가 <code>OAUTH_CIMD=1</code>이면 Client ID Metadata Documents도)이나, <code>Authorization: Bearer</code> 헤더로 보내는 에이전트 연결 토큰입니다.</p>
+      </div>
+    </div>
+    <div class="wrap">
+      <h3 class="table-title">자주 쓰는 도구</h3>
+      <div class="table-scroll"><table class="tools"><thead><tr><th>도구</th><th>종류</th><th>하는 일</th></tr></thead><tbody><tr><td><code>find_context</code></td><td>읽기</td><td>내 워크스페이스 전체에서 순위대로 고른 섹션을 토큰 예산 안에 담아 줍니다. 결과마다 페이지 id, §앵커, 버전이 붙습니다. 처음 부르는 도구입니다.</td></tr><tr><td><code>read_page</code></td><td>읽기</td><td>페이지를 Markdown으로 읽습니다. <code>outline=true</code>는 섹션 목록, <code>section=…</code>은 섹션 하나입니다.</td></tr><tr><td><code>patch_section</code></td><td>쓰기</td><td><code>baseVersion</code>과 함께 섹션 하나를 고칩니다. 버전이 지났으면 지금 내용과 함께 충돌을 돌려줍니다.</td></tr><tr><td><code>claim_section</code></td><td>쓰기</td><td>이 연결이 섹션을 맡아 작업 중이라고 표시합니다. 최대 30분입니다.</td></tr><tr><td><code>list_suggestions</code></td><td>읽기</td><td>제안한 수정과 그 결과.</td></tr><tr><td><code>inbox</code></td><td>읽기</td><td>아직 확인하지 않은 멘션, 답글, 배정, 제안 결과.</td></tr><tr><td><code>catch_up</code></td><td>읽기</td><td>에이전트가 없던 동안 일어난 일을 중요한 순서로.</td></tr><tr><td><code>changes_since</code></td><td>읽기</td><td>커서 이후 바뀐 내용을 섹션 단위 diff로.</td></tr><tr><td><code>get_instructions</code></td><td>읽기</td><td>잠긴 지침 페이지에 적힌 워크스페이스의 에이전트 규칙.</td></tr><tr><td><code>trash_page</code></td><td>쓰기</td><td>휴지통으로 옮깁니다. 30일 안에 되살릴 수 있고, 영구 삭제 도구는 없습니다.</td></tr></tbody></table></div>
+      <p class="method">도구는 모두 48개이고 <code>?profile=core</code>로 연결하면 32개가 보입니다. 전체 목록과 인자는 <a href="../docs/MCP.ko.html#what-it-can-do-tools">MCP 연결 문서</a>(<a href="../docs/MCP.ko.md">Markdown 원문</a>)에 있습니다.</p>
+    </div>
+  </section>
+
+
+  <section class="block promo band-dark" id="watch" aria-labelledby="watch-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">영상</p>
+        <h2 id="watch-title">영상으로 보기</h2>
+        <p>영상에는 소리가 없습니다. 영상이 보여 주는 내용은 아래에 장면 순서대로 적었습니다.</p>
+      </div>
+      <figure class="shot promo-shot">
+        <video src="../assets/promo-ko.mp4" poster="../assets/promo-ko-poster.png" width="1920" height="1080" controls preload="none" playsinline muted aria-describedby="watch-scenes"></video>
+      </figure>
+      <ol class="scenes" id="watch-scenes">
+        <li class="scene"><b>함께 쓰는 노트.</b> 두 사람이 커서를 띄운 채 같은 페이지를 고치고, <code>[[링크]]</code>가 두 페이지를 잇고, 페이지 안의 데이터베이스가 보드로 보입니다.</li>
+        <li class="scene"><b>AI 에이전트가 노트를 읽습니다.</b> 에이전트에게 출시가 언제이고 메일은 누가 보내는지 묻습니다. <code>find_context</code>가 두 페이지에서 답이 되는 섹션 하나씩만 골라 오고, <code>read_page</code>로 읽은 뒤 두 출처를 달아 답합니다. 화면의 "48 MCP tools"와 "−72% 토큰"은 <a href="#connect">연결</a>과 <a href="#find">찾기</a>에 근거와 함께 적은 숫자입니다.</li>
+        <li class="scene"><b>에이전트가 고치고, 사람이 정합니다.</b> <code>patch_section</code>이 페이지에 수정 제안을 남기면 사람이 검토를 열어 수락하고, 버전 줄에서 수락한 편집을 되돌릴 수 있습니다. 이어서 <code>update_row</code>가 데이터베이스 보드의 카드를 '할 일'에서 '진행 중'으로 옮깁니다.</li>
+        <li class="scene"><b>내 서버에서.</b> 노트북과 휴대폰이 내 서버에 연결되어 있고, 노트북이 오프라인이 되어도 페이지가 그대로 보이다가 다시 연결되면 맞춰집니다.</li>
+      </ol>
+    </div>
+  </section>
+  <section class="block" id="find" aria-labelledby="find-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">찾기</p>
+        <h2 id="find-title">한 번 불러서 답이 되는 섹션만 받습니다</h2>
+        <p>
+          <code>find_context(query)</code>는 내 워크스페이스 전체에서 질문에 맞는 섹션을 순위대로 골라 토큰 예산(기본
+          3,500) 안에 담아 줍니다. 결과마다 페이지 id, <code>§앵커</code>, 버전이 붙고, 고치는 도구가 이 값을 그대로 받습니다.
+          <code>queries=[…]</code>로 질문과 그 번역처럼 여러 표현을 한 번에 찾을 수 있습니다.
+        </p>
+      </div>
+
+      <div class="split">
+        <div class="transcript">
+          <p class="quick-label">에이전트가 질문을 보낸 예입니다. 0.20 데모 워크스페이스의 실제 출력이고, id는 서버마다 다릅니다.</p>
+          <div class="term">
+<pre><code><span class="k">› find_context</span>(query: "출시 체크리스트 상태 페이지")
+1 result(s) for "출시 체크리스트 상태 페이지", ~87/3500 tokens
+<span class="c">&lt;untrusted_content source="find_context"&gt;</span>
+[1] 4분기 출시 계획 › 체크리스트
+(page 3e8a2ebe; §체크리스트 v=11a662787781; can: read,comment,edit; edited by 박서준)
+- [x] 요금 페이지 문구
+- [ ] 상태 페이지, 담당 이지원, 마감 2026-11-20
+- [ ] 새 요금제용 고객지원 답변 템플릿
+
+Title matches without text:
+- 요금 페이지 문구 (page 2bbca3ec, doc)
+- 상태 페이지 (page 9d7bee8d, doc)
+<span class="c">&lt;/untrusted_content&gt;</span>
+
+Next: read_page(pageId, section=anchor) for a full section; read_page(pageId, outline=true) for structure.</code></pre>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="ill ill-budget" role="img" aria-label="순위대로 고른 섹션 세 개가 토큰 예산 안에 담기고, 네 번째 섹션은 예산 밖에 남습니다.">
+  <div class="ill-row"><span class="ill-chip">질문</span><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="ill-chip is-code">find_context</span></div>
+  <div class="ill-pack"><div class="ill-fit"><span class="ill-seg" style="flex:5"><b>순위 1</b></span><span class="ill-seg" style="flex:3"><b>순위 2</b></span><span class="ill-seg" style="flex:2"><b>순위 3</b></span><span class="ill-free" style="flex:1"></span></div><span class="ill-seg is-over" style="flex:3"><b>순위 4</b></span></div>
+  <div class="ill-legend"><span>토큰 예산 (기본 3,500)</span><span>예산 밖</span></div>
+</div>
+          <div class="card"><p class="num">2,254 → 624 <small>토큰</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:28%"></span></span><p>질문당 평균 토큰 72% 감소, 도구 호출 3.68번에서 1.00번으로</p></div>
+          <p class="method">
+            <code>find_context</code>를 처음 넣었을 때 검색 후 페이지를 통째로 읽던 방식과 비교한 값입니다. 영어와 한국어 질문
+            28개, 페이지마다 1천에서 2천 토큰으로 채운 25쪽짜리 위키에 관계없는 페이지 5,000개를 더해 쟀고, 순위는 단어로만
+            매겼습니다. 토큰 수는 모델의 토크나이저가 아니라 <code>estimateTokens</code>로 낸 추정값입니다.
+            <a href="../docs/PERFORMANCE.ko.html#retrieval--mcp">성능 기록</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="edit" aria-labelledby="edit-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">고치기</p>
+        <h2 id="edit-title">읽은 버전을 확인하고 섹션 하나만 고칩니다</h2>
+        <p>
+          <code>patch_section(pageId, section, markdown, mode, baseVersion)</code>은 섹션 하나를 고칩니다. 에이전트가 읽은
+          뒤에 그 섹션이 바뀌었으면 아무것도 쓰지 않고 지금 내용을 돌려주므로, 합쳐서 다시 보내면 됩니다. 같은 섹션을 사람이
+          치고 있어도 그 사람의 글은 남습니다. <code>claim_section</code>으로 섹션을 최대 30분 잡아 두면 그동안 다른 에이전트가
+          그 섹션을 직접 고치려 할 때 거절되고, 사람은 막지 않습니다.
+        </p>
+      </div>
+
+      <div class="split flip">
+        <div class="transcript">
+          <p class="quick-label">에이전트가 섹션을 읽은 뒤 이지원 님이 체크 하나를 바꿨기 때문에 첫 수정은 거절되고, 다시 보낸 수정이 들어갑니다. 실제 출력입니다.</p>
+          <div class="term">
+<pre><code><span class="k">› patch_section</span>(pageId: "3e8a2ebe", section: "체크리스트", mode: "append",
+                markdown: "- [ ] 변경 사항 공지", baseVersion: "11a662787781")
+Conflict: Section "체크리스트" changed since baseVersion 11a662787781; nothing was written. Merge your edit into the current content and retry with baseVersion 54b8bd8b3ec8.
+
+Current §체크리스트 (v=54b8bd8b3ec8):
+## 체크리스트
+
+* [x] 요금 페이지 문구
+* [x] 상태 페이지, 담당 이지원, 마감 2026-11-20
+* [ ] 새 요금제용 고객지원 답변 템플릿
+
+<span class="k">› patch_section</span>(…, baseVersion: "54b8bd8b3ec8")
+<span class="o">Done (append): §체크리스트 is now v=ef9b6c9a294f.</span></code></pre>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="ill ill-patch" role="img" aria-label="페이지의 네 섹션 가운데 체크리스트 섹션 하나만 고쳐지고 버전이 바뀝니다. 나머지 섹션은 그대로입니다.">
+  <div class="ill-sec"><span class="ill-sec-name">§ 목표</span><span class="ill-lines"><i style="width:64%"></i><i style="width:42%"></i></span><span class="ill-tag">그대로</span></div>
+  <div class="ill-sec"><span class="ill-sec-name">§ 일정</span><span class="ill-lines"><i style="width:80%"></i><i style="width:55%"></i></span><span class="ill-tag">그대로</span></div>
+  <div class="ill-sec is-hit"><span class="ill-sec-name">§ 체크리스트</span><span class="ill-lines"><i style="width:74%"></i><i style="width:52%"></i><i class="is-new" style="width:40%"></i></span><span class="ill-tag is-accent">이 섹션만</span><span class="ill-vers"><code>v=54b8bd</code><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><code>v=ef9b6c</code></span></div>
+  <div class="ill-sec"><span class="ill-sec-name">§ 담당</span><span class="ill-lines"><i style="width:58%"></i><i style="width:36%"></i></span><span class="ill-tag">그대로</span></div>
+</div>
+          <div class="card"><p class="num">약 2,415 → 약 222 <small>토큰</small></p><span class="vs" aria-hidden="true"><span class="bar" style="--w:100%"></span><span class="bar is-after" style="--w:9%"></span></span><p>문장 하나를 고칠 때 페이지를 읽고 통째로 바꾸는 경우와 <code>patch_section</code>을 쓰는 경우</p></div>
+          <div class="card"><p class="num">6개 중 6개</p><p>에이전트가 고치는 섹션에서 사람이 치던 글이 남은 시나리오 (예전에는 6개 중 1개)</p></div>
+          <p class="method">
+            채워 넣은 평가용 페이지에서 문장 하나를 고쳐 쟀고, 동시 입력 시나리오는 섹션 수정 코드에 대해 돌렸습니다. 토큰
+            수는 <code>estimateTokens</code> 추정값입니다. 성능 기록: <a href="../docs/PERFORMANCE.ko.html#retrieval--mcp">토큰</a>, <a href="../docs/PERFORMANCE.ko.html#sync--collaboration">동시 입력</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block band" id="decide" aria-labelledby="decide-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">사람이 정합니다</p>
+        <h2 id="decide-title">제안, 기록, 잠금은 사람 손에 있습니다</h2>
+      </div>
+
+      <div class="ill ill-flow" role="img" aria-label="에이전트가 제안하면 사람이 바뀐 줄을 보고 수락하거나 거절하고, 수락한 편집은 버전으로 남아 되돌릴 수 있습니다."><div class="ill-step"><small>에이전트</small><b>수정을 제안으로 남김</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step"><small>사람</small><b>바뀐 줄을 검토</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step is-accent"><small>사람</small><b>수락, 거절, 일부만</b></div><svg class="ill-arrow" viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h20M17 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="ill-step"><small>기록</small><b>'AI 편집' 버전, 되돌리기</b></div></div>
+
+      <figure class="shot wide-shot">
+        <picture>
+          <source srcset="../assets/ko/review-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="../assets/ko/review-light.png" width="1440" height="900" loading="lazy" alt="에이전트가 고치자고 제안한 섹션의 검토 창. 제안이 바뀐 줄로 보이고 거절과 수락 버튼이 있습니다">
+        </picture>
+      </figure>
+      <div class="grid two">
+        <div class="card">
+          <h3>제안</h3>
+          <p>
+            <code>suggest=true</code>를 주거나 워크스페이스 설정이나 페이지 잠금이 그렇게 되어 있으면 에이전트의 수정이 제안으로
+            남습니다. 사람은 제안마다 바뀐 줄을 보고 수락하거나 거절하고, 일부만 고를 수도 있습니다. 결과는 에이전트의 받은
+            함으로 갑니다. 에이전트가 제안을 수락하는 도구는 없습니다.
+          </p>
+        </div>
+        <div class="card">
+          <h3>워크스페이스마다 정하는 에이전트 편집 방식</h3>
+          <p>
+            소유자와 관리자가 '바로 편집'(기본값), '규칙으로 자동 수락'(예: 섹션 끝에 덧붙이는 수정), '전부 검토' 중에서 고릅니다.
+            규칙은 에이전트가 읽었을 때와 섹션이 그대로일 때만 수정을 받아들입니다.
+          </p>
+        </div>
+        <div class="card">
+          <h3>에이전트가 쓸 때마다 버전 하나</h3>
+          <p>
+            에이전트가 한 번 쓸 때마다 페이지 기록에 'AI 편집' 버전 하나가 남고, '사용자 (Claude Code 경유)'처럼 표시됩니다. 사람은 변경
+            하나나, 한 연결이 그 페이지에서 바꾼 것 전부를 되돌릴 수 있고, 되돌린 것도 다시 취소할 수 있습니다.
+          </p>
+        </div>
+        <div class="card">
+          <h3>편집 잠금과 에이전트 지침</h3>
+          <p>
+            잠근 페이지 트리에서는 에이전트를 사람과 따로 '제안만', '코멘트만', '읽기만'으로 묶어 둘 수 있습니다.
+            에이전트가 따를 워크스페이스 규칙은 잠긴 페이지에 적어 두면 <code>get_instructions</code>로 읽어 갑니다.
+            에이전트는 잠금을 바꿀 수 없습니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="pair" style="margin-top:32px">
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/lock-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/lock-light.png" width="1440" height="900" loading="lazy" alt="AI 에이전트 설정이 따로 있는 편집 잠금 대화상자"></picture></div><figcaption>편집 잠금 대화상자에서 사람과 에이전트를 따로 정합니다.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/activity-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/activity-light.png" width="1440" height="900" loading="lazy" alt="사람과 에이전트가 바꾼 내용이 최신순으로 나오는 활동 화면"></picture></div><figcaption>활동 화면에서 사람과 에이전트가 바꾼 내용을 최신순으로 봅니다.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="block side" id="scope" aria-labelledby="scope-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">범위</p>
+        <h2 id="scope-title">에이전트를 막는 것</h2>
+        <p>에이전트는 연결한 사람으로서 움직이고, 그 사람이 웹에서 볼 수 있는 것만 봅니다. 그 위에 이런 장치가 있습니다.</p>
+      </div>
+      <div class="ill ill-scope" role="img" aria-label="연결이 볼 범위는 세 가지입니다: 연결한 사람이 볼 수 있는 전부, 일부 워크스페이스, 페이지 하나와 그 아래 페이지들. 연결마다 읽기 전용이나 읽기와 쓰기를 고릅니다.">
+  <div class="ill-ring"><span>연결한 사람이 볼 수 있는 전부</span>
+    <div class="ill-ring"><span>일부 워크스페이스</span>
+      <div class="ill-ring is-accent"><span>페이지 하나와 그 아래 페이지들</span></div>
+    </div>
+  </div>
+  <div class="ill-modes"><span class="ill-chip">읽기 전용</span><span class="ill-chip is-on">읽기와 쓰기</span></div>
+</div>
+      </div>
+      <div class="side-body">
+      <ul class="points">
+        <li><b>읽기 전용 또는 읽기와 쓰기.</b> 연결마다 동의 화면에서 고르고, 읽기 전용 연결은 쓰기 도구를 불러도 거절됩니다.</li>
+        <li><b>볼 수 있는 범위.</b> 연결한 사람이 볼 수 있는 전부, 일부 워크스페이스, 또는 페이지 하나와 그 아래 페이지들 중에서 고릅니다. 나중에 다시 연결하지 않고 바꿀 수 있습니다.</li>
+        <li><b>사람이 수락하는 제안.</b> 워크스페이스를 '전부 검토'로 두거나 잠금을 '제안만'으로 두면, 에이전트의 수정은 사람이 수락하거나 거절할 때까지 기다립니다. 에이전트가 수락하는 도구는 없습니다.</li>
+        <li><b>편집 잠금과 에이전트 차단.</b> 잠근 페이지 트리에서는 에이전트를 '코멘트만'이나 '읽기만'으로 묶고, 소유자와 관리자는 자기 워크스페이스에서 특정 에이전트를 막을 수 있습니다. 에이전트는 잠금을 바꿀 수 없습니다.</li>
+        <li><b>영구 삭제 없음.</b> 영구 삭제 도구는 없고, <code>trash_page</code>로 휴지통에 넣은 페이지는 30일 안에 되살릴 수 있습니다.</li>
+      </ul>
+      <p class="method">
+        멤버가 쓴 글은 <code>&lt;untrusted_content&gt;</code>로 감싸서 넘기는데, 이 표시는 에이전트가 멤버의 글과 지시를 구분하도록
+        돕는 보조 신호입니다. 프롬프트 인젝션처럼 보이는 글은 표시하고, 그런 글을 읽은 연결은 한 시간 동안 제안만 할 수 있습니다.
+        둘 다 완화책이지 권한 검사가 아닙니다. 탐지는 피해 갈 수 있고 모델이 속을 수도 있습니다.
+      </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="handoff" aria-labelledby="handoff-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">일 넘기기</p>
+        <h2 id="handoff-title">특정 멤버의 에이전트에게 일을 맡깁니다</h2>
+        <p>
+          코멘트나 할 일에서 '박서준 · Claude Code' 같은 항목을 멘션하거나, 데이터베이스의 사람 칸에서 그 사람의 에이전트를
+          고르면 그 에이전트의 받은 함에만 들어갑니다. 활동 화면 위쪽의 <b>팀 에이전트</b>에서는 연결마다 잡아 둔 섹션, 사람을
+          기다리는 제안, 오늘 한 일을 봅니다.
+        </p>
+      </div>
+      <div class="feature">
+        <div class="feature-text">
+          <h3>에이전트가 다시 돌아왔을 때</h3>
+          <ul>
+            <li><code>catch_up()</code>은 지난번 이후 일어난 일을 중요한 순서로 보여 줍니다. 그 사람에게 온 일, 다가온 마감, 코멘트, 다른 사람의 변경 순입니다.</li>
+            <li><code>inbox(cursor)</code>는 멘션, 답글, 배정, 제안의 결과를 보여 주고, 처리한 것은 <code>ack</code>로 표시합니다.</li>
+            <li><code>changes_since(cursor)</code>는 바뀐 내용을 섹션 단위 diff로 돌려줘서 로컬 사본을 맞출 수 있습니다.</li>
+          </ul>
+        </div>
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/team-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/team-light.png" width="1440" height="900" loading="lazy" alt="멤버마다 연결한 에이전트가 잡아 둔 섹션, 기다리는 제안, 오늘 한 일이 나오는 팀 에이전트 화면"></picture></div><figcaption>팀 에이전트 화면에서 멤버마다 에이전트가 하는 일을 봅니다.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block fit band" id="fit" aria-labelledby="fit-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">누구에게 맞는가</p>
+        <h2 id="fit-title">여러 사람과 여러 에이전트가 같은 노트를 쓸 때</h2>
+        <p>
+          혼자 폴더 하나에 노트를 두고 쓰신다면 옵시디언과, 파일을 직접 읽는 에이전트로 충분합니다. Inkling은 여러 사람과
+          여러 에이전트가 같은 노트를 쓰는 경우를 위해 만들었습니다. 세 명에서 다섯 명 정도가 각자 에이전트를 붙여서 일하는
+          작은 팀을 생각했습니다. Inkling 자체에는 AI 모델이 없고, 글을 쓰거나 요약하는 일은 연결한 에이전트가 합니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="notes" aria-labelledby="notes-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">노트 앱</p>
+        <h2 id="notes-title">사람이 쓰는 쪽</h2>
+        <p>에이전트가 읽는 페이지는 팀이 브라우저에서 실시간으로 같이 쓰는 평범한 노트입니다.</p>
+      </div>
+      <div class="grid">
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M9.5 9.5v10M15 9.5v10"/></svg><h3>데이터베이스</h3><p>표, 보드, 캘린더, 갤러리, 타임라인, 차트, 폼, 리스트 뷰가 있고, 관계형, 롤업, 수식, 자동화를 씁니다.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><h3>링크, 그래프, 캔버스</h3><p><code>[[위키링크]]</code>, 백링크, 워크스페이스 그래프와 로컬 그래프, JSON Canvas 형식을 따르는 캔버스가 있습니다.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg><h3>할 일과 캘린더</h3><p>체크리스트에 날짜를 붙이면 할 일로 잡혀 마감 화면과 워크스페이스 캘린더에 나옵니다.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="3"/><path d="M3.5 19c.6-3 2.7-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/><path d="M15.5 6.300a3 3 0 0 1 0 5.400M17.5 14.800c1.6.600 2.6 2 3 4.2"/></svg><h3>실시간 동시 편집</h3><p>Yjs로 같이 고치고, 페이지와 섹션에 코멘트를 달며, 버전 기록과 휴지통이 있습니다.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="M8.7 10.800l6.6-3.600M8.7 13.200l6.6 3.6"/></svg><h3>공유</h3><p>역할, 페이지별 권한, 게스트가 있고, 공개 링크에는 만료일, 비밀번호, 공개 시작 시각을 정할 수 있습니다.</p></div>
+        <div class="card has-icon"><svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.500c2.5 2.3 3.8 5.1 3.8 8.500s-1.3 6.2-3.8 8.500c-2.5-2.3-3.8-5.1-3.8-8.500s1.3-6.2 3.8-8.500z"/></svg><h3>한국어와 영어</h3><p>화면은 한국어와 영어를 지원하고, PWA로 설치할 수 있으며, 라이트·다크 테마가 있습니다.</p></div>
+      </div>
+      <div class="pair" style="margin-top:32px">
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/doc-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/doc-light.png" width="1440" height="900" loading="lazy" alt="위키링크와 할 일이 있는 회의록. 오른쪽 패널에 개요, 백링크, 나가는 링크, 태그가 보입니다"></picture></div><figcaption>오른쪽 패널에 백링크와 나가는 링크가 열린 페이지입니다.</figcaption></figure>
+        <figure class="fig"><div class="shot"><picture><source srcset="../assets/ko/board-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/ko/board-light.png" width="1440" height="900" loading="lazy" alt="상태별로 묶은 로드맵 데이터베이스 보드 뷰"></picture></div><figcaption>상태별로 묶은 데이터베이스 보드 뷰입니다.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block side" id="install" aria-labelledby="install-title">
+    <div class="wrap side-grid">
+      <div class="side-head">
+      <div class="section-head">
+        <p class="kicker">설치</p>
+        <h2 id="install-title">서버에 올리기</h2>
+        <p>Docker와 Compose 플러그인이 필요합니다. 앱은 미리 빌드된 이미지 <code>ghcr.io/prove1352/inkling</code>(amd64, arm64)을 받아 오므로 램 1 GB 서버에서도 직접 빌드할 필요가 없습니다.</p>
+      </div>
+      <div class="ill ill-stack" role="img" aria-label="인터넷에서는 Caddy의 80, 443 포트만 보이고, 그 뒤에 Inkling 앱, PostgreSQL, 백업 사이드카가 있습니다.">
+  <div class="ill-box is-plain"><b>인터넷</b><small>:80 · :443</small></div><span class="ill-down" aria-hidden="true"></span><div class="ill-box"><b>Caddy</b><small>HTTPS 인증서 발급과 갱신</small></div><span class="ill-down" aria-hidden="true"></span><div class="ill-box is-accent"><b>Inkling 앱</b><small>ghcr.io/prove1352/inkling</small></div><span class="ill-down" aria-hidden="true"></span>
+  <div class="ill-pair"><div class="ill-box"><b>PostgreSQL</b><small>밖에서 보이지 않음</small></div><div class="ill-box"><b>백업 사이드카</b><small>예약 실행, 매번 검증</small></div></div>
+</div>
+      </div>
+      <div class="side-body">
+
+      <ol class="steps">
+        <li class="step"><div>
+          <h3>서버에 올리기</h3>
+          <p>서버를 가리키는 도메인과 열린 80, 443 포트를 준비하고 Caddy 오버레이와 같이 띄웁니다. 인증서는 Caddy가 받아 오고 갱신하며, 앱과 DB 포트는 밖에서 보이지 않게 됩니다. 먼저 <code>.env</code>를 채웁니다.</p>
+          <div class="term" data-copy><pre><code><span class="k">cp</span> .env.example .env
+<span class="c"># .env 수정: PUBLIC_URL=https://notes.example.com   DOMAIN=notes.example.com</span>
+<span class="c">#           POSTGRES_PASSWORD=&lt;긴 무작위 문자열&gt;     BACKUP_PASSPHRASE=&lt;서버 밖에도 따로 보관&gt;</span>
+<span class="c">#           APP_SECRET_KEY=&lt;openssl rand -base64 32&gt;   (INKLING_DATA_NAME=inkling은 그대로 둡니다)</span>
+<span class="k">docker</span> compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
+<span class="k">./deploy/signup-key.sh</span> new "first admin"   <span class="c"># https://notes.example.com/register 링크가 출력됩니다</span></code></pre></div>
+          <p class="after">마지막 명령이 가입 링크(<code>https://notes.example.com/register</code>)를 출력하면 그 링크로 첫 계정을 만듭니다. 백업은 사이드카가 예약 실행하고 매번 검증하며, 암호화(선택)와 주간 복원 테스트를 지원합니다. 업그레이드는 백업, 새 이미지 받기, 재시작 순서이고 마이그레이션은 부팅할 때 돕니다. 자세한 내용은 <a href="../docs/DEPLOY.ko.html">배포</a>, <a href="../docs/OPERATIONS.ko.html">운영</a>, <a href="../docs/BACKUP.ko.html">백업</a> 문서에 있습니다.</p>
+        </div></li>
+      </ol>
+
+      <div class="callout honest">
+        <strong>쓰시기 전에</strong>
+        <ul>
+          <li>PostgreSQL이 꼭 있어야 하고(SQLite 모드 없음), 인스턴스 하나로만 돌아갑니다.</li>
+          <li>데스크톱·모바일 네이티브 앱은 없습니다. 웹 앱을 PWA로 설치해서 씁니다.</li>
+          <li>의미 검색은 기본으로 꺼져 있고, 끈 상태에서 <code>find_context</code>는 단어로만 찾습니다. 영어로 물으면 한국어로만 적힌 노트를 찾지 못하니 에이전트가 <code>queries=[질문, 번역]</code>으로 같이 물어야 합니다.</li>
+          <li>테스트는 주로 Chrome에서 했습니다.</li>
+          <li>아직 쓰는 사람이 적은 새 프로젝트입니다. AI 코딩 에이전트를 많이 써서 만들었고, 동시성, 자원 사용, 보안 위주로 따로 검토했습니다. 남은 문제는 <a href="../docs/KNOWN-ISSUES.ko.html">알려진 문제</a>에 있습니다.</li>
+        </ul>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block band" id="docs" aria-labelledby="docs-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">문서</p>
+        <h2 id="docs-title">문서</h2>
+        <p>한국어판이 있는 문서는 한국어로 열리고, 없는 문서는 (영어)로 표시했습니다. 문서마다 Markdown 원문 링크가 있고, 전체 목록은 <a href="../llms.txt">에이전트용 요약(llms.txt)</a>에 있습니다.</p>
+      </div>
+      <div class="grid">
+        <a class="card" href="../docs/MCP.ko.html"><h3>MCP 연결과 에이전트 안내</h3><p>클라이언트 연결, 도구 목록, 에이전트가 도구를 쓰는 순서.</p></a>
+        <a class="card" href="../docs/GUIDE.ko.html"><h3>사용 설명서</h3><p>다른 분이 운영하는 서버에 초대받아 쓰시는 분을 위한 문서입니다.</p></a>
+        <a class="card" href="../docs/RECIPES.ko.html"><h3>다른 MCP 서버와 같이 쓰기</h3><p>게임 엔진, 디자인 도구, 코드 저장소와 같이 쓰는 예시.</p></a>
+        <a class="card" href="../docs/DEPLOY.ko.html"><h3>배포</h3><p>리눅스 서버에 올리는 순서: HTTPS, 가입 키, 메일, 로그인 방식, 의미 검색.</p></a>
+        <a class="card" href="../docs/OPERATIONS.ko.html"><h3>운영</h3><p>배포 점검표, 업그레이드, 상태 요약, 데이터베이스 튜닝.</p></a>
+        <a class="card" href="../docs/index.ko.html"><h3>전체 문서</h3><p>백업, REST API, 웹훅, 템플릿, 쿼리 블록, 성능 기록, 구조, 로드맵.</p></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>Inkling v0.22.1 · MCP 서버가 들어 있는 셀프호스트 팀 노트</span>
+    <nav aria-label="바닥글">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/README.ko.md">README</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">보안</a>
+      <a href="../llms.txt">에이전트용 요약(llms.txt)</a>
+      <a href="../docs/MCP.ko.md">MCP 안내(Markdown)</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

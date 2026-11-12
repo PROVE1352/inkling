@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling user guide · Inkling</title>
+  <meta name="description" content="Where things are, for people using a server someone else runs.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/GUIDE.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/GUIDE.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/GUIDE.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Inkling user guide · Inkling">
+  <meta property="og:description" content="Where things are, for people using a server someone else runs.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/GUIDE.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="GUIDE.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="GUIDE.ko.html" hreflang="ko" lang="ko">한국어</a><a href="GUIDE.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html" aria-current="page">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Using Inkling</p><h1 id="inkling-user-guide">Inkling user guide</h1><p class="doc-desc">Where things are, for people using a server someone else runs.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/GUIDE.md</code> in the repository. <a href="GUIDE.md" type="text/markdown">Markdown source</a></p></header><p>This guide is for people who use an Inkling server someone else runs. It answers &quot;where is that feature?&quot;
+For installing and running a server, see <a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README.md</a>, <a href="DEPLOY.html">deploy/DEPLOY.md</a> and
+<a href="OPERATIONS.html">OPERATIONS.md</a>. 한국어: <a href="GUIDE.ko.html">GUIDE.ko.md</a>.</p>
+<p>Shortcuts are written for a Mac (⌘). On Windows and Linux use Ctrl; the <a href="#keyboard-shortcuts">shortcut table</a>
+lists both.</p>
+<ul>
+<li><a href="#getting-started">Getting started</a></li>
+<li><a href="#writing">Writing</a></li>
+<li><a href="#databases">Databases</a></li>
+<li><a href="#graph-canvas-and-query-blocks">Graph, canvas and query blocks</a></li>
+<li><a href="#tasks-due-dates-and-calendar">Tasks, due dates and calendar</a></li>
+<li><a href="#working-together">Working together</a></li>
+<li><a href="#sharing-on-the-web">Sharing on the web</a></li>
+<li><a href="#edit-lock">Edit lock</a></li>
+<li><a href="#slack">Slack</a></li>
+<li><a href="#connecting-your-ai-mcp">Connecting your AI (MCP)</a></li>
+<li><a href="#save-from-the-web">Save from the web</a></li>
+<li><a href="#importing-from-notion">Importing from Notion</a></li>
+<li><a href="#export">Export</a></li>
+<li><a href="#long-pages-split-into-subpages">Long pages: split into subpages</a></li>
+<li><a href="#trash-and-version-history">Trash and version history</a></li>
+<li><a href="#settings-and-the-sidebar">Settings and the sidebar</a></li>
+<li><a href="#keyboard-shortcuts">Keyboard shortcuts</a></li>
+<li><a href="#phone-and-tablet">Phone and tablet</a></li>
+<li><a href="#faq">FAQ</a></li>
+</ul>
+<h2 id="getting-started">Getting started</h2>
+<h3 id="sign-in">Sign in</h3>
+<ul>
+<li><strong>New account:</strong> you need a signup key from the person who runs the server. Open the sign-in page, choose
+<strong>Sign up with a signup key</strong>, paste the key, and fill in your name, email and password (8+ characters).</li>
+<li><strong>Forgot your password:</strong> <strong>Forgot your password?</strong> on the sign-in page. If you have a reset code, use
+<strong>I have a code</strong>. If not, <strong>I don&#39;t have a code</strong> sends a request: you get an email if the server sends mail,
+otherwise your admin sends you a code.</li>
+<li>The language follows your browser. Change it in Settings → Appearance → <strong>Language</strong>.</li>
+<li><strong>Servers set up differently.</strong> The person who runs a server (a demo server, for example) can change how you sign
+up. You may sign up with an <strong>ID</strong> and a <strong>Nickname</strong> instead of an email address (3 to 30 lower-case letters,
+digits, <code>.</code>, <code>_</code> or <code>-</code>); keep your real name, email address and phone number out of both. You may have to tick the
+server&#39;s notices and terms before <strong>Sign up</strong>; <code>/terms</code> and <code>/privacy</code> open without signing in, and Settings links
+to them. A label such as &quot;Demo&quot; can be shown on every screen.</li>
+<li><strong>When the terms change</strong>, you see <strong>Agree to the terms to continue</strong> after signing in, before anything else: read
+them and <strong>Agree and continue</strong>, or <strong>Sign out without agreeing</strong>. The same screen has <strong>Delete my account</strong>.</li>
+<li><strong>A deletion date.</strong> On a server that deletes accounts some days after sign-up, &quot;This account will be deleted on
+YYYY-MM-DD.&quot; is shown under the workspace switcher (above the page on a phone, and on every screen in the last
+three days), with an <strong>Export</strong> link. Export what you want to keep before that date.</li>
+</ul>
+<h3 id="the-intro-and-the-getting-started-card">The intro and the Getting started card</h3>
+<p>A new account sees a short intro the first time it opens Inkling: writing together, an AI agent reading
+just the sections it needs, an agent&#39;s edit that a person accepts, and your own server with offline copies.
+Skip it with <strong>Esc</strong> or the Skip button; ← and → change scenes and Space pauses. At the end it stops on a
+screen with next steps: open (or make) the sample page, <strong>New page</strong>, <strong>Connect an AI agent</strong> and <strong>Close</strong>.
+With &quot;reduce motion&quot; turned on in your system, the intro shows one still picture per scene and the same
+end screen after the last one.</p>
+<p>The <strong>Getting started</strong> card on the empty workspace screen (and folded at the bottom of the sidebar)
+lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
+where it is done; a short bubble points at the button. <strong>Make a sample page to try things on</strong> creates a page in
+your private pages (only you see it); delete it when you are done, it does not come back.
+<strong>Don&#39;t show again</strong> hides the card. Opened in the sidebar, the card takes only the room the menus and the
+page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
+with <strong>More</strong> open), it stays folded until there is room.</p>
+<p>Settings → About → Getting started: <strong>Watch the intro again</strong>, and a switch to show the checklist again.
+Accounts that existed before the upgrade start with the checklist off, and see the intro only if the
+server&#39;s operator set <code>ONBOARDING_EXISTING_USERS=once</code>. The intro never opens while you are typing.</p>
+<h3 id="workspaces">Workspaces</h3>
+<p>A workspace is a shared space for a team. After your first sign-in you either <strong>Create a workspace</strong> or
+<strong>Join with an invite code</strong>. An invite link (<code>…/join/&lt;code&gt;</code>) works too: open it while signed in and click <strong>Join</strong>.</p>
+<p>The workspace name at the top of the sidebar opens the workspace menu: switch workspaces, <strong>Members</strong>,
+<strong>Workspace settings</strong>, <strong>New workspace</strong>, <strong>Join with code</strong>, import and export.</p>
+<p>Each workspace has two sections in the sidebar:</p>
+<ul>
+<li><strong>Shared</strong>: every member can read and edit these pages.</li>
+<li><strong>Private</strong> (🔒): only you can see them. They can&#39;t be published to the web or locked.</li>
+</ul>
+<p>To move a page between them, open the right panel → Properties → <strong>Move to private</strong> / <strong>Move to shared</strong>.</p>
+<p>Roles are <strong>Owner</strong>, <strong>Admin</strong> and <strong>Member</strong>. Owners change workspace settings; owners and admins publish pages to the web and manage edit locks.</p>
+<p><strong>Usage.</strong> Workspace settings → General shows the workspace&#39;s members, pages (the trash included) and storage (files,
+page bodies, version history, handwriting, comments and the trash). On a server with limits it shows &quot;used of limit&quot;.
+Creating past a limit (pages, members, the workspaces you own, the size of one file) shows a message that names it;
+deleted workspaces count toward the ones you own until they are deleted for good. When the storage is full, the
+workspace is read-only for everyone and a notice above the page says so. Delete files or pages and empty the trash,
+then open the usage again: once the server counts the workspace under its limit, open pages can be edited again.</p>
+<p><strong>Groups and archive.</strong> Open the workspace menu at the top of the sidebar and choose <strong>Organize workspaces…</strong>. Make
+groups such as &quot;Contests&quot; or &quot;Classes&quot;, choose a group for each workspace, and drag (or use the arrows) to change the
+order. Archive a workspace you are done with: it moves to <strong>Archived</strong> at the bottom of the menu, still one click
+away, and your searches across all workspaces (and your AI agents&#39; default searches) skip it. This is only your list;
+other members see no change, and an archived workspace stays open and editable. <strong>Unarchive</strong> brings it back. The same
+editor is in Settings → Sidebar.</p>
+<h3 id="making-pages">Making pages</h3>
+<ul>
+<li><strong>New page</strong> at the top of the sidebar, or ⌘N. The arrow (˅) next to it picks the type: <strong>New document</strong>,
+<strong>New folder</strong>, <strong>New database</strong>, <strong>New canvas</strong>, or <strong>Start from template</strong>.</li>
+<li>In the tree, hover a page and use <strong>+</strong> (Add subpage) or the <strong>⋯</strong> menu (right-click works too): Add subpage,
+Add subfolder, Add sub-database, Move to…, Duplicate, Rename, Add to favorites, Save as template and more.</li>
+<li>Drag pages in the tree to reorder or nest them.</li>
+<li>Where ⌘N puts the new page (top level, inside or next to the current page) is set in Settings →
+Files &amp; links → <strong>New page location</strong>.</li>
+<li><strong>Today</strong> in the sidebar opens today&#39;s daily note. The command palette (⌘P) also has yesterday&#39;s and
+tomorrow&#39;s.</li>
+</ul>
+<h3 id="finding-things">Finding things</h3>
+<ul>
+<li>⌘K: <strong>Search</strong> titles and content.</li>
+<li>⌘O: <strong>Quick switcher</strong>, jump by title.</li>
+<li>⌘P: <strong>Command palette</strong>, runs commands (new page, open trash, switch theme, switch workspace…) and jumps to pages.</li>
+<li>☆ in the page header adds the page to <strong>Favorites</strong> at the top of the tree.</li>
+</ul>
+<h2 id="writing">Writing</h2>
+<h3 id="slash-menu-and-blocks">Slash menu and blocks</h3>
+<p>Type <code>/</code> in a document to insert a block: headings, lists, checklists, toggle lists, quotes, tables, code blocks,
+images and files, and also:</p>
+<ul>
+<li><strong>Callout</strong>: a highlighted box. Change its type (note, tip, warning, danger, info) from the icon in the block.</li>
+<li><strong>Math block</strong> and <strong>Inline math</strong>.</li>
+<li><strong>Embed / link card</strong>: paste a link (YouTube, Figma, Google Docs, …). Switch between embed, preview card and plain link.</li>
+<li><strong>Query</strong>: a live list or table of pages (see below).</li>
+<li><strong>Chart</strong>: a chart of a database or a query (see <a href="#charts">Charts</a>).</li>
+<li><strong>Database view</strong>: one view of a database inside this page (see <a href="#databases">Databases</a>).</li>
+</ul>
+<p><strong>Tables</strong>: type a row such as <code>| Name | Role | Due |</code> on an empty line and press Enter: it becomes a table with
+that header row and an empty row to fill in (⌘Z right after turns it back into text). <code>/table 3x4</code> inserts an
+empty table of 3 columns × 4 rows (<code>/표 3x4</code> and <code>3*4</code> work too). A Markdown table pasted as text becomes a table.</p>
+<p>You can also drop images and files onto the page. The title is the large text at the top; F2 jumps to it.</p>
+<h3 id="columns">Columns</h3>
+<p>Type <code>/2단</code> or <code>/3단</code> (in English &quot;2 columns&quot;, &quot;3 columns&quot;) on an empty line to split it into columns side by side;
+the caret goes into the first one. Write in each column as anywhere else: any block works, including images,
+to-dos, code, callouts and toggles. Arrow keys move between columns; Tab and Shift+Tab indent inside a column.
+Backspace at the start of a column moves the caret to the column on its left instead of pulling the line out.</p>
+<p>To change widths, point between two columns and drag the line that appears; a double-click on it makes all
+columns equally wide. The block menu (⋮⋮ beside a block) of anything in a column has <strong>Add column</strong> (up to four),
+<strong>Delete this column</strong> (what was in it moves to the end of the column on its left) and <strong>Unwrap columns</strong> (the
+group becomes ordinary blocks again, column after column). Columns cannot go inside columns.</p>
+<p>On a narrow screen the columns stack, first column on top. A heading inside a column does not start a section:
+it is not in the outline, does not split presentation slides, and agents patch the section around the group.
+Images inside columns open large like any other (see <em>Looking at images</em>).</p>
+<h3 id="math">Math</h3>
+<ul>
+<li>Display equation: <code>/</code> → <strong>Math block</strong>.</li>
+<li>Inline equation: type <code>$x^2$</code>, press ⌘⇧E (wraps the selection), or <code>/</code> → <strong>Inline math</strong>.</li>
+<li>Click an equation to edit its LaTeX with a live preview. Prices like <code>$5 and $10</code> stay text.</li>
+</ul>
+<h3 id="diagrams">Diagrams</h3>
+<p>A code block in language <strong>mermaid</strong> (or <code>mmd</code>) draws a <a href="https://mermaid.js.org">Mermaid</a> diagram under its code:
+flowcharts, sequence diagrams, Gantt charts and the other Mermaid types. The code shows while you edit it; click the
+diagram to edit, or <strong>Show code</strong> to keep the code open. A mistake in the code shows <strong>Diagram error</strong> with one line
+saying what is wrong. Diagrams follow the light and dark theme, show alone in presentation mode, print in <strong>Export as
+PDF</strong>, and are drawn on public pages too. Agents, exports and vault sync see the ```mermaid code.</p>
+<h3 id="buttons">Buttons</h3>
+<p>Type <code>/button</code>. Give it a label and a color, then add up to five actions: <strong>Add a row</strong> to a database (pick a template
+and fill values; <code>today</code>, <code>today+7</code>, <code>me</code>, <code>this page</code> and <code>{{today}}</code>, <code>{{me}}</code>, <code>{{page}}</code> in text), <strong>Set values
+of this row</strong> (when the page is a database row), <strong>Open</strong> a page or a link, <strong>Send to a webhook</strong> (one a workspace
+owner registered). Pressing the button runs the actions in order with your own access: if you cannot add rows to that
+database, the button cannot either. If an action fails, the button says which one and stops. On public links and in
+presentation mode the button is shown but cannot be pressed.</p>
+<h3 id="links-mentions-and-tags">Links, mentions and tags</h3>
+<ul>
+<li><code>[[</code> links to another page. Pick from the list or choose <strong>＋ New page: &quot;…&quot;</strong> to create it.</li>
+<li><code>[[Page#</code> links to a heading of that page: pick one of its headings. The link opens the page at that heading and
+keeps working when the heading is renamed or moved; if the heading is gone, the page opens and says so. The
+backlinks panel shows which heading each linking page points to.</li>
+<li><code>![[</code> embeds another page&#39;s content.</li>
+<li><code>@</code> mentions a member (they are notified) or a page.</li>
+<li><code>#tag</code> adds a tag. <strong>Tags</strong> in the sidebar lists every tag and its pages.</li>
+<li>Hovering an internal link shows a preview (Settings → Files &amp; links → <strong>Link preview</strong>).</li>
+</ul>
+<h3 id="right-panel">Right panel</h3>
+<p>The panel button at the top right of a page opens the right panel: <strong>Properties</strong>, <strong>Outline</strong>, <strong>Comments</strong>,
+<strong>Backlinks</strong>, <strong>Unlinked mentions</strong> (text that names this page but isn&#39;t linked yet), <strong>Outgoing links</strong>,
+<strong>Tags</strong>, <strong>Aliases</strong>, <strong>Local graph</strong> and <strong>History</strong>. ⌘; jumps to the properties.</p>
+<h3 id="reading-long-pages">Reading long pages</h3>
+<ul>
+<li><strong>Outline in the margin</strong>: a document with three or more headings shows a short line per heading at the right
+edge when the window is wide enough. Point at the lines to see the headings and click one to go there; the
+heading you are reading is the darker line. Turn it off in Settings → Editor → <strong>Outline in the margin</strong>.</li>
+<li><strong>Folding</strong>: point at a top-level heading and click the arrow left of it to fold everything up to the next
+heading of the same or a higher level. Click again to unfold. From the keyboard, ⌘. (Ctrl+.) folds or unfolds
+the section the cursor is in; from inside the section the cursor moves to its heading first. On a phone or
+tablet, tap a heading and an arrow appears at the end of its line; tap the arrow. A folded heading shows &quot;…&quot;
+after its text and keeps its arrow. Folds are remembered per page on this device only and never change the
+document, so others see it unfolded. A folded section opens by itself when the cursor moves into it (for
+example Enter at the end of the heading), when you jump to something inside it from the outline, a comment or
+a task, and when you press ⌘F (Ctrl+F): the browser&#39;s find can&#39;t see folded text and doesn&#39;t tell the page
+what you search for, so every fold on the page opens, not only the ones with a match. Pen mode and printing
+show the whole page. Headings nested inside other blocks don&#39;t fold.</li>
+</ul>
+<h3 id="looking-at-images">Looking at images</h3>
+<p>Double-click a picture in a page, or point at it and press the magnifier in its top right corner, to see it
+large. On a phone or tablet the magnifier is always there. On a page you can only read (locked for you) and on a
+public link, one click on the picture opens it; a picture that is itself a link on a public page follows the link.
+A single click in a page you can edit still selects the image block, so its toolbar, resize handles and drag work
+as before.</p>
+<p>In the viewer, zoom with the mouse wheel, a trackpad pinch or two fingers on a touch screen; the point under the
+pointer stays put. <code>+</code> and <code>-</code> zoom in steps, <code>0</code> fits the picture to the screen, and a double-click switches
+between fitted and actual size (100%); a picture smaller than the screen is shown at 100% and is not enlarged to
+fit. When it is larger than the screen, drag to move around. If the page has several pictures, ← and → (or the
+arrows at the sides) go to the previous and next one; the top bar shows which one (&quot;2 / 5&quot;), its caption or file
+name, the zoom and <strong>Open original</strong>, which opens the picture in a new tab. Esc, a click outside the picture or the
+close button closes it and puts you back where you were. The browser&#39;s Back button goes back as usual and closes
+the viewer on the way. While it is open, keys go to the viewer only, never to the page behind it. The <code>?</code> window lists these keys under <strong>Image viewer</strong>.</p>
+<h3 id="reading-pdfs-in-the-page">Reading PDFs in the page</h3>
+<p>A PDF you attach shows its pages right under the file name. Scroll inside the preview to turn pages, type a page
+number to jump, use − / + to zoom or <strong>Fit width</strong> to fit the page to the column, and <strong>Full screen</strong> to read it
+over the whole window. Esc or the close button closes it and the preview below the file name moves to the page you
+were reading; the browser&#39;s Back button goes back as usual and closes it on the way. You can select text in the
+PDF and copy it; web links in the PDF open in a new tab, and a link to another page of the same PDF scrolls there.
+PDFs up to 10 MB open as soon as you scroll to them. A larger file shows <strong>Load preview</strong> with its size, so you
+decide when to spend the data (with the browser&#39;s data saver on, every PDF waits for that press). <strong>Hide preview</strong>
+folds it to one line, and this browser remembers that for you. The preview is only on your screen: scrolling or
+zooming changes nothing in the page for others, and each person reads at their own page. Password-protected or
+damaged PDFs cannot be previewed, nor PDFs of more than 5,000 pages; download them instead. Public links show the
+file name only, as before.</p>
+<p>On a page with handwriting and in pen mode, PDFs show only their file name, so the ink stays where you wrote it
+(ink is placed by the page&#39;s height, and you cannot write on a PDF). When someone else writes the first stroke on
+a page you have open, its previews go away within a minute.</p>
+<h3 id="verifying-a-page">Verifying a page</h3>
+<p>Mark a page as checked and correct until a date: <strong>⋯</strong> → <strong>Verify page…</strong> → choose 30, 90 or 180 days or <strong>Until a
+date…</strong> (at most a year), add a note if you like, then <strong>Mark verified</strong>. A badge under the title says &quot;Verified
+until …&quot;. After the date it turns into <strong>Needs verification</strong>. The badge also shows how many sections changed since
+it was verified. People who can edit the page can verify it; when the page has an owner, only the owner or a
+workspace owner or admin. <strong>All verified pages</strong> lists the pages that need verification, the ones that expire within
+7 days and the verified ones. Connected AI agents see the mark too, and are told when a page is out of date.</p>
+<h3 id="presenting-a-page">Presenting a page</h3>
+<p><strong>⋯</strong> → <strong>Present</strong> (also on a shared page) shows a document as full-screen slides. Slides start at the page&#39;s
+headings: at the shallowest heading level you use more than once, and at any heading above it (one H1 at the top
+with H2 sections gives a slide for the H1 and one per H2). A divider also starts a new slide. Move with ← / → (or
+PageUp / PageDown, Space, Home / End) or swipe; Esc leaves. A slide longer than the screen scrolls: use the mouse
+wheel, swipe up or down, or ↑ ↓. The slides are a copy of the page when you opened them: edits made meanwhile show
+after you open it again. Buttons on the slides cannot be pressed.</p>
+<h3 id="pen-mode">Pen mode</h3>
+<p><strong>Pen mode</strong> in the page header&#39;s <strong>⋯</strong> menu lets you write and highlight on a document with a pen or finger.
+Esc or <strong>Done</strong> leaves it. <strong>Clear</strong> erases all ink on the page, so it asks first: press it once and it turns into
+<strong>Clear all?</strong> for three seconds; press again to erase. Ink is saved only after the page&#39;s ink has loaded; if it
+can&#39;t load, a message says so, and nothing you draw is saved until it does.</p>
+<p>AI agents you connect do not see your handwriting unless the workspace allows it. An owner or admin can turn on
+<strong>Agents can read handwriting</strong> in Workspace settings → <strong>Connected agents</strong>. Then an agent can ask for a picture of a
+page&#39;s pen and highlighter strokes when it needs them; it still reads the page text the usual way. It is off by
+default, and turning it off again takes effect at once.</p>
+<h2 id="databases">Databases</h2>
+<p>Create one with <strong>New database</strong>. Each row is a page; <strong>Open row as a page</strong> opens it in full.</p>
+<ul>
+<li><strong>Views:</strong> Table, Board, Calendar, Gallery, Timeline, Chart, Form, List. Add one with <strong>New view</strong> in the view tabs.</li>
+<li><strong>Properties:</strong> Text, Number, Select, Multi-select, Date, Checkbox, Person, URL, Email, Phone, Relation, Rollup,
+Formula, and the automatic ones: Created time, Last edited time, Created by, Last edited by and <strong>ID</strong>. Add one with
+<strong>Add a property</strong>. Automatic properties fill themselves in and cannot be edited; &quot;Last edited by&quot; says &quot;(via
+Claude)&quot; when an agent made the change. <strong>ID</strong> numbers the rows (<code>TASK-12</code> with the prefix <code>TASK</code>); a number is never
+given twice, and existing rows are numbered when you add the property.</li>
+<li><strong>Sort &amp; filter</strong> sets sorting, filters and visible properties per view. Boards group by a select property.
+<strong>Match: All / Any</strong> decides whether every condition or one of them must hold, <strong>Not</strong> turns a condition around,
+and <strong>Add group</strong> makes a group of conditions with its own All / Any.</li>
+<li><strong>Sub-items:</strong> <strong>⋯ → Turn on sub-items</strong> adds a <strong>Parent item</strong> property. Add a sub-item from a row&#39;s menu
+(<strong>Add sub-item</strong>) or by picking the parent. Table and list views show the rows as a tree you can fold; <strong>Nested /
+Flat</strong> in the view settings switches it. A row cannot be put under itself or its own sub-items.</li>
+<li><strong>Show a database in a page:</strong> type <code>/database view</code> and pick the database and the view. The block shows that view
+with the rows each reader may see and updates with the database. Click a row to open it, or <strong>Open database</strong> for
+the full view; switch the view from the block&#39;s header. The block is read-only. A database someone cannot see shows
+&quot;Database not available&quot; to them.</li>
+<li><strong>Agent task board:</strong> the template of the same name makes a database for AI agents that split work: tasks with
+sub-tasks, an assignee (a person or their agent), evidence and <code>TASK-n</code> IDs (<a href="RECIPES.html">RECIPES.md</a>).</li>
+<li><strong>Keyboard</strong> in a table: click a cell or Tab into the table, then move with the arrows, Tab / ⇧Tab and Home / End.
+Enter or F2 edits the cell (or opens its list or ticks its checkbox); in a text cell Enter saves and moves down,
+Esc cancels. Space ticks a checkbox, ⌫ clears the selected cells, ⇧+arrows extend the selection for ⌘C / ⌘V,
+⌘Enter adds a row and opens its title (so does Enter on the last row), ⌘⇧Enter opens the row as a page. Without
+edit rights the keys only move. The keys are in the shortcut list under <em>Database table</em> and can be changed there.</li>
+<li><strong>Column width</strong> in a table: drag the right edge of a column header. The width is saved on the view for everyone;
+double-click the edge to go back to the automatic width (←/→ also work on a focused edge). If you can&#39;t edit the
+database, the width changes on your screen only. Long text is cut with &quot;…&quot;; hover to see all of it.</li>
+<li>Wide boards and tables use the whole width of the page. <strong>Full width</strong> (the database&#39;s <strong>⋯</strong> menu in the sidebar)
+and the line width setting apply to databases too.</li>
+<li><strong>Relation</strong> links rows to another database. Tick <strong>Show on the related collection too (two-way)</strong> to see the
+link from both sides. <strong>Rollup</strong> calculates over related rows (count, sum, average, min, max, earliest/latest
+date, percent checked, unique values).</li>
+<li>Paste cells from a spreadsheet, or use <strong>Import CSV / Excel…</strong>. <strong>Export view as CSV</strong> / <strong>Export view as Excel</strong>
+saves the current view.</li>
+<li><strong>Google Sheets sync…</strong> mirrors a published sheet into a database (experimental, only if your server has it on).</li>
+</ul>
+<h3 id="row-templates">Row templates</h3>
+<p>A row template fills in a new row: its title, property values and body. Make one from <strong>New row ▾ → New
+template</strong> or <strong>⋯ → Row templates…</strong> and edit it like a page. Property values can be relative: a date can be
+<strong>Today</strong> or <strong>Days after today</strong>, a person can be <strong>Person who adds the row</strong>. The title and text can use
+template variables such as <code>{{date}}</code> or <code>{{input:Topic|Weekly}}</code> (<a href="TEMPLATES.html#row-templates">TEMPLATES.md</a>).</p>
+<ul>
+<li><strong>New row</strong> uses the template marked <strong>Default for new rows</strong> (an empty row when there is none). <strong>▾</strong> picks
+another template or <strong>Empty row</strong> and opens the new row.</li>
+<li>The board&#39;s <strong>+</strong> in a column and the calendar&#39;s <strong>+</strong> on a day use the default template too, with the
+column&#39;s value or the day&#39;s date on top.</li>
+<li>Everyone who can see the database can use its templates; changing them needs edit access (an edit lock
+applies). Templates are not pages: they don&#39;t show up in search, links, the graph or the sidebar.</li>
+</ul>
+<h3 id="charts">Charts</h3>
+<p>Type <code>/chart</code> and pick the data: a database (all rows, or the rows one of its views shows) or a
+query. Then choose the kind of chart, what to group by and what to count. Dates can be grouped by
+day, week or month. &quot;Split by&quot; adds a second grouping, drawn as grouped or stacked bars or several
+lines. &quot;Value&quot; counts rows, or sums, averages or finds the smallest or largest value of a number
+property.</p>
+<p>A chart keeps only its settings. Everyone who opens the page sees the numbers of the rows they are
+allowed to see, and a chart whose database you cannot open says so instead of showing numbers. When
+someone edits the database, the chart redraws within about 20 seconds (at once for your own edits).</p>
+<p>A database can also be shown as a chart: add a view and choose <strong>Chart</strong>. The view&#39;s filters decide
+which rows are counted.</p>
+<p>In Markdown exports a chart becomes a table of its numbers. On a public link, a chart shows a table
+only when its database is inside the shared folder.</p>
+<h3 id="forms">Forms</h3>
+<p>A form collects answers into a database: each answer becomes a row. Add a view and choose <strong>Form</strong>, then <strong>Edit
+form</strong>: pick the questions (the title and text, number, select, multi-select, date, checkbox, URL and person
+properties), put them in order with <strong>Move up</strong> / <strong>Move down</strong>, tick <strong>Required</strong>, and add a <strong>Help text</strong> under a
+question. You can also set the form&#39;s title, description, <strong>Button text</strong> and the <strong>Message after sending</strong>. Members
+fill the form in the app.</p>
+<p><strong>Public link</strong> (owners and admins): <strong>Turn on public link</strong> and copy it. Anyone with the link can send answers
+without signing in; they never see the rows or other people&#39;s answers. Person and relation questions are left out
+of the public form. <strong>Turn off</strong> stops the link at once. The link also closes by itself when the database is trashed
+or made private, when public links are turned off for the workspace, or when the person who turned it on can no
+longer add rows. Answers show up in Activity as &quot;<that person> via public form&quot; and count as people&#39;s input, not
+as AI edits.</p>
+<h3 id="formulas">Formulas</h3>
+<p>A <strong>Formula</strong> property computes a value from the same row; you can&#39;t type into it. Write the expression when you add
+the property, for example:</p>
+<ul>
+<li><code>prop(&quot;Price&quot;) * prop(&quot;Qty&quot;)</code></li>
+<li><code>if(prop(&quot;Done&quot;), &quot;✓&quot;, &quot;&quot;)</code></li>
+<li><code>dateBetween(prop(&quot;Due&quot;), now(), &quot;days&quot;)</code></li>
+</ul>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Function</th><th scope="col">What it does</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Function"><code>prop(&quot;Name&quot;)</code></td><td class="c-field c-wide" data-label="What it does">The value of a property of the same row (<code>&quot;Title&quot;</code> is the row title). Select gives the option name, multi-select the names joined with &quot;, &quot;, checkbox true or false; person and relation are empty</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>if(cond, a, b)</code></td><td class="c-field c-wide" data-label="What it does"><code>a</code> when <code>cond</code> is true (not empty, not zero), else <code>b</code></td></tr><tr class="rec"><td class="c-title" data-label="Function"><code>and(a, b, …)</code>, <code>or(a, b, …)</code>, <code>not(a)</code></td><td class="c-field c-wide" data-label="What it does">Logic; the words <code>and</code>, <code>or</code>, <code>not</code> and <code>&amp;&amp;</code>, <code>||</code>, <code>!</code> work too</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>concat(a, b, …)</code></td><td class="c-field" data-label="What it does">The text of every argument joined</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>length(x)</code></td><td class="c-field c-wide" data-label="What it does">Number of characters of the text of <code>x</code> (empty is 0)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>round(n, digits)</code></td><td class="c-field" data-label="What it does">Rounded to 0–10 digits (<code>digits</code> is optional)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>min(a, …)</code>, <code>max(a, …)</code></td><td class="c-field c-wide" data-label="What it does">Smallest / largest number; empty values are skipped</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>abs(n)</code></td><td class="c-field" data-label="What it does">Absolute value</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>now()</code></td><td class="c-field" data-label="What it does">The current date and time</td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>dateAdd(date, n, unit)</code></td><td class="c-field c-wide" data-label="What it does">The date moved by <code>n</code> units: <code>years</code>, <code>months</code>, <code>weeks</code>, <code>days</code>, <code>hours</code>, <code>minutes</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Function"><code>dateBetween(a, b, unit)</code></td><td class="c-field" data-label="What it does"><code>a</code> minus <code>b</code> in whole units</td></tr></tbody></table></div>
+<p>Operators: <code>+</code> (adds numbers; with text it joins), <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, <code>=</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>. Text goes in
+quotes. Dates are computed in UTC. A cell with a problem shows the error instead of a value (circular reference,
+division by zero, a property that doesn&#39;t exist, …). Formulas follow when you rename a property. You can filter,
+sort, group and chart by a formula like by any other property, and exports contain its values.</p>
+<h3 id="automations">Automations</h3>
+<p>Open a database&#39;s <strong>⋯</strong> menu → <strong>Automations</strong> → <strong>New automation</strong>. Choose when it runs (a row is added, a property changes,
+optionally to one value, or a date is N days away), optionally a condition, and what it does: set values, assign a
+person, notify people, send to a registered webhook, add a row to another database, or hand the row to a person&#39;s
+AI connection (up to five actions, 20 rules per database). A rule runs as the person who last saved or turned it on,
+right after the change; what it changes shows as &quot;<name> via automation: <rule>&quot;. The run log shows each run; five
+failures in a row turn a rule off and notify its author. Rules started by guests, public form answers or AI
+connections cannot write to other databases. Connected AI agents see a database&#39;s rules but cannot make them.</p>
+<h2 id="graph-canvas-and-query-blocks">Graph, canvas and query blocks</h2>
+<ul>
+<li><strong>Graph</strong> (⌘G): every page and its links. <strong>Graph settings</strong> has a title search, <strong>Show orphans</strong>, <strong>Show tags</strong>,
+<strong>Color by top-level folder</strong> and force sliders. The right panel shows a <strong>Local graph</strong> of the current page.</li>
+<li><strong>Canvas:</strong> an infinite board compatible with Obsidian&#39;s <code>.canvas</code> format. Add text, page and link cards; drop
+images onto it. A document&#39;s <strong>⋯</strong> menu → <strong>Expand into canvas</strong> turns it into one.
+Canvases can&#39;t be shared on the web.</li>
+<li><strong>Query blocks:</strong> <code>/</code> → <strong>Query</strong>, then write a Dataview-style query such as <code>LIST FROM #project</code> or
+<code>TABLE status FROM &quot;Projects&quot;</code>. Results update as pages change. Syntax: <a href="QUERY.html">QUERY.md</a>.</li>
+<li><strong>Templates:</strong> <strong>Start from template</strong> creates a page or a whole structure. Save your own with
+<strong>Save as template</strong> in a page&#39;s <strong>⋯</strong> menu. Details: <a href="TEMPLATES.html">TEMPLATES.md</a>.</li>
+</ul>
+<h2 id="tasks-due-dates-and-calendar">Tasks, due dates and calendar</h2>
+<ul>
+<li>A checklist item with a date becomes a task, e.g. <code>- [ ] Report 📅 2026-09-30</code> or <code>[due:: 2026-09-30]</code>.</li>
+<li><strong>Due</strong> in the sidebar lists overdue, this week and the next 30 days. <strong>Add a task…</strong> adds one to the &quot;Tasks&quot; document.</li>
+<li><strong>Calendar</strong> shows dated items by month or week. Click an empty day to add a task, a page or the daily note;
+drag items to another day.</li>
+<li>Settings → Connections → <strong>Calendar subscription (iCal)</strong> gives you a private link for Google Calendar, Apple Calendar or
+Outlook. Anyone with the link can read those items, so keep it to yourself.</li>
+</ul>
+<h2 id="working-together">Working together</h2>
+<h3 id="editing-at-the-same-time">Editing at the same time</h3>
+<p>Several people can edit the same document or canvas at once. You see their cursors, and the header shows who is
+online and the connection state. Changes made while the connection is down merge when you reconnect. With offline
+copies on (see <em>Working offline</em>), they are kept on the device; without them, only as long as the tab stays open.</p>
+<p>While some of your edits have not reached the server, the connection dot turns amber. It reads <strong>Not uploaded yet</strong>
+when the edits are stored on this device, and <strong>Not saved yet</strong> when they exist only in this tab (hover it for
+&quot;Some edits have not reached the server yet. Keep this tab open until they are saved.&quot;); only then does closing or
+reloading the tab ask you first. Opening another page inside the app is fine: the edits of the page you left are
+kept until the server has them.</p>
+<p>A tab that still runs an older version of the app (opened before your server was updated) can read pages that
+use something it does not know, such as columns in 0.20, but not edit them; reload it. In 0.20 and later such a
+page says &quot;This page has content that only a newer version of the app can edit. Reload to update.&quot;; a 0.19 tab
+shows the page as locked instead.</p>
+<h3 id="comments">Comments</h3>
+<p>Open the right panel → <strong>Comments</strong>. <strong>Comment on current block</strong> attaches a thread to the block your cursor is
+in; <strong>New thread</strong> starts one for the page. Use <code>@</code> to mention someone, <strong>Reply</strong> to answer and <strong>Resolve</strong> to close
+a thread.</p>
+<h3 id="notifications">Notifications</h3>
+<p>The bell at the top right holds notifications from all your workspaces. You are notified when someone:</p>
+<ul>
+<li>mentions you in a page or comment,</li>
+<li>replies in a comment thread you follow (see <em>Following a comment thread</em>),</li>
+<li>makes you a page owner or assigns you in a Person cell,</li>
+<li>edits a page you follow.</li>
+</ul>
+<p>A reminder you set on your Later list also arrives there when it comes due.</p>
+<p>Mentions written by an AI agent arrive quietly (no badge or mail) and in the summary email.</p>
+<p><strong>Push notifications.</strong> Settings → Notifications → <strong>Push notifications</strong> → This device → <strong>Turn on</strong>. Your browser
+asks once for permission; notifications then reach this device with the app closed. Choose what to push, pause it
+for all devices, or hide the content on the lock screen (&quot;New notification&quot; only). <strong>Send a test</strong> checks a device.
+On iPhone and iPad, add Inkling to the Home Screen first and open it from there (iOS 16.4 or later; not yet
+checked on a real iPhone or iPad). Signing out of a
+device stops its pushes. A database automation that notifies you arrives as a mention: &quot;Alice via automation: Ping
+reviewer mentioned you in …&quot;. Push needs the server on HTTPS; if Settings says push is not available here, ask your
+server admin.</p>
+<h3 id="following-a-page">Following a page</h3>
+<p><strong>Page notifications</strong> in the page header&#39;s <strong>⋯</strong> menu sets the level for that page:</p>
+<ul>
+<li><strong>Follow this page</strong> or <strong>Follow page and subpages</strong></li>
+<li><strong>Mentions only</strong> (the default), <strong>Nothing</strong>, <strong>Mute</strong> (also silences mentions; only approval requests addressed to you get through)</li>
+<li><strong>Inherit</strong> uses the parent page&#39;s or workspace&#39;s setting.</li>
+<li><strong>Daily summary when AI edits here</strong> sends one summary a day of AI edits under the page.</li>
+</ul>
+<p>Settings → <strong>Notifications</strong> lists everything you follow and sets email: <strong>Email right away</strong> for mentions,
+replies and assignments, and a <strong>Summary email</strong> (daily or weekly). If the server has no mail set up,
+notifications stay in the app.</p>
+<h3 id="following-a-comment-thread">Following a comment thread</h3>
+<p>When you start a comment thread or reply in one, you follow it: replies by others reach your bell (and your
+email, by your settings). <strong>Follow thread</strong> / <strong>Following</strong> on a thread card in the comments panel follows or
+stops following any thread, including ones you never wrote in. An unfollow sticks even if you reply again.</p>
+<p><strong>Threads</strong> in the sidebar lists the threads you follow that have new replies, newest first, with how many
+replies are new and the last one. Opening a thread there marks it read, and the bell item for that thread
+too. Check <strong>Show threads without new replies</strong> to see every thread you follow (for example to unfollow).</p>
+<p>Settings → <strong>Notifications</strong> has two switches: <strong>Follow threads I start or reply in</strong> (off: you only follow
+by hand) and <strong>Notify me about replies in threads I follow</strong> (off: replies only show under Threads, no badge
+or mail; mentions still notify you).</p>
+<h3 id="later">Later</h3>
+<p><strong>Save for later</strong> keeps a page, a comment thread or a notification on your <strong>Later</strong> list (sidebar):</p>
+<ul>
+<li>a page: <strong>⋯</strong> menu → <strong>Save for later</strong>, or <em>Save this page for later</em> in the ⌘P palette</li>
+<li>a thread: the clock button on its card in the comments panel</li>
+<li>a notification: the clock button on the item in the bell</li>
+</ul>
+<p>The same dialog sets a <strong>reminder</strong>: in 20 minutes, this evening (18:00), tomorrow 9:00, next Monday 9:00,
+or a date and time you pick. Times are your device&#39;s local time. When the time comes you get a bell item
+(and an email if you get email right away); the sidebar shows how many reminders are due. Mark items
+<strong>Done</strong> (they move to the Done tab) or remove them. If you lose access to a saved page (it was made
+private, you left the workspace, or the workspace now needs two-step verification), the item stays on
+your list without its title, and its reminder is not sent.</p>
+<p>Connected AI agents can read your Later list (the <code>later</code> tool) but cannot add to it or set reminders.</p>
+<h3 id="activity">Activity</h3>
+<p><strong>Activity</strong> in the sidebar lists recent changes by people and AI, newest first. Filter by who (people / AI),
+app, member, page or kind of change, and open <strong>Show changes</strong> to see a diff. Changes made through an agent have
+<strong>Revert</strong> (see <a href="#reverting-agent-edits">Reverting agent edits</a>).</p>
+<h3 id="members">Members</h3>
+<p>Workspace menu → <strong>Members</strong> to see members, add people you already share another workspace with, and copy or
+regenerate the invite link. <strong>Copy invite link</strong> is also at the bottom of the sidebar.</p>
+<h3 id="your-status">Your status</h3>
+<p>Settings → <strong>Account</strong> → <strong>Status</strong> → <strong>Set status</strong>: pick an emoji, write a short message (&quot;Exam week, back
+Friday&quot;) and choose when it clears: <strong>In an hour</strong>, <strong>Today</strong>, <strong>This week</strong>, <strong>At a date and time…</strong> or <strong>Don&#39;t
+clear</strong>. Your status shows next to your name in the members list, the <code>@</code> mention menus and on the avatars of people
+online on a page (the page header). It is the same in every workspace. AI agents see it when they mention you or assign you a row.</p>
+<h3 id="people-with-access-and-guests">People with access and guests</h3>
+<p>The page <strong>Share</strong> dialog has a <strong>People</strong> part above the web link. Here you give one person a level on
+a page and everything under it:</p>
+<div class="table-wrap"><table class="t-auto t-short" data-cols="5"><thead><tr><th scope="col">Level</th><th scope="col">Read</th><th scope="col">Comment</th><th scope="col">Edit</th><th scope="col">Manage who has access</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Level">Can view</td><td class="c-field" data-label="Read">yes</td><td class="c-field is-empty" data-label="Comment"></td><td class="c-field is-empty" data-label="Edit"></td><td class="c-field is-empty" data-label="Manage who has access"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Level">Can comment</td><td class="c-field" data-label="Read">yes</td><td class="c-field" data-label="Comment">yes</td><td class="c-field is-empty" data-label="Edit"></td><td class="c-field is-empty" data-label="Manage who has access"></td></tr><tr class="rec"><td class="c-title" data-label="Level">Can edit (members&#39; default)</td><td class="c-field" data-label="Read">yes</td><td class="c-field" data-label="Comment">yes</td><td class="c-field" data-label="Edit">yes</td><td class="c-field is-empty" data-label="Manage who has access"></td></tr><tr class="rec"><td class="c-title" data-label="Level">Full access (members only)</td><td class="c-field" data-label="Read">yes</td><td class="c-field" data-label="Comment">yes</td><td class="c-field" data-label="Edit">yes</td><td class="c-field" data-label="Manage who has access">yes</td></tr></tbody></table></div>
+<ul>
+<li><strong>Members</strong>: everyone already has <strong>Can edit</strong> on shared pages. A level here replaces that for this page
+tree, lower (&quot;Kim can only view the contracts&quot;) or higher (<strong>Full access</strong> lets them manage people there).
+Workspace owners and admins always have full access. Only people with full access to the page, owners and
+admins can change members&#39; levels.</li>
+<li><strong>Guests</strong> are people outside the workspace. Type their email address: an account on this server gets
+access at once; for an address without an account, Inkling sends an invitation (or shows a link to copy
+when the server has no mail set up). They must sign in or sign up with that same address to accept.
+Guests see only the pages shared with them and the pages under them: nothing else of the workspace,
+no search, graph, members list or settings. They can view, comment or edit (never manage people), and
+they get a <strong>Guest</strong> badge. A database shared with a guest opens for them: they see its rows (links to pages they
+cannot see stay hidden), and with <strong>Can edit</strong> they add rows and edit cells, but they cannot assign people or
+change properties and views.</li>
+<li>Who may invite guests is a workspace setting (Workspace settings › General › <strong>Who can invite guests</strong>):
+nobody, owners, owners and admins (the default), or members who can edit the page. Members never give more than they have.</li>
+<li>A level set on a parent page shows as inherited on the pages under it; change it on the parent.</li>
+<li>The edit lock still applies on top: a guest with <strong>Can edit</strong> cannot edit a locked page unless the lock
+allows it.</li>
+</ul>
+<p>Workspace settings › Members › <strong>Guests</strong> lists every guest with their pages and levels; owners and admins can remove
+several at once. A guest who joins the workspace becomes an ordinary member, and someone removed from the
+workspace loses their page levels too. Guests use the web app only: their API tokens and AI connections
+don&#39;t reach the workspaces where they are guests. If the workspace requires two-step verification, so does
+every guest.</p>
+<h2 id="sharing-on-the-web">Sharing on the web</h2>
+<p>Only workspace owners and admins can publish or stop sharing.</p>
+<ol>
+<li>Click <strong>Share</strong> in the page header, or <strong>Share…</strong> in the tree&#39;s <strong>⋯</strong> menu.</li>
+<li><strong>Publish to web</strong>, then copy the link. Anyone with it can read the page without signing in. Nobody can edit
+through it.</li>
+<li>Sharing a folder publishes every page in it, except private pages.</li>
+<li><strong>Stop sharing</strong> turns the link off.</li>
+</ol>
+<p>A public page also shows its embedded pages, database views and query results, but only from pages that are part of
+the link (anything else is one line, &quot;Embedded content that is not part of this link&quot;), and draws Mermaid diagrams.</p>
+<p><strong>Web shares</strong> in the sidebar lists everything published in the workspace. Private pages and canvases can&#39;t be
+shared. Owners can turn public links off for the whole workspace in Workspace settings → <strong>Public links</strong>.</p>
+<h3 id="expiry-and-password">Expiry and password</h3>
+<p>Before you click <strong>Publish to web</strong>, the same dialog lets you choose:</p>
+<ul>
+<li><strong>Expires</strong>: <strong>Never</strong>, in 1, 7 or 30 days, or <strong>On a date…</strong> (the link works until the end of that day).
+The server&#39;s clock decides, not the visitor&#39;s. After that, visitors see &quot;This link has expired&quot; and
+nothing about the page.</li>
+<li><strong>Require a password</strong> (4 characters or more). Visitors enter it once per link and are not asked again
+for 12 hours. Send it separately from the link. Repeated wrong guesses slow down further tries on that
+link and block the IP address that keeps guessing. A password-protected link shows no title or text in
+chat previews and is kept out of search engines.</li>
+</ul>
+<p>For a link that is already public, <strong>Change expiry</strong> extends it or removes the expiry, and <strong>Set password</strong>,
+<strong>Change</strong> and <strong>Remove</strong> manage the password. Changing the password asks everyone again, including people
+who already opened the page. Expired links stay in <strong>Web shares</strong> (marked <strong>Expired</strong>) until you extend or
+stop them. <strong>Stop sharing</strong> also clears the expiry and password; publishing again makes a new address.</p>
+<p>Owners can set rules for new links in Workspace settings → <strong>Public links</strong>: <strong>Default expiry for new
+links</strong> (pre-selected, the publisher can still change it) and <strong>Require a password on public links</strong> (new
+links need one and it can&#39;t be removed). Neither changes links that already exist. Expiry and password
+changes are in the audit log; the password itself is never stored in plain form or logged.</p>
+<h3 id="scheduling-a-start">Scheduling a start</h3>
+<p>A public link can start working later. Before you click <strong>Publish to web</strong>, turn on <strong>Schedule a start</strong> and pick
+the date and time (in your device&#39;s time zone). Until then the link answers like a link that doesn&#39;t exist. Once
+published, the dialog says <strong>Opens …</strong> with <strong>Change start</strong> and <strong>Open now</strong>, and <strong>Web shares</strong> marks the link.
+Changing the start is in the audit log.</p>
+<h3 id="reading-printing-and-downloading">Reading, printing and downloading</h3>
+<p>Visitors of a public link see a row of actions above the title (one <strong>⋯</strong> button on a phone):</p>
+<ul>
+<li><strong>Present</strong> shows the page as slides.</li>
+<li><strong>Wide view</strong> uses the whole window for tables, code and diagrams; text keeps a readable width. A page
+with &quot;Full width&quot; turned on opens wide. Your choice is remembered in your browser.</li>
+<li><strong>Save as PDF</strong> opens your browser&#39;s print dialog; pick &quot;Save as PDF&quot; there. The PDF has the page only,
+on white, named after the page.</li>
+<li><strong>Download Markdown</strong> appears when the person who shared the link allowed it. Turn it on in the share
+dialog under the link&#39;s settings: <strong>Let visitors download it as Markdown</strong>. The file holds only what the
+public page shows. It is off for every new link, and publishing again turns it off.</li>
+</ul>
+<p>Charts are not on a public link unless you choose so: a chart shows numbers from a database that the link itself
+usually does not share. The share dialog tells you how many charts of the page (a folder link: of its pages) do not
+show. Turn on <strong>Show charts on the public page</strong> in the link&#39;s settings to publish them. Visitors then see each chart
+— its title, the names of its bars or slices and their values — but not the rows behind it, the database&#39;s name, or
+anything else from the workspace. The numbers are worked out with the access of the person who turned the setting on:
+if that person leaves the workspace, or can no longer see a chart&#39;s database, that chart disappears from the public
+page. Turning the setting on approves the databases (and queries) the charts use at that moment: if someone later adds a
+chart over another database, it stays off the public page and the share dialog says &quot;1 newly added chart is not
+public yet&quot; until an owner or admin presses <strong>Publish these charts too</strong> (from then on, with that person&#39;s access).
+New charts over an approved database show at once. Numbers can be up to 10 minutes behind the database. A folder link
+always shows the charts of databases that are inside the folder. New links start with charts off, and so does a link
+published again after it was stopped.</p>
+<h2 id="edit-lock">Edit lock</h2>
+<p>An edit lock protects a page and everything under it. Others can still read and comment.</p>
+<ol>
+<li>Open <strong>Edit lock…</strong> in the page header&#39;s <strong>⋯</strong> menu or in the tree&#39;s <strong>⋯</strong> menu.</li>
+<li>Turn on <strong>Lock this page and its subpages</strong>.</li>
+<li>Under <strong>People</strong>, choose <strong>Only the owner and chosen editors</strong> (add people with <strong>Add editor…</strong>) or
+<strong>Everyone (restrict agents only)</strong>.</li>
+<li>Under <strong>Agents (AI via MCP)</strong>, choose <strong>Workspace default</strong>, <strong>Edit directly</strong>, <strong>Accept by rules</strong>,
+<strong>Suggestions only</strong>, <strong>Comment only</strong> or <strong>Read only</strong>. This applies to every member&#39;s agent, owners and admins
+included. <strong>Workspace default</strong> follows the workspace&#39;s <a href="#how-agents-edit">agent edit setting</a>;
+<strong>Suggestions only</strong> turns every agent edit into a suggestion a person reviews. With <strong>Accept by rules</strong> the
+dialog also shows the auto-accept rules for this page and the pages under it.</li>
+</ol>
+<p>Workspace owners and admins can always edit locked pages. Only they or the page owner can change a lock.
+Private pages can&#39;t be locked. Locked pages show <strong>Locked</strong> and are read-only for everyone else, including
+database cells, canvas cards and properties.</p>
+<p>The same dialog has <strong>Agent instructions</strong>: a locked page whose text AI agents read as the workspace&#39;s rules for
+them (always, for matching pages, or only when asked by name). If an instruction page gets long (over 200 lines or
+25 KB), the dialog says so and the page&#39;s lock line shows <strong>long</strong>. Agents read it in full every session; keep it to
+rules and links to where things are.</p>
+<h2 id="slack">Slack</h2>
+<p>A workspace owner can connect the workspace to Slack: Workspace settings → <strong>Slack</strong>. The page lists the steps,
+the addresses and a ready-made app manifest to paste in Slack; the full procedure is in
+<a href="OPERATIONS.html">OPERATIONS.md</a>, section 6. The owner picks a channel and which updates it gets: mentions,
+assignments, AI suggestions waiting for review, comment replies and a daily summary of changed pages. <strong>Send test
+message</strong> checks the setup.</p>
+<ul>
+<li>Only pages shared with the whole workspace appear in Slack. Private pages and other workspaces never do.</li>
+<li>Work someone hands to a person&#39;s AI agent (see <a href="#team-agents">Team agents</a>) is not posted to the channel.</li>
+<li>Type <code>/inkling &lt;words&gt;</code> in Slack to search your own notes; only you see the answer, and it shows only what you
+can see in Inkling. <code>/inkling help</code> lists the commands.</li>
+<li>If <code>/inkling</code> says your account is not linked (your Slack email differs from your Inkling email), type
+<code>/inkling link</code> and open the link while signed in to Inkling. <code>/inkling unlink</code> removes the link.</li>
+<li>Paste an Inkling page link in Slack to show its title and first paragraph (shared pages only).</li>
+</ul>
+<h2 id="connecting-your-ai-mcp">Connecting your AI (MCP)</h2>
+<p>Inkling has a built-in MCP server. An AI app such as Claude Code or claude.ai can read and write your notes as you.</p>
+<h3 id="connect">Connect</h3>
+<p>Find your server&#39;s address in Settings → Connections → <strong>MCP server</strong> (<strong>Copy URL</strong>). It looks like
+<code>https://notes.example.com/mcp</code>. <strong>Manage connections</strong> opens <strong>Connect an AI app</strong>: pick your app (Claude Code,
+claude.ai / Claude Desktop, Cursor, VS Code or another app) and copy what it shows (a command, a JSON file or the
+URL). Under <strong>Tools</strong>, <strong>Core tools</strong> gives the agent the tools it uses most (a shorter tool list costs fewer tokens
+in every session; the rest stay one call away) and <strong>All tools</strong> gives it everything, for an agent that builds
+databases, charts or templates. Core tools add <code>?profile=core</code> to the URL.</p>
+<p><strong>Claude Code</strong></p>
+<pre><code class="language-bash">claude mcp add --transport http inkling https://notes.example.com/mcp
+</code></pre>
+<p>Then run <code>/mcp</code> in Claude Code, choose <code>inkling</code> and authenticate. Your browser opens Inkling&#39;s consent screen.
+Sign in if asked, pick the access level and click <strong>Allow</strong>.</p>
+<p>If Claude Code runs on another machine over SSH, the &quot;return to the app&quot; button can&#39;t reach it. Use
+<strong>Copy command</strong> on the consent screen and run that command in a terminal on that machine, within 5 minutes.</p>
+<p><strong>claude.ai</strong></p>
+<p>Customize → Connectors → <strong>+ Add</strong> → <strong>Add custom connector</strong> → URL <code>https://notes.example.com/mcp</code> → Connect. Sign in
+in the window that opens and click <strong>Allow</strong>. Leave the OAuth client ID and secret empty. The server must be reachable
+from the internet: claude.ai connects from Anthropic&#39;s servers.</p>
+<p><strong>Apps that cannot sign in</strong></p>
+<p>If your app cannot sign in here (it does not support sign-in for MCP servers, or your server is on a plain <code>http://</code>
+address or uses a certificate the app does not trust), make an <strong>agent connection token</strong> on the same screen
+(<strong>Agent connection tokens</strong> → <strong>New token</strong>): a name, which is shown as &quot;via …&quot; next to its edits, read only or read
+and write, what it may see, and an expiry (7, 30, 90 or 365 days; there is no &quot;never&quot;). Then pick <strong>Agent connection
+token</strong> under <strong>Sign-in</strong> in <strong>Connect an AI app</strong>: the command or file it shows has the token filled in while it is on
+screen. Copy it then; it is not shown again. The token works only for the AI connection, and it counts as an agent
+like a signed-in app: agent locks, workspace rules for agents and review of agent edits all apply. <strong>Revoke</strong> stops it
+at once.</p>
+<h3 id="read-only-or-read-and-write">Read only or read and write</h3>
+<p>The consent screen asks for one:</p>
+<ul>
+<li><strong>Read and write</strong>: read, search, create, edit and comment on pages.</li>
+<li><strong>Read only</strong>: read and search only. The app can&#39;t change anything.</li>
+</ul>
+<p>To change it later, disconnect and connect again.</p>
+<h3 id="what-the-ai-can-see">What the AI can see</h3>
+<p>The same screen asks what the app may see:</p>
+<ul>
+<li><strong>Everything I can see</strong>: every workspace you are a member of.</li>
+<li><strong>Only some workspaces</strong>: tick the workspaces. The app doesn&#39;t see the others.</li>
+<li><strong>Only one page and the pages under it</strong>: pick a page. The app sees that page and everything below it, and can
+create new pages only there. Workspace templates are not available to it.</li>
+</ul>
+<p>You can change this later without reconnecting: Settings → Connections → <strong>Manage connections</strong> → <strong>Change range</strong>.
+A link from a page in range to a page outside shows only the link text written in the page.</p>
+<h3 id="what-the-ai-can-and-cant-do">What the AI can and can&#39;t do</h3>
+<p>It can:</p>
+<ul>
+<li>see the workspaces you are a member of, their shared pages and your own private pages,</li>
+<li>search, read pages or single sections, follow what changed since last time, and get a summary of what happened
+while it was away,</li>
+<li>create pages, edit sections (or only suggest an edit for you to review), add database rows and create databases,
+comment, reply, and resolve threads you started,</li>
+<li>look through a page&#39;s version history, compare two versions and bring an older one back (the version it replaces is
+kept, so you can undo it),</li>
+<li>move pages to the trash, look in the trash and restore a page from it,</li>
+<li>open attachments: images, text files and the text of PDFs (not scanned ones), and the name and size of other files,</li>
+<li>attach a file it made (an image, a PDF or a text file, up to 5 MB by default) to a page it may edit, where the
+workspace allows it,</li>
+<li>see your handwriting, only where the workspace allows it.</li>
+</ul>
+<p>It can&#39;t:</p>
+<ul>
+<li>see other people&#39;s private pages or workspaces you aren&#39;t in,</li>
+<li>delete anything permanently (the trash keeps it) or empty the trash,</li>
+<li>accept or reject suggestions (people do that),</li>
+<li>change edit locks, members, public links or admin settings,</li>
+<li>edit a locked page unless the lock allows it.</li>
+</ul>
+<h3 id="via-labels">&quot;via&quot; labels</h3>
+<p>Everything an AI does is recorded as <strong>you (via app name)</strong>, for example &quot;Kim (via Claude)&quot;. You see it in version
+history, comments and the Activity screen. Pages an AI created show <strong>Written by AI (via …)</strong>, and
+pages it edited show the last AI edit. Before an AI replaces a whole page, a <strong>Before AI edit</strong> snapshot is saved.</p>
+<h3 id="managing-connections">Managing connections</h3>
+<ul>
+<li><strong>Manage connections</strong> in Settings (or &quot;Manage MCP connections&quot; in the ⌘P palette) lists your apps.
+<strong>Disconnect</strong> stops access right away.</li>
+<li>Workspace owners and admins see every member&#39;s agents in Workspace settings → <strong>Connected agents</strong> and can block
+one for that workspace. For each agent they also see how many calls it made in this workspace, about how many
+tokens of text it got back, how many failed and how many were answered from the cache. The numbers count from the
+last server start; Inkling keeps only the numbers, never what was asked or returned. Server admins see the same for
+every agent connection and API token in Admin → <strong>Server status</strong>.</li>
+<li>If an agent follows your notes as they change, tell it to call <code>changes_since</code> with <code>wait</code>: it then waits for the
+next change instead of asking again every few seconds.</li>
+<li>AI agents receive page text marked as data, not as instructions. The mark helps an agent tell your notes from
+its instructions, but on its own it cannot stop a cleverly written page from misleading the agent. What limits an
+agent is what you allow it: a read-only connection, a narrower range, edit locks that keep agents to suggestions,
+comments or reading, and version history to undo its edits. Pages with suspicious text show
+<strong>Possible prompt-injection text</strong>. The warning may be a false positive, and some suspicious text is not caught.</li>
+<li>An agent that reads such text (in a page or an attachment) only suggests for an hour: its edits wait for review and
+its other changes are refused. Its connection shows <strong>Suggestions only until HH:MM</strong>; <strong>Allow edits again</strong> lifts it.
+Workspace owners and admins can turn this off in Workspace settings → <strong>Connected agents</strong> → <strong>Suspicious content</strong>.</li>
+<li>Workspace settings → <strong>Connected agents</strong> → <strong>File uploads</strong> sets whether AI agents may attach files in the
+workspace (server default, on, off). People&#39;s uploads are not affected.</li>
+</ul>
+<p>More: <a href="MCP.html">MCP.md</a>.</p>
+<h3 id="search-by-meaning-server-admins">Search by meaning (server admins)</h3>
+<p>By default the AI finds sections by the words in them. A server admin can also let it search by meaning: then a
+question finds a section written in other words, and a Korean question can find an English page. Set
+<code>EMBEDDING_URL</code> (an OpenAI-compatible embeddings API, for example a local Ollama at <code>http://host:11434/v1</code>) and
+<code>EMBEDDING_MODEL</code> in the server&#39;s <code>.env</code> and restart. The server then sends the text of the notes to that service in
+the background, so pick one on your own network if notes must not leave it. Admin → <strong>Server status</strong> shows how
+many sections are indexed and the last error. To turn it off, remove the two variables and restart. Details:
+<a href="OPERATIONS.html">OPERATIONS.md</a>, section 5.</p>
+<h3 id="reviewing-what-agents-suggest">Reviewing what agents suggest</h3>
+<p>Agents can leave a change for you to review instead of writing it: when you ask them to, when the workspace is set to
+review agent edits (see below), or when the page is locked with <strong>Suggestions only</strong>. A line above the page says how
+many suggestions are waiting, and each section with a suggestion has a small &quot;✎ N suggested&quot; marker next to its
+heading. <strong>Review</strong> shows every suggestion as a diff against the text as it is now. <strong>Accept</strong> applies it as you,
+<strong>Reject</strong> drops it; either way the agent that made it finds the answer in its inbox. If someone changed the section
+after the agent read it, the dialog says so and asks you to confirm with <strong>Accept anyway</strong>. Only people who can edit
+the page can accept or reject; the page owner gets a notification for each new suggestion.</p>
+<p>A suggestion that replaces a section is shown as numbered changes, one per block, and you can take only some of them.
+Checked changes are applied when you click <strong>Apply selected</strong>; a change marked <strong>Overlaps an edit</strong> touches a block
+someone changed after the agent read the section. It is unchecked and shows what is there now; checking it replaces
+that text with the agent&#39;s version. Everything else people wrote stays.</p>
+<p>When an agent is working on a section, the heading shows &quot;Claude is working on this section&quot;. You can keep editing;
+other agents wait until it is done.</p>
+<h3 id="how-agents-edit">How agents edit</h3>
+<p>Workspace owners and admins choose in Workspace settings → <strong>Connected agents</strong> → <strong>How agents edit</strong>:</p>
+<ul>
+<li><strong>Edit directly</strong> (default): agents write like their person. Every change is in the page history.</li>
+<li><strong>Accept by rules</strong>: agent edits become suggestions, and the ones that match your rules are accepted at once. By
+default that is additions to the end of a section, new sections and lines under a heading, from any connection.
+You can also allow replacing or removing sections, limit the rules to some connections, cap the size, and add a
+wait so people can reject first. Whatever the rules say, an edit is only accepted while its section is exactly as
+the agent read it; if someone changed it, a person decides. Changes to a whole page always wait for a person.</li>
+<li><strong>Review everything</strong>: every agent edit waits for a person.</li>
+</ul>
+<p>Edits accepted by a rule show &quot;Accepted by rule&quot; in the suggestions history and &quot;… · auto-accepted&quot; in page history
+and activity. A locked page or folder can choose its own way in the <a href="#edit-lock">lock dialog</a>. This setting covers
+page text; renaming, moving and deleting pages follow the lock as before.</p>
+<h3 id="reverting-agent-edits">Reverting agent edits</h3>
+<p>In <strong>Activity</strong> or in the page&#39;s side panel (<strong>History › Recent changes</strong>), changes made through an agent have
+<strong>Revert</strong>. Choose only that change, everything that agent changed on this page, or (owners and admins) in the whole
+workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
+Reverting is saved as your own change (a &quot;Before revert&quot; version is kept) and can be undone with <strong>Undo revert</strong>.</p>
+<h3 id="team-agents">Team agents</h3>
+<p><strong>Team agents</strong> in the header of <strong>Activity</strong> shows what each person&#39;s AI connections are working on: the sections they claimed
+with the minutes left, their suggestions waiting for a person, and what each one did today. Pages you can&#39;t open
+are listed without their title.</p>
+<p>You can hand work to one person&#39;s agent instead of the person:</p>
+<ul>
+<li>In a comment or a to-do, type <code>@</code> and pick an entry like &quot;Bob · Claude Code&quot;. Only that agent&#39;s inbox gets it;
+Bob&#39;s other agents don&#39;t, and Bob&#39;s bell doesn&#39;t either.</li>
+<li>In a database, open a person cell and pick one of the person&#39;s agents under their name (<strong>Or one of their
+agents</strong>). The cell keeps the person; the agent shows next to it.</li>
+<li>To see what is handed to your own agents, turn on Settings → <strong>Notifications</strong> → <strong>Show me what is handed to my
+agents</strong>.</li>
+</ul>
+<p>If an agent connection is disconnected or expires, what was handed to it goes back to its person. Being handed work
+gives an agent no extra rights: it still acts as its person.</p>
+<p>An agent that read suspicious text shows <strong>Suggestions only until HH:MM</strong> here. Workspace owners and admins (and the
+agent&#39;s person) can click <strong>Allow edits here</strong> when that text was in this workspace.</p>
+<h3 id="api-tokens-for-scripts">API tokens for scripts</h3>
+<p>For scripts and <code>inklingctl</code>, make a personal API token on the same screen (<strong>API tokens</strong> → <strong>New token</strong>).
+Give it a name, an expiry (30, 90 or 365 days, or never), read only or read and write, and the same range choice
+as above. The token is shown once; copy it then. Send it as <code>Authorization: Bearer ink_pat_…</code>:</p>
+<pre><code class="language-sh">curl -H &quot;Authorization: Bearer $INKLING_TOKEN&quot; https://notes.example.com/api/workspaces
+</code></pre>
+<p>A token acts as you, inside its range. It can&#39;t manage tokens, connections, passwords, two-step verification,
+members, public links, webhooks or admin settings: those stay in the signed-in web app. The list shows when and
+from which address each token was last used; <strong>Revoke</strong> stops it at once. Changing or resetting your password
+revokes every token (like disconnecting your AI apps). If a workspace requires two-step verification and your
+account doesn&#39;t have it, tokens are refused in that workspace too. An instance admin can revoke a member&#39;s tokens
+in Admin → Users.</p>
+<h2 id="save-from-the-web">Save from the web</h2>
+<p>On a computer: Settings → Connections → <strong>Web clipper</strong>, drag <strong>Save to Inkling</strong> to the bookmarks bar. On a page,
+select text if you like and click it: a small window opens with the title, address and selection. Pick the workspace
+and where to save (the last place is remembered, and you can set a default), add tags, choose <strong>Link and note</strong> or
+<strong>Article text</strong> (the server fetches the page and keeps its main text), then <strong>Save</strong>. If you clipped the same address
+before, the window says so. Some sites block bookmarklets; then paste the address into <code>/clip</code> in the app.</p>
+<p>On an Android phone: install Inkling as an app, then share a link from any app to Inkling (not yet checked on a
+real Android phone).</p>
+<h2 id="importing-from-notion">Importing from Notion</h2>
+<ol>
+<li>In Notion: Settings → Export (or ⋯ → Export on a page) → <strong>Markdown &amp; CSV</strong>, with subpages included and
+folders created for subpages.</li>
+<li>In Inkling: workspace menu → <strong>Import from Notion (.zip)</strong> → <strong>Choose .zip</strong>, and upload the file as it is.</li>
+</ol>
+<p>Pages become documents, CSV databases become databases, images and files are uploaded, and equations become math.
+Callouts arrive as quotes. A report shows what was imported and which links weren&#39;t found.</p>
+<p>The same menu also has <strong>Import (.md/.zip)</strong> for Markdown files and <strong>Import folder</strong> for a folder of <code>.md</code> files.</p>
+<h2 id="export">Export</h2>
+<ul>
+<li>One page: <strong>⋯</strong> menu → <strong>Export (.md)</strong>, or <strong>Export with subpages (.zip)</strong>. Canvases export as <code>.canvas</code>.
+Charts, database views and query blocks are written with a table of their numbers at export time; importing the
+file brings the blocks back.</li>
+<li>PDF: <strong>Export as PDF</strong> in the page header&#39;s <strong>⋯</strong> menu opens the browser&#39;s print dialog. Wide tables are fitted to
+the page width (smaller type from 7 columns; for very wide tables choose landscape there), closed toggles print
+their contents, and the dark theme prints in light colors.</li>
+<li>Database: <strong>Export view as CSV</strong> / <strong>Export view as Excel</strong>.</li>
+<li>Whole workspace: workspace menu → <strong>Export all (.zip)</strong>. An owner may limit who can do this.</li>
+<li><strong>Send to Notion</strong> in the <strong>⋯</strong> menu works only if your server is set up for it.</li>
+</ul>
+<h2 id="long-pages-split-into-subpages">Long pages: split into subpages</h2>
+<ul>
+<li>A page that keeps growing (an experiment log, a journal) gets slow to open, save and search. The page&#39;s ⋯ menu →
+<strong>Split into subpages…</strong> cuts it at its headings: pick H1, H2 or H3, untick sections you want to keep, and each
+remaining heading becomes a subpage with everything under it. The page keeps a link to each subpage where its
+section was, and its version history keeps the page as it was. Comments move with their blocks, links to the
+page keep working, and people who have the page open see it change in place.</li>
+<li><strong>New entries</strong> at the bottom of the same dialog decides where appends from AI agents and the API go: on the
+page itself (default), into one subpage per month (<code>2026-11</code>), or into a new subpage once the current one
+passes a size. Typing in the page is not affected.</li>
+<li>When something keeps appending to a large page of yours, you get one notification for it (once per page).</li>
+</ul>
+<h2 id="trash-and-version-history">Trash and version history</h2>
+<ul>
+<li>Deleting a page moves it to the <strong>Trash</strong> (bottom of the sidebar). Open it to <strong>Restore</strong> a page or
+<strong>Delete forever</strong>.</li>
+<li>The trash keeps pages for 30 days unless an owner changed it (Workspace settings → General → <strong>Keep trash for</strong>). A
+server can set a shorter ceiling; the setting then says so and takes nothing above it.</li>
+<li>Settings → Files &amp; links → <strong>Confirm before deleting</strong>: when off, pages go straight to the trash with an &quot;Undo&quot; toast.</li>
+<li><strong>History</strong> in the right panel lists saved versions. <strong>View all</strong> opens <strong>Version history</strong>: preview a version,
+<strong>Compare with current</strong>, <strong>Snapshot now</strong> to save one yourself, or <strong>Restore this version</strong> (the current state
+is saved first).</li>
+<li>Every change an AI agent writes is its own version, <strong>AI edit · step n</strong>, with what it changed (which sections,
+how many lines). Restore the step before a bad one to undo just that part; later steps stay in the list.</li>
+<li>A deleted workspace can be restored by its owner from Settings → Account → <strong>Deleted workspaces</strong> for 30 days (a
+server can set another number; the screens show it). <strong>Delete now</strong> next to it deletes it for good at once, with
+its pages and files; it cannot be restored after that.</li>
+</ul>
+<h2 id="settings-and-the-sidebar">Settings and the sidebar</h2>
+<p>Open Settings with ⌘, or <strong>Settings</strong> at the bottom of the sidebar. The sections (Account, Security, Notifications,
+Editor, Sidebar, Files &amp; links, Appearance, Connections, Keyboard shortcuts, Offline, About) are listed on the left and the
+chosen one opens on the right; on a phone the list comes first and a section opens over it. Two-step verification is
+under Security; the app version, a link to this guide, the intro and the Getting started checklist are under About.</p>
+<p>Saved to your account (the same on every device):</p>
+<ul>
+<li><strong>Account</strong>: email verification, <strong>Change password</strong>, deleted workspaces, <strong>Delete account</strong>.</li>
+</ul>
+<p><strong>Delete account</strong> (Settings → Account) first lists what goes: the workspaces where you are the only member and the
+deleted workspaces you own alone, with their pages and files, your private pages in other workspaces, your account, sign-ins, tokens and connected apps. It also lists
+what stays for the other members: a shared workspace you own alone passes to another member, and your shared pages
+and comments stay without your name. Type the confirmation it shows (your email or ID) and your password, plus the
+two-step code when that is on; an account that signs in through another service must have signed in within the last
+ten minutes. It cannot be undone, and nothing is kept for restoring. The only admin of a server cannot delete their
+account.</p>
+<ul>
+<li><strong>Security</strong> (two-step verification), <strong>Notifications</strong>, <strong>Sidebar</strong>, <strong>Calendar subscription (iCal)</strong>.</li>
+<li><strong>Language</strong> (in the Appearance group).</li>
+</ul>
+<p>Saved on this device only (marked <strong>This device</strong> next to the setting):</p>
+<ul>
+<li><strong>Editor</strong>: line width (600–1200 px of body text or full; 700 px by default, the per-page &quot;Full width&quot; still wins), spell check, word count, outline in the margin.</li>
+<li><strong>Files &amp; links</strong>: page on launch, new page location, link preview, confirm before deleting.</li>
+<li><strong>Appearance</strong>: theme (light, dark, system), zoom. The theme item in a document&#39;s ⋯ menu does the same.</li>
+</ul>
+<h3 id="sidebar-menus">Sidebar menus</h3>
+<p>Settings → <strong>Sidebar</strong> chooses which of Search, Later, Threads, Graph, Tags, Web shares, Due, Calendar, Activity and Today appear
+at the top of the sidebar, and in what order (drag, or the ↑/↓ buttons, which appear when you hover
+over a row or reach it with the keyboard). Until you change it, the sidebar shows Search, Later, Due and Calendar;
+<strong>Reset to default</strong> goes back to those four. You
+can also right-click (or long-press) a menu → <strong>Hide from sidebar</strong>. Hidden menus still open from the ⌘P palette
+and their shortcuts.</p>
+<p>The page list always keeps a good part of the sidebar&#39;s height. When the menus don&#39;t fit above it (a laptop
+with every menu on, a tablet with the browser&#39;s bars), the last ones fold under <strong>More (n)</strong>; tap it to see all
+n of them (the page list gets shorter while it is open), and again (<strong>Show less</strong>) to fold them. On a very short
+window the open list scrolls, with a &quot;k more below&quot; row at the bottom. On a short screen the trash, shortcuts, settings and account rows
+become one row of icons at the bottom.</p>
+<p>⌘\ hides or shows the whole sidebar. To make it wider or narrower, drag its right edge (200–480 px);
+double-click the edge to go back to 260 px. With the edge focused, ←/→ change the width (Shift for bigger steps).
+The width is kept on this device only.</p>
+<h2 id="keyboard-shortcuts">Keyboard shortcuts</h2>
+<p>Press <code>?</code> (outside a text field) to see this list in the app, grouped by where each key works; type in its search box
+to keep only the matching rows (English or Korean names, Korean initial consonants such as ㄱㄹㅍ, or a key such as
+⌘⌥). Settings → Keyboard shortcuts shows the same list and lets you change the keys (below).</p>
+<p><strong>Changing keys.</strong> In Settings → Keyboard shortcuts, click a command&#39;s key and press the new combination; Esc
+stops without changing anything, <strong>No key</strong> leaves the command without one. A key needs ⌘, ⌥ or ⌃ (Ctrl or Alt on
+Windows and Linux), except F1–F12, and arrows, Enter, Tab or Space for the sidebar tree and the database table.
+Keys the system or the browser never hands to a page (⌘W, ⌘Q, ⌘Tab, developer tools) and ⌘A/⌘C/⌘X/⌘V are refused.
+If another command already has the key, Inkling names it and asks before moving the key over. Keys a browser tab
+keeps for itself (⌘N, ⌘⇧N) or browser functions (⌘F find, ⌘R reload, zoom) can be used after a warning. Commands
+without a default key, such as <em>Today&#39;s daily note</em>, <em>Later</em>, <em>Threads</em> or <em>Save this page for later</em>, can get one too. Keys built into the editor (bold, italic,
+headings, lists, moving blocks, undo) and the table&#39;s copy and paste are marked <strong>Built in</strong> and stay as they are.
+A new key works at once, in open pages and in the editor too, and the <code>?</code> window, the palette and the menus show it.
+<strong>Default</strong> puts one command back, <strong>Reset all</strong> every command. Your keys are saved in this browser only; <strong>Export</strong>
+saves them as a JSON file and <strong>Import</strong> loads such a file on another device (a file that would put two commands on
+one key is refused).</p>
+<p><strong>Command palette.</strong> ⌘P lists every command that can run on the current screen, each with its key, and finds pages
+by title once you type. It searches the English and the Korean name of each command, so &quot;sidebar&quot;, &quot;사이드바&quot; and
+&quot;ㅅㅇㄷ&quot; all find <em>Toggle sidebar</em>. With an empty box the commands you ran last come first. ↑/↓ move, Enter runs,
+Esc closes. Editor commands (headings, move block, duplicate…) act on the block where the cursor was. Menu items
+that have a key show it at the right (page ⋯ menu, the tree&#39;s row menu, the sidebar).</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Action</th><th scope="col">Mac</th><th scope="col">Windows / Linux</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Global</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Search</td><td class="c-field" data-label="Mac">⌘K</td><td class="c-field" data-label="Windows / Linux">Ctrl+K</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Quick switcher (titles)</td><td class="c-field" data-label="Mac">⌘O</td><td class="c-field" data-label="Windows / Linux">Ctrl+O</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Full-text search</td><td class="c-field" data-label="Mac">⌘⇧F</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+F</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Command palette</td><td class="c-field" data-label="Mac">⌘P</td><td class="c-field" data-label="Windows / Linux">Ctrl+P</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">New page</td><td class="c-field" data-label="Mac">⌘⌥N or ⌘N</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+N</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Back</td><td class="c-field" data-label="Mac">⌘⌥←</td><td class="c-field" data-label="Windows / Linux">Alt+←</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Forward</td><td class="c-field" data-label="Mac">⌘⌥→</td><td class="c-field" data-label="Windows / Linux">Alt+→</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Graph</td><td class="c-field" data-label="Mac">⌘G</td><td class="c-field" data-label="Windows / Linux">Ctrl+G</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Settings</td><td class="c-field" data-label="Mac">⌘,</td><td class="c-field" data-label="Windows / Linux">Ctrl+,</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Toggle sidebar</td><td class="c-field" data-label="Mac">⌘\</td><td class="c-field" data-label="Windows / Linux">Ctrl+\</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Shortcut help</td><td class="c-field" data-label="Mac">?</td><td class="c-field" data-label="Windows / Linux">?</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Page</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title" data-label="Action">Rename title (outside the tree)</td><td class="c-field" data-label="Mac">F2</td><td class="c-field" data-label="Windows / Linux">F2</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Open properties panel</td><td class="c-field" data-label="Mac">⌘;</td><td class="c-field" data-label="Windows / Linux">Ctrl+;</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Toggle right panel</td><td class="c-field" data-label="Mac">⌘⌥\</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+\</td></tr><tr class="rec"><td class="c-title" data-label="Action">Add to / remove from favorites</td><td class="c-field" data-label="Mac">⌘⌥S</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+S</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Pen mode on / off</td><td class="c-field" data-label="Mac">⌘⌥P</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+P</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Editor</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Block menu</td><td class="c-field" data-label="Mac">/</td><td class="c-field" data-label="Windows / Linux">/</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Bold</td><td class="c-field" data-label="Mac">⌘B</td><td class="c-field" data-label="Windows / Linux">Ctrl+B</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Italic</td><td class="c-field" data-label="Mac">⌘I</td><td class="c-field" data-label="Windows / Linux">Ctrl+I</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Underline</td><td class="c-field" data-label="Mac">⌘U</td><td class="c-field" data-label="Windows / Linux">Ctrl+U</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Strikethrough</td><td class="c-field" data-label="Mac">⌘⇧S</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+S</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Inline code</td><td class="c-field" data-label="Mac">⌘E</td><td class="c-field" data-label="Windows / Linux">Ctrl+E</td></tr><tr class="rec"><td class="c-title" data-label="Action">Inline math (wraps the selection)</td><td class="c-field" data-label="Mac">⌘⇧E or <code>$…$</code></td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+E or <code>$…$</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into text</td><td class="c-field" data-label="Mac">⌘⌥0</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+0</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into heading 1</td><td class="c-field" data-label="Mac">⌘⌥1</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+1</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into heading 2</td><td class="c-field" data-label="Mac">⌘⌥2</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+2</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into heading 3</td><td class="c-field" data-label="Mac">⌘⌥3</td><td class="c-field" data-label="Windows / Linux">Ctrl+Alt+3</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into toggle list</td><td class="c-field" data-label="Mac">⌘⇧6</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+6</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into numbered list</td><td class="c-field" data-label="Mac">⌘⇧7</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+7</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into bulleted list</td><td class="c-field" data-label="Mac">⌘⇧8</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+8</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Turn into to-do list</td><td class="c-field" data-label="Mac">⌘⇧9</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+9</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Toggle checkbox</td><td class="c-field" data-label="Mac">⌘L</td><td class="c-field" data-label="Windows / Linux">Ctrl+L</td></tr><tr class="rec"><td class="c-title" data-label="Action">Check / uncheck the to-do</td><td class="c-field" data-label="Mac">⌘Enter</td><td class="c-field" data-label="Windows / Linux">Ctrl+Enter</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Move block up</td><td class="c-field" data-label="Mac">⌘⇧↑</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+↑</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Move block down</td><td class="c-field" data-label="Mac">⌘⇧↓</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+↓</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Indent block</td><td class="c-field" data-label="Mac">Tab</td><td class="c-field" data-label="Windows / Linux">Tab</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Outdent block</td><td class="c-field" data-label="Mac">⇧Tab</td><td class="c-field" data-label="Windows / Linux">Shift+Tab</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Duplicate block</td><td class="c-field" data-label="Mac">⌘⇧D</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+D</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Delete current block</td><td class="c-field" data-label="Mac">⌘D</td><td class="c-field" data-label="Windows / Linux">Ctrl+D</td></tr><tr class="rec"><td class="c-title" data-label="Action">Fold / unfold the section at the cursor</td><td class="c-field" data-label="Mac">⌘.</td><td class="c-field" data-label="Windows / Linux">Ctrl+.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Undo</td><td class="c-field" data-label="Mac">⌘Z</td><td class="c-field" data-label="Windows / Linux">Ctrl+Z</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Redo</td><td class="c-field" data-label="Mac">⌘⇧Z</td><td class="c-field" data-label="Windows / Linux">Ctrl+Y or Ctrl+Shift+Z</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Sidebar tree</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Select the row above</td><td class="c-field" data-label="Mac">↑</td><td class="c-field" data-label="Windows / Linux">↑</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Select the row below</td><td class="c-field" data-label="Mac">↓</td><td class="c-field" data-label="Windows / Linux">↓</td></tr><tr class="rec"><td class="c-title" data-label="Action">Collapse, or go to the parent</td><td class="c-field" data-label="Mac">←</td><td class="c-field" data-label="Windows / Linux">←</td></tr><tr class="rec"><td class="c-title" data-label="Action">Expand, or go to the first child</td><td class="c-field" data-label="Mac">→</td><td class="c-field" data-label="Windows / Linux">→</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Open / toggle folder</td><td class="c-field" data-label="Mac">Enter</td><td class="c-field" data-label="Windows / Linux">Enter</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Rename</td><td class="c-field" data-label="Mac">F2</td><td class="c-field" data-label="Windows / Linux">F2</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Move to trash</td><td class="c-field" data-label="Mac">⌘⌫</td><td class="c-field" data-label="Windows / Linux">Ctrl+Del or Del</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Database table</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Move to the cell above</td><td class="c-field" data-label="Mac">↑</td><td class="c-field" data-label="Windows / Linux">↑</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Move to the cell below</td><td class="c-field" data-label="Mac">↓</td><td class="c-field" data-label="Windows / Linux">↓</td></tr><tr class="rec"><td class="c-title" data-label="Action">Move to the cell on the left</td><td class="c-field" data-label="Mac">←</td><td class="c-field" data-label="Windows / Linux">←</td></tr><tr class="rec"><td class="c-title" data-label="Action">Move to the cell on the right</td><td class="c-field" data-label="Mac">→</td><td class="c-field" data-label="Windows / Linux">→</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Next cell</td><td class="c-field" data-label="Mac">Tab</td><td class="c-field" data-label="Windows / Linux">Tab</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Previous cell</td><td class="c-field" data-label="Mac">⇧Tab</td><td class="c-field" data-label="Windows / Linux">Shift+Tab</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">First cell of the row</td><td class="c-field" data-label="Mac">Home</td><td class="c-field" data-label="Windows / Linux">Home</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Last cell of the row</td><td class="c-field" data-label="Mac">End</td><td class="c-field" data-label="Windows / Linux">End</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Extend the selection up</td><td class="c-field" data-label="Mac">⇧↑</td><td class="c-field" data-label="Windows / Linux">Shift+↑</td></tr><tr class="rec"><td class="c-title" data-label="Action">Extend the selection down</td><td class="c-field" data-label="Mac">⇧↓</td><td class="c-field" data-label="Windows / Linux">Shift+↓</td></tr><tr class="rec"><td class="c-title" data-label="Action">Extend the selection left</td><td class="c-field" data-label="Mac">⇧←</td><td class="c-field" data-label="Windows / Linux">Shift+←</td></tr><tr class="rec"><td class="c-title" data-label="Action">Extend the selection right</td><td class="c-field" data-label="Mac">⇧→</td><td class="c-field" data-label="Windows / Linux">Shift+→</td></tr><tr class="rec"><td class="c-title" data-label="Action">Edit the cell (Enter saves and moves down, Esc cancels)</td><td class="c-field" data-label="Mac">Enter or F2</td><td class="c-field" data-label="Windows / Linux">Enter or F2</td></tr><tr class="rec"><td class="c-title" data-label="Action">Check / uncheck a checkbox cell</td><td class="c-field" data-label="Mac">Space</td><td class="c-field" data-label="Windows / Linux">Space</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Clear the selected cells</td><td class="c-field" data-label="Mac">⌫</td><td class="c-field" data-label="Windows / Linux">Del</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">New row</td><td class="c-field" data-label="Mac">⌘Enter</td><td class="c-field" data-label="Windows / Linux">Ctrl+Enter</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Open the row as a page</td><td class="c-field" data-label="Mac">⌘⇧Enter</td><td class="c-field" data-label="Windows / Linux">Ctrl+Shift+Enter</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Copy the selected cells</td><td class="c-field" data-label="Mac">⌘C</td><td class="c-field" data-label="Windows / Linux">Ctrl+C</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Paste cells</td><td class="c-field" data-label="Mac">⌘V</td><td class="c-field" data-label="Windows / Linux">Ctrl+V</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action"><strong>Pen mode</strong></td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Undo the last stroke</td><td class="c-field" data-label="Mac">⌘Z</td><td class="c-field" data-label="Windows / Linux">Ctrl+Z</td></tr><tr class="rec"><td class="c-title" data-label="Action"><strong>Image viewer</strong> (while it is open)</td><td class="c-field is-empty" data-label="Mac"></td><td class="c-field is-empty" data-label="Windows / Linux"></td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Zoom in / zoom out</td><td class="c-field" data-label="Mac">+ / -</td><td class="c-field" data-label="Windows / Linux">+ / -</td></tr><tr class="rec"><td class="c-title" data-label="Action">Fit to screen (double-click: 100%)</td><td class="c-field" data-label="Mac">0</td><td class="c-field" data-label="Windows / Linux">0</td></tr><tr class="rec"><td class="c-title c-name" data-label="Action">Previous / next image</td><td class="c-field" data-label="Mac">← / →</td><td class="c-field" data-label="Windows / Linux">← / →</td></tr><tr class="rec"><td class="c-title" data-label="Action">Close (or click outside the image)</td><td class="c-field" data-label="Mac">Esc</td><td class="c-field" data-label="Windows / Linux">Esc</td></tr></tbody></table></div>
+<p>Editor keys work while the cursor is in a document. ⌘D deletes the block (as in Obsidian); ⌘⇧D duplicates it
+(Notion&#39;s ⌘D). ⌘Enter checks or unchecks a to-do and does nothing on other blocks; ⌘L also turns text into a to-do.
+In a normal browser tab ⌘N opens a new browser window, so use ⌘⌥N; the installed app takes both. In Chrome on a Mac
+⌘⌥←/→ switch browser tabs, so in a tab use the browser&#39;s own ⌘[ / ⌘] for back and forward; the installed app takes
+⌘⌥←/→. While a Korean (or other) input method is composing a character, shortcuts wait until the character is
+done. On Windows, Ctrl+Alt combinations that your keyboard layout uses to type a character (AltGr) type that
+character.</p>
+<h2 id="phone-and-tablet">Phone and tablet</h2>
+<p>Inkling runs in the browser and can be installed as an app (PWA). Open your server in the browser and use its
+install or &quot;Add to Home Screen&quot; option. The installed app opens in its own window without the address bar.</p>
+<p>The page header keeps bookmark, share, who is online, the right panel and <strong>⋯</strong>; pen mode, edit lock, page
+notifications, PDF and theme are in <strong>⋯</strong> (a dot on it means the page is locked or followed). On a narrow
+screen share and the right panel move into <strong>⋯</strong> too.</p>
+<h3 id="working-offline">Working offline</h3>
+<p>Turn on Settings → Offline → <strong>Keep offline copies on this device</strong> (it is on by default in the installed app, off in
+a browser tab). Every page you open is then kept on the device: without a connection the app still starts, shows the
+page list from your last visit, and opens those pages for reading and editing. A banner says when you are offline;
+the dot next to the page says <strong>Not uploaded yet</strong> while your edits wait on the device. When the connection is back
+they are uploaded and you see <strong>Offline edits uploaded</strong>. If someone restored an older version of the page, reverted
+or split it, moved it to the trash or took away your edit right in the meantime, your offline edits are not mixed
+into it: they are kept under Settings → Offline → <strong>Recovery</strong>, where you can read them and copy what you need.
+Offline you cannot create, move or delete pages, open databases, attachments or the canvas, or search. If the
+browser&#39;s storage does not answer, the page opens from the server after about 5 seconds instead of waiting on
+&quot;Connecting…&quot;; that tab then keeps no device copies until you reload it. Logging out deletes everything the device kept. The copies are not encrypted, so leave the setting off on a shared computer.</p>
+<h2 id="faq">FAQ</h2>
+<p><strong>Who can see my pages?</strong>
+Shared pages: every member of the workspace. Private (🔒) pages: only you, and your own connected AI apps.</p>
+<p><strong>Can I give someone read-only access?</strong>
+Yes: in the page&#39;s <strong>Share</strong> dialog give them <strong>Can view</strong> on that page (and its subpages), as a member or as
+a guest (<a href="#people-with-access-and-guests">People with access and guests</a>). An <a href="#edit-lock">edit lock</a> and a
+<a href="#sharing-on-the-web">read-only web link</a> still work as before.</p>
+<p><strong>Can someone outside the workspace edit one page?</strong>
+Invite them as a guest with <strong>Can edit</strong> on that page. They see only that page tree.</p>
+<p><strong>I deleted a page by mistake.</strong>
+Open <strong>Trash</strong> at the bottom of the sidebar and <strong>Restore</strong> it. To get back an older version of the text, use
+<strong>History</strong> in the right panel.</p>
+<p><strong>Someone else changed my page. Who was it?</strong>
+<strong>History</strong> in the right panel and the <strong>Activity</strong> screen show who changed what, including AI edits (&quot;via …&quot;).</p>
+<p><strong>My AI app says the page is locked.</strong>
+The page has an edit lock that doesn&#39;t allow agents to edit. Ask the page owner or a workspace admin.</p>
+<p><strong>I&#39;m not getting emails.</strong>
+Check Settings → Notifications. If it says the server has no mail configured, notifications stay in the app.</p>
+<p><strong>The screen says &quot;This screen could not be shown&quot;.</strong>
+Something failed while drawing it. Press <strong>Reload</strong>; if a page keeps failing, the sidebar still works, so you can
+open another page. When you report it, copy the text under <strong>Details</strong>. If the app does not start at all, a notice
+with a reload link appears after 12 seconds.</p>
+<p><strong>How do I leave a workspace?</strong>
+Workspace settings → <strong>Danger zone</strong> → <strong>Leave workspace</strong>. Your private pages there go to the trash. If you are
+the only owner and there are other members, transfer ownership first. If you are the only member, leaving deletes the
+workspace with its pages and files and cannot be undone: type its name and press <strong>Leave and delete</strong>, or choose
+<strong>Delete, restorable for N days</strong> instead.</p>
+<p class="doc-meta"><a href="GUIDE.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/GUIDE.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#getting-started">Getting started</a></li><li><a href="#writing">Writing</a></li><li><a href="#databases">Databases</a></li><li><a href="#graph-canvas-and-query-blocks">Graph, canvas and query blocks</a></li><li><a href="#tasks-due-dates-and-calendar">Tasks, due dates and calendar</a></li><li><a href="#working-together">Working together</a></li><li><a href="#sharing-on-the-web">Sharing on the web</a></li><li><a href="#edit-lock">Edit lock</a></li><li><a href="#slack">Slack</a></li><li><a href="#connecting-your-ai-mcp">Connecting your AI (MCP)</a></li><li><a href="#save-from-the-web">Save from the web</a></li><li><a href="#importing-from-notion">Importing from Notion</a></li><li><a href="#export">Export</a></li><li><a href="#long-pages-split-into-subpages">Long pages: split into subpages</a></li><li><a href="#trash-and-version-history">Trash and version history</a></li><li><a href="#settings-and-the-sidebar">Settings and the sidebar</a></li><li><a href="#keyboard-shortcuts">Keyboard shortcuts</a></li><li><a href="#phone-and-tablet">Phone and tablet</a></li><li><a href="#faq">FAQ</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

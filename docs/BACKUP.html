@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backups and restore · Inkling</title>
+  <meta name="description" content="Schedules, encryption, GFS retention, restore tests, rclone copies.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/BACKUP.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/BACKUP.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/BACKUP.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Backups and restore · Inkling">
+  <meta property="og:description" content="Schedules, encryption, GFS retention, restore tests, rclone copies.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/BACKUP.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="BACKUP.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="BACKUP.ko.html" hreflang="ko" lang="ko">한국어</a><a href="BACKUP.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html" aria-current="page">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Running a server</p><h1 id="backups-and-restore">Backups and restore</h1><p class="doc-desc">Schedules, encryption, GFS retention, restore tests, rclone copies.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/BACKUP.md</code> in the repository. <a href="BACKUP.md" type="text/markdown">Markdown source</a></p></header><p>Inkling ships a <code>backup</code> sidecar service in <code>compose.yaml</code>. It is <strong>on by default</strong>: once a day it
+dumps the database, archives the data volume (uploaded files, plugins), verifies the result, keeps
+a grandfather-father-son (GFS) history, test-restores a set once a week and, optionally, copies
+every set off-site with rclone. Admins see the status in <strong>Admin › Backups</strong> and can start a backup
+or download a set there. Restoring is deliberately <strong>command-line only</strong> (<code>deploy/restore.sh</code>).
+한국어: <a href="BACKUP.ko.html">BACKUP.ko.md</a>.</p>
+<p>Design notes: <a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/README.md#06xx-backups">ADR 0600–0607</a>.</p>
+<h2 id="quick-start">Quick start</h2>
+<p>Nothing to do: <code>docker compose up -d</code> starts the sidecar with daily backups at 03:00 (container
+time zone <code>TZ</code>). Check it:</p>
+<pre><code class="language-bash">docker compose logs backup            # &quot;[backup] started: schedule=daily@03:00 next=...&quot;
+./deploy/backup.sh                    # take one now
+./deploy/backup.sh list
+</code></pre>
+<p>Then do the two things nobody else can do for you:</p>
+<ol>
+<li><strong>Get a copy off this machine</strong> (3-2-1 rule, below): set <code>BACKUP_RCLONE_REMOTE</code>, or copy
+<code>./deploy/backup.sh copy-out &lt;set&gt; /mnt/usb</code> somewhere else regularly.</li>
+<li><strong>Rehearse a restore</strong> on a spare machine (see <a href="#restore-rehearsal">Restore rehearsal</a>).</li>
+</ol>
+<h2 id="settings">Settings</h2>
+<p>All settings are environment variables in <code>.env</code>, read by the <code>backup</code> service. The admin page
+shows them read-only; change <code>.env</code> and run <code>docker compose up -d backup</code> to apply.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_ENABLED</code></td><td class="c-field" data-label="Default"><code>1</code></td><td class="c-field c-wide" data-label="Meaning"><code>0</code> turns the sidecar into a no-op (no scheduled or manual backups).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_SCHEDULE</code></td><td class="c-field" data-label="Default"><code>daily@03:00</code></td><td class="c-field c-wide" data-label="Meaning"><code>daily@HH:MM</code>, <code>hourly@MM</code>, <code>every@&lt;N&gt;m</code>, <code>every@&lt;N&gt;h</code>, or <code>off</code> (manual only). Uses <code>TZ</code>.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_KEEP_DAILY</code></td><td class="c-field" data-label="Default"><code>7</code></td><td class="c-field" data-label="Meaning">Keep the newest set of each of the last N days.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_KEEP_WEEKLY</code></td><td class="c-field" data-label="Default"><code>4</code></td><td class="c-field" data-label="Meaning">… of each of the last N ISO weeks.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_KEEP_MONTHLY</code></td><td class="c-field" data-label="Default"><code>6</code></td><td class="c-field c-wide" data-label="Meaning">… of each of the last N months. The newest set is always kept.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_RESTORE_TEST_DAYS</code></td><td class="c-field" data-label="Default"><code>7</code></td><td class="c-field c-wide" data-label="Meaning">Test-restore the newest set into a temporary database every N days (<code>0</code> = off).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_MIN_FREE_MB</code></td><td class="c-field" data-label="Default"><code>256</code></td><td class="c-field c-wide" data-label="Meaning">Safety margin. A run fails up front unless the backup volume has DB size + data size + this much free. Expired sets are pruned <em>before</em> this check, so a full volume frees itself.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_PASSPHRASE</code></td><td class="c-field" data-label="Default">empty</td><td class="c-field c-wide" data-label="Meaning">Encrypt every set (see <a href="#encryption">Encryption</a>).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_RCLONE_REMOTE</code></td><td class="c-field" data-label="Default">empty</td><td class="c-field c-wide" data-label="Meaning">Off-site target, e.g. <code>b2:my-bucket/inkling</code>, <code>s3:bucket/inkling</code>, <code>:local:/mnt/usb/inkling</code>. Needs the rclone overlay.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>BACKUP_RCLONE_CONFIG</code></td><td class="c-field c-wide" data-label="Default"><code>./deploy/rclone.conf</code></td><td class="c-field c-wide" data-label="Meaning">Host path of the rclone config file (overlay only).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>TZ</code></td><td class="c-field" data-label="Default"><code>UTC</code></td><td class="c-field c-wide" data-label="Meaning">Time zone for the schedule and for GFS day/week/month buckets.</td></tr></tbody></table></div>
+<p>App side (only if you change the mount points): <code>BACKUP_DIR</code> (default <code>/backups</code>) and
+<code>BACKUP_CTL_DIR</code> (default <code>/backup-ctl</code>).</p>
+<h2 id="what-a-backup-set-contains">What a backup set contains</h2>
+<p>Sets live in the backups volume (<code>inkling_inkling-backups</code>, in general
+<code class="long">&lt;project&gt;_&lt;INKLING_DATA_NAME&gt;-backups</code>) under <code>sets/&lt;id&gt;/</code>, where <code>&lt;id&gt;</code> is the UTC start time
+<code>YYYYMMDD-HHMMSS</code>:</p>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">File</th><th scope="col">Content</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="File"><code>db.dump</code> / <code>db.dump.enc</code></td><td class="c-field" data-label="Content"><code>pg_dump -Fc</code> of the whole database</td></tr><tr class="rec"><td class="c-title" data-label="File"><code>data.tar.gz</code> / <code>data.tar.gz.enc</code></td><td class="c-field c-wide" data-label="Content">tar of the app data volume (<code>/data</code>: <code>uploads/</code>, <code>plugins/</code>, …)</td></tr><tr class="rec"><td class="c-title c-name" data-label="File"><code>manifest.json</code></td><td class="c-field c-wide" data-label="Content">times, sizes, sha256, app version, newest migration, row count of every table</td></tr><tr class="rec"><td class="c-title c-name" data-label="File"><code>SHA256SUMS</code></td><td class="c-field c-wide" data-label="Content"><code>sha256sum -c</code> compatible checksums of the two payload files</td></tr></tbody></table></div>
+<p>A set is built in <code>sets/.tmp-&lt;id&gt;/</code> and renamed into place only after every step succeeded, so a
+failed or interrupted run never leaves a half set behind (leftovers are removed by the next run).</p>
+<p><strong>Consistency.</strong> The database dump is a single <code>REPEATABLE READ</code> snapshot: the sidecar exports a
+snapshot, counts the rows of every table inside it and runs <code>pg_dump --snapshot</code> against it, so the
+manifest&#39;s row counts are exactly what the dump contains. The file archive is taken <em>right after</em>
+the dump (the manifest records both times and <code>consistency.gapSeconds</code>). In that window a newly
+uploaded file is just an extra, unreferenced file in the archive (harmless); a file permanently
+deleted in that window (trash purge) is missing from the archive while its row is still in the
+dump. Edits typed in the last few seconds before the snapshot may not have been flushed by the
+collaboration server yet.</p>
+<p><strong>Verification after every run.</strong> <code>pg_restore --list</code> on the stored dump (decrypting it when
+encrypted), a full listing of the archive, and <code>sha256sum -c</code> of the written files. A run that
+fails any of these is a failed run. <code>pg_restore --list</code> stops reading after the table of contents,
+so the check drains the rest of the stream to the end: a dump larger than the pipe buffer (~64 KiB)
+is not misreported as unreadable because of SIGPIPE, and an encrypted <code>.enc</code> file is decrypted in
+full, so a truncated or corrupt file is detected.</p>
+<p><strong>Restore test (weekly by default).</strong> The newest set is restored into a temporary database
+(<code>inkling_restoretest</code>) on the same Postgres server, every table&#39;s row count is compared with the
+manifest, the archive entry count is compared, and the database is dropped. This temporarily needs
+about the database&#39;s size again on the database server&#39;s disk and adds load for a short time.
+Run one by hand with <code>./deploy/backup.sh restore-test</code>.</p>
+<p><strong>Locking.</strong> Backup runs, restore tests and restores take an exclusive <code>flock</code> on
+<code>/backups/.lock</code>; a second run exits immediately. The kernel releases the lock when a process dies,
+so a crash cannot leave a stale lock.</p>
+<p><strong>Server-side timeouts.</strong> Every <code>psql</code>, <code>pg_dump</code> and <code>pg_restore</code> the sidecar runs sets
+<code>PGOPTIONS</code> to <code>statement_timeout=0</code>, <code>lock_timeout=0</code> and <code class="long">idle_in_transaction_session_timeout=0</code>.
+The app uses a 15 s <code>statement_timeout</code> on its own connections; backups, restore tests and restores
+are not affected by it, nor by a timeout an operator sets at role or database level (client options
+win).</p>
+<p><strong>Retention.</strong> The GFS policy is applied at the start of every run, before the disk space check, and
+again after a successful run. A volume that filled up therefore frees itself on the next run instead
+of failing forever, and the newest valid set is always kept. To skip pruning for one run:
+<code>docker compose exec backup bash /scripts/backup-run.sh --no-prune</code> (the pre-restore safety backup
+of <code>deploy/restore.sh</code> does this too).</p>
+<h2 id="the-3-2-1-rule">The 3-2-1 rule</h2>
+<p>Keep <strong>3</strong> copies of your data, on <strong>2</strong> different kinds of storage, with <strong>1</strong> of them off-site.
+The sidecar alone gives you only copy #2, on the <em>same disk</em> as the database: it protects against
+mistakes (deleted pages, a bad upgrade) but not against losing the server or its disk. Add one of:</p>
+<ul>
+<li><code>BACKUP_RCLONE_REMOTE</code> (object storage, another server over SFTP, a mounted drive), or</li>
+<li>a host cron job that runs <code>./deploy/backup.sh copy-out &lt;latest&gt; /some/other/disk</code>, or</li>
+<li>your provider&#39;s volume snapshots of the backups volume.</li>
+</ul>
+<h2 id="off-site-copies-with-rclone">Off-site copies with rclone</h2>
+<pre><code class="language-bash"># 1. create a config on any machine with rclone installed, then copy it to the server
+rclone config            # e.g. a remote called &quot;b2&quot;
+cp ~/.config/rclone/rclone.conf /opt/inkling/rclone.conf
+
+# 2. .env
+BACKUP_RCLONE_REMOTE=b2:my-bucket/inkling
+BACKUP_RCLONE_CONFIG=/opt/inkling/rclone.conf
+
+# 3. start with the overlay (adds the rclone binary to the sidecar)
+docker compose -f compose.yaml -f deploy/compose.backup-rclone.yaml up -d
+</code></pre>
+<p>After each successful run the new set is uploaded (<code>manifest.json</code> last, so a remote set without a
+manifest is incomplete and ignored), checked with <code>rclone check</code>, and then the <strong>same GFS policy is
+applied to the remote on its own</strong>. It is intentionally not <code>rclone sync</code>: a fresh or emptied local
+volume must never wipe the remote history. A failed upload is reported like a failed backup.
+Use <code>BACKUP_PASSPHRASE</code> when the remote is not under your control.</p>
+<h2 id="encryption">Encryption</h2>
+<p>With <code>BACKUP_PASSPHRASE</code> set, both payload files are encrypted while they are written (nothing
+plaintext touches the disk):</p>
+<pre><code>openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt
+</code></pre>
+<p><code>manifest.json</code> and <code>SHA256SUMS</code> stay readable (they contain no note content, only table names,
+row counts and checksums), so sets can be listed and verified without the key. Downloads from the
+admin page are the stored, still-encrypted files. To decrypt by hand:</p>
+<pre><code class="language-bash">openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in db.dump.enc -out db.dump
+</code></pre>
+<blockquote>
+<p><strong>If you lose the passphrase, your encrypted backups cannot be restored. Nobody can recover it.</strong>
+Store it outside the server: in a password manager, and on paper in a safe place. Do not keep the
+only copy in <code>.env</code> on the machine you are backing up. Changing the passphrase only affects new
+sets; keep the old one as long as old sets are retained.</p>
+</blockquote>
+<p>CBC with a checksum is confidentiality, not tamper-proofing: someone who can write to your backup
+storage could corrupt a set (the sha256 check would notice, unless they rewrote <code>SHA256SUMS</code> too).</p>
+<h2 id="admin--backups">Admin › Backups</h2>
+<ul>
+<li>Status: last success and failure, next run, verification and restore-test results, remote copy,
+retention and encryption, plus the effective settings (read-only).</li>
+<li><strong>Back up now</strong> drops a trigger file (<code>/backup-ctl/run.request</code>); the sidecar picks it up within
+a few seconds. The button is disabled while a run is queued or running.</li>
+<li><strong>Download</strong> streams a set as an uncompressed <code>.tar</code> (admins only, browser session only).</li>
+<li>A red banner appears when the newest run failed, the last restore test or remote copy failed, or
+the sidecar has not reported for 10 minutes. Each such problem also creates an in-app notification
+for every admin and, when SMTP is configured, an email.</li>
+</ul>
+<h2 id="restoring">Restoring</h2>
+<p>Restore is CLI only. <code>deploy/restore.sh</code> talks to the running <code>backup</code> service, which has the tools
+and the passphrase.</p>
+<pre><code class="language-bash">./deploy/backup.sh list                         # pick a set
+./deploy/restore.sh --dry-run 20261107-030000   # verify + show every step, change nothing
+docker compose stop app
+./deploy/restore.sh 20261107-030000             # asks you to type the set id
+docker compose start app
+</code></pre>
+<p>What it does:</p>
+<ol>
+<li>Prints the manifest, re-checks sha256, decrypts and runs <code>pg_restore --list</code>, lists the archive.</li>
+<li>Compares the set&#39;s migration count with this checkout&#39;s <code>apps/server/drizzle</code>:<ul>
+<li>backup <strong>newer</strong> than the code: warns and asks (check out the matching version first);</li>
+<li>backup <strong>older</strong>: fine, the app applies the newer migrations on its next start.</li>
+</ul>
+</li>
+<li>Refuses to continue while the <code>app</code> container is running (or stops it with <code>--stop-app</code>).</li>
+<li>Takes a safety backup of the current state (<code>kind: pre-restore</code>) — skip with <code>--skip-pre-backup</code>.</li>
+<li><code>DROP DATABASE … WITH (FORCE)</code>, <code>CREATE DATABASE</code>, <code>pg_restore</code>, then compares every table&#39;s row
+count with the manifest.</li>
+<li>Extracts the archive next to the current data, swaps it in, and compares the entry count.</li>
+</ol>
+<p>Options: <code>--dry-run</code>, <code>--yes</code> (no prompt), <code>--stop-app</code>, <code>--skip-pre-backup</code>. With a non-default
+compose setup pass the command: <code>COMPOSE=&quot;docker compose -f compose.yaml -f deploy/compose.caddy.yaml&quot; ./deploy/restore.sh …</code>.</p>
+<h3 id="restoring-on-a-new-server">Restoring on a new server</h3>
+<ol>
+<li>Install Inkling as in <a href="DEPLOY.html">DEPLOY.md</a>, same version as the backup if possible.</li>
+<li>Put the same <code>BACKUP_PASSPHRASE</code> in <code>.env</code>, <code>docker compose up -d db backup</code> (not the app yet).</li>
+<li>Copy the set into the volume: <code>docker cp ./20261107-030000 $(docker compose ps -q backup):/backups/sets/</code>
+(or let rclone fetch it: <code class="long">rclone copy b2:my-bucket/inkling/20261107-030000 …</code>).</li>
+<li><code>./deploy/restore.sh --skip-pre-backup 20261107-030000</code>, then <code>docker compose up -d</code>.</li>
+</ol>
+<h3 id="restore-rehearsal">Restore rehearsal</h3>
+<p>A backup you have never restored is a hope, not a backup. The weekly restore test proves that the
+dump loads and is complete, but not that <em>you</em> can bring the service back. Every few months:</p>
+<ol>
+<li>Start a throw-away copy on another machine or a different compose project name
+(<code>docker compose -p inkling-rehearsal …</code>, with a different host port).</li>
+<li>Restore the newest off-site set there, following &quot;Restoring on a new server&quot;.</li>
+<li>Log in, open a few pages and attachments, then <code>docker compose -p inkling-rehearsal down -v</code>.</li>
+</ol>
+<p>Note how long it took; that is your real recovery time.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Symptom</th><th scope="col">Fix</th></tr></thead><tbody><tr class="rec"><td class="c-title" data-label="Symptom">&quot;not enough free disk space&quot;</td><td class="c-field c-wide" data-label="Fix">Expired sets were already pruned before this check, so the retained sets plus this run do not fit. Free space on the backup volume, lower <code>BACKUP_KEEP_*</code> (applied on the next run), lower <code>BACKUP_MIN_FREE_MB</code>, or move the volume.</td></tr><tr class="rec"><td class="c-title" data-label="Symptom">&quot;set is encrypted but BACKUP_PASSPHRASE is not set&quot;</td><td class="c-field c-wide" data-label="Fix">Put the passphrase that was used for that set into <code>.env</code>.</td></tr><tr class="rec"><td class="c-title" data-label="Symptom">&quot;backup service has not reported&quot;</td><td class="c-field c-wide" data-label="Fix"><code>docker compose ps backup</code>, <code>docker compose logs backup</code>.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Symptom">&quot;rclone binary missing&quot;</td><td class="c-field c-wide" data-label="Fix">Start with <code class="long">-f deploy/compose.backup-rclone.yaml</code>.</td></tr><tr class="rec"><td class="c-title" data-label="Symptom">rclone: &quot;config file … is a directory&quot;</td><td class="c-field c-wide" data-label="Fix"><code>BACKUP_RCLONE_CONFIG</code> must point to an existing file before <code>up</code>; otherwise Docker creates an empty directory at that path. Remove it, create the file, <code>up -d</code> again.</td></tr><tr class="rec"><td class="c-title" data-label="Symptom">pg_dump version mismatch after upgrading Postgres</td><td class="c-field c-wide" data-label="Fix">The sidecar image major version must match the <code>db</code> service (both 16).</td></tr></tbody></table></div>
+<p class="doc-meta"><a href="BACKUP.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/BACKUP.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#quick-start">Quick start</a></li><li><a href="#settings">Settings</a></li><li><a href="#what-a-backup-set-contains">What a backup set contains</a></li><li><a href="#the-3-2-1-rule">The 3-2-1 rule</a></li><li><a href="#off-site-copies-with-rclone">Off-site copies with rclone</a></li><li><a href="#encryption">Encryption</a></li><li><a href="#admin--backups">Admin › Backups</a></li><li><a href="#restoring">Restoring</a></li><li><a href="#troubleshooting">Troubleshooting</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

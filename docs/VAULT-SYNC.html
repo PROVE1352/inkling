@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obsidian vault sync (experimental) · Inkling</title>
+  <meta name="description" content="Two-way sync with an Obsidian vault through inklingctl.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/VAULT-SYNC.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/VAULT-SYNC.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/VAULT-SYNC.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Obsidian vault sync (experimental) · Inkling">
+  <meta property="og:description" content="Two-way sync with an Obsidian vault through inklingctl.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/VAULT-SYNC.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="VAULT-SYNC.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="VAULT-SYNC.ko.html" hreflang="ko" lang="ko">한국어</a><a href="VAULT-SYNC.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html" aria-current="page">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Integrating</p><h1 id="obsidian-vault-sync-experimental">Obsidian vault sync (experimental)</h1><p class="doc-desc">Two-way sync with an Obsidian vault through inklingctl.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/VAULT-SYNC.md</code> in the repository. <a href="VAULT-SYNC.md" type="text/markdown">Markdown source</a></p></header><p>Two-way sync between a folder of markdown notes (an Obsidian vault, or a sub-folder of one) and an
+Inkling workspace. 한국어: <a href="VAULT-SYNC.ko.html">VAULT-SYNC.ko.md</a>.</p>
+<blockquote>
+<p><strong>Still experimental in 0.17.</strong> The server routes stay off unless <code>EXPERIMENTAL_FEATURES</code> lists <code>vault-sync</code>.
+0.17 closed the data-loss paths found while checking it (see <a href="#status-and-what-is-left">Status</a>), but two
+required conditions are not met yet.</p>
+</blockquote>
+<p><strong>Server:</strong> add <code>vault-sync</code> to <code>EXPERIMENTAL_FEATURES</code> (e.g. <code class="long">EXPERIMENTAL_FEATURES=vault-sync</code>).</p>
+<pre><code class="language-sh">inklingctl login --server https://notes.example.com
+inklingctl sync ~/Vault/Inkling --workspace &quot;Team notes&quot;     # run it whenever you like
+inklingctl sync ~/Vault/Inkling --workspace &quot;Team notes&quot; --dry-run
+</code></pre>
+<p>Instead of a password login you can use an API token (Settings → Connections → API tokens):
+<code>inklingctl login --token</code>, or <code>INKLING_TOKEN=ink_pat_… inklingctl sync …</code> for one run. A token limited to one
+page&#39;s subtree syncs only that subtree, and new top-level notes are refused. See <a href="https://github.com/PROVE1352/inkling/blob/main/apps/cli/README.md">apps/cli/README.md</a>.</p>
+<p>Use a dedicated folder per workspace; the first run links the folder to that workspace and later
+runs refuse a different one.</p>
+<h2 id="what-happens-on-each-run">What happens on each run</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Situation</th><th scope="col">Result</th></tr></thead><tbody><tr class="rec"><td class="c-title" data-label="Situation">note changed only in the vault</td><td class="c-field c-wide" data-label="Result">uploaded; the file is then rewritten in Inkling&#39;s normal form</td></tr><tr class="rec"><td class="c-title" data-label="Situation">page changed only in Inkling</td><td class="c-field" data-label="Result">file updated</td></tr><tr class="rec"><td class="c-title" data-label="Situation">both changed, different lines</td><td class="c-field" data-label="Result">merged line by line, both sides updated</td></tr><tr class="rec"><td class="c-title c-name" data-label="Situation">both changed, same lines</td><td class="c-field c-wide" data-label="Result"><strong>conflict</strong>: your note is left as is, <code>Name (conflict 2026-11-07).md</code> holds both versions with <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> markers. Fix the note, delete the conflict copy, run sync again</td></tr><tr class="rec"><td class="c-title" data-label="Situation">note deleted in the vault, page unchanged</td><td class="c-field" data-label="Result">page moved to the Inkling trash</td></tr><tr class="rec"><td class="c-title" data-label="Situation">page deleted in Inkling, note unchanged</td><td class="c-field c-wide" data-label="Result">note moved to <code>.inkling/trash/&lt;date&gt;/</code></td></tr><tr class="rec"><td class="c-title" data-label="Situation">deleted on one side, edited on the other</td><td class="c-field c-wide" data-label="Result">the edit wins (the note is restored / re-created)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Situation">file renamed or moved</td><td class="c-field" data-label="Result">page renamed / moved (and vice versa)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Situation">new note / new page</td><td class="c-field c-wide" data-label="Result">created on the other side; new folders become folder pages</td></tr><tr class="rec"><td class="c-title" data-label="Situation">page with sub-pages / folder renamed or moved in the vault</td><td class="c-field c-wide" data-label="Result">the same page or folder page is renamed or moved (comments, locks and grants stay)</td></tr><tr class="rec"><td class="c-title" data-label="Situation">folder deleted in the vault</td><td class="c-field c-wide" data-label="Result">its notes and the folder page go to the trash (only folders that held notes at the last completed run; an empty folder missing from a copy is made again)</td></tr><tr class="rec"><td class="c-title" data-label="Situation">run cut off (network, crash)</td><td class="c-field c-wide" data-label="Result">run again: pages are created once, and a write whose answer was lost is recognised</td></tr><tr class="rec"><td class="c-title" data-label="Situation">server refuses one note (edit lock, read-only token) or one attachment (size, type)</td><td class="c-field c-wide" data-label="Result">that one is skipped and listed; the rest syncs and the run exits 0</td></tr></tbody></table></div>
+<p>Pages being edited in the browser are safe: a vault upload that would overwrite unsaved browser
+typing is rejected by the server and merged instead.</p>
+<h2 id="mapping">Mapping</h2>
+<ul>
+<li>Folders ⇄ folder pages; a page with sub-pages becomes <code>Page.md</code> + <code>Page/</code> (since 0.17 a folder <code>X/</code> next to
+<code>X.md</code> is always X&#39;s sub-page folder).</li>
+<li>Frontmatter ⇄ page properties: <code>tags</code>, <code>aliases</code>, and any <code>key: value</code> (text, number, true/false,
+<code>YYYY-MM-DD</code> dates, lists). Frontmatter Inkling cannot store (nested maps, <code>key: |</code>, <code>updated</code>, keys past 50)
+stays in the note and is listed after the run.</li>
+<li><code>[[Wiki links]]</code> ⇄ page links, kept by page identity — renaming a page updates the link text in
+other notes (<code>[[New title|old text]]</code>). <code>[[Page#Heading]]</code> is a link to that heading of the page (written with the
+page&#39;s current title), and links to a page whose title contains <code>#</code> (&quot;C# notes&quot;) work.</li>
+<li>Page embeds, inline database views, link embeds, plugin blocks and charts are written as one-line
+<code>&lt;!-- inkling:… --&gt;</code> comments (hidden in reading view); delete the line to delete the block.</li>
+<li>Images and files: stored in Inkling, mirrored to <code>assets/&lt;id&gt;.&lt;ext&gt;</code> in the vault; <code>![[photo.png]]</code>
+embeds are uploaded and rewritten to standard markdown image links. Allowed types: png, jpg, gif,
+webp, avif, pdf, mp4, webm, mp3, m4a, wav, txt. An image inside a line of text moves to its own line.</li>
+<li><code>```dataview</code> blocks stay as they are and run as Query blocks in Inkling
+(<a href="QUERY.html">QUERY.md</a>).</li>
+</ul>
+<h2 id="known-losses">Known losses</h2>
+<p>The first sync rewrites notes into Inkling&#39;s markdown style (<code>*</code> bullets, <code>*italic*</code>, padded tables,
+<code>\</code> line breaks inside paragraphs). After that, files only change when content changes.
+Kept as plain text (not interpreted): callouts <code>&gt; [!note]</code> (shown as quotes), <code>![[Page]]</code> page
+embeds, <code>==highlight==</code>, <code>%%comments%%</code>, math, inline fields <code>key:: value</code>. Canvases (<code>.canvas</code> files and
+canvas pages) and collection (database) pages are not synced; each run lists the canvases. Collection rows sync as
+plain notes without their field values. Attachments: vault edits of files under <code>assets/</code> are not uploaded.</p>
+<p>Blocks you leave alone keep their ids, so comments and section links on them stay. A mention chip or a file/audio
+block in a paragraph you edit becomes <code>@Label</code> / a link. If the minimal edit cannot be applied, the page is rewritten
+and its blocks get new ids (KNOWN-ISSUES SYNC-3). Images inside table cells are dropped on upload (VSYNC-3).</p>
+<p><strong>Upgrading from 0.16.</strong> The first upload of a note last synced by 0.16 merges once with the new form (block
+tokens, revision marker <code>md2</code>); an edit on the line next to an embed then gives one conflict copy, and nothing is
+lost.</p>
+<p>State lives in <code>&lt;folder&gt;/.inkling/</code> (<code>sync-state.json</code>, <code>base/</code> copies used for merging, <code>trash/</code>).
+If it is deleted, notes are re-linked through their <code>inkling-id</code> frontmatter; notes that differ
+from the server then show up as conflicts (there is no common base to merge against).</p>
+<h2 id="status-and-what-is-left">Status and what is left</h2>
+<p>0.17 checked vault sync against a list of conditions fixed before testing (tests under <code>apps/server/src/routes/</code>
+unless noted). The flag stays on because R13 is open and one path that can drop block identity is untested.</p>
+<div class="table-wrap has-cards"><table class="t-recs cards" data-cols="6"><thead><tr><th scope="col">ID</th><th scope="col">Condition</th><th scope="col">Kind</th><th scope="col">Evidence</th><th scope="col">Result</th><th scope="col">Notes</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="ID">R1</td><td class="c-field" data-label="Condition">Create, both directions</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness &quot;R1 R2&quot;</td><td class="c-field" data-label="Result">pass</td><td class="c-field" data-label="Notes">linked notes, sub-folders</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R2</td><td class="c-field" data-label="Condition">Modify, both directions</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness &quot;R1 R2&quot;, &quot;R7 (and R2)&quot;, &quot;R8 (and R2)&quot;</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">before: a vault edit deleted embeds, plugin blocks and charts</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R3</td><td class="c-field" data-label="Condition">Delete, both directions, no resurrection</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R3 (3 tests + empty folder)</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">before: a page deleted with its sub-pages folder came back; a deleted folder was made again</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R4</td><td class="c-field" data-label="Condition">Rename, both directions</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness &quot;R4 R5&quot; (3 tests)</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">before: a folder rename made a new folder page; <code>Topic.md</code> + <code>Topic/</code> rename lost the children</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R5</td><td class="c-field" data-label="Condition">Move, both directions</td><td class="c-field" data-label="Kind">required</td><td class="c-field" data-label="Evidence">same</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field is-empty" data-label="Notes"></td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R6</td><td class="c-field c-wide" data-label="Condition">Concurrent edits: merge or conflict copy, nothing lost</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R6</td><td class="c-field" data-label="Result">pass</td><td class="c-field c-wide" data-label="Notes">incl. edit-vs-delete both ways; KNOWN-ISSUES A-M6 (meta TOCTOU) remains</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R7</td><td class="c-field c-wide" data-label="Condition">Block ids survive a round trip (comments, section anchors)</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness &quot;R7 block ids&quot;, &quot;R7 (and R2) blocks Markdown cannot carry&quot;</td><td class="c-field" data-label="Result">pass with caveats</td><td class="c-field c-wide" data-label="Notes">untouched blocks, other-section edits and the 412 merge keep ids; the full-rewrite fallback is untested and gives new ids (SYNC-3); ink is per page, not per block; a mention chip in an edited paragraph becomes <code>@Label</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R8</td><td class="c-field" data-label="Condition">Frontmatter and tags round trip</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R8 (2 tests)</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">before: nested maps and block scalars vanished from the note</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R9</td><td class="c-field c-wide" data-label="Condition">Interrupted and resumed: no duplicates, no losses</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncResume (fault before / after / kill at every request; first sync killed)</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">14-request mixed run × 3 fault modes; first sync 8 requests × kill; attachment uploads not in the sweep. Before: a cut create duplicated pages, a lost PUT answer made a false conflict copy</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R10</td><td class="c-field" data-label="Condition">Upgrade from pre-0.15.0 revision tokens</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R10 (2), vaultSyncRevision (5)</td><td class="c-field" data-label="Result">pass</td><td class="c-field" data-label="Notes">incl. 0.16 → 0.17</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R11</td><td class="c-field" data-label="Condition">Attachments: no loss, skips announced</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R11</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes"><code>/files</code> links of image/pdf/mp3 kept; local files untouched; svg and a 26 MB mp4 skipped and listed. Before: one oversize attachment failed every run; inline images vanished. Images in table cells still dropped (VSYNC-3)</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R12</td><td class="c-field" data-label="Condition">Canvas: no damage or loss</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncReadiness R12</td><td class="c-field" data-label="Result">pass (fixed)</td><td class="c-field c-wide" data-label="Notes">not synced; now listed each run (before: skipped silently)</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R13</td><td class="c-field" data-label="Condition">Security parity on sync routes</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncSecurity (13) + agentTaint, accessLeaks, guests, editLock, tokenRange, snapshotChain (146)</td><td class="c-field" data-label="Result"><strong>open</strong></td><td class="c-field c-wide" data-label="Notes">suggest-only, read-only and subtree tokens, guests, locks, others&#39; private pages and outsiders are refused on writes; <strong>sync reads do not record flagged content for the suggest-only rule (TAINT-1)</strong></td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">R14</td><td class="c-field" data-label="Condition">1,000-file vault</td><td class="c-field" data-label="Kind">required</td><td class="c-field c-wide" data-label="Evidence">vaultSyncScale (<code>VSYNC_SCALE_N=1000</code>; CI default 100)</td><td class="c-field" data-label="Result">pass</td><td class="c-field c-wide" data-label="Notes">docs/PERFORMANCE.md</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">O1</td><td class="c-field" data-label="Condition">Attachment files synced both ways</td><td class="c-field" data-label="Kind">optional</td><td class="c-field" data-label="Evidence">—</td><td class="c-field" data-label="Result">not built</td><td class="c-field c-wide" data-label="Notes">server → vault downloads; vault edits under <code>assets/</code> are not uploaded</td></tr><tr class="rec"><td class="c-title c-name" data-label="ID">O2</td><td class="c-field" data-label="Condition">Canvas content synced</td><td class="c-field" data-label="Kind">optional</td><td class="c-field" data-label="Evidence">—</td><td class="c-field" data-label="Result">not built</td><td class="c-field" data-label="Notes">listed only</td></tr></tbody></table></div>
+<p>R14, measured on an Apple M4 shared with other agents (CLI through tsx against a test app, local Postgres 16 in
+Docker): a first upload of 1,000 notes takes 23.5 s with the rate limiter off and 120.1 s with it on (5 waits on
+429); a run with no changes 0.4 s / 1.3 s; a first download of 1,000 pages 4.4 s / 15.5 s.</p>
+<p>Left before the flag can go:</p>
+<ol>
+<li>Decide TAINT-1 for sync reads (record flagged content on <code>POST /sync/read</code> and the 412 and replay bodies, keep it
+as it is, or a CLI-only exception) and, with it, whether read-only tokens may pull (<code>POST /sync/read</code> refuses them
+today; opening it also opens it to suggest-only tokens). Recording it would make a token suggest-only right after
+its first sync in any workspace with one suspicious line.</li>
+<li>Test the minimal-edit fallback (whole-document rewrite) and keep block ids there, or make it refuse and write a
+conflict copy instead (SYNC-3).</li>
+<li>Run the two mixed-version combinations (0.17 CLI with a 0.16 server, 0.16 CLI with a 0.17 server) for real; so
+far they were checked by reading the code.</li>
+<li>Sync creates do not queue the &quot;new page&quot; webhook and leave <code>created_via</code> empty (the change feed has them,
+VSYNC-4).</li>
+<li>Confirm at review the six behaviour changes of 0.17 (CHANGELOG, 0.17.0 Upgrade notes): block tokens and the <code>md2</code>
+marker; folder deletes trash the folder page (reverses ADR 0202&#39;s &quot;folders are not deleted by sync&quot;, ADR 2167); a
+stale-revision <code>PUT</code> that changes nothing answers 200; creates take a <code>clientKey</code> and replay; a 403 on one note is
+skipped and the run exits 0; <code>X/</code> next to <code>X.md</code> is X&#39;s sub-page folder.</li>
+</ol>
+<p>Design: docs/adr/0200–0202, 1920, 2166–2169.</p>
+<p class="doc-meta"><a href="VAULT-SYNC.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/VAULT-SYNC.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#what-happens-on-each-run">What happens on each run</a></li><li><a href="#mapping">Mapping</a></li><li><a href="#known-losses">Known losses</a></li><li><a href="#status-and-what-is-left">Status and what is left</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

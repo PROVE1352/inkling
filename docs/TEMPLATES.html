@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Templates · Inkling</title>
+  <meta name="description" content="Page and structure templates, variables, prompts and row templates.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/TEMPLATES.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/TEMPLATES.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/TEMPLATES.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Templates · Inkling">
+  <meta property="og:description" content="Page and structure templates, variables, prompts and row templates.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/TEMPLATES.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="TEMPLATES.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="TEMPLATES.ko.html" hreflang="ko" lang="ko">한국어</a><a href="TEMPLATES.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html" aria-current="page">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Using Inkling</p><h1 id="templates">Templates</h1><p class="doc-desc">Page and structure templates, variables, prompts and row templates.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/TEMPLATES.md</code> in the repository. <a href="TEMPLATES.md" type="text/markdown">Markdown source</a></p></header><p>A template creates a page — or a whole structure of pages — with its text already laid out.
+Open the gallery from <strong>New page ▾ → Start from template</strong> (or the command palette), pick a
+template, answer its questions and press <strong>Create</strong>. 한국어: <a href="TEMPLATES.ko.html">TEMPLATES.ko.md</a>.</p>
+<p>Design records: <a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0920-template-model.md">ADR 0920</a> (model and clean-up),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0921-structure-templates-atomic-instantiation.md">0921</a> (structures),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0922-template-variables.md">0922</a> (variables),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0923-templater-compatibility-no-code.md">0923</a> (Templater),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0924-template-file-format.md">0924</a> (files),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0925-template-gallery-visibility-mcp.md">0925</a> (gallery, visibility, MCP).</p>
+<h2 id="kinds-of-templates">Kinds of templates</h2>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Kind</th><th scope="col">What it creates</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Kind">Document</td><td class="c-field" data-label="What it creates">One page with its body.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Kind">Structure</td><td class="c-field c-wide" data-label="What it creates">A page tree: the root page plus sub-pages, folders, databases (fields, views, row templates and optionally starter rows) and canvases. Links between its pages, database relations and canvas cards point at the new pages.</td></tr></tbody></table></div>
+<p>A database&#39;s own <a href="#row-templates">row templates</a> are a separate thing: they fill in a new row
+of that database.</p>
+<h3 id="built-in-templates">Built-in templates</h3>
+<p>Built-ins are part of the app (they improve with updates and cannot be deleted). They exist in
+English and Korean; you get the one matching your language.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="4"><thead><tr><th scope="col">Template</th><th scope="col">Category</th><th scope="col">Kind</th><th scope="col">Contents</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Template">Meeting notes</td><td class="c-field" data-label="Category">Meetings</td><td class="c-field" data-label="Kind">Document</td><td class="c-field c-wide" data-label="Contents">Goal, attendees, agenda, notes, decisions, action items, open questions. Dated (shows on the calendar).</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Daily standup</td><td class="c-field" data-label="Category">Meetings</td><td class="c-field" data-label="Kind">Document</td><td class="c-field" data-label="Contents">Yesterday / today / blockers per person. Dated.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Meeting series</td><td class="c-field" data-label="Category">Meetings</td><td class="c-field" data-label="Kind">Structure (3)</td><td class="c-field c-wide" data-label="Contents">Purpose and standing agenda page + a <strong>Meetings</strong> database (table and calendar views) with the first meeting.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Project</td><td class="c-field" data-label="Category">Projects</td><td class="c-field" data-label="Kind">Structure (7)</td><td class="c-field c-wide" data-label="Contents">Overview page + <strong>Tasks</strong> database (board by status, table, calendar; Status, Owner, Due, Priority) with three starter tasks + <strong>Meeting notes</strong> folder with a kickoff page. Asks for the goal and target date.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Project kickoff</td><td class="c-field" data-label="Category">Projects</td><td class="c-field" data-label="Kind">Document</td><td class="c-field c-wide" data-label="Contents">Why, goals, scope, milestones, team, risks, working agreements.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Brainstorm</td><td class="c-field" data-label="Category">Docs</td><td class="c-field" data-label="Kind">Document</td><td class="c-field c-wide" data-label="Contents">Question, constraints, ground rules, ideas, themes, shortlist, next steps.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Retrospective (KPT)</td><td class="c-field" data-label="Category">Docs</td><td class="c-field" data-label="Kind">Document</td><td class="c-field c-wide" data-label="Contents">Keep / Problem / Try and action items. Asks which period you are looking back on.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Reading list</td><td class="c-field" data-label="Category">Personal</td><td class="c-field" data-label="Kind">Structure (2)</td><td class="c-field c-wide" data-label="Contents">A database with a gallery &quot;shelf&quot;, a board by status and a table; asks what you are reading now and creates its notes page.</td></tr><tr class="rec"><td class="c-title c-name" data-label="Template">Weekly review</td><td class="c-field" data-label="Category">Personal</td><td class="c-field" data-label="Kind">Structure (9)</td><td class="c-field c-wide" data-label="Contents">Review page titled with the ISO week + a <strong>Habits</strong> table with a row per weekday.</td></tr></tbody></table></div>
+<h3 id="your-own-templates">Your own templates</h3>
+<p><strong>Save as template</strong> is in a page&#39;s ⋯ menu and in the right panel. Choose a name, icon,
+description and category, and whether to include:</p>
+<ul>
+<li><strong>Sub-pages, databases and canvases</strong> under the page (otherwise only the page itself is saved);</li>
+<li><strong>Database rows</strong> as starter rows (otherwise databases keep their fields and views but start empty).</li>
+</ul>
+<p>A template saved from a private page is private (only you see it). For other pages you can tick
+<strong>Only me</strong>. Everyone else in the workspace sees shared templates. The creator and workspace
+owners can delete a template.</p>
+<p>The template is a snapshot: later edits to the original pages do not change it. People and
+person properties are not saved in templates. Images and files stay as links to the original
+attachments.</p>
+<h2 id="variables">Variables</h2>
+<p>Variables are written in the text and filled in when a page is created (on the server, at that
+moment). They work in page bodies, page titles, canvas text cards and text values of database
+rows.</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Variable</th><th scope="col">Becomes</th><th scope="col">Example</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{title}}</code></td><td class="c-field" data-label="Becomes">Title of the created root page</td><td class="c-field" data-label="Example"><code>Apollo</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{date}}</code></td><td class="c-field" data-label="Becomes">The date, <code>YYYY-MM-DD</code></td><td class="c-field" data-label="Example"><code>2026-11-07</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{date:FORMAT}}</code></td><td class="c-field" data-label="Becomes">The date in a format (see below)</td><td class="c-field" data-label="Example"><code>{{date:dddd, MMMM D}}</code> → <code>Saturday, November 7</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>{{time}}</code>, <code>{{time:FORMAT}}</code></td><td class="c-field" data-label="Becomes">Current time (<code>HH:mm</code> by default)</td><td class="c-field" data-label="Example"><code>09:05</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{weekday}}</code></td><td class="c-field" data-label="Becomes">Day of the week, in your language</td><td class="c-field" data-label="Example"><code>Saturday</code> / <code>토요일</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{author}}</code></td><td class="c-field" data-label="Becomes">Your name</td><td class="c-field" data-label="Example"><code>Ada</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{workspace}}</code></td><td class="c-field" data-label="Becomes">Workspace name</td><td class="c-field" data-label="Example"><code>Acme</code></td></tr><tr class="rec"><td class="c-title" data-label="Variable"><code>{{input:Question|default}}</code></td><td class="c-field c-wide" data-label="Becomes">Your answer to a question asked before creating; the default when left empty</td><td class="c-field" data-label="Example"><code>{{input:Target date|TBD}}</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Variable"><code>{{cursor}}</code></td><td class="c-field c-wide" data-label="Becomes">Removed; the caret is placed here when the page opens</td><td class="c-field is-empty" data-label="Example"></td></tr></tbody></table></div>
+<ul>
+<li><strong>Date and time</strong> use your device&#39;s time zone (the server&#39;s <code>TZ</code> if the client sends none). For
+dated templates the gallery shows a date field; <code>{{date}}</code> follows it.</li>
+<li><strong>Inputs</strong> with the same question are asked once. Each occurrence falls back to its own default.
+Answers are inserted as plain text.</li>
+<li><strong>Cursor</strong>: the first <code>{{cursor}}</code> of the first page that has one counts; others are removed.</li>
+<li><strong>Unknown variables stay as written</strong> (<code>{{mood}}</code> is left alone), so the syntax can&#39;t eat text.</li>
+<li><strong>Formatting is kept.</strong> Substitution happens inside one run of text with the same formatting,
+so <code>**{{author}}**</code> stays bold and link targets are untouched. A variable split across two
+formats (half bold) is not recognised. Inline code and code blocks are never substituted — use
+them to write about template syntax.</li>
+</ul>
+<h3 id="date-format-tokens">Date format tokens</h3>
+<p>Moment.js-compatible subset: <code>YYYY</code> <code>YY</code> · <code>MMMM</code> <code>MMM</code> <code>MM</code> <code>M</code> · <code>DD</code> <code>D</code> <code>Do</code> · <code>dddd</code> <code>ddd</code>
+<code>dd</code> <code>d</code> · <code>HH</code> <code>H</code> <code>hh</code> <code>h</code> · <code>mm</code> <code>m</code> · <code>ss</code> <code>s</code> · <code>A</code> <code>a</code> · <code>W</code> <code>WW</code> (ISO week) <code>GGGG</code> (ISO
+week year). Text in <code>[brackets]</code> is copied literally. Month and weekday names follow your
+language (<code>MMMM</code> → <code>November</code> / <code>11월</code>).</p>
+<div class="table-wrap"><table class="t-auto t-short" data-cols="3"><thead><tr><th scope="col">Format</th><th scope="col">en</th><th scope="col">ko</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Format"><code>{{date:YYYY-MM-DD}}</code></td><td class="c-field" data-label="en">2026-11-07</td><td class="c-field" data-label="ko">2026-11-07</td></tr><tr class="rec"><td class="c-title c-name" data-label="Format"><code>{{date:MMMM D, YYYY}}</code></td><td class="c-field" data-label="en">November 7, 2026</td><td class="c-field" data-label="ko">11월 7, 2026</td></tr><tr class="rec"><td class="c-title" data-label="Format"><code>{{date:YYYY년 M월 D일 dddd}}</code></td><td class="c-field" data-label="en">—</td><td class="c-field" data-label="ko">2026년 11월 7일 토요일</td></tr><tr class="rec"><td class="c-title c-name" data-label="Format"><code>{{date:GGGG-[W]WW}}</code></td><td class="c-field" data-label="en">2026-W45</td><td class="c-field" data-label="ko">2026-W45</td></tr><tr class="rec"><td class="c-title c-name" data-label="Format"><code>{{time:h:mm A}}</code></td><td class="c-field" data-label="en">9:05 AM</td><td class="c-field" data-label="ko">9:05 오전</td></tr></tbody></table></div>
+<h2 id="obsidian-templater-compatibility">Obsidian Templater compatibility</h2>
+<p>Templates copied from an Obsidian vault keep working for the most common Templater tags. They
+are <strong>rewritten</strong> to the variables above, never executed:</p>
+<div class="table-wrap"><table class="t-auto" data-cols="2"><thead><tr><th scope="col">Templater</th><th scope="col">Inkling</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Templater"><code>&lt;% tp.date.now() %&gt;</code></td><td class="c-field" data-label="Inkling"><code>{{date}}</code></td></tr><tr class="rec"><td class="c-title" data-label="Templater"><code>&lt;% tp.date.now(&quot;FORMAT&quot;) %&gt;</code></td><td class="c-field" data-label="Inkling"><code>{{date:FORMAT}}</code></td></tr><tr class="rec"><td class="c-title" data-label="Templater"><code>&lt;% tp.date.now(&quot;FORMAT&quot;, 7) %&gt;</code></td><td class="c-field" data-label="Inkling">the date 7 days later (negative offsets go back)</td></tr><tr class="rec"><td class="c-title c-name" data-label="Templater"><code>&lt;% tp.file.title %&gt;</code></td><td class="c-field" data-label="Inkling"><code>{{title}}</code></td></tr><tr class="rec"><td class="c-title c-name" data-label="Templater"><code>&lt;% tp.file.cursor() %&gt;</code></td><td class="c-field" data-label="Inkling"><code>{{cursor}}</code></td></tr></tbody></table></div>
+<p>Everything else — <code>&lt;%* … %&gt;</code> blocks, <code>tp.system.prompt</code>, <code>tp.user.*</code>, <code>tp.web.*</code>, other <code>tp.file</code>
+functions — stays as plain text. Inkling does not run code from templates (they are shared
+between members and imported from files); use <code>{{input:…}}</code> instead of <code>tp.system.prompt</code>.</p>
+<h2 id="files-export-and-import">Files: export and import</h2>
+<p>The gallery exports any template (built-ins too) and imports <code>.md</code> and <code>.zip</code> files. Imports go
+through the same limits and converters as page imports (25 MB per file, 50 MB unpacked, 300
+entries, at most 200 pages and 12 levels in one template).</p>
+<h3 id="document-template-markdown">Document template: Markdown</h3>
+<pre><code class="language-markdown">---
+inkling-template: 1
+name: &quot;Meeting notes&quot;
+description: &quot;Goal, agenda, decisions and action items for one meeting&quot;
+category: meetings
+icon: &quot;📋&quot;
+with-date: true
+variables:
+  - &quot;Which period are you looking back on?|This sprint&quot;
+---
+**When:** {{date:MMMM D, YYYY}} ({{weekday}}), {{time}} · **Notes by:** {{author}}
+
+## Agenda
+
+1. {{cursor}}
+</code></pre>
+<ul>
+<li>Keys are flat (no nested maps). <code>category</code> is one of <code>docs</code>, <code>projects</code>, <code>meetings</code>,
+<code>personal</code>, <code>custom</code> (anything else imports as <code>custom</code>). <code>variables</code> lists the input questions
+as <code>Question|default</code>; it is informational — the questions are read from the body.</li>
+<li>Any Markdown file without this frontmatter imports as a document template named after the file,
+so an Obsidian template folder can be imported file by file.</li>
+</ul>
+<h3 id="structure-template-zip">Structure template: zip</h3>
+<pre><code>inkling-template.json
+pages/p0.md
+pages/p3.md
+pages/p5.canvas
+</code></pre>
+<p><code>inkling-template.json</code>:</p>
+<pre><code class="language-json">{
+  &quot;inkling-template&quot;: 1,
+  &quot;name&quot;: &quot;Project&quot;,
+  &quot;description&quot;: &quot;…&quot;,
+  &quot;category&quot;: &quot;projects&quot;,
+  &quot;icon&quot;: &quot;🚀&quot;,
+  &quot;withDate&quot;: false,
+  &quot;variables&quot;: [&quot;Target date|TBD&quot;],
+  &quot;root&quot;: {
+    &quot;ref&quot;: &quot;p0&quot;, &quot;kind&quot;: &quot;doc&quot;, &quot;title&quot;: &quot;Project&quot;, &quot;icon&quot;: &quot;🚀&quot;, &quot;file&quot;: &quot;pages/p0.md&quot;,
+    &quot;children&quot;: [
+      {
+        &quot;ref&quot;: &quot;p1&quot;, &quot;kind&quot;: &quot;collection&quot;, &quot;title&quot;: &quot;Tasks&quot;,
+        &quot;fields&quot;: [{ &quot;id&quot;: &quot;status&quot;, &quot;name&quot;: &quot;Status&quot;, &quot;type&quot;: &quot;select&quot;, &quot;options&quot;: [ … ] },
+                   { &quot;id&quot;: &quot;parent&quot;, &quot;name&quot;: &quot;Parent&quot;, &quot;type&quot;: &quot;relation&quot;, &quot;relation&quot;: { &quot;targetPageId&quot;: &quot;p1&quot; } }],
+        &quot;views&quot;: [{ &quot;name&quot;: &quot;Board&quot;, &quot;type&quot;: &quot;board&quot;, &quot;config&quot;: { &quot;groupByFieldId&quot;: &quot;status&quot; } }],
+        &quot;children&quot;: [
+          { &quot;ref&quot;: &quot;p2&quot;, &quot;kind&quot;: &quot;doc&quot;, &quot;title&quot;: &quot;Write the brief&quot;, &quot;file&quot;: &quot;pages/p2.md&quot;,
+            &quot;props&quot;: { &quot;status&quot;: &quot;todo&quot;, &quot;parent&quot;: [&quot;p2&quot;] }, &quot;children&quot;: [] }
+        ]
+      }
+    ]
+  }
+}
+</code></pre>
+<ul>
+<li><code>kind</code> is <code>doc</code>, <code>folder</code>, <code>collection</code> or <code>canvas</code>. Documents point at a Markdown file,
+canvases at a JSON Canvas (<code>.canvas</code>) file whose file cards use another page&#39;s <code>ref</code> as <code>file</code>.</li>
+<li>Pages refer to each other by <code>ref</code> (<code>p0</code>, <code>p1</code>, …), never by database id: relation targets,
+relation values in <code>props</code>, canvas cards. <code>[[Title]]</code> links in Markdown resolve to the
+template&#39;s own pages first, then to pages of the workspace you import into that you can see.</li>
+<li>Fields and views use the same shapes as the API (<code>CollectionField</code>, <code>ViewConfig</code>). A relation
+whose target is not in the template imports as a text field; person values are dropped.</li>
+</ul>
+<h2 id="row-templates">Row templates</h2>
+<p>A database can keep up to 20 row templates for its <strong>New row</strong> button. A row template has a
+name and icon, a <strong>title</strong> pattern, <strong>property values</strong> and a <strong>body</strong>, and one of them can be the
+default. Design records: <a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/1180-row-templates-stored-apart-from-pages.md">ADR 1180</a> (model),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/1181-one-create-path-for-rows.md">1181</a> (creating rows, values),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/1182-row-template-editor-on-a-local-document.md">1182</a> (editor),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/1183-row-templates-in-copies-and-files.md">1183</a> (copies and files),
+<a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/1184-row-template-permissions-and-leaks.md">1184</a> (permissions).</p>
+<ul>
+<li><strong>New row</strong> uses the default template, or makes an empty row when there is none. <strong>▾</strong> next to
+it picks a template or <strong>Empty row</strong>. The board&#39;s <strong>+</strong> in a column and the calendar&#39;s <strong>+</strong> on a
+day use the default too; the column&#39;s value or the day&#39;s date is applied on top of the template.</li>
+<li>The template&#39;s icon becomes the row&#39;s icon. A title typed when creating the row wins over the
+title pattern.</li>
+<li>The title, text and URL values and the body use the <a href="#variables">variables</a> above. <code>{{title}}</code>
+is the row&#39;s title. <code>{{input:…}}</code> prompts are asked before the row is created (MCP clients pass
+<code>inputs</code>). Variables are filled when a row is created, never when the template is saved or
+copied.</li>
+</ul>
+<p>Property values are stored like row values, with two relative forms:</p>
+<div class="table-wrap"><table class="t-auto" data-cols="3"><thead><tr><th scope="col">Property</th><th scope="col">Template value</th><th scope="col">Becomes</th></tr></thead><tbody><tr class="rec"><td class="c-title c-name" data-label="Property">Date</td><td class="c-field" data-label="Template value"><code>today</code>, <code>today+7</code>, <code>today-1</code> or <code>2026-12-01</code></td><td class="c-field c-wide" data-label="Becomes">The creator&#39;s date (their time zone), shifted by the days</td></tr><tr class="rec"><td class="c-title c-name" data-label="Property">Person</td><td class="c-field" data-label="Template value"><code>me</code> or a member</td><td class="c-field" data-label="Becomes"><code>me</code> is whoever adds the row</td></tr><tr class="rec"><td class="c-title c-name" data-label="Property">Select, multi-select</td><td class="c-field" data-label="Template value">Option ids</td><td class="c-field" data-label="Becomes">The same options</td></tr><tr class="rec"><td class="c-title c-name" data-label="Property">Text, URL</td><td class="c-field" data-label="Template value">Text with variables</td><td class="c-field" data-label="Becomes">The rendered text</td></tr><tr class="rec"><td class="c-title c-name" data-label="Property">Number, checkbox</td><td class="c-field" data-label="Template value">The value</td><td class="c-field" data-label="Becomes">The same value</td></tr><tr class="rec"><td class="c-title c-name" data-label="Property">Relation, rollup</td><td class="c-field" data-label="Template value">not available</td><td class="c-field" data-label="Becomes">Set on each row</td></tr></tbody></table></div>
+<p>A value that no longer fits (a deleted option, a field that changed type, a person who left the
+workspace) is dropped when the row is created; the row is still created.</p>
+<p>Editing opens the template like a page: the same editor, with the property values above the
+body. Changes save as you type. Anyone who can see the database can use its templates; creating,
+editing, deleting and choosing the default need edit access to the database, and its
+<a href="GUIDE.html#edit-lock">edit lock</a> applies. Row templates are not pages, so they never appear in search,
+backlinks, query blocks, the graph, the sidebar, webhooks or MCP page lists.</p>
+<p><strong>Copies.</strong> Duplicating a database copies its row templates. <strong>Save as template</strong> keeps them
+with the database (person values other than <code>me</code> are dropped, as for rows), and creating a page
+from that template gives the new database the same row templates. Template files carry them in
+<code>inkling-template.json</code> (below). The workspace Markdown export does not include them, the same as
+views.</p>
+<pre><code class="language-json">{
+  &quot;ref&quot;: &quot;p1&quot;, &quot;kind&quot;: &quot;collection&quot;, &quot;title&quot;: &quot;Meetings&quot;,
+  &quot;fields&quot;: [ … ], &quot;views&quot;: [ … ],
+  &quot;rowTemplates&quot;: [
+    { &quot;name&quot;: &quot;Weekly&quot;, &quot;icon&quot;: &quot;📋&quot;, &quot;title&quot;: &quot;{{date}} {{input:Topic|Weekly}} meeting&quot;,
+      &quot;props&quot;: { &quot;status&quot;: &quot;plan&quot;, &quot;date&quot;: &quot;today&quot;, &quot;owner&quot;: &quot;me&quot; },
+      &quot;default&quot;: true, &quot;file&quot;: &quot;pages/p1-t0.md&quot; }
+  ],
+  &quot;children&quot;: [ … ]
+}
+</code></pre>
+<h2 id="api-and-mcp">API and MCP</h2>
+<p>REST routes are listed in <a href="API.html#templates">API.md → Templates</a>. MCP clients get
+<code>list_templates</code> and <code>create_from_template</code> (<a href="MCP.html">MCP.md</a>).</p>
+<p>Row templates: <code>GET</code>/<code class="long">POST /api/pages/:id/collection/row-templates</code>, <code>GET</code>/<code>PATCH</code>/<code class="long">DELETE /api/collection-row-templates/:id</code>, and <code>POST /api/pages/:id/collection/rows</code> to create one row
+(<code>template</code> omitted → the default, <code>null</code> → an empty row). MCP <code>create_row</code> takes <code>template</code> (a
+name or id, or <code>&quot;none&quot;</code>) and <code>inputs</code>; <code>query_rows</code> with <code>describe: true</code> lists the templates.</p>
+<p class="doc-meta"><a href="TEMPLATES.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/TEMPLATES.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#kinds-of-templates">Kinds of templates</a></li><li><a href="#variables">Variables</a></li><li><a href="#obsidian-templater-compatibility">Obsidian Templater compatibility</a></li><li><a href="#files-export-and-import">Files: export and import</a></li><li><a href="#row-templates">Row templates</a></li><li><a href="#api-and-mcp">API and MCP</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

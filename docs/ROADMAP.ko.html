@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ko" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling 로드맵 · Inkling</title>
+  <meta name="description" content="앞으로 할 일과 하지 않을 일.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/ROADMAP.ko.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/ROADMAP.ko.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/ROADMAP.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Inkling 로드맵 · Inkling">
+  <meta property="og:description" content="앞으로 할 일과 하지 않을 일.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/ROADMAP.ko.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/doc-light.png">
+  <meta property="og:locale" content="ko_KR">
+  <link rel="alternate" type="text/markdown" href="ROADMAP.ko.md" title="이 문서의 Markdown 원문">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../ko/index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="주 메뉴">
+      <a class="hide-sm" href="../ko/tour/index.html">둘러보기</a>
+      <a href="index.ko.html">문서</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="언어"><a href="ROADMAP.ko.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="ROADMAP.html" hreflang="en" lang="en">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="문서 목록"><h2>Inkling 쓰기</h2><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html">쿼리 블록</a></li></ul><h2>서버 운영</h2><ul><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li></ul><h2>연동</h2><ul><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li></ul><h2>프로젝트</h2><ul><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html" aria-current="page">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li></ul><h2>그 밖의 문서</h2><ul><li><a href="DEMO.ko.html">DEMO</a></li></ul><h2>GitHub에서</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">설계 결정(ADR) <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.ko.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">기여 안내 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">보안 정책 <span class="en-mark">(영어)</span></a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>문서 목록</summary><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html">쿼리 블록</a></li><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li><li><a href="DEMO.ko.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">프로젝트</p><h1 id="inkling-로드맵">Inkling 로드맵</h1><p class="doc-desc">앞으로 할 일과 하지 않을 일.</p><p class="doc-meta doc-meta-top">이 문서는 저장소의 <code>docs/ROADMAP.ko.md</code>을 그대로 옮겼습니다. <a href="ROADMAP.ko.md" type="text/markdown">Markdown 원문</a></p></header><blockquote>
+<p>목표: Notion(팀 협업, 데이터베이스 보기)과 Obsidian(가벼움, Markdown, 내 데이터는 내 손에)을 합친 셀프호스트 노트 앱입니다.
+서버는 Docker에서 돌고, 웹/PWA로 씁니다. 블록 수나 멤버 수 제한은 없습니다. English: <a href="ROADMAP.html">ROADMAP.md</a>.</p>
+</blockquote>
+<p><a id="m1--core-skeleton--done-2026-07-12"></a></p>
+<h2 id="m1--핵심-뼈대--완료-2026-07-12">M1 — 핵심 뼈대 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> pnpm 모노레포(server / web / shared)</li>
+<li><input checked="" disabled="" type="checkbox"> 가입과 로그인(세션 쿠키): API로 확인</li>
+<li><input checked="" disabled="" type="checkbox"> 워크스페이스 + 초대 코드(예: 개인 워크스페이스와 팀 워크스페이스를 따로 둠): API로 확인</li>
+<li><input checked="" disabled="" type="checkbox"> 페이지 트리(만들기/이름 바꾸기/삭제/계층): API로 확인(순환 방지 포함)</li>
+<li><input checked="" disabled="" type="checkbox"> BlockNote 블록 편집기: 슬래시 메뉴, 표, 코드 블록(shiki 강조), 체크리스트, 서식</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>Yjs + Hocuspocus 실시간 공동 편집</strong>: 헤드리스 E2E 통과(두 클라이언트 양방향 동기화, awareness, 인증 안 된 클라이언트 거부를 dev와 production 모두에서 확인)</li>
+<li><input checked="" disabled="" type="checkbox"> 이미지/파일 업로드: 업로드→다운로드 바이트 일치와 인증 가드 확인</li>
+<li><input checked="" disabled="" type="checkbox"> 다크 모드, Pretendard, PWA: manifest/아이콘/SW 빌드와 제공 확인(홈 화면에 설치하는 것은 아직 실기기 확인이 필요합니다)</li>
+<li><input checked="" disabled="" type="checkbox"> Docker Compose(db + app, 네이티브 ARM64): production 이미지 빌드와 기동 확인</li>
+</ul>
+<blockquote>
+<p>남은 화면 확인: 브라우저 UI(편집기와 사이드바의 모양과 느낌)를 눈으로 보는 일. 코드는 타입 검사, 빌드, 계약 테스트를 통과합니다.</p>
+</blockquote>
+<p><a id="m2--markdown--the-obsidian-feel--done-2026-07-12"></a></p>
+<h2 id="m2--markdown과-obsidian-느낌--완료-2026-07-12">M2 — Markdown과 Obsidian 느낌 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 페이지 → Markdown 내보내기 / Markdown과 zip 가져오기(Obsidian과 맞는 zip 규칙)</li>
+<li><input checked="" disabled="" type="checkbox"> 워크스페이스 전체 → zip(Markdown + 이미지) 내보내기</li>
+<li><input checked="" disabled="" type="checkbox"> <code>[[wiki link]]</code> 자동 완성(내부 href 규칙을 쓰고, Markdown으로 오갈 때 <code>[[]]</code>로 바뀝니다)</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>오른쪽 패널</strong>: 개요(목차), 백링크, 나가는 링크, 태그, 속성. 섹션 접기 + 패널 켜고 끄기</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>탐색기 편의 기능</strong>: 사이드바 접기/펼치기(⌘), 폴더 만들기(kind=folder), 지금 페이지를 트리에서 자동으로 보여 주기, 모두 접기</li>
+<li><input checked="" disabled="" type="checkbox"> 드래그로 페이지 순서 바꾸기/옮기기(dnd-kit + 이동 모달), 휴지통(복원/영구 삭제)</li>
+<li><input checked="" disabled="" type="checkbox"> 제목 검색 + ⌘K 모달(→ 나중에 본문 전체 검색으로)</li>
+</ul>
+<p><a id="m3--notion-database-views--done-2026-07-12"></a></p>
+<h2 id="m3--notion-데이터베이스-보기--완료-2026-07-12">M3 — Notion 데이터베이스 보기 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 컬렉션(속성 스키마: 텍스트/선택/날짜/체크박스/사람)</li>
+<li><input checked="" disabled="" type="checkbox"> 표 보기(정렬, 필터, 칸 안에서 바로 편집)</li>
+<li><input checked="" disabled="" type="checkbox"> 칸반 보기(드래그로 옮기기)</li>
+<li><input checked="" disabled="" type="checkbox"> 행 = 페이지(문서로 열림)</li>
+</ul>
+<p><a id="m35--canvas-obsidian-json-canvas-compatible--done-2026-07-12"></a></p>
+<h2 id="m35--캔버스obsidian-json-canvas-호환--완료-2026-07-12">M3.5 — 캔버스(Obsidian JSON Canvas 호환) ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> kind=&#39;canvas&#39; 페이지: React Flow 무한 캔버스(텍스트 카드, 페이지 링크 카드, 연결선)</li>
+<li><input checked="" disabled="" type="checkbox"> Yjs 실시간 협업(기존 Hocuspocus를 그대로 씀)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>.canvas</code>(JSON Canvas 1.0) 내보내기/가져오기: Obsidian에서 그대로 열립니다</li>
+<li><input checked="" disabled="" type="checkbox"> 다크 모드, 미니맵/확대·축소 컨트롤</li>
+</ul>
+<p><a id="m4--fully-automated-integrations--cli--done-2026-07-12"></a></p>
+<h2 id="m4--완전-자동-연동-cli--완료-2026-07-12">M4 — 완전 자동 연동(+ CLI) ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Obsidian: 버튼 하나나 CLI 명령 하나로 Markdown + 이미지를 볼트 폴더에 넣습니다(<code>inklingctl pull</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Notion: Notion API로 페이지를 한 번에 올립니다(블록 매핑, 이미지 포함). 실제 계정 업로드는 NOTION_TOKEN을 넣으면 동작합니다(dryRun으로 확인)</li>
+<li><input checked="" disabled="" type="checkbox"> 왕복 파이프라인: 공모전이 끝나면 Notion으로, 개인 노트는 Obsidian으로</li>
+</ul>
+<p><a id="m5--operations-deploy-pack--ready-in-deploy"></a></p>
+<h2 id="m5--운영-배포-묶음--deploy에-준비됨">M5 — 운영 (배포 묶음 ✅ deploy/에 준비됨)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> ARM64 VM에 배포: 같은 이미지를 그대로 씀(멀티 아키텍처)</li>
+<li><input checked="" disabled="" type="checkbox"> Caddy HTTPS + 도메인 오버레이(<code>deploy/compose.caddy.yaml</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> 백업: 검증하는 백업 사이드카. GFS 보존, 암호화, 외부 사본(<a href="BACKUP.ko.html">BACKUP.ko.md</a>)</li>
+<li><input disabled="" type="checkbox"> 초대 링크(코드 대신 URL), 멤버 관리 UI</li>
+</ul>
+<p><a id="m6--sharedprivate-sections--ux-pass--done-2026-07-12"></a></p>
+<h2 id="m6--공유개인-섹션--ux-다듬기--완료-2026-07-12">M6 — 공유/개인 섹션 + UX 다듬기 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 사이드바 공유(👥) / 개인(🔒) 섹션: 개인 페이지는 작성자 말고는 아무에게도 보이지 않습니다(목록, 검색, 백링크, 내보내기, 협업 연결 어디서나 걸러 냄)</li>
+<li><input checked="" disabled="" type="checkbox"> 섹션 사이 이동 규칙(하위 페이지는 따라가고, 남의 하위 페이지를 개인으로 바꾸는 것은 막음): 드래그, 이동 모달, 오른쪽 패널 스위치</li>
+<li><input checked="" disabled="" type="checkbox"> 사이드바에서 끌어 → 본문에 놓으면 위키 링크 넣기, 캔버스에 놓으면 페이지 카드</li>
+<li><input checked="" disabled="" type="checkbox"> UI 움직임 다듬기: 페이지 전환, 사이드바, 오른쪽 패널, 모달, 아코디언. prefers-reduced-motion을 따릅니다</li>
+</ul>
+<p><a id="m7--better-search-and-linking--done-2026-07-12"></a></p>
+<h2 id="m7--더-나은-검색과-링크--완료-2026-07-12">M7 — 더 나은 검색과 링크 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 본문 전체 검색(page_texts + pg_trgm, ⌘K 발췌와 강조, 태그 클릭 연결)</li>
+<li><input checked="" disabled="" type="checkbox"> 그래프 보기(/graph, d3-force + React Flow, page_links, 개인 페이지 보이기 필터)</li>
+</ul>
+<p><a id="security-load-and-socket-hardening--done-2026-07-12"></a></p>
+<h2 id="보안-부하-소켓-강화--완료-2026-07-12">보안, 부하, 소켓 강화 ✅ 완료 (2026-07-12)</h2>
+<p>세 갈래로 나눠 공격자 관점에서 점검한 결과 중 CONFIRMED 항목을 고쳤습니다.</p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 보안: 인라인 SVG XSS 차단(nosniff/CSP/attachment), 파일 다운로드에 페이지 보이기 규칙 적용(M6에서 빠진 부분) + purge 정리, 로그인/가입 속도 제한, 캔버스 링크 스킴 검증</li>
+<li><input checked="" disabled="" type="checkbox"> 소켓: WS 업그레이드 때 인증 + maxPayload 2MB + IP당 연결 수 제한(+ 너무 큰 프레임에 서버가 죽지 않게 보호), Fastify 타임아웃, trustProxy 조정</li>
+<li><input checked="" disabled="" type="checkbox"> 부하: 스트리밍 내보내기(OOM 방지) + 전체 크기 가드, 자주 쓰는 열에 인덱스 8개, 작은 호스트에 맞춘 가져오기 한도, compose mem_limit, DB 포트를 loopback에 묶음</li>
+</ul>
+<p><a id="m8--invite-links--member-management--version-history--done-2026-07-12"></a></p>
+<h2 id="m8--초대-링크--멤버-관리--버전-기록--완료-2026-07-12">M8 — 초대 링크 · 멤버 관리 · 버전 기록 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 초대 링크(/join/:code, 로그인 <code>next</code>를 따름) + 코드 다시 만들기, 사이드바 &quot;초대 링크 복사&quot;</li>
+<li><input checked="" disabled="" type="checkbox"> 멤버 관리 모달(역할 바꾸기, 멤버 제외, 나가기, 마지막 소유자 보호), 떠난 멤버의 개인 페이지 정리(감사 항목 L3)</li>
+<li><input checked="" disabled="" type="checkbox"> 버전 기록: Yjs 스냅샷(10분마다 자동 + 수동). 복원은 DirectConnection으로 열린 화면에 바로 퍼집니다(실제 편집기로 확인). 오른쪽 패널에 기록 섹션</li>
+<li><input checked="" disabled="" type="checkbox"> 버그 수정: 본문 없는 POST(로그아웃, 다시 만들기, 복원)를 Content-Type json과 빈 본문으로 보내면 500이 나던 숨은 버그 → 빈 JSON 파서</li>
+</ul>
+<p><a id="m10--keyboard--convenience-pass--done-2026-07-12"></a></p>
+<h2 id="m10--키보드와-편의-기능-다듬기--완료-2026-07-12">M10 — 키보드와 편의 기능 다듬기 ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 트리에서 키보드로 선택/이동(↑↓←→ Enter F2). 선택과 열린 페이지를 분리</li>
+<li><input checked="" disabled="" type="checkbox"> ⌘⌫(Mac) / Del(Windows)로 삭제 → 휴지통 + 되돌리기 토스트(사용자가 알려 준 버그 수정)</li>
+<li><input checked="" disabled="" type="checkbox"> 행 오른쪽 클릭 메뉴(⋯ 동작과 같음), 단축키 도움말(?), 위쪽 경로 표시(breadcrumb)</li>
+<li><input checked="" disabled="" type="checkbox"> 플랫폼 처리: Mac은 ⌘/⌫, Windows는 Ctrl/Del을 자동으로(키 처리는 metaKey‖ctrlKey, 표시는 shortcut() 도우미)</li>
+</ul>
+<p><a id="m9--calendar-view--daily-notes--templates-duplication--done-2026-07-12"></a></p>
+<h2 id="m9--캘린더-보기--데일리-노트--템플릿복제--완료-2026-07-12">M9 — 캘린더 보기 · 데일리 노트 · 템플릿(복제) ✅ 완료 (2026-07-12)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 컬렉션 캘린더 보기: 월 격자, 날짜 속성으로 배치, 칩을 드래그해 날짜 바꾸기(dnd-kit)</li>
+<li><input checked="" disabled="" type="checkbox"> 데일리 노트: 📅 오늘 버튼(내 개인 daily 폴더에 YYYY-MM-DD 페이지를 자동으로 만듭니다)</li>
+<li><input checked="" disabled="" type="checkbox"> 페이지 복제: 하위 페이지 + 문서 상태 + props + 컬렉션(속성/보기)을 재귀로 복제. ⋯/오른쪽 클릭 메뉴의 &quot;복제&quot;</li>
+</ul>
+<p><a id="m11--cheap-quality-of-life-wins--done-2026-07-13"></a></p>
+<h2 id="m11--품이-적게-드는-편의-기능--완료-2026-07-13">M11 — 품이 적게 드는 편의 기능 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 즐겨찾기/북마크: 켜고 끄기, 사이드바 ⭐ 섹션, 위쪽 막대와 ⋯ 메뉴의 별(bookmarks 테이블)</li>
+<li><input checked="" disabled="" type="checkbox"> 이모지 아이콘 선택기(골라 둔 250개, 의존성 없음), 커버 이미지(업로드→coverUrl)</li>
+<li><input checked="" disabled="" type="checkbox"> 명령 팔레트 ⌘P/Ctrl+P: 동작 + 페이지 바로 가기</li>
+<li><input checked="" disabled="" type="checkbox"> 전체 태그 색인: 저장 훅이 page_tags를 채움, /tags 페이지, 대소문자 구분 없이 합침</li>
+</ul>
+<p><a id="m12--obsidian-identity--done-2026-07-13"></a></p>
+<h2 id="m12--obsidian다움--완료-2026-07-13">M12 — Obsidian다움 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 페이지 임베드 ![[transclusion]]: 사용자 정의 블록 + 읽기 전용 두 번째 provider. 서버 내보내기 왕복에서도 안전합니다(모르는 블록은 조용히 빠지고 서버가 죽지 않음을 시연)</li>
+<li><input checked="" disabled="" type="checkbox"> 별칭: [[alias]] 해석과 검색 매칭, 오른쪽 패널에서 칩으로 편집</li>
+<li><input checked="" disabled="" type="checkbox"> 연결 안 된 멘션: page_texts ILIKE 제목/별칭 MINUS page_links, 오른쪽 패널 섹션</li>
+<li><input checked="" disabled="" type="checkbox"> 로컬 그래프: useGraph를 다시 씀, 지금 페이지의 N-hop 이웃, 오른쪽 패널에 넣음</li>
+</ul>
+<p><a id="m13--notion-style-collaboration--done-2026-07-13"></a></p>
+<h2 id="m13--notion식-협업--완료-2026-07-13">M13 — Notion식 협업 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 인라인 댓글: 블록에 붙는 스레드/답글/해결, 오른쪽 패널 섹션 + 💬 배지, REST 폴링(15s)</li>
+<li><input checked="" disabled="" type="checkbox"> @멘션: 사용자 정의 인라인(사용자 칩/페이지 링크), @ 자동 완성(멤버 + 페이지), 서버 왕복에서도 안전(빠짐)</li>
+<li><input checked="" disabled="" type="checkbox"> 알림: comments/notifications 테이블, 🔔 종 + 안 읽은 개수, comment/comment_mention 생성과 읽음 상태</li>
+</ul>
+<p><a id="m14--formatting-blocks--done-2026-07-13"></a></p>
+<h2 id="m14--서식-블록--완료-2026-07-13">M14 — 서식 블록 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 토글 목록과 인용: BlockNote 기본 블록(toggleListItem/quote)을 슬래시 메뉴에 노출, 그대로 왕복</li>
+<li><input checked="" disabled="" type="checkbox"> 콜아웃: 사용자 정의 블록 종류 5개(note/tip/warning/danger/info), 종류 바꾸기, 서버가 죽지 않음(빠짐)</li>
+<li><input checked="" disabled="" type="checkbox"> 템플릿 변수: POST /pages/:id/instantiate({{date}}/{{time}}/{{title}} 치환), isTemplate 켜고 끄기, 갤러리 모달, 변수가 없으면 손실 없이 복제. 이후 구조 템플릿과 템플릿 갤러리로 바뀌었습니다(ADR 0920–0925)</li>
+</ul>
+<p><a id="m15--public-web-sharing--done-2026-07-13"></a></p>
+<h2 id="m15--공개-웹-공유--완료-2026-07-13">M15 — 공개 웹 공유 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 읽기 전용 공개 링크 /s/<token>: pages.shareToken, 소유자가 공개/중지, 로그인 안 한 사람도 봄(사이드바 없는 단독 페이지)</li>
+<li><input checked="" disabled="" type="checkbox"> 보안: 토큰으로만 접근, 개인 페이지는 공유 불가, 내부 id와 링크가 새지 않음(위키 링크는 텍스트로 바꿈), 엄격한 CSP, 참조된 파일만 공개</li>
+<li><input checked="" disabled="" type="checkbox"> 폴더 공유(2026-09-23): 폴더 링크 하나로 그 아래 살아 있는 하위 트리를 공개(개인 페이지와 휴지통 페이지 제외), HMAC ref(내부 id가 새지 않음), 하위 트리 안을 가리키는 위키 링크만 공개 링크가 됨, 보기 화면에서 왼쪽 트리 / 휴대폰에서는 위쪽 서랍</li>
+</ul>
+<p><a id="m16--true-real-time-collaboration--done-2026-07-13"></a></p>
+<h2 id="m16--진짜-실시간-협업--완료-2026-07-13">M16 — 진짜 실시간 협업 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 댓글이 바로 보임: Hocuspocus stateless broadcast(페이지 문서 채널 {t:comments}), 폴링→즉시</li>
+<li><input checked="" disabled="" type="checkbox"> 알림이 바로 보임: 사용자마다 inbox:<userId> 채널({t:notifications}), 남의 inbox 구독은 막음</li>
+<li><input checked="" disabled="" type="checkbox"> inbox 문서는 page_docs, 스냅샷, 색인에서 뺌(UUID 길목 가드)</li>
+</ul>
+<p><a id="m17--productivity-due-date-reminders--done-2026-07-13"></a></p>
+<h2 id="m17--생산성-마감-리마인더--완료-2026-07-13">M17 — 생산성: 마감 리마인더 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 마감 리마인더: 날짜 속성이 오늘인 컬렉션 행 → 작성자와 담당자에게 알림(하루 한 번으로 중복 제거), M16 실시간 푸시</li>
+<li><input checked="" disabled="" type="checkbox"> 마감 임박 대시보드 /w/:ws/due(오늘/이번 주), 종에 ⏰ 리마인더, 명령 팔레트와 사이드바에서 들어가는 길</li>
+<li><input checked="" disabled="" type="checkbox"> 버그 수정: 컨테이너가 UTC일 때 서버의 &quot;오늘&quot;이 사용자 현지 날짜와 달라 리마인더가 잘못 울렸습니다 → 서버가 <code>TZ</code>를 씁니다(설정 가능)</li>
+</ul>
+<p><a id="m18--workspace-wide-calendar--done-2026-07-13"></a></p>
+<h2 id="m18--워크스페이스-전체-캘린더--완료-2026-07-13">M18 — 워크스페이스 전체 캘린더 ✅ 완료 (2026-07-13)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 전체 캘린더 /w/:ws/calendar: 모든 컬렉션 행(날짜 속성) + 데일리 노트를 월 격자 하나에 모읍니다</li>
+<li><input checked="" disabled="" type="checkbox"> 일정 칩(종류별 색), 누르면 이동, 빈 날짜를 누르면 그날 데일리 노트를 만들거나 엽니다(공용 useDailyNote 훅)</li>
+<li><input checked="" disabled="" type="checkbox"> 사이드바 📆 캘린더(데일리 오늘 버튼과 따로), 데일리가 아닌 제목은 뺌, visibleTo, 월 범위</li>
+<li><input checked="" disabled="" type="checkbox"> 마무리(2026-09-23): 문서 안의 날짜 붙은 체크리스트(page_tasks 색인 + 백필), 주 보기, 종류 필터, 빈 날짜 팝오버(할 일/새 페이지/데일리), 칩을 드래그해 일정 바꾸기(행/페이지/할 일), 마감 섹션 새로 디자인(지남/오늘/내일/이번 주/30일/완료, 체크 + 되돌리기, 빠른 추가, 사이드바 배지), 할 일 리마인더</li>
+</ul>
+<p><a id="m19--obsidian-settings-port--pwa-conveniences-2026-09-23"></a></p>
+<h2 id="m19--obsidian-설정-옮겨-오기--pwa-편의-기능-2026-09-23">M19 — Obsidian 설정 옮겨 오기 + PWA 편의 기능 (2026-09-23)</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 설정 화면 /w/:ws/settings(⌘, · 사이드바 ⚙ · 팔레트): 기기마다 localStorage(lib/prefs, usePrefs로 바로 적용)</li>
+<li><input checked="" disabled="" type="checkbox"> 편집기: 줄 너비(기기마다, 본문 600–1200 px 또는 전체, 기본 700 px. 페이지별 전체 너비가 우선), 맞춤법 검사(spellcheck), 단어 수 상태 표시줄(1초 debounce)</li>
+<li><input checked="" disabled="" type="checkbox"> 파일과 링크: 시작 페이지(마지막/홈, 첫 방문 때만), 새 페이지 위치(최상위/하위/같은 폴더 → ⌘N과 사이드바), 링크 미리보기(마우스 올리고 500ms, Markdown 내보내기 캐시)</li>
+<li><input checked="" disabled="" type="checkbox"> 휴지통: 삭제 전 확인(기본은 꺼짐). 트리 메뉴, ⌘⌫, 여러 개 삭제가 공용 ConfirmDialog를 씀</li>
+<li><input checked="" disabled="" type="checkbox"> 모양: 확대 80–130%(루트 font-size. CSS zoom은 팝오버/드래그 좌표를 어긋나게 해서 쓰지 않음), 테마</li>
+<li><input checked="" disabled="" type="checkbox"> 단축키: ⌘⌥←/→ 뒤로/앞으로, ⌘O 빠른 전환(제목), ⌘⇧F 전체 검색, ⌘N/⌘⌥N 새 페이지, ⌘G 그래프, F2 제목, ⌘; 속성, ⌘L 체크박스, ⌘D 블록 삭제</li>
+<li><input checked="" disabled="" type="checkbox"> 팔레트: 어제/오늘/내일 데일리 노트, 무작위 페이지, 오른쪽 패널, 휴지통, 뒤로/앞으로, 다시 불러오기</li>
+<li><input checked="" disabled="" type="checkbox"> PWA: standalone 모드에서 위쪽 막대에 ← → 버튼(history idx에 따라 비활성), 외부 링크는 새 창, safe-area, 오버스크롤과 두 번 탭 확대 막기, manifest id/scope</li>
+</ul>
+<p><a id="later"></a></p>
+<h2 id="나중에">나중에</h2>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Rust 백엔드로 조금씩 옮기기(협업 서버를 yrs로 먼저).</strong> 이유: 협업 서버의
+저장 경로(Yjs ⇄ 문서 변환, 색인 추출, bytea 전송)가 편집 한 번마다 서버 메모리와 CPU를 가장 많이
+쓰는 일입니다. <code>yrs</code>는 Yjs와 호환되는 Rust 구현이라 클라이언트를 건드리지 않고 이 부분만 옮길 수 있습니다.
+조금씩이라는 것은 기존 Postgres 스키마와 WebSocket 프로토콜은 그대로 두고,
+서비스를 하나씩 옮기며 단계마다 측정값을 보고 정한다는 뜻입니다. 메모: <a href="https://github.com/PROVE1352/inkling/blob/main/docs/adr/0759-hardware-cache-hot-loops-measured-and-rust-notes.md">ADR 0759</a>.</li>
+</ul>
+<p class="doc-meta"><a href="ROADMAP.ko.md" type="text/markdown">Markdown 원문</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/ROADMAP.ko.md">GitHub에서 보기</a><a href="index.ko.html">전체 문서</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="이 문서의 목차" data-toc><h2>목차</h2><ul><li><a href="#m1--핵심-뼈대--완료-2026-07-12">M1 — 핵심 뼈대 ✅ 완료 (2026-07-12)</a></li><li><a href="#m2--markdown과-obsidian-느낌--완료-2026-07-12">M2 — Markdown과 Obsidian 느낌 ✅ 완료 (2026-07-12)</a></li><li><a href="#m3--notion-데이터베이스-보기--완료-2026-07-12">M3 — Notion 데이터베이스 보기 ✅ 완료 (2026-07-12)</a></li><li><a href="#m35--캔버스obsidian-json-canvas-호환--완료-2026-07-12">M3.5 — 캔버스(Obsidian JSON Canvas 호환) ✅ 완료 (2026-07-12)</a></li><li><a href="#m4--완전-자동-연동-cli--완료-2026-07-12">M4 — 완전 자동 연동(+ CLI) ✅ 완료 (2026-07-12)</a></li><li><a href="#m5--운영-배포-묶음--deploy에-준비됨">M5 — 운영 (배포 묶음 ✅ deploy/에 준비됨)</a></li><li><a href="#m6--공유개인-섹션--ux-다듬기--완료-2026-07-12">M6 — 공유/개인 섹션 + UX 다듬기 ✅ 완료 (2026-07-12)</a></li><li><a href="#m7--더-나은-검색과-링크--완료-2026-07-12">M7 — 더 나은 검색과 링크 ✅ 완료 (2026-07-12)</a></li><li><a href="#보안-부하-소켓-강화--완료-2026-07-12">보안, 부하, 소켓 강화 ✅ 완료 (2026-07-12)</a></li><li><a href="#m8--초대-링크--멤버-관리--버전-기록--완료-2026-07-12">M8 — 초대 링크 · 멤버 관리 · 버전 기록 ✅ 완료 (2026-07-12)</a></li><li><a href="#m10--키보드와-편의-기능-다듬기--완료-2026-07-12">M10 — 키보드와 편의 기능 다듬기 ✅ 완료 (2026-07-12)</a></li><li><a href="#m9--캘린더-보기--데일리-노트--템플릿복제--완료-2026-07-12">M9 — 캘린더 보기 · 데일리 노트 · 템플릿(복제) ✅ 완료 (2026-07-12)</a></li><li><a href="#m11--품이-적게-드는-편의-기능--완료-2026-07-13">M11 — 품이 적게 드는 편의 기능 ✅ 완료 (2026-07-13)</a></li><li><a href="#m12--obsidian다움--완료-2026-07-13">M12 — Obsidian다움 ✅ 완료 (2026-07-13)</a></li><li><a href="#m13--notion식-협업--완료-2026-07-13">M13 — Notion식 협업 ✅ 완료 (2026-07-13)</a></li><li><a href="#m14--서식-블록--완료-2026-07-13">M14 — 서식 블록 ✅ 완료 (2026-07-13)</a></li><li><a href="#m15--공개-웹-공유--완료-2026-07-13">M15 — 공개 웹 공유 ✅ 완료 (2026-07-13)</a></li><li><a href="#m16--진짜-실시간-협업--완료-2026-07-13">M16 — 진짜 실시간 협업 ✅ 완료 (2026-07-13)</a></li><li><a href="#m17--생산성-마감-리마인더--완료-2026-07-13">M17 — 생산성: 마감 리마인더 ✅ 완료 (2026-07-13)</a></li><li><a href="#m18--워크스페이스-전체-캘린더--완료-2026-07-13">M18 — 워크스페이스 전체 캘린더 ✅ 완료 (2026-07-13)</a></li><li><a href="#m19--obsidian-설정-옮겨-오기--pwa-편의-기능-2026-09-23">M19 — Obsidian 설정 옮겨 오기 + PWA 편의 기능 (2026-09-23)</a></li><li><a href="#나중에">나중에</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="바닥글">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

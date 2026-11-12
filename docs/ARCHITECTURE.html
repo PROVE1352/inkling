@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inkling Architecture · Inkling</title>
+  <meta name="description" content="How the server, collaboration and web app fit together.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/ARCHITECTURE.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/ARCHITECTURE.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/ARCHITECTURE.ko.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="Inkling Architecture · Inkling">
+  <meta property="og:description" content="How the server, collaboration and web app fit together.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/ARCHITECTURE.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/en/doc-light.png">
+  <meta property="og:locale" content="en_US">
+  <link rel="alternate" type="text/markdown" href="ARCHITECTURE.md" title="This page as Markdown">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="hide-sm" href="../tour/index.html">Tour</a>
+      <a href="index.html">Docs</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="Language"><a href="ARCHITECTURE.ko.html" hreflang="ko" lang="ko">한국어</a><a href="ARCHITECTURE.html" hreflang="en" lang="en" aria-current="true">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="Documentation"><h2>Using Inkling</h2><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li></ul><h2>Running a server</h2><ul><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li></ul><h2>Integrating</h2><ul><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li></ul><h2>Project</h2><ul><li><a href="ARCHITECTURE.html" aria-current="page">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li></ul><h2>More</h2><ul><li><a href="DEMO.html">DEMO</a></li></ul><h2>On GitHub</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">Design decisions (ADRs)</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">Contributing</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">Security policy</a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>All docs</summary><ul><li><a href="GUIDE.html">User guide</a></li><li><a href="MCP.html">MCP connector and agent guide</a></li><li><a href="RECIPES.html">Recipes with other MCP servers</a></li><li><a href="TEMPLATES.html">Templates</a></li><li><a href="QUERY.html">Query blocks</a></li><li><a href="DEPLOY.html">Deployment</a></li><li><a href="OPERATIONS.html">Operations</a></li><li><a href="BACKUP.html">Backup and restore</a></li><li><a href="KNOWN-ISSUES.html">Known issues</a></li><li><a href="API.html">REST API</a></li><li><a href="WEBHOOKS.html">Webhooks</a></li><li><a href="PLUGINS.html">Plugins (experimental)</a></li><li><a href="VAULT-SYNC.html">Vault sync (experimental)</a></li><li><a href="ARCHITECTURE.html">Architecture</a></li><li><a href="ROADMAP.html">Roadmap</a></li><li><a href="PERFORMANCE.html">Performance log</a></li><li><a href="DEMO.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Project</p><h1 id="inkling-architecture">Inkling Architecture</h1><p class="doc-desc">How the server, collaboration and web app fit together.</p><p class="doc-meta doc-meta-top">Rendered from <code>docs/ARCHITECTURE.md</code> in the repository. <a href="ARCHITECTURE.md" type="text/markdown">Markdown source</a></p></header><p>한국어: <a href="ARCHITECTURE.ko.html">ARCHITECTURE.ko.md</a>.</p>
+<h2 id="overview">Overview</h2>
+<pre><code class="language-mermaid">flowchart LR
+  subgraph Client[&quot;Browser / PWA&quot;]
+    BN[&quot;BlockNote editor&lt;br/&gt;(ProseMirror)&quot;]
+    YD[&quot;Y.Doc (CRDT)&quot;]
+    UI[&quot;React SPA&quot;]
+    BN --- YD
+    UI --- BN
+  end
+
+  subgraph Server[&quot;Docker: app (Node 22)&quot;]
+    FA[&quot;Fastify REST /api&quot;]
+    HP[&quot;Hocuspocus WS /collab&quot;]
+    ST[&quot;Static SPA + /files&quot;]
+  end
+
+  PG[(&quot;Postgres 16&lt;br/&gt;users / pages / page_docs(bytea) / files&quot;)]
+  VOL[(&quot;Volume /data/uploads&quot;)]
+
+  UI -- &quot;REST (session cookie)&quot; --&gt; FA
+  YD -- &quot;WebSocket sync + awareness&quot; --&gt; HP
+  UI -- &quot;GET /files/:id&quot; --&gt; ST
+  FA --&gt; PG
+  HP -- &quot;debounced Yjs state&quot; --&gt; PG
+  ST --&gt; VOL
+</code></pre>
+<h2 id="why-a-crdt-yjs">Why a CRDT (Yjs)</h2>
+<p>The core problem of concurrent editing is &quot;if two people edit the same paragraph at the same time, who wins?&quot;
+Yjs is a CRDT (Conflict-free Replicated Data Type), so <strong>every client converges on the same result no matter
+what order the updates arrive in</strong>. The server is not an arbiter; it only acts as a relay and a store
+(Hocuspocus). As a result:</p>
+<ul>
+<li>Typing is local-first (optimistic), so editing feels as smooth as Notion</li>
+<li>Brief offline periods merge automatically on reconnect</li>
+<li>Server logic stays simple (document state = a bytea snapshot)</li>
+</ul>
+<p>The editor and CRDT core (BlockNote/ProseMirror/Yjs) are proven open-source components;
+the product itself (server, permissions, workspaces, integration pipelines, UI) is built in-house.</p>
+<h2 id="authentication">Authentication</h2>
+<ul>
+<li>Session cookie (<code>inkling_sid</code>, httpOnly). Both REST requests and WebSocket upgrade requests authenticate with the same cookie.</li>
+<li>WS authorization: documentName (= page id) → check that the user is a member of the page&#39;s workspace.</li>
+</ul>
+<h2 id="markdown-round-trip-m2m4-design-sketch">Markdown round-trip (M2/M4 design sketch)</h2>
+<pre><code class="language-mermaid">flowchart LR
+  DOC[&quot;page_docs (Yjs state)&quot;] --&gt; B[&quot;BlockNote blocks JSON&quot;]
+  B --&gt; MD[&quot;Markdown + assets&quot;]
+  MD --&gt; OBS[&quot;Written into an Obsidian vault folder&lt;br/&gt;(inklingctl pull / server export API)&quot;]
+  B --&gt; NB[&quot;Notion block mapping&quot;]
+  NB --&gt; NAPI[&quot;Notion API upload&quot;]
+  MDIN[&quot;External .md / zip&quot;] --&gt; B2[&quot;blocks JSON&quot;] --&gt; DOC
+</code></pre>
+<ul>
+<li>Export runs on the server: Yjs state → BlockNote blocks → custom Markdown serialization (including tables, code and images).</li>
+<li>Obsidian: a CLI on the Mac (<code>inklingctl</code>) calls the export API and writes Markdown plus attachments into the vault path.</li>
+<li>Notion: upload driven by a block-type mapping table (headings/lists/tables/code/images); images use the file upload API.</li>
+</ul>
+<h2 id="deployment">Deployment</h2>
+<ul>
+<li>A single <code>docker compose up -d</code>: <code>db</code> (postgres:16-alpine) + <code>app</code> (the published multi-arch image <code>ghcr.io/prove1352/inkling</code>, or a multi-stage build from source with <code>compose.build.yaml</code>; docs/adr/1050-<em>, 1051-</em>).</li>
+<li>All images are multi-arch (x86-64 and ARM64) → they run as-is on Apple Silicon Macs and ARM cloud VMs.</li>
+<li>Data lives in two volumes: <code>inkling_inkling-db</code> (Postgres) and <code>inkling_inkling-data</code> (uploads), named after <code>INKLING_DATA_NAME</code> (an install from 0.18 or older may keep the old name, docs/adr/2340-*).</li>
+</ul>
+<p class="doc-meta"><a href="ARCHITECTURE.md" type="text/markdown">Markdown source</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/ARCHITECTURE.md">View on GitHub</a><a href="index.html">All docs</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="On this page" data-toc><h2>On this page</h2><ul><li><a href="#overview">Overview</a></li><li><a href="#why-a-crdt-yjs">Why a CRDT (Yjs)</a></li><li><a href="#authentication">Authentication</a></li><li><a href="#markdown-round-trip-m2m4-design-sketch">Markdown round-trip (M2/M4 design sketch)</a></li><li><a href="#deployment">Deployment</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

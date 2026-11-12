@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>다른 MCP 서버와 같이 쓰기 · Inkling</title>
+  <meta name="description" content="게임 엔진, 디자인 도구, 코드 저장소 같은 다른 MCP 서버와 같이 쓰는 예시입니다.">
+  <link rel="canonical" href="https://prove1352.github.io/inkling/docs/RECIPES.ko.html">
+  <link rel="alternate" hreflang="ko" href="https://prove1352.github.io/inkling/docs/RECIPES.ko.html">
+  <link rel="alternate" hreflang="en" href="https://prove1352.github.io/inkling/docs/RECIPES.html">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Inkling">
+  <meta property="og:title" content="다른 MCP 서버와 같이 쓰기 · Inkling">
+  <meta property="og:description" content="게임 엔진, 디자인 도구, 코드 저장소 같은 다른 MCP 서버와 같이 쓰는 예시입니다.">
+  <meta property="og:url" content="https://prove1352.github.io/inkling/docs/RECIPES.ko.html">
+  <meta property="og:image" content="https://prove1352.github.io/inkling/assets/ko/doc-light.png">
+  <meta property="og:locale" content="ko_KR">
+  <link rel="alternate" type="text/markdown" href="RECIPES.ko.md" title="이 문서의 Markdown 원문">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body class="docs-body">
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header class="top">
+  <div class="wrap wide">
+    <a class="brand" href="../ko/index.html"><img src="../assets/icon.svg" alt="" width="28" height="28"><span>Inkling</span></a>
+    <nav class="nav" aria-label="주 메뉴">
+      <a class="hide-sm" href="../ko/tour/index.html">둘러보기</a>
+      <a href="index.ko.html">문서</a>
+      <a class="hide-sm" href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <span class="langs" role="group" aria-label="언어"><a href="RECIPES.ko.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="RECIPES.html" hreflang="en" lang="en">English</a></span>
+    </nav>
+  </div>
+</header>
+<div class="docs-layout has-toc">
+  <nav class="docs-side" aria-label="문서 목록"><h2>Inkling 쓰기</h2><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html" aria-current="page">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html">쿼리 블록</a></li></ul><h2>서버 운영</h2><ul><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li></ul><h2>연동</h2><ul><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li></ul><h2>프로젝트</h2><ul><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li></ul><h2>그 밖의 문서</h2><ul><li><a href="DEMO.ko.html">DEMO</a></li></ul><h2>GitHub에서</h2><ul><li><a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">설계 결정(ADR) <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/README.ko.md">README</a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/CONTRIBUTING.md">기여 안내 <span class="en-mark">(영어)</span></a></li><li><a href="https://github.com/PROVE1352/inkling/blob/main/SECURITY.md">보안 정책 <span class="en-mark">(영어)</span></a></li></ul></nav>
+  <main id="main" class="prose">
+    <details class="docs-pick"><summary>문서 목록</summary><ul><li><a href="GUIDE.ko.html">사용 설명서</a></li><li><a href="MCP.ko.html">MCP 연결과 에이전트 안내</a></li><li><a href="RECIPES.ko.html">다른 MCP 서버와 같이 쓰기</a></li><li><a href="TEMPLATES.ko.html">템플릿</a></li><li><a href="QUERY.ko.html">쿼리 블록</a></li><li><a href="DEPLOY.ko.html">배포</a></li><li><a href="OPERATIONS.ko.html">운영</a></li><li><a href="BACKUP.ko.html">백업과 복원</a></li><li><a href="KNOWN-ISSUES.ko.html">알려진 문제</a></li><li><a href="API.ko.html">REST API</a></li><li><a href="WEBHOOKS.ko.html">웹훅</a></li><li><a href="PLUGINS.ko.html">플러그인(실험 기능)</a></li><li><a href="VAULT-SYNC.ko.html">볼트 동기화(실험 기능)</a></li><li><a href="ARCHITECTURE.ko.html">구조</a></li><li><a href="ROADMAP.ko.html">로드맵</a></li><li><a href="PERFORMANCE.ko.html">성능 기록</a></li><li><a href="DEMO.ko.html">DEMO</a></li></ul></details>
+    <header class="doc-head"><p class="doc-kicker">Inkling 쓰기</p><h1 id="다른-mcp-서버와-같이-쓰기">다른 MCP 서버와 같이 쓰기</h1><p class="doc-desc">게임 엔진, 디자인 도구, 코드 저장소 같은 다른 MCP 서버와 같이 쓰는 예시입니다.</p><p class="doc-meta doc-meta-top">이 문서는 저장소의 <code>docs/RECIPES.ko.md</code>을 그대로 옮겼습니다. <a href="RECIPES.ko.md" type="text/markdown">Markdown 원문</a></p></header><p>English: <a href="RECIPES.html">RECIPES.md</a>.</p>
+<p>Inkling이 다른 도구에 직접 붙는 것은 아닙니다. 붙는 쪽은 에이전트 클라이언트(Claude Code, claude.ai, 그 밖의 MCP 클라이언트)입니다. 클라이언트에 Inkling MCP 서버를 연결하고, 같이 쓰는 다른 도구의 MCP 서버도 옆에 연결해 두면, 에이전트가 Inkling에서 계획을 읽고 다른 도구로 일을 한 다음 결과를 다시 Inkling에 적습니다. 이 흐름에서 Inkling은 팀의 공용 기억 역할을 합니다. 기획서, 결정 사항, 진행 상황, 회의록을 팀의 사람과 에이전트가 모두 같은 페이지에서 읽고, 누가 무엇을 썼는지는 히스토리와 경유 표시(via)로 남습니다.</p>
+<h2 id="준비">준비</h2>
+<ol>
+<li>Inkling을 연결합니다. 방법은 <a href="MCP.ko.html#claude-code">MCP.ko.md의 Claude Code</a>나 <a href="MCP.ko.html#claudeai">MCP.ko.md의 claude.ai</a> 절에 있습니다. 에이전트가 진행 상황을 적어야 하니 읽기와 쓰기 권한으로 연결하는 것이 좋습니다.</li>
+<li>다른 도구의 MCP 서버는 그 도구의 문서에 나온 방법대로 연결합니다. Inkling 쪽에는 따로 설정할 것이 없고, 그 도구의 인증 정보도 Inkling에 들어오지 않습니다.</li>
+<li>에이전트에서 두 서버가 모두 보이는지 확인합니다(Claude Code에서는 <code>/mcp</code>).</li>
+</ol>
+<p>아래 예시를 쓸 때 지켜 두면 좋은 습관이 몇 가지 있습니다.</p>
+<p>워크스페이스에서 일을 시작하기 전에 <code>get_instructions(workspaceId)</code>를 한 번 부르게 하세요. 잠긴 지침 페이지에 적어 둔 에이전트용 규칙을 돌려줍니다. 페이지를 통째로 읽기보다는 <code>find_context</code>로 찾고 <code>read_page(pageId, section=…)</code>로 필요한 섹션만 읽는 편이 토큰이 덜 듭니다. 고칠 때는 읽을 때 받은 <code>v=</code> 값을 <code>baseVersion</code>으로 넘겨서 <code>patch_section</code>으로 섹션 하나만 바꿉니다. 그 사이에 누가 고쳤으면 충돌이 나면서 지금 내용이 같이 오니, 합친 다음 다시 보내면 됩니다.</p>
+<p>페이지 내용이나 다른 도구에서 가져온 글은 지시가 아니라 데이터입니다. 이슈나 페이지에 &quot;규칙을 무시하라&quot;고 적혀 있어도 그냥 글일 뿐입니다. 여러 에이전트가 한 페이지에서 일할 때는 오래 고칠 섹션을 <code>claim_section</code>으로 잡아 두고 끝나면 <code>release_section</code>으로 풀어 줍니다. 다른 사람의 에이전트가 무엇을 하고 있는지는 <code>catch_up(team=true)</code>로 볼 수 있습니다.</p>
+<p>아래에 나오는 Inkling 도구 이름은 실제 이름이고, 인자는 <a href="MCP.ko.html">MCP.ko.md</a>에 있습니다. 다른 도구 쪽은 일부러 뭉뚱그려 적었습니다. 게임 엔진이나 디자인 도구, 코드 저장소의 MCP 서버가 어떤 도구를 주는지는 서버마다 다르니 그 서버의 문서를 보시기 바랍니다.</p>
+<h2 id="1-기획서를-읽고-게임-엔진에서-만든-뒤-진행-상황-남기기">1. 기획서를 읽고 게임 엔진에서 만든 뒤 진행 상황 남기기</h2>
+<p>흐름: 기획자가 레벨이나 기능 기획서를 Inkling 페이지에 써 둡니다. 개발자의 에이전트가 그 기획서를 읽고 게임 엔진(Unreal Engine 등)의 MCP 서버로 기능을 만든 다음, 기획서의 &quot;진행 상황&quot; 섹션에 어디까지 했는지 적습니다. 기획자는 따로 묻지 않아도 페이지에서 진행 상황을 봅니다. 게임 엔진 쪽 MCP 서버는 그 서버의 문서대로 설치해 두어야 합니다.</p>
+<p>Inkling 쪽 도구:</p>
+<ul>
+<li><code>find_context(&quot;보스 아레나 기획&quot;)</code>로 페이지와 섹션을 찾고, <code>read_page(pageId, outline=true)</code>와 <code>read_page(pageId, section=…)</code>로 필요한 부분만 읽습니다.</li>
+<li><code>claim_section(pageId, &quot;진행 상황&quot;, minutes=30)</code>으로 섹션을 잡아 두면 그동안 다른 에이전트가 같은 섹션을 덮어쓰지 못합니다. 다시 부르면 시간이 늘어납니다.</li>
+<li>한 단계가 끝날 때마다 <code>patch_section(pageId, &quot;진행 상황&quot;, markdown, mode=&quot;append&quot;, baseVersion)</code>으로 적고, 끝나면 <code>release_section</code>으로 풉니다.</li>
+<li>기획서에 없는 내용은 짐작하지 말고 <code>add_comment(pageId, section=&quot;…&quot;, text=&quot;…&quot;)</code>로 물어보게 합니다.</li>
+</ul>
+<p>프롬프트 예시:</p>
+<pre><code class="language-text">Inkling에서 &quot;보스 아레나&quot; 기획서를 읽어 줘(find_context로 먼저 찾고 필요한 섹션만 읽기).
+게임 엔진 도구로 아레나를 만들어 줘. 배치는 &quot;레이아웃&quot; 섹션, 페이즈 규칙은 &quot;페이즈&quot; 섹션대로.
+시작하기 전에 기획서의 &quot;진행 상황&quot; 섹션을 잡아 두고, 한 부분이 끝날 때마다 무엇을 만들었고
+프로젝트의 어디에 있고 무엇이 남았는지 &quot;진행 상황&quot;에 한 줄씩 덧붙여 줘.
+기획서에서 애매한 부분은 그 섹션에 코멘트를 남기고 나머지부터 진행해 줘.
+다 끝나면 섹션 잡은 것을 풀어 줘.
+</code></pre>
+<h2 id="2-디자인-링크가-있는-prd를-읽고-코드-고친-뒤-결과-적기">2. 디자인 링크가 있는 PRD를 읽고 코드 고친 뒤 결과 적기</h2>
+<p>흐름: Inkling의 PRD 페이지에 디자인 파일 링크(예를 들어 Figma 프레임)가 붙어 있습니다. 에이전트가 PRD를 읽고, 디자인 도구의 MCP 서버로 링크된 시안을 열어 보고, 작업 중인 저장소의 코드를 고친 다음, 무엇을 했는지 PRD 페이지에 적습니다.</p>
+<p>Inkling 쪽 도구:</p>
+<ul>
+<li><code>find_context(&quot;결제 화면 개편 PRD&quot;)</code>로 찾고 <code>read_page(pageId, section=…)</code>로 요구 사항과 디자인 링크가 있는 섹션을 읽습니다.</li>
+<li><code>inbox()</code>로 그 페이지에서 나를 멘션했거나 나에게 남긴 코멘트를 보고, 처리한 뒤 <code>ack(cursor)</code>로 확인 처리합니다.</li>
+<li><code>patch_section(pageId, &quot;구현 메모&quot;, markdown, mode=&quot;replace&quot;, baseVersion)</code>으로 바꾼 파일, 시안과 달라진 점, 남은 질문을 적습니다. 섹션이 없으면 <code>insert_after</code>로 새로 만들 수 있습니다.</li>
+<li>페이지의 리뷰 코멘트에는 <code>reply_comment(threadId, text)</code>로 답합니다.</li>
+</ul>
+<p>프롬프트 예시:</p>
+<pre><code class="language-text">Inkling에서 &quot;결제 화면 개편&quot; PRD를 읽어 줘. &quot;디자인&quot; 섹션의 링크를 디자인 도구로 열어서
+이 저장소의 지금 결제 화면 코드와 비교하고, &quot;요구 사항&quot;에 적힌 대로 고쳐 줘.
+끝나면 PRD의 &quot;구현 메모&quot; 섹션을 바꿔 줘. 바꾼 파일, 시안과 다른 점과 그 이유, 남은 질문.
+시작하기 전에 Inkling inbox에서 이 PRD에 달린 코멘트를 먼저 보고 답할 수 있는 건 답해 줘.
+</code></pre>
+<h2 id="3-github-pr을-정리해서-회의록에-넣기">3. GitHub PR을 정리해서 회의록에 넣기</h2>
+<p>흐름: 주간 회의 전에 에이전트가 코드 저장소(예를 들어 GitHub)의 MCP 서버로 지난 회의 뒤에 머지되거나 새로 열린 PR을 모으고, 정리해서 Inkling의 회의록 페이지에 넣습니다.</p>
+<p>Inkling 쪽 도구:</p>
+<ul>
+<li><code>find_context(&quot;주간 회의록&quot;)</code>나 <code>list_pages(workspaceId, parentId, format=&quot;lines&quot;)</code>로 이번 주 회의록 페이지를 찾습니다. 아직 없으면 <code>create_page(workspaceId, title, markdown, parentId)</code>로 만들고, 팀에 회의록 템플릿이 있으면 <code>create_from_template</code>을 씁니다.</li>
+<li><code>read_page(pageId, outline=true)</code>로 섹션을 보고 <code>patch_section(pageId, &quot;PR&quot;, markdown, mode=&quot;replace&quot;, baseVersion)</code>으로 채웁니다.</li>
+<li>지난 회의 뒤에 노트에서 바뀐 것까지 정리하게 하려면 <code>catch_up()</code>을 같이 씁니다.</li>
+</ul>
+<p>프롬프트 예시:</p>
+<pre><code class="language-text">코드 저장소 도구로 우리 저장소에서 지난 월요일 이후에 머지됐거나 새로 열린 PR을 모아 줘.
+영역별로 묶고 PR마다 제목, 작성자, 링크, 머지 여부를 한 줄로 적어 줘.
+그다음 Inkling에서 이번 주 회의록 페이지를 찾아서(없으면 &quot;회의&quot; 아래에 회의록 템플릿으로 만들고)
+&quot;PR&quot; 섹션을 이 목록으로 바꿔 줘.
+</code></pre>
+<h2 id="inkling에-남겨-둘-것">Inkling에 남겨 둘 것</h2>
+<p>결과와 결정, 진행 상황은 채팅에만 두지 말고 페이지에 적게 하세요. 다음에 에이전트를 다시 돌릴 때도, 팀원이 볼 때도 같은 페이지를 읽게 됩니다. 에이전트가 고친 내용은 사람이 검토할 수 있습니다. 워크스페이스 설정에 따라 에이전트가 바로 고치지 않고 제안(<code>patch_section(…, suggest=true)</code>)으로 남기게 할 수 있고, 고친 것은 활동 화면에서 되돌릴 수 있습니다. 후속 작업을 다른 팀원의 에이전트에게 넘기고 싶으면 <code>catch_up(team=true)</code>가 보여 주는 짧은 연결 id로 <code>add_comment(…, handoffTo=[&quot;g:…&quot;])</code>를 쓰면 됩니다.</p>
+<h2 id="에이전트-작업-보드로-큰-일-나눠-맡기기">에이전트 작업 보드로 큰 일 나눠 맡기기</h2>
+<p>0.17에 들어간 &#39;에이전트 작업 보드&#39; 템플릿은 에이전트 여럿이 일을 나눠 맡을 때 쓰는 데이터베이스입니다. 상태(할 일, 진행 중, 막힘, 완료), 담당(사람이나 그 사람의 에이전트 연결), 상위 작업, 완료 근거, 그리고 <code>TASK-3</code> 같은 ID 속성이 들어 있고, 보기는 &#39;상태별&#39;(보드), &#39;작업 트리&#39;(하위 작업이 상위 작업 아래에 보임), &#39;목록&#39; 세 가지입니다. 한국어로 만든 보드라면 아래 예시의 속성 이름도 한국어(상태, 담당, 완료 근거)로 쓰시면 됩니다.</p>
+<ol>
+<li>템플릿 › 에이전트 작업 보드로 만들거나, 에이전트에게 <code class="long">create_from_template(template=&quot;agentBoard&quot;, workspaceId=…)</code>를 부르게 합니다.</li>
+<li>큰 작업을 맡은 에이전트가 그 작업을 읽고(<code>query_rows(collectionId=…, filter=&#39;ID = TASK-1&#39;)</code>) 나눌 일을 하위 작업으로 만듭니다. 담당은 비워 둡니다.
+<code>create_row(collectionId=…, title=&quot;X API 작성&quot;, parent=&quot;TASK-1&quot;, properties={&quot;상태&quot;: &quot;할 일&quot;})</code></li>
+<li>다른 에이전트가 아직 아무도 안 맡은 일을 찾아 가져갑니다. 행의 버전을 읽고 한 번에 담당을 적기 때문에, 그사이 누가 먼저 가져갔으면 버전 확인에서 걸리고 다른 일을 고르면 됩니다.
+<code>query_rows(collectionId=…, filter=&#39;담당 is empty AND 상태 = &quot;할 일&quot;&#39;, under=&quot;TASK-1&quot;)</code> 다음에
+<code>update_row(rowId=…, baseVersion=…, properties={&quot;담당&quot;: &quot;this connection&quot;, &quot;상태&quot;: &quot;진행 중&quot;})</code></li>
+<li>일을 끝낸 에이전트는 어떻게 확인할 수 있는지 적고 상태를 닫습니다.
+<code>update_row(rowId=…, baseVersion=…, properties={&quot;완료 근거&quot;: &quot;PR #123, 테스트 통과&quot;, &quot;상태&quot;: &quot;완료&quot;})</code></li>
+<li>큰 작업을 맡은 에이전트는 <code>query_rows(collectionId=…, under=&quot;TASK-1&quot;, depth=2, fields=[&quot;상태&quot;, &quot;담당&quot;, &quot;완료 근거&quot;])</code>로 진행 상황을 보고, 하위 작업이 다 완료되면 상위 작업도 닫습니다. 사람은 &#39;작업 트리&#39; 보기에서 같은 트리를 보고, 어느 에이전트가 행을 고쳤는지는 최종 편집자 칸에 &#39;이름 (via 앱)&#39;으로 나옵니다.</li>
+</ol>
+<p>작업마다 상위 작업은 하나뿐이고, 자기 자신 아래로 들어가게 만들 수는 없습니다. 막힌 작업은 상태를 &#39;막힘&#39;으로 바꾸고 이유를 행 본문이나 코멘트에 적어 두세요. 작업끼리의 선후 관계(의존성)는 0.17에서는 다루지 않습니다.</p>
+<h2 id="팀-기억-운영법">팀 기억 운영법</h2>
+<p>팀이 아는 것을 Inkling에 모아 두고 여러 에이전트가 같이 쓰다 보면, 나중에 읽는 사람이 필요한 사실을 찾을 수 있고 믿을 수 있어야 의미가 있습니다. 아래는 그러려고 지켜 두면 좋은 것들입니다. 수치는 Anthropic이 에이전트 기억 실험을 정리한 글 <a href="https://www.anthropic.com/research/components-of-agent-memory">The components of agent memory</a>에서 가져왔습니다.</p>
+<p>먼저 항목마다 페이지를 따로 두세요. 여러 에이전트가 표 하나나 페이지 하나에 동시에 적으면 서로 쓴 것을 덮어써서 사실이 빠집니다. 위 글의 실험에서도 에이전트들이 계약 조건을 공용 표 하나에 몰아 적었더니, 그 위키로 만든 보고서에 사실 57개 중 41개(72%)만 들어갔습니다. 계약마다 페이지를 하나씩 두고 에이전트 하나가 조건을 원문 그대로 옮겨 적게 바꾸자 57개가 모두 남았습니다. Inkling에서는 결정, 고객, 계약, 실험마다 페이지를 하나씩 만들고, 목록 역할을 하는 상위 페이지 아래에 <code>create_page(parentId=…)</code>로 넣으면 됩니다. 한 페이지를 여러 에이전트가 같이 고쳐야 할 때는 섹션을 나눠 맡기고, 길게 고치기 전에 <code>claim_section</code>으로 잡아 둡니다. 계속 늘어나는 기록은 한 페이지에 끝없이 덧붙이지 말고 주 단위나 실행 단위로 하위 페이지를 만들어 적습니다.</p>
+<p>지침 페이지는 짧게 쓰고 색인 역할만 하게 하는 것이 좋습니다. 세션마다 읽히는 내용은 매번 토큰이 들고, 틀린 내용이 섞여 있으면 그것도 매번 따라갑니다. 위 글도 지침 파일이 길수록 잘 안 지켜진다는 점을 들면서, 맨 위 계층은 작게 두고 자세한 내용은 아래로 내린 뒤 링크만 남기라고 합니다. Claude Code의 자동 기억도 <code>MEMORY.md</code>의 앞 200줄 또는 25 KB까지만 읽어서, 무엇을 알고 그게 어디 있는지 보여 주는 색인으로 씁니다. Inkling에서는 <code>get_instructions</code>가 <code>always</code> 지침 페이지를 통째로 돌려주기 때문에 지침 페이지가 이 맨 위 계층에 해당합니다. 지침 페이지에는 규칙과 &quot;어디에 무엇이 있는지&quot;만 적고(예: &quot;결정 사항은 [[결정 사항]]. 계약은 [[고객]] 아래에 계약마다 한 페이지.&quot;), 자세한 내용은 필요할 때 <code>find_context</code>로 찾아 읽게 두세요. 지침 페이지가 같은 기준인 200줄이나 25 KB를 넘으면 편집 잠금 창에 경고가 뜨고, get_instructions도 돌려주는 지침이 그만큼 길면 끝에 에이전트에게 한 줄 알려 줍니다.</p>
+<p>가끔은 점검도 해 줘야 합니다. 노트는 시간이 지나면 낡아서, 이름이 바뀌었거나 아직 없는 페이지로 가는 링크, 두 페이지에 똑같이 적힌 내용, 몇 달째 아무도 확인하지 않은 페이지가 생깁니다. 위 글에서는 정리 작업이 없는 페이지를 가리키던 링크 9개를 찾아 실제 페이지로 고쳤고, 정리 세션마다 중복을 합치고 적힌 내용을 원본과 대조했습니다. Inkling에서는 에이전트에게 워크스페이스를 한 부분씩 정기적으로(예를 들어 매주) 훑게 하면 됩니다. <code>read_page(pageId, backlinks=true)</code>로 이 페이지를 가리키는 페이지를 보고, 주제를 <code>find_context</code>로 찾아 같은 내용을 적은 페이지가 둘 있는지 보고, <code>stale</code>이나 <code>verified, changed since</code> 표시가 붙은 페이지는 다시 확인할 목록에 넣습니다. 페이지를 확인했다는 표시(Verify)는 사람이 앱에서 하는 것이라 에이전트는 할 수 없습니다.
+이 점검은 <code>check_notes</code> 한 번으로 셀 수 있습니다. 깨진 <code>[[링크]]</code>와 휴지통에 있는 페이지로 가는 링크, 제목이 같은 페이지, 들어오거나 나가는 링크가 하나도 없는 페이지, 확인 기한이 지났거나 확인 뒤 많이 바뀐 페이지, 180일 동안 아무도 고치지 않은 큰 페이지를 워크스페이스 전체나 한 하위 트리(<code>check_notes(parentId=…)</code>)에서 찾아 줍니다. 아무것도 고치지는 않습니다. <code>memory-review</code> 프롬프트(Claude Code에서는 <code>/mcp__inkling__memory-review</code>)를 쓰면 get_instructions, check_notes를 차례로 부르고 고칠 계획을 먼저 보여 준 뒤, 허락한 것만 고칩니다. 핵심 도구 목록(<code>/mcp?profile=core</code>)으로 연결했다면 check_notes는 목록에 없으니 <code>more_tools(tool=&quot;check_notes&quot;, arguments={&quot;parentId&quot;: &quot;…&quot;})</code>로 부릅니다. 프롬프트는 알아서 이 형태로 적어 줍니다.</p>
+<p>마지막으로 사실을 적을 때는 출처를 바로 옆에 붙여 두세요. 어떻게 알았는지 적혀 있는 노트는 나중에 확인할 수 있지만, 출처 없는 노트는 그냥 되풀이될 뿐입니다. 위 글에서도 쓸모 있었던 노트는 규칙과 함께 그 규칙이 맞다는 걸 어떻게 알았는지를 같이 적어 둔 것이었습니다. 회의록으로 가는 <code>[[페이지]]</code> 링크, PR이나 이슈 URL, 확인한 날짜 정도면 충분합니다. 가격, 한도, 계약 문구처럼 정확해야 하는 것은 요약하지 말고 그대로 옮겨 적습니다.</p>
+<p>Claude Code를 쓴다면 이런 습관과 위의 읽기·고치기 순서를 담은 스킬을 <a href="https://github.com/PROVE1352/inkling/blob/main/examples/claude-skill/inkling/SKILL.md">examples/claude-skill/inkling</a>에 넣어 두었습니다. 폴더를 <code>~/.claude/skills/inkling/</code>(모든 프로젝트)이나 프로젝트의 <code>.claude/skills/inkling/</code>에 복사하면 됩니다.</p>
+<p class="doc-meta"><a href="RECIPES.ko.md" type="text/markdown">Markdown 원문</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/RECIPES.ko.md">GitHub에서 보기</a><a href="index.ko.html">전체 문서</a></p>
+  </main>
+  <nav class="docs-toc" aria-label="이 문서의 목차" data-toc><h2>목차</h2><ul><li><a href="#준비">준비</a></li><li><a href="#1-기획서를-읽고-게임-엔진에서-만든-뒤-진행-상황-남기기">1. 기획서를 읽고 게임 엔진에서 만든 뒤 진행 상황 남기기</a></li><li><a href="#2-디자인-링크가-있는-prd를-읽고-코드-고친-뒤-결과-적기">2. 디자인 링크가 있는 PRD를 읽고 코드 고친 뒤 결과 적기</a></li><li><a href="#3-github-pr을-정리해서-회의록에-넣기">3. GitHub PR을 정리해서 회의록에 넣기</a></li><li><a href="#inkling에-남겨-둘-것">Inkling에 남겨 둘 것</a></li><li><a href="#에이전트-작업-보드로-큰-일-나눠-맡기기">에이전트 작업 보드로 큰 일 나눠 맡기기</a></li><li><a href="#팀-기억-운영법">팀 기억 운영법</a></li></ul></nav>
+</div>
+<footer class="foot">
+  <div class="wrap wide">
+    <span>Inkling v0.22.1</span>
+    <nav aria-label="바닥글">
+      <a href="https://github.com/PROVE1352/inkling">GitHub</a>
+      <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>
+      <a href="https://github.com/PROVE1352/inkling/tree/main/docs/adr">ADR</a>
+      <a href="../llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

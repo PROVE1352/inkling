@@ -365,4 +365,32 @@ describe('[db] terms and consent (LEGAL_DIR)', { skip: !HAS_DB }, async () => {
       legal.resetLegalForTests()
     }
   })
+
+  it('signup.json with no items (the one-line agreement, docs/adr/2553-*): sign-up with the version works, writes no consent row, and nobody is gated', async () => {
+    const plain = folder({ 'terms.en.md': '# Terms\n', 'privacy.en.md': '# Privacy\n', 'signup.json': { items: [] } })
+    const restore = setLimitsForTests({ legalDir: plain })
+    try {
+      const app = await buildApp()
+      const mode = (await app.inject({ method: 'GET', url: '/api/auth/mode' })).json() as { legal?: { version: string; docs: string[] } }
+      assert.deepEqual(mode.legal?.docs, ['terms', 'privacy'])
+      const info = (await app.inject({ method: 'GET', url: '/api/legal?locale=en' })).json() as { version: string; notice: unknown; items: unknown[] }
+      assert.deepEqual(info.items, [])
+      assert.equal(info.version, mode.legal?.version)
+      // what the sign-up form sends: no ticks, the version shown
+      const p = person({ consents: [], legalVersion: info.version })
+      const r = await app.inject({ method: 'POST', url: '/api/auth/register', payload: p })
+      assert.equal(r.statusCode, 200, r.body)
+      const u = await accountOf(p.email)
+      assert.deepEqual(await consentRows(u.id), [])
+      const cookie = String(r.headers['set-cookie']).split(';')[0]
+      const me = (await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } })).json() as { user: Record<string, unknown> }
+      assert.equal('consentRequired' in me.user, false)
+      const ws = await app.inject({ method: 'GET', url: '/api/workspaces', headers: { cookie } })
+      assert.equal(ws.statusCode, 200, ws.body)
+      assert.notEqual(code(ws), 'CONSENT_REQUIRED')
+    } finally {
+      restore()
+      legal.resetLegalForTests()
+    }
+  })
 })

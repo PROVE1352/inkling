@@ -8,7 +8,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
 import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
-import { SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
+import { SignupAgreementLine, SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
 import { BotCheckField, SignupFullNotice, signupBody, useSignupShownAt } from '../components/account/SignupExtras'
 import { restrictedSignup, SetupOnlyNotice } from '../components/SetupOnlyNotice'
 import { useT } from '../i18n'
@@ -291,6 +291,7 @@ export function Register() {
             )}
             {setupMode ? t('setup.submit') : t('register.submit')}
           </button>
+          <SignupAgreementLine />
         </form>
 
         <p className="mt-4 text-center text-xs text-sub">

@@ -7,7 +7,7 @@ import { useT, type TKey } from '../../i18n'
 // - props: type('note'|'tip'|'warning'|'danger'|'info'). content 'inline' (body is editable).
 // - The config is shared with the server schema (@inkling/shared, docs/adr/1500-*), so server reads
 //   keep callouts and Markdown writes them as `> [!type] text`.
-// - toExternalHTML: falls back to a blockquote for client HTML copy/export so the text survives.
+// - toExternalHTML: falls back to a blockquote with a `[!type]` first line for client HTML copy/export.
 
 export { CALLOUT_TYPES, type CalloutType }
 
@@ -97,6 +97,16 @@ export const calloutSpec = createReactBlockSpec(calloutConfig, {
       </div>
     )
   },
-  // blockquote fallback for HTML/copy outside the editor (inline content is filled via contentRef).
-  toExternalHTML: ({ contentRef }) => <blockquote ref={contentRef} />,
+  // Blockquote fallback for HTML/copy outside the editor (inline content is filled via contentRef).
+  // `[!type]` and a line break first, so the text/plain copy (BlockNote's HTML → Markdown) reads
+  // `> [!type]` then `> body`: an Obsidian callout, and Inkling's own notation (docs/adr/1500-*) when
+  // pasted back. A second <p> would add a `>` blank line, a <br> a trailing `\` after the marker.
+  toExternalHTML: ({ block, contentRef }) => (
+    <blockquote>
+      <p>
+        {`[!${normalizeType(block.props.type)}]\n`}
+        <span ref={contentRef} />
+      </p>
+    </blockquote>
+  ),
 })()

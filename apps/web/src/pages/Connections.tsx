@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import {
   AGENT_TOKEN_DEFAULT_EXPIRY_DAYS,
@@ -94,10 +94,25 @@ function AccessBadge({ access }: { access: 'read' | 'write' | undefined }) {
   )
 }
 
-/** "Suggestions only until HH:MM" and, for the connection's owner (this screen), the button that lifts it. */
+/**
+ * "Suggestions only until HH:MM" and, for the connection's owner (this screen), the button that lifts it. The refusal an
+ * agent gets links to /settings/connections#suggest-only (docs/adr/0979-*): the first such row is scrolled into view
+ * and its button focused once the lists have loaded (rows render after their queries, so the browser's own anchor
+ * jump never finds them).
+ */
 export function SuggestOnlyLine({ state, connection }: { state: SuggestOnlyDTO | null | undefined; connection: string }) {
   const t = useT()
   const release = useReleaseConnection()
+  const button = useRef<HTMLButtonElement>(null)
+  const shown = !!state
+  useEffect(() => {
+    if (!shown || window.location.hash !== '#suggest-only') return
+    const el = button.current
+    // only the first suggest-only row in the page; a row of a list that loads later and sits higher takes over
+    if (!el || document.querySelector('[data-testid="suggest-only"] button') !== el) return
+    el.scrollIntoView({ block: 'center' })
+    el.focus({ preventScroll: true })
+  }, [shown])
   if (!state) return null
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="suggest-only">
@@ -108,6 +123,7 @@ export function SuggestOnlyLine({ state, connection }: { state: SuggestOnlyDTO |
         {t('suggestOnly.badge', { time: fmtDate(state.until, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })}
       </span>
       <button
+        ref={button}
         type="button"
         disabled={release.isPending}
         onClick={() => release.mutate(connection)}

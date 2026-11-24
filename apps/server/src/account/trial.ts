@@ -128,13 +128,14 @@ export async function deleteTrialAccount(userId: string, log: (msg: string) => v
 
 async function expiredTrialIds(limit: number): Promise<string[]> {
   const rows = (await db.execute(sql`
-    SELECT id FROM users WHERE trial AND expires_at < now() ORDER BY expires_at, id LIMIT ${limit}
+    SELECT id FROM users WHERE trial AND NOT is_admin AND expires_at < now() ORDER BY expires_at, id LIMIT ${limit}
   `)) as unknown as { id: string }[]
   return rows.map((r) => r.id)
 }
 
 /**
  * Hourly (account/register.ts): delete trial accounts whose time is up, oldest first, each on its own
+ * (never one an admin made an admin, as the lifetime job never deletes admins)
  * (a failure is logged and the next one still runs). Runs whatever TRIAL_ACCOUNTS, ACCOUNT_LIFETIME_DAYS
  * and ACCOUNT_LIFETIME_DRY_RUN say. Log lines carry user ids and counts only.
  */

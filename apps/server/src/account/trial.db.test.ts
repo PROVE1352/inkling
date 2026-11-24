@@ -389,6 +389,21 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     assert.equal((await app.inject({ method: 'GET', url: '/api/workspaces', headers: { authorization: `Bearer ${apiToken}` } })).statusCode, 200)
   })
 
+  it('known gap: a trial account cannot delete itself early (DELETE /api/me wants a password nobody knows)', async () => {
+    const r = await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: first.cookie }, payload: { confirm: first.user.email } })
+    assert.equal(r.statusCode, 400, r.body)
+    assert.equal(code(r), 'INVALID_PASSWORD')
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE id = ${first.user.id}`), 1)
+  })
+
+  it('a trial account an admin made an admin is never deleted by the trial job', async () => {
+    const t = await makeTrial()
+    await db.execute(sql`UPDATE users SET is_admin = true, expires_at = now() - interval '1 minute' WHERE id = ${t.user.id}`)
+    await trial.expireTrialAccounts(() => {})
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE id = ${t.user.id}`), 1)
+    await db.execute(sql`UPDATE users SET is_admin = false, expires_at = now() + interval '1 hour' WHERE id = ${t.user.id}`)
+  })
+
   it('nobody joins a trial workspace with its code (the invite link is off)', async () => {
     const ws = await one<{ id: string; invite_code_enc: string | null }>(sql`SELECT id, invite_code_enc FROM workspaces WHERE id = ${first.workspaceId}`)
     const inviteCode = revealInviteCode({ id: ws.id, inviteCodeEnc: ws.invite_code_enc })

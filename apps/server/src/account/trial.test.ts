@@ -323,6 +323,20 @@ describe('trial accounts: the refused routes', () => {
       if (isRefused && isAllowed) both.push(k)
       if (!isRefused && !isAllowed) unclassified.push(`${k} (${r.file})`)
     }
+    // routes the extraction cannot see: `.route({ method, url })` and `.all(` (none today)
+    const walk = (dir: string, out: string[] = []): string[] => {
+      for (const f of readdirSync(dir)) {
+        const p = path.join(dir, f)
+        if (statSync(p).isDirectory()) walk(p, out)
+        else if (p.endsWith('.ts') && !/\.test\.ts$|testHarness|TestKit/.test(p)) out.push(p)
+      }
+      return out
+    }
+    for (const file of walk(src)) {
+      const text = readFileSync(file, 'utf8')
+      assert.doesNotMatch(text, /\.route\(\s*\{[^}]*method:\s*\[?\s*'(POST|PUT|PATCH|DELETE)'/, `${file}: a route declared with .route(); classify it by hand`)
+      assert.doesNotMatch(text, /\b(app|api|s|inner|root|scope|pub)\.all\(\s*['`]/, `${file}: an .all() route; classify it by hand`)
+    }
     assert.deepEqual(unclassified, [], 'a new write route: add it to TRIAL_RESTRICTED_ROUTES (account/trial.ts) or, with a reason, to TRIAL_ALLOWED here')
     assert.deepEqual(both, [])
     assert.deepEqual(Object.keys(TRIAL_ALLOWED).filter((k) => !seen.has(k)), [], 'allowed but no longer a route')

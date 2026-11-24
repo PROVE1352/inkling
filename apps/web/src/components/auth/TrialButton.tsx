@@ -88,7 +88,8 @@ export function TrialButton({ placement }: { placement: 'login' | 'register' }) 
           {error}
         </p>
       )}
-      <SignupAgreementLine />
+      {/* the sign-up form has the same line under its own button already */}
+      {placement === 'login' && <SignupAgreementLine />}
       <p className="break-keep text-center text-[11px] leading-relaxed text-sub">{t('trial.hint', { hours: trial.hours })}</p>
     </div>
   )

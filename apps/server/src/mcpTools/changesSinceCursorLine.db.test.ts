@@ -26,6 +26,9 @@ describe('[db] changes_since cursor line', { skip: !HAS_DB }, async () => {
   })
 
   const lastLine = (t: string) => t.trimEnd().split('\n').at(-1) ?? ''
+  // The answer without its last line: the next cursor carries the server-wide sequence, which other
+  // test files running against the same database move between two calls.
+  const body = (r: { text: string; isError: boolean }) => ({ isError: r.isError, text: r.text.trimEnd().split('\n').slice(0, -1).join('\n') })
   const tokenOf = (line: string) => {
     const m = /cursor: (\S+)$/.exec(line)
     assert.ok(m, `no cursor in: ${line}`)
@@ -46,7 +49,8 @@ describe('[db] changes_since cursor line', { skip: !HAS_DB }, async () => {
     assert.match(plain.text, /Cursor line/)
     for (const cursor of [startLine, `Cursor:${token}`, `CURSOR:   ${token}`]) {
       const r = await mcp.tool('changes_since', { workspaceId: ws.id, cursor })
-      assert.deepEqual(r, plain, cursor)
+      assert.deepEqual(body(r), body(plain), cursor)
+      assert.match(lastLine(r.text), /^next cursor: \S+$/, cursor)
     }
     // the line every normal answer ends with, passed whole
     const nextLine = lastLine(plain.text)
@@ -54,7 +58,7 @@ describe('[db] changes_since cursor line', { skip: !HAS_DB }, async () => {
     const viaLine = await mcp.tool('changes_since', { workspaceId: ws.id, cursor: nextLine })
     const viaToken = await mcp.tool('changes_since', { workspaceId: ws.id, cursor: tokenOf(nextLine) })
     assert.equal(viaLine.isError, false, viaLine.text)
-    assert.deepEqual(viaLine, viaToken)
+    assert.deepEqual(body(viaLine), body(viaToken))
   })
 
   it('the longest valid token with the longest label fits the argument limit', async () => {

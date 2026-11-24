@@ -203,7 +203,7 @@ export default {
   'notion.title': '노션으로 보내기',
   'notion.created_other': '노션에 페이지를 만들었습니다. (블록 {count}개)',
   'notion.warnings_other': '경고 {count}건',
-  'notion.intro': '{title} 을(를) 노션의 대상 페이지 아래 새 하위 페이지로 업로드합니다.',
+  'notion.intro': '{title} 페이지를 노션의 대상 페이지 아래 새 하위 페이지로 업로드합니다.',
   'notion.parentUrl': '대상 페이지 URL',
   'notion.disabled': '노션 업로드가 비활성 상태입니다. 서버 {env} 에 {token} 을 설정한 뒤 다시 시도하세요.',
   'notion.sending': '보내는 중…',

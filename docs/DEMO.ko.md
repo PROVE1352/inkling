@@ -173,7 +173,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `APP_MEM_LIMIT`, `NODE_OPTIONS` | `768m`, `--max-old-space-size=448` | 앱 컨테이너의 메모리와 그 안에서 서버가 쓰는 힙(아래 "메모리") |
 | `DISABLED_FEATURES` | `demo.env.example` 참고 | 서버 전체에서 끄는 기능 |
 | `LEGAL_DIR` | `/legal` | 컨테이너 안의 약관 폴더(호스트에서는 `DEMO_LEGAL_DIR`) |
-| `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시 |
+| `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시. 비우면 표시 없음 |
 | `INSTANCE_NOTICE` | 비움 | 로그인·가입·동의 화면과 모든 앱 화면 위에 보이는 공지(글자만, 500자까지) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | 남기는 백업 세트 수 |
 | `SIGNUP_PER_HOUR` | `10` | 서버 전체에서 한 시간에 만들 수 있는 계정 수(설정 링크로 만든 계정은 세지 않음) |

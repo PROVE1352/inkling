@@ -7,6 +7,39 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-25
+
+What an agent does to a page is now visible without connecting one: the sample page carries example suggestions to
+review, a page can show what an agent would read of it, and each section says who changed it last. The first
+minutes of a new account lead to the connect screen in one step. No database migration (63 applied migrations, as
+0.22.3), no new setting, and the MCP tool list is unchanged. One API route is added. What is left is in
+docs/KNOWN-ISSUES.md, "Added in 0.23.0".
+
+### Example suggestions on the sample page
+- A new sample page comes with two suggested edits from an "Example agent", written in advance, so reviewing a
+  suggestion (accept in part, reject) can be tried before connecting an agent. They send no notification and are
+  left out of `GET /suggestions` and Team agents (docs/adr/2388-*). Sample pages made before this release are
+  unchanged.
+- The notice above a page with open suggestions reads "N suggested edits" (before: "from agents").
+
+### What an agent reads
+- Page menu → "What an agent reads": a read-only dialog with the page's estimated tokens, each section's anchor,
+  tokens, share and version, the Markdown an agent gets for a section, and what `find_context` would return for a
+  question in this workspace. It uses the existing routes; no server change (docs/adr/2389-*).
+
+### Section marks
+- Next to each heading, who changed the section last: an agent sign and the app's name, or a person's initials. The
+  mark opens the time, the kind of change and "Revert this change", which leads to the existing revert dialog.
+- `GET /api/pages/:id/section-provenance` returns the newest visible change of each section, from the change log
+  (docs/adr/1627-*, docs/API.md).
+
+### First minutes of a new account
+- "Connect an AI agent" in the intro and the Getting started card now opens the per-app setup directly. The connect
+  screen leads with the chosen app's command, says what connecting gives, what to ask first and where a connection
+  shows up, and folds tools and sign-in under "Other options".
+- Empty agent screens (Team agents, the workspace's connected agents) say what will appear there and link to the
+  connect screen. A new account's empty home offers "Make a sample page to try things on" as its main button.
+
 ## [0.22.3] - 2026-11-24
 
 A small patch release: one new optional setting, a contact link to the operator. No database migration (63 applied

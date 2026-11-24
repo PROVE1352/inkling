@@ -578,6 +578,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [1624](1624-reverting-an-agents-run.md) | Reverting one change or an agent's run: scopes, preview, permissions | Accepted |
 | [1625](1625-typing-attributed-per-index-window.md) | Live typing is attributed per index window; server edits log pending typing first (CF-2) | Accepted |
 | [1626](1626-one-status-filter-for-suggestion-lists.md) | One status filter for both suggestion lists; withdraw says why | Accepted |
+| [1627](1627-section-marks-from-the-change-log.md) | Section marks next to headings: the newest visible change of each section, from the change log | Accepted |
 
 ## 1640–1649 Sidebar on short screens and typed tables
 
@@ -942,6 +943,8 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2385](2385-intro-end-screen-camera-and-ink-wipe.md) | The intro ends on a screen of next steps; a camera and ink wipes inside the same pure function | Accepted |
 | [2386](2386-image-viewer-double-click-in-the-editor-click-elsewhere.md) | Image viewer: double-click or the corner button in the editor, one click where nothing can be edited | Accepted |
 | [2387](2387-public-callouts-carry-their-icon-css-finds-parts-by-class.md) | Public page callouts carry their icon; the CSS finds the icon and the text by class | Accepted |
+| [2388](2388-example-suggestions-on-the-sample-page.md) | Example suggestions on the sample page: written directly, marked by `connection = 'example'`, quiet | Accepted |
+| [2389](2389-agent-view-reads-the-existing-rest-routes.md) | "What an agent reads": a read-only dialog over the existing context routes | Accepted |
 
 ## 2400–2409 find_context recall (0.20)
 

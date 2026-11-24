@@ -29,6 +29,7 @@ import { dropSuggestionBases, mergedBlocks, parsePartial, recordPartial, storeSu
 import { findVisiblePage } from './pageDto'
 import type { PageRow } from './pageDto'
 import { assertWorkspaceGrowth, jsonBytes } from './quota/room'
+import { suggestionsChanged } from './suggestionNotice'
 
 /**
  * Suggested edits (docs/adr/1530-* .. 1534-*).
@@ -42,7 +43,8 @@ import { assertWorkspaceGrowth, jsonBytes } from './quota/room'
  *
  * Notifications (docs/adr/1534-*): approval_request to the page's document owner (else its creator)
  * when a suggestion is made, approval_result to the suggestion's author when it is decided; both
- * queued with the outbox (in the transaction of the row change where there is one).
+ * queued with the outbox (in the transaction of the row change where there is one). Every row change
+ * also tells the page's open clients to read the list again (suggestionNotice.ts, docs/adr/2556-*).
  */
 
 export type SectionWriteMode = 'replace' | 'append' | 'prepend' | 'insert_after' | 'delete'
@@ -351,6 +353,7 @@ export async function createSuggestions(
     }
     return out
   })
+  suggestionsChanged(page.id)
   if (reviewer && prepared.some((_, k) => fates[k].kind !== 'now')) outboxCommitted(['notify'])
   const out: SuggestionDTO[] = []
   for (const [k, id] of ids.entries()) {
@@ -407,7 +410,7 @@ export async function seedExampleSuggestions(args: { userId: string; page: PageR
     if (seen.has(p.anchor)) throw badRequest(`§${p.anchor || '(whole page)'} is suggested twice`)
     seen.add(p.anchor)
   }
-  return db.transaction(async (tx) => {
+  const ids = await db.transaction(async (tx) => {
     const out: string[] = []
     // clock_timestamp(): the rows list in the items' order (a page's list sorts by created_at).
     for (const p of prepared) {
@@ -423,6 +426,8 @@ export async function seedExampleSuggestions(args: { userId: string; page: PageR
     }
     return out
   })
+  suggestionsChanged(page.id)
+  return ids
 }
 
 /**
@@ -697,6 +702,7 @@ export async function rejectSuggestion(id: string, user: AuthUser): Promise<Sugg
     return true
   })
   if (!done) throw new AppError(409, 'SUGGESTION_DECIDED', 'Someone decided on this suggestion just now')
+  suggestionsChanged(row.pageId)
   outboxCommitted(['notify'])
   return toDto((await loadRow(id))!)
 }
@@ -743,9 +749,11 @@ export async function acceptSuggestion(
     }
   } catch (err) {
     await db.execute(sql`UPDATE section_suggestions SET status = 'open', decided_by = NULL, decided_at = NULL WHERE id = ${id} AND status = 'accepted'`)
+    suggestionsChanged(row.pageId)
     throw err
   }
   await dropSuggestionBases(db, [id])
+  suggestionsChanged(row.pageId)
   notify(resultEvent(row, user, 'accepted'))
   return toDto((await loadRow(id))!)
 }
@@ -798,11 +806,13 @@ async function acceptHunks(
     }
   } catch (err) {
     await db.execute(sql`UPDATE section_suggestions SET status = 'open', decided_by = NULL, decided_at = NULL WHERE id = ${row.id} AND status = ${status}`)
+    suggestionsChanged(row.pageId)
     throw err
   }
   const partial = { applied, total: effective.length }
   if (status === 'accepted_partial') await recordPartial(db, row.authorId, row.id, partial)
   else await dropSuggestionBases(db, [row.id])
+  suggestionsChanged(row.pageId)
   notify(resultEvent(row, user, status, status === 'accepted_partial' ? partial : undefined))
   return toDto((await loadRow(row.id))!)
 }
@@ -817,6 +827,7 @@ export async function withdrawSuggestion(id: string, user: AuthUser): Promise<Su
      WHERE id = ${id} AND status = 'open'
   `)
   await dropSuggestionBases(db, [id])
+  suggestionsChanged(row.pageId)
   return toDto((await loadRow(id))!)
 }
 

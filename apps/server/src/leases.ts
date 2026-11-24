@@ -8,6 +8,7 @@ import { readOutline } from './context/sectionSource'
 import type { OutlineSection } from './context/sectionSource'
 import { db } from './db/index'
 import { AppError, badRequest } from './errors'
+import { suggestionsChanged } from './suggestionNotice'
 
 /**
  * Section claims (docs/adr/1535-*, 1536-*): an agent connection says "I am working on this section
@@ -128,6 +129,7 @@ export async function claimSection(
     const held = claimOf(await pageClaims(page.id, user), section)
     throw claimedError(section.anchor, held)
   }
+  suggestionsChanged(page.id)
   return toDto({ ...rows[0], name: user.name }, conn)
 }
 
@@ -138,6 +140,7 @@ export async function releaseSection(user: AuthUser, pageId: string, anchor: str
   const rows = (await db.execute(sql`
     DELETE FROM section_leases WHERE page_id = ${pageId} AND anchor = ${anchor} AND connection = ${conn} RETURNING 1 AS x
   `)) as unknown as unknown[]
+  if (rows.length) suggestionsChanged(pageId)
   return rows.length > 0
 }
 
@@ -181,10 +184,15 @@ export async function assertNotClaimed(user: AuthUser, pageId: string, ref: stri
   if (held) throw claimedError(s.anchor, held)
 }
 
-/** Housekeeping: deletes claims that ended more than a minute ago. */
+/**
+ * Housekeeping: deletes claims that ended more than a minute ago. A claim stops showing when it
+ * ends (pageClaims reads `expires_at > now()`), which is no write: open pages learn it from their
+ * poll, or from this sweep's notice a minute later.
+ */
 export async function sweepExpiredLeases(): Promise<number> {
   const rows = (await db.execute(sql`
-    DELETE FROM section_leases WHERE expires_at < now() - interval '1 minute' RETURNING 1 AS x
-  `)) as unknown as unknown[]
+    DELETE FROM section_leases WHERE expires_at < now() - interval '1 minute' RETURNING page_id AS "pageId"
+  `)) as unknown as { pageId: string }[]
+  suggestionsChanged(...rows.map((r) => r.pageId))
   return rows.length
 }

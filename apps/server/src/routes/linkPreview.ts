@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { requireUser, SESSION_COOKIE } from '../auth'
+import { rateLimitKey } from '../rateLimitKey'
 import { AppError } from '../errors'
 import { getLinkPreview } from '../linkPreview'
 import { SafeFetchError } from '../safeFetch'
@@ -12,8 +13,12 @@ const querySchema = z.object({ url: z.string().min(1).max(2048) })
  * Per-session limiter key. The rate-limit hook runs on onRequest (before requireUser), so the
  * user id is not resolved yet; the session cookie identifies the browser session instead
  * (hashed so the raw token never lands in limiter memory). Falls back to the client IP.
+ * A request with an Authorization header is keyed by rateLimitKey (the API token, else the IP), never
+ * by its cookie: auth.ts reads the bearer first, so a cookie sent beside it would only pick a fresh
+ * bucket per request.
  */
-function sessionKey(req: FastifyRequest): string {
+export function sessionKey(req: FastifyRequest): string {
+  if (req.headers.authorization !== undefined) return 'lp-' + rateLimitKey(req)
   const sid = (req.cookies as Record<string, string | undefined> | undefined)?.[SESSION_COOKIE]
   return sid ? 'lp:' + createHash('sha256').update(sid).digest('base64url').slice(0, 22) : 'lp-ip:' + req.ip
 }

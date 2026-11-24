@@ -25,6 +25,35 @@
 - [ ] `BACKUP_PASSPHRASE`를 정하고 서버 밖에 보관하세요. 잃어버리면 암호화된 백업 세트를 복구할 수 없습니다.
 - [ ] 외부 사본을 설정하세요(`deploy/compose.backup-rclone.yaml`). 로컬 백업 세트는 데이터베이스와 같은 디스크에 있습니다.
 
+<a id="installing-from-a-panel-portainer-coolify"></a>
+### 패널에서 설치하기 (Portainer, Coolify)
+
+[examples/compose.panel.yaml](../examples/compose.panel.yaml)은 compose 파일을 붙여 넣어 설치하는 패널용 파일 한 개입니다. 저장소를 받지 않아도 됩니다. 배포 이미지, Postgres 16, 볼륨 두 개, 헬스체크가 들어 있고, 메모리 상한은 `compose.yaml`과 같으며 core dump는 꺼 두었습니다.
+
+1. `openssl rand -hex 32`로 비밀 값 두 개를 만듭니다. 하나는 `POSTGRES_PASSWORD`, 하나는 `APP_SECRET_KEY`입니다. 비밀번호는 데이터베이스 URL에 들어가므로 16진수 문자만 쓰세요. `APP_SECRET_KEY`는 서버 밖에도 한 부 보관합니다.
+2. 파일을 붙여 넣고 변수를 채웁니다. 필수는 `POSTGRES_PASSWORD`, `APP_SECRET_KEY`, `PUBLIC_URL`(사람들이 열 https 주소)입니다. 선택은 `INKLING_VERSION`(예: `0.23.0`, 비우면 latest), `INKLING_PORT`, `TZ`, `DEFAULT_LOCALE`, 메일 설정, `compose.yaml`의 메모리 변수입니다.
+   - Portainer: Stacks → Add stack → 이름 → Web editor에 파일을 붙여 넣고, Environment variables에 변수를 넣은 뒤(Load variables from .env file로 불러와도 됩니다) Deploy the stack을 누릅니다.
+   - Coolify: 새 Docker Compose Empty 리소스를 만들고 파일을 붙여 넣습니다. Coolify는 파일의 `${VAR}`를 모두 Environment Variables에 보여 주고, 필수 변수(`${VAR:?}`)가 비어 있으면 배포하지 않습니다.
+3. HTTPS. 평문 HTTP 포트를 인터넷에 열지 마세요.
+   - Coolify: Domains → Add domain에서 `app` 서비스를 고릅니다. Coolify의 프록시는 스택 안의 네트워크로 컨테이너 3000번 포트에 붙습니다. Coolify 문서는 도메인 뒤에 있는 서비스에 `ports:`를 두지 말라고 하니, `app`의 `ports:` 두 줄은 지워도 됩니다.
+   - Portainer에는 프록시가 없습니다. 기본값에서 앱은 호스트의 `127.0.0.1:3000`에서 받으므로 호스트에서 도는 프록시(Caddy, nginx)는 붙을 수 있습니다. 다른 컨테이너에 있는 프록시는 붙지 못합니다. 그 프록시를 스택의 네트워크에 연결하거나, `INKLING_PORT=3000`으로 두고 방화벽에서 그 포트를 막으세요.
+   - 프록시가 해 줄 일은 [deploy/Caddyfile](../deploy/Caddyfile)에 있습니다. `/collab` WebSocket까지 모두 3000번 포트로 보내면 됩니다. 저장소를 받아 쓴다면 Caddy 오버레이가 이 일을 합니다([deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md) "3-B").
+4. 앱 로그를 엽니다. 한 번만 쓰는 `<PUBLIC_URL>/setup?code=…` 링크가 찍혀 있고, 거기서 만든 계정이 관리자입니다([deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md) "3-C"). 다른 사람의 가입 키는 관리 화면에서 만듭니다.
+
+`compose.yaml`과 비교해 이 파일에 없는 것은 다음과 같습니다.
+
+- 백업 서비스. 이 서비스는 `deploy/backup`의 스크립트를 돌리는데, 파일 한 개로는 그 스크립트를 실어 올 수 없습니다. 그래서 관리 화면에 "백업 서비스"(`Backup service`)가 주황색으로 나옵니다. 호스트에서 직접 백업하세요. 예를 들어 cron에서 패널에 보이는 컨테이너 이름으로 아래 명령을 돌리고, 만든 파일은 서버 밖으로 복사합니다.
+
+  ```bash
+  docker exec <db container> pg_dump -Fc > inkling-db.dump
+  docker exec <app container> tar -czf - -C /data . > inkling-data.tar.gz
+  ```
+
+  백업 세트에 들어가는 파일 두 개와 같은 내용입니다([BACKUP.ko.md](BACKUP.ko.md) "백업 세트에 들어 있는 것"). 두 명령은 시험용 스택에서 한 번 돌려 봤고, 이 파일로 손수 복원하는 것은 해 보지 않아 여기서 설명하지 않습니다.
+- 호스트에 여는 데이터베이스 포트, 소스 빌드, `deploy/*.sh` 스크립트.
+
+볼륨 이름은 `<stack>_inkling-db`, `<stack>_inkling-data`입니다. 프로젝트 이름이 같고 `INKLING_DATA_NAME=inkling`일 때 `compose.yaml`이 붙이는 이름과 같습니다. 2026-11-25에 이미지 0.23.0과 Docker Compose 5.5로 arm64 Mac에서 `config`, `up`, `/api/health`, `/api/version`, `/api/health/ready`, 로그의 설정 링크를 확인했습니다. Portainer나 Coolify 안에서 직접 띄워 보지는 않았고, 위 순서는 두 패널의 문서를 따른 것입니다([Portainer, Add a new stack](https://docs.portainer.io/user/docker/stacks/add), [Coolify, Docker Compose](https://coolify.io/docs/knowledge-base/docker/compose), 둘 다 2026-11-25에 읽음). CasaOS도 compose 파일을 가져오지만, 서비스 두 개와 변수가 있는 파일을 어떻게 다루는지는 확인하지 않았습니다.
+
 <a id="resource-limits"></a>
 ### 자원 한도
 
@@ -34,6 +63,24 @@
 - [ ] 기본 `compose.yaml`의 서비스들은 `x-logging` 앵커를 함께 씁니다. 오버레이 파일(Caddy, rclone)에서는 이 앵커를 가져다 쓸 수 없으니, 그 서비스들에는 `logging:` 블록을 따로 넣으세요.
 - [ ] 가져오기 한도: 폴더 깊이는 32까지이고, 가져오기 한 번에 만드는 페이지 수는 `IMPORT_MAX_PAGES`(기본 5000)까지입니다. zip 항목은 실제로 풀린 바이트로 잽니다. 크기 한도는 환경 변수로 바꿀 수 있습니다: `IMPORT_MAX_UPLOAD_MB`(25), `IMPORT_MAX_UNPACKED_MB`(50), `IMPORT_MAX_ENTRY_MB`(25), `IMPORT_MAX_FILES`(300). 노션 내보내기를 받으려고 이 값을 올리면 최대 메모리 사용량이 대략 업로드 크기만큼 늘어납니다(안에 분할 압축 파일이 들어 있으면 두 배). docs/adr/0961-*을 보세요.
 - [ ] 무거운 작업 한도(docs/adr/1240-*): 가져오기(Markdown, zip, Notion, 폴더), zip 내보내기, 하위 트리 복제는 `HEAVY_JOBS_MAX`개의 자리 중 하나를 차지합니다(기본 2. 메모리 768 MB 미만 컨테이너이거나 `IMPORT_MAX_*` 한도를 올렸다면 `1`로 두세요). 나머지 작업은 `HEAVY_JOBS_QUEUE_MAX`(16)개까지 들어가는 공정한 대기열에서 최대 `HEAVY_JOBS_WAIT_MS`(60000) 동안 기다리고, 그래도 차례가 오지 않으면 `Retry-After`와 함께 `503 HEAVY_JOBS_BUSY`를 받습니다. 한 사람이 돌리거나 기다릴 수 있는 작업은 `HEAVY_JOBS_PER_USER`(2)개이고, 하나 더 하려고 하면 `429 HEAVY_JOBS_PER_USER`를 받습니다. zip 내보내기는 다운로드가 끝나거나 클라이언트 연결이 끊길 때까지 자리를 잡고 있습니다. 이 한도들은 프로세스마다 따로 적용됩니다.
+
+<a id="measured-resource-use"></a>
+### 실제로 잰 자원 사용량
+
+2026-11-25에 서버 한 대에서 `docker stats --no-stream`으로 쟀습니다. 서버는 arm64(aarch64) 4코어, 메모리 24 GB(Oracle Cloud의 Ampere A1 인스턴스)이고, Inkling 인스턴스 두 개가 함께 돌고 있었습니다. 컨테이너마다 한 번씩, 인스턴스가 쉬고 있을 때 읽은 값입니다.
+
+| | 인스턴스 A | 인스턴스 B | `compose.yaml`의 상한 |
+|---|---|---|---|
+| 데이터 | 계정 13개, 페이지 485개, 색인 조각 7,351개, 10일 넘게 가동 | 계정 2개, 페이지 12개 | |
+| 앱 컨테이너 | 약 127 MiB | 약 120 MiB | `APP_MEM_LIMIT`, 기본 768m(`NODE_OPTIONS`로 V8 힙 512 MB) |
+| Postgres 16 컨테이너 | 약 182 MiB | 약 60 MiB | `PG_MEM_LIMIT`, 기본 512m |
+| 백업 컨테이너 | 약 2 MiB | 약 2 MiB | 256m |
+| 데이터베이스 볼륨 | 352 MB | 재지 않음 | |
+| 데이터 볼륨(업로드) | 92 MB | 재지 않음 | |
+
+- 그 서버에서 직접 빌드한 앱 이미지는 582 MB였습니다. 배포 이미지 `ghcr.io/prove1352/inkling`의 크기는 그 서버에서 재지 않았습니다.
+- 재지 않은 것: 사람들이 편집하는 중, 가져오기·zip 내보내기·주간 복원 테스트 중, 에이전트가 큰 페이지를 다시 쓰는 중의 최댓값(17절 "큰 페이지의 메모리"), 그리고 다른 기계(amd64 서버, 라즈베리 파이, 작은 VPS 등).
+- 상한은 넘지 못하게 막는 값이지 미리 잡아 두는 메모리가 아니고, 기본값을 더하면 1 GB가 넘습니다. 배포 이미지를 쓰면 서버에서 빌드하지 않으므로(README) 소스 빌드에 드는 메모리는 필요 없습니다. 돌아가는 앱이 얼마나 작은 서버에서 버티는지는 재지 않았습니다.
 
 <a id="database-timeouts"></a>
 ### 데이터베이스 타임아웃

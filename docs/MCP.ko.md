@@ -30,7 +30,112 @@ Customize → Connectors → **+ Add** → **Add custom connector**를 열고 �
 <a id="other-clients"></a>
 ## 다른 클라이언트
 
-설정 → 연결 → **AI 앱 연결**(`Connect an AI app`)에서 Claude Code, claude.ai / Claude Desktop, Cursor(`.cursor/mcp.json`), VS Code(`.vscode/mcp.json`)용 설정과 일반 `mcpServers` JSON을 만들어 줍니다. 도구 프로필(전체 도구 또는 `?profile=core`)도 여기서 고릅니다. Windsurf는 목록에 없습니다. Windsurf 문서에 설정 형식이 더는 나와 있지 않으니 일반 JSON을 쓰세요. 각 형식과 그 출처는 [ADR 2020](adr/2020-connection-settings-generator.md)에 있습니다.
+설정 → 연결 → **AI 앱 연결**(`Connect an AI app`)에서 Claude Code, claude.ai / Claude Desktop, Cursor(`.cursor/mcp.json`), VS Code(`.vscode/mcp.json`)용 설정과 일반 `mcpServers` JSON을 만들어 줍니다. 도구 프로필(전체 도구 또는 `?profile=core`)도 여기서 고릅니다. 각 형식과 그 출처는 [ADR 2020](adr/2020-connection-settings-generator.md)에 있습니다. 다른 클라이언트의 설정은 다음 절에 있습니다.
+
+<a id="settings-for-other-clients"></a>
+### 다른 클라이언트의 설정
+
+각 클라이언트의 공식 문서에서 옮겼고, 문서는 2026-11-25에 읽었습니다. **이 클라이언트들은 아직 Inkling에 붙여 본 적이 없습니다.** 붙여 본 것은 위의 Claude Code와 claude.ai뿐이고, **AI 앱 연결** 상자가 만드는 Cursor와 VS Code 설정도 실제 앱으로는 시험하지 않았습니다(KNOWN-ISSUES AGT-4). 써 보셨다면 되는지 알려 주세요.
+
+- 아래 클라이언트는 모두 URL을 적은 그대로 씁니다. 그래서 `https://notes.example.com/mcp?profile=core`로 도구 목록을 줄일 수 있습니다(셸 명령에서는 따옴표로 감쌉니다).
+- 로그인: Inkling은 동적 클라이언트 등록을 쓰는 OAuth를 지원하고, 이 클라이언트들도 기본으로 그렇게 합니다. 표에 "스스로 등록"이라고 적은 것은 문서에 그렇게 나온 클라이언트이고, 나머지 문서는 원격 서버에 로그인한다는 말만 있습니다. 로그인이 안 되거나 서버가 LAN의 평범한 `http://` 주소에 있으면 **에이전트 연결 토큰**(다음 절)을 `Authorization: Bearer ink_agt_…` 헤더로 넣으세요. 표의 "에이전트 연결 토큰으로" 칸이 그 방법입니다. 개인 API 토큰(`ink_pat_`)은 `/mcp`에서 거절됩니다.
+- 되도록 환경 변수를 쓰는 형태를 고르세요. 함께 쓰거나 커밋하는 파일에 토큰을 적으면 그 파일을 읽는 사람 누구나 토큰을 봅니다.
+
+| 클라이언트 | 설정 위치 | 원격 서버 키 | 로그인 | 에이전트 연결 토큰으로 | 출처 |
+|---|---|---|---|---|---|
+| Cursor | `.cursor/mcp.json`(프로젝트) 또는 `~/.cursor/mcp.json` | `"url"` | OAuth, 스스로 등록(동적 등록) | `"headers": {"Authorization": "Bearer ${env:INKLING_TOKEN}"}` | [cursor.com/docs/context/mcp](https://cursor.com/docs/context/mcp) |
+| VS Code (GitHub Copilot) | `~/.copilot/mcp-config.json`(모든 워크스페이스) 또는 워크스페이스 루트의 `.mcp.json`. **AI 앱 연결** 상자가 만드는 `.vscode/mcp.json`은 이제 사용 중단된 편집기 형식입니다 | `"type": "http"`(Streamable HTTP) | "요청이 오면 인증을 마친다"(`complete authorization when prompted`)고만 적혀 있음 | `"headers": {"Authorization": "Bearer ${INKLING_TOKEN}"}`, 변수는 VS Code가 도는 곳에 둠 | [code.visualstudio.com/docs/agents/reference/mcp-configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) |
+| OpenAI Codex CLI | `~/.codex/config.toml`, 또는 신뢰한 프로젝트의 `.codex/config.toml` | `[mcp_servers.inkling]`의 `url`(Streamable HTTP) | `codex mcp login inkling`, 동적 등록 또는 Client ID Metadata Documents | `bearer_token_env_var = "INKLING_TOKEN"` | [developers.openai.com/codex/mcp](https://developers.openai.com/codex/mcp)(지금은 learn.chatgpt.com/docs/extend/mcp로 넘어감) |
+| Gemini CLI | `~/.gemini/settings.json` 또는 `.gemini/settings.json` | `"httpUrl"`(Streamable HTTP. `"url"`은 SSE라 Inkling에서는 안 됨) | 첫 401에서 찾아내고 스스로 등록, `/mcp auth inkling` | `gemini mcp add`에 `--header "Authorization: Bearer ink_agt_…"`, 또는 `"headers"` | [geminicli.com/docs/tools/mcp-server](https://geminicli.com/docs/tools/mcp-server/) |
+| OpenCode | 프로젝트의 `opencode.jsonc`(모든 프로젝트는 `--global`), `mcp.servers` 아래 | `"type": "remote"`(Streamable HTTP) | 기본으로 켜짐, 스스로 등록하거나 Client ID Metadata Documents 사용, `/mcps` 또는 `opencode mcp auth inkling` | `"oauth": false, "headers": {"Authorization": "Bearer {env:INKLING_TOKEN}"}` | [opencode.ai/docs/mcp-servers](https://opencode.ai/docs/mcp-servers/) |
+| Google Antigravity | `~/.gemini/config/mcp_config.json` 또는 `<workspace>/.agents/mcp_config.json` | `"serverUrl"`(Streamable HTTP만) | 자동, Client ID Metadata Documents 또는 동적 등록 | `"headers": {"Authorization": "Bearer ink_agt_…"}`(토큰이 파일에 남음) | [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) |
+| Zed | 설정 파일의 `context_servers` 아래(Settings → AI → MCP Servers → Add Server → Add Remote Server가 써 줌) | `"url"`(문서에 전송 방식이 나와 있지 않음) | `Authorization` 헤더가 없으면 "표준 MCP OAuth 흐름"(`the standard MCP OAuth flow`) | `"headers": {"Authorization": "Bearer ink_agt_…"}`(토큰이 파일에 남음) | [zed.dev/docs/ai/mcp](https://zed.dev/docs/ai/mcp) |
+| Cline | CLI: `~/.cline/data/settings/cline_mcp_settings.json`, IDE 확장: MCP Servers → Configure → Configure MCP Servers | `"type": "streamableHttp"`(빼면 SSE를 써서 Inkling에서는 안 됨) | `cline mcp`의 "Authorize OAuth" | `cline mcp add`에 `--header "Authorization: Bearer ink_agt_…"`, 또는 `"headers"` | [docs.cline.bot/mcp/mcp-overview](https://docs.cline.bot/mcp/mcp-overview) |
+
+Windsurf는 표에 없습니다. Windsurf의 MCP 문서(docs.windsurf.com/windsurf/cascade/mcp)가 이제 Devin Desktop 문서로 넘어가고, 그 문서는 Devin 자체의 설정 파일을 설명합니다.
+
+서버에 `OAUTH_CIMD=1`을 켜면 Client ID Metadata Documents를 지원하는 클라이언트(문서상 Codex, OpenCode, Antigravity)는 등록하지 않고 자기 문서로 자기를 밝힐 수 있습니다. 이때 `OAUTH_CIMD_ALLOWED_HOSTS`를 넣었다면 그 클라이언트의 호스트도 들어 있어야 합니다. 시험해 보지는 않았습니다.
+
+Cursor(`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+VS Code(`~/.copilot/mcp-config.json` 또는 `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "type": "http",
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+OpenAI Codex CLI(`~/.codex/config.toml`). 적은 뒤 `codex mcp login inkling`을 실행합니다.
+
+```toml
+[mcp_servers.inkling]
+url = "https://notes.example.com/mcp"
+```
+
+Gemini CLI. 추가한 뒤 Gemini CLI 안에서 `/mcp auth inkling`을 실행합니다.
+
+```bash
+gemini mcp add --transport http inkling https://notes.example.com/mcp
+```
+
+OpenCode. 추가한 뒤 `opencode mcp auth inkling`을 실행합니다.
+
+```bash
+opencode mcp add inkling --url https://notes.example.com/mcp
+```
+
+Google Antigravity(`~/.gemini/config/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "serverUrl": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+Zed(설정 파일):
+
+```json
+{
+  "context_servers": {
+    "inkling": {
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+Cline(`cline_mcp_settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "type": "streamableHttp",
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
 
 <a id="apps-that-cannot-sign-in-agent-connection-tokens"></a>
 ### 로그인을 못 하는 앱: 에이전트 연결 토큰

@@ -113,3 +113,37 @@ Inkling 쪽 도구:
 마지막으로 사실을 적을 때는 출처를 바로 옆에 붙여 두세요. 어떻게 알았는지 적혀 있는 노트는 나중에 확인할 수 있지만, 출처 없는 노트는 그냥 되풀이될 뿐입니다. 위 글에서도 쓸모 있었던 노트는 규칙과 함께 그 규칙이 맞다는 걸 어떻게 알았는지를 같이 적어 둔 것이었습니다. 회의록으로 가는 `[[페이지]]` 링크, PR이나 이슈 URL, 확인한 날짜 정도면 충분합니다. 가격, 한도, 계약 문구처럼 정확해야 하는 것은 요약하지 말고 그대로 옮겨 적습니다.
 
 Claude Code를 쓴다면 이런 습관과 위의 읽기·고치기 순서를 담은 스킬을 [examples/claude-skill/inkling](../examples/claude-skill/inkling/SKILL.md)에 넣어 두었습니다. 폴더를 `~/.claude/skills/inkling/`(모든 프로젝트)이나 프로젝트의 `.claude/skills/inkling/`에 복사하면 됩니다.
+
+<a id="quick-capture-from-a-phone"></a>
+## 휴대폰에서 바로 메모하기
+
+이동 중에 떠오른 한 줄을 앱을 열지 않고 정해 둔 페이지(예: "Inbox") 끝에 붙입니다. 개인 API 토큰으로 REST 호출 한 번이면 되고, MCP 클라이언트는 쓰지 않습니다.
+
+1. 메모를 모을 페이지를 만듭니다. 예를 들어 "Inbox". 페이지 id는 주소의 마지막 부분입니다.
+   `/w/<workspace id>/p/<page id>`.
+2. 설정 › 연결 → API 토큰 → **새 토큰**에서 이름(예: "휴대폰 메모"), 권한 **읽기와 쓰기**, 볼 수 있는 범위 **페이지 하나와 그 아래 페이지만**(1에서 만든 페이지), 만료를 고릅니다. 토큰은 한 번만 보이니 복사해 두세요. 범위를 이렇게 좁혀 두면 휴대폰을 잃어버려도 노트 전체가 아니라 그 페이지만 열립니다.
+3. 메모를 보냅니다.
+
+```bash
+curl -X POST "https://notes.example.com/api/pages/<page id>/content" \
+  -H "Authorization: Bearer ink_pat_…" \
+  -H "Content-Type: application/json" \
+  -d '{"markdown": "- buy milk", "mode": "append"}'
+```
+
+응답은 `{"ok":true}`입니다. 본문은 Markdown이라 `- `는 목록, `- [ ] `는 할 일이 됩니다. `mode`는 `append`로 두세요. `replace`는 페이지 전체를 바꿉니다. 다른 응답은 이렇습니다. 토큰이 틀리거나 만료되면 401, 읽기 전용 토큰이거나 토큰 범위 밖의 페이지면 403, 문서 페이지가 아니면 400, 1분에 30번을 넘으면 429입니다.
+
+4. 휴대폰에서 같은 요청을 보냅니다.
+   - iPhone과 iPad의 단축어: **URL 내용 가져오기**(`Get Contents of URL`) 동작에 위 URL을 넣습니다. 더 보기(Show More)에서 방법(Method)을 POST로 바꾸고, 헤더에 `Authorization`(`Bearer ink_pat_…`)과 `Content-Type`(`application/json`)을 넣고, 요청 본문(Request Body)을 JSON으로 골라 텍스트 항목 두 개를 넣습니다. `markdown`(예: "입력 요청" 동작의 결과)과 값이 `append`인 `mode`입니다. 방법과 JSON 본문은 Apple의 [Request your first API in Shortcuts](https://support.apple.com/guide/shortcuts/request-your-first-api-apd58d46713f/ios)에 나와 있습니다. 헤더 칸은 같은 동작에 있지만 그 문서에는 나오지 않습니다.
+   - Android: 헤더와 JSON 본문을 넣어 HTTP 요청을 보낼 수 있는 자동화 앱이면 됩니다. 방법, URL, 헤더 두 개, 본문을 똑같이 넣으세요. 앱마다 화면 순서가 달라 확인하지 않았습니다.
+
+이 절의 `curl` 호출은 2026-11-25에 로컬 0.23.0 서버에서, 페이지 하나로 범위를 좁힌 토큰으로 돌려 봤습니다. 휴대폰에서는 해 보지 않았습니다.
+
+**페이지가 길어지면.** 이 호출은 언제나 그 페이지 자체에 덧붙입니다. 페이지의 **새 기록** 설정(달마다 하위 페이지, 또는 크기를 넘으면 새 하위 페이지, [GUIDE.ko.md](GUIDE.ko.md) "긴 페이지 나누기")은 MCP 도구 `update_page`가 따르는 것이고 이 경로는 따르지 않습니다. 설정을 따르려면 먼저 어디에 붙일지 물어본 뒤 그곳으로 보내세요.
+
+```bash
+curl -X POST "https://notes.example.com/api/pages/<page id>/rotation/target" -H "Authorization: Bearer ink_pat_…"
+# {"pageId":"…","title":"2026-11","rotated":true,"created":true,"mode":"month"} → POST the note to that pageId
+```
+
+하위 페이지는 그 페이지 아래에 생기므로 범위를 그 페이지로 좁힌 토큰으로도 닿습니다. 새 기록이 꺼져 있으면 이 호출은 페이지 자신을 돌려주고, 페이지가 저장 상태 1 MiB나 토큰 50k개를 넘으면 소유자에게 "큰 페이지" 알림을 한 번 보냅니다. 위의 호출 하나로는 이 알림이 가지 않습니다. 이만큼 큰 페이지는 열고 저장하고 검색하는 데 오래 걸리니, 제목 기준으로 나누거나(⋯ → **페이지 나누기…**) 새 기록을 켜세요.

@@ -87,7 +87,7 @@ describe('[db] suggestions notice on the page collab document', { skip: !HAS_DB 
   })
 
   async function newPage(title: string) {
-    const blocks = [heading(SECRET_HEADING), para('rent 100'), heading('Timeline'), para('q1')]
+    const blocks = [heading(SECRET_HEADING), para('rent 100'), heading('Timeline'), para('q1'), para('keep'), para('q3')]
     const pg = await h.makeDocPage(wsId, alice.id, title, blocks as never)
     await reindexPageChunks(pg.id, blocks as never)
     await drainChangeLog()
@@ -227,20 +227,17 @@ describe('[db] suggestions notice on the page collab document', { skip: !HAS_DB 
     await expectNotice([tab], 'withdraw', async () => assert.equal((await B.tool('withdraw_suggestion', { suggestionId: s3 })).isError, false))
 
     // accepting some hunks of a replace (the merge path)
-    const s4 = await suggest('q2\n\nwater 30', 'replace', 'timeline')
+    const s4 = await suggest('q2\n\nkeep\n\nq4', 'replace', 'timeline')
     const pv = (await req(alice, 'GET', `/suggestions/${s4}?preview=1`)).json().suggestion.preview
-    const merge = pv?.merge
-    if (merge && merge.hunks.filter((x: { same: boolean }) => !x.same).length) {
-      const pick = merge.hunks.filter((x: { same: boolean }) => !x.same)[0].id
-      await expectNotice([tab], 'accept in part', async () => {
-        const r = await req(alice, 'POST', `/suggestions/${s4}/accept`, { hunks: [pick], mergeKey: merge.key })
-        assert.equal(r.statusCode, 200, r.body)
-      })
-    } else {
-      await expectNotice([tab], 'accept (whole replace)', async () => {
-        assert.equal((await req(alice, 'POST', `/suggestions/${s4}/accept`, {})).statusCode, 200)
-      })
-    }
+    const merge = pv?.merge as { key: string; hunks: { id: number; same: boolean }[] } | undefined
+    assert.ok(merge, 'the replace suggestion splits into hunks')
+    const effective = merge.hunks.filter((x) => !x.same)
+    assert.ok(effective.length >= 2, JSON.stringify(merge.hunks))
+    await expectNotice([tab], 'accept in part', async () => {
+      const r = await req(alice, 'POST', `/suggestions/${s4}/accept`, { hunks: [effective[0].id], mergeKey: merge.key })
+      assert.equal(r.statusCode, 200, r.body)
+      assert.equal(r.json().suggestion.status, 'accepted_partial')
+    })
 
     assert.equal(outsider.payloads.length, 0)
     assertContentless(tab.payloads)

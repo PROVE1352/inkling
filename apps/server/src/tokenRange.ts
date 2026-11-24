@@ -62,7 +62,7 @@ export function currentRange(userId?: string): RangeScope | null {
 }
 
 export const OUT_OF_RANGE_MESSAGE =
-  'This connection is limited to part of your notes, and this is outside it. Change the range in Settings › Connections, or work inside the range'
+  'This connection is limited to part of your notes, and this is outside it. Change the range in Settings > Connections, or work inside the range'
 
 /** 400 INVALID_RANGE: a chosen range names something the owner cannot see. */
 export function invalidRange(message: string): AppError {

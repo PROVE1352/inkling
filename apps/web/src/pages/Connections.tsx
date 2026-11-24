@@ -128,10 +128,30 @@ function AccessBadge({ access }: { access: 'read' | 'write' | undefined }) {
   )
 }
 
-/** "Suggestions only until HH:MM" and, for the connection's owner (this screen), the button that lifts it. */
+/**
+ * "Suggestions only until HH:MM" and, for the connection's owner (this screen), the button that lifts it. The refusal an
+ * agent gets links to /settings/connections#suggest-only (docs/adr/0979-*): the first such row is scrolled into view
+ * and its button focused once the lists have loaded (rows render after their queries, so the browser's own anchor
+ * jump never finds them), then the hash is dropped.
+ */
 export function SuggestOnlyLine({ state, connection }: { state: SuggestOnlyDTO | null | undefined; connection: string }) {
   const t = useT()
   const release = useReleaseConnection()
+  const shown = !!state
+  useEffect(() => {
+    if (!shown || window.location.hash !== '#suggest-only') return
+    // a moment for the other lists to load, then the first suggest-only row in the page, once: the hash is taken
+    // off so a row that turns suggest-only later does not take the focus
+    const timer = window.setTimeout(() => {
+      if (window.location.hash !== '#suggest-only') return
+      const first = document.querySelector<HTMLButtonElement>('[data-testid="suggest-only"] button')
+      if (!first) return
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+      first.scrollIntoView({ block: 'center' })
+      first.focus({ preventScroll: true })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [shown])
   if (!state) return null
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="suggest-only">

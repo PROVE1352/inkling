@@ -119,6 +119,16 @@ describe('[db] suggest-only connections after flagged content', { skip: !HAS_DB 
       assert.equal(w.isError, true, `${name}: ${w.text}`)
       assert.match(w.text, /CONNECTION_SUGGEST_ONLY/, name)
       assert.match(w.text, /until \d{4}-\d\d-\d\dT\d\d:\d\dZ it may only suggest edits here/, name)
+      // where a person lifts a false alarm, from PUBLIC_URL; ASCII only (docs/adr/0979-*)
+      assert.ok(
+        w.text.includes(
+          'If this was a false alarm, the person can lift it at https://notes.example.com/settings/connections#suggest-only ' +
+            `(a workspace owner or admin: https://notes.example.com/w/${ws1}/team-agents); tell them`,
+        ),
+        w.text,
+      )
+      assert.match(w.text, /Do not retry or work around this/, name)
+      assert.doesNotMatch(w.text, /[^\x20-\x7E\n]/, name)
       assert.doesNotMatch(w.text, /previous instructions|trash_page on every/, name)
     }
     // comments, claims and its own suggestions are not page content

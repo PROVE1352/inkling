@@ -354,6 +354,19 @@ export function joinPath(path: string[]): string {
   return path.join(PATH_SEP)
 }
 
+/** What the injection heuristics see of one chunk: the heading path on the first part, then the text. */
+export function scanChunk(headingPath: string, part: number, text: string): string[] {
+  return scanInjection(`${part === 0 ? headingPath : ''}\n${text}`)
+}
+
+/** page_chunks.hash of a row (the re-scan of flagged rows recomputes it the same way, chunkIndex.ts). */
+export function chunkHash(
+  r: { anchor: string; blockId: string | null; headingPath: string; level: number; part: number; text: string; sectionHash: string },
+  suspicious: readonly string[],
+): string {
+  return sha1(r.anchor, r.blockId, r.headingPath, r.level, r.part, r.text, r.sectionHash, suspicious.join(','))
+}
+
 /** Sections → index rows (the whole document, bounded only by MAX_CHUNKS_PER_PAGE). */
 export function chunkSections(sections: Section[]): Chunk[] {
   const chunks: Chunk[] = []
@@ -365,7 +378,7 @@ export function chunkSections(sections: Section[]): Chunk[] {
       const text = parts[p]
       const grams = cjkBigrams(`${p === 0 ? headingPath : ''} ${text}`)
       const tokens = estimateTokens(text)
-      const suspicious = scanInjection(`${p === 0 ? headingPath : ''}\n${text}`)
+      const suspicious = scanChunk(headingPath, p, text)
       chunks.push({
         ord: chunks.length,
         anchor: s.anchor,
@@ -377,7 +390,7 @@ export function chunkSections(sections: Section[]): Chunk[] {
         grams,
         tokens,
         suspicious,
-        hash: sha1(s.anchor, s.blockId, headingPath, s.level, p, text, s.version, suspicious.join(',')),
+        hash: chunkHash({ anchor: s.anchor, blockId: s.blockId, headingPath, level: s.level, part: p, text, sectionHash: s.version }, suspicious),
         sectionHash: s.version,
       })
     }

@@ -739,6 +739,13 @@ The same screen asks what the app may see:
 You can change this later without reconnecting: Settings → Connections → **Manage connections** → **Change range**.
 A link from a page in range to a page outside shows only the link text written in the page.
 
+To see a page the way an agent reads it, open the page's **⋯** menu → **What an agent reads**. It shows the
+page's estimated size in tokens and each section with its `§anchor`, tokens, share of the page and version;
+open a section to see the Markdown an agent gets for it. Type a question and it shows what `find_context` would
+return from this workspace: the sections and their tokens out of the 3,500-token budget. The search runs as you,
+with no agent connected, and matches words, so ask with words used in your notes. On the sample page a
+question is filled in.
+
 ### What the AI can and can't do
 
 It can:

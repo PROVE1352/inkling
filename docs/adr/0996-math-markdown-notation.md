@@ -21,9 +21,10 @@ as Markdown, which is most of LaTeX, and keeps `\$` as a backslash plus a dollar
 - Mechanism: on export each math node is replaced by an alphanumeric sentinel (random nonce +
   counter, no punctuation, so the converter neither escapes nor splits it) and the LaTeX is put
   back after conversion, keeping the line prefix (indent, `>`) of a block. On import the spans are
-  cut out of the source before parsing (outside fenced code, code spans, link destinations and
-  autolinks) and the sentinels are turned back into nodes after; a sentinel that ends up inside a
-  link label or code comes back as its `$…$` text.
+  cut out of the source before parsing (outside fenced code, code spans, link destinations,
+  `<…>` autolinks and bare `http(s)://` / `www.` URLs) and the sentinels are turned back into nodes
+  after; a sentinel that ends up inside a link label or code, or anywhere no math node fits (an
+  image's alt text, an href, any other prop), comes back as its `$…$` text.
 - Escaping: a literal `$` in text is written as `\$` only where re-import would otherwise read math
   (the line has inline math or `$$`, or its text matches the inline rule). Prices stay unescaped.
   On import `\$` outside code becomes `$` (CommonMark; BlockNote's parser keeps the backslash).

@@ -166,10 +166,16 @@ const FENCE_RE = /^[ \t>]*(`{3,}|~{3,})/
 const DISPLAY_OPEN_RE = /^([ \t>]*)\$\$[ \t]*$/
 const DISPLAY_ONE_LINE_RE = /^([ \t>]*)\$\$(.*\S.*?)\$\$[ \t]*$/
 
-/** Masks code spans, link destinations and autolinks so `$` inside them is never math. */
+/**
+ * Masks code spans, link destinations, `<…>` autolinks and bare URLs so `$` inside them is never
+ * math. BlockNote's parser links bare URLs (GFM autolink literals), and an OData query such as
+ * `?$filter=a&$select=b` would otherwise split the link around a math node. Same masks as the web
+ * paste path (apps/web/src/lib/paste/markdownNotation.ts).
+ */
 function maskedSegments(line: string): { text: string; from: number }[] {
   const out: { text: string; from: number }[] = []
-  const skip = /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|<[a-z][a-z0-9+.-]*:[^>\s]*>/gi
+  const skip =
+    /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b(?:https?:\/\/|www\.)[^\s<>]+/gi
   let last = 0
   for (let m = skip.exec(line); m; m = skip.exec(line)) {
     if (m.index > last) out.push({ text: line.slice(last, m.index), from: last })
@@ -327,6 +333,26 @@ export function extractMath(md: string): MathImport {
         return [inl]
       }),
     )
+    // A sentinel can also land where no math node fits: image alt text (the block's `name`), a link
+    // href, an indented code block, any other prop. Give the source back as written there.
+    const plain = (text: string, code: boolean) => {
+      const t = text.replace(any, literal)
+      return dollar ? t.replaceAll(dollar, code ? '\\$' : '$') : t
+    }
+    const leftovers = (v: unknown, code: boolean): unknown => {
+      if (typeof v === 'string') return v.includes(s.nonce) ? plain(v, code) : v
+      if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) v[i] = leftovers(v[i], code)
+        return v
+      }
+      if (v && typeof v === 'object') {
+        const o = v as Record<string, unknown>
+        const inCode = code || o.type === 'codeBlock'
+        for (const k of Object.keys(o)) o[k] = leftovers(o[k], inCode)
+      }
+      return v
+    }
+    if (JSON.stringify(blocks).includes(s.nonce)) leftovers(blocks, false)
     return blocks
   }
   return { markdown: out.join('\n'), restore }

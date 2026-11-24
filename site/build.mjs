@@ -14,6 +14,7 @@
 //
 // Usage (Node 22+): node site/build.mjs [--strict]
 //   DEMO_URL=https://demo.example.org node site/build.mjs   also links a public demo server (see DEMO_URL below)
+//   DEMO_TRIAL=1 DEMO_URL=https://… node site/build.mjs      the demo also lets people in without an account
 // The Markdown renderer (marked, pinned in site/package.json) is installed into site/node_modules on
 // the first run. site/ is not part of the pnpm workspace, so the repo's lockfile is not touched.
 
@@ -34,10 +35,16 @@ const BASE_URL = 'https://prove1352.github.io/inkling/'
 const VERSION = JSON.parse(readFileSync(join(REPO, 'apps/server/package.json'), 'utf8')).version
 /**
  * A public demo server to link from the landing pages and llms.txt, given at build time
- * (DEMO_URL=https://… node site/build.mjs). Unset or empty, the output has no demo link at all, byte for
- * byte the same as before the demo existed; the repository never names a demo server.
+ * (DEMO_URL=https://… node site/build.mjs). Unset or empty, the output has no demo link at all; the
+ * repository never names a demo server.
  */
 const DEMO_URL = process.env.DEMO_URL || ''
+/**
+ * DEMO_TRIAL=1: the demo server has a "try without an account" button on its sign-in screen, so the demo
+ * button goes to the server's root (its sign-in screen) and the demo note says how that works. Ignored
+ * without DEMO_URL.
+ */
+const DEMO_TRIAL = Boolean(DEMO_URL) && process.env.DEMO_TRIAL === '1'
 if (DEMO_URL) {
   let ok = false
   try {
@@ -49,6 +56,7 @@ if (DEMO_URL) {
     process.exit(1)
   }
 }
+const DEMO_ROOT = DEMO_URL ? `${new URL(DEMO_URL).origin}/` : ''
 
 // ---------------------------------------------------------------------------
 // marked (pinned in site/package.json)
@@ -575,17 +583,27 @@ function page({ lang, name, title, description, body, toc, mdHref }) {
 //   {{FIG:name}}         a drawing from figures.mjs in this page's language
 //   {{ICON:name}}        a small icon from figures.mjs
 //   {{SECTIONS}}         links to the page's sections, named by each section's kicker
-//   {{#DEMO}}…{{/DEMO}}  kept, with {{DEMO_URL}} in it filled in, only when DEMO_URL is set; dropped
-//                        otherwise. Open it at the end of an existing line so nothing is left behind.
-//                        llms.txt uses the same markers.
+//   {{#DEMO}}…{{/DEMO}}  kept, with {{DEMO_URL}} and {{DEMO_ROOT}} (the demo server's root) in it filled
+//                        in, only when DEMO_URL is set; dropped otherwise. {{^DEMO}}…{{/DEMO}} is the
+//                        opposite: kept only without DEMO_URL. Open a block at the end of an existing line
+//                        so nothing is left behind. llms.txt uses the same markers.
+//   {{#DEMO_TRIAL}}…{{/DEMO_TRIAL}}, {{^DEMO_TRIAL}}…{{/DEMO_TRIAL}}  the same for DEMO_TRIAL=1 (which
+//                        needs DEMO_URL). Use them inside a DEMO block or alone; they do not nest in
+//                        themselves.
 // ---------------------------------------------------------------------------
-const demoBlocks = (s, url) => s.replace(/\{\{#DEMO\}\}([\s\S]*?)\{\{\/DEMO\}\}/g, (_, inner) => (DEMO_URL ? inner.replace(/\{\{DEMO_URL\}\}/g, url) : ''))
+const pick = (s, name, on) =>
+  s.replace(new RegExp(`\\{\\{([#^])${name}\\}\\}([\\s\\S]*?)\\{\\{\\/${name}\\}\\}`, 'g'), (_, kind, inner) => ((kind === '#') === on ? inner : ''))
+const demoBlocks = (s, url, root) => {
+  const out = pick(pick(s, 'DEMO', Boolean(DEMO_URL)), 'DEMO_TRIAL', DEMO_TRIAL)
+  // without DEMO_URL a stray {{DEMO_URL}} stays, so the unknown-placeholder check reports it
+  return DEMO_URL ? out.replace(/\{\{DEMO_URL\}\}/g, url).replace(/\{\{DEMO_ROOT\}\}/g, root) : out
+}
 function sectionStrip(src, lang) {
   const links = [...src.matchAll(/<section class="block[^"]*" id="([a-z-]+)"[\s\S]*?<p class="kicker">([^<]+)<\/p>/g)].map(([, id, label]) => `<a href="#${id}">${label}</a>`)
   return `<nav class="sections" data-sections aria-label="${lang === 'ko' ? '이 쪽의 절' : 'Sections of this page'}"><div class="wrap">${links.join('')}</div></nav>`
 }
 function fillLanding(src, lang, prefix, where) {
-  const out = demoBlocks(src, esc(DEMO_URL))
+  const out = demoBlocks(src, esc(DEMO_URL), esc(DEMO_ROOT))
     .replace(/\{\{SECTIONS\}\}/g, () => sectionStrip(src, lang))
     .replace(/\{\{FIG:([a-z]+)\}\}/g, (all, n) => figure(n, lang) ?? all)
     .replace(/\{\{ICON:([a-z]+)\}\}/g, (all, n) => iconSvg(n) ?? all)
@@ -619,7 +637,7 @@ cpSync(join(SITE, 'assets'), join(OUT, 'assets'), { recursive: true, filter: (p)
     const info = DOC_INFO.get(baseOf(n))
     koDocs.push([n, `${info ? info[3] : baseOf(n)} (${info ? info[1] : baseOf(n)}, Korean)`, `docs/${n}.md`])
   }
-  const llms = demoBlocks(readFileSync(join(SITE, 'llms.txt'), 'utf8'), DEMO_URL)
+  const llms = demoBlocks(readFileSync(join(SITE, 'llms.txt'), 'utf8'), DEMO_URL, DEMO_ROOT)
     .replace(/\{\{VERSION\}\}/g, `v${VERSION}`)
     .replace('{{KO_DOCS}}', koDocs.map(([, label, href]) => `- [${label}](${href})`).join('\n'))
   for (const m of llms.matchAll(/\{\{[^}]*\}\}/g)) warn(`llms.txt: unknown placeholder ${m[0]}`)

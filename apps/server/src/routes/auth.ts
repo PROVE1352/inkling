@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { and, count, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   changePasswordSchema,
   forgotPasswordSchema,
@@ -53,6 +53,7 @@ import { AppError, conflict, forbidden } from '../errors'
 import { assertAccount, assertNotBanned, recordFailure, recordSuccess } from '../guard'
 import { generateInviteCodeColumns } from '../helpers'
 import { hashSignupKey } from '../secretsAtRest'
+import { ipPrefixKey } from '../ipPrefix'
 import { appOrigin, resetCodeMail, sendMail, verifyMail } from '../mail'
 import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
@@ -94,10 +95,18 @@ function isUniqueViolation(err: unknown): boolean {
   return e?.code === '23505' || e?.cause?.code === '23505'
 }
 
-// Auth endpoints get a strict per-IP limit (10/min) against brute force and spam.
-const strictRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+// Auth endpoints get a strict per-IP limit (10/min) against brute force and spam. Keyed by the address
+// only (IPv6 as its /64): the global key gives any `Bearer ink_pat_…` header a bucket of its own
+// (rateLimitKey.ts), and these routes never check a bearer, so a made-up one per request would never
+// run out (docs/adr/2555-*).
+const byAddress = (req: FastifyRequest) => 'auth-' + ipPrefixKey(req.ip, 64)
+const strictRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: byAddress } } }
 // Public endpoints that trigger mail are stricter still.
-const mailRateLimit = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }
+const mailRateLimit = { config: { rateLimit: { max: 5, timeWindow: '1 minute', keyGenerator: byAddress } } }
+// The same numbers for routes a signed-in person uses: the global key (per token, else per address),
+// so people behind one NAT do not share one bucket.
+const strictRateLimitSignedIn = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+const mailRateLimitSignedIn = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }
 
 /** Outcome of a delegated login */
 type DelegatedResult = 'ok' | 'invalid' | 'totp' | 'rate_limited' | 'unavailable'
@@ -791,7 +800,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   /** Settings: change your own password. Keeps the current session and signs out the others. */
   app.post(
     '/auth/change-password',
-    { preHandler: requireUser, ...strictRateLimit },
+    { preHandler: requireUser, ...strictRateLimitSignedIn },
     async (req) => {
       if (req.authVia !== 'cookie') throw forbidden('Can only be changed from a browser sign-in')
       const me = getUser(req)
@@ -838,7 +847,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    * Resend the verification mail: for the signed-in account (cookie), or by email + password when
    * sign-in is blocked. One mail per minute.
    */
-  app.post('/auth/verify-email/send', mailRateLimit, async (req) => {
+  app.post('/auth/verify-email/send', mailRateLimitSignedIn, async (req) => {
     if (!mailEnabled) throw new AppError(501, 'MAIL_DISABLED', 'Mail is not configured')
     const body = resendVerificationSchema.parse(req.body ?? {})
 

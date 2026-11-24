@@ -101,6 +101,11 @@ deploy/demo/demo.sh up
 
 틀은 이 문서의 설정으로 앱이 하는 일을 적었습니다. 설정을 바꾸면 그 설정에 관한 문장(가입 14일 뒤 삭제, 휴지통 7일, 한도, 꺼 둔 기능)을 확인합니다.
 
+<a id="without-tick-boxes-one-line"></a>
+### 체크박스 없이 한 줄로
+
+`signup.json`에 `"items": []`를 넣고 `terms.*.md`, `privacy.*.md`를 폴더에 두면 가입 화면에 체크박스가 없어집니다. 대신 가입 버튼 아래에 "가입하면 이용약관과 개인정보 처리방침에 동의하는 것입니다."라는 한 줄이 나오고, 문서 이름을 누르면 그 문서가 열립니다. 폴더에 있는 문서만 나옵니다. 이 방식에서는 `user_consents`에 동의 기록이 남지 않고, 문서가 바뀌어도 다시 묻지 않습니다. 어느 방식이 맞는지는 운영자가 자기 나라 법에 맞춰 정합니다. 이 문서는 법률 자문이 아닙니다(이 문서 끝 참고).
+
 <a id="3-proxy"></a>
 ## 3. 프록시
 
@@ -152,7 +157,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `SIGNUP_REQUIRE_KEY` | `0` | 가입 키 없이 누구나 가입 |
 | `SIGNUP_MAX_USERS` | `50` | 서버 전체 계정 수 상한(관리자 포함) |
 | `SIGNUP_PER_IP_PER_DAY` | `2` | 한 주소에서 24시간 동안 할 수 있는 가입 수 |
-| `ACCOUNT_LIFETIME_DAYS` | `14` | 지금부터 가입하는 계정은 가입 후 이 일수가 지나면 삭제 |
+| `ACCOUNT_LIFETIME_DAYS` | `14` | 지금부터 가입하는 계정은 가입 후 이 일수가 지나면 삭제. 비우면 자동 삭제 없음 |
 | `ACCOUNT_LIFETIME_DRY_RUN` | 비움 | `1`이면 지울 대상을 로그로만 남기고 지우지 않음 |
 | `LIMIT_WORKSPACES_PER_USER` | `2` | 한 사람이 소유한 워크스페이스 수(삭제했지만 복구할 수 있는 것 포함) |
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | 워크스페이스 하나의 멤버 수 |

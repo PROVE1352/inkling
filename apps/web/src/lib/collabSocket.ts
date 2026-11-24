@@ -7,6 +7,7 @@ import {
 } from '@hocuspocus/provider'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { CollabUser } from '../components/OnlineUsers'
+import { emitPageNotice } from './pageNotices'
 import { setCollabPendingCheck } from './update'
 import { createUnsavedTracker, showUnsaved, UNSAVED_SHOW_AFTER_MS } from './unsavedEdits'
 
@@ -226,6 +227,14 @@ export type OpenCollabOptions = {
  * pair it with `release()` in that effect's cleanup.
  */
 export function openCollab(opts: OpenCollabOptions): CollabHandle {
+  // The opener's handler first, then everyone listening to this document by name (lib/pageNotices.ts).
+  const onStateless: HocuspocusProviderConfiguration['onStateless'] = (data) => {
+    try {
+      opts.onStateless?.(data)
+    } finally {
+      emitPageNotice(opts.name, data.payload)
+    }
+  }
   const s = acquireShared(opts.userKey)
   const closed = s.closedAt.get(opts.name)
   const recentlyClosed = closed !== undefined && Date.now() - closed < REOPEN_GRACE_MS
@@ -239,7 +248,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       name: opts.name,
       document: opts.document,
       token: opts.token ?? 'cookie',
-      onStateless: opts.onStateless,
+      onStateless,
     })
     let released = false
     live.add(provider)
@@ -273,7 +282,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
     // Keep the socket when this provider detaches (destroy / permission denied) — other
     // documents still use it. The last release closes it below.
     preserveConnection: true,
-    onStateless: opts.onStateless,
+    onStateless,
     onAuthenticationFailed: () => {
       s.denied.add(opts.name)
     },

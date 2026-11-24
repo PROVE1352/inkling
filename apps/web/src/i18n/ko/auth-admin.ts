@@ -197,7 +197,7 @@ export default {
   'oauth.connected': '연결했습니다.',
   'oauth.denied': '거부했습니다.',
   'oauth.returning': '앱으로 돌아가는 중… 이 창은 닫아도 됩니다.',
-  'oauth.requestSuffix': '이(가) 내 Inkling 노트에 접근하려고 합니다.',
+  'oauth.requestSuffix': ' 앱이 내 Inkling 노트에 접근하려고 합니다.',
   'oauth.scopeRead': '내가 멤버인 워크스페이스의 페이지를 읽고, 검색하고, 만들고, 고칠 수 있습니다.',
   'oauth.scopePrivate': '내 🔒 개인 페이지도 포함됩니다(다른 사람의 개인 페이지는 불가).',
   'oauth.scopeTrash': '페이지를 휴지통으로 옮길 수 있지만 영구 삭제는 할 수 없습니다.',
@@ -337,24 +337,24 @@ export default {
   'webhooks.eventPageCreated': '새 페이지 (공유 섹션)',
 
   // plugins
-  'plugins.stopped': '플러그인 "{name}"을(를) 멈췄습니다: {why}',
+  'plugins.stopped': '"{name}" 플러그인을 멈췄습니다: {why}',
   'plugins.killFlood': '잘못되었거나 속도 제한에 걸린 메시지를 너무 많이 보냈습니다',
   'plugins.killOversize': '너무 큰 메시지를 보냈습니다',
   'plugins.killUnresponsive': '응답이 멈췄습니다',
   'plugins.killNavigated': '샌드박스 밖으로 이동하려고 했습니다',
   'plugins.killHandshake': '시작하지 못했습니다',
   'plugins.killClosed': '닫힘',
-  'plugins.commandTimeout': '플러그인 "{name}"이(가) 이 명령을 제때 등록하지 않았습니다',
+  'plugins.commandTimeout': '"{name}" 플러그인이 이 명령을 제때 등록하지 않았습니다',
   'plugins.tooManyFrames': '실행 중인 플러그인이 너무 많습니다. 페이지를 몇 개 닫고 다시 시도하세요.',
   'plugins.noticePrefix': '{name}: ',
   'plugins.confirmReplaceHere':
-    '플러그인 "{name}"이(가) 이 페이지의 내용을 바꾸도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
+    '"{name}" 플러그인이 이 페이지의 내용을 바꾸도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
   'plugins.confirmReplaceOther':
-    '플러그인 "{name}"이(가) 다른 페이지의 내용을 바꾸도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
+    '"{name}" 플러그인이 다른 페이지의 내용을 바꾸도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
   'plugins.confirmAppendHere':
-    '플러그인 "{name}"이(가) 이 페이지에 내용을 덧붙이도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
+    '"{name}" 플러그인이 이 페이지에 내용을 덧붙이도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
   'plugins.confirmAppendOther':
-    '플러그인 "{name}"이(가) 다른 페이지에 내용을 덧붙이도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
+    '"{name}" 플러그인이 다른 페이지에 내용을 덧붙이도록 허용할까요? 페이지 기록에 스냅샷이 남습니다.',
   'plugins.writeDenied': '사용자가 변경을 거부했습니다',
   'plugins.writeBusy': '이 플러그인의 다른 변경이 확인을 기다리고 있습니다',
   'plugins.readOnlyBlock': '여기서는 이 블록을 읽기만 할 수 있습니다',
@@ -383,7 +383,7 @@ export default {
   'plugins.adminApprovedBy': '승인: {who} · {when}',
   'plugins.unknownUser': '알 수 없음',
   'plugins.adminConfirmApprove':
-    '"{name}"을(를) 이 서버의 모든 사용자에게 다음 권한으로 켤까요: {perms}? 코드는 각 사용자의 브라우저(샌드박스)에서 실행됩니다.',
+    '"{name}" 플러그인을 이 서버의 모든 사용자에게 다음 권한으로 켤까요: {perms}? 코드는 각 사용자의 브라우저(샌드박스)에서 실행됩니다.',
   'plugins.noPermissions': '권한 없음',
   'plugins.adminConfirmRemove':
     '"{name}"의 승인을 취소하고 모든 사용자가 저장한 데이터를 삭제할까요? 되돌릴 수 없습니다.',

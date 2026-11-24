@@ -3,7 +3,7 @@ export default {
   'notifications.replied': '{actor}님이 "{title}"에서 내 코멘트에 답글을 남겼습니다',
   'notifications.pageOwner': '{actor}님이 나를 "{title}"의 소유자로 지정했습니다',
   'notifications.taskAssigned': '{actor}님이 "{title}"에서 나를 담당자로 지정했습니다',
-  'notifications.pageUpdate': '{actor}님이 "{title}"을(를) 수정했습니다',
+  'notifications.pageUpdate': '{actor}님이 "{title}" 페이지를 수정했습니다',
   'notifications.pageUpdates_other': '"{title}"에 변경 {count}건',
   'notifications.agentDigest': '"{title}"의 AI 편집 하루 요약',
   'notifications.approvalRequest': '{actor}님이 "{title}"에서 승인을 요청했습니다',

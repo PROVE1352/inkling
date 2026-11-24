@@ -38,7 +38,7 @@ export default {
   'accountLifecycle.staysKept': '{name}: 내가 쓴 공유 페이지와 댓글은 이름 없이 남습니다',
   'accountLifecycle.recentSignIn': '안전을 위해 로그인한 지 10분 안에만 삭제할 수 있습니다.',
   'accountLifecycle.code': '2단계 인증 코드',
-  'accountLifecycle.confirmLabel': '확인하려면 {text}을(를) 입력하세요',
+  'accountLifecycle.confirmLabel': '확인하려면 다음 문구를 입력하세요: {text}',
   'accountLifecycle.deleteConfirm': '계정 삭제',
   'accountLifecycle.deleteFailed': '계정을 삭제하지 못했습니다',
   'accountLifecycle.deletedNotice': '계정이 삭제되었습니다.',
@@ -46,7 +46,7 @@ export default {
   'errors.TOTP_REQUIRED': '인증 앱의 코드를 입력하세요.',
   // 멤버가 없는 워크스페이스
   'accountLifecycle.leaveAloneBody': '멤버가 나뿐입니다. 나가면 워크스페이스가 삭제되고 되돌릴 수 없습니다.',
-  'accountLifecycle.typeName': '확인하려면 {name}을(를) 입력하세요',
+  'accountLifecycle.typeName': '확인하려면 워크스페이스 이름을 입력하세요: {name}',
   'accountLifecycle.leaveAndDelete': '나가고 삭제',
   'accountLifecycle.deleteRestorable': '삭제하고 {days}일 동안 복구 가능하게 두기',
   'accountLifecycle.purgeNow': '지금 완전히 삭제',

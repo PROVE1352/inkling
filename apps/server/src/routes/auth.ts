@@ -238,6 +238,7 @@ async function restrictedAuthMode(): Promise<Partial<AuthModeDTO>> {
   if (Object.keys(l).length > 0) out.limits = l
   if (limits.workspaceRestoreDays !== DEFAULT_WORKSPACE_RESTORE_DAYS) out.workspaceRestoreDays = limits.workspaceRestoreDays
   if (limits.instanceNotice !== undefined) out.instanceNotice = limits.instanceNotice
+  if (limits.instanceContact !== undefined) out.instanceContact = limits.instanceContact
   return out
 }
 

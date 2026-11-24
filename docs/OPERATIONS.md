@@ -39,12 +39,16 @@ checks, with the memory limits of `compose.yaml` and core dumps turned off.
    - Coolify: a new Docker Compose Empty resource, paste the file. Coolify lists every `${VAR}` of the file under
      Environment Variables and does not deploy while a required one (`${VAR:?}`) is empty.
 3. HTTPS. Do not put the plain-HTTP port on the internet.
-   - Coolify: Domains → Add domain, and choose the `app` service. Its proxy reaches the container over the stack's
-     own network on port 3000. Coolify's documentation advises against `ports:` on a service behind a domain, so
-     you can delete the two `ports:` lines of `app`.
+   - Coolify: Domains → Add domain, choose the `app` service and give the domain with the container port, e.g.
+     `https://notes.example.com:3000`: the suffix tells Coolify's proxy which port inside the container receives the
+     requests (people still use the normal HTTPS port). The proxy reaches the container over the stack's own network,
+     and Coolify's documentation advises against `ports:` on a service behind a domain, so you can delete the two
+     `ports:` lines of `app`.
    - Portainer has no proxy of its own. By default the app listens on `127.0.0.1:3000` of the host, which a proxy
      running on the host (Caddy, nginx) can reach. A proxy in another container cannot: connect it to the stack's
-     network, or set `INKLING_PORT=3000` and keep that port closed in the firewall.
+     network. Do not open the port on every interface instead (`INKLING_PORT=3000`) and count on the firewall:
+     Docker routes published ports around ufw rules
+     ([Docker, Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)).
    - What Inkling needs from a proxy is in [deploy/Caddyfile](../deploy/Caddyfile): everything, the `/collab`
      WebSocket included, goes to port 3000. With a checkout, the Caddy overlay does it for you
      ([deploy/DEPLOY.md](../deploy/DEPLOY.md) "3-B").
@@ -95,8 +99,8 @@ taken while the instances were idle.
 | App container | about 127 MiB | about 120 MiB | `APP_MEM_LIMIT`, default 768m (V8 heap 512 MB through `NODE_OPTIONS`) |
 | Postgres 16 container | about 182 MiB | about 60 MiB | `PG_MEM_LIMIT`, default 512m |
 | Backup container | about 2 MiB | about 2 MiB | 256m |
-| Database volume | 352 MB | not measured | |
-| Data volume (uploads) | 92 MB | not measured | |
+| Database volume | 352 MB | – | |
+| Data volume (uploads) | 92 MB | – | |
 
 - The app image built on that server was 582 MB. The size of the published image `ghcr.io/prove1352/inkling` was not
   measured there.

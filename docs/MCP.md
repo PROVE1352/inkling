@@ -48,13 +48,13 @@ Settings → Connections → **Connect an AI app** makes the settings for Claude
 
 ### Settings for other clients
 
-Copied from each client's own documentation, read on 2026-11-25. **None of these clients has been connected to
-Inkling yet**; only Claude Code and claude.ai (above) have been, and the Cursor and VS Code settings of the
-**Connect an AI app** box were not tried with the real apps either (KNOWN-ISSUES AGT-4). If you try one, say whether
-it worked.
+Copied from each client's own documentation, read on 2026-11-25. **These settings were written from the
+documentation and not connected to Inkling for this page.** For Cursor and VS Code, KNOWN-ISSUES AGT-4 also records
+that token headers against an `http://` LAN server and OAuth to `/mcp?profile=core` were not tried with the real
+apps. If you try one, say whether it worked.
 
-- Every client below takes the URL as given, so `https://notes.example.com/mcp?profile=core` selects the smaller
-  tool list (quote it in a shell command).
+- `?profile=core` on the URL selects the smaller tool list on the server's side; whether each client keeps the query
+  string as given was not tried (quote the URL in a shell command).
 - Sign-in: Inkling supports OAuth with dynamic client registration, the default of these clients. Where the Sign-in
   column says "registers itself", the client's page states it; the other pages only say that the client signs in
   to remote servers. If sign-in fails, or the server is on a plain `http://` LAN address, use an **agent connection

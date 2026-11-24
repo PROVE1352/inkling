@@ -35,8 +35,8 @@
    - Portainer: Stacks → Add stack → 이름 → Web editor에 파일을 붙여 넣고, Environment variables에 변수를 넣은 뒤(Load variables from .env file로 불러와도 됩니다) Deploy the stack을 누릅니다.
    - Coolify: 새 Docker Compose Empty 리소스를 만들고 파일을 붙여 넣습니다. Coolify는 파일의 `${VAR}`를 모두 Environment Variables에 보여 주고, 필수 변수(`${VAR:?}`)가 비어 있으면 배포하지 않습니다.
 3. HTTPS. 평문 HTTP 포트를 인터넷에 열지 마세요.
-   - Coolify: Domains → Add domain에서 `app` 서비스를 고릅니다. Coolify의 프록시는 스택 안의 네트워크로 컨테이너 3000번 포트에 붙습니다. Coolify 문서는 도메인 뒤에 있는 서비스에 `ports:`를 두지 말라고 하니, `app`의 `ports:` 두 줄은 지워도 됩니다.
-   - Portainer에는 프록시가 없습니다. 기본값에서 앱은 호스트의 `127.0.0.1:3000`에서 받으므로 호스트에서 도는 프록시(Caddy, nginx)는 붙을 수 있습니다. 다른 컨테이너에 있는 프록시는 붙지 못합니다. 그 프록시를 스택의 네트워크에 연결하거나, `INKLING_PORT=3000`으로 두고 방화벽에서 그 포트를 막으세요.
+   - Coolify: Domains → Add domain에서 `app` 서비스를 고르고, 도메인을 컨테이너 포트와 함께 적습니다. 예: `https://notes.example.com:3000`. 뒤에 붙인 포트는 Coolify 프록시가 요청을 컨테이너의 어느 포트로 보낼지 정하는 값이고, 사람들은 그대로 보통 HTTPS 포트로 접속합니다. 프록시는 스택 안의 네트워크로 컨테이너에 붙고, Coolify 문서는 도메인 뒤에 있는 서비스에 `ports:`를 두지 말라고 하니 `app`의 `ports:` 두 줄은 지워도 됩니다.
+   - Portainer에는 프록시가 없습니다. 기본값에서 앱은 호스트의 `127.0.0.1:3000`에서 받으므로 호스트에서 도는 프록시(Caddy, nginx)는 붙을 수 있습니다. 다른 컨테이너에 있는 프록시는 붙지 못하니 그 프록시를 스택의 네트워크에 연결하세요. 대신 포트를 모든 인터페이스에 열고(`INKLING_PORT=3000`) 방화벽에 맡기면 안 됩니다. Docker가 공개한 포트는 ufw 규칙을 거치지 않고 지나갑니다([Docker, Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)).
    - 프록시가 해 줄 일은 [deploy/Caddyfile](../deploy/Caddyfile)에 있습니다. `/collab` WebSocket까지 모두 3000번 포트로 보내면 됩니다. 저장소를 받아 쓴다면 Caddy 오버레이가 이 일을 합니다([deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md) "3-B").
 4. 앱 로그를 엽니다. 한 번만 쓰는 `<PUBLIC_URL>/setup?code=…` 링크가 찍혀 있고, 거기서 만든 계정이 관리자입니다([deploy/DEPLOY.ko.md](../deploy/DEPLOY.ko.md) "3-C"). 다른 사람의 가입 키는 관리 화면에서 만듭니다.
 
@@ -75,8 +75,8 @@
 | 앱 컨테이너 | 약 127 MiB | 약 120 MiB | `APP_MEM_LIMIT`, 기본 768m(`NODE_OPTIONS`로 V8 힙 512 MB) |
 | Postgres 16 컨테이너 | 약 182 MiB | 약 60 MiB | `PG_MEM_LIMIT`, 기본 512m |
 | 백업 컨테이너 | 약 2 MiB | 약 2 MiB | 256m |
-| 데이터베이스 볼륨 | 352 MB | 재지 않음 | |
-| 데이터 볼륨(업로드) | 92 MB | 재지 않음 | |
+| 데이터베이스 볼륨 | 352 MB | – | |
+| 데이터 볼륨(업로드) | 92 MB | – | |
 
 - 그 서버에서 직접 빌드한 앱 이미지는 582 MB였습니다. 배포 이미지 `ghcr.io/prove1352/inkling`의 크기는 그 서버에서 재지 않았습니다.
 - 재지 않은 것: 사람들이 편집하는 중, 가져오기·zip 내보내기·주간 복원 테스트 중, 에이전트가 큰 페이지를 다시 쓰는 중의 최댓값(17절 "큰 페이지의 메모리"), 그리고 다른 기계(amd64 서버, 라즈베리 파이, 작은 VPS 등).

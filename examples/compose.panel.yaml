@@ -15,8 +15,9 @@
 #   INKLING_VERSION    optional, a release such as 0.23.0 (or 0.23). Empty = latest.
 #   INKLING_PORT       optional, where the app listens on the host. Default 127.0.0.1:3000: only this machine
 #                      (a proxy on the host) can reach it. Set e.g. 3000 to open it on every interface, but
-#                      only behind HTTPS; never expose plain HTTP to the internet. A panel whose proxy joins
-#                      the stack's network (Coolify) reaches the container directly; the ports lines can go.
+#                      only behind HTTPS; never expose plain HTTP to the internet, and note that ports Docker
+#                      publishes bypass ufw rules. A panel whose proxy joins the stack's network (Coolify)
+#                      reaches the container directly; the ports lines can go.
 #   TZ, DEFAULT_LOCALE optional, e.g. Asia/Seoul and ko (defaults UTC and en).
 #
 # First start: the app log prints a one-time link `<PUBLIC_URL>/setup?code=…`; open it and create the first

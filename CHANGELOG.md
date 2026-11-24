@@ -7,6 +7,70 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-25
+
+Getting in and getting going: an optional trial account that needs no sign-up, the sample page for every new account,
+a notice when a person's agent really connects, far fewer false alarms from the injection heuristics, and documentation
+for more MCP clients and for installing from a panel. One database migration (0063 adds `users.trial`; 64 applied
+migrations). New optional settings `TRIAL_ACCOUNTS`, `TRIAL_LIFETIME_HOURS`, `TRIAL_MAX_ACCOUNTS` and
+`TRIAL_PER_IP_PER_DAY`; a server that sets none of them has no trial accounts. The MCP tool list is unchanged. What is
+left is in docs/KNOWN-ISSUES.md, "Added in 0.24.0".
+
+### Try without an account (`TRIAL_ACCOUNTS`, off by default)
+- "Try without an account" on the sign-in and sign-up screens: one click makes a trial account with its workspace and
+  the sample page, deleted after `TRIAL_LIFETIME_HOURS` (default 24). It stops working at that time; the hourly job
+  deletes it with its workspace, pages and files (docs/adr/2555-*, docs/OPERATIONS.md, docs/DEMO.md).
+- A trial account cannot publish pages or forms, invite or add members, join another workspace, add webhooks, Slack,
+  Notion import or iCal, make another workspace, or change how it signs in; the refusal is 403 `TRIAL_RESTRICTED`
+  through the web app, API tokens and MCP alike. It can connect an agent. It is never promoted to admin, and a server
+  with no admin makes no trial accounts.
+- Limits: `TRIAL_MAX_ACCOUNTS` seats (default 30, held under concurrent clicks), `TRIAL_PER_IP_PER_DAY` (default 3),
+  the hourly sign-up limit counted apart from ordinary sign-ups, and the instance fuse. Trial accounts do not count
+  toward `SIGNUP_MAX_USERS`, and their workspaces do not count toward `LIMIT_WORKSPACES_TOTAL`.
+- A trial account leaves from Settings › Account with the confirmation only (it has no password).
+- `POST /api/auth/trial`; `GET /api/auth/me` carries `trial`. With sign-up texts that have tick boxes the button is
+  not shown (403 `TRIAL_NEEDS_CONSENT`); with documents and no tick boxes the one-line agreement shows under it.
+- The sign-in screen shows the one-line tagline under the logo.
+
+### First minutes
+- Every new account gets the sample page, with its two example suggestions, in the workspace it signed up with, on
+  its first app load; the sign-up request itself is unchanged (docs/adr/2390-*).
+- The Getting started item "Connect an AI agent" ticks when the person's agent makes its first authenticated `/mcp`
+  request (OAuth or an agent connection token), not when the address is copied. The app then says "Your agent is
+  connected" once, with a first question to ask. `OnboardingDTO.agentConnected` is new;
+  `PATCH /api/me/onboarding {event: 'ai'}` is now 400.
+- With a connected agent and no stored sidebar arrangement, Activity shows in the sidebar by default.
+- "What an agent reads" says why `find_context` stopped (the budget, a section cut to fit, or nothing else matched),
+  lists the sections that did not fit and marks sections cut to fit.
+- The command palette finds "Connect an AI agent" by agent, AI or connect. In-app links to `/settings…` in a page
+  open inside the app and look like page links; the sample page's "5. AI agents" links to the connect screen.
+- The getting-started share hint no longer mentions public links where they are off; the signed-out entry no longer
+  asks for the workspace list (one 401 fewer); intro scene 1 no longer cuts the database heading at 1280×860 and lower.
+
+### Agents (MCP)
+- Injection heuristics flag far fewer notes that only describe agents, permissions or prompt injection:
+  permission-change, tool-directive, exfil-url and three override phrases also need a sign that the text tells someone
+  to do something (made-up set: benign lines flagged 36 → 6 of 82, attack lines 74 → 74). Sections flagged under the
+  old rules are re-judged at the next boot (docs/adr/0979-*, docs/PERFORMANCE.md).
+- The `CONNECTION_SUGGEST_ONLY` refusal says the flag can be a false alarm and gives the address where a person lifts
+  it. `/settings/connections#suggest-only` scrolls to that connection and focuses its button. Agent-facing messages
+  use `>` instead of `›`.
+
+### Fixed
+- Sign-in routes that need no session (register, login, two-step code, password reset, email verification, forgot
+  password) are rate-limited by address, so a made-up bearer header per request no longer gives a new bucket.
+- Link previews count per account (30 a minute) whatever token, cookie or address the requests use; clips rate-limit
+  a personal API token by the token, whatever cookie comes with it.
+
+### Documentation
+- Measured idle memory and disk use; a one-file compose for Portainer and Coolify (`examples/compose.panel.yaml`);
+  MCP settings for Codex CLI, Gemini CLI, OpenCode, Antigravity, Zed and Cline and the current Cursor and VS Code
+  formats, taken from their documentation; a quick-capture recipe that appends a line to a page with a personal API
+  token (docs/OPERATIONS.md, docs/MCP.md, docs/RECIPES.md).
+- README: the review of an agent's suggested edits is the first picture, with links to the demo, the tour and the
+  guides, and a table of what Inkling does when agents edit shared notes. The site's first screen says what the app
+  is in plain words and has two buttons.
+
 ## [0.23.0] - 2026-11-25
 
 What an agent does to a page is now visible without connecting one: the sample page carries example suggestions to

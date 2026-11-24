@@ -219,8 +219,9 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [0971](0971-lock-evaluation-order-people-and-agents.md) | Lock evaluation order: deny then allow, nearer wins, people and agents apart | Accepted |
 | [0975](0975-agent-instruction-pages.md) | Agent instruction pages: always, match, manual | Accepted |
 | [0976](0976-data-instruction-boundary-in-mcp-output.md) | Data / instruction boundary in MCP output | Accepted |
-| [0977](0977-injection-signals-and-taint-record.md) | Injection-like content signals and a taint record (signal, never a block) | Accepted |
+| [0977](0977-injection-signals-and-taint-record.md) | Injection-like content signals and a taint record (signal, never a block) | Accepted (rules amended by 0979) |
 | [0978](0978-reserved-oauth-client-names.md) | Reserved OAuth client names | Accepted (member-name part superseded by 1007) |
+| [0979](0979-injection-rules-need-a-directive.md) | Injection rules need a directive; old flags are re-judged at boot; the refusal says where to lift it | Accepted |
 
 ## 1000–1019 Notifications, agent inbox and activity
 
@@ -946,6 +947,12 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2388](2388-example-suggestions-on-the-sample-page.md) | Example suggestions on the sample page: written directly, marked by `connection = 'example'`, quiet | Accepted |
 | [2389](2389-agent-view-reads-the-existing-rest-routes.md) | "What an agent reads": a read-only dialog over the existing context routes | Accepted |
 
+## 2390–2399 Onboarding (0.24)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2390](2390-sample-for-every-sign-up-agent-connected-on-its-first-request.md) | The sample page for every sign-up; "agent connected" on its first /mcp request; Activity in the default sidebar once connected | Accepted (amends 2380, 2381, 1641) |
+
 ## 2400–2409 find_context recall (0.20)
 
 | ADR | Title | Status |
@@ -1041,6 +1048,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2552](2552-awareness-ids-count-against-the-connection-that-brought-them-in.md) | Awareness ids count against the connection that brought them in (corrects 2541) | Accepted |
 | [2553](2553-one-line-agreement-when-signup-has-no-items.md) | One-line agreement under the sign-up button when signup.json has no items | Accepted (amends 2519) |
 | [2554](2554-operator-contact-link.md) | A "Contact" link to the operator (INSTANCE_CONTACT) | Accepted |
+| [2555](2555-trial-accounts-without-sign-up.md) | Trial accounts without sign-up (TRIAL_ACCOUNTS) | Accepted |
 
 ## 099x Client updates
 

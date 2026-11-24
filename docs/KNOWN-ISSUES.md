@@ -773,3 +773,17 @@ Onboarding and agent visibility
 - **Info** (EXAMPLE-1, docs/adr/2388-*) The example suggestions exist only on sample pages made from 0.23.0 on. A member's sample page is made by button (the first admin's is made at set-up), so an account that never makes one does not see them. Accepting an example suggestion is recorded as the accepting person's own edit, like any accepted suggestion.
 - **Info** (AGENTVIEW-1, docs/adr/2389-*) "What an agent reads" searches by words like find_context: a question with none of the words in your notes finds nothing. Its section list comes from the index and can lag live typing by the indexing delay. Token counts are estimates.
 - **Low** (SECMARK-1, docs/adr/1627-*) Section marks next to headings come from the change log: they appear up to 30 s after an agent's edit on an open page and about a minute after typing, disappear after 30 days, and one person's or agent's edits of a section within 10 minutes are one change. An accepted suggestion (including the sample's example suggestions) is marked as the accepting person.
+
+## Added in 0.24.0
+
+Trial accounts
+- **Low** (TRIAL-1, docs/adr/2555-*) A trial account cannot sign in again from another browser or after signing out; deleting it early is Settings › Account with the confirmation only. Expiry runs up to an hour late, but the account stops working at its time; a collaboration socket that is already open stays open until the deletion. An admin who lifts a trial account's expiry keeps it on a seat with its restrictions.
+- **Low** (TRIAL-2, docs/adr/2555-*) The bot check (`formMs`, the hidden field) does not stop a script, and the per-address count is weak behind a CDN or a proxy that does not pass the client address: there every visitor shares a few addresses. Someone with ten addresses can hold all `TRIAL_MAX_ACCOUNTS` seats. A trial account can make the server fetch addresses it chooses through clips, sheet sync and link previews (through the same safe fetch and rate limits as any account).
+- **Info** (TRIAL-3, docs/adr/2555-*) `LIMIT_WORKSPACES_TOTAL` does not count trial workspaces, so the real ceiling is that value plus `TRIAL_MAX_ACCOUNTS`; `SIGNUP_PER_HOUR` applies to sign-ups and to trials separately. `/oauth/register` and `/oauth/token` still use the general rate-limit key.
+
+Onboarding
+- **Info** (SAMPLE-2, docs/adr/2390-*) The automatic sample page is made in the workspace an account signed up with, on its first app load: a member who joins a team workspace sees it only in their own workspace. The "agent connected" notice appears when the app is asked again (a tab switch, or up to 30 s later), not at the instant of the connection. OIDC first sign-in was checked in code only.
+
+Agents (MCP)
+- **Low** (INJECT-2, docs/adr/0979-*) Injection heuristics: instructions to a person next to an agent word, lines labelled "에이전트:"/"AI:", "Turn on developer mode", and data-named URL placeholders in API notes (`?token={token}`) are still flagged; commands with verbs outside the lists or without an agent word are missed. The measuring set and the rules were written by the same hand.
+- **Info** (MCP-CLIENTS-1, docs/MCP.md) The settings for Codex CLI, Gemini CLI, OpenCode, Antigravity, Zed and Cline follow each client's documentation and were not tried against a server. The connect screen still writes `.vscode/mcp.json` for VS Code, which that documentation now calls the older format.

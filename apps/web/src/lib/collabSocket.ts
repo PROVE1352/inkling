@@ -228,9 +228,9 @@ export type OpenCollabOptions = {
  */
 export function openCollab(opts: OpenCollabOptions): CollabHandle {
   // The opener's handler first, then everyone listening to this document by name (lib/pageNotices.ts).
-  // Only for an opener that handles stateless messages (the page editor); the others pass none, as before.
+  // Notices are forwarded only for an opener that handles stateless messages (the page editor).
   const own = opts.onStateless
-  const onStateless: HocuspocusProviderConfiguration['onStateless'] | undefined = own
+  const onStateless: NonNullable<HocuspocusProviderConfiguration['onStateless']> = own
     ? (data) => {
         try {
           own(data)
@@ -238,7 +238,10 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
           emitPageNotice(opts.name, data.payload)
         }
       }
-    : undefined
+    : // A no-op, not undefined: the provider spreads its options over its defaults, so undefined would
+      // replace the default handler and every stateless message would throw in its emitter (canvas and
+      // page embeds logged "reading 'apply'" on each one).
+      () => {}
   const s = acquireShared(opts.userKey)
   const closed = s.closedAt.get(opts.name)
   const recentlyClosed = closed !== undefined && Date.now() - closed < REOPEN_GRACE_MS

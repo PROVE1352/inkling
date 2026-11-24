@@ -1020,7 +1020,7 @@ Changed:
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/pages/:id/suggestions` | `preview=1`, `status?`, `all=1` | As in 0.12. `status` = `open` (default) \| `decided` (accepted, accepted_partial, rejected) \| `all` \| one status; `all=1` is still the web history (everything but superseded). With `preview=1`, an open `replace` suggestion's `preview` adds `merge: { baseKnown, key, hunks: [{ id, conflict, same, before, after, ours, context }] }` (absent when the section is gone or too large to split) |
-| GET | `/api/suggestions` | `status?` | `{ suggestions }`: the caller's own, the same filter, default `open`, newest 50 |
+| GET | `/api/suggestions` | `status?` | `{ suggestions }`: the caller's own, the same filter, default `open`, newest 50. Since 0.23 the example suggestions seeded on a sample page (`connection = 'example'`, docs/adr/2388-*) are left out; the page's own list still has them |
 | POST | `/api/suggestions/:id/accept` | `{ confirmChanged?, hunks?: number[], mergeKey?: string }` | `{ suggestion }`. `hunks` (ids from `preview.merge`, with its `key` as `mergeKey`) applies only those hunks: the server recomputes the merge and writes the merged section; a stale `mergeKey` → 409 `SUGGESTION_CHANGED` with `error.preview`. `status` is `accepted` or `accepted_partial` (`partial: { applied, total }`). Without `hunks` it behaves as in 0.12 |
 | POST | `/api/suggestions/:id/withdraw` | | `{ suggestion }`. A suggestion that is no longer open answers 409 per state (below) |
 

@@ -27,6 +27,7 @@ import {
   FORM_FIELD_TYPES,
   formSettingsSchema,
   viewConfigSchema,
+  viewFilterOf,
   viewTypeSchema,
 } from '@inkling/shared'
 import type { ChartBlockConfig, ChartDataDTO, ChartSettings, CollectionField, CollectionViewDTO, SuggestionDTO, ViewConfig } from '@inkling/shared'
@@ -146,6 +147,54 @@ function fieldId(fields: CollectionField[], ref: string, what: string): string {
   throw new ToolError(`${what}: no property "${cleanText(ref)}"${byName.length > 1 ? ' (several have that name; pass its id)' : ''}. Properties: ${names || '(none)'}, or "title". Nothing was written.`)
 }
 
+/**
+ * A view filter's value on a select / multiSelect property: rows store option ids, so an option
+ * name (case-insensitive) becomes its id. A value that already is an option id is kept as it is
+ * (views the web app saved); an unknown name is refused with the options. Only the comparisons that
+ * read ids are mapped: eq / ne, and contains on multiSelect.
+ */
+function optionFilterValue(fields: CollectionField[], c: Record<string, unknown>, what: string): Record<string, unknown> {
+  const f = fields.find((x) => x.id === c.fieldId)
+  if (!f || (f.type !== 'select' && f.type !== 'multiSelect') || typeof c.value !== 'string' || !c.value.trim()) return c
+  if (!(c.op === 'eq' || c.op === 'ne' || (c.op === 'contains' && f.type === 'multiSelect'))) return c
+  const opts = f.options ?? []
+  if (opts.some((o) => o.id === c.value)) return c
+  const name = c.value.trim().toLowerCase()
+  const hit = opts.find((o) => o.name.toLowerCase() === name)
+  if (hit) return { ...c, value: hit.id }
+  const names = opts.map((o) => `"${cleanText(o.name)}"`).join(', ')
+  throw new ToolError(`${what}: "${cleanText(f.name)}" has no option "${cleanText(c.value)}". Options: ${names || '(none)'}. Nothing was written.`)
+}
+
+/** `filters` (flat list) and `filter` (tree, docs/adr/2142-*) of a view config: names → ids. */
+function mapViewFilters(fields: CollectionField[], c: Record<string, unknown>, id: (ref: unknown, what: string) => unknown): void {
+  const cond = (x: unknown, what: string) =>
+    x && typeof x === 'object' && !Array.isArray(x) ? optionFilterValue(fields, { ...x, fieldId: id((x as Record<string, unknown>).fieldId, `${what}.fieldId`) }, what) : x
+  if (Array.isArray(c.filters)) c.filters = c.filters.map((x) => cond(x, 'filters'))
+  const tree = c.filter as { items?: unknown } | undefined
+  if (tree && typeof tree === 'object' && Array.isArray(tree.items)) {
+    c.filter = {
+      ...tree,
+      items: tree.items.map((x) =>
+        x && typeof x === 'object' && Array.isArray((x as { items?: unknown }).items)
+          ? { ...x, items: ((x as { items: unknown[] }).items).map((y) => cond(y, 'filter')) }
+          : cond(x, 'filter'),
+      ),
+    }
+  }
+}
+
+/**
+ * A chart through a filtered view that came back empty: say whether the filter is why, with the
+ * rows the collection has without it (one more aggregate, only in this case).
+ */
+async function emptyFilterNote(ctx: ToolCtx, workspaceId: string, cfg: ChartBlockConfig, data: ChartDataDTO, view: CollectionViewDTO | undefined): Promise<string> {
+  if (data.rowCount > 0 || cfg.source.type !== 'collection' || !view || !viewFilterOf(view.config)) return ''
+  const all = await aggregateFor(ctx, workspaceId, { ...cfg, source: { type: 'collection', collectionId: cfg.source.collectionId } })
+  const n = all.data?.rowCount ?? 0
+  return n > 0 ? `\nnote: no rows match the view's filter (${n} row${n === 1 ? '' : 's'} without it)` : ''
+}
+
 const settingsInput = {
   kind: z.enum(CHART_KINDS).describe('barH is horizontal; heatmap needs series'),
   groupBy: dimSpec.describe('Property (name or id, "title" for the row title) or query column to group by'),
@@ -223,6 +272,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       if (page.kind !== 'doc') throw new ToolError(`Charts go into document pages; this page is a ${page.kind}. For a collection use create_view(type="chart"). Nothing was written.`)
 
       let cfg: ChartBlockConfig
+      let chartView: CollectionViewDTO | undefined
       if (args.collectionId) {
         const def = await loadCollection(ctx, args.collectionId)
         let viewId: string | undefined
@@ -230,6 +280,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
           const v = def.views.find((x) => x.id === args.view) ?? def.views.filter((x) => x.name.toLowerCase() === args.view!.toLowerCase())[0]
           if (!v) throw new ToolError(`View "${cleanText(args.view)}" not found; views: ${def.views.map((x) => `"${cleanText(x.name)}"`).join(', ')}. Nothing was written.`)
           viewId = v.id
+          chartView = v
         }
         const settings = toSettings(args, (ref, what) => fieldId(def.fields, ref, what))
         cfg = { source: { type: 'collection', collectionId: def.pageId, ...(viewId ? { viewId } : {}) }, ...settings }
@@ -241,6 +292,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       // the data once, as this user: a source they cannot see or a bad field writes nothing
       const check = await aggregateFor(ctx, page.workspaceId, cfg)
       if (!check.data) throw new ToolError(`Cannot chart this: ${check.error}. Nothing was written.`)
+      const emptyNote = await emptyFilterNote(ctx, page.workspaceId, cfg, check.data, chartView)
 
       const markdown = `<!-- inkling:chart ${tokenJson(cfg)} -->`
       let written
@@ -260,6 +312,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
           ac,
           `Chart inserted at ${where}.\ndata: ` +
             wrapUntrusted(chartSummaryLine(check.data), { source: 'page', id: page.id }) +
+            emptyNote +
             `\ntoken: ${markdown}`,
         ),
       )
@@ -319,9 +372,9 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       const id = (ref: unknown, what: string) => (typeof ref === 'string' ? fieldId(def.fields, ref, what) : ref)
       const c: Record<string, unknown> = { ...(config ?? {}) }
       for (const k of ['groupByFieldId', 'dateFieldId', 'startFieldId', 'endFieldId']) if (c[k] !== undefined) c[k] = id(c[k], k)
-      for (const k of ['sorts', 'filters']) {
-        if (Array.isArray(c[k])) c[k] = (c[k] as Record<string, unknown>[]).map((x) => (x && typeof x === 'object' ? { ...x, fieldId: id(x.fieldId, `${k}.fieldId`) } : x))
-      }
+      if (Array.isArray(c.sorts)) c.sorts = (c.sorts as Record<string, unknown>[]).map((x) => (x && typeof x === 'object' ? { ...x, fieldId: id(x.fieldId, 'sorts.fieldId') } : x))
+      // filter values on select / multiSelect: option names → ids, as rows store them
+      mapViewFilters(def.fields, c, id)
       if (chart) c.chart = canonicalChartConfig(toSettings(chart, (ref, what) => fieldId(def.fields, ref, what)))
       if (type === 'form') c.form = form ? toFormSettings(def.fields, form) : defaultFormSettings(def.fields)
       const parsed = viewConfigSchema.safeParse(c)
@@ -334,11 +387,12 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       const ac = await loadAgentContext(ctx, [collectionId])
       let tail = ''
       if (view.type === 'chart' && view.config.chart) {
-        const r = await aggregateFor(ctx, (await findVisiblePage(collectionId, ctx.user.id))?.workspaceId ?? '', {
-          source: { type: 'collection', collectionId, viewId: view.id },
-          ...view.config.chart,
-        })
-        tail = r.data ? `\ndata: ${wrapUntrusted(chartSummaryLine(r.data), { source: 'page', id: collectionId })}` : `\ndata: unavailable (${r.error})`
+        const wsId = (await findVisiblePage(collectionId, ctx.user.id))?.workspaceId ?? ''
+        const cfg: ChartBlockConfig = { source: { type: 'collection', collectionId, viewId: view.id }, ...view.config.chart }
+        const r = await aggregateFor(ctx, wsId, cfg)
+        tail = r.data
+          ? `\ndata: ${wrapUntrusted(chartSummaryLine(r.data), { source: 'page', id: collectionId })}${await emptyFilterNote(ctx, wsId, cfg, r.data, view)}`
+          : `\ndata: unavailable (${r.error})`
       }
       if (view.type === 'form') {
         const asked = (view.config.form?.fields ?? []).map((q) => {

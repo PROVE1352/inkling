@@ -761,3 +761,8 @@ Not checked in this release
 - **Low** (LIMITS-66, docs/adr/2547-*) In e-mail login mode, when an invitation went to an address that had no account and someone later signs up with that address and deletes the account, the inviter's audit row loses the invited address. The pending invitation itself has been deleted in that case since 0.22.0. Servers in ID mode are not affected.
 - **Low** (LIMITS-67, docs/adr/2552-*) A page keeps at most 1,024 live awareness ids. Someone with access to the page who opens about 256 connections can fill them; a newcomer's socket is then cut when it brings its own id in, until the others leave.
 - **Info** (LIMITS-68, docs/adr/2546-*) The demo preset does not limit disk I/O. Docker's own container logs (up to 30 MB per container) and the backup container's empty anonymous volume are on Docker's disk, not on the demo's filesystem.
+
+## Added in 0.22.2
+
+Agents (MCP)
+- **Low** (MCP-REPL-2, docs/adr/1947-*) Without `baseVersion`, update_page replace decides "a person edited last" from the newest `page_changes` row of the page. Those rows are added by the change-log consumer after the write commits (started at the commit, at the latest by the 1 s poll), and the check does not wait for it, unlike changes_since. While the consumer is behind: (1) a replace right after the agent's own change (a rename, for example) on a page a person edited before can be refused as "a person edited last"; calling again or passing `baseVersion` gets through. (2) A person's edit saved a moment ago is not counted yet, so a replace without `baseVersion` goes through. For editor typing this window also includes the index debounce (≤ 30 s, MCP-REPL-1). With `baseVersion` neither case applies.

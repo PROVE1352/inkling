@@ -59,7 +59,9 @@ end screen after the last one.
 
 The **Getting started** card on the empty workspace screen (and folded at the bottom of the sidebar)
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
-where it is done; a short bubble points at the button. **Make a sample page to try things on** creates a page in
+where it is done; a short bubble points at the button. **Connect an AI agent** (here and on the intro's end screen)
+goes straight to the app picker and the command to paste. Until you have a sample page in a workspace, its empty
+screen leads with **Make a sample page to try things on**, with **New page** beside it. That button creates a page in
 your private pages (only you see it); delete it when you are done, it does not come back.
 A new sample page comes with two suggested edits from an "Example agent", written in advance (no AI is involved),
 so you can try reviewing a suggestion before you connect an agent: press ✎ next to "4. Diagrams" or "5. AI agents".
@@ -687,7 +689,9 @@ Inkling has a built-in MCP server. An AI app such as Claude Code or claude.ai ca
 Find your server's address in Settings → Connections → **MCP server** (**Copy URL**). It looks like
 `https://notes.example.com/mcp`. **Manage connections** opens **Connect an AI app**: pick your app (Claude Code,
 claude.ai / Claude Desktop, Cursor, VS Code or another app) and copy what it shows (a command, a JSON file or the
-URL). Under **Tools**, **Core tools** gives the agent the tools it uses most (a shorter tool list costs fewer tokens
+URL). The screen also gives a first question to ask and where a working connection shows up (**Connected apps**, or
+the last-used time of an agent connection token). **Tools** and **Sign-in** are folded under **Other options**: under
+**Tools**, **Core tools** gives the agent the tools it uses most (a shorter tool list costs fewer tokens
 in every session; the rest stay one call away) and **All tools** gives it everything, for an agent that builds
 databases, charts or templates. Core tools add `?profile=core` to the URL.
 

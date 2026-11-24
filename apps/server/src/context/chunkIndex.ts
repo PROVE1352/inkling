@@ -284,8 +284,8 @@ async function promoteWithoutNewNodes(): Promise<number> {
  * (docs/adr/2040-*). Re-judges only the flagged rows (an unflagged row cannot gain a flag from a rule that
  * only narrowed), writes the new flags and the hash the chunker would now give (so the next index pass
  * sees no change), and leaves a row alone when an index pass rewrote it meanwhile (hash compare). Runs at
- * every boot; with nothing to change it is one scan of page_chunks for rows with flags (no index on the
- * column; ~7k rows take a few ms). Returns how many rows changed.
+ * every boot; with nothing to change it is one sequential scan of page_chunks for rows with flags (no index
+ * on the column; flagged rows are few). Returns how many rows changed.
  */
 export async function rescanFlaggedChunks(log: (msg: string) => void = console.log): Promise<number> {
   const BATCH = 500

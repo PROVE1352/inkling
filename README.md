@@ -88,6 +88,11 @@ The app is the prebuilt image `ghcr.io/prove1352/inkling` (amd64 and arm64); a 1
 from the checked-out source, add `-f compose.build.yaml` and `--build`
 ([deploy/DEPLOY.md](deploy/DEPLOY.md#image-or-source-build)).
 
+Idle on a 4-core arm64 server (2026-11-25, `docker stats`): the app about 127 MiB and Postgres about 182 MiB for 13
+accounts and 485 pages; numbers and limits are in [docs/OPERATIONS.md](docs/OPERATIONS.md), "Measured resource use".
+Portainer or Coolify: paste [`examples/compose.panel.yaml`](examples/compose.panel.yaml) and set three variables, no
+checkout needed (docs/OPERATIONS.md, "Installing from a panel").
+
 ### Upgrading
 
 Take a backup, pull the new image and restart; migrations run on boot, and downgrades are not

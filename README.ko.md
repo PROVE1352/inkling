@@ -80,6 +80,8 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 
 앱은 미리 빌드된 이미지 `ghcr.io/prove1352/inkling`(amd64, arm64)을 받아 오므로 램 1 GB 서버에서도 직접 빌드할 필요가 없습니다. 특정 릴리스로 고정하시려면 `.env`의 `INKLING_VERSION`에 `X.Y.Z`나 `X.Y` 형식으로 적으시면 됩니다(비우면 `latest`). 받아 둔 소스로 직접 빌드하시려면 `-f compose.build.yaml`과 `--build`를 더하시면 됩니다([deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md#image-or-source-build)).
 
+4코어 arm64 서버에서 쉬고 있을 때(2026-11-25, `docker stats`) 계정 13개·페이지 485개 기준으로 앱이 약 127 MiB, Postgres가 약 182 MiB를 씁니다. 자세한 수치와 상한은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md)의 "실제로 잰 자원 사용량"에 있습니다. Portainer나 Coolify에서는 [`examples/compose.panel.yaml`](examples/compose.panel.yaml)을 붙여 넣고 변수 세 개만 채우면 됩니다. 저장소를 받지 않아도 됩니다(같은 문서의 "패널에서 설치하기").
+
 ### 업그레이드
 
 백업, 새 이미지 받기, 앱 재시작 순서입니다. 마이그레이션은 부팅할 때 자동으로 돌고, 이전 버전으로 내리는 것은 지원하지 않습니다. 자세한 내용은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#upgrades)에 있습니다.

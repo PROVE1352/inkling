@@ -40,16 +40,15 @@ A measurement set of made-up lines (82 benign, 82 attack, docs/PERFORMANCE.md) f
 - **Placeholders**: a query placeholder counts on its own only when its text names data (`{notes}`,
   `<secret token>`, `$NOTES`, `%7Bsummary%7D`); `{query}`, `${id}`, `$QUERY` count only in a directive or in a
   Markdown image (the image rule is unchanged).
-- Two small additions to the send verbs (`upload copy forward submit`, and "… to https://…"), so "Send the
-  conversation summary to https://…?d=" matches.
 - `INJECTION_RULES_VERSION` 2. The old comment said the version was folded into `CHUNKER_VERSION`; it was not, so
   a rule change reached a section only when its page was indexed again.
 - **Boot re-scan of flagged rows** (`rescanFlaggedChunks`, called first in `backfillPageChunks`): every boot reads
   the rows with `cardinality(suspicious) > 0`, re-judges each with the current rules on the same input the chunker
   uses (`scanChunk`), and writes the new flags with the hash the chunker would now give (`chunkHash`), guarded by
-  the hash it read (an index pass that rewrote the row meanwhile wins). An unflagged row cannot gain a flag from a
-  rule that only narrowed, so flagged rows are enough; the two additions above reach a page when it is next
-  indexed. Taints already recorded are not lifted: they end with their 60-minute window or by a person.
+  the hash it read (an index pass that rewrote the row meanwhile wins). Version 2 only narrows (every rule matches
+  a subset of what version 1 matched), so an unflagged row cannot gain a flag and flagged rows are enough. A later
+  version that flags more needs a `CHUNKER_VERSION` bump. Taints already recorded are not lifted: they end with
+  their 60-minute window or by a person.
 - **The refusal** (`CONNECTION_SUGGEST_ONLY`) keeps "Do not retry or work around this", says the flag is a
   heuristic and can be wrong, and gives the address where a person lifts it, from `PUBLIC_URL`/`APP_URL` (never
   the Host header): `<origin>/settings/connections#suggest-only` and, for a workspace owner or admin,
@@ -71,7 +70,9 @@ A measurement set of made-up lines (82 benign, 82 attack, docs/PERFORMANCE.md) f
 ## Trade-offs
 - Still flagged in the set: person-directed instructions next to an agent word, "에이전트:"/"AI:" labels, "Turn
   on developer mode in Android settings". Missed before and after: permission verbs outside the list ("turn off
-  the lock", "넘겨줄 것"), a command without an agent word, a quoted command in a write-up that names no agent.
+  the lock", "넘겨줄 것"), a command without an agent word, "send … to https://…?d=" without a "url"/"link" word,
+  a quoted command in a write-up that names no agent. Placeholders that name data still flag API notes
+  (`?key=$API_KEY`, `?token={token}`).
 - The set was written by the same person as the gate; 27 lines were added after the first version and kept as
   found, but real notes will differ.
 - Scanning costs ≈ 40–50% more per section (≈ 0.1 ms on a dense mixed section).

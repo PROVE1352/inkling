@@ -17,6 +17,8 @@ API tokens (ADR 1201) were not covered at all: they read through REST and the co
   `agentContextFor(read)`), and for API tokens the REST routes that return content: section reads,
   `GET /pages/read`, `GET /context`, `GET /pages/:id/export` (only the sections returned count for
   section reads and find_context). Attachment text from read_file counts too (ADR 2046).
+  Since 0.24.1 the MCP `read_page(section=…)` counts the same way: only a flag in the section it
+  returned. Whole-page reads, outlines and `knownSections` reads still count the whole page.
 - Records are rows of `connection_taints (connection, source, page_id, workspace_id, rules, fingerprint,
   tainted_at, released_at, released_by)`, one per (connection, source), source = `page:<id>` or
   `file:<id>`. No text is stored. `oauth_grants.tainted_at` keeps being written for grants.

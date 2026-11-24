@@ -814,3 +814,11 @@ PDF 미리보기
 에이전트(MCP)
 - **Low** (INJECT-2, docs/adr/0979-*) 주입 휴리스틱: 에이전트를 가리키는 말 옆의 사람용 안내, "에이전트:"·"AI:" 머리말 줄, "Turn on developer mode", API 메모의 데이터 이름 자리표시자(`?token={token}`)는 여전히 걸립니다. 목록에 없는 동사나 에이전트를 가리키는 말이 없는 명령은 놓칩니다. 측정 세트와 규칙을 같은 손으로 썼습니다.
 - **Info** (MCP-CLIENTS-1, docs/MCP.md) Codex CLI, Gemini CLI, OpenCode, Antigravity, Zed, Cline의 설정은 각 클라이언트의 문서를 따른 것이고 서버에 붙여 보지는 않았습니다. 연결 화면은 VS Code용으로 아직 `.vscode/mcp.json`을 만드는데, 그쪽 문서는 이것을 옛 형식이라고 합니다.
+
+<a id="added-in-0241"></a>
+## 0.24.1에서 추가
+
+에이전트(MCP)
+- **Low** (VIEW-FILTER-1) 0.24.1 전에 에이전트가 선택지 이름으로 저장한 보기는 여전히 0행입니다. 다시 만드세요. REST 경로 `POST /collection/views`는 필터 값을 받은 그대로 저장합니다(웹 앱은 선택지 id를 보냅니다). 단일 선택 필드의 `contains` 필터는 선택지 id와 비교합니다.
+- **Info** (MCP-ARGS-1) JSON-RPC 배치 안에서는 객체가 아닌 arguments의 `tools/call`이 여전히 -32603으로 답합니다. 도구에 보내는 JSON이 1 MiB를 넘으면 도구 스키마가 허용하는 글자 수와 상관없이 거절됩니다(한글은 한 글자가 3바이트입니다).
+- **Info** (SIM-1) 가상 실행에서 봤지만 바꾸지 않은 것: 페이지를 고치라는 요청에 에이전트가 이름이 같은 "(검토용)" 사본을 고른 경우가 2번 있었습니다. 첫 프롬프트에 도구 정의가 full 프로필 기준 약 20K 토큰(core는 12K) 실립니다. 공격 문구를 인용하는 안내 글은 여전히 표시됩니다(INJECT-2).

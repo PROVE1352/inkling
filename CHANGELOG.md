@@ -7,6 +7,31 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-11-25
+
+Fixes found by running simulated team members' agents against a local server (399 model tasks, 2,515 tool results):
+places where an agent passed a value back exactly as a tool had printed it and was refused. No migration. No tool is
+added or removed; the `inbox` and `ack` cursor arguments lose their schema pattern (the format is checked in the
+handler, which now says what to pass). What is left is in docs/KNOWN-ISSUES.md, "Added in 0.24.1".
+
+### Fixed (MCP)
+- `create_view` stores select and multi-select filter values given as option names as option ids (an unknown name is
+  refused with the options); before, such a view matched no rows. An empty chart through a filtered view says that
+  the filter is why (`no rows match the view's filter (N rows without it)`).
+- `baseVersion` and `known` accept the printed `v=` prefix (`patch_section`, `patch_sections`, `update_page`,
+  `update_row`, `read_page`, `read_pages`, and the REST section and property routes); before, `v=…` was answered as a
+  conflict with the same version on both sides.
+- `changes_since` accepts `catch_up`'s `next since:` value, and says to use `catch_up` when it is given a time.
+  `catch_up` notes a `since` in the future instead of answering as if nothing had changed, and its description says
+  times are UTC unless zoned. `ack` takes numeric ids and the printed `cursor:` line.
+- `get_instructions` with a `forPageId` from another workspace says so (a page that is not visible answers as a page
+  that does not exist). Oversized writes state the real limit in bytes and what to do, instead of "File is too large
+  (max 25MB)".
+- `tools/call` with arguments that are not an object answers -32602 instead of -32603.
+- `read_page(section=…)` makes a connection suggest-only only when the section it returned is flagged, as section
+  reads with an API token already did (docs/adr/2040-*); before, a flag anywhere on the page counted, and the response
+  showed no `suspicious:` line to explain it.
+
 ## [0.24.0] - 2026-11-25
 
 Getting in and getting going: an optional trial account that needs no sign-up, the sample page for every new account,

@@ -787,3 +787,10 @@ Onboarding
 Agents (MCP)
 - **Low** (INJECT-2, docs/adr/0979-*) Injection heuristics: instructions to a person next to an agent word, lines labelled "에이전트:"/"AI:", "Turn on developer mode", and data-named URL placeholders in API notes (`?token={token}`) are still flagged; commands with verbs outside the lists or without an agent word are missed. The measuring set and the rules were written by the same hand.
 - **Info** (MCP-CLIENTS-1, docs/MCP.md) The settings for Codex CLI, Gemini CLI, OpenCode, Antigravity, Zed and Cline follow each client's documentation and were not tried against a server. The connect screen still writes `.vscode/mcp.json` for VS Code, which that documentation now calls the older format.
+
+## Added in 0.24.1
+
+Agents (MCP)
+- **Low** (VIEW-FILTER-1) Views an agent saved with option names before 0.24.1 still show 0 rows; make them again. The REST route `POST /collection/views` still stores filter values as given (the web app sends option ids). A `contains` filter on a single-select field is compared with the option id.
+- **Info** (MCP-ARGS-1) In a JSON-RPC batch, `tools/call` with non-object arguments still answers -32603. A request over 1 MiB of JSON to a tool is refused whatever the tool's schema allows in characters (Korean is 3 bytes a character).
+- **Info** (SIM-1) Seen in the simulated runs and not changed: an agent told to edit a page picked a same-named "(review)" copy twice; a first prompt carries about 20K tokens of tool definitions on the full profile (12K on core); a guide that quotes attack phrases is still flagged (INJECT-2).

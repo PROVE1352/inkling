@@ -7,6 +7,7 @@ import type { AgentContextDTO } from '../routes/editLock'
 import { resolvePageRef, resolvePageRefs, shortId } from './shortIds'
 import { shortAnchors } from '../context/chunker'
 import { cleanText, wrapUntrusted } from './trust'
+import { versionArg } from '../versionArg'
 
 /**
  * Token saving for repeated reads (docs/adr/1540-*): the `known` argument of read_page/read_pages
@@ -50,7 +51,8 @@ export async function readPagesArgs(
   if (!known || !Object.keys(known).length) return { ids, knownQuery: null }
   const wanted = new Set(ids)
   const pairs: string[] = []
-  for (const [k, v] of Object.entries(known)) {
+  for (const [k, raw] of Object.entries(known)) {
+    const v = versionArg(raw) // `v=…` as printed (0.24.1)
     if (!/^[0-9a-f]{1,64}$/i.test(v)) continue
     let id: string
     try {

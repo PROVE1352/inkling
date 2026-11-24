@@ -64,6 +64,7 @@ import { verificationFactsFor, verificationLine } from './verification'
 import { memberStatuses, mentionStatusLine, mentionStatusLineForPage, statusPhrase } from './memberStatus'
 import { archivedNote } from './workspaceListing'
 import { noteAgentConnected } from './onboarding/agent'
+import { versionArg } from './versionArg'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -326,7 +327,8 @@ async function backlinksLine(ctx: ToolCtx, pageId: string): Promise<string> {
  * version is not put in the error: an agent that retried with it would overwrite the edit anyway.
  * Check and write are two steps (a person's edit landing between them is not caught).
  */
-async function assertReplaceBase(ctx: ToolCtx, pageId: string, baseVersion: string | undefined): Promise<void> {
+async function assertReplaceBase(ctx: ToolCtx, pageId: string, baseRaw: string | undefined): Promise<void> {
+  const baseVersion = versionArg(baseRaw) // `v=…` as printed (0.24.1)
   if (baseVersion) {
     const { version } = await readWholePage(ctx, pageId)
     if (version === baseVersion.toLowerCase()) return
@@ -481,8 +483,11 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         backlinks: z.boolean().optional().describe('Also list the pages that link to this one'),
       },
     },
-    wrap(async ({ pageId: ref, outline, section, maxChars, known, knownSections, backlinks }) => {
+    wrap(async ({ pageId: ref, outline, section, maxChars, known: knownRaw, knownSections: knownSectionsRaw, backlinks }) => {
       const pageId = await resolvePageRef(ctx, ref) // short ids (docs/adr/1541-*, 1940-*)
+      // versions as printed (`v=…`) are the same versions (0.24.1)
+      const known = versionArg(knownRaw)
+      const knownSections = knownSectionsRaw && Object.fromEntries(Object.entries(knownSectionsRaw).map(([k, v]) => [k, versionArg(v)]))
       // Backlinks (docs/adr/1948-*) after whatever the read returns, outside the page text.
       const withLinks = async (r: CallToolResult, dash = false): Promise<CallToolResult> => {
         if (!backlinks || r.isError) return r

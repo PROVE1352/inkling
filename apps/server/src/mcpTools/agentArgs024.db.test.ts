@@ -109,4 +109,42 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
     assert.match(q.text, /two/)
     assert.doesNotMatch(q.text, /three/)
   })
+  it('baseVersion / known with the printed `v=` prefix act like the bare version; a stale one still conflicts', async () => {
+    const made = await mcp.tool('create_page', { workspaceId: ws.id, title: 'Versions', markdown: '## Plan\n\nold plan\n\n## Notes\n\nold notes' })
+    assert.equal(made.isError, false, made.text)
+    const pageId = /([0-9a-f]{8}-[0-9a-f-]{27})/.exec(made.text)![1]
+    const sectionV = async (anchor: string) => {
+      const o = await mcp.tool('read_page', { pageId, outline: true })
+      const m = new RegExp(`§${anchor}\\b[^\\n]*?v=([0-9a-f]+)`).exec(o.text)
+      assert.ok(m, o.text)
+      return m[1]
+    }
+    const v1 = await sectionV('plan')
+    // patch_section: `v=` + version, with spaces
+    const p = await mcp.tool('patch_section', { pageId, section: 'plan', mode: 'replace', markdown: 'new plan', baseVersion: ` v=${v1}` })
+    assert.equal(p.isError, false, p.text)
+    // the same (now stale) version, either way, conflicts
+    for (const base of [`v=${v1}`, v1]) {
+      const stale = await mcp.tool('patch_section', { pageId, section: 'plan', mode: 'replace', markdown: 'lost', baseVersion: base })
+      assert.equal(stale.isError, true, base)
+      assert.match(stale.text, new RegExp(`changed since baseVersion ${v1};`))
+    }
+    // patch_sections
+    const v2 = await sectionV('notes')
+    const many = await mcp.tool('patch_sections', { pageId, edits: [{ section: 'notes', mode: 'replace', markdown: 'new notes', baseVersion: `V=${v2}` }] })
+    assert.equal(many.isError, false, many.text)
+    // read_page known: `v=` + version gives the one-line "unchanged" answer
+    const read = await mcp.tool('read_page', { pageId })
+    const pv = /^- version: (\S+)$/m.exec(read.text)![1]
+    const same = await mcp.tool('read_page', { pageId, known: `v=${pv}` })
+    const bare = await mcp.tool('read_page', { pageId, known: pv })
+    assert.equal(same.text, bare.text)
+    assert.match(same.text, /unchanged/)
+    // update_page replace
+    const rep = await mcp.tool('update_page', { pageId, mode: 'replace', markdown: '## Plan\n\nreplaced', baseVersion: `v=${pv}` })
+    assert.equal(rep.isError, false, rep.text)
+    const old = await mcp.tool('update_page', { pageId, mode: 'replace', markdown: 'again', baseVersion: `v=${pv}` })
+    assert.equal(old.isError, true)
+    assert.match(old.text, new RegExp(`the page changed since version ${pv} \\(PAGE_CONFLICT`))
+  })
 })

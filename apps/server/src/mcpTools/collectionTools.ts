@@ -22,6 +22,7 @@ import { cleanText, wrapUntrusted } from './trust'
 import { agentPropKey, parseUniqueId, subItemsField } from '@inkling/shared'
 import type { AutomationDTO } from '@inkling/shared'
 import { peopleStatusLine } from '../memberStatus'
+import { versionArg } from '../versionArg'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const today = () => new Date().toISOString().slice(0, 10)
@@ -312,7 +313,8 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         baseVersion: z.string().min(1).max(64).describe('Row version from query_rows (second column)'),
       },
     },
-    wrapWrite(ctx, async ({ rowId, properties, baseVersion }) => {
+    wrapWrite(ctx, async ({ rowId, properties, baseVersion: baseRaw }) => {
+      const baseVersion = versionArg(baseRaw) // `v=…` as printed (0.24.1)
       if (Object.keys(properties).length === 0) throw new ToolError('properties is empty; pass at least one { "Name": value }')
       const cur = await getRow(ctx, rowId)
       if (cur.row.version !== baseVersion) throw conflictError(rowId, baseVersion, cur)

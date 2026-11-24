@@ -34,6 +34,7 @@ import { agentProperties, pageVersion } from '../context/pageVersion'
 import { registerSectionBatchRoutes } from './sectionBatch'
 import { registerSectionLinkRoutes } from './sectionLinks'
 import { recordTokenRead } from '../agentTaint'
+import { versionArg } from '../versionArg'
 
 /**
  * Agent retrieval and section editing routes (docs/adr/0926-0930). Used by the MCP tools
@@ -78,14 +79,15 @@ const readQuerySchema = z.object({
     .string()
     .max(READ_PAGES_MAX * 60)
     .optional()
-    .transform((s) => new Map((s ?? '').split(',').map((x) => x.trim().split(':')).filter((kv) => kv.length === 2 && kv[0] && kv[1]) as [string, string][])),
+    .transform((s) => new Map((s ?? '').split(',').map((x) => x.trim().split(':')).filter((kv) => kv.length === 2 && kv[0] && kv[1]).map(([k, v]) => [k, versionArg(v)]) as [string, string][])),
 })
 
 const patchBodySchema = z.object({
   ref: z.string().trim().min(1).max(500),
   markdown: z.string().max(1_000_000).default(''),
   mode: z.enum(['replace', 'append', 'prepend', 'insert_after', 'delete']),
-  baseVersion: z.string().trim().max(64).optional(),
+  // `v=…` as printed is the same version (0.24.1)
+  baseVersion: z.string().trim().max(64).optional().transform(versionArg),
   /** Leave the change as a suggestion for a person to accept (docs/adr/1531-*). */
   suggest: z.boolean().optional(),
 })

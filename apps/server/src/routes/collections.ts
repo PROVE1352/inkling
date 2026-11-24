@@ -54,6 +54,7 @@ import { autoSourceColumns, fillAutoInto } from '../collectionQuery/autoValues'
 import { assertNoSubItemCycle } from '../collectionQuery/rowFields'
 import { guestPeopleNames, redactHiddenTargets, stripAgentKeys } from '../collectionQuery/guestView'
 import { assertWorkspaceGrowth, jsonBytes } from '../quota/room'
+import { versionArg } from '../versionArg'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -62,7 +63,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * version from GET /pages/:id/collection/query or GET /pages/:id/row. Parsed separately so the
  * shared updatePropsSchema (and the web app, which never sends it) stays unchanged.
  */
-const baseVersionSchema = z.object({ baseVersion: z.string().min(1).max(64).optional() })
+const baseVersionSchema = z.object({ baseVersion: z.string().min(1).max(64).optional().transform(versionArg) })
 
 interface ViewRow {
   id: string

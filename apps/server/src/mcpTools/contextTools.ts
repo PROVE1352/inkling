@@ -27,6 +27,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { db } from '../db/index'
 import { pages, workspaces } from '../db/schema'
 import { archivedNote } from '../workspaceListing'
+import { versionArg } from '../versionArg'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -419,7 +420,8 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         suggest: z.boolean().optional().describe('true: do not write; leave it as a suggestion for a person (docs/adr/1531-*)'),
       },
     },
-    wrapWrite(ctx, async ({ pageId, section, markdown, mode, baseVersion, suggest }) => {
+    wrapWrite(ctx, async ({ pageId, section, markdown, mode, baseVersion: baseRaw, suggest }) => {
+      const baseVersion = versionArg(baseRaw) // `v=…` as printed (0.24.1)
       if ((mode === 'replace' || mode === 'delete') && !baseVersion) {
         throw new ToolError(
           `baseVersion is required for mode=${mode}; get it from read_page(pageId, outline=true) or find_context (v=…)`,

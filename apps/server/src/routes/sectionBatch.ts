@@ -24,6 +24,7 @@ import { findVisiblePage } from '../pageDto'
 import { asAgentStep, beforeAgentEditSnapshot, sectionEditDelta, stepSections } from '../context/sectionWrite'
 import { isAgentVia } from '../agentVia'
 import { claimLine, claimOf, connectionKey, pageClaims } from '../leases'
+import { versionArg } from '../versionArg'
 
 /**
  * POST /pages/:id/sections — several section patches in one request, all or nothing
@@ -41,7 +42,8 @@ const editSchema = z.object({
   ref: z.string().trim().min(1).max(500),
   markdown: z.string().max(1_000_000).default(''),
   mode: z.enum(['replace', 'append', 'prepend', 'insert_after', 'delete']),
-  baseVersion: z.string().trim().max(64).optional(),
+  // `v=…` as printed is the same version (0.24.1)
+  baseVersion: z.string().trim().max(64).optional().transform(versionArg),
 })
 const bodySchema = z.object({
   /** Leave every edit as a suggestion for a person (docs/adr/1538-*). */

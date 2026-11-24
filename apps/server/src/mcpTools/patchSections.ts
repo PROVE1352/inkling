@@ -7,6 +7,7 @@ import { cleanText, wrapUntrusted } from './trust'
 import type { SectionConflict } from '../routes/sectionBatch'
 import type { SuggestionDTO } from '@inkling/shared'
 import { suggestionsMadeText } from './collabTools'
+import { versionArg } from '../versionArg'
 
 /**
  * patch_sections (docs/adr/1542-*): several patch_section edits on one page in one call, all or
@@ -82,7 +83,7 @@ export function registerPatchSectionsTool(server: McpServer, ctx: ToolCtx): void
       const pageId = await resolvePageRef(ctx, ref)
       const res = await call(ctx, 'POST', `/api/pages/${pageId}/sections`, {
         json: {
-          edits: edits.map((e) => ({ ref: e.section, markdown: e.markdown ?? '', mode: e.mode, ...(e.baseVersion ? { baseVersion: e.baseVersion } : {}) })),
+          edits: edits.map((e) => ({ ref: e.section, markdown: e.markdown ?? '', mode: e.mode, ...(e.baseVersion ? { baseVersion: versionArg(e.baseVersion) } : {}) })),
           ...(suggest ? { suggest } : {}),
         },
         passStatuses: [409],

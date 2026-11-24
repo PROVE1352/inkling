@@ -31,5 +31,8 @@ export default {
   'legal.version': 'Document version {version}',
   'legal.instanceTitle': 'This server: {label}',
   'legal.instanceNotice': 'Notice from the operator',
+  'legal.contact': 'Contact',
+  'legal.contactTitle': 'Contact the operator',
+  'legal.contactDesc': 'Reach the person who runs this server.',
   'legal.deleteNoExport': 'Export is not available before you agree.',
 }

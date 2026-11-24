@@ -166,8 +166,8 @@ the sentences about it (deletion after 14 days, trash 7 days, limits, features t
 ### Without tick boxes: one line
 
 Put `"items": []` in `signup.json` and keep `terms.*.md` and `privacy.*.md` in the folder. The sign-up form
-then has no tick boxes; under the sign-up button it says "By signing up, you agree to the Terms of Service
-and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
+then has no tick boxes; the button says "Continue" and under it a line says "By continuing, you agree to the
+Terms of Service and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
 consent is recorded in `user_consents` in this case, and nobody is asked again when a document changes.
 Which of the two ways fits your service is for you to decide under the law of your country; this page is
 not legal advice (see the end of this page).
@@ -250,7 +250,7 @@ One line each; the full reference is in the operations docs.
 | `APP_MEM_LIMIT`, `NODE_OPTIONS` | `768m`, `--max-old-space-size=448` | The app container's memory and the server's heap inside it ("Memory" below) |
 | `DISABLED_FEATURES` | see `demo.env.example` | Features turned off on the whole server |
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
-| `INSTANCE_LABEL` | `Demo` | The label every screen shows |
+| `INSTANCE_LABEL` | `Demo` | The label every screen shows; empty = no label |
 | `INSTANCE_NOTICE` | empty | A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | Backup sets kept |
 | `SIGNUP_PER_HOUR` | `10` | Accounts the whole server makes in one hour (the setup link's account does not count) |

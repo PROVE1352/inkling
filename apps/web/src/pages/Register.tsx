@@ -8,7 +8,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
 import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
-import { SignupAgreementLine, SignupConsent, type SignupConsentState } from '../components/legal/SignupConsent'
+import { SignupAgreementLine, SignupConsent, useSignupSubmitKey, type SignupConsentState } from '../components/legal/SignupConsent'
 import { BotCheckField, SignupFullNotice, signupBody, useSignupShownAt } from '../components/account/SignupExtras'
 import { restrictedSignup, SetupOnlyNotice } from '../components/SetupOnlyNotice'
 import { useT } from '../i18n'
@@ -46,6 +46,8 @@ export function Register() {
   const [serverError, setServerError] = useState<string | null>(null)
   // Sign-up consent (restricted mode, LEGAL_DIR): ready unless the block asks for ticks.
   const [consent, setConsent] = useState<SignupConsentState>({ ready: true, consents: [] })
+  // "Continue" while the one-line agreement shows under the button (docs/adr/2553-*)
+  const submitKey = useSignupSubmitKey(setupMode ? 'setup.submit' : 'register.submit')
 
   if (me.data) return <Navigate to={next} replace />
 
@@ -289,7 +291,7 @@ export function Register() {
             {register.isPending && (
               <Spinner size={16} className="border-white/40 border-t-white" />
             )}
-            {setupMode ? t('setup.submit') : t('register.submit')}
+            {t(submitKey)}
           </button>
           <SignupAgreementLine />
         </form>

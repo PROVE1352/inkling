@@ -4,7 +4,7 @@
 - Date: 2026-11-24
 
 ## Context
-Some operators want what many services abroad do: no tick boxes, only "By signing up, you agree to the
+Some operators want what many services abroad do: no tick boxes, only "By continuing, you agree to the
 Terms of Service and the Privacy Policy." with links to the documents. The server already accepted
 `"items": []` (no required item, so `hasConsented` is always true and no consent screen appears), but the
 sign-up form still drew an empty "Agreements" heading and gave no way to reach the documents.
@@ -14,6 +14,8 @@ sign-up form still drew an empty "Agreements" heading and gave no way to reach t
   form (and the setup-code form) shows one line in small grey text right under the button. Each document
   name links to its page (`/terms`, `/privacy`) in a new tab, so the form keeps what was typed. With one
   document the sentence names only that one; with none there is no line. The notice is shown as before.
+- While the line shows, the button says "Continue" ("계속하기") on both forms; otherwise it keeps its own
+  text. The same function decides the line and the button text (`signupAgreement.ts`).
 - No new setting: `items: []` is the choice. A folder with items keeps the tick boxes and no line.
 - No consent rows are written for the line. The sign-up still sends `legalVersion`, which the server checks
   as before; a changed document does not ask anyone again, since there is no required item.

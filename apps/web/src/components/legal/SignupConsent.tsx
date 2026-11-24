@@ -4,7 +4,7 @@ import { useT } from '../../i18n'
 import { Spinner } from '../Spinner'
 import { ConsentItems } from './ConsentItems'
 import { CONSENT_REQUIRED_EVENT, DOC_PATH, useLegal, useLegalMode } from './legalApi'
-import { signupAgreementParts } from './signupAgreement'
+import { signupAgreementParts, signupSubmitKey } from './signupAgreement'
 
 /** What the consent block tells the sign-up form. */
 export interface SignupConsentState {
@@ -109,7 +109,7 @@ export function SignupConsent({ onChange }: { onChange: (state: SignupConsentSta
 
 /**
  * The one line under the sign-up button when signup.json has no items to tick but the folder has
- * documents (docs/adr/2553-*): "By signing up, you agree to the Terms of Service and the Privacy
+ * documents (docs/adr/2553-*): "By continuing, you agree to the Terms of Service and the Privacy
  * Policy.", each document name a link opening in a new tab so the form keeps what was typed. Nothing
  * is recorded for it (no user_consents rows); the sign-up still sends the version shown.
  */
@@ -133,4 +133,12 @@ export function SignupAgreementLine() {
       )}
     </p>
   )
+}
+
+/** The sign-up button's text: "Continue" while SignupAgreementLine shows, otherwise `otherwise`. */
+export function useSignupSubmitKey<K extends string>(otherwise: K): K | 'legal.signupContinue' {
+  const mode = useLegalMode()
+  const legal = useLegal(!!mode)
+  if (!mode || !legal.data) return otherwise
+  return signupSubmitKey(mode.docs, legal.data.items.length, otherwise)
 }

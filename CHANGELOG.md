@@ -7,6 +7,49 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-24
+
+A small patch release: three fixes to the MCP server, sign-up without tick boxes for operators who use `LEGAL_DIR`,
+and patch and minor updates of dependencies. No database migration (63 applied migrations, as 0.22.1), no new
+setting, no API route added or removed. The MCP tool list is the same; ten tools have a longer `workspaceId`
+description. What is left is in docs/KNOWN-ISSUES.md, "Added in 0.22.2".
+
+### Agents (MCP)
+- MCP `initialize` now reports the app version as `serverInfo.version` instead of a fixed `1.0.0`.
+- `changes_since` accepts the cursor line as printed (`cursor: …`, `next cursor: …`, `fresh cursor: …`, any case)
+  as well as the bare token. Before, an agent that passed the last line of the answer back was refused.
+- The `workspaceId` description of the ten tools that infer the workspace (list_pages, create_page, import_folder,
+  import_zip, list_templates, create_from_template, create_collection, check_notes, get_instructions, list_trash)
+  now says it is required when the connection has several workspaces. The behaviour is unchanged. The tool list
+  grows from 13,245 to 13,303 tokens.
+
+### Sign-up with terms (`LEGAL_DIR`)
+- **One line instead of tick boxes** (docs/adr/2553-*): with `"items": []` in `signup.json` and documents in
+  `LEGAL_DIR`, the sign-up form shows one line under the button ("By continuing, you agree to the Terms of Service
+  and the Privacy Policy.") that links the documents, and the button says "Continue" while the line shows. No tick
+  box is shown and no consent row is written, and a change of the documents does not ask anyone again. With items,
+  everything is as before. Which of the two fits is for the operator to decide for their country (docs/DEMO.md).
+- With no items the form no longer shows an empty "Agreements" heading.
+
+### Demo preset
+- `ACCOUNT_LIFETIME_DAYS` may be left empty in `deploy/demo/demo.env`: no account is deleted on a schedule. The
+  default stays 14. The documents in `deploy/demo/legal/` describe the default; an operator who empties the setting
+  has to edit them.
+- `INSTANCE_LABEL` may be left empty too: no label is shown.
+
+### Dependencies
+- Patch and minor updates: `@fastify/multipart` 10.1.9, `@fastify/static` 10.1.12, `ws` 8.23.0, `nodemailer` 10.5.0,
+  `@tanstack/react-query` 5.107.1, `zustand` 5.1.0, `vite` 8.3.8, `@vitejs/plugin-react` 6.3.0, `tailwindcss` 4.3.5,
+  `tsx` 4.23.15. The pins on BlockNote 0.51.4, prosemirror-view 1.42.4 and pdfjs-dist 6.5.438 stay.
+
+### Docs and site
+- docs/PERFORMANCE.md ends with the measuring tools; the rules for a performance change moved to CONTRIBUTING.md.
+- The guide site has a 404 page, a sitemap and link preview tags.
+
+### Known issues
+- MCP-REPL-2 (Low): `update_page` replace without `baseVersion` reads a change log that can lag behind the last
+  write by a moment; passing `baseVersion` avoids it (docs/KNOWN-ISSUES.md).
+
 ## [0.22.1] - 2026-11-12
 
 A patch release that fixes what the second security review of 0.22.0 left open for a public demo (KNOWN-ISSUES

@@ -1303,7 +1303,11 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
 - Lifting a trial account's expiry in Admin › Users keeps the account with its restrictions, and it keeps one
   trial seat until it is deleted.
 - Trial accounts and their workspaces do not count toward `SIGNUP_MAX_USERS` or `LIMIT_WORKSPACES_TOTAL`
-  (`TRIAL_MAX_ACCOUNTS` bounds them, one workspace each), and `SIGNUP_PER_HOUR` counts them apart from sign-ups.
+  (`TRIAL_MAX_ACCOUNTS` bounds them, one workspace each), so the server can hold up to `LIMIT_WORKSPACES_TOTAL` +
+  `TRIAL_MAX_ACCOUNTS` workspaces. `SIGNUP_PER_HOUR` applies to sign-ups and to trial accounts each on its own: together
+  up to twice the number in an hour.
+- A collaboration socket already open when the time is up stays open until it closes (the next connection is
+  refused); the account's automation rules stop at once.
 - Limits of the protection: the 2-second bot check is a value the browser sends, so a script passes it. The
   per-address count needs the real client address: behind a proxy set `TRUST_PROXY`; behind a CDN or a proxy that
   does not pass `X-Forwarded-For`, every visitor shares one count. A trial account can still make the server fetch

@@ -296,18 +296,31 @@ export function trialRestriction(method: string, url: string | undefined, body: 
 
 /**
  * Whether this server may have trial accounts: always while TRIAL_ACCOUNTS is on; while it is off, read
- * once (accounts made before it was turned off stay refused until they are deleted) and remembered.
- * Only one server process uses a database (instanceLock.ts), and with the setting off nothing in this
- * process makes a trial account, so "none" stays true until the setting is on again.
+ * from the database (accounts made before it was turned off stay refused until they are deleted). "Some"
+ * is remembered for good; "none" for NONE_TRUSTED_MS only, since another process on the same database
+ * (SINGLE_INSTANCE=0) may have the setting on and make one.
  */
-let trialRowsSeen: boolean | null = null
-async function mayHaveTrialAccounts(): Promise<boolean> {
+export const NONE_TRUSTED_MS = 60_000
+let trialRowsSeen = false
+let noneReadAt: number | null = null
+const readAnyTrial = async (): Promise<boolean> =>
+  ((await db.execute(sql`SELECT 1 FROM users WHERE trial LIMIT 1`)) as unknown as unknown[]).length > 0
+
+export async function mayHaveTrialAccounts(now = Date.now(), read: () => Promise<boolean> = readAnyTrial): Promise<boolean> {
   if (trialOn() || trialRowsSeen) return true
-  if (trialRowsSeen === null) {
-    const r = (await db.execute(sql`SELECT 1 FROM users WHERE trial LIMIT 1`)) as unknown as unknown[]
-    trialRowsSeen = r.length > 0
+  if (noneReadAt !== null && now - noneReadAt < NONE_TRUSTED_MS) return false
+  if (await read()) {
+    trialRowsSeen = true
+    return true
   }
-  return trialRowsSeen
+  noneReadAt = now
+  return false
+}
+
+/** Test hook: forget what was read. */
+export function _resetTrialRowsCache(): void {
+  trialRowsSeen = false
+  noneReadAt = null
 }
 
 async function isTrialUser(userId: string): Promise<boolean> {

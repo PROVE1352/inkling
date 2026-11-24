@@ -489,6 +489,49 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     on()
   })
 
+  it('link previews: one account gets 30 a minute however it signs the requests (cookie with an odd Authorization header from changing /64s, or several tokens)', async () => {
+    const lp = await import('../routes/linkPreview')
+    const u = await h.makeUser('Previewer')
+    const url = `/api/link-preview?url=${encodeURIComponent('http://127.0.0.1/x')}` // refused by safeFetch: nothing leaves the server
+    lp._resetPreviewSlots()
+    for (let i = 0; i < lp.PREVIEWS_PER_MINUTE; i++) {
+      const r = await app.inject({ method: 'GET', url, remoteAddress: `2001:db8:${i.toString(16)}::1`, headers: { cookie: u.cookie, authorization: 'x' } })
+      assert.equal(r.statusCode, 422, `#${i + 1} ${r.body}`)
+    }
+    const over = await app.inject({ method: 'GET', url, remoteAddress: '2001:db8:ffff::1', headers: { cookie: u.cookie, authorization: 'x' } })
+    assert.equal(over.statusCode, 429)
+    assert.equal(code(over), 'RATE_LIMITED')
+    // several personal API tokens of one account share the same count
+    lp._resetPreviewSlots()
+    const pats: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const t = await app.inject({ method: 'POST', url: '/api/tokens', headers: { cookie: u.cookie }, payload: { name: `p${i}`, expiresInDays: 30, access: 'read', range: { kind: 'all' } } })
+      assert.equal(t.statusCode, 201, t.body)
+      pats.push((t.json() as { secret: string }).secret)
+    }
+    for (let i = 0; i < lp.PREVIEWS_PER_MINUTE; i++) {
+      assert.equal((await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${pats[i % 3]}` } })).statusCode, 422)
+    }
+    assert.equal((await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${pats[1]}` } })).statusCode, 429)
+    // another account is not affected
+    const other = await h.makeUser('Other')
+    assert.equal((await app.inject({ method: 'GET', url, headers: { cookie: other.cookie } })).statusCode, 422)
+    lp._resetPreviewSlots()
+  })
+
+  it('automations: a rule of a trial account past its time does not run as it (the author counts as gone at once)', async () => {
+    const { ruleAuthor } = await import('../automations/runner')
+    const t = await makeTrial()
+    assert.equal((await ruleAuthor(t.user.id))?.id, t.user.id)
+    await db.execute(sql`UPDATE users SET expires_at = now() - interval '1 second' WHERE id = ${t.user.id}`)
+    assert.equal(await ruleAuthor(t.user.id), null)
+    // an ordinary author with a past expires_at (ACCOUNT_LIFETIME_DAYS off) still runs
+    const plain = await h.makeUser('RuleAuthor')
+    await db.execute(sql`UPDATE users SET expires_at = now() - interval '1 day' WHERE id = ${plain.id}`)
+    assert.equal((await ruleAuthor(plain.id))?.id, plain.id)
+    await trial.expireTrialAccounts(() => {})
+  })
+
   it('rate limits: a token with a fresh cookie each time, or a made-up bearer on the trial route, still runs out', async () => {
     const limited = await buildApp({ rateLimit: true })
     try {
@@ -510,6 +553,11 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
         limited.inject({ method: 'POST', url: '/api/auth/trial', remoteAddress: '203.0.113.8', headers: { authorization: `Bearer ${API_TOKEN_PREFIX}${randomBytes(24).toString('base64url')}` }, payload: {} })
       for (let i = 0; i < 10; i++) assert.notEqual((await sendTrial()).statusCode, 429, `trial #${i + 1}`)
       assert.equal((await sendTrial()).statusCode, 429)
+      // sign-up has the same per-address key now (routes/auth.ts strictRateLimit)
+      const sendRegister = () =>
+        limited.inject({ method: 'POST', url: '/api/auth/register', remoteAddress: '203.0.113.9', headers: { authorization: `Bearer ${API_TOKEN_PREFIX}${randomBytes(24).toString('base64url')}` }, payload: {} })
+      for (let i = 0; i < 10; i++) assert.notEqual((await sendRegister()).statusCode, 429, `register #${i + 1}`)
+      assert.equal((await sendRegister()).statusCode, 429)
     } finally {
       await limited.close()
     }

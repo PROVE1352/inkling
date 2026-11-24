@@ -289,6 +289,29 @@ describe('trial accounts: the refused routes', () => {
     assert.ok(!OPEN_WHEN_FULL.includes('POST /api/auth/trial'))
   })
 
+  it('with trials off, "no trial account" is trusted one minute only; "some" for good', async () => {
+    const { mayHaveTrialAccounts, NONE_TRUSTED_MS, _resetTrialRowsCache } = await import('./trial')
+    _resetTrialRowsCache()
+    let reads = 0
+    let answer = false
+    const read = async () => {
+      reads++
+      return answer
+    }
+    const t0 = 1_000_000
+    assert.equal(await mayHaveTrialAccounts(t0, read), false)
+    assert.equal(await mayHaveTrialAccounts(t0 + NONE_TRUSTED_MS - 1, read), false)
+    assert.equal(reads, 1)
+    // another process (SINGLE_INSTANCE=0) made one meanwhile: seen on the next read after the minute
+    answer = true
+    assert.equal(await mayHaveTrialAccounts(t0 + NONE_TRUSTED_MS, read), true)
+    assert.equal(reads, 2)
+    answer = false
+    assert.equal(await mayHaveTrialAccounts(t0 + 10 * NONE_TRUSTED_MS, read), true)
+    assert.equal(reads, 2)
+    _resetTrialRowsCache()
+  })
+
   it('workspace settings: refused only when turning the invite link on', () => {
     const { method, url } = TRIAL_INVITE_LINK_ROUTE
     assert.equal(trialRestriction(method, url, { inviteLinkEnabled: true }), 'members')

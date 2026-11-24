@@ -47,6 +47,7 @@ export default {
   'mcpSetup.tryAsking': '연결한 뒤 이렇게 물어보세요: “샘플 페이지에서 남은 할 일을 정리해 줘”',
   'mcpSetup.verifyOauth': '연결되면 아래 \'{apps}\'에 앱 이름이 나옵니다.',
   'mcpSetup.verifyToken': '토큰으로 연결하면 아래 \'{tokens}\' 목록에서 그 토큰의 마지막 사용 시각이 바뀝니다.',
+  'mcpSetup.connected': '에이전트가 연결됐습니다. 이렇게 물어보세요: “샘플 페이지에서 남은 할 일을 정리해 줘”',
   'mcpSetup.otherOptions': '다른 방식 (도구, 로그인 방식)',
 
   // 에이전트 연결 토큰(docs/adr/2060-*)과 목록의 제안 전용 표시(docs/adr/2042-*)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { SIDEBAR_MENU_DEFAULT_HIDDEN, SIDEBAR_MENU_IDS, type PageScope, type SidebarMenuId } from '@inkling/shared'
+import { SIDEBAR_MENU_IDS, type PageScope, type SidebarMenuId } from '@inkling/shared'
 import {
   useBookmarks,
   useCreatePage,
@@ -19,6 +19,7 @@ import { useShortcutKeys, withShortcut } from '../lib/shortcuts'
 import { MenuShortcut } from './MenuShortcut'
 import { useT } from '../i18n'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
+import { useSidebarDefaultHidden } from '../onboarding/api'
 import {
   compactSidebarFooter,
   resolveSidebarMenu,
@@ -208,17 +209,18 @@ export function Sidebar({
   // Top menus (docs/adr/1020-*): saved order/visibility from the server, merged with this build's menus.
   const sidebarPrefs = useSidebarPrefs()
   const saveSidebar = useSaveSidebarPrefs()
-  const visibleMenus = visibleSidebarMenu(sidebarPrefs, SIDEBAR_MENU_IDS, SIDEBAR_MENU_DEFAULT_HIDDEN) as SidebarMenuId[]
+  const defaultHidden = useSidebarDefaultHidden() // + activity once an agent is connected (docs/adr/2390-*)
+  const visibleMenus = visibleSidebarMenu(sidebarPrefs, SIDEBAR_MENU_IDS, defaultHidden) as SidebarMenuId[]
   const [menuCtx, setMenuCtx] = useState<MenuCtx | null>(null)
   const closeMenuCtx = useCallback(() => setMenuCtx(null), [])
   const menuTrigger = useMenuContextTrigger(setMenuCtx)
   const hideMenu = (id: SidebarMenuId) => {
     const prev = sidebarPrefs
     const next = toSidebarPrefs(
-      setEntryHidden(resolveSidebarMenu(prev, SIDEBAR_MENU_IDS, SIDEBAR_MENU_DEFAULT_HIDDEN), id, true),
+      setEntryHidden(resolveSidebarMenu(prev, SIDEBAR_MENU_IDS, defaultHidden), id, true),
       SIDEBAR_MENU_IDS,
       prev,
-      SIDEBAR_MENU_DEFAULT_HIDDEN,
+      defaultHidden,
     )
     saveSidebar.mutate(next, {
       onSuccess: () =>

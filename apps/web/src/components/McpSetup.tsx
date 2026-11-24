@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useT, type TKey } from '../i18n'
 import { mcpOptionsOpen } from '../onboarding/firstSteps'
 import {
@@ -45,7 +45,7 @@ export function McpSetup({
   secret,
   tokenAuthEnabled = MCP_TOKEN_AUTH_ENABLED,
   initial,
-  onCopied,
+  connected,
 }: {
   origin: string
   /** The agent connection token made on this screen a moment ago, while it is still shown; else null. */
@@ -53,8 +53,11 @@ export function McpSetup({
   tokenAuthEnabled?: boolean
   /** Initial choices (tests). */
   initial?: { client?: McpClient; profile?: McpProfile; auth?: McpAuth }
-  /** Called after the address or the command was copied (the getting-started "AI agent" item). */
-  onCopied?: () => void
+  /**
+   * Shown under the steps once the person's agent has connected while this screen was open (the same
+   * line the app shows as a toast, docs/adr/2390-*). Copying no longer ticks anything.
+   */
+  connected?: ReactNode
 }) {
   const t = useT()
   const [client, setClient] = useState<McpClient>(initial?.client ?? 'claude-code')
@@ -87,7 +90,6 @@ export function McpSetup({
       await navigator.clipboard.writeText(text)
       setCopied(which)
       setTimeout(() => setCopied(null), 1500)
-      if (which !== 'header') onCopied?.()
     } catch {
       // No clipboard permission: the text is selectable
     }
@@ -196,6 +198,11 @@ export function McpSetup({
             ? t('mcpSetup.verifyToken', { tokens: t('agentTokens.title') })
             : t('mcpSetup.verifyOauth', { apps: t('connections.apps') })}
         </p>
+        {connected && (
+          <p className="text-ink" role="status" data-testid="mcp-connected">
+            {connected}
+          </p>
+        )}
       </div>
 
       <details

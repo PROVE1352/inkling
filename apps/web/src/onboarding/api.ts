@@ -8,6 +8,9 @@ import type {
   UpdateOnboardingInput,
 } from '@inkling/shared'
 import { api, qk, useMe } from '../api'
+import type { SidebarMenuId } from '@inkling/shared'
+import { observeAgentConnected } from './agentNotice'
+import { sidebarDefaultHidden } from './sidebarDefault'
 
 // Onboarding state per person on the server (docs/adr/2380-*). Kept out of api.ts like sidebarApi.ts.
 // Offline or unanswered: the query fails at once (networkMode 'always', no retry) and every caller
@@ -21,8 +24,15 @@ let latestKey: readonly unknown[] | null = null
 let client: QueryClient | null = null
 const sent = new Set<string>()
 
-/** The person's onboarding, or null while unknown, offline, turned off by the server or failed. */
-export function useOnboarding(): OnboardingDTO | null {
+/** How often the connections screen asks again while no agent has connected yet (docs/adr/2390-*). */
+export const AGENT_WAIT_POLL_MS = 5_000
+
+/**
+ * The person's onboarding, or null while unknown, offline, turned off by the server or failed.
+ * `waitForAgent` (the connections screen only): ask again every few seconds while the answer says no
+ * agent has connected yet, so the "connected" line shows soon after the agent's first request.
+ */
+export function useOnboarding(opts: { waitForAgent?: boolean } = {}): OnboardingDTO | null {
   const qc = useQueryClient()
   const userId = useMe().data?.id ?? ''
   const key = qkOnboarding(userId)
@@ -34,16 +44,23 @@ export function useOnboarding(): OnboardingDTO | null {
     retry: false,
     networkMode: 'always',
     refetchOnWindowFocus: 'always',
+    refetchInterval: opts.waitForAgent ? (query) => (query.state.data?.enabled && !query.state.data.agentConnected ? AGENT_WAIT_POLL_MS : false) : false,
   })
   useEffect(() => {
     client = qc
     if (q.data) {
       latest = q.data
       latestKey = key
+      if (q.data.enabled) observeAgentConnected(userId, q.data.agentConnected)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data, qc])
   return q.data?.enabled ? q.data : null
+}
+
+/** The sidebar's default hidden menus for the signed-in person (docs/adr/2390-*; unknown or off = no agent). */
+export function useSidebarDefaultHidden(): readonly SidebarMenuId[] {
+  return sidebarDefaultHidden(useOnboarding()?.agentConnected)
 }
 
 export function useUpdateOnboarding() {

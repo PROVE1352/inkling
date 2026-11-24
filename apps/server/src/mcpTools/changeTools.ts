@@ -2,13 +2,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { encodeCursor, FEED_MAX_BUDGET, FEED_MIN_BUDGET } from '../context/changeFeed'
-import { decodeCatchUpCursor } from '../catchUp'
+import { decodeCatchUpCursor, parseSince } from '../catchUp'
 import type { FeedResult } from '../context/changeFeed'
 import { CHANGE_WAIT_MAX_SEC, changeMark, waitForChanges } from '../context/changeWait'
 import { noteWait } from '../connectionUsage'
 import { db } from '../db/index'
 import { workspaceMembers } from '../db/schema'
-import { call, text, wrap, idArg } from './core'
+import { call, text, ToolError, wrap, idArg } from './core'
 import type { ToolCtx } from './core'
 
 /** Said when a wait could not be granted (limits, shutdown): the answer is the plain read. */
@@ -27,6 +27,14 @@ export function cursorArg(raw: string | undefined): string | undefined {
   return token || raw
 }
 
+function isTime(s: string): boolean {
+  try {
+    return parseSince(s).kind === 'time'
+  } catch {
+    return false
+  }
+}
+
 /**
  * A catch_up cursor (`next since:`) passed to changes_since (0.24.1). Both carry a position in the
  * same change log (reserveCursor), so it becomes the feed cursor for that position: changes after
@@ -34,7 +42,13 @@ export function cursorArg(raw: string | undefined): string | undefined {
  */
 export function feedCursorFrom(token: string | undefined, workspaceId: string | undefined): string | undefined {
   const c = token ? decodeCatchUpCursor(token) : null
-  if (!c) return token
+  if (!c) {
+    // a time is not a position in the log; catch_up takes one
+    if (token && isTime(token)) {
+      throw new ToolError(`changes_since takes a cursor, not a time ("${token.slice(0, 40)}"). For what changed since a time use catch_up(since=…); call changes_since without a cursor to start tracking`)
+    }
+    return token
+  }
   return encodeCursor({ seq: c.seq, at: Math.floor(c.at / 3_600_000) * 3_600_000, ws: workspaceId ?? null })
 }
 

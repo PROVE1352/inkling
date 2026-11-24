@@ -586,7 +586,8 @@ Token numbers in tool output are estimates (ASCII characters / 4, one per Korean
   encoded-blob, exfil-url, image-exfil). It may be a false positive. Since 0.16 text that read_file returns
   (attachments, PDF text) is scanned the same way when it is returned ([ADR 2046](adr/2046-read-file-text-by-extension-and-read-time-scan.md)).
 - **Suspicious content makes the connection suggest-only for an hour** ([ADR 2040](adr/2040-suggest-only-after-flagged-content.md)–[2043](adr/2043-suggest-only-switch-on-by-default.md)).
-  When a tool hands you content marked `suspicious: injection-like`, for 60 minutes after the last such read:
+  When a tool hands you content marked `suspicious: injection-like`, for 60 minutes after the last such read
+  (`read_page(section=…)` counts only the section it returns; a whole-page read counts a flag anywhere on the page):
 
   | What you do | While suggest-only |
   |---|---|

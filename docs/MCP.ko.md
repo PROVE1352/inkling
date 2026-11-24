@@ -362,6 +362,7 @@ claude mcp add --transport http inkling https://notes.example.com/mcp --header "
 - **신호.** 인젝션 시도처럼 보이는 섹션에는 `suspicious: injection-like (<rules>)`가 붙습니다(규칙: hidden-chars, override-phrase, tool-directive, permission-change, encoded-blob, exfil-url, image-exfil). 잘못 잡힌 것일 수도 있습니다. 0.16부터는 read_file이 돌려주는 글(첨부 파일, PDF 텍스트)도 돌려줄 때 같은 방식으로 검사합니다([ADR 2046](adr/2046-read-file-text-by-extension-and-read-time-scan.md)).
 - **의심스러운 내용을 읽은 연결은 한 시간 동안 제안만 할 수 있습니다**([ADR 2040](adr/2040-suggest-only-after-flagged-content.md)–[2043](adr/2043-suggest-only-switch-on-by-default.md)).
   도구가 `suspicious: injection-like` 표시가 붙은 내용을 건네면, 마지막으로 그런 내용을 읽은 때부터 60분 동안 이렇게 됩니다.
+  `read_page(section=…)`는 돌려준 섹션의 표시만 따지고, 페이지 전체 읽기는 페이지 어디에 있는 표시든 따집니다.
 
   | 하는 일 | 제안만 상태일 때 |
   |---|---|

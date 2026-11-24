@@ -209,8 +209,11 @@ export async function call(
     }
     // A JSON body over the route's limit (0.24.1): Fastify's 413, which the root handler words as
     // the 25 MB file limit. Say the real limit in bytes and what to do instead.
-    if (res.statusCode === 413 && opts.json !== undefined && (!code || code === 'PAYLOAD_TOO_LARGE' || code === 'VALIDATION')) {
-      throw new ToolError(bodyTooLargeMessage(Buffer.byteLength(payload ?? ''), ctx.app.initialConfig.bodyLimit ?? 1_048_576))
+    // Only a JSON body over the server's limit: a route's own 413 (a file, a folder) keeps its words.
+    const limit = ctx.app.initialConfig.bodyLimit ?? 1_048_576
+    const bytes = Buffer.byteLength(payload ?? '')
+    if (res.statusCode === 413 && opts.json !== undefined && bytes > limit && (!code || code === 'PAYLOAD_TOO_LARGE' || code === 'VALIDATION')) {
+      throw new ToolError(bodyTooLargeMessage(bytes, limit))
     }
     // Error codes first (more specific than the status), then the status.
     const hint =

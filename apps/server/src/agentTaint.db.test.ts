@@ -355,6 +355,12 @@ describe('[db] suggest-only connections after flagged content', { skip: !HAS_DB 
     const after = await D.tool('patch_section', { pageId: P, section: 'log', mode: 'append', markdown: 'after flagged' })
     assert.doesNotMatch(after.text, /^Done/)
     assert.doesNotMatch(await sectionText(P, 'log'), /after flagged/)
+    // a section read returns the section without its subsections: a flag only in a subsection does not count
+    const nested = await newPage(ws3, 'Nested', [heading('Alpha'), para('Clean intro.'), { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: 'Decided', styles: {} }] }, para(INJECTION)])
+    const N = await agent(dave, 'Nested reader')
+    const parent = await N.tool('read_page', { pageId: nested, section: 'alpha' })
+    assert.doesNotMatch(parent.text, /Ignore all previous instructions|suspicious:/)
+    assert.match(parent.text, /can: read,comment,edit\n/)
     // a whole-page read of a page with a flag anywhere counts, as before
     const W = await agent(dave, 'Whole')
     await W.tool('read_page', { pageId: mixed })

@@ -156,8 +156,8 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
     const token = /^next since: (\S+)/.exec(sinceLine)![1]
     await mcp.tool('create_page', { workspaceId: ws.id, title: 'After catch up', markdown: 'hello' })
     await drainChangeLog()
-    for (const cursor of [token, sinceLine]) {
-      const r = await mcp.tool('changes_since', { workspaceId: ws.id, cursor })
+    for (const [wsRef, cursor] of [[ws.id, token], [ws.id, sinceLine], [ws.id.slice(0, 8), token]]) {
+      const r = await mcp.tool('changes_since', { workspaceId: wsRef, cursor })
       assert.equal(r.isError, false, r.text)
       assert.match(r.text, /After catch up/)
       assert.match(r.text.trimEnd().split('\n').at(-1)!, /^next cursor: \S+$/)
@@ -169,6 +169,10 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
     // garbage is still refused
     const bad = await mcp.tool('changes_since', { workspaceId: ws.id, cursor: 'garbage!!' })
     assert.equal(bad.isError, true)
+    // a time is refused with where it belongs
+    const time = await mcp.tool('changes_since', { workspaceId: ws.id, cursor: '2099-01-01T00:00Z' })
+    assert.equal(time.isError, true)
+    assert.match(time.text, /changes_since takes a cursor, not a time \("2099-01-01T00:00Z"\)\. For what changed since a time use catch_up\(since=…\)/)
 
     // a future since: a note on the first line, not a silent "nothing happened"
     for (const since of ['2099-01-01', '2099-01-01T09:00Z']) {
@@ -208,6 +212,13 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
     assert.match(other.text, new RegExp(`forPageId is not a page of workspace ${ws.id.slice(0, 8)}: it is in workspace ${ws2.id.slice(0, 8)}\\. Call get_instructions again without workspaceId`))
     const viaPage = await mcp.tool('get_instructions', { forPageId: there.id })
     assert.equal(viaPage.isError, false, viaPage.text)
+    // the page's own workspace, by full id, 8-character prefix or name: answered as before
+    const [row] = await db.select({ name: schema.workspaces.name }).from(schema.workspaces).where((await import('drizzle-orm')).eq(schema.workspaces.id, ws2.id))
+    for (const ref of [ws2.id, ws2.id.slice(0, 8), row.name]) {
+      const same = await mcp.tool('get_instructions', { workspaceId: ref, forPageId: there.id })
+      assert.equal(same.isError, false, `${ref}: ${same.text}`)
+      assert.equal(same.text, viaPage.text, ref)
+    }
     const a = await mcp.tool('get_instructions', { workspaceId: ws.id, forPageId: hidden.id })
     const b = await mcp.tool('get_instructions', { workspaceId: ws.id, forPageId: '00000000-0000-4000-8000-000000000000' })
     assert.equal(a.isError, true)
@@ -228,6 +239,11 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
   it('POST /mcp: arguments that are not an object are invalid params (-32602); a body over the limit names it', async () => {
     const Fastify = (await import('fastify')).default
     const door = Fastify()
+    // the root app's handler shape (index.ts): errors the /mcp scope does not handle still reach it
+    door.setErrorHandler((err, _req, reply) => {
+      const e = err as { status?: number; statusCode?: number; code?: string; message: string }
+      return reply.code(e.status ?? e.statusCode ?? 500).send({ error: { code: e.code ?? 'INTERNAL', message: e.message } })
+    })
     await door.register(async (root) => {
       await (await import('../mcp')).registerMcpRoutes(root, app)
     })
@@ -251,6 +267,11 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
       const big = await post(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"update_page","arguments":{"markdown":"${'x'.repeat(13 * 1024 * 1024)}"}}}`)
       assert.equal(big.statusCode, 413)
       assert.match(big.json().error.message, /^Request body is larger than \d+ MB, the most this server takes on \/mcp; nothing was done\. Send large content in several calls/)
+      // the value cap's own 413 is passed on unchanged
+      const { MCP_MAX_JSON_VALUES } = await import('../mcpBody')
+      const many = await post(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"list_workspaces","arguments":{"x":[${'0,'.repeat(MCP_MAX_JSON_VALUES + 10)}0]}}}`)
+      assert.equal(many.statusCode, 413)
+      assert.equal(many.json().error.code, 'TOO_MANY_VALUES')
     } finally {
       await door.close()
     }

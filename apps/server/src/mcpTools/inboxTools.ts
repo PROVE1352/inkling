@@ -31,19 +31,17 @@ const CURSOR_RE = new RegExp(
   `^(\\d{1,19})(?:;ws=([0-9a-fA-F-]{36}))?(?:;kinds=((?:${INBOX_KINDS.join('|')})(?:,(?:${INBOX_KINDS.join('|')}))*))?$`,
 )
 
-export const inboxCursorSchema = z.string().max(200).regex(CURSOR_RE)
-
 /**
  * The cursor argument of inbox / ack as pasted (0.24.1): the value, or the whole `cursor: …` line.
  * Anything else is refused with what to pass, instead of a schema error (or, worse, acking nothing).
  */
-export function inboxCursorArg(raw: string | undefined): string | undefined {
+export function inboxCursorArg(raw: string | undefined, ack = false): string | undefined {
   if (raw === undefined) return raw
   const t = raw.trim().replace(/^(?:next\s+)?cursor:\s*/i, '')
   if (CURSOR_RE.test(t)) return t
   throw new ToolError(
     `"${cleanText(raw).slice(0, 80)}" is not an inbox cursor. Pass the value after "cursor:" on the last line of inbox ` +
-      '(like 91 or 91;ws=…), or ids: the numbers at the start of inbox lines. Nothing was acknowledged.',
+      (ack ? '(like 91 or 91;ws=…), or ids: the numbers at the start of inbox lines. Nothing was acknowledged.' : '(like 91 or 91;ws=…), or no cursor for everything not yet acknowledged.'),
   )
 }
 
@@ -165,7 +163,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolCtx): void {
     },
     wrapWrite(ctx, async ({ ids, cursor: cursorRaw }) => {
       if (!ids?.length && !cursorRaw) throw new ToolError('Pass ids or cursor (from the last line of inbox)')
-      const cursor = inboxCursorArg(cursorRaw)
+      const cursor = inboxCursorArg(cursorRaw, true)
       const c = parseInboxCursor(cursor)
       const res = await call(ctx, 'POST', '/api/inbox/ack', {
         json: { ids, cursor: c.seq ?? undefined, workspaceId: c.workspaceId, kinds: c.kinds },

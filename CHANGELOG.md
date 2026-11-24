@@ -7,6 +7,18 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-11-25
+
+One fix from running ten simulated agents on one section. No migration, no new settings.
+
+### Fixed (MCP)
+- A version conflict on `append`, `prepend` or `insert_after` now says the edit can be sent again without
+  `baseVersion` (these modes do not change existing text), in `patch_section`, `patch_sections` and the REST
+  section route; the tool descriptions say `baseVersion` is optional for them. Before, the answer only gave the new
+  version, and of ten agents appending a line each to one section one lost the race seven times and gave up (it
+  wrote nothing and said so). With the hint all ten lines land and no agent meets more than three conflicts.
+  `replace` and `delete` are unchanged: they still need the version that was read.
+
 ## [0.25.1] - 2026-11-25
 
 Two small fixes. No migration, no new settings, no change to the MCP tools.

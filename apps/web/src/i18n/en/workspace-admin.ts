@@ -100,6 +100,7 @@ export default {
     'AI agents (MCP connections) that members used in this workspace. A connection belongs to its member and reaches all their workspaces; blocking it here only closes this workspace to it.',
   'agents.connections': 'Connections',
   'agents.empty': 'No agent has accessed this workspace yet.',
+  'agents.emptyNext': 'When a member connects an AI agent and it reads or edits this workspace, it shows up here, and you can block it here.',
   'agents.lastUsed': 'last used {when}',
   'agents.accessRead': 'read only',
   'agents.accessWrite': 'can edit',

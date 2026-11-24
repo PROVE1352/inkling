@@ -7,6 +7,7 @@ import { getPrefs } from '../../lib/prefs'
 import { toast } from '../../lib/toast'
 import { useIsGuest } from '../../lib/useGuest'
 import { useCreateSample, useOnboarding } from '../api'
+import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH } from '../firstSteps'
 import { showHint } from '../hint'
 import {
   INTRO_DURATION,
@@ -226,8 +227,8 @@ export function IntroOverlay({ onClose, wsId = '' }: { onClose: (finished: boole
     try {
       if (id === 'sampleOpen') navigate(`/w/${wsId}/p/${samplePage}`)
       else if (id === 'ai') {
-        navigate(`/w/${wsId}/settings#connections`)
-        showHint(['[data-pref="mcp"]'], t('getStarted.item.ai.hint'), t('getStarted.hintClose'))
+        navigate(AI_CONNECT_PATH)
+        showHint([AI_CONNECT_HINT_TARGET], t('getStarted.item.ai.hint'), t('getStarted.hintClose'))
       } else if (id === 'sampleCreate') {
         const r = await sample.mutateAsync(wsId)
         navigate(`/w/${wsId}/p/${r.pageId}`)

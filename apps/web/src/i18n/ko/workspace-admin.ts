@@ -94,6 +94,7 @@ export default {
     '멤버들이 이 워크스페이스에서 사용한 AI 에이전트(MCP 연결)입니다. 연결은 그 멤버의 것이며 그 멤버의 모든 워크스페이스에 닿습니다. 여기서 차단하면 이 워크스페이스만 막힙니다.',
   'agents.connections': '연결',
   'agents.empty': '아직 이 워크스페이스에 접근한 에이전트가 없습니다.',
+  'agents.emptyNext': '멤버가 AI 에이전트를 연결해 이 워크스페이스를 읽거나 고치면 여기 나오고, 여기서 하나씩 막을 수 있습니다.',
   'agents.lastUsed': '마지막 사용 {when}',
   'agents.accessRead': '읽기 전용',
   'agents.accessWrite': '편집 가능',

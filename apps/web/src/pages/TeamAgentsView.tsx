@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import type { SuggestOnlyDTO, TeamAgentActivityDTO, TeamPersonDTO } from '@inkling/shared'
 import { useLayout } from '../components/AppLayout'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -10,6 +10,8 @@ import { startOfToday, suggestOnlyOf, useReleaseConnectionHere, useTeamAgents } 
 import { useMe, useWorkspaces } from '../api'
 import { relativeTime } from '../lib/time'
 import { fmtDate, useT } from '../i18n'
+import { useOnboarding } from '../onboarding/api'
+import { AI_CONNECT_PATH, samplePageOf } from '../onboarding/firstSteps'
 
 // Team agents board (docs/adr/1862-*): per person, the sections their agents claimed (with the time
 // left), their suggestions waiting for a person, and what each agent connection did today. Pages
@@ -215,6 +217,8 @@ export function TeamAgentsView() {
   const role = useWorkspaces().data?.find((w) => w.id === ws)?.role
   const manager = role === 'owner' || role === 'admin'
   const meId = useMe().data?.id
+  // the viewer's sample page here, which carries the example agent's suggestions (docs/adr/2388-*)
+  const sample = samplePageOf(useOnboarding(), ws)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -250,7 +254,24 @@ export function TeamAgentsView() {
                 <Spinner />
               </div>
             ) : !d || d.people.length === 0 ? (
-              <p className="px-2 py-6 text-center text-sm text-sub">{t('teamAgents.empty')}</p>
+              // what shows up here once an agent is connected, and the way to connect one (docs/adr/2380-*)
+              <div className="flex flex-col gap-2 px-2 py-6 text-center text-sm text-sub" data-testid="team-agents-empty">
+                <p>{t('teamAgents.empty')}</p>
+                <p className="text-xs leading-relaxed">
+                  {t('teamAgents.emptyNext')}{' '}
+                  <Link to={AI_CONNECT_PATH} className="text-accent hover:underline" data-testid="agents-empty-connect">
+                    {t('getStarted.item.ai')}
+                  </Link>
+                </p>
+                {sample && (
+                  <p className="text-xs leading-relaxed">
+                    {t('getStarted.sampleSuggestions')}{' '}
+                    <Link to={`/w/${ws}/p/${sample}`} className="text-accent hover:underline" data-testid="agents-empty-sample">
+                      {t('getStarted.sampleOpen')}
+                    </Link>
+                  </p>
+                )}
+              </div>
             ) : (
               d.people.map((p) => <PersonCard key={p.userId} wsId={ws} p={p} states={d.suggestOnly} manager={manager} meId={meId} />)
             )}

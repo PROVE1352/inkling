@@ -22,6 +22,7 @@ import { RangeBadge, RangePicker, rangeFromView } from '../components/RangePicke
 import { Spinner } from '../components/Spinner'
 import { McpSetup } from '../components/McpSetup'
 import { fmtDate, fmtRelative, useT } from '../i18n'
+import { noteOnboarding, useOnboarding } from '../onboarding/api'
 
 /**
  * Connections (/settings/connections): connection settings for AI apps (docs/adr/2020-*), agent connection tokens for
@@ -37,6 +38,9 @@ export function Connections() {
   // connection settings while it is shown. React state only, never storage or the URL (docs/adr/2020-*, 2063-*).
   // A personal API token is never handed to the generator: it would be refused at /mcp (docs/adr/1201-*).
   const [agentSecret, setAgentSecret] = useState<string | null>(null)
+  // Copying the address or the command here ticks the getting-started "AI agent" item, as the copy button in
+  // Settings does (the item's buttons now come straight here). Read here too so a direct load knows the card.
+  useOnboarding()
 
   return (
     <div className="min-h-full bg-app px-4 py-12">
@@ -48,7 +52,7 @@ export function Connections() {
           </Link>
         </div>
 
-        <McpSetup origin={window.location.origin} secret={agentSecret} />
+        <McpSetup origin={window.location.origin} secret={agentSecret} onCopied={() => noteOnboarding('ai')} />
 
         <AgentTokensSection secret={agentSecret} setSecret={setAgentSecret} />
 

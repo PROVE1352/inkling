@@ -41,6 +41,14 @@ export default {
   'mcpSetup.helpProfileChange':
     '도구 범위를 바꾸면 URL이 바뀝니다. 앱에서 서버를 지우고 다시 추가하세요(Claude Code: claude mcp remove inkling).',
 
+  // 연결 화면의 안내 세 줄과 접힌 선택(docs/adr/2380-*)
+  'mcpSetup.why':
+    '연결하면 에이전트가 질문에 필요한 섹션만 찾아 읽고, 읽은 버전을 기준으로 고칩니다. 그 사이 다른 사람이 고쳤으면 덮어쓰지 않고 알려 줍니다.',
+  'mcpSetup.tryAsking': '연결한 뒤 이렇게 물어보세요: “샘플 페이지에서 남은 할 일을 정리해 줘”',
+  'mcpSetup.verifyOauth': '연결되면 아래 \'{apps}\'에 앱 이름이 나옵니다.',
+  'mcpSetup.verifyToken': '토큰으로 연결하면 아래 \'{tokens}\' 목록에서 그 토큰의 마지막 사용 시각이 바뀝니다.',
+  'mcpSetup.otherOptions': '다른 방식 (도구, 로그인 방식)',
+
   // 에이전트 연결 토큰(docs/adr/2060-*)과 목록의 제안 전용 표시(docs/adr/2042-*)
   'agentTokens.title': '에이전트 연결 토큰',
   'agentTokens.intro':

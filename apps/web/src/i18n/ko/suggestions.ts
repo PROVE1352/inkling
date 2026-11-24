@@ -30,7 +30,7 @@ export default {
   'suggestions.failed': '제안을 적용하지 못했습니다',
   'suggestions.badge': '제안 {count}',
   'suggestions.badgeTitle': '이 섹션에 대한 제안',
-  'claims.working': '{name}이(가) 이 섹션을 작업 중',
+  'claims.working': '{name} 작업 중',
   'claims.until': '{time}까지',
   'errors.SUGGESTION_CHANGED': '에이전트가 읽은 뒤에 섹션이 바뀌었습니다. 차이를 확인하고 다시 수락하세요.',
   'errors.SUGGESTION_DECIDED': '이미 다른 사람이 이 제안을 처리했습니다.',

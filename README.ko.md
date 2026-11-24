@@ -5,8 +5,9 @@
 <h1 align="center">Inkling</h1>
 
 <p align="center">
-  사람과 AI 에이전트가 같은 노트를 함께 읽고 쓰는 셀프호스트 노트 앱입니다. 노션식 데이터베이스와
-  옵시디언식 링크, 그래프, 캔버스, 실시간 동시 편집, MCP 서버가 들어 있고, MIT 라이선스로 모든 기능을 무료로 공개하고 있습니다.
+  사람과 AI 에이전트가 같이 쓰는 셀프호스트 팀 노트입니다. 에이전트는 토큰 예산 안에서 필요한 섹션만 읽고,
+  읽은 버전을 기준으로 섹션 하나만 고칩니다. 고친 내용은 제안으로 받아 변경 단위로 고를 수 있고, 나중에 되돌릴 수도
+  있습니다. MCP 서버가 앱에 들어 있고 노션식 데이터베이스와 옵시디언식 링크도 있습니다. MIT 라이선스이고 모든 기능이 무료입니다.
 </p>
 
 <p align="center">
@@ -15,8 +16,24 @@
 </p>
 
 <p align="center">
+  <a href="https://demo.inkling.kro.kr/register">데모 서버</a> ·
+  <a href="https://prove1352.github.io/inkling/ko/tour/">가입 없이 둘러보기</a> ·
+  <a href="https://prove1352.github.io/inkling/ko/">소개 사이트</a> ·
+  <a href="docs/GUIDE.ko.md">사용 설명서</a> ·
+  <a href="docs/MCP.ko.md">MCP 안내</a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a> · 한국어
 </p>
+
+![에이전트가 제안한 수정을 검토하는 창. 한 섹션의 변경이 번호와 체크 상자로 나뉘어 있고, 변경 2를 빼고 선택한 것만 적용하는 버튼이 보입니다. 아래 제안에는 받아들이기와 거절 버튼이 있습니다](docs/images/0-review.png)
+
+| | |
+|---|---|
+| ![에이전트가 읽는 내용 창. 페이지의 섹션별 토큰과 버전, 질문에 find_context가 돌려줄 섹션이 나옵니다](docs/images/0b-agent-view.png) | ![섹션 제목 옆 표시를 누르면 누가 언제 고쳤는지와 이 변경 되돌리기가 나옵니다](docs/images/0c-section-mark.png) |
+
+스크린샷은 영어 화면입니다. 설정 › 모양 › 언어에서 한국어로 바꾸실 수 있습니다.
 
 세 명에서 다섯 명 정도가 각자 Claude 같은 AI 에이전트를 붙여서 일하는 작은 팀, 그리고 노트를 내 서버에 두고 싶은 개인을 생각하고 만들었습니다. 다른 노트 앱과 다른 점은 크게 세 가지입니다.
 
@@ -24,17 +41,20 @@
 2. 코멘트나 사람 칸에서 일을 특정 멤버의 에이전트에게 넘기면 그 에이전트의 받은 함으로 가고, 팀 에이전트 화면에서 에이전트마다 무엇을 하고 있는지 봅니다.
 3. 노션식 데이터베이스(표, 보드, 캘린더, 타임라인, 차트, 폼 뷰와 수식)와 옵시디언식 `[[위키링크]]`, 백링크, 그래프, JSON Canvas가 한 앱에 같이 있습니다.
 
-초대받아 쓰시는 분은 [사용 설명서](docs/GUIDE.ko.md)를 먼저 보시면 메뉴 위치를 찾기 편합니다. 40초짜리 소개 영상은 [site/assets/promo-ko.mp4](site/assets/promo-ko.mp4)에 있습니다.
+에이전트가 공유 노트를 고칠 때 자주 생기는 문제와 Inkling이 하는 일을 표로 정리했습니다.
 
-![백링크·나가는 링크·태그 패널이 열린 문서](docs/images/1-doc-backlinks.png)
-
-| | |
+| 에이전트가 노트를 고칠 때 생기는 일 | Inkling이 하는 일 |
 |---|---|
-| ![상태별로 묶은 보드 뷰](docs/images/2-database-board.png) | ![같은 데이터베이스의 표 뷰](docs/images/2b-database-table.png) |
-| ![워크스페이스 링크 그래프](docs/images/3-graph.png) | ![JSON Canvas 화이트보드](docs/images/4-canvas.png) |
-| ![쿼리 블록: 표와 열린 할 일](docs/images/5-query-block-tall.png) | ![마감일 캘린더](docs/images/6-calendar.png) |
+| 페이지를 통째로 읽어 토큰을 많이 쓴다 | `find_context`가 질문에 맞는 섹션만 골라 토큰 예산 안에서 돌려줍니다 |
+| 그사이 사람이 고친 글을 덮어쓴다 | 읽은 버전을 기준으로 섹션 하나만 고칩니다. 그 섹션이 바뀌었으면 덮어쓰지 않고 지금 내용을 돌려줍니다 |
+| 무엇을 바꿨는지 알기 어렵다 | 수정을 제안으로 남겨 변경 단위로 받아들일 수 있습니다. 최근 30일 안에 바뀐 섹션은 제목 옆에 마지막으로 고친 사람이나 에이전트가 표시되고, 에이전트가 고친 것은 변경 하나, 또는 한 에이전트가 페이지에서(소유자와 관리자는 워크스페이스 전체에서) 고친 것 전체를 기간을 정해 되돌릴 수 있습니다 |
+| 노트에 적힌 지시문을 따라 버린다 | 페이지 내용은 신뢰하지 않는 데이터로 표시해서 넘깁니다. 프롬프트 인젝션으로 의심되는 글을 읽은 연결은 한 시간 동안 제안만 할 수 있습니다(기본으로 켜져 있음) |
+| 누구의 에이전트가 무엇을 했는지 섞인다 | 사람마다 자기 계정으로 에이전트를 연결합니다. 에이전트는 그 사람이 볼 수 있는 것만 보고, 한 일은 "Kim (via Claude)"처럼 사람과 앱 이름으로 남습니다 |
 
-스크린샷은 영어 화면입니다. 설정 › 모양 › 언어에서 한국어로 바꾸실 수 있습니다.
+초대받아 쓰시는 분은 [사용 설명서](docs/GUIDE.ko.md)를 먼저 보시면 메뉴 위치를 찾기 편합니다.
+
+<!-- video: replace the link below with a github.com/user-attachments URL to play it inline -->
+40초짜리 소개 영상은 [site/assets/promo-ko.mp4](site/assets/promo-ko.mp4)에 있습니다.
 
 ## 빠른 시작
 
@@ -45,7 +65,7 @@ git clone https://github.com/PROVE1352/inkling.git && cd inkling
 ./deploy/local.sh
 ```
 
-스크립트가 비밀번호와 키를 만들어 `.env`를 쓰고, 비어 있는 로컬 포트(보통 http://localhost:3000)로 Inkling을 띄운 뒤 한 번만 쓰는 링크를 보여 줍니다. 그 링크를 열어 계정을 만들면 그 계정이 관리자가 됩니다. 끄려면 `./deploy/local.sh stop`, 지우려면 `./deploy/local.sh destroy`를 실행하시면 됩니다. 스크립트는 미리 빌드된 이미지를 받아 오는데, 이 링크는 0.17부터 생긴 기능이라 받아 온 이미지가 그보다 오래된 것이면 그렇다고 알려 주고 대신 가입 키 만드는 방법을 보여 줍니다. 받아 둔 소스로 바로 빌드하시려면 `./deploy/local.sh --build`를 쓰시면 됩니다(처음엔 몇 분 걸립니다). AI 에이전트까지 붙여 보시려면 [docs/MCP.ko.md](docs/MCP.ko.md#a-local-trial-with-an-agent-in-five-minutes)의 순서를 따라 하시면 됩니다. 다른 사람에게 줄 가입 키는 관리자 페이지에서 만들 수 있습니다.
+스크립트가 비밀번호와 키를 만들어 `.env`를 쓰고, 비어 있는 로컬 포트(보통 http://localhost:3000)로 Inkling을 띄운 뒤 한 번만 쓰는 링크를 보여 줍니다. 그 링크를 열어 계정을 만들면 그 계정이 관리자가 됩니다. 끄려면 `./deploy/local.sh stop`, 지우려면 `./deploy/local.sh destroy`를 실행하시면 됩니다. 스크립트는 미리 빌드된 이미지를 받아 옵니다. 받아 둔 소스로 바로 빌드하시려면 `./deploy/local.sh --build`를 쓰시면 됩니다(처음엔 몇 분 걸립니다). AI 에이전트까지 붙여 보시려면 [docs/MCP.ko.md](docs/MCP.ko.md#a-local-trial-with-an-agent-in-five-minutes)의 순서를 따라 하시면 됩니다. 다른 사람에게 줄 가입 키는 관리자 페이지에서 만들 수 있습니다.
 
 서버에 올리실 때는 서버를 가리키는 도메인과 열린 80, 443 포트를 준비하고 Caddy 오버레이를 같이 띄우시면 됩니다. 인증서는 Caddy가 받아 오고 갱신하며, 앱과 DB 포트는 밖에서 보이지 않게 됩니다.
 
@@ -60,7 +80,9 @@ docker compose -f compose.yaml -f deploy/compose.caddy.yaml up -d
 
 앱은 미리 빌드된 이미지 `ghcr.io/prove1352/inkling`(amd64, arm64)을 받아 오므로 램 1 GB 서버에서도 직접 빌드할 필요가 없습니다. 특정 릴리스로 고정하시려면 `.env`의 `INKLING_VERSION`에 `X.Y.Z`나 `X.Y` 형식으로 적으시면 됩니다(비우면 `latest`). 받아 둔 소스로 직접 빌드하시려면 `-f compose.build.yaml`과 `--build`를 더하시면 됩니다([deploy/DEPLOY.ko.md](deploy/DEPLOY.ko.md#image-or-source-build)).
 
-업그레이드는 백업, 새 이미지 받기, 앱 재시작 순서입니다. 마이그레이션은 부팅할 때 자동으로 돌고, 이전 버전으로 내리는 것은 지원하지 않습니다. 자세한 내용은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#upgrades)에 있습니다.
+### 업그레이드
+
+백업, 새 이미지 받기, 앱 재시작 순서입니다. 마이그레이션은 부팅할 때 자동으로 돌고, 이전 버전으로 내리는 것은 지원하지 않습니다. 자세한 내용은 [docs/OPERATIONS.ko.md](docs/OPERATIONS.ko.md#upgrades)에 있습니다.
 
 ```bash
 ./deploy/backup.sh
@@ -100,6 +122,14 @@ pnpm dev        # API·협업 서버 :3001, 웹 :5173
 테스트, CI, 작업 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)에, 코딩 에이전트용 규칙은 [AGENTS.md](AGENTS.md)에 있습니다.
 
 ## 기능
+
+![백링크·나가는 링크·태그 패널이 열린 문서](docs/images/1-doc-backlinks.png)
+
+| | |
+|---|---|
+| ![상태별로 묶은 보드 뷰](docs/images/2-database-board.png) | ![같은 데이터베이스의 표 뷰](docs/images/2b-database-table.png) |
+| ![워크스페이스 링크 그래프](docs/images/3-graph.png) | ![JSON Canvas 화이트보드](docs/images/4-canvas.png) |
+| ![쿼리 블록: 표와 열린 할 일](docs/images/5-query-block-tall.png) | ![마감일 캘린더](docs/images/6-calendar.png) |
 
 ### 쓰기
 

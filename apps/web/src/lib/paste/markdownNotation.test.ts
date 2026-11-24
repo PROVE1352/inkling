@@ -55,6 +55,12 @@ describe('paste: which dollars are math (server rule)', () => {
     }
   })
 
+  it('$$ inside a line stays text (shell pid, Makefile); a line that is only $$…$$ is still a block', () => {
+    for (const t of ['echo $$; echo $$', '\techo $$; echo $$', 'kill $$ && echo $$', '값은 $$x^2$$ 입니다']) assert.equal(prepareMarkdownPaste(t), null, t)
+    assert.ok(prepareMarkdownPaste('$$E = mc^2$$'))
+    assert.ok(prepareMarkdownPaste('$$ E = mc^2 $$'))
+  })
+
   it('math next to Korean, punctuation or a space is still math', () => {
     for (const t of ['$x^2$를 구한다', '값은 $a+b$, 그리고 $c$.', '($n$)', '$E=mc^2$-형태']) {
       const out = roundTrip(t)

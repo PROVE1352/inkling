@@ -7,6 +7,34 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-25
+
+Editor feel, first part (from an audit of the editor against twelve everyday actions): pasted Markdown keeps math and
+callouts, and what an agent is doing on an open page shows at once. No migration, no new settings, no change to the
+MCP tools. What is left is in docs/KNOWN-ISSUES.md, "Added in 0.25.0".
+
+### Editor
+- Pasting Markdown (text/plain) into the editor turns `$$…$$`, `$…$` and `> [!type]` into math blocks, inline math
+  and callouts; before, they stayed as typed characters. The `$` rule is the server import's, made stricter for
+  paste: prices (`$5 and $10`), code fences, code spans, table cells with a lone `$`, URLs, shell or template
+  variables (`$HOME/$USER`, `${A}/${B}`) and `$$` inside a line (`echo $$; echo $$`) stay text. The paste is still one transaction and one undo, and other people on the page never see
+  the raw `$$`.
+- Pasted HTML that carries KaTeX (a rendered chat answer) becomes math from its TeX source instead of doubled
+  characters.
+- A copied callout carries its `> [!type]` line in text/plain, so it pastes as a callout into Obsidian and back
+  into Inkling. The copied text/html carries the same line, so a mail or a document it is pasted into shows
+  `[!note]` at the top of the quote.
+
+### Agents on an open page
+- Section claims and suggested edits appear on an open page within a second: the server sends a notice with no
+  content on the page's collaboration connection and the app reads the list again (measured 12.7 s → 0.55 s for the
+  claim badge, docs/PERFORMANCE.md, docs/adr/2557-*). The 15-second poll stays as the fallback.
+- The Korean claim badge reads "{name} 작업 중" instead of "{name}이(가) 이 섹션을 작업 중".
+
+### Fixed
+- Opening a canvas, or a page with an embedded page, threw `Cannot read properties of undefined (reading 'apply')`
+  in the browser on every collaboration notice.
+
 ## [0.24.1] - 2026-11-25
 
 Fixes found by running simulated team members' agents against a local server (399 model tasks, 2,515 tool results):

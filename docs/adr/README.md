@@ -1049,6 +1049,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2553](2553-one-line-agreement-when-signup-has-no-items.md) | One-line agreement under the sign-up button when signup.json has no items | Accepted (amends 2519) |
 | [2554](2554-operator-contact-link.md) | A "Contact" link to the operator (INSTANCE_CONTACT) | Accepted |
 | [2555](2555-trial-accounts-without-sign-up.md) | Trial accounts without sign-up (TRIAL_ACCOUNTS) | Accepted |
+| [2557](2557-claims-and-suggestions-reach-open-pages-at-once.md) | Claims and suggestions reach an open page at once (a contentless notice on the collab document) | Accepted |
 
 ## 099x Client updates
 

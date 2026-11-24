@@ -166,8 +166,8 @@ the sentences about it (deletion after 14 days, trash 7 days, limits, features t
 ### Without tick boxes: one line
 
 Put `"items": []` in `signup.json` and keep `terms.*.md` and `privacy.*.md` in the folder. The sign-up form
-then has no tick boxes; under the sign-up button it says "By signing up, you agree to the Terms of Service
-and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
+then has no tick boxes; the button says "Continue" and under it a line says "By continuing, you agree to the
+Terms of Service and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
 consent is recorded in `user_consents` in this case, and nobody is asked again when a document changes.
 Which of the two ways fits your service is for you to decide under the law of your country; this page is
 not legal advice (see the end of this page).

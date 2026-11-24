@@ -11,9 +11,11 @@ export default {
   'legal.missingSignup': 'Check the required items to sign up.',
   'legal.missingContinue': 'Check the required items to continue.',
   // one line under the sign-up button when signup.json has no items (docs/adr/2553-*): before, document links joined by And, after
-  'legal.signupAgreeBefore': 'By signing up, you agree to the ',
+  'legal.signupAgreeBefore': 'By continuing, you agree to the ',
   'legal.signupAgreeAnd': ' and the ',
   'legal.signupAgreeAfter': '.',
+  // the sign-up button's text while that line shows
+  'legal.signupContinue': 'Continue',
   'legal.loadFailed': 'Could not load the terms of this server. Reload the page to try again.',
   'legal.versionChanged': 'The terms changed while this page was open. Read them again and check the items again.',
   'legal.agreeFailed': 'Could not save your agreement. Try again.',

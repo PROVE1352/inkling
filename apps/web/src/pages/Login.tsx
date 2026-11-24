@@ -179,6 +179,7 @@ export function Login() {
         <div className="mb-6 flex flex-col items-center gap-2">
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
+          <p className="break-keep text-center text-xs text-sub">{t('intro.tagline')}</p>
           <InstanceBadge placement="auth" />
           <InstanceNotice placement="auth" />
         </div>

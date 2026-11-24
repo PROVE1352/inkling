@@ -5,9 +5,10 @@
 <h1 align="center">Inkling</h1>
 
 <p align="center">
-  A self-hosted notes app that people and their AI agents read and write together: Notion-style
-  databases, Obsidian-style links, graph and canvas, real-time editing and a built-in MCP server.
-  MIT, every feature free.
+  Self-hosted team notes that people and their AI agents write together. Agents read one section within a
+  token budget and edit against the version they read; their edits can wait as suggestions that you accept change
+  by change, and what they changed can be reverted. Built-in MCP server, Notion-style databases and
+  Obsidian-style links. MIT, every feature free.
 </p>
 
 <p align="center">
@@ -16,8 +17,22 @@
 </p>
 
 <p align="center">
+  <a href="https://demo.inkling.kro.kr/register">Live demo</a> ·
+  <a href="https://prove1352.github.io/inkling/tour/">Tour without an account</a> ·
+  <a href="https://prove1352.github.io/inkling/">Site</a> ·
+  <a href="docs/GUIDE.md">User guide</a> ·
+  <a href="docs/MCP.md">MCP</a>
+</p>
+
+<p align="center">
   English · <a href="README.ko.md">한국어</a>
 </p>
+
+![Reviewing an agent's suggested edits: one section's numbered changes with checkboxes, change 2 left out and Apply selected; another suggestion with Accept and Reject](docs/images/0-review.png)
+
+| | |
+|---|---|
+| ![What an agent reads: the page's sections with tokens and versions, and what find_context returns for a question](docs/images/0b-agent-view.png) | ![The mark next to a section heading: who changed it last, when, and Revert this change](docs/images/0c-section-mark.png) |
 
 Inkling is for small teams, around three to five people who each work with their own AI agent, and for
 one person who wants their notes on their own server. What sets it apart from other note apps:
@@ -26,16 +41,20 @@ one person who wants their notes on their own server. What sets it apart from ot
 2. **Work can go to an agent:** a comment or a person cell can hand a task to one member's agent, which finds it in its inbox, and a Team agents board shows what every agent is on.
 3. **Notion-style databases and Obsidian-style notes in one app:** table, board, calendar, timeline, chart and form views with formulas, next to `[[wikilinks]]`, backlinks, a graph and JSON Canvas.
 
-Using a server someone else runs? Start with the [user guide](docs/GUIDE.md) ([한국어](docs/GUIDE.ko.md)).
-A 40-second tour: [site/assets/promo.mp4](site/assets/promo.mp4).
+What happens when agents work in shared notes, and what Inkling does about it:
 
-![A document with the backlinks, outgoing links and tags panel](docs/images/1-doc-backlinks.png)
-
-| | |
+| When an agent edits your notes | What Inkling does |
 |---|---|
-| ![Database as a board grouped by status](docs/images/2-database-board.png) | ![The same database as a table](docs/images/2b-database-table.png) |
-| ![Workspace link graph](docs/images/3-graph.png) | ![JSON Canvas whiteboard](docs/images/4-canvas.png) |
-| ![Dataview-style query blocks: a table and open tasks](docs/images/5-query-block-tall.png) | ![Calendar of due dates](docs/images/6-calendar.png) |
+| It reads whole pages and spends tokens on them | `find_context` returns only the sections that answer the question, packed into a token budget |
+| It overwrites what a person wrote in the meantime | It edits one section against the version it read; if the section changed since, it gets the current text back to merge instead |
+| You can't tell what it changed | Its edits can wait as suggestions you accept change by change. A section changed in the last 30 days shows who changed it last next to its heading, and agent changes can be reverted: one change, or everything one agent changed on a page or (owners and admins) in a workspace over a period |
+| It follows instructions written into a note | Page text reaches it marked as untrusted data, and a connection that read text flagged as possible prompt injection can only suggest for an hour (on by default) |
+| Everyone's agents blur together | Each person connects their own agent with their own account; it sees only what that person can see, and its changes are labelled with both, such as "Kim (via Claude)" |
+
+Using a server someone else runs? Start with the [user guide](docs/GUIDE.md) ([한국어](docs/GUIDE.ko.md)).
+
+<!-- video: replace the link below with a github.com/user-attachments URL to play it inline -->
+A 40-second tour: [site/assets/promo.mp4](site/assets/promo.mp4).
 
 ## Quick start
 
@@ -48,9 +67,8 @@ git clone https://github.com/PROVE1352/inkling.git && cd inkling
 
 The script writes a `.env` with generated secrets, starts Inkling on a free local port (usually
 http://localhost:3000) and prints a one-time link. Open it and create your account; it becomes the administrator.
-`./deploy/local.sh stop` stops it, `./deploy/local.sh destroy` deletes it. The script pulls the published image, and
-the setup link comes with 0.17: if the image it gets is older, it says so and shows how to make a signup key instead,
-or run `./deploy/local.sh --build` to build this checkout (a few minutes). Connecting an AI agent to the trial:
+`./deploy/local.sh stop` stops it, `./deploy/local.sh destroy` deletes it. The script pulls the published image;
+`./deploy/local.sh --build` builds this checkout instead (a few minutes). Connecting an AI agent to the trial:
 [docs/MCP.md](docs/MCP.md#a-local-trial-with-an-agent-in-five-minutes). Further keys for other people are issued on
 the **Admin** page.
 
@@ -70,7 +88,9 @@ The app is the prebuilt image `ghcr.io/prove1352/inkling` (amd64 and arm64); a 1
 from the checked-out source, add `-f compose.build.yaml` and `--build`
 ([deploy/DEPLOY.md](deploy/DEPLOY.md#image-or-source-build)).
 
-To upgrade, take a backup, pull the new image and restart; migrations run on boot, and downgrades are not
+### Upgrading
+
+Take a backup, pull the new image and restart; migrations run on boot, and downgrades are not
 supported ([docs/OPERATIONS.md](docs/OPERATIONS.md#upgrades)):
 
 ```bash
@@ -126,6 +146,14 @@ pnpm dev        # API + collab on :3001, web on :5173
 Tests, CI and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Rules for coding agents: [AGENTS.md](AGENTS.md).
 
 ## Features
+
+![A document with the backlinks, outgoing links and tags panel](docs/images/1-doc-backlinks.png)
+
+| | |
+|---|---|
+| ![Database as a board grouped by status](docs/images/2-database-board.png) | ![The same database as a table](docs/images/2b-database-table.png) |
+| ![Workspace link graph](docs/images/3-graph.png) | ![JSON Canvas whiteboard](docs/images/4-canvas.png) |
+| ![Dataview-style query blocks: a table and open tasks](docs/images/5-query-block-tall.png) | ![Calendar of due dates](docs/images/6-calendar.png) |
 
 **Writing**
 - Block editor (BlockNote): slash menu, code blocks, checklists, callouts, KaTeX math, Mermaid diagrams from a `mermaid` code block, images (double-click one to see it large), file drops, link previews and embeds; type `| Name | Role |` and Enter for a table, or `/table 3x4`

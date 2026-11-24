@@ -2324,8 +2324,20 @@ table.tools td:nth-child(2) {
   justify-content: flex-start;
   margin-bottom: 24px;
 }
-.hero .agent-links {
-  margin: 0;
+.hero .fine {
+  font-size: 14px;
+  color: var(--sub);
+  margin: 0 0 8px;
+  max-width: 34em;
+}
+.hero .dev-line {
+  margin: -16px 0 24px;
+}
+:lang(ko) .hero .fine {
+  word-break: keep-all;
+}
+#docs .agent-links {
+  margin: 24px 0 0;
   max-width: none;
 }
 .eyebrow {

@@ -12,6 +12,7 @@ import { SignupAgreementLine, SignupConsent, useSignupSubmitKey, type SignupCons
 import { BotCheckField, SignupFullNotice, signupBody, useSignupShownAt } from '../components/account/SignupExtras'
 import { restrictedSignup, SetupOnlyNotice } from '../components/SetupOnlyNotice'
 import { useT } from '../i18n'
+import { TrialButton } from '../components/auth/TrialButton'
 
 export function Register() {
   const t = useT()
@@ -295,6 +296,7 @@ export function Register() {
           </button>
           <SignupAgreementLine />
         </form>
+        {!setupMode && <TrialButton placement="register" />}
 
         <p className="mt-4 text-center text-xs text-sub">
           {t('register.haveAccount')}{' '}

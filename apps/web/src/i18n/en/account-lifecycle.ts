@@ -56,4 +56,18 @@ export default {
   'accountLifecycle.purgeConfirm': 'Delete now',
   'accountLifecycle.purgeFailed': "Couldn't delete the workspace",
   'accountLifecycle.notifOwner': 'You are now the owner of {workspace}: its previous owner deleted their account',
+  // trial accounts (TRIAL_ACCOUNTS, docs/adr/2555-*)
+  'trial.button': 'Try without an account',
+  'trial.hint': 'A trial account is deleted after {hours} hours and cannot sign in again from another browser.',
+  'trial.full': 'All trial seats are taken right now. Sign up and you can start at once.',
+  'trial.badge': 'Trial account · deleted in {n} h',
+  'trial.aboutTitle': 'Trial account',
+  'trial.about': 'This account has no password and is deleted in {n} hours with its workspace. Publishing to the web, inviting people, joining other workspaces, webhooks, Slack and a second workspace are off.',
+  'trial.keep': 'To keep your pages, export the workspace before then. To go on with a real account, sign out and sign up.',
+  'trial.export': 'Export',
+  'errors.TRIAL_RESTRICTED': "Trial accounts can't do this. Sign up to use it.",
+  'errors.TRIAL_FULL': 'All trial seats are taken right now. Sign up and you can start at once.',
+  'errors.TRIAL_NEEDS_CONSENT': 'This server asks new accounts to agree to its terms. Sign up instead.',
+  'errors.TRIAL_OFF': 'This server has no trial accounts.',
+  'errors.ALREADY_SIGNED_IN': 'You are already signed in. Sign out first to try a trial account.',
 }

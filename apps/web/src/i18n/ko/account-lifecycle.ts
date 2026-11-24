@@ -55,4 +55,18 @@ export default {
   'accountLifecycle.purgeConfirm': '지금 완전히 삭제',
   'accountLifecycle.purgeFailed': '워크스페이스를 삭제하지 못했습니다',
   'accountLifecycle.notifOwner': '{workspace}의 소유자가 되었습니다. 이전 소유자가 계정을 삭제했습니다.',
+  // 체험 계정 (TRIAL_ACCOUNTS, docs/adr/2555-*)
+  'trial.button': '가입 없이 둘러보기',
+  'trial.hint': '체험 계정은 {hours}시간 뒤 지워지고, 다른 브라우저에서는 다시 들어올 수 없습니다.',
+  'trial.full': '지금은 체험 자리가 다 찼습니다. 가입하면 바로 쓸 수 있습니다.',
+  'trial.badge': '체험 계정 · {n}시간 뒤 삭제',
+  'trial.aboutTitle': '체험 계정',
+  'trial.about': '이 계정은 비밀번호가 없고, {n}시간 뒤 워크스페이스와 함께 지워집니다. 웹에 공개, 사람 초대, 다른 워크스페이스 참여, 웹훅, Slack, 새 워크스페이스 만들기는 쓸 수 없습니다.',
+  'trial.keep': '페이지를 남기려면 그 전에 워크스페이스를 내보내세요. 계정을 만들어 계속 쓰려면 로그아웃한 뒤 가입하세요.',
+  'trial.export': '내보내기',
+  'errors.TRIAL_RESTRICTED': '체험 계정으로는 할 수 없습니다. 가입하면 쓸 수 있습니다.',
+  'errors.TRIAL_FULL': '지금은 체험 자리가 다 찼습니다. 가입하면 바로 쓸 수 있습니다.',
+  'errors.TRIAL_NEEDS_CONSENT': '이 서버는 새 계정에 약관 동의를 받습니다. 가입해서 쓰세요.',
+  'errors.TRIAL_OFF': '이 서버는 체험 계정을 받지 않습니다.',
+  'errors.ALREADY_SIGNED_IN': '이미 로그인되어 있습니다. 체험 계정을 쓰려면 먼저 로그아웃하세요.',
 }

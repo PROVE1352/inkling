@@ -729,6 +729,10 @@ null이거나 고정 기본값)입니다. 0.21 데이터베이스는 적용된 �
 | `OAUTH_UNUSED_CLIENT_MAX` | 정수 ≥ 1 | 없음 | 한 번도 쓰이지 않은 자체 등록 OAuth 클라이언트를 남겨 두는 최대 수. 새 등록이 가장 오래된 것부터 지우고, 15분이 안 된 것은 지우지 않습니다(아래) | 그보다 새 것만 남았으면 `/oauth/register`에서 503 `temporarily_unavailable` |
 | `LIMIT_WORKSPACES_TOTAL` | 정수 ≥ 1 | 없음 | 서버 전체의 워크스페이스 수. 삭제했지만 아직 복구할 수 있는 것도 세고, 서버 전체에 잠금 하나를 잡고 셉니다. 가입하면 개인 워크스페이스가 생기므로 한도에서는 가입도 거절합니다(설정 코드는 거절하지 않습니다) | 403 `LIMIT_WORKSPACES_TOTAL`; 가입 때 403 `SIGNUP_FULL` |
 | `LIMIT_INSTANCE_STORAGE_MB` | 0보다 큰 수(소수 가능) | 없음 | 서버 전체의 저장 공간 퓨즈. 데이터베이스 크기와 데이터 폴더 아래 파일을 더한 값을 1분에 한 번까지 잽니다. 여기에 닿으면 서버는 읽기, 로그인, 내보내기, 삭제만 합니다(아래) | 503 `INSTANCE_FULL`; `/oauth/register`에서 503 `temporarily_unavailable` |
+| `TRIAL_ACCOUNTS` | `1` 또는 `0` | 꺼짐 | 로그인·가입 화면의 "가입 없이 둘러보기". 한 번 누르면 체험 계정과 워크스페이스, 샘플 페이지가 생깁니다(0.23, 아래) | 404 `TRIAL_OFF` |
+| `TRIAL_LIFETIME_HOURS` | 정수 1–168 | 24 | 체험 계정이 사는 시간. 지나면 `ACCOUNT_LIFETIME_DAYS`와 상관없이 지웁니다 | — |
+| `TRIAL_MAX_ACCOUNTS` | 정수 ≥ 1 | 30 | 동시에 있을 수 있는 체험 계정 수. 아직 지우지 않은 만료 계정도 셉니다. 잠금 아래에서 다시 셉니다. `SIGNUP_MAX_USERS`에는 들어가지 않습니다 | 403 `TRIAL_FULL` |
+| `TRIAL_PER_IP_PER_DAY` | 정수 ≥ 1 | 3 | 한 주소(IPv4 또는 IPv6 /56)가 24시간에 만드는 체험 계정 수. `SIGNUP_PER_IP_PER_DAY`와 따로 셉니다. `SIGNUP_PER_HOUR`에는 체험 계정도 들어갑니다 | 429 `SIGNUP_IP_LIMIT` |
 
 - 1 MB는 1,048,576바이트입니다. 설정하지 않았거나 빈 값이면 "한도 없음"(또는 꺼짐)입니다. 아무것도 설정하지
   않으면 서버는 0.21.1처럼 답하고 아래 검사를 하나도 하지 않습니다.
@@ -983,6 +987,24 @@ deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
 - 만료된 계정은 스스로 탈퇴한 것과 같이 지워집니다(아래). 백업에는 백업이 순환될 때까지 남습니다.
 - 관리자 › 사용자에 만료일과 **만료 해제**가 나옵니다. `GET`과 `PATCH /api/admin/users/:id/expiry`로 만료일을 읽고, 옮기고,
   풀 수 있습니다. 만료일이 없는 계정에 새로 주지는 않습니다.
+
+<a id="trial-accounts"></a>
+### 체험 계정
+- `TRIAL_ACCOUNTS=1`(docs/adr/2555-*)이면 로그인·가입 양식 아래에 **가입 없이 둘러보기**가 나옵니다.
+  `POST /api/auth/trial`이 계정과 워크스페이스, 샘플 페이지를 만들고 그 브라우저를 로그인시킵니다. 서버에 관리자가
+  없으면(체험 경로는 관리자를 만들지 않습니다) 버튼을 숨기고, `LEGAL_DIR`의 `signup.json`에 체크 항목이 있어도 숨깁니다.
+  체크 항목 없이 문서만 있으면 버튼 아래에 동의 한 줄이 나옵니다.
+- 체험 계정의 주소는 예약 도메인 `@trial.invalid`입니다(`LOGIN_ID_MODE=username`에서도 같습니다). 아무도 모르는
+  비밀번호가 들어가고, 이 주소로는 메일이 나가지 않습니다. 다른 브라우저에서 다시 들어올 수 없습니다.
+- 웹에 공개(링크, 폼, iCal 피드), 사람 초대와 추가, 다른 워크스페이스 참여, 웹훅, Slack, Notion 게시, 두 번째
+  워크스페이스, 비밀번호·2단계 인증·연결된 로그인 변경은 403 `TRIAL_RESTRICTED`로 거절합니다. 워크스페이스 초대 링크는
+  꺼진 채로 둡니다. 목록은 `apps/server/src/account/trial.ts`의 `TRIAL_RESTRICTED_ROUTES`이고, API 토큰과 MCP 도구에도
+  같은 검사가 걸립니다.
+- 매시간 작업이 시간이 다 된 체험 계정을 탈퇴와 같은 방식으로 지웁니다. `TRIAL_ACCOUNTS`를 끈 뒤에도,
+  `ACCOUNT_LIFETIME_DRY_RUN`과 상관없이 지웁니다. 새로 누를 때 만료된 계정을 먼저 세 개까지 지우므로 자리가 한 시간
+  묶이지 않습니다.
+- 관리자 › 사용자에서 체험 계정의 만료를 풀면 계정은 제한을 지닌 채 남고, 지울 때까지 체험 자리 하나를 차지합니다.
+- 프록시 뒤에서는 가입과 같이 주소별 수에 `TRUST_PROXY`가 필요합니다.
 
 <a id="account-deletion"></a>
 ### 계정 삭제

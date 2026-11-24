@@ -257,6 +257,8 @@ One line each; the full reference is in the operations docs.
 | `SIGNUP_PER_HOUR` | `10` | Accounts the whole server makes in one hour (the setup link's account does not count) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | Self-registered OAuth clients that were never used are deleted this many hours after registering |
 | `OAUTH_UNUSED_CLIENT_MAX` | `500` | Most never-used self-registered OAuth clients kept; a new one removes the oldest (never one younger than 15 minutes) |
+| `TRIAL_ACCOUNTS` | `0` | `1` shows "Try without an account" on the sign-in and sign-up screens (OPERATIONS.md, "Trial accounts"). The button does not show while `signup.json` has required tick boxes |
+| `TRIAL_LIFETIME_HOURS`, `TRIAL_MAX_ACCOUNTS`, `TRIAL_PER_IP_PER_DAY` | `24`, `30`, `3` | Hours a trial account lives, trial accounts at once, trial accounts one address makes in a day |
 | `DEMO_PORT` | `127.0.0.1:3100` | The demo's host port (not 3000) |
 | `DEMO_IMAGE` | `inkling-demo:local` | The demo's own image name, never production's (step 1) |
 | `DEMO_VOLUME_ROOT` | the filesystem of step 0 | Absolute path; the demo's four volumes are folders in it |

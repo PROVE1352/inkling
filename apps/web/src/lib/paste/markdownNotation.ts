@@ -14,6 +14,19 @@ import { CALLOUT_TYPES, INLINE_MATH_TYPE, MATH_BLOCK_TYPE, scanInlineMath } from
 // Pure functions on BlockNote block JSON; components/CollabEditor.tsx wires them into the paste
 // (lib/paste/pasteMarkdown.ts).
 
+/**
+ * Stricter than the shared rule, for paste only: a closing `$` glued to what follows it by a word
+ * character, `{` or `(` is a shell or template variable (`$HOME/$USER`, `${A}/${B}`, `$(pwd)/$(id)`),
+ * and so is an opening `$` glued to a word character before it. Such text stays as typed: before
+ * 0.25 a paste never made math, so the cost of missing `$n$th` is smaller than turning a pasted
+ * command into a formula. The server import keeps the shared rule.
+ */
+function looksLikeShell(text: string, span: { start: number; end: number }): boolean {
+  const after = text[span.end]
+  const before = span.start > 0 ? text[span.start - 1] : undefined
+  return (after !== undefined && /[A-Za-z0-9_{(]/.test(after)) || (before !== undefined && /[A-Za-z0-9_]/.test(before))
+}
+
 /** Loose BlockNote block / inline shapes: the parser's output, mutated in place. */
 export interface PasteBlock {
   id?: string
@@ -136,6 +149,7 @@ export function prepareMarkdownPaste(md: string): MarkdownPaste | null {
       nextLine += line.slice(pos, seg.from)
       let p = 0
       for (const span of scanInlineMath(seg.text)) {
+        if (looksLikeShell(seg.text, span)) continue
         const key = sentinel('I')
         inlineSources.set(key, span.latex)
         literals.set(key, seg.text.slice(span.start, span.end))

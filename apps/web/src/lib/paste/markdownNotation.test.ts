@@ -49,13 +49,17 @@ describe('paste: which dollars are math (server rule)', () => {
     assert.equal(prepareMarkdownPaste('| 항목 | 값 |\n| --- | --- |\n| 커피 | $5 |'), null)
   })
 
-  it('echo $HOME/$USER is a span by the server rule (closing $ after "/", before a letter)', () => {
-    const out = roundTrip('echo $HOME/$USER')
-    assert.deepEqual(out[0].content, [
-      { type: 'text', text: 'echo ', styles: {} },
-      { type: 'inlineMath', props: { latex: 'HOME/' } },
-      { type: 'text', text: 'USER', styles: {} },
-    ])
+  it('shell and template variables stay text (paste is stricter than the server rule)', () => {
+    for (const t of ['echo $HOME/$USER', 'export PATH=$PATH:$HOME/bin', 'cp ${SRC}/a ${DST}/b', 'cd $(pwd)/$(id -un)', 'a$b$c', 'ls $A/$B/$C']) {
+      assert.equal(prepareMarkdownPaste(t), null, t)
+    }
+  })
+
+  it('math next to Korean, punctuation or a space is still math', () => {
+    for (const t of ['$x^2$를 구한다', '값은 $a+b$, 그리고 $c$.', '($n$)', '$E=mc^2$-형태']) {
+      const out = roundTrip(t)
+      assert.ok(out && out[0].content.some((c) => c.type === 'inlineMath'), t)
+    }
   })
 })
 

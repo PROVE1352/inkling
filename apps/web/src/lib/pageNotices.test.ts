@@ -1,6 +1,6 @@
 // @ts-nocheck — Node test file (node:test types are not part of the web tsconfig); not bundled.
 // Run: cd apps/server && npx tsx --test ../web/src/lib/pageNotices.test.ts
-// Stateless notices by document name and the coalesced refresh they trigger (docs/adr/2556-*).
+// Stateless notices by document name and the coalesced refresh they trigger (docs/adr/2557-*).
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createNoticeRefresher, emitPageNotice, noticeKind, onPageNotice } from './pageNotices'

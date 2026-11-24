@@ -44,7 +44,7 @@ import { suggestionsChanged } from './suggestionNotice'
  * Notifications (docs/adr/1534-*): approval_request to the page's document owner (else its creator)
  * when a suggestion is made, approval_result to the suggestion's author when it is decided; both
  * queued with the outbox (in the transaction of the row change where there is one). Every row change
- * also tells the page's open clients to read the list again (suggestionNotice.ts, docs/adr/2556-*).
+ * also tells the page's open clients to read the list again (suggestionNotice.ts, docs/adr/2557-*).
  */
 
 export type SectionWriteMode = 'replace' | 'append' | 'prepend' | 'insert_after' | 'delete'

@@ -228,6 +228,8 @@ export type OpenCollabOptions = {
  */
 export function openCollab(opts: OpenCollabOptions): CollabHandle {
   // The opener's handler first, then everyone listening to this document by name (lib/pageNotices.ts).
+  // Always a function: the provider spreads its options over its defaults, so `onStateless: undefined`
+  // (canvas, page embeds) registered no handler and every stateless message threw in emit ("reading 'apply'").
   const onStateless: HocuspocusProviderConfiguration['onStateless'] = (data) => {
     try {
       opts.onStateless?.(data)

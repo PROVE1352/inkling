@@ -8,7 +8,7 @@ import { createNoticeRefresher } from './lib/pageNotices'
 // Suggested edits from agents and section claims of one page (docs/adr/1530-* .. 1536-*).
 // Polled like comments (conditional GET); kept out of api.ts like largePagesApi.ts.
 // The server also sends {t:'suggestions'} on the page's collab document whenever a claim or a
-// suggestion of the page changes (docs/adr/2556-*): read again at once instead of at the next poll.
+// suggestion of the page changes (docs/adr/2557-*): read again at once instead of at the next poll.
 // The poll and the focus refetch stay for a closed socket.
 
 export const qkSuggestions = {

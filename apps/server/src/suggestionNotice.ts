@@ -1,5 +1,5 @@
 // "This page's suggestions or section claims changed" for the people who have the page open
-// (docs/adr/2556-*).
+// (docs/adr/2557-*).
 //
 // Claims (leases.ts) and suggested edits (suggestions.ts, autoAccept.ts) used to reach an open page
 // only through the web app's 15 s poll and window focus. Every function that changes a

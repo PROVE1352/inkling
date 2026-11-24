@@ -1,4 +1,4 @@
-// The suggestions notice (docs/adr/2556-*) against the real server and real collab clients: every
+// The suggestions notice (docs/adr/2557-*) against the real server and real collab clients: every
 // change of a page's section claims or suggestions (claim, release, the expired-claim sweep, a
 // suggestion made, accepted, accepted in part, rejected, withdrawn) sends exactly {"t":"suggestions"}
 // on the page's collab document, with no suggestion text, section, connection or user name in it.

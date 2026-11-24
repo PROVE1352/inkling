@@ -1,5 +1,5 @@
 // Stateless notices a collab document receives, for code that does not own its provider
-// (docs/adr/2556-*). openCollab (collabSocket.ts) hands every provider's stateless payloads here,
+// (docs/adr/2557-*). openCollab (collabSocket.ts) hands every provider's stateless payloads here,
 // keyed by document name, after the provider's own `onStateless`; anyone may listen by name
 // without touching the editor that opened the provider. No DOM: tested in plain node.
 

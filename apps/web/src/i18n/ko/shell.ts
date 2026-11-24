@@ -132,6 +132,7 @@ export default {
   'palette.cycleTheme': '테마 전환',
   'palette.toggleSidebar': '사이드바 토글',
   'palette.mcpConnections': 'MCP 연결 관리',
+  'palette.mcpConnectionsLong': 'AI 에이전트 연결 (MCP 연결 관리)',
   'palette.switchWorkspace': '워크스페이스: {name}',
   'palette.placeholder': '명령 실행 또는 페이지 이동…',
 

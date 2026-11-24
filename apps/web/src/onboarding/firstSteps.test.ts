@@ -7,7 +7,11 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { setLocaleChoice } from '../i18n'
 import { McpSetup } from '../components/McpSetup'
-import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH, homeOffersSample, mcpOptionsOpen, samplePageOf } from './firstSteps'
+import { en } from '../i18n/en'
+import { ko } from '../i18n/ko'
+import { shortcutById } from '../lib/shortcuts/registry'
+import { scoreText } from '../lib/shortcuts/search'
+import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH, homeOffersSample, mcpOptionsOpen, samplePageOf, shareHint } from './firstSteps'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const dto = (over = {}) => ({
@@ -117,6 +121,23 @@ describe('the connect screen the AI agent buttons land on', () => {
       assert.match(html, /다른 방식/)
     } finally {
       setLocaleChoice('en')
+    }
+  })
+})
+
+describe('finding the connect screen and the share hint', () => {
+  it('the palette finds "Manage MCP connections" by agent, AI and connect, in either language', () => {
+    const def = shortcutById('app.mcp')
+    const texts = [def.paletteLabel, def.label].flatMap((k) => [en[k], ko[k]])
+    for (const q of ['에이전트', 'AI', 'agent', 'connect', 'MCP']) assert.ok(texts.some((x) => scoreText(x, q) > 0), q)
+  })
+
+  it('the share hint names the globe button only while public links are on', () => {
+    assert.deepEqual(shareHint(false), { key: 'getStarted.item.share.hint', publicLink: true })
+    assert.deepEqual(shareHint(true), { key: 'getStarted.item.share.hintInviteOnly', publicLink: false })
+    for (const d of [en, ko]) {
+      assert.ok(d['getStarted.item.share.hintInviteOnly'])
+      assert.ok(!d['getStarted.item.share.hintInviteOnly'].includes(d === ko ? '지구본' : 'globe'))
     }
   })
 })

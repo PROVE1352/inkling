@@ -423,10 +423,12 @@ const fetchWorkspaces = () =>
     },
   )
 
-export function useWorkspaces() {
+/** `enabled: false` holds the request back (the entry screen asks only once it knows who is signed in). */
+export function useWorkspaces(opts: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: qk.workspaces,
     queryFn: fetchWorkspaces,
+    enabled: opts.enabled ?? true,
   })
 }
 

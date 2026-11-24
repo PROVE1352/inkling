@@ -754,7 +754,10 @@ A link from a page in range to a page outside shows only the link text written i
 To see a page the way an agent reads it, open the page's **⋯** menu → **What an agent reads**. It shows the
 page's estimated size in tokens and each section with its `§anchor`, tokens, share of the page and version;
 open a section to see the Markdown an agent gets for it. Type a question and it shows what `find_context` would
-return from this workspace: the sections and their tokens out of the 3,500-token budget. The search runs as you,
+return from this workspace: the sections and their tokens out of the 3,500-token budget, and why it stopped there.
+"Stopped at the budget" lists the matching sections that did not fit; "nothing else matched" means asking
+differently, not a bigger budget, would find more. A section cut to fit is marked, a sign to split it under more
+headings. The search runs as you,
 with no agent connected, and matches words, so ask with words used in your notes. On the sample page a
 question is filled in.
 

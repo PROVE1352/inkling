@@ -6,7 +6,8 @@ import { useT, type TKey } from '../i18n'
 import type { SidebarCardSize } from '../lib/sidebarMenu'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '../components/Icons'
 import { playIntro, useCreateSample, useUpdateOnboarding } from './api'
-import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH } from './firstSteps'
+import { useFeatureOff } from '../components/quota/features'
+import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH, shareHint } from './firstSteps'
 import { showHint } from './hint'
 
 // The "Getting started" card (docs/adr/2380-*): first steps that tick themselves as the person does
@@ -83,7 +84,9 @@ export function Checklist({
     if (samplePage) return samplePage
     return (pages.data ?? []).find((p) => p.kind === 'doc' && !p.deletedAt)?.id ?? null
   }
-  const hint = (id: OnboardingItemId, selectors: string[]) => showHint(selectors, t(`${LABEL[id]}.hint` as TKey), t('getStarted.hintClose'))
+  // a server with public links off has no globe button: the share hint names only the invite link
+  const share = shareHint(useFeatureOff('public-links'))
+  const hint = (id: OnboardingItemId, selectors: string[], key: TKey = `${LABEL[id]}.hint` as TKey) => showHint(selectors, t(key), t('getStarted.hintClose'))
   const label = (k: TKey) => t(k).replace(/"/g, '\\"')
 
   const go = (id: OnboardingItemId) => {
@@ -104,7 +107,11 @@ export function Checklist({
         hint(id, [`[aria-label="${label('sidebar.newItemKind')}"]`])
         break
       case 'share':
-        hint(id, [`button[title="${label('members.copyInvite')}"]`, `[aria-label="${label('members.copyInvite')}"]`, `[aria-label="${label('page.shareToWeb')}"]`])
+        hint(
+          id,
+          [`button[title="${label('members.copyInvite')}"]`, `[aria-label="${label('members.copyInvite')}"]`, ...(share.publicLink ? [`[aria-label="${label('page.shareToWeb')}"]`] : [])],
+          share.key,
+        )
         break
       case 'ai':
         // straight to the app picker and the command to paste (not the Settings row that links there)

@@ -83,12 +83,25 @@ export interface ContextFragmentLike {
   anchor: string
   sections: { anchor: string; short?: string }[]
   tokens: number
+  /** Cut to fit the budget; `fullTokens` is the uncut size when the server gives it. */
+  truncated?: boolean
+  fullTokens?: number
+}
+
+/** A matching section that did not fit the budget (the server also sends its `short` label). */
+export interface MoreLike {
+  pageId: string
+  title: string
+  anchor: string
+  tokens: number
+  short?: string
 }
 
 export interface ContextResultLike {
   fragments: ContextFragmentLike[]
   budget: number
   usedTokens: number
+  more?: MoreLike[]
 }
 
 export interface ContextRow {
@@ -102,6 +115,12 @@ export interface ContextRow {
   anchors: string[]
   tokens: number
   onThisPage: boolean
+  /**
+   * Cut to fit: `full` is the uncut size of the section that was cut, or null when the server did not say.
+   * The server cuts the fragment's last section and gives that section's size (context/rank.ts), so for a
+   * fragment of several sections `full` is not comparable to the fragment's tokens (`merged`). Absent when whole.
+   */
+  cut?: { full: number | null; merged: boolean }
 }
 
 export interface ContextSummary {
@@ -117,7 +136,9 @@ export function contextSummary(r: ContextResultLike, pageId: string): ContextSum
   const rows = r.fragments.map((f) => {
     const anchors = f.sections.length ? f.sections.map((s) => s.anchor) : [f.anchor]
     const short = f.sections[0]?.short || f.anchor
-    return { pageId: f.pageId, title: f.title, anchor: f.anchor, short, anchors, tokens: f.tokens, onThisPage: f.pageId === pageId }
+    const row: ContextRow = { pageId: f.pageId, title: f.title, anchor: f.anchor, short, anchors, tokens: f.tokens, onThisPage: f.pageId === pageId }
+    if (f.truncated) row.cut = { full: typeof f.fullTokens === 'number' && f.fullTokens > 0 ? f.fullTokens : null, merged: anchors.length > 1 }
+    return row
   })
   return {
     rows,
@@ -125,6 +146,67 @@ export function contextSummary(r: ContextResultLike, pageId: string): ContextSum
     budget: r.budget,
     sections: rows.reduce((n, row) => n + row.anchors.length, 0),
   }
+}
+
+/**
+ * Why find_context stopped where it did: `budget` = matching sections were left out (`count` of them,
+ * as the server lists them), `cut` = none was left out but one came back cut to fit, `matched` = it
+ * returned everything that matched, whole, `none` = nothing matched.
+ * (The response's `candidates` is not shown: it counts index rows before merging, per phrasing, so it is
+ * not a number of sections a person could check.)
+ */
+export type StopReason = { kind: 'budget'; count: number; atLeast: boolean } | { kind: 'cut' } | { kind: 'matched' } | { kind: 'none' }
+
+/** The server lists at most this many left-out sections (context/retrieve.ts): a full list means "or more". */
+export const MORE_LISTED_MAX = 5
+
+export function stopReason(r: ContextResultLike): StopReason {
+  const more = r.more?.length ?? 0
+  if (more > 0) return { kind: 'budget', count: more, atLeast: more >= MORE_LISTED_MAX }
+  if (r.fragments.length === 0) return { kind: 'none' }
+  // nothing left out, but a returned section was cut to fit: the budget was the limit all the same
+  return r.fragments.some((f) => f.truncated) ? { kind: 'cut' } : { kind: 'matched' }
+}
+
+/** Whether a returned section was cut to fit (the hint to split long sections under more headings). */
+export function anyCut(s: ContextSummary): boolean {
+  return s.rows.some((r) => !!r.cut)
+}
+
+export interface LeftOutRow {
+  pageId: string
+  title: string
+  anchor: string
+  short: string
+  tokens: number
+  onThisPage: boolean
+}
+
+/** Rows shown before "N more" in the list of sections that did not fit. */
+export const LEFT_OUT_SHOWN = 5
+
+/**
+ * The sections that did not fit, first `limit` of them (all when `all`), and how many are folded away.
+ * The label is the server's `short`, else the shortest unique suffix among the anchors this answer has
+ * for that page (shortAnchors).
+ */
+export function leftOut(r: ContextResultLike, pageId: string, all = false, limit = LEFT_OUT_SHOWN): { rows: LeftOutRow[]; hidden: number } {
+  const more = r.more ?? []
+  const perPage = new Map<string, string[]>()
+  const add = (p: string, a: string) => perPage.set(p, [...(perPage.get(p) ?? []), a])
+  for (const f of r.fragments) for (const s of f.sections.length ? f.sections : [{ anchor: f.anchor }]) add(f.pageId, s.anchor)
+  for (const m of more) add(m.pageId, m.anchor)
+  const shorts = new Map([...perPage].map(([p, as]) => [p, shortAnchors(as)]))
+  const rows = more.map((m) => ({
+    pageId: m.pageId,
+    title: m.title,
+    anchor: m.anchor,
+    short: m.short || shorts.get(m.pageId)?.get(m.anchor) || m.anchor,
+    tokens: m.tokens,
+    onThisPage: m.pageId === pageId,
+  }))
+  const shown = all ? rows : rows.slice(0, limit)
+  return { rows: shown, hidden: rows.length - shown.length }
 }
 
 /**

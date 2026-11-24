@@ -8,13 +8,15 @@ import { Onboarding } from './Onboarding'
 // Entry logic for '/'.
 export function Home() {
   const me = useMe()
-  const workspaces = useWorkspaces()
+  // only once someone is signed in: a signed-out visitor goes to /login without a 401 for the list
+  // (right after signing in `me` is already in the cache, so this does not wait)
+  const workspaces = useWorkspaces({ enabled: !!me.data })
   const groups = useWorkspaceGroups()
 
   if (me.isLoading) return <FullScreenSpinner />
   if (me.isError || !me.data) return <Navigate to="/login" replace />
 
-  if (workspaces.isLoading) return <FullScreenSpinner />
+  if (workspaces.isPending) return <FullScreenSpinner />
   const list = workspaces.data ?? []
   if (list.length === 0) return <Onboarding />
 

@@ -931,14 +931,18 @@ html[data-resizing] .nd-sidebar-shell {
   }
 }
 
-/* Internal wiki links (/w/.../p/...) */
-.bn-container a[href^='/w/'] {
+/* Internal links: wiki links (/w/.../p/...) and the settings screens (lib/internalLinks.ts) */
+.bn-container a[href^='/w/'],
+.bn-container a[href='/settings'],
+.bn-container a[href^='/settings/'] {
   color: var(--color-accent);
   text-decoration: none;
   border-bottom: 1px dashed color-mix(in srgb, var(--color-accent) 50%, transparent);
   cursor: pointer;
 }
-.bn-container a[href^='/w/']:hover {
+.bn-container a[href^='/w/']:hover,
+.bn-container a[href='/settings']:hover,
+.bn-container a[href^='/settings/']:hover {
   border-bottom-style: solid;
 }
 

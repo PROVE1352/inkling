@@ -28,6 +28,7 @@ export default {
   'getStarted.item.database.hint': '이 메뉴에서 데이터베이스를 고르세요. 표·보드·캘린더 보기는 데이터베이스 위쪽 탭에서 바꿉니다.',
   'getStarted.item.share': '멤버 초대하거나 페이지 공유하기',
   'getStarted.item.share.hint': '초대 링크를 복사해 팀원에게 보내세요. 페이지 위쪽의 지구본 버튼으로 공개 링크도 만들 수 있습니다.',
+  'getStarted.item.share.hintInviteOnly': '초대 링크를 복사해 팀원에게 보내세요.',
   'getStarted.item.ai': 'AI 에이전트 연결하기',
   'getStarted.item.ai.hint': '쓰는 앱을 고르면 바로 아래에 붙여 넣을 명령이 나옵니다. 복사해서 그 앱에 넣으세요.',
   'getStarted.item.explore': '팀 워크스페이스 둘러보기',

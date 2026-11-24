@@ -426,7 +426,9 @@ interface CamKey {
 }
 const CAMS: CamKey[][] = [
   [
-    { a: 0, b: 0, r: [150, 80, 1040, 560], f: [520, 330] },
+    // down to 670, past the database heading (622–660): a wide frame shows the rectangle's height exactly,
+    // and a bottom edge at 640 cut the heading in half at 1280×860 and lower
+    { a: 0, b: 0, r: [150, 80, 1040, 590], f: [520, 330] },
     { a: 1.75, b: 2.15, r: [150, 200, 1060, 520], f: [520, 500] },
     { a: 3.05, b: 3.45, r: [150, 110, 1700, 560], f: [1520, 380] },
     { a: 4.35, b: 4.85, r: [150, 600, 1030, 420], f: [500, 800] },

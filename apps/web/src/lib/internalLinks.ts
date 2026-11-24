@@ -1,6 +1,6 @@
 // Clicks on links inside editor bodies (the page editor, row templates, page-embed bodies).
 //
-// Internal page links (`/w/…`, section links `#h=…` included) are drawn as
+// Internal page links (`/w/…`, section links `#h=…` included; also `/settings…`) are drawn as
 // `<a href="/w/…" target="_blank">`. A plain click moves inside the app (React Router); a click with
 // ⌘/Ctrl/Shift/Alt or the middle button opens a new tab, as for any link. External links open one
 // new tab.
@@ -13,7 +13,12 @@
 // or the read-only embed viewer inside an editable page) the browser does.
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
-/** The in-app path of an internal page link (same origin, under `/w/`), or null. */
+// Same-origin paths the app moves to itself besides pages: the settings screens (the sample page links
+// Settings › Connections). An allowlist: anything else (/api/…, /s/…, files) stays a plain link.
+const IN_APP_PREFIXES = ['/w/', '/settings/'] as const
+const IN_APP_EXACT = ['/settings'] as const
+
+/** The in-app path of an internal link (same origin, under `/w/` or `/settings`), or null. */
 export function internalLinkPath(href: string | null | undefined, origin: string): string | null {
   if (!href) return null
   let url: URL
@@ -22,7 +27,9 @@ export function internalLinkPath(href: string | null | undefined, origin: string
   } catch {
     return null
   }
-  if (url.origin !== origin || !url.pathname.startsWith('/w/')) return null
+  if (url.origin !== origin) return null
+  const p = url.pathname
+  if (!IN_APP_PREFIXES.some((x) => p.startsWith(x)) && !(IN_APP_EXACT as readonly string[]).includes(p)) return null
   return `${url.pathname}${url.search}${url.hash}`
 }
 

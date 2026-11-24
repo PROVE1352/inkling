@@ -113,7 +113,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { id: 'app.reload', scope: 'global', via: 'app', label: 'palette.reload' },
   { id: 'app.cycleTheme', scope: 'global', via: 'app', label: 'palette.cycleTheme' },
   { id: 'app.customizeSidebar', scope: 'global', via: 'app', label: 'palette.customizeSidebar' },
-  { id: 'app.mcp', scope: 'global', via: 'app', label: 'palette.mcpConnections' },
+  // the palette name says what it is for, so "에이전트", "AI", "agent" or "connect" find it too
+  { id: 'app.mcp', scope: 'global', via: 'app', label: 'palette.mcpConnections', paletteLabel: 'palette.mcpConnectionsLong' },
   // Later and Threads (docs/adr/1410-*, 1412-*): no default key, like the other sidebar menus (the
   // chords that came up were taken: ⌘⌥L Safari's downloads, Ctrl+Alt+L/T lock screen and terminal on Linux)
   { id: 'app.later', scope: 'global', via: 'app', label: 'sidebar.later' },

@@ -375,6 +375,7 @@ Spend calls and tokens in this order (the server instructions say the same):
    once with **`read_pages(ids)`**. Full `read_page` and `list_pages` are for when you really need everything.
 3. **Edit** with `patch_section(pageId, section, markdown, mode, baseVersion)` using the `v=` you read. On
    `Conflict:` the result contains the section's current text and version: merge your change and retry.
+   `append`/`prepend`/`insert_after` do not need `baseVersion`; leave it out when several agents add to one section.
    Other sections and people typing elsewhere in the page are not affected. If the heading was renamed since you
    read it, the old anchor still works: `read_page(section=old)` and `patch_section` answer for the section under
    its new anchor and print `moved_to: §new`; use the new anchor from then on. `Section "x" was renamed and now

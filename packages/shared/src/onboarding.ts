@@ -27,11 +27,12 @@ export const ONBOARDING_OPTIONAL_ITEMS: readonly OnboardingItemId[] = ['install'
 
 /**
  * Items only the browser can see (the server keeps no record of them): opening the slash menu,
- * inserting a link from the `[[` menu, copying the MCP address, opening someone else's page,
- * running the installed app or turning on offline copies. `link` and `ai` are also derived
- * from what the server stores.
+ * inserting a link from the `[[` menu, opening someone else's page, running the installed app or
+ * turning on offline copies. `link` is also derived from what the server stores. `ai` is not an
+ * event since 0.24: copying the address no longer ticks it, the agent's first request does
+ * (docs/adr/2390-*), and `{ event: 'ai' }` is refused like any unknown value.
  */
-export const ONBOARDING_CLIENT_EVENTS = ['slash', 'link', 'ai', 'explore', 'install'] as const
+export const ONBOARDING_CLIENT_EVENTS = ['slash', 'link', 'explore', 'install'] as const
 export type OnboardingClientEvent = (typeof ONBOARDING_CLIENT_EVENTS)[number]
 
 export interface OnboardingItemDTO {
@@ -56,6 +57,11 @@ export interface OnboardingDTO {
   }
   /** Live sample pages by workspace id (root page id); a trashed sample is left out. */
   samples: Record<string, string>
+  /**
+   * An agent of this person's has connected: an authenticated /mcp request through one of their OAuth
+   * grants or agent connection tokens was seen (docs/adr/2390-*). Sticky; false while onboarding is off.
+   */
+  agentConnected: boolean
 }
 
 /** PATCH /me/onboarding — any subset; at least one field. */

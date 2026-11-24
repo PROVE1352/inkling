@@ -13,7 +13,7 @@ import type {
   UpdateOnboardingInput,
 } from '@inkling/shared'
 import { db } from '../db/index'
-import { conflict } from '../errors'
+import { AppError, conflict } from '../errors'
 import { pages, userOnboarding, workspaceMembers, workspaces } from '../db/schema'
 import type { Locale } from '../i18n'
 import { compileSpec } from '../templates/builtins'
@@ -64,6 +64,12 @@ export interface OnboardingState {
   autoSampleAt?: string
   /** Sample pages being made, by workspace id (start time): a second click waits for the first. */
   creating?: Record<string, string>
+  /**
+   * When this person's agent was first seen connected: the first authenticated /mcp request through
+   * one of their OAuth grants or agent connection tokens (onboarding/agent.ts), or, for connections
+   * made before 0.24, a grant that has been used. Set once (docs/adr/2390-*).
+   */
+  agentAt?: string
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -122,6 +128,7 @@ export function parseState(raw: unknown): OnboardingState {
     for (const [ws, v] of Object.entries(r.creating as Record<string, unknown>)) if (UUID_RE.test(ws) && typeof v === 'string') creating[ws] = v
     out.creating = creating
   }
+  if (typeof r.agentAt === 'string') out.agentAt = r.agentAt
   return out
 }
 
@@ -189,7 +196,11 @@ export async function audienceOf(userId: string, isAdmin: boolean): Promise<Onbo
 
 const uuidArray = (ids: string[]): string => `{${ids.filter((x) => UUID_RE.test(x)).join(',')}}`
 
-/** What the server knows the person did, for the items not yet done. Sample pages do not count. */
+/**
+ * What the server knows the person did, for the items not yet done. Sample pages do not count.
+ * `ai` is not read here: it is ticked with `agentAt`, when an agent of theirs is seen connected
+ * (docs/adr/2390-*), not when a grant or a token merely exists.
+ */
 export async function serverFacts(userId: string, sampleIds: string[], want: OnboardingItemId[]): Promise<Set<OnboardingItemId>> {
   const out = new Set<OnboardingItemId>()
   if (want.length === 0) return out
@@ -209,10 +220,6 @@ export async function serverFacts(userId: string, sampleIds: string[], want: Onb
          WHERE p.created_by = ${userId} AND p.deleted_at IS NULL AND NOT (p.id = ANY(${ids}::uuid[]))
       )` : sql`false`} AS "link",
       ${w.has('comment') ? sql`EXISTS (SELECT 1 FROM comments c WHERE c.author_id = ${userId})` : sql`false`} AS "comment",
-      ${w.has('ai') ? sql`(
-        EXISTS (SELECT 1 FROM oauth_grants g WHERE g.user_id = ${userId})
-        OR EXISTS (SELECT 1 FROM api_tokens t WHERE t.user_id = ${userId})
-      )` : sql`false`} AS "ai",
       ${w.has('share') ? sql`(
         EXISTS (SELECT 1 FROM workspace_audit_events e WHERE e.actor_id = ${userId}
                   AND e.action IN ('share.published', 'member.added'))
@@ -362,9 +369,35 @@ async function makeSample(args: {
 }
 
 /**
- * The first admin of a new server gets the sample in their first workspace once, the first time the
- * app asks for their onboarding (docs/adr/2381-*). "First admin" = an admin with no older account
- * on the server. Never again after that, whatever happens to the page.
+ * The workspace a new account got with its sign-up: one it owns and made itself in the same
+ * transaction as the account (POST /auth/register and the first OpenID Connect sign-in insert the
+ * user and the workspace together, so both `created_at` defaults are that transaction's `now()`; the
+ * two-second window only absorbs a split into two statements). Accounts made without one (delegated
+ * sign-in, the test harness) have none, and a workspace someone makes by hand later never counts.
+ */
+async function signupWorkspace(userId: string): Promise<{ id: string; role: 'owner' } | null> {
+  const rows = (await db.execute(sql`
+    SELECT w.id FROM users u
+      JOIN workspaces w ON w.created_by = u.id AND w.deleted_at IS NULL
+                       AND w.created_at >= u.created_at AND w.created_at <= u.created_at + interval '2 seconds'
+      JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id = u.id AND m.role = 'owner'
+     WHERE u.id = ${userId}
+     ORDER BY w.created_at ASC, w.id ASC
+     LIMIT 1
+  `)) as unknown as { id: string }[]
+  return rows[0] ? { id: rows[0].id, role: 'owner' } : null
+}
+
+/** A workspace limit (pages, storage) refused the sample: expected, nothing to log as an error. */
+const isLimitRefusal = (err: unknown): boolean => err instanceof AppError && err.code.startsWith('LIMIT_')
+
+/**
+ * A new account gets the sample once, the first time the app asks for their onboarding (not in the
+ * sign-up request, which stays as it was): every account in the workspace it got with its sign-up
+ * (docs/adr/2390-*), and the first admin of a new server in their first workspace (docs/adr/2381-*;
+ * "first admin" = an admin with no older account on the server). Never again after that, whatever
+ * happens to the page. A failure (a workspace limit, the database) is recorded as 'failed' and the
+ * read goes on; the empty home screen's button can still make one.
  */
 async function maybeAutoSample(user: { id: string; name: string; isAdmin: boolean }, locale: () => Promise<Locale>): Promise<void> {
   // Claim the one attempt atomically: of two first reads at once only one goes on.
@@ -376,7 +409,8 @@ async function maybeAutoSample(user: { id: string; name: string; isAdmin: boolea
   if (claimed.length === 0) return
   let outcome: OnboardingState['autoSample'] = 'none'
   try {
-    if (user.isAdmin) {
+    let target: { id: string; role: 'owner' | 'admin' | 'member' } | null = await signupWorkspace(user.id)
+    if (!target && user.isAdmin) {
       const older = (await db.execute(sql`
         SELECT EXISTS (
           SELECT 1 FROM users o, users me WHERE me.id = ${user.id} AND o.id <> me.id AND o.created_at <= me.created_at
@@ -390,15 +424,22 @@ async function maybeAutoSample(user: { id: string; name: string; isAdmin: boolea
           .where(and(eq(workspaceMembers.userId, user.id), isNull(workspaces.deletedAt)))
           .orderBy(asc(workspaces.createdAt))
           .limit(1)
-        if (first) {
-          await createSample({ userId: user.id, userName: user.name, workspaceId: first.id, role: first.role, locale: await locale(), auto: true })
-          outcome = 'created'
-        }
+        target = first ?? null
       }
     }
+    if (target) {
+      await createSample({ userId: user.id, userName: user.name, workspaceId: target.id, role: target.role, locale: await locale(), auto: true })
+      outcome = 'created'
+    }
   } catch (err) {
-    console.error('[inkling] onboarding: sample page failed', err)
-    outcome = 'failed'
+    if (err instanceof AppError && err.code === 'SAMPLE_IN_PROGRESS') {
+      // The button got there first (createSample's per-workspace mark): its sample is the one, and a
+      // second is never made. Recorded as made; if the button's attempt fails, the button stays.
+      outcome = 'created'
+    } else {
+      if (!isLimitRefusal(err)) console.error('[inkling] onboarding: sample page failed', err)
+      outcome = 'failed'
+    }
   }
   await updateState(user.id, (s) => ({ ...s, autoSample: outcome }))
 }
@@ -413,6 +454,25 @@ const DISABLED: OnboardingDTO = {
   intro: false,
   checklist: { show: false, collapsed: false, dismissed: true, complete: false, items: [] },
   samples: {},
+  agentConnected: false,
+}
+
+/** The state with the agent seen connected at `at` (and the checklist's `ai` ticked); null = it already was. */
+export function withAgentConnected(s: OnboardingState, at: string): OnboardingState | null {
+  if (s.agentAt) return null
+  return { ...s, agentAt: at, done: { ...(s.done ?? {}), ai: s.done?.ai ?? at } }
+}
+
+/**
+ * Connections made before 0.24 (or a first request whose record failed): one of the person's OAuth
+ * grants or agent connection tokens has been used. `last_used_at` is written only by the bearer check
+ * (`getBearerUser`), which only /mcp and its internal calls reach.
+ */
+async function agentUsedBefore(userId: string): Promise<boolean> {
+  const rows = (await db.execute(sql`
+    SELECT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.user_id = ${userId} AND g.last_used_at IS NOT NULL) AS "used"
+  `)) as unknown as { used: boolean }[]
+  return rows[0]?.used === true
 }
 
 export async function loadOnboarding(
@@ -432,10 +492,15 @@ export async function loadOnboarding(
 
 async function toDTO(user: { id: string; isAdmin: boolean }, state0: OnboardingState): Promise<OnboardingDTO> {
   let state = state0
+  if (!state.agentAt && (await agentUsedBefore(user.id))) {
+    const at = new Date().toISOString()
+    state = await updateState(user.id, (s) => withAgentConnected(s, at))
+  }
+  const agentConnected = !!state.agentAt
   const audience = await audienceOf(user.id, user.isAdmin)
   const samples = await liveSamples(state)
   if (audience === 'guest') {
-    return { enabled: true, audience, intro: false, checklist: { show: false, collapsed: false, dismissed: true, complete: false, items: [] }, samples }
+    return { enabled: true, audience, intro: false, checklist: { show: false, collapsed: false, dismissed: true, complete: false, items: [] }, samples, agentConnected }
   }
   const items = itemsFor(audience)
   const dismissed = state.dismissed ?? !!(state.legacy || state.off)
@@ -467,6 +532,7 @@ async function toDTO(user: { id: string; isAdmin: boolean }, state0: OnboardingS
       items: dtoItems,
     },
     samples,
+    agentConnected,
   }
 }
 

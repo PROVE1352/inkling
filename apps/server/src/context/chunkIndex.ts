@@ -8,9 +8,10 @@ import { blocksToPlainText, reindexPageText, TEXT_CUT_MARK } from '../md/textInd
 import { bumpChunkEpoch, bumpIndexEpoch } from '../versions'
 import { outboxCommitted } from '../outbox'
 import { recordSectionChanges } from './changeLog'
+import { INJECTION_RULES_VERSION } from './injectionScan'
 import type { PageSectionDelta, SectionState } from './changeLog'
 import type { Chunk } from './chunker'
-import { CHUNKER_VERSION, chunkBlocks } from './chunker'
+import { CHUNKER_VERSION, chunkBlocks, chunkHash, scanChunk } from './chunker'
 
 /**
  * Section index maintenance (docs/adr/0926-*).
@@ -277,6 +278,74 @@ async function promoteWithoutNewNodes(): Promise<number> {
 }
 
 /**
+ * Boot pass for flags the injection rules no longer give (docs/adr/0979-*). page_chunks.suspicious is
+ * computed when a page is indexed, so a narrower rule (INJECTION_RULES_VERSION 2) would leave the old flag
+ * on a section until someone edits that page — and every connection that reads it turns suggest-only
+ * (docs/adr/2040-*). Re-judges only the flagged rows (an unflagged row cannot gain a flag from a rule that
+ * only narrowed), writes the new flags and the hash the chunker would now give (so the next index pass
+ * sees no change), and leaves a row alone when an index pass rewrote it meanwhile (hash compare). Runs at
+ * every boot; with nothing to change it is one scan of page_chunks for rows with flags (no index on the
+ * column; ~7k rows take a few ms). Returns how many rows changed.
+ */
+export async function rescanFlaggedChunks(log: (msg: string) => void = console.log): Promise<number> {
+  const BATCH = 500
+  let changed = 0
+  let after: { pageId: string; ord: number } | null = null
+  const workspaces = new Set<string>()
+  try {
+    for (;;) {
+      const rows = (await db.execute(sql`
+        SELECT page_id AS "pageId", ord, workspace_id AS "workspaceId", anchor, block_id AS "blockId",
+               heading_path AS "headingPath", level, part, text, suspicious, hash, section_hash AS "sectionHash"
+          FROM page_chunks
+         WHERE cardinality(suspicious) > 0
+           ${after ? sql`AND (page_id, ord) > (${after.pageId}::uuid, ${after.ord})` : sql``}
+         ORDER BY page_id, ord
+         LIMIT ${BATCH}
+      `)) as unknown as {
+        pageId: string
+        ord: number
+        workspaceId: string
+        anchor: string
+        blockId: string | null
+        headingPath: string
+        level: number
+        part: number
+        text: string
+        suspicious: string[]
+        hash: string
+        sectionHash: string
+      }[]
+      for (const r of rows) {
+        const now = scanChunk(r.headingPath, r.part, r.text)
+        if (now.join(',') === r.suspicious.join(',')) continue
+        const res = (await db.execute(sql`
+          UPDATE page_chunks SET suspicious = ${`{${now.join(',')}}`}::text[], hash = ${chunkHash(r, now)}
+           WHERE page_id = ${r.pageId} AND ord = ${r.ord} AND hash = ${r.hash}
+          RETURNING 1 AS one
+        `)) as unknown as unknown[]
+        if (res.length) {
+          changed++
+          workspaces.add(r.workspaceId)
+        }
+      }
+      if (rows.length < BATCH) break
+      const last = rows[rows.length - 1]
+      after = { pageId: last.pageId, ord: last.ord }
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    if (changed > 0) {
+      bumpIndexEpoch()
+      for (const w of workspaces) bumpChunkEpoch(w)
+      log(`[inkling] page_chunks: ${changed} section flags re-judged with injection rules version ${INJECTION_RULES_VERSION}`)
+    }
+  } catch (err) {
+    console.error('[inkling] page_chunks flag re-scan failed', err)
+  }
+  return changed
+}
+
+/**
  * Boot backfill: pages with a document but no current section-index marker, 50 per batch, yielding
  * to the event loop between batches and stopping after `maxPages` (the rest continue next boot or
  * on their next edit). Failed pages are still stamped so they are not reselected forever.
@@ -287,6 +356,8 @@ export async function backfillPageChunks(
 ): Promise<number> {
   const BATCH = 50
   let total = 0
+  // flags of sections indexed under older, wider injection rules (docs/adr/0979-*)
+  await rescanFlaggedChunks(log)
   try {
     if (CHUNKER_VERSION === 4) {
       const promoted = await promoteUncutIndexes()

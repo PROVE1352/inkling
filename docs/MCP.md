@@ -43,8 +43,124 @@ it ([ADR 2280](adr/2280-oauth-client-id-metadata-documents-behind-a-switch.md)�
 
 Settings → Connections → **Connect an AI app** makes the settings for Claude Code, claude.ai / Claude Desktop, Cursor
 (`.cursor/mcp.json`), VS Code (`.vscode/mcp.json`) and a generic `mcpServers` JSON, and lets you pick the tool profile
-(all tools, or `?profile=core`). Windsurf is not listed: its documentation no longer describes its format, so use the
-generic JSON. The formats and where they come from are in [ADR 2020](adr/2020-connection-settings-generator.md).
+(all tools, or `?profile=core`). The formats and where they come from are in
+[ADR 2020](adr/2020-connection-settings-generator.md). Settings for more clients are in the next section.
+
+### Settings for other clients
+
+Copied from each client's own documentation, read on 2026-11-25. **These settings were written from the
+documentation and not connected to Inkling for this page.** For Cursor and VS Code, KNOWN-ISSUES AGT-4 also records
+that token headers against an `http://` LAN server and OAuth to `/mcp?profile=core` were not tried with the real
+apps. If you try one, say whether it worked.
+
+- `?profile=core` on the URL selects the smaller tool list on the server's side; whether each client keeps the query
+  string as given was not tried (quote the URL in a shell command).
+- Sign-in: Inkling supports OAuth with dynamic client registration, the default of these clients. Where the Sign-in
+  column says "registers itself", the client's page states it; the other pages only say that the client signs in
+  to remote servers. If sign-in fails, or the server is on a plain `http://` LAN address, use an **agent connection
+  token** (next section) as an `Authorization: Bearer ink_agt_…` header, as in the column "With an agent connection
+  token". A personal API token (`ink_pat_`) is refused at `/mcp`.
+- Prefer the environment variable forms: a token written in a shared or committed file is readable by everyone who
+  can read the file.
+
+| Client | Where the setting goes | Remote server key | Sign-in | With an agent connection token | Source |
+|---|---|---|---|---|---|
+| Cursor | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` | `"url"` | OAuth; registers itself (dynamic registration) | `"headers": {"Authorization": "Bearer ${env:INKLING_TOKEN}"}` | [cursor.com/docs/context/mcp](https://cursor.com/docs/context/mcp) |
+| VS Code (GitHub Copilot) | `~/.copilot/mcp-config.json` (all workspaces) or `.mcp.json` at the workspace root; `.vscode/mcp.json`, which the **Connect an AI app** box makes, is now the deprecated editor format | `"type": "http"` (Streamable HTTP) | "complete authorization when prompted" | `"headers": {"Authorization": "Bearer ${INKLING_TOKEN}"}`, the variable set where VS Code runs | [code.visualstudio.com/docs/agents/reference/mcp-configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) |
+| OpenAI Codex CLI | `~/.codex/config.toml`, or `.codex/config.toml` in a trusted project | `url` in `[mcp_servers.inkling]` (Streamable HTTP) | `codex mcp login inkling`; dynamic registration or Client ID Metadata Documents | `bearer_token_env_var = "INKLING_TOKEN"` | [developers.openai.com/codex/mcp](https://developers.openai.com/codex/mcp) (now at learn.chatgpt.com/docs/extend/mcp) |
+| Gemini CLI | `~/.gemini/settings.json` or `.gemini/settings.json` | `"httpUrl"` (Streamable HTTP; `"url"` is SSE and does not work with Inkling) | discovered on the first 401, registers itself; `/mcp auth inkling` | `--header "Authorization: Bearer ink_agt_…"` on `gemini mcp add`, or `"headers"` | [geminicli.com/docs/tools/mcp-server](https://geminicli.com/docs/tools/mcp-server/) |
+| OpenCode | the project's `opencode.jsonc` (`--global` for every project), under `mcp.servers` | `"type": "remote"` (Streamable HTTP) | on by default; registers itself or uses Client ID Metadata Documents; `/mcps` or `opencode mcp auth inkling` | `"oauth": false, "headers": {"Authorization": "Bearer {env:INKLING_TOKEN}"}` | [opencode.ai/docs/mcp-servers](https://opencode.ai/docs/mcp-servers/) |
+| Google Antigravity | `~/.gemini/config/mcp_config.json` or `<workspace>/.agents/mcp_config.json` | `"serverUrl"` (Streamable HTTP only) | automatic; Client ID Metadata Documents or dynamic registration | `"headers": {"Authorization": "Bearer ink_agt_…"}` (the token is then in the file) | [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) |
+| Zed | the settings file, under `context_servers` (Settings → AI → MCP Servers → Add Server → Add Remote Server writes it) | `"url"` (the page does not name the transport) | "the standard MCP OAuth flow" when no `Authorization` header is set | `"headers": {"Authorization": "Bearer ink_agt_…"}` (the token is then in the file) | [zed.dev/docs/ai/mcp](https://zed.dev/docs/ai/mcp) |
+| Cline | CLI: `~/.cline/data/settings/cline_mcp_settings.json`; IDE extension: MCP Servers → Configure → Configure MCP Servers | `"type": "streamableHttp"` (without it Cline uses SSE, which does not work with Inkling) | "Authorize OAuth" in `cline mcp` | `--header "Authorization: Bearer ink_agt_…"` on `cline mcp add`, or `"headers"` | [docs.cline.bot/mcp/mcp-overview](https://docs.cline.bot/mcp/mcp-overview) |
+
+Windsurf is not in the table: its MCP page (docs.windsurf.com/windsurf/cascade/mcp) now redirects to the Devin
+Desktop documentation, which describes Devin's own configuration files.
+
+With `OAUTH_CIMD=1` on the server, the clients that support Client ID Metadata Documents (Codex, OpenCode,
+Antigravity, by their documentation) may identify themselves with their document instead of registering;
+`OAUTH_CIMD_ALLOWED_HOSTS`, if set, then has to include their host. Not tried.
+
+Cursor (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+VS Code (`~/.copilot/mcp-config.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "type": "http",
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+OpenAI Codex CLI (`~/.codex/config.toml`), then `codex mcp login inkling`:
+
+```toml
+[mcp_servers.inkling]
+url = "https://notes.example.com/mcp"
+```
+
+Gemini CLI, then `/mcp auth inkling` in Gemini CLI:
+
+```bash
+gemini mcp add --transport http inkling https://notes.example.com/mcp
+```
+
+OpenCode, then `opencode mcp auth inkling`:
+
+```bash
+opencode mcp add inkling --url https://notes.example.com/mcp
+```
+
+Google Antigravity (`~/.gemini/config/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "serverUrl": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+Zed (settings file):
+
+```json
+{
+  "context_servers": {
+    "inkling": {
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
+
+Cline (`cline_mcp_settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "inkling": {
+      "type": "streamableHttp",
+      "url": "https://notes.example.com/mcp"
+    }
+  }
+}
+```
 
 ### Apps that cannot sign in: agent connection tokens
 

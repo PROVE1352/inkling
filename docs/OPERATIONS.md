@@ -23,6 +23,61 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Decide `BACKUP_PASSPHRASE` and store it outside the server; losing it makes encrypted sets unrecoverable.
 - [ ] Configure an off-site copy (`deploy/compose.backup-rclone.yaml`); local backup sets live on the same disk as the database.
 
+### Installing from a panel (Portainer, Coolify)
+
+[examples/compose.panel.yaml](../examples/compose.panel.yaml) is one compose file for panels that take a pasted
+compose file. It needs no checkout of the repository: the published image, Postgres 16, two volumes and health
+checks, with the memory limits of `compose.yaml` and core dumps turned off.
+
+1. Make two secrets with `openssl rand -hex 32`, one for `POSTGRES_PASSWORD` and one for `APP_SECRET_KEY`. Keep the
+   password to hex characters: it goes into a database URL. Keep a copy of `APP_SECRET_KEY` outside the server.
+2. Paste the file and set the variables. Required: `POSTGRES_PASSWORD`, `APP_SECRET_KEY` and `PUBLIC_URL` (the https
+   address people will open). Optional: `INKLING_VERSION` (e.g. `0.23.0`; empty = latest), `INKLING_PORT`, `TZ`,
+   `DEFAULT_LOCALE`, mail, and the memory variables of `compose.yaml`.
+   - Portainer: Stacks → Add stack → a name → Web editor, paste the file, enter the variables under Environment
+     variables (or Load variables from .env file), then Deploy the stack.
+   - Coolify: a new Docker Compose Empty resource, paste the file. Coolify lists every `${VAR}` of the file under
+     Environment Variables and does not deploy while a required one (`${VAR:?}`) is empty.
+3. HTTPS. Do not put the plain-HTTP port on the internet.
+   - Coolify: Domains → Add domain, choose the `app` service and give the domain with the container port, e.g.
+     `https://notes.example.com:3000`: the suffix tells Coolify's proxy which port inside the container receives the
+     requests (people still use the normal HTTPS port). The proxy reaches the container over the stack's own network,
+     and Coolify's documentation advises against `ports:` on a service behind a domain, so you can delete the two
+     `ports:` lines of `app`.
+   - Portainer has no proxy of its own. By default the app listens on `127.0.0.1:3000` of the host, which a proxy
+     running on the host (Caddy, nginx) can reach. A proxy in another container cannot: connect it to the stack's
+     network. Do not open the port on every interface instead (`INKLING_PORT=3000`) and count on the firewall:
+     Docker routes published ports around ufw rules
+     ([Docker, Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)).
+   - What Inkling needs from a proxy is in [deploy/Caddyfile](../deploy/Caddyfile): everything, the `/collab`
+     WebSocket included, goes to port 3000. With a checkout, the Caddy overlay does it for you
+     ([deploy/DEPLOY.md](../deploy/DEPLOY.md) "3-B").
+4. Open the app's log. It prints a one-time link `<PUBLIC_URL>/setup?code=…`; the account made there is the
+   administrator ([deploy/DEPLOY.md](../deploy/DEPLOY.md) "3-C"). Signup keys for other people are made in Admin.
+
+What this file leaves out, compared with `compose.yaml`:
+
+- The backup service. It runs the scripts in `deploy/backup`, which one file cannot carry, and Admin shows "Backup
+  service" in amber for that reason. Back up from the host yourself, for example from cron, with the container names
+  the panel shows, and copy the files off the server:
+
+  ```bash
+  docker exec <db container> pg_dump -Fc > inkling-db.dump
+  docker exec <app container> tar -czf - -C /data . > inkling-data.tar.gz
+  ```
+
+  These are the two payload files of a backup set ([BACKUP.md](BACKUP.md) "What a backup set contains"). Both
+  commands were run once on a test stack; restoring from them by hand was not tried and is not described here.
+- The database port on the host, source builds and the `deploy/*.sh` scripts.
+
+The volumes are named `<stack>_inkling-db` and `<stack>_inkling-data`, the names `compose.yaml` gives them with
+`INKLING_DATA_NAME=inkling` and the same project name. Checked on 2026-11-25 with image 0.23.0 and Docker Compose
+5.5 on an arm64 Mac: `config`, `up`, `/api/health`, `/api/version`, `/api/health/ready` and the setup link in the
+log. The file was not tried inside Portainer or Coolify themselves; the steps above follow their documentation
+([Portainer, Add a new stack](https://docs.portainer.io/user/docker/stacks/add),
+[Coolify, Docker Compose](https://coolify.io/docs/knowledge-base/docker/compose), both read on 2026-11-25). CasaOS
+also imports compose files, but how it handles a file with two services and variables was not checked.
+
 ### Resource limits
 
 - [ ] Host disk: keep at least 2x (database size + data volume) free; backups, the weekly restore test and uploads share it.
@@ -31,6 +86,30 @@ Companion to `deploy/DEPLOY.md` and `docs/BACKUP.md`. Design records: `docs/adr/
 - [ ] Base `compose.yaml` services share the `x-logging` anchor; overlay files (Caddy, rclone) cannot reuse it, so give their services their own `logging:` block.
 - [ ] Import limits: folder depth 32, pages created per import capped by `IMPORT_MAX_PAGES` (default 5000), zip entries measured by actual decompressed bytes. Size caps are env-configurable: `IMPORT_MAX_UPLOAD_MB` (25), `IMPORT_MAX_UNPACKED_MB` (50), `IMPORT_MAX_ENTRY_MB` (25), `IMPORT_MAX_FILES` (300). Raising them for Notion exports raises peak memory by about the upload size (twice for nested part archives); see docs/adr/0961-*.
 - [ ] Heavy-job cap (docs/adr/1240-*): imports (Markdown, zip, Notion, folder), zip exports and subtree duplicates take one of `HEAVY_JOBS_MAX` slots (default 2; set `1` on containers under 768 MB or when the `IMPORT_MAX_*` caps are raised). Others wait in a fair queue of `HEAVY_JOBS_QUEUE_MAX` (16) for at most `HEAVY_JOBS_WAIT_MS` (60000) and then get `503 HEAVY_JOBS_BUSY` with `Retry-After`; one person may have `HEAVY_JOBS_PER_USER` (2) running or waiting, one more gets `429 HEAVY_JOBS_PER_USER`. A zip export holds its slot until the download ends or the client disconnects. The limits are per process.
+
+### Measured resource use
+
+Measured on 2026-11-25 with `docker stats --no-stream` on one server: arm64 (aarch64), 4 cores, 24 GB of memory
+(an Oracle Cloud Ampere A1 instance), with two Inkling instances running side by side. One reading per container,
+taken while the instances were idle.
+
+| | Instance A | Instance B | Limit in `compose.yaml` |
+|---|---|---|---|
+| Data | 13 accounts, 485 pages, 7,351 index chunks, up for more than 10 days | 2 accounts, 12 pages | |
+| App container | about 127 MiB | about 120 MiB | `APP_MEM_LIMIT`, default 768m (V8 heap 512 MB through `NODE_OPTIONS`) |
+| Postgres 16 container | about 182 MiB | about 60 MiB | `PG_MEM_LIMIT`, default 512m |
+| Backup container | about 2 MiB | about 2 MiB | 256m |
+| Database volume | 352 MB | – | |
+| Data volume (uploads) | 92 MB | – | |
+
+- The app image built on that server was 582 MB. The size of the published image `ghcr.io/prove1352/inkling` was not
+  measured there.
+- Not measured: peaks while people edit, during an import, a zip export or the weekly restore test, or while an
+  agent rewrites a large page (section 17, "Memory of large pages"); other machines, such as amd64 servers, a
+  Raspberry Pi or a small VPS.
+- The limits are ceilings, not memory set aside, and the defaults add up to more than 1 GB. With the published image
+  the server builds nothing (README), so a source build's memory is not needed; how small a server the running app
+  fits on was not measured.
 
 ### Database timeouts
 

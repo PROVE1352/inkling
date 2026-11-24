@@ -184,3 +184,53 @@ date it was checked. Quote exact terms (prices, limits, contract wording) instea
 For Claude Code there is a skill with these habits and the reading and editing order above:
 [examples/claude-skill/inkling](../examples/claude-skill/inkling/SKILL.md). Copy the folder to
 `~/.claude/skills/inkling/` (all your projects) or `.claude/skills/inkling/` in a project.
+
+## Quick capture from a phone
+
+A one-line note from the phone goes to the end of a page you picked, such as an "Inbox" page, without opening the
+app. It is one REST call with a personal API token; no MCP client is involved.
+
+1. Make a page for the notes, for example "Inbox". Its id is the last part of its address:
+   `/w/<workspace id>/p/<page id>`.
+2. Settings › Connections → API tokens → **New token**: a name (e.g. "Phone capture"), Access **Read and write**,
+   What it can see **Only one page and the pages under it** with the page from step 1, and an expiry. Copy the
+   token; it is shown only once. With that range a lost phone reaches one page, not all your notes.
+3. Send a note:
+
+```bash
+curl -X POST "https://notes.example.com/api/pages/<page id>/content" \
+  -H "Authorization: Bearer ink_pat_…" \
+  -H "Content-Type: application/json" \
+  -d '{"markdown": "- buy milk", "mode": "append"}'
+```
+
+The answer is `{"ok":true}`. The text is Markdown: `- ` makes a list item, `- [ ] ` a task. Keep `mode` at
+`append`; `replace` replaces the whole page. Other answers: 401 for a wrong or expired token, 403 for a read-only
+token or a page outside the token's range, 400 for a page that is not a document, 429 after 30 calls in a minute.
+
+4. On the phone, send the same request:
+   - iPhone and iPad, Shortcuts: a **Get Contents of URL** action with the URL above. Under Show More, set Method to
+     POST, add the headers `Authorization` (`Bearer ink_pat_…`) and `Content-Type` (`application/json`), and set
+     Request Body to JSON with two text fields: `markdown` (for example the result of an "Ask for Input" action) and
+     `mode` with the value `append`. Apple describes the method and the JSON body in
+     [Request your first API in Shortcuts](https://support.apple.com/guide/shortcuts/request-your-first-api-apd58d46713f/ios);
+     the Headers field is in the same action but not on that page.
+   - Android: any automation app that can send an HTTP request with headers and a JSON body, with the same method,
+     URL, two headers and body. The steps differ per app and were not checked.
+
+The `curl` calls on this page were run against a local 0.23.0 server on 2026-11-25, with a token limited to one
+page; the phone steps were not tried on a phone.
+
+**When the page grows.** This call always appends to the page itself. The page's **New entries** setting (one
+subpage per month, or a new one past a size; [GUIDE.md](GUIDE.md#long-pages-split-into-subpages)) is applied by
+the MCP tool `update_page`, not by this route. To follow it, ask where the note should go first and send it there:
+
+```bash
+curl -X POST "https://notes.example.com/api/pages/<page id>/rotation/target" -H "Authorization: Bearer ink_pat_…"
+# {"pageId":"…","title":"2026-11","rotated":true,"created":true,"mode":"month"} → POST the note to that pageId
+```
+
+The subpage is made under your page, so a token limited to the page reaches it. With New entries off, that call
+answers with the page itself and, once the page passes 1 MiB of stored state or 50k tokens, sends its owner the
+one-time "large page" notice; the single call above does not. A page that large is slow to open, save and search:
+split it at its headings (⋯ → **Split into subpages…**) or turn on New entries.

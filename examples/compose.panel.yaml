@@ -1,0 +1,134 @@
+# Inkling in one file, for Portainer, Coolify and other panels that take a pasted compose file
+# (docs/OPERATIONS.md "Installing from a panel"). No checkout of the repository is needed: the app is the
+# prebuilt image ghcr.io/prove1352/inkling (amd64 and arm64) and the database is postgres:16-alpine.
+#
+# Set these in the panel's environment variables (or in a .env file next to this one):
+#
+#   POSTGRES_PASSWORD  required. Make it with `openssl rand -hex 32`. Hex only: it goes into a database URL,
+#                      where characters such as / + = @ would break it.
+#   APP_SECRET_KEY     required, at least 32 characters: `openssl rand -hex 32` again (a different value).
+#                      Encrypts two-step verification secrets and copied links. Keep a copy outside the server;
+#                      changing it later makes existing two-step setups unreadable.
+#   PUBLIC_URL         required. The address people open, e.g. https://notes.example.com. Mail links, the
+#                      OAuth issuer for MCP clients and the first-admin setup link are made from it, and
+#                      browsers on any other address can read but not write.
+#   INKLING_VERSION    optional, a release such as 0.23.0 (or 0.23). Empty = latest.
+#   INKLING_PORT       optional, where the app listens on the host. Default 127.0.0.1:3000: only this machine
+#                      (a proxy on the host) can reach it. Set e.g. 3000 to open it on every interface, but
+#                      only behind HTTPS; never expose plain HTTP to the internet, and note that ports Docker
+#                      publishes bypass ufw rules. A panel whose proxy joins the stack's network (Coolify)
+#                      reaches the container directly; the ports lines can go.
+#   TZ, DEFAULT_LOCALE optional, e.g. Asia/Seoul and ko (defaults UTC and en).
+#
+# First start: the app log prints a one-time link `<PUBLIC_URL>/setup?code=…`; open it and create the first
+# account (it becomes the administrator).
+#
+# Not in this file, compared with compose.yaml in the repository:
+#   - the backup service. It runs scripts from deploy/backup in the repository, so it cannot work from one file.
+#     Back up the database and the data volume yourself (commands in docs/OPERATIONS.md, "Installing from a
+#     panel"). Admin shows "Backup service" in amber for this reason.
+#   - the database port on the host (127.0.0.1:55432). Nothing outside the stack needs it;
+#     `docker exec -it <db container> psql` still works.
+#   - building from source, and the deploy/*.sh helper scripts.
+# Every other server variable (.env.example in the repository) can be added under app.environment the same way.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    # Same memory settings as compose.yaml (small on purpose; docs/OPERATIONS.md "PostgreSQL tuning").
+    mem_limit: ${PG_MEM_LIMIT:-512m}
+    shm_size: ${PG_SHM_SIZE:-128m}
+    # No core dumps: with a piped core_pattern on the host, a crash would hand the process memory to the host.
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-128MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-384MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-100}
+      - -c
+      - track_io_timing=on
+    environment:
+      POSTGRES_USER: inkling
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (openssl rand -hex 32)}
+      POSTGRES_DB: inkling
+      PGUSER: inkling
+      PGDATABASE: inkling
+    volumes:
+      - inkling-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  app:
+    image: ghcr.io/prove1352/inkling:${INKLING_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${APP_MEM_LIMIT:-768m}
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+    # On SIGTERM the server saves open documents first (up to ~25 s).
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+    # PORT, DATA_DIR, WEB_DIST and DRIZZLE_DIR are set by the image; do not pass them here.
+    environment:
+      DATABASE_URL: postgres://inkling:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (openssl rand -hex 32)}@db:5432/inkling
+      NODE_ENV: production
+      # V8 heap about 65% of APP_MEM_LIMIT.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=512}
+      PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL to the address people open, e.g. https://notes.example.com}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY (openssl rand -hex 32)}
+      # Secure cookies are on automatically when PUBLIC_URL starts with https://.
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+      TZ: ${TZ:-UTC}
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-}
+      # Empty = sign-up needs a key (production). Proxies on the Docker network are trusted by default.
+      SIGNUP_REQUIRE_KEY: ${SIGNUP_REQUIRE_KEY:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      # Outgoing mail (optional).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    ports:
+      - "${INKLING_PORT:-127.0.0.1:3000}:3000"
+    volumes:
+      - inkling-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+# Named like compose.yaml's volumes for INKLING_DATA_NAME=inkling (<project>_inkling-db, <project>_inkling-data).
+volumes:
+  inkling-db:
+  inkling-data:

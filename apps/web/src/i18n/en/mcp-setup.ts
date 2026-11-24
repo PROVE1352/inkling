@@ -47,6 +47,7 @@ export default {
   'mcpSetup.tryAsking': 'Then try asking: “List what is left to do on the sample page.”',
   'mcpSetup.verifyOauth': 'Once it is connected, the app shows up under "{apps}" below.',
   'mcpSetup.verifyToken': 'With a token, the token\'s last-used time under "{tokens}" below changes once the agent connects.',
+  'mcpSetup.connected': 'Your agent is connected. Try asking: “List what is left to do on the sample page.”',
   'mcpSetup.otherOptions': 'Other options (tools, sign-in)',
 
   // Agent connection tokens (docs/adr/2060-*) and suggest-only connections in the lists (docs/adr/2042-*)

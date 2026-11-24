@@ -1743,11 +1743,14 @@ session only: bearer tokens get 403.
 
 | Method | Path | Body | Answer | Notes |
 | --- | --- | --- | --- | --- |
-| GET | `/api/me/onboarding` | — | `OnboardingDTO` `{ enabled, audience: owner\|member\|guest, intro, checklist: { show, collapsed, dismissed, complete, items: [{ id, done }] }, samples: { [workspaceId]: pageId } }` | The first call makes the person's row; for the first admin of a new server it also makes the sample page. 120/min |
-| PATCH | `/api/me/onboarding` | any of `{ introSeen: true, collapsed, dismissed, event: slash\|link\|ai\|explore\|install }` (strict) | `OnboardingDTO` | 400 on an empty or unknown field. 60/min |
+| GET | `/api/me/onboarding` | — | `OnboardingDTO` `{ enabled, audience: owner\|member\|guest, intro, checklist: { show, collapsed, dismissed, complete, items: [{ id, done }] }, samples: { [workspaceId]: pageId }, agentConnected }` | The first call makes the person's row; for a new account it also makes the sample page in the workspace it got with its sign-up (since 0.24; before, only the first admin of a new server). 120/min |
+| PATCH | `/api/me/onboarding` | any of `{ introSeen: true, collapsed, dismissed, event: slash\|link\|explore\|install }` (strict; `ai` is refused since 0.24) | `OnboardingDTO` | 400 on an empty or unknown field. 60/min |
 | POST | `/api/me/onboarding/sample` | `{ workspaceId }` | `{ pageId, workspaceId, created }` | Members (not guests) of the workspace; private pages; returns the live sample when there is one (`created: false`); 409 `SAMPLE_IN_PROGRESS` while one is being made; 404 `ONBOARDING_OFF`. 10/min |
 
 - `ONBOARDING=off`: GET and PATCH answer `enabled: false` and change nothing visible; POST is 404 `ONBOARDING_OFF`.
+- `agentConnected` (0.24, docs/adr/2390-*): an agent of the person's made its first authenticated `/mcp` request (an
+  OAuth grant or an agent connection token), or a grant of theirs was used before 0.24. Sticky; it also ticks the
+  `ai` item, which a copied address or a token that only exists no longer does. `false` while onboarding is off.
 - `POST /api/pages/from-template` (and so `create_from_template`): a page embed in a template document that names a
   page of the same template now points at the new copy of that page (docs/adr/2381-*).
 

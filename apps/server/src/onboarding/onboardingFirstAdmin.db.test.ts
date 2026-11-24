@@ -1,6 +1,7 @@
 // Onboarding on a new server (docs/adr/2380-*, 2381-*): the first admin, made through the /setup link,
 // gets the sample page in their first workspace once, in their language; deleting it does not bring
-// it back; a second account made with a signup key and added to that workspace gets nothing by itself.
+// it back; a second account made with a signup key and added to that workspace gets its own sample in
+// its own sign-up workspace only (docs/adr/2390-*), none in the first admin's.
 //
 // The shared test database always has users, so like firstAdminSetup.db.test.ts this file makes its own
 // scratch database, points DATABASE_URL at it before the lazy `../db` import, migrates it and drops it.
@@ -121,19 +122,22 @@ describe('[db] onboarding on a new server', { skip: !BASE_URL }, async () => {
     assert.equal((await pagesBy(first.id)).filter((p) => p.parentId === null).length, 0)
   })
 
-  it('a second account (signup key) that joined the workspace gets no sample by itself, and the member list', async () => {
+  it('a second account (signup key) that joined the workspace gets the sample in its own sign-up workspace only, and the member list', async () => {
     const key = `ONB-${randomBytes(6).toString('hex').toUpperCase()}`
     await db.insert(schema.signupKeys).values({ key: hashSignupKey(key), note: 'test', maxUses: 1 })
     const second = await register({ signupKey: key }, 'en-US')
+    const ownWs = (await db.select().from(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, second.id)))[0].workspaceId
     // joined the first admin's workspace (what /join/:code does: a member row)
     await db.insert(schema.workspaceMembers).values({ workspaceId: firstWs, userId: second.id, role: 'member' })
     const d = await onboarding(second.cookie)
     assert.equal(d.audience, 'member')
     assert.equal(d.intro, true, 'a new account sees the intro')
-    assert.deepEqual(d.samples, {})
-    assert.equal((await pagesBy(second.id)).length, 0)
+    // since 0.24 every sign-up gets one, in the workspace it signed up with (docs/adr/2390-*)
+    assert.deepEqual(Object.keys(d.samples), [ownWs])
+    const mine = await pagesBy(second.id)
+    assert.ok(mine.length > 0 && mine.every((p) => p.workspaceId === ownWs), 'nothing in the first admin’s workspace')
     const state = (await db.select().from(schema.userOnboarding).where(eq(schema.userOnboarding.userId, second.id)))[0].state as { autoSample?: string }
-    assert.equal(state.autoSample, 'none')
+    assert.equal(state.autoSample, 'created')
     // by button: in their private pages of the team workspace
     const r = await app.inject({ method: 'POST', url: '/api/me/onboarding/sample', headers: { cookie: second.cookie }, payload: { workspaceId: firstWs } })
     assert.equal(r.statusCode, 200, r.body)

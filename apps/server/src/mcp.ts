@@ -63,6 +63,7 @@ import { agentProperties, pageVersion } from './context/pageVersion'
 import { verificationFactsFor, verificationLine } from './verification'
 import { memberStatuses, mentionStatusLine, mentionStatusLineForPage, statusPhrase } from './memberStatus'
 import { archivedNote } from './workspaceListing'
+import { noteAgentConnected } from './onboarding/agent'
 
 /**
  * Inkling remote MCP server (Streamable HTTP, stateless: a new server/transport per request).
@@ -1011,6 +1012,7 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
     // /mcp?profile=core|full (docs/adr/2000-*): no query = full, as before 0.16
     const profile = parseProfile(req.query)
     if (!profile) return reply.code(400).send(PROFILE_ERROR)
+    await noteAgentConnected(user.id) // onboarding: the agent's first request, once (docs/adr/2390-*)
 
     const server = buildMcpServer({ app: rootApp, token, ip: req.ip, user, origin, canWrite: canWriteFromScopes(user.scope), profile })
     const transport = new StreamableHTTPServerTransport({

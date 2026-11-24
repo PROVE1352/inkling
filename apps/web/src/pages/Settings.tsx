@@ -57,7 +57,6 @@ import { Group, Row, Select, SettingsFlat, Toggle } from '../components/Settings
 import { OfflineSettings } from '../lib/offline/OfflineSettings'
 import { StatusRow } from '../components/MemberStatus'
 import { DeleteAccount } from '../components/account/DeleteAccount'
-import { noteOnboarding } from '../onboarding/api'
 import { OnboardingSettings } from '../onboarding/OnboardingSettings'
 
 // Settings (/w/:wsId/settings): Obsidian-style, a list of sections on the left and the chosen section on
@@ -512,7 +511,6 @@ function ConnectionsSection() {
     try {
       await navigator.clipboard.writeText(mcpUrl)
       setCopied(true)
-      noteOnboarding('ai')
       window.setTimeout(() => setCopied(false), 1500)
     } catch {
       // No permission: the address is selectable text.

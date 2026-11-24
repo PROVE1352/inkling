@@ -60,7 +60,7 @@ describe('[db] onboarding', { skip: !HAS_DB }, async () => {
     assert.equal(d.checklist.show, true)
     assert.deepEqual(d.checklist.items.map((i) => i.id), ['page', 'slash', 'link', 'database', 'share', 'ai', 'install'])
     assert.deepEqual(done(d), [])
-    assert.deepEqual(d.samples, {}, 'not the first admin of the server: no sample by itself')
+    assert.deepEqual(d.samples, {}, 'no workspace from a sign-up (made by hand): no sample by itself (sign-ups: onboardingSignup.db.test.ts)')
     assert.equal((await stored(u))?.autoSample, 'none')
     // Still on until it is closed; closed once = closed on every device.
     assert.equal((await get(u)).intro, true)
@@ -117,8 +117,12 @@ describe('[db] onboarding', { skip: !HAS_DB }, async () => {
     assert.ok(share.statusCode < 300, share.body)
     assert.ok(done(await get(u)).includes('share'))
 
-    // an agent connection
+    // an agent connection: a grant (or a token) that exists ticks nothing; the agent's first request
+    // does (docs/adr/2390-*; the /mcp side is in agentConnected.db.test.ts)
     await h.mintToken(u)
+    assert.ok(!done(await get(u)).includes('ai'), 'a grant alone is not a connection')
+    assert.equal((await call(u, 'PATCH', '/api/me/onboarding', { event: 'ai' })).statusCode, 400, 'copying the address is no event any more')
+    await (await import('./agent')).noteAgentConnected(u.id)
     assert.ok(done(await get(u)).includes('ai'))
 
     // browser-only events

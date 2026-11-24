@@ -8,6 +8,8 @@ export type ToastInput = {
   actionLabel?: string
   onAction?: () => void
   duration?: number
+  /** Wrap the message (up to four lines) instead of cutting it to one; for a sentence that must be read whole. */
+  wrap?: boolean
 }
 
 export type ToastItem = ToastInput & { id: number; leaving?: boolean }

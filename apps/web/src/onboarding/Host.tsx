@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
-import { useLocation } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { useWorkspaces } from '../api'
+import { useT } from '../i18n'
+import { toast } from '../lib/toast'
+import { markAgentNoticeShown, useAgentNotice } from './agentNotice'
 import { isStandalone } from '../lib/platform'
 import { isOfflineEnabled } from '../lib/offline/runtime'
 import { INTRO_EVENT, noteOnboarding, useOnboarding, useUpdateOnboarding } from './api'
@@ -103,6 +106,23 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
   useEffect(() => {
     if (dto && (isStandalone() || isOfflineEnabled())) noteOnboarding('install')
   }, [dto, pathname])
+
+  // The person's agent connected while the app was open (docs/adr/2390-*): say so once, with what to
+  // ask it, and a way to the team agents board.
+  const t = useT()
+  const navigate = useNavigate()
+  const agentNotice = useAgentNotice()
+  useEffect(() => {
+    if (!agentNotice.due || agentNotice.shown || !wsId) return
+    markAgentNoticeShown()
+    toast({
+      message: t('mcpSetup.connected'),
+      actionLabel: t('teamAgents.open'),
+      onAction: () => navigate(`/w/${wsId}/team-agents`),
+      duration: 12_000,
+      wrap: true,
+    })
+  }, [agentNotice, wsId, t, navigate])
 
   if (!Intro) return null
   return (

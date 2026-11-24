@@ -10,8 +10,9 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { SIDEBAR_MENU_DEFAULT_HIDDEN, SIDEBAR_MENU_IDS } from '@inkling/shared'
+import { SIDEBAR_MENU_IDS } from '@inkling/shared'
 import { useSaveSidebarPrefs, useSidebarPrefs } from '../sidebarApi'
+import { useSidebarDefaultHidden } from '../onboarding/api'
 import { moveEntry, resolveSidebarMenu, setEntryHidden, toSidebarPrefs, type SidebarEntry } from '../lib/sidebarMenu'
 import { useT } from '../i18n'
 import { ChevronDownIcon, GripIcon } from './Icons'
@@ -26,14 +27,15 @@ export function SidebarSettings() {
   const t = useT()
   const prefs = useSidebarPrefs()
   const save = useSaveSidebarPrefs()
-  const entries = resolveSidebarMenu(prefs, SIDEBAR_MENU_IDS, SIDEBAR_MENU_DEFAULT_HIDDEN).filter((e) => isSidebarMenuId(e.id))
+  const defaultHidden = useSidebarDefaultHidden() // the sidebar's own default (docs/adr/2390-*)
+  const entries = resolveSidebarMenu(prefs, SIDEBAR_MENU_IDS, defaultHidden).filter((e) => isSidebarMenuId(e.id))
   const isDefault = prefs.order.length === 0 && prefs.hidden.length === 0
   const allHidden = entries.every((e) => e.hidden)
   const [live, setLive] = useState('')
   const sectionRef = useRef<HTMLDivElement>(null)
   const pendingFocus = useRef<string | null>(null)
 
-  const commit = (next: SidebarEntry[]) => save.mutate(toSidebarPrefs(next, SIDEBAR_MENU_IDS, prefs, SIDEBAR_MENU_DEFAULT_HIDDEN))
+  const commit = (next: SidebarEntry[]) => save.mutate(toSidebarPrefs(next, SIDEBAR_MENU_IDS, prefs, defaultHidden))
   const name = (id: string) => (isSidebarMenuId(id) ? t(SIDEBAR_MENU_META[id].label) : id)
 
   const move = (from: number, to: number, focusId?: string) => {

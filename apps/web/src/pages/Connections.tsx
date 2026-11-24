@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import {
   AGENT_TOKEN_DEFAULT_EXPIRY_DAYS,
@@ -8,7 +8,7 @@ import {
   API_TOKEN_NAME_MAX,
 } from '@inkling/shared'
 import type { AccessRange, AgentTokenDTO, AgentTokenExpiryDays, ApiTokenDTO, SuggestOnlyDTO } from '@inkling/shared'
-import { ApiError, useOAuthGrants, useRevokeOAuthGrant } from '../api'
+import { ApiError, useOAuthGrants, useRevokeOAuthGrant, useWorkspaces } from '../api'
 import type { OAuthGrantDTO } from '../api'
 import { useApiTokens, useCreateApiToken, useRevokeApiToken, useUpdateApiToken, useUpdateGrantRange } from '../apiTokens'
 import {
@@ -22,7 +22,19 @@ import { RangeBadge, RangePicker, rangeFromView } from '../components/RangePicke
 import { Spinner } from '../components/Spinner'
 import { McpSetup } from '../components/McpSetup'
 import { fmtDate, fmtRelative, useT } from '../i18n'
-import { noteOnboarding, useOnboarding } from '../onboarding/api'
+import { useOnboarding } from '../onboarding/api'
+import { markAgentNoticeShown, useAgentNotice } from '../onboarding/agentNotice'
+
+/** The workspace the app opened last (as '/' does), else the first one: where the team agents link goes. */
+function lastWorkspaceId(ids: readonly string[]): string | null {
+  let last: string | null = null
+  try {
+    last = localStorage.getItem('inkling:lastWs')
+  } catch {
+    last = null
+  }
+  return last && ids.includes(last) ? last : (ids[0] ?? null)
+}
 
 /**
  * Connections (/settings/connections): connection settings for AI apps (docs/adr/2020-*), agent connection tokens for
@@ -38,9 +50,16 @@ export function Connections() {
   // connection settings while it is shown. React state only, never storage or the URL (docs/adr/2020-*, 2063-*).
   // A personal API token is never handed to the generator: it would be refused at /mcp (docs/adr/1201-*).
   const [agentSecret, setAgentSecret] = useState<string | null>(null)
-  // Copying the address or the command here ticks the getting-started "AI agent" item, as the copy button in
-  // Settings does (the item's buttons now come straight here). Read here too so a direct load knows the card.
-  useOnboarding()
+  // The getting-started "AI agent" item ticks when the agent's first request arrives, not on a copy
+  // (docs/adr/2390-*). While this screen is open and no agent has connected yet, the onboarding answer is
+  // asked again every few seconds, so "connected" shows here soon after (this screen has no toasts).
+  useOnboarding({ waitForAgent: true })
+  const agentNotice = useAgentNotice()
+  const workspaces = useWorkspaces()
+  useEffect(() => {
+    if (agentNotice.due) markAgentNoticeShown()
+  }, [agentNotice])
+  const boardWs = lastWorkspaceId(workspaces.data?.map((w) => w.id) ?? [])
 
   return (
     <div className="min-h-full bg-app px-4 py-12">
@@ -52,7 +71,22 @@ export function Connections() {
           </Link>
         </div>
 
-        <McpSetup origin={window.location.origin} secret={agentSecret} onCopied={() => noteOnboarding('ai')} />
+        <McpSetup
+          origin={window.location.origin}
+          secret={agentSecret}
+          connected={
+            agentNotice.due ? (
+              <>
+                {t('mcpSetup.connected')}{' '}
+                {boardWs && (
+                  <Link to={`/w/${boardWs}/team-agents`} className="text-accent hover:underline" data-testid="mcp-connected-board">
+                    {t('teamAgents.open')} →
+                  </Link>
+                )}
+              </>
+            ) : null
+          }
+        />
 
         <AgentTokensSection secret={agentSecret} setSecret={setAgentSecret} />
 

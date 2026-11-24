@@ -3,7 +3,7 @@
 // "What an agent reads" helpers (docs/adr/2389-*).
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { INTRO_ANCHOR, contextSummary, outlineRows, sampleQuestion, shortAnchors } from './agentView'
+import { INTRO_ANCHOR, LEFT_OUT_SHOWN, anyCut, contextSummary, leftOut, outlineRows, sampleQuestion, shortAnchors, stopReason } from './agentView'
 
 const sec = (anchor: string, tokens: number, version = 'v1', level = 2) => ({
   anchor,
@@ -141,5 +141,59 @@ describe('agentView sampleQuestion', () => {
 
   it('fits the server limit for one query', () => {
     for (const l of ['en', 'ko']) assert.ok(sampleQuestion(l).length <= 300)
+  })
+})
+
+describe('agentView why find_context stopped', () => {
+  const page = 'p-1'
+  const frag = (over = {}) => ({ pageId: page, title: 'T', anchor: 'a', sections: [{ anchor: 'a', short: 'a' }], tokens: 50, ...over })
+  const more = (n, pageId = 'p-2') =>
+    Array.from({ length: n }, (_, i) => ({ pageId: i === 0 ? page : pageId, title: `M${i}`, anchor: `guide/part-${i}`, tokens: 900 + i }))
+
+  it('more left out → stopped at the budget, with how many', () => {
+    assert.deepEqual(stopReason({ fragments: [frag()], more: more(3), budget: 3500, usedTokens: 3400 }), { kind: 'budget', count: 3, atLeast: false })
+    // the server lists five at most: a full list may stand for more
+    assert.deepEqual(stopReason({ fragments: [frag()], more: more(5), budget: 3500, usedTokens: 3400 }), { kind: 'budget', count: 5, atLeast: true })
+  })
+
+  it('results and nothing left out → everything that matched came back', () => {
+    assert.deepEqual(stopReason({ fragments: [frag()], more: [], budget: 3500, usedTokens: 50 }), { kind: 'matched' })
+    assert.deepEqual(stopReason({ fragments: [frag()], budget: 3500, usedTokens: 50 }), { kind: 'matched' })
+  })
+
+  it('nothing left out but a section cut to fit → the budget was the limit (cut), not "nothing else matched"', () => {
+    assert.deepEqual(stopReason({ fragments: [frag({ truncated: true, fullTokens: 6000 })], more: [], budget: 3500, usedTokens: 3500 }), { kind: 'cut' })
+  })
+
+  it('no results → none', () => {
+    assert.deepEqual(stopReason({ fragments: [], more: [], budget: 3500, usedTokens: 0 }), { kind: 'none' })
+  })
+
+  it('a cut section carries its uncut size, or null when the server did not give one', () => {
+    const s = contextSummary({ fragments: [frag({ truncated: true, tokens: 3500, fullTokens: 8200 }), frag({ anchor: 'b', truncated: true }), frag({ anchor: 'c' })], budget: 3500, usedTokens: 3500 }, page)
+    assert.deepEqual(s.rows.map((r) => r.cut), [{ full: 8200, merged: false }, { full: null, merged: false }, undefined])
+    // a merged fragment: the size given is the cut (last) section's, not the fragment's
+    const m = contextSummary({ fragments: [frag({ sections: [{ anchor: 'a' }, { anchor: 'b' }], tokens: 879, truncated: true, fullTokens: 469 })], budget: 3500, usedTokens: 879 }, page)
+    assert.deepEqual(m.rows[0].cut, { full: 469, merged: true })
+    assert.equal(anyCut(s), true)
+    assert.equal(anyCut(contextSummary({ fragments: [frag()], budget: 3500, usedTokens: 50 }, page)), false)
+  })
+
+  it('the left-out list shows five, folds the rest, marks this page and uses short labels', () => {
+    const r = { fragments: [frag()], more: more(7), budget: 3500, usedTokens: 3400 }
+    const first = leftOut(r, page)
+    assert.equal(LEFT_OUT_SHOWN, 5)
+    assert.equal(first.rows.length, 5)
+    assert.equal(first.hidden, 2)
+    assert.equal(first.rows[0].onThisPage, true)
+    assert.equal(first.rows[1].onThisPage, false)
+    // no short from the server: the shortest unique suffix among that page's anchors
+    assert.equal(first.rows[1].short, 'part-1')
+    assert.equal(first.rows[1].tokens, 901)
+    const all = leftOut(r, page, true)
+    assert.equal(all.rows.length, 7)
+    assert.equal(all.hidden, 0)
+    // the server's short label wins
+    assert.equal(leftOut({ ...r, more: [{ ...r.more[0], short: 'srv' }] }, page).rows[0].short, 'srv')
   })
 })

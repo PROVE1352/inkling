@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useAgentContext, useAgentOutline, useAgentSection } from '../agentViewApi'
-import { INTRO_ANCHOR, contextSummary, outlineRows, sampleQuestion, shortAnchors, type OutlineRow } from '../lib/agentView'
+import { useAgentContext, useAgentOutline, useAgentSection, type AgentContextResult } from '../agentViewApi'
+import { INTRO_ANCHOR, anyCut, contextSummary, leftOut, outlineRows, sampleQuestion, shortAnchors, stopReason, type OutlineRow } from '../lib/agentView'
 import { useOnboarding } from '../onboarding/api'
 import { fmtNumber, t, useLocale, useT, type Locale, type TKey, type TParams } from '../i18n'
 import { Modal } from './Modal'
@@ -177,16 +177,67 @@ function Question({
                       {r.anchors.length > 1 ? ` +${r.anchors.length - 1}` : ''}
                     </span>
                     <span className="text-xs tabular-nums">{t('agentView.tokens', { tokens: r.tokens })}</span>
+                    {r.cut && (
+                      <span className="text-xs tabular-nums text-sub" data-testid="agent-view-cut">
+                        ·{' '}
+                        {!r.cut.full
+                          ? t('agentView.cutShort')
+                          : r.cut.merged
+                            ? t('agentView.cutLast', { full: r.cut.full })
+                            : t('agentView.cutTo', { tokens: r.tokens, full: r.cut.full })}
+                      </span>
+                    )}
                     {r.onThisPage && <span className="text-xs text-sub">· {t('agentView.thisPage')}</span>}
                   </li>
                 ))}
               </ul>
-              {!!ctx.data?.more.length && <p className="text-xs text-sub">{t('agentView.more', { count: ctx.data.more.length })}</p>}
+              {ctx.data && <StopReasonView result={ctx.data} pageId={pageId} cut={anyCut(summary)} />}
             </>
           )}
         </div>
       )}
     </section>
+  )
+}
+
+/** Why find_context stopped where it did, the sections that did not fit, and the hint when one was cut. */
+function StopReasonView({ result, pageId, cut }: { result: AgentContextResult; pageId: string; cut: boolean }) {
+  const t = useT()
+  const [all, setAll] = useState(false)
+  const why = stopReason(result)
+  const left = why.kind === 'budget' ? leftOut(result, pageId, all) : null
+  return (
+    <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-sub" data-testid="agent-view-stop" data-stop={why.kind}>
+      <p>
+        {why.kind === 'budget'
+          ? t(why.atLeast ? 'agentView.stopBudgetAtLeast' : 'agentView.stopBudget', { count: why.count })
+          : why.kind === 'cut'
+            ? t('agentView.stopCut')
+            : t('agentView.stopMatched')}
+      </p>
+      {left && (
+        <ul className="flex min-w-0 flex-col" data-testid="agent-view-left-out">
+          {left.rows.map((r, i) => (
+            <li key={`${r.pageId}:${r.anchor}:${i}`} className="flex min-w-0 flex-wrap items-baseline gap-x-2 py-0.5">
+              <span className="min-w-0 max-w-full truncate">{r.title || t('common.untitled')}</span>
+              <span className="min-w-0 max-w-full truncate font-mono" title={r.anchor}>
+                §{r.short}
+              </span>
+              <span className="tabular-nums">{t('agentView.tokens', { tokens: r.tokens })}</span>
+              {r.onThisPage && <span>· {t('agentView.thisPage')}</span>}
+            </li>
+          ))}
+          {left.hidden > 0 && (
+            <li>
+              <button type="button" onClick={() => setAll(true)} className="rounded px-1.5 py-0.5 text-accent hover:bg-hover">
+                {t('agentView.leftOutMore', { count: left.hidden })}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+      {cut && <p>{t('agentView.cutHint')}</p>}
+    </div>
   )
 }
 

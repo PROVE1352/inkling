@@ -14,6 +14,7 @@ import { hasRequestGates, runRequestGates } from './requestGates'
 import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFailure } from './agentTokens'
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
+import { SERVER_VERSION } from './version'
 import { agentUploadEnv } from './agentUploads'
 import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
@@ -346,7 +347,7 @@ async function assertReplaceBase(ctx: ToolCtx, pageId: string, baseVersion: stri
 
 export function buildMcpServer(ctx: ToolCtx): McpServer {
   const server = new McpServer(
-    { name: 'inkling', version: '1.0.0' },
+    { name: 'inkling', version: SERVER_VERSION },
     {
       // read-only (docs/adr/0935-*) and range-limited (docs/adr/1200-*) connections are told so
       instructions: [

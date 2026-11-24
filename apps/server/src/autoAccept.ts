@@ -14,6 +14,7 @@ import { env } from './env'
 import { notify } from './notify/engine'
 import { findLivePage } from './pageDto'
 import { dropSuggestionBases } from './suggestionMerge'
+import { suggestionsChanged } from './suggestionNotice'
 
 /**
  * Agent edit policy and auto-accept rules (docs/adr/1544-*, 1545-*).
@@ -210,6 +211,7 @@ export async function applyByRule(row: ApplyRow, currentAnchor: string, label: s
     })
     if (result.ok) {
       await dropSuggestionBases(db, [row.id])
+      suggestionsChanged(row.pageId)
       return result
     }
     reason = result.reason
@@ -220,6 +222,7 @@ export async function applyByRule(row: ApplyRow, currentAnchor: string, label: s
     UPDATE section_suggestions SET status = 'open', decided_by = NULL, decided_at = NULL, rule = NULL, review_reason = ${reason}
      WHERE id = ${row.id} AND status = 'accepted'
   `)
+  suggestionsChanged(row.pageId)
   return { ok: false, reason }
 }
 
@@ -249,6 +252,7 @@ export async function runAutoAccepts(limit = 20): Promise<number> {
     if (!row || row.status !== 'open') continue
     const hold = async (reason: string) => {
       await db.execute(sql`UPDATE section_suggestions SET review_reason = ${reason}, rule = NULL WHERE id = ${id} AND status = 'open'`)
+      suggestionsChanged(row.pageId)
     }
     const policy = await effectivePolicy({ id: row.pageId, workspaceId: row.workspaceId })
     if (policy.level !== 'auto' || policy.label !== row.rule) {

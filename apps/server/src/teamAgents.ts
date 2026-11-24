@@ -23,6 +23,7 @@ import type { Exec } from './outbox'
 import { AppError } from './errors'
 import { pageInRangeSql } from './tokenRange'
 import { agentViaSql } from './agentVia'
+import { EXAMPLE_CONNECTION } from './suggestions'
 
 /**
  * Team agents (docs/adr/1860-* .. 1866-*).
@@ -266,12 +267,12 @@ export async function readTeamAgents(workspaceId: string, viewerId: string, sinc
       FROM section_suggestions s
       LEFT JOIN pages p ON p.id = s.page_id
       LEFT JOIN api_tokens t ON s.connection = 'token:' || t.id::text
-     WHERE s.workspace_id = ${workspaceId} AND s.status = 'open'
+     WHERE s.workspace_id = ${workspaceId} AND s.status = 'open' AND s.connection <> ${EXAMPLE_CONNECTION}
      ORDER BY s.created_at DESC, s.id
      LIMIT ${MAX_SUGGESTIONS}
   `)) as unknown as { id: string; pageId: string; anchor: string; userId: string; mode: string; client: string; createdAt: Date | string; title: string | null; visible: boolean }[]
   const [{ n: openTotal }] = (await db.execute(sql`
-    SELECT count(*)::int AS n FROM section_suggestions WHERE workspace_id = ${workspaceId} AND status = 'open'
+    SELECT count(*)::int AS n FROM section_suggestions WHERE workspace_id = ${workspaceId} AND status = 'open' AND connection <> ${EXAMPLE_CONNECTION}
   `)) as unknown as { n: number }[]
 
   const activity = (await db.execute(sql`
@@ -304,7 +305,7 @@ export async function readTeamAgents(workspaceId: string, viewerId: string, sinc
     SELECT s.author_id AS "userId", coalesce(s.via, t.name, '') AS client, count(*)::int AS n, max(s.created_at) AS "lastAt"
       FROM section_suggestions s
       LEFT JOIN api_tokens t ON s.connection = 'token:' || t.id::text
-     WHERE s.workspace_id = ${workspaceId} AND s.created_at >= ${sinceSql} AND s.connection <> ''
+     WHERE s.workspace_id = ${workspaceId} AND s.created_at >= ${sinceSql} AND s.connection <> '' AND s.connection <> ${EXAMPLE_CONNECTION}
      GROUP BY 1, 2
   `)) as unknown as { userId: string; client: string; n: number; lastAt: Date | string }[]
 

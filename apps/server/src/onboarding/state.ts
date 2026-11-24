@@ -20,6 +20,7 @@ import { compileSpec } from '../templates/builtins'
 import { instantiateTree } from '../templates/structure'
 import { wallClock } from '../templates/variables'
 import { sampleSpec, sampleTitle } from './sample'
+import { seedSampleSuggestions } from './exampleSuggestions'
 
 /**
  * Onboarding state per person (docs/adr/2380-*).
@@ -350,6 +351,13 @@ async function makeSample(args: {
   const ids = result.pages.map((p) => p.id)
   const record: SampleRecord = { root: ids[0], ids, at: new Date().toISOString(), ...(args.auto ? { auto: true } : {}) }
   await updateState(args.userId, (s) => ({ ...s, samples: { ...(s.samples ?? {}), [args.workspaceId]: record } }))
+  // Example suggestions (docs/adr/2388-*) only after the record: the sample stands without them, and
+  // a failure here must not make it look like the sample was never made.
+  try {
+    await seedSampleSuggestions(args.userId, ids[0], args.locale)
+  } catch (err) {
+    console.error('[inkling] onboarding: example suggestions failed', err)
+  }
   return { pageId: ids[0], created: true }
 }
 

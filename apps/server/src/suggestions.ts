@@ -195,7 +195,7 @@ interface Prepared {
 }
 
 /** Resolves and checks one suggestion before any row is written (refused like the direct write). */
-async function prepare(user: AuthUser, page: PageRow, i: SuggestItem, resolveTitle: Awaited<ReturnType<typeof buildTitleResolver>>): Promise<Prepared> {
+async function prepare(page: PageRow, i: SuggestItem, resolveTitle: Awaited<ReturnType<typeof buildTitleResolver>>): Promise<Prepared> {
   if (i.mode !== 'delete' && !i.markdown.trim()) throw badRequest('markdown is empty; use mode=delete to suggest removing a section')
   let anchor = ''
   let blockId: string | null = null
@@ -252,7 +252,7 @@ export async function createSuggestions(
   await assertWorkspaceGrowth(db, page.workspaceId, items.reduce((n, i) => n + jsonBytes(i.markdown), 0))
   const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), user.id)
   const prepared: Prepared[] = []
-  for (const i of items) prepared.push(await prepare(user, page, i, resolveTitle))
+  for (const i of items) prepared.push(await prepare(page, i, resolveTitle))
   const seen = new Set<string>()
   for (const p of prepared) {
     if (seen.has(p.anchor)) throw badRequest(`§${p.anchor || '(whole page)'} is suggested twice; combine them into one edit`)
@@ -378,6 +378,51 @@ export async function createSuggestions(
     out.push(dto)
   }
   return out
+}
+
+/**
+ * `section_suggestions.connection` of the example suggestions seeded on a new sample page
+ * (docs/adr/2388-*). Real rows carry 'grant:<id>', 'token:<id>' or '' (`connectionKey`), so the
+ * value never collides; it is the marker that keeps these rows quiet and out of the author's own lists.
+ */
+export const EXAMPLE_CONNECTION = 'example'
+
+/**
+ * Seeds example suggestions on a page the person just made for themselves (the sample page,
+ * docs/adr/2388-*): resolved like any suggestion (section, base version, heading block id, stored
+ * base for per-hunk acceptance), written in one transaction, all or none. Unlike createSuggestions
+ * no approval request is queued and no quota or lock check runs (a private page made a moment ago
+ * by this person); deciding on them later is the usual accept / reject, whose result notification
+ * `resultEvent` drops for this connection.
+ */
+export async function seedExampleSuggestions(args: { userId: string; page: PageRow; via: string; items: SuggestItem[] }): Promise<string[]> {
+  const { page } = args
+  if (page.kind !== 'doc') throw badRequest('Only document pages take suggestions')
+  if (!args.items.length) return []
+  const resolveTitle = await buildTitleResolver(page.workspaceId, new Map(), args.userId)
+  const prepared: Prepared[] = []
+  for (const i of args.items) prepared.push(await prepare(page, i, resolveTitle))
+  const seen = new Set<string>()
+  for (const p of prepared) {
+    if (seen.has(p.anchor)) throw badRequest(`§${p.anchor || '(whole page)'} is suggested twice`)
+    seen.add(p.anchor)
+  }
+  return db.transaction(async (tx) => {
+    const out: string[] = []
+    // clock_timestamp(): the rows list in the items' order (a page's list sorts by created_at).
+    for (const p of prepared) {
+      const [row] = (await tx.execute(sql`
+        INSERT INTO section_suggestions (workspace_id, page_id, anchor, block_id, heading_path, base_version, markdown, mode, origin,
+                                         author_id, via, connection, created_at)
+        VALUES (${page.workspaceId}, ${page.id}, ${p.anchor}, ${p.blockId}, ${p.headingPath}, ${p.base}, ${p.markdown}, ${p.mode}, 'asked',
+                ${args.userId}, ${args.via}, ${EXAMPLE_CONNECTION}, clock_timestamp())
+        RETURNING id
+      `)) as unknown as { id: string }[]
+      out.push(row.id)
+      if (p.baseMarkdown !== null && p.base) await storeSuggestionBase(tx, args.userId, row.id, p.base, p.baseMarkdown)
+    }
+    return out
+  })
 }
 
 /**
@@ -556,11 +601,12 @@ export function statusSql(f: SuggestionStatusFilter) {
 /**
  * The caller's own suggestions with the given status (default open), on pages they can still
  * see, newest first, at most 50 (list_suggestions without a page). Same filter as a page's list.
+ * Example suggestions (docs/adr/2388-*) carry the person as author but no agent made them: left out.
  */
 export async function mySuggestions(user: AuthUser, status: SuggestionStatusFilter = 'open'): Promise<SuggestionDTO[]> {
   const rows = (await db.execute(sql`
     ${SELECT}
-     WHERE s.author_id = ${user.id} AND ${statusSql(status)}
+     WHERE s.author_id = ${user.id} AND s.connection <> ${EXAMPLE_CONNECTION} AND ${statusSql(status)}
      ORDER BY s.created_at DESC, s.id
      LIMIT 50
   `)) as unknown as Row[]
@@ -629,7 +675,9 @@ function resultEvent(row: Row, decider: AuthUser, status: 'accepted' | 'rejected
     // The author deciding on their own agent's suggestion still hears about it (the agent reads the inbox).
     actorId: row.authorId === decider.id ? null : decider.id,
     via: null,
-    recipients: [{ userId: row.authorId, kind: 'approval_result' as const, reason: 'direct' as const }],
+    // An example suggestion (docs/adr/2388-*) has no agent to tell: nobody is notified.
+    recipients:
+      row.connection === EXAMPLE_CONNECTION ? [] : [{ userId: row.authorId, kind: 'approval_result' as const, reason: 'direct' as const }],
     anchor: row.anchor || null,
     excerpt: `${status}${partial ? ` (${partial.applied} of ${partial.total} changes)` : ''}: suggestion ${row.id} (${row.mode}${row.anchor ? ` §${row.anchor}` : ''})`,
   }

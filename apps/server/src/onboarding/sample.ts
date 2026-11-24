@@ -9,6 +9,9 @@ import type { SpecNode } from '../templates/builtins'
  * Its title and first line say it is a sample, so an agent that finds it with find_context or
  * search can tell it apart from real notes; there is at most one live sample per person and
  * workspace, in that person's private pages.
+ *
+ * The tip under the first callout points at the example suggestions seeded on "4." and "5."
+ * (onboarding/exampleSuggestions.ts, docs/adr/2388-*); keep those two headings or change the items there.
  */
 
 type Color = 'gray' | 'blue' | 'green'
@@ -37,6 +40,8 @@ export function sampleSpec(locale: Locale): SpecNode {
 
   const root = ko
     ? `> [!note] 이 페이지는 Inkling을 직접 만져 보기 위한 샘플입니다. 마음껏 고치고, 다 보면 지워도 됩니다. 지운 샘플은 다시 생기지 않습니다.
+
+> [!tip] 「4. 다이어그램」이나 「5. AI 에이전트」 제목 옆 ✎ 표시를 눌러 예시 에이전트의 제안을 검토해 보세요.
 
 ## 1. 블록
 
@@ -73,6 +78,8 @@ flowchart LR
 
 설정 › 연결에서 MCP 주소를 복사해 Claude, Cursor, VS Code 같은 MCP 클라이언트에 넣으면 에이전트가 이 노트를 찾아 읽고 고칠 수 있습니다. 에이전트가 고친 내용은 기록에 남아 되돌릴 수 있고, 제안으로만 고치게 할 수도 있습니다.
 
+에이전트가 이 페이지에서 무엇을 읽는지는 페이지 위쪽 ⋯ 메뉴의 "에이전트가 보는 화면"에서 볼 수 있습니다.
+
 ## 단축키 몇 개
 
 | 하는 일 | Mac | Windows·Linux |
@@ -83,6 +90,8 @@ flowchart LR
 | 단축키 전체 보기 | ? | ? |
 `
     : `> [!note] This page is a sample for trying Inkling out. Change anything, and delete it when you are done. A deleted sample does not come back.
+
+> [!tip] Press ✎ next to "4. Diagrams" or "5. AI agents" to review what the example agent suggested.
 
 ## 1. Blocks
 
@@ -118,6 +127,8 @@ flowchart LR
 ## 5. AI agents
 
 Copy the MCP address from Settings › Connections into an MCP client such as Claude, Cursor or VS Code, and the agent can find, read and edit these notes. Its edits are recorded and can be undone, and you can let it only suggest edits.
+
+To see what an agent gets from this page, open the ⋯ menu at the top of the page and pick "What an agent reads".
 
 ## A few shortcuts
 

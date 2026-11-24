@@ -766,3 +766,10 @@ Not checked in this release
 
 Agents (MCP)
 - **Low** (MCP-REPL-2, docs/adr/1947-*) Without `baseVersion`, update_page replace decides "a person edited last" from the newest `page_changes` row of the page. Those rows are added by the change-log consumer after the write commits (started at the commit, at the latest by the 1 s poll), and the check does not wait for it, unlike changes_since. While the consumer is behind: (1) a replace right after the agent's own change (a rename, for example) on a page a person edited before can be refused as "a person edited last"; calling again or passing `baseVersion` gets through. (2) A person's edit saved a moment ago is not counted yet, so a replace without `baseVersion` goes through. For editor typing this window also includes the index debounce (≤ 30 s, MCP-REPL-1). With `baseVersion` neither case applies.
+
+## Added in 0.23.0
+
+Onboarding and agent visibility
+- **Info** (EXAMPLE-1, docs/adr/2388-*) The example suggestions exist only on sample pages made from 0.23.0 on. A member's sample page is made by button (the first admin's is made at set-up), so an account that never makes one does not see them. Accepting an example suggestion is recorded as the accepting person's own edit, like any accepted suggestion.
+- **Info** (AGENTVIEW-1, docs/adr/2389-*) "What an agent reads" searches by words like find_context: a question with none of the words in your notes finds nothing. Its section list comes from the index and can lag live typing by the indexing delay. Token counts are estimates.
+- **Low** (SECMARK-1, docs/adr/1627-*) Section marks next to headings come from the change log: they appear up to 30 s after an agent's edit on an open page and about a minute after typing, disappear after 30 days, and one person's or agent's edits of a section within 10 minutes are one change. An accepted suggestion (including the sample's example suggestions) is marked as the accepting person.

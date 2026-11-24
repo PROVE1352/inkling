@@ -1,6 +1,6 @@
 # Inkling
 
-> Self-hosted notes app with a built-in MCP server, where people and their AI agents read and edit the same notes. Agents find the sections that answer a question within a token budget (find_context), change one section against the version they read (patch_section), and can leave their edits as suggestions for a person to accept. This site describes Inkling v0.22.3.
+> Self-hosted notes app with a built-in MCP server, where people and their AI agents read and edit the same notes. Agents find the sections that answer a question within a token budget (find_context), change one section against the version they read (patch_section), and can leave their edits as suggestions for a person to accept. This site describes Inkling v0.23.0.
 
 The docs pages on this site are rendered from the repository; every page has its Markdown source next to it (docs/NAME.html and docs/NAME.md). The links below point at the Markdown. The MCP server of a running Inkling instance is at https://<its domain>/mcp; each person connects their own client with OAuth 2.1 or an agent connection token. Source code: https://github.com/PROVE1352/inkling
 

@@ -102,8 +102,12 @@ With &quot;reduce motion&quot; turned on in your system, the intro shows one sti
 end screen after the last one.</p>
 <p>The <strong>Getting started</strong> card on the empty workspace screen (and folded at the bottom of the sidebar)
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
-where it is done; a short bubble points at the button. <strong>Make a sample page to try things on</strong> creates a page in
+where it is done; a short bubble points at the button. <strong>Connect an AI agent</strong> (here and on the intro&#39;s end screen)
+goes straight to the app picker and the command to paste. Until you have a sample page in a workspace, its empty
+screen leads with <strong>Make a sample page to try things on</strong>, with <strong>New page</strong> beside it. That button creates a page in
 your private pages (only you see it); delete it when you are done, it does not come back.
+A new sample page comes with two suggested edits from an &quot;Example agent&quot;, written in advance (no AI is involved),
+so you can try reviewing a suggestion before you connect an agent: press ✎ next to &quot;4. Diagrams&quot; or &quot;5. AI agents&quot;.
 <strong>Don&#39;t show again</strong> hides the card. Opened in the sidebar, the card takes only the room the menus and the
 page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
 with <strong>More</strong> open), it stays folded until there is room.</p>
@@ -614,7 +618,9 @@ can see in Inkling. <code>/inkling help</code> lists the commands.</li>
 <p>Find your server&#39;s address in Settings → Connections → <strong>MCP server</strong> (<strong>Copy URL</strong>). It looks like
 <code>https://notes.example.com/mcp</code>. <strong>Manage connections</strong> opens <strong>Connect an AI app</strong>: pick your app (Claude Code,
 claude.ai / Claude Desktop, Cursor, VS Code or another app) and copy what it shows (a command, a JSON file or the
-URL). Under <strong>Tools</strong>, <strong>Core tools</strong> gives the agent the tools it uses most (a shorter tool list costs fewer tokens
+URL). The screen also gives a first question to ask and where a working connection shows up (<strong>Connected apps</strong>, or
+the last-used time of an agent connection token). <strong>Tools</strong> and <strong>Sign-in</strong> are folded under <strong>Other options</strong>: under
+<strong>Tools</strong>, <strong>Core tools</strong> gives the agent the tools it uses most (a shorter tool list costs fewer tokens
 in every session; the rest stay one call away) and <strong>All tools</strong> gives it everything, for an agent that builds
 databases, charts or templates. Core tools add <code>?profile=core</code> to the URL.</p>
 <p><strong>Claude Code</strong></p>
@@ -654,6 +660,12 @@ create new pages only there. Workspace templates are not available to it.</li>
 </ul>
 <p>You can change this later without reconnecting: Settings → Connections → <strong>Manage connections</strong> → <strong>Change range</strong>.
 A link from a page in range to a page outside shows only the link text written in the page.</p>
+<p>To see a page the way an agent reads it, open the page&#39;s <strong>⋯</strong> menu → <strong>What an agent reads</strong>. It shows the
+page&#39;s estimated size in tokens and each section with its <code>§anchor</code>, tokens, share of the page and version;
+open a section to see the Markdown an agent gets for it. Type a question and it shows what <code>find_context</code> would
+return from this workspace: the sections and their tokens out of the 3,500-token budget. The search runs as you,
+with no agent connected, and matches words, so ask with words used in your notes. On the sample page a
+question is filled in.</p>
 <h3 id="what-the-ai-can-and-cant-do">What the AI can and can&#39;t do</h3>
 <p>It can:</p>
 <ul>
@@ -727,6 +739,8 @@ someone changed after the agent read the section. It is unchecked and shows what
 that text with the agent&#39;s version. Everything else people wrote stays.</p>
 <p>When an agent is working on a section, the heading shows &quot;Claude is working on this section&quot;. You can keep editing;
 other agents wait until it is done.</p>
+<p>The two suggestions &quot;via Example agent&quot; on a new sample page are examples that came with it. Reviewing them works the
+same, but nobody is notified when they are made or decided, and they are not listed among your own suggestions.</p>
 <h3 id="how-agents-edit">How agents edit</h3>
 <p>Workspace owners and admins choose in Workspace settings → <strong>Connected agents</strong> → <strong>How agents edit</strong>:</p>
 <ul>
@@ -746,6 +760,14 @@ page text; renaming, moving and deleting pages follow the lock as before.</p>
 <strong>Revert</strong>. Choose only that change, everything that agent changed on this page, or (owners and admins) in the whole
 workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
 Reverting is saved as your own change (a &quot;Before revert&quot; version is kept) and can be undone with <strong>Undo revert</strong>.</p>
+<p>Next to a section heading, a small mark shows who changed that section last: the agent sign and the app&#39;s name
+when an agent did, the person&#39;s initials otherwise. Hover it for the name and the time; click it for what changed and
+<strong>Revert this change</strong>, which opens the same preview. The mark comes from the change history, so it shows up a little
+after a change: up to half a minute for an agent&#39;s edit while the page is open, up to about a minute after typing.
+Sections nobody changed in the last 30 days have none. No mark
+does not mean a person wrote the section. One person&#39;s or one agent&#39;s edits of a section within 10 minutes count as one
+change, and the preview shows everything that revert would take back. An accepted suggestion is the change of the
+person who accepted it.</p>
 <h3 id="team-agents">Team agents</h3>
 <p><strong>Team agents</strong> in the header of <strong>Activity</strong> shows what each person&#39;s AI connections are working on: the sections they claimed
 with the minutes left, their suggestions waiting for a person, and what each one did today. Pages you can&#39;t open
@@ -952,7 +974,7 @@ workspace with its pages and files and cannot be undone: type its name and press
 </div>
 <footer class="foot">
   <div class="wrap wide">
-    <span>Inkling v0.22.3</span>
+    <span>Inkling v0.23.0</span>
     <nav aria-label="Footer">
       <a href="https://github.com/PROVE1352/inkling">GitHub</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>

@@ -1020,7 +1020,7 @@ Changed:
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/pages/:id/suggestions` | `preview=1`, `status?`, `all=1` | As in 0.12. `status` = `open` (default) \| `decided` (accepted, accepted_partial, rejected) \| `all` \| one status; `all=1` is still the web history (everything but superseded). With `preview=1`, an open `replace` suggestion's `preview` adds `merge: { baseKnown, key, hunks: [{ id, conflict, same, before, after, ours, context }] }` (absent when the section is gone or too large to split) |
-| GET | `/api/suggestions` | `status?` | `{ suggestions }`: the caller's own, the same filter, default `open`, newest 50 |
+| GET | `/api/suggestions` | `status?` | `{ suggestions }`: the caller's own, the same filter, default `open`, newest 50. Since 0.23 the example suggestions seeded on a sample page (`connection = 'example'`, docs/adr/2388-*) are left out; the page's own list still has them |
 | POST | `/api/suggestions/:id/accept` | `{ confirmChanged?, hunks?: number[], mergeKey?: string }` | `{ suggestion }`. `hunks` (ids from `preview.merge`, with its `key` as `mergeKey`) applies only those hunks: the server recomputes the merge and writes the merged section; a stale `mergeKey` → 409 `SUGGESTION_CHANGED` with `error.preview`. `status` is `accepted` or `accepted_partial` (`partial: { applied, total }`). Without `hunks` it behaves as in 0.12 |
 | POST | `/api/suggestions/:id/withdraw` | | `{ suggestion }`. A suggestion that is no longer open answers 409 per state (below) |
 
@@ -1037,6 +1037,7 @@ People only (browser session or personal API token; agent connections → 403 `P
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/pages/:id/changes` | `before?` (seq), `limit?` (1–100, default 20) | `{ items: ActivityItemDTO[], next }`: the page's own change log, newest first; each item has `revert` (below) |
+| GET | `/api/pages/:id/section-provenance` | | `{ sections: SectionProvenanceDTO[] }`: the newest change of each current section (heading marks, docs/adr/1627-*). Members only (guests 403); not a document page → `[]` |
 | POST | `/api/changes/:seq/revert` | `{ dryRun? }` | `RevertResultDTO`. One change; edit access to its page. 404 when the change or its page is not visible. 30/min |
 | POST | `/api/pages/:id/revert` | `{ seqs? (1–200) \| via, actorId?, since?, until?, dryRun? }` | `RevertResultDTO`. Given changes, or one agent's (`via` = client name, `actorId` narrows to one member's connection) on the page in a period; `seqs` or `via` is required (400 otherwise). 30/min |
 | POST | `/api/workspaces/:id/revert` | `{ via, actorId?, since, until?, dryRun? }` | `RevertResultDTO`. One agent's changes in the workspace; owners and admins. Each page is written all or nothing; locked pages are reported. 10/min |
@@ -1052,6 +1053,14 @@ ordinary change of the person, audited as `page.changes_reverted` (`before.seqs`
 
 `GET /api/workspaces/:id/activity` and `GET /api/pages/:id/changes` items gain `revert: { revertable, revertedBy: { name,
 at } | null, isRevert }`.
+
+`SectionProvenanceDTO { anchor, blockId, headingPath, seq, kind, changedAt, actor: { id, name }, via, agent, revertable,
+revertedBy: { name, at } | null, isRevert }`, in outline order. Per section anchor the newest `page_changes` row the user
+may see (the same rows as `GET /api/pages/:id/changes`); a section whose newest change is a removal or has no known
+actor (live typing of several people) is left out, and so are anchors that are no longer in the outline. `blockId` is the
+heading block in the current outline. `agent` is true when `via` names an agent connection (not the public form, not an
+automation). `seq` is the change for `POST /api/changes/:seq/revert`. Rows are kept 30 days and one actor's edits of a
+section within 10 minutes are one row; a change appears about a second after a server write and 8–30 s after live typing.
 
 ### Change feed (docs/adr/1625, 1650–1653)
 - `page_changes.kind` and activity `kind` gain `page_props` (row properties changed; `after` = the changed field names).

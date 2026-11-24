@@ -59,8 +59,12 @@ end screen after the last one.
 
 The **Getting started** card on the empty workspace screen (and folded at the bottom of the sidebar)
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
-where it is done; a short bubble points at the button. **Make a sample page to try things on** creates a page in
+where it is done; a short bubble points at the button. **Connect an AI agent** (here and on the intro's end screen)
+goes straight to the app picker and the command to paste. Until you have a sample page in a workspace, its empty
+screen leads with **Make a sample page to try things on**, with **New page** beside it. That button creates a page in
 your private pages (only you see it); delete it when you are done, it does not come back.
+A new sample page comes with two suggested edits from an "Example agent", written in advance (no AI is involved),
+so you can try reviewing a suggestion before you connect an agent: press ✎ next to "4. Diagrams" or "5. AI agents".
 **Don't show again** hides the card. Opened in the sidebar, the card takes only the room the menus and the
 page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
 with **More** open), it stays folded until there is room.
@@ -685,7 +689,9 @@ Inkling has a built-in MCP server. An AI app such as Claude Code or claude.ai ca
 Find your server's address in Settings → Connections → **MCP server** (**Copy URL**). It looks like
 `https://notes.example.com/mcp`. **Manage connections** opens **Connect an AI app**: pick your app (Claude Code,
 claude.ai / Claude Desktop, Cursor, VS Code or another app) and copy what it shows (a command, a JSON file or the
-URL). Under **Tools**, **Core tools** gives the agent the tools it uses most (a shorter tool list costs fewer tokens
+URL). The screen also gives a first question to ask and where a working connection shows up (**Connected apps**, or
+the last-used time of an agent connection token). **Tools** and **Sign-in** are folded under **Other options**: under
+**Tools**, **Core tools** gives the agent the tools it uses most (a shorter tool list costs fewer tokens
 in every session; the rest stay one call away) and **All tools** gives it everything, for an agent that builds
 databases, charts or templates. Core tools add `?profile=core` to the URL.
 
@@ -738,6 +744,13 @@ The same screen asks what the app may see:
 
 You can change this later without reconnecting: Settings → Connections → **Manage connections** → **Change range**.
 A link from a page in range to a page outside shows only the link text written in the page.
+
+To see a page the way an agent reads it, open the page's **⋯** menu → **What an agent reads**. It shows the
+page's estimated size in tokens and each section with its `§anchor`, tokens, share of the page and version;
+open a section to see the Markdown an agent gets for it. Type a question and it shows what `find_context` would
+return from this workspace: the sections and their tokens out of the 3,500-token budget. The search runs as you,
+with no agent connected, and matches words, so ask with words used in your notes. On the sample page a
+question is filled in.
 
 ### What the AI can and can't do
 
@@ -822,6 +835,9 @@ that text with the agent's version. Everything else people wrote stays.
 When an agent is working on a section, the heading shows "Claude is working on this section". You can keep editing;
 other agents wait until it is done.
 
+The two suggestions "via Example agent" on a new sample page are examples that came with it. Reviewing them works the
+same, but nobody is notified when they are made or decided, and they are not listed among your own suggestions.
+
 ### How agents edit
 
 Workspace owners and admins choose in Workspace settings → **Connected agents** → **How agents edit**:
@@ -844,6 +860,15 @@ In **Activity** or in the page's side panel (**History › Recent changes**), ch
 **Revert**. Choose only that change, everything that agent changed on this page, or (owners and admins) in the whole
 workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
 Reverting is saved as your own change (a "Before revert" version is kept) and can be undone with **Undo revert**.
+
+Next to a section heading, a small mark shows who changed that section last: the agent sign and the app's name
+when an agent did, the person's initials otherwise. Hover it for the name and the time; click it for what changed and
+**Revert this change**, which opens the same preview. The mark comes from the change history, so it shows up a little
+after a change: up to half a minute for an agent's edit while the page is open, up to about a minute after typing.
+Sections nobody changed in the last 30 days have none. No mark
+does not mean a person wrote the section. One person's or one agent's edits of a section within 10 minutes count as one
+change, and the preview shows everything that revert would take back. An accepted suggestion is the change of the
+person who accepted it.
 
 ### Team agents
 

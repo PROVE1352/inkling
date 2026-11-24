@@ -33,6 +33,10 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   OAUTH_UNUSED_CLIENT_MAX     integer ≥ 1      cap on dynamic OAuth clients never used (oldest go first)
  *   LIMIT_WORKSPACES_TOTAL      integer ≥ 1      workspaces on the whole server, deleted-but-restorable included (contract §14)
  *   LIMIT_INSTANCE_STORAGE_MB   number > 0       fuse: database size + upload folder; at it the server is read-only (contract §14)
+ *   TRIAL_ACCOUNTS              1 | 0            "Try without an account": one-click trial accounts (docs/adr/2555-*)
+ *   TRIAL_LIFETIME_HOURS        integer 1..168   hours a trial account lives (default 24)
+ *   TRIAL_MAX_ACCOUNTS          integer ≥ 1      trial accounts at once, expired ones not yet deleted included (default 30)
+ *   TRIAL_PER_IP_PER_DAY        integer ≥ 1      trial accounts one address can make in 24 hours (default 3)
  *
  * This module only reads the settings. Enforcing them is done where things are created.
  */
@@ -87,6 +91,11 @@ export interface Limits {
    * fractional). Absent when unset.
    */
   instanceStorageMb?: number
+  /**
+   * TRIAL_ACCOUNTS=1 (docs/adr/2555-*): the trial settings, defaults filled in. Absent while off (the
+   * other three variables alone do nothing), so a server without it compares equal to the 0.22 object.
+   */
+  trial?: TrialLimits
   /** Boot warnings for settings that are valid but do nothing as combined. */
   warnings: string[]
 }
@@ -101,6 +110,14 @@ export const INSTANCE_LABEL_MAX = 20
 export const TRASH_DAYS_MIN = 7
 export const INSTANCE_NOTICE_MAX = 500
 export const INSTANCE_CONTACT_MAX = 300
+export const TRIAL_LIFETIME_HOURS_MAX = 168
+export const TRIAL_DEFAULTS = { lifetimeHours: 24, maxAccounts: 30, perIpPerDay: 3 } as const
+
+export interface TrialLimits {
+  lifetimeHours: number
+  maxAccounts: number
+  perIpPerDay: number
+}
 
 const MB = 1024 * 1024
 export const mbToBytes = (mb: number): number => Math.floor(mb * MB)
@@ -237,6 +254,22 @@ export function parseLimitsEnv(e: Env): Limits {
   const workspacesTotal = int(e, 'LIMIT_WORKSPACES_TOTAL')
   const instanceStorageMb = megabytes(e, 'LIMIT_INSTANCE_STORAGE_MB')
 
+  // TRIAL_*: the numbers are checked even while TRIAL_ACCOUNTS is off, so turning it on later cannot
+  // be the moment a typo stops the server.
+  const trialRaw = raw(e, 'TRIAL_ACCOUNTS')
+  if (trialRaw !== null && trialRaw !== '1' && trialRaw !== '0') throw new LimitsConfigError(`TRIAL_ACCOUNTS=${trialRaw} is not 1 or 0`)
+  const trialHours = int(e, 'TRIAL_LIFETIME_HOURS', { max: TRIAL_LIFETIME_HOURS_MAX })
+  const trialMax = int(e, 'TRIAL_MAX_ACCOUNTS')
+  const trialPerIp = int(e, 'TRIAL_PER_IP_PER_DAY')
+  const trial: TrialLimits | null =
+    trialRaw === '1'
+      ? {
+          lifetimeHours: trialHours ?? TRIAL_DEFAULTS.lifetimeHours,
+          maxAccounts: trialMax ?? TRIAL_DEFAULTS.maxAccounts,
+          perIpPerDay: trialPerIp ?? TRIAL_DEFAULTS.perIpPerDay,
+        }
+      : null
+
   const limits: Limits = {
     loginIdMode,
     signupMaxUsers: int(e, 'SIGNUP_MAX_USERS'),
@@ -261,10 +294,14 @@ export function parseLimitsEnv(e: Env): Limits {
     ...(oauthUnusedClientMax !== null ? { oauthUnusedClientMax } : {}),
     ...(workspacesTotal !== null ? { workspacesTotal } : {}),
     ...(instanceStorageMb !== null ? { instanceStorageMb } : {}),
+    ...(trial !== null ? { trial } : {}),
     warnings,
   }
   if (accountLifetimeDryRun && limits.accountLifetimeDays === null) {
     warnings.push('ACCOUNT_LIFETIME_DRY_RUN=1 does nothing without ACCOUNT_LIFETIME_DAYS')
+  }
+  if (trial === null && (trialHours !== null || trialMax !== null || trialPerIp !== null)) {
+    warnings.push('TRIAL_LIFETIME_HOURS, TRIAL_MAX_ACCOUNTS and TRIAL_PER_IP_PER_DAY do nothing without TRIAL_ACCOUNTS=1')
   }
   return limits
 }
@@ -322,6 +359,7 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.oauthUnusedClientMax !== undefined) on.push(`at most ${l.oauthUnusedClientMax} unused OAuth clients`)
   if (l.workspacesTotal !== undefined) on.push(`${l.workspacesTotal} workspaces on the server`)
   if (l.instanceStorageMb !== undefined) on.push(`instance storage fuse at ${l.instanceStorageMb} MB`)
+  if (l.trial !== undefined) on.push(`trial accounts (${l.trial.maxAccounts} at once, ${l.trial.lifetimeHours} hours each, ${l.trial.perIpPerDay} per IP per day)`)
   const lines: string[] = []
   if (on.length > 0) lines.push(`restricted mode: ${on.join(', ')}`)
   if (l.disabledFeatures.length > 0) lines.push(`features turned off: ${l.disabledFeatures.join(', ')}`)

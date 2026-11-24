@@ -64,6 +64,12 @@ x-demo-limits: &demo-limits
   OAUTH_UNUSED_CLIENT_MAX: ${OAUTH_UNUSED_CLIENT_MAX:?set in deploy/demo/demo.env}
   LIMIT_WORKSPACES_TOTAL: ${LIMIT_WORKSPACES_TOTAL:?set in deploy/demo/demo.env}
   LIMIT_INSTANCE_STORAGE_MB: ${LIMIT_INSTANCE_STORAGE_MB:?set in deploy/demo/demo.env}
+  # Trial accounts (0.23, docs/adr/2555-*): optional, so an env file from 0.22 still starts the demo; off
+  # unless TRIAL_ACCOUNTS=1. Nothing shows while LEGAL_DIR's signup.json has tick boxes (docs/DEMO.md).
+  TRIAL_ACCOUNTS: ${TRIAL_ACCOUNTS:-0}
+  TRIAL_LIFETIME_HOURS: ${TRIAL_LIFETIME_HOURS:-}
+  TRIAL_MAX_ACCOUNTS: ${TRIAL_MAX_ACCOUNTS:-}
+  TRIAL_PER_IP_PER_DAY: ${TRIAL_PER_IP_PER_DAY:-}
 
 services:
   app:

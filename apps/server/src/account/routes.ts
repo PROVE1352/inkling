@@ -55,7 +55,7 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
   api.get('/me/delete-preview', { preHandler: requireUser }, async (req): Promise<DeletePreviewDTO> => {
     if (req.authVia !== 'cookie') throw forbidden(SESSION_ONLY_MESSAGE)
     const me = getUser(req)
-    const [u] = await db.select({ origin: users.origin, isAdmin: users.isAdmin }).from(users).where(eq(users.id, me.id)).limit(1)
+    const [u] = await db.select({ origin: users.origin, isAdmin: users.isAdmin, trial: users.trial }).from(users).where(eq(users.id, me.id)).limit(1)
     if (!u) throw notFound()
     const plan = await planAccountDeletion(db, me.id)
     const local = u.origin === 'local'
@@ -66,7 +66,11 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
       privatePages: plan.privatePages,
       pages: plan.purge.reduce((n, w) => n + w.pages, 0),
       files: plan.purge.reduce((n, w) => n + w.files, 0),
-      needs: { password: local, code: local && (await twoFactorEnabled(me.id)), recentSignIn: !local },
+      // a trial account (docs/adr/2555-*) has no password anyone knows: the browser session and the
+      // typed confirmation are all it gives
+      needs: u.trial
+        ? { password: false, code: false, recentSignIn: false }
+        : { password: local, code: local && (await twoFactorEnabled(me.id)), recentSignIn: !local },
       confirm: me.email,
       lastAdmin: u.isAdmin && (await otherAdmins(me.id)) === 0,
     }
@@ -83,7 +87,7 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
     const me = getUser(req)
     const body = deleteMeSchema.parse(req.body ?? {})
     const [u] = await db
-      .select({ origin: users.origin, passwordHash: users.passwordHash, isAdmin: users.isAdmin })
+      .select({ origin: users.origin, passwordHash: users.passwordHash, isAdmin: users.isAdmin, trial: users.trial })
       .from(users)
       .where(eq(users.id, me.id))
       .limit(1)
@@ -95,7 +99,11 @@ export async function registerAccountRoutes(api: FastifyInstance): Promise<void>
       throw new AppError(409, 'LAST_ADMIN', 'You are the only admin of this server. Make another account an admin first.')
     }
     const acct = me.email.toLowerCase()
-    if (u.origin === 'local') {
+    if (u.trial) {
+      // a trial account (docs/adr/2555-*): no password anyone knows and nothing to re-check. The browser
+      // session (above) and the confirmation decide; nothing counts as a failed sign-in. Its seat frees
+      // with the row.
+    } else if (u.origin === 'local') {
       // the sign-in guard: IP ban, account backoff, and a failure counts as a sign-in failure
       assertNotBanned(req)
       assertAccount(acct)

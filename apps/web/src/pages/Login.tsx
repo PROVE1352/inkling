@@ -9,6 +9,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
 import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
+import { TrialButton } from '../components/auth/TrialButton'
 import { t as tr, tMaybe, useT } from '../i18n'
 
 /**
@@ -178,6 +179,7 @@ export function Login() {
         <div className="mb-6 flex flex-col items-center gap-2">
           <img src="/icon.svg" alt="Inkling" className="h-12 w-12" />
           <h1 className="text-xl font-bold text-ink">Inkling</h1>
+          <p className="break-keep text-center text-xs text-sub">{t('intro.tagline')}</p>
           <InstanceBadge placement="auth" />
           <InstanceNotice placement="auth" />
         </div>
@@ -313,6 +315,7 @@ export function Login() {
           {oidcName && <OidcButton name={oidcName} next={next} />}
         </form>
         )}
+        {!challenge && <TrialButton placement="login" />}
 
         <FeatureOn name="password-reset"><p className="mt-4 text-center text-xs text-sub">
           <Link

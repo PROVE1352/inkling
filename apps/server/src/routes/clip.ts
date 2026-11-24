@@ -73,8 +73,12 @@ const NAMES = {
   },
 } satisfies Record<Locale, Record<string, unknown>>
 
-/** Per-browser-session limiter key (like routes/linkPreview.ts); tokens and others by rateLimitKey. */
-function clipKey(req: FastifyRequest): string {
+/**
+ * Per-browser-session limiter key (like routes/linkPreview.ts); tokens and others by rateLimitKey. A
+ * request with an Authorization header never by its cookie (auth.ts reads the bearer first).
+ */
+export function clipKey(req: FastifyRequest): string {
+  if (req.headers.authorization !== undefined) return 'clip-' + rateLimitKey(req)
   const sid = (req.cookies as Record<string, string | undefined> | undefined)?.[SESSION_COOKIE]
   return sid ? 'clip:' + createHash('sha256').update(sid).digest('base64url').slice(0, 22) : 'clip-' + rateLimitKey(req)
 }

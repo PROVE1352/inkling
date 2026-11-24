@@ -234,7 +234,14 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
     .from(oauthGrants)
     .innerJoin(users, eq(users.id, oauthGrants.userId))
     .innerJoin(oauthClients, eq(oauthClients.id, oauthGrants.clientId))
-    .where(and(eq(oauthGrants.accessHash, sha256(token)), gt(oauthGrants.accessExpiresAt, new Date())))
+    .where(
+      and(
+        eq(oauthGrants.accessHash, sha256(token)),
+        gt(oauthGrants.accessExpiresAt, new Date()),
+        // a trial account past its time, before the hourly job deletes it (docs/adr/2555-*)
+        sql`(NOT ${users.trial} OR ${users.expiresAt} IS NULL OR ${users.expiresAt} >= now())`,
+      ),
+    )
     .limit(1)
   const row = rows[0]
   if (!row) return null

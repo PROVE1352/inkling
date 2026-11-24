@@ -38,13 +38,17 @@ export const SETTINGS_022 = [
   'LIMIT_INSTANCE_STORAGE_MB',
 ] as const
 
+/** The variables 0.23 adds (trial accounts, docs/adr/2555-*), held to the same rules. */
+export const SETTINGS_023 = ['TRIAL_ACCOUNTS', 'TRIAL_LIFETIME_HOURS', 'TRIAL_MAX_ACCOUNTS', 'TRIAL_PER_IP_PER_DAY'] as const
+const SETTINGS = [...SETTINGS_022, ...SETTINGS_023] as const
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../../../..')
 
-describe('0.22 settings: an empty string is the same as unset', () => {
+describe('0.22 and 0.23 settings: an empty string is the same as unset', () => {
   const unset = parseLimitsEnv({})
 
-  for (const name of SETTINGS_022) {
+  for (const name of SETTINGS) {
     it(`${name}='' reads as unset`, () => {
       assert.deepEqual(parseLimitsEnv({ [name]: '' }), unset)
       assert.deepEqual(parseLimitsEnv({ [name]: '   ' }), unset)
@@ -52,7 +56,7 @@ describe('0.22 settings: an empty string is the same as unset', () => {
   }
 
   it('all of them empty at once: unset, no boot line, no boot conflict (LOGIN_ID_MODE= is email)', () => {
-    const all = Object.fromEntries(SETTINGS_022.map((k) => [k, '']))
+    const all = Object.fromEntries(SETTINGS.map((k) => [k, '']))
     const l = parseLimitsEnv(all)
     assert.deepEqual(l, unset)
     assert.equal(l.loginIdMode, 'email')
@@ -63,7 +67,7 @@ describe('0.22 settings: an empty string is the same as unset', () => {
   })
 
   it('a process started with every one of them empty (as compose passes them) loads the settings as unset', () => {
-    const env = { ...process.env, ...Object.fromEntries(SETTINGS_022.map((k) => [k, ''])) }
+    const env = { ...process.env, ...Object.fromEntries(SETTINGS.map((k) => [k, ''])) }
     const tsx = path.join(repo, 'apps/server/node_modules/tsx/dist/cli.mjs')
     const script = `import('./src/limits.ts').then((m) => { const { warnings, ...rest } = m.limits; console.log(JSON.stringify({ rest, warnings, lines: m.limitsBootLines(m.limits) })) })`
     const r = spawnSync(process.execPath, [tsx, '--eval', script], { cwd: path.join(repo, 'apps/server'), env, encoding: 'utf8' })
@@ -73,19 +77,19 @@ describe('0.22 settings: an empty string is the same as unset', () => {
     assert.deepEqual(out, { rest: JSON.parse(JSON.stringify(rest)), warnings: [], lines: [] })
   })
 
-  it('compose.yaml passes every 0.22 setting as ${VAR:-} and .env.example mentions each one', () => {
+  it('compose.yaml passes every 0.22 and 0.23 setting as ${VAR:-} and .env.example mentions each one', () => {
     const compose = readFileSync(path.join(repo, 'compose.yaml'), 'utf8')
     const example = readFileSync(path.join(repo, '.env.example'), 'utf8')
-    for (const k of SETTINGS_022) {
+    for (const k of SETTINGS) {
       assert.ok(compose.includes(`${k}: \${${k}:-}`), `compose.yaml ${k}`)
       assert.match(example, new RegExp(`^# ${k}=`, 'm'), `.env.example ${k}`)
     }
   })
 
-  it('the demo overlay passes every 0.22 setting', () => {
+  it('the demo overlay passes every 0.22 and 0.23 setting', () => {
     const overlay = readFileSync(path.join(repo, 'deploy/demo/compose.demo.yaml'), 'utf8')
     const env = readFileSync(path.join(repo, 'deploy/demo/demo.env.example'), 'utf8')
-    for (const k of SETTINGS_022) {
+    for (const k of SETTINGS) {
       if (k === 'ACCOUNT_LIFETIME_DRY_RUN') continue // the operator's first-run check, not a demo value
       assert.match(overlay, new RegExp(`^\\s+${k}: `, 'm'), `overlay ${k}`)
       if (k !== 'LEGAL_DIR') assert.match(env, new RegExp(`^${k}=`, 'm'), `demo.env.example ${k}`)

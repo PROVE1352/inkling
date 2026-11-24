@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
+import { registerRequestGate } from '../requestGates'
 import { registerAuthModeExtra, registerHousekeepingTask } from '../restrictedExtras'
 import { purgeUnusedOAuthClients } from '../oauthClientCleanup'
 import { registerSignupHook } from '../signupHooks'
 import { expireAccounts, purgeAccountRecords } from './housekeeping'
 import { registerAccountRoutes } from './routes'
 import { proxyWarning, signupChecksOn, signupGuardHook } from './signupGuards'
+import { expireTrialAccounts, registerTrialRoutes, trialAvailability, trialGate, trialOn } from './trial'
 
 /**
  * Restricted mode, piece B (accounts: sign-in IDs, deletion, lifetime, docs/adr/2512-* .. 2517-*): the one place this piece registers itself.
@@ -23,6 +25,8 @@ let registered = false
 
 export async function registerAccount(api: FastifyInstance): Promise<void> {
   await registerAccountRoutes(api)
+  // trial accounts (docs/adr/2555-*): 404 TRIAL_OFF while TRIAL_ACCOUNTS is off
+  await registerTrialRoutes(api)
   if (registered) return
   registered = true
   registerSignupHook('account-signup-limits', signupGuardHook)
@@ -30,6 +34,14 @@ export async function registerAccount(api: FastifyInstance): Promise<void> {
   registerAuthModeExtra('account-signup-checks', () => (signupChecksOn() ? { signupChecks: true } : {}))
   registerHousekeepingTask('account-lifetime', async () => {
     await expireAccounts((m) => console.warn(m))
+  })
+  // Trial accounts (docs/adr/2555-*). The gate and the expiry job do not look at TRIAL_ACCOUNTS: accounts
+  // made while it was on stay refused the listed routes and are still deleted after it is turned off.
+  // The gate reads the database only on a listed route.
+  registerRequestGate('trial-accounts', trialGate)
+  registerAuthModeExtra('trial-accounts', async () => (trialOn() ? { trial: await trialAvailability() } : {}))
+  registerHousekeepingTask('trial-expiry', async () => {
+    await expireTrialAccounts((m) => console.warn(m))
   })
   registerHousekeepingTask('account-records-retention', async () => {
     await purgeAccountRecords()

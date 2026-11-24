@@ -163,6 +163,19 @@ class ActionError extends Error {}
  */
 class SkipAction extends Error {}
 
+/**
+ * The account a rule runs as, or null when it is gone. A trial account past its time counts as gone
+ * at once (as at sign-in, auth.ts), not when the hourly job deletes it (docs/adr/2555-*).
+ */
+export async function ruleAuthor(userId: string) {
+  const [a] = await db
+    .select({ id: users.id, email: users.email, name: users.name, isAdmin: users.isAdmin, hasGrants: hasGrantsSql(users.id) })
+    .from(users)
+    .where(and(eq(users.id, userId), sql`(NOT ${users.trial} OR ${users.expiresAt} IS NULL OR ${users.expiresAt} >= now())`))
+    .limit(1)
+  return a ?? null
+}
+
 async function inject(user: AuthUser, method: 'POST' | 'PATCH', url: string, payload: unknown): Promise<unknown> {
   if (!app) throw new ActionError('automations are not running in this process')
   return withRunToken(user, async (token) => {
@@ -244,9 +257,7 @@ async function runJob(r: Claimed): Promise<void> {
   if (!matchesViewFilter(props, fields, (rule.condition ?? null) as ViewFilter | null)) return
 
   if (!rule.createdBy) return record(rule, job, 'failed', { failedAction: 0, error: "the rule's author no longer has an account" })
-  const author = (
-    await db.select({ id: users.id, email: users.email, name: users.name, isAdmin: users.isAdmin, hasGrants: hasGrantsSql(users.id) }).from(users).where(eq(users.id, rule.createdBy)).limit(1)
-  )[0]
+  const author = await ruleAuthor(rule.createdBy)
   if (!author) return record(rule, job, 'failed', { failedAction: 0, error: "the rule's author no longer has an account" })
   const user: AuthUser = {
     id: author.id,

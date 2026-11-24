@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { and, count, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   changePasswordSchema,
   forgotPasswordSchema,
@@ -9,7 +9,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
 } from '@inkling/shared'
-import type { AuthModeDTO, AuthModeLimitsDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
+import { isTrialEmail, type AuthModeDTO, type AuthModeLimitsDTO, type SidebarPrefsDTO, type UserDTO } from '@inkling/shared'
 import {
   DELEGATED_EMAIL_SUFFIX,
   consumeResetCode,
@@ -53,6 +53,7 @@ import { AppError, conflict, forbidden } from '../errors'
 import { assertAccount, assertNotBanned, recordFailure, recordSuccess } from '../guard'
 import { generateInviteCodeColumns } from '../helpers'
 import { hashSignupKey } from '../secretsAtRest'
+import { ipPrefixKey } from '../ipPrefix'
 import { appOrigin, resetCodeMail, sendMail, verifyMail } from '../mail'
 import { enabledExperimentalFeatures } from '../features'
 import { z } from 'zod'
@@ -94,10 +95,18 @@ function isUniqueViolation(err: unknown): boolean {
   return e?.code === '23505' || e?.cause?.code === '23505'
 }
 
-// Auth endpoints get a strict per-IP limit (10/min) against brute force and spam.
-const strictRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+// Auth endpoints get a strict per-IP limit (10/min) against brute force and spam. Keyed by the address
+// only (IPv6 as its /64): the global key gives any `Bearer ink_pat_…` header a bucket of its own
+// (rateLimitKey.ts), and these routes never check a bearer, so a made-up one per request would never
+// run out (docs/adr/2555-*).
+const byAddress = (req: FastifyRequest) => 'auth-' + ipPrefixKey(req.ip, 64)
+const strictRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: byAddress } } }
 // Public endpoints that trigger mail are stricter still.
-const mailRateLimit = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }
+const mailRateLimit = { config: { rateLimit: { max: 5, timeWindow: '1 minute', keyGenerator: byAddress } } }
+// The same numbers for routes a signed-in person uses: the global key (per token, else per address),
+// so people behind one NAT do not share one bucket.
+const strictRateLimitSignedIn = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+const mailRateLimitSignedIn = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }
 
 /** Outcome of a delegated login */
 type DelegatedResult = 'ok' | 'invalid' | 'totp' | 'rate_limited' | 'unavailable'
@@ -222,7 +231,8 @@ async function restrictedAuthMode(): Promise<Partial<AuthModeDTO>> {
   const out: Partial<AuthModeDTO> = {}
   if (limits.loginIdMode === 'username') out.loginId = 'username'
   if (limits.signupMaxUsers !== null) {
-    const [c] = await db.select({ n: count() }).from(users)
+    // trial accounts do not count toward SIGNUP_MAX_USERS (docs/adr/2555-*)
+    const [c] = await db.select({ n: count() }).from(users).where(eq(users.trial, false))
     if ((c?.n ?? 0) >= limits.signupMaxUsers) out.signupFull = true
   }
   if (limits.instanceLabel !== null) out.instanceLabel = limits.instanceLabel
@@ -282,8 +292,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const body = parseRegisterBody(req.body)
     const email = body.email.trim().toLowerCase()
 
-    // Self-signup cannot take the namespace reserved for delegated-account mirrors.
-    if (isDelegatedEmail(email)) {
+    // Self-signup cannot take the namespace reserved for delegated-account mirrors, nor the trial
+    // accounts' reserved domain (docs/adr/2555-*; an ID in LOGIN_ID_MODE=username has no '@' at all).
+    if (isDelegatedEmail(email) || isTrialEmail(email)) {
       throw new AppError(400, 'EMAIL_RESERVED', 'This email domain is not allowed')
     }
 
@@ -437,6 +448,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await recordFailure(req, 'login', acct)
       return invalid()
     }
+    // Trial accounts never sign in with a password (nobody knows theirs; docs/adr/2555-*).
+    if (isTrialEmail(identifier)) throw await fail()
     const cols = {
       id: users.id,
       email: users.email,
@@ -616,6 +629,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         locale: users.locale,
         sidebarPrefs: users.sidebarPrefs,
         expiresAt: users.expiresAt,
+        trial: users.trial,
       })
       .from(users)
       .where(eq(users.id, user.id))
@@ -639,7 +653,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     // Restricted mode (docs/adr/2500-*): when the account will be deleted (ACCOUNT_LIFETIME_DAYS).
     // Only accounts created while the setting was on have a date; the field is absent otherwise.
-    if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
+    // A trial account (docs/adr/2555-*) has its own field instead, so the account-lifetime notice
+    // does not show beside the trial badge.
+    if (extra?.expiresAt && extra.trial) out.trial = { expiresAt: extra.expiresAt.toISOString() }
+    else if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
     // Fields the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*); none = nothing.
     Object.assign(out, await meExtraFields(user))
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
@@ -684,6 +701,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await recordFailure(req, 'reset', email)
       return invalid()
     }
+    // A trial account has no password to reset (docs/adr/2555-*).
+    if (isTrialEmail(email)) throw await fail()
 
     const [u] = await db
       .select({ id: users.id, origin: users.origin, signupKey: users.signupKey })
@@ -728,6 +747,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // Input without '@' is treated as a delegated account ID
     const email = raw.includes('@') ? raw : `${raw}${DELEGATED_EMAIL_SUFFIX}`
     const accepted = { ok: true }
+    // Trial accounts: no mail to the reserved domain and nothing in the admin queue (docs/adr/2555-*).
+    if (isTrialEmail(email)) return accepted
 
     const [u] = await db
       .select({
@@ -779,7 +800,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   /** Settings: change your own password. Keeps the current session and signs out the others. */
   app.post(
     '/auth/change-password',
-    { preHandler: requireUser, ...strictRateLimit },
+    { preHandler: requireUser, ...strictRateLimitSignedIn },
     async (req) => {
       if (req.authVia !== 'cookie') throw forbidden('Can only be changed from a browser sign-in')
       const me = getUser(req)
@@ -826,7 +847,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    * Resend the verification mail: for the signed-in account (cookie), or by email + password when
    * sign-in is blocked. One mail per minute.
    */
-  app.post('/auth/verify-email/send', mailRateLimit, async (req) => {
+  app.post('/auth/verify-email/send', mailRateLimitSignedIn, async (req) => {
     if (!mailEnabled) throw new AppError(501, 'MAIL_DISABLED', 'Mail is not configured')
     const body = resendVerificationSchema.parse(req.body ?? {})
 

@@ -39,6 +39,7 @@
 |---|---|---|---|
 | GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }`(인증 필요 없음). `defaultLocale: 'en' \| 'ko' \| null`은 운영자가 `DEFAULT_LOCALE`을 설정했을 때만 값이 있습니다(아니면 `null`이고, 브라우저 언어로 정합니다). 제한 모드(0.22)는 설정이 켜진 것마다 선택 필드를 더합니다: [v0.22.0 additions](#v0220-additions) |
 | POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. 이메일은 소문자로 정규화합니다. 중복 → 409 `EMAIL_TAKEN`. 가입하면 사용자 이름을 딴 개인 워크스페이스가 자동으로 생깁니다(사용자가 소유자이고, 이름은 [요청 로케일](#localization)을 따릅니다). 아직 관리자가 없으면 이 사용자가 관리자가 됩니다(부트스트랩). 메일이 켜져 있으면 → 인증 메일을 보냅니다. 인증 강제 모드에서는 세션을 만들지 않고 `{ user, verificationRequired: true, mailSent }`를 돌려줍니다. 위임 도메인의 이메일 → 400 `EMAIL_RESERVED`. 가입 키가 틀리면 → 403 `INVALID_SIGNUP_KEY`. 제한 모드(0.22): `email` 대신 `loginId`, 동의와 봇 검사 필드, 새 오류([v0.22.0 additions](#v0220-additions)). |
+| POST | `/api/auth/trial` | `{ formMs, website?, legalVersion? }` | 체험 계정(`TRIAL_ACCOUNTS=1`, docs/adr/2555-*): `{ user, workspaceId, samplePageId }` + Set-Cookie. 예약 도메인 `@trial.invalid`의 계정을 아무도 모르는 비밀번호로 만들고, 워크스페이스(초대 링크 꺼짐)와, 온보딩이 켜져 있으면 샘플 페이지를 만듭니다. 관리자가 되지 않습니다. 꺼짐 → 404 `TRIAL_OFF`, 유효한 세션 쿠키가 이미 있음 → 409 `ALREADY_SIGNED_IN`, 관리자 없음 → 403 `SETUP_REQUIRED`, `signup.json`에 체크 항목 있음 → 403 `TRIAL_NEEDS_CONSENT`, 자리 없음 → 403 `TRIAL_FULL`. 봇 검사는 언제나 합니다(`website`는 비어야 하고 `formMs` ≥ 2000, 아니면 400 `SIGNUP_CHECK_FAILED`). 429 `SIGNUP_IP_LIMIT`(`TRIAL_PER_IP_PER_DAY`), `SIGNUP_RATE_LIMIT`(`SIGNUP_PER_HOUR`, 체험 계정은 따로 셈). 주소마다 분당 10번. 체크 항목 없이 문서만 있으면 현재 `legalVersion`이 있어야 합니다(400 `CONSENT_REQUIRED`). |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. 실패 → 401 `INVALID_CREDENTIALS`(이메일이 있는지 절대 드러내지 않고, 메시지도 같습니다). 인증 강제 모드에서 이메일 인증을 하지 않은 계정(비밀번호가 맞을 때만) → 403 `EMAIL_NOT_VERIFIED`. 관리자가 없으면 부트스트랩 승격이 적용됩니다. |
 | POST | `/api/auth/login/totp` | `{ challenge, code }` | 2단계 인증을 켠 계정의 두 번째 단계입니다. 이런 계정에서는 `POST /api/auth/login`이 쿠키 없이 `200 { totpRequired: true, challenge }`를 돌려줍니다. `code`는 앱의 6자리 코드나 복구 코드입니다. `{ user: UserDTO, recoveryCodeUsed }` + Set-Cookie. 401 `INVALID_TOTP_CODE` / `TOTP_CODE_REUSED` / `TOTP_CHALLENGE_EXPIRED`(5분이 지나거나 5번 실패). 분당 10회(docs/adr/1061-*) |
 | GET | `/api/auth/2fa` | - | `{ enabled, pending, recoveryCodesLeft, available }`. 브라우저 세션, 로컬 계정만 됩니다(다른 `/auth/2fa*` 라우트도 마찬가지입니다). |
@@ -59,6 +60,16 @@
 - 무차별 대입 방어: 위 인증 라우트, MCP OAuth, 공개 공유 토큰에서 생긴 실패를 IP마다 셉니다. 한도를 넘으면 →
   429 `RATE_LIMITED` + `Retry-After`(문구는 모두 같습니다). 계정 단위로는 지연(backoff)만 있고 잠금은 없습니다. 전체 정책은
   deploy/DEPLOY.md 3-F에 있습니다.
+- 체험 계정(0.23, docs/adr/2555-*): `TRIAL_ACCOUNTS=1`인 동안 `GET /api/auth/mode`에 `trial: { available, reason?: 'full' |
+  'consent' | 'setup', hours }`가 붙습니다. 체험 계정의 `GET /api/auth/me`에는 `user.trial: { expiresAt }`가 붙고
+  `expiresAt`은 빠집니다. 가입, 로그인, 비밀번호 초기화는 `@trial.invalid` 도메인을 거절합니다(400 `EMAIL_RESERVED`,
+  401 `INVALID_CREDENTIALS`, 400 `INVALID_RESET`). `forgot-password`는 이 도메인에 아무것도 하지 않습니다. 체험 계정은
+  `TRIAL_RESTRICTED_ROUTES`(`apps/server/src/account/trial.ts`: 공유 링크, 폼 링크, iCal 피드, Notion 게시, 참여, 초대와
+  구성원, 웹훅, Slack, `POST /api/workspaces`, 비밀번호, 2단계 설정, OIDC 연결)의 라우트와 `inviteLinkEnabled: true`를 보낸
+  `PATCH /api/workspaces/:id/settings`에서 403 `TRIAL_RESTRICTED`를 받습니다. API 토큰과 MCP 도구도 같습니다.
+  `SIGNUP_MAX_USERS`, `LIMIT_WORKSPACES_TOTAL`, `signupFull`은 체험 계정을 세지 않고, `SIGNUP_PER_HOUR`는 따로 셉니다.
+  `expiresAt`이 지난 체험 계정의 세션, API 토큰, MCP grant는 지워지기 전에도 401을 받습니다. 체험 계정의 브라우저 세션에서
+  `DELETE /api/me`는 `confirm`만 있으면 됩니다(`GET /api/me/delete-preview`의 `needs`가 모두 false).
 
 <a id="sidebar-menus-per-user-docsadr1020-"></a>
 ## 사이드바 메뉴(사용자별, docs/adr/1020-*)

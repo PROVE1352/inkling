@@ -1,5 +1,5 @@
 import { hash, verify } from '@node-rs/argon2'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
 import { runAsAgent, runAsConnection } from './agentAccess'
 import { db } from './db/index'
@@ -159,7 +159,8 @@ export async function getSessionUser(token: string): Promise<AuthUser | null> {
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(inArray(sessions.token, keys))
+    // a trial account past its time is signed out at once, before the hourly job deletes it (docs/adr/2555-*)
+    .where(and(inArray(sessions.token, keys), sql`(NOT ${users.trial} OR ${users.expiresAt} IS NULL OR ${users.expiresAt} >= now())`))
     .limit(1)
 
   const row = rows[0]

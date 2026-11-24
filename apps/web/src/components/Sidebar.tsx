@@ -35,6 +35,7 @@ import { SIDEBAR_MENU_META, isSidebarMenuId } from './sidebarMenus'
 import { SidebarMenuPopup, useMenuContextTrigger, type MenuCtx } from './SidebarMenuContext'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { InstanceBadge } from './InstanceBadge'
+import { TrialBadge } from './TrialBadge'
 import { AccountExpiry } from './AccountExpiry'
 import { LegalSidebarLinks } from './legal/LegalLinks'
 import { PageTree } from './PageTree'
@@ -587,6 +588,7 @@ export function Sidebar({
         {/* restricted mode (docs/adr/2500-*): instance label and account expiry, nothing when not set */}
         <InstanceBadge placement="sidebar" />
         <AccountExpiry placement="sidebar" />
+        <TrialBadge />
       </div>
 
       {/* Top menus: order and visibility follow the person's saved choice (docs/adr/1020-*). Right-click

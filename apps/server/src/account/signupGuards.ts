@@ -26,6 +26,12 @@ import type { SignupContext, SignupHook, SignupUser } from '../signupHooks'
  *   bot checks              only while one of the limits above is set: the hidden `website` field must
  *                           be empty and the form must have been on screen for 2 s (`formMs`).
  *   ACCOUNT_LIFETIME_DAYS   on: expires_at = now() + N days, except for admins (user.isAdmin is final).
+ *
+ * Trial accounts (`ctx.trial`, docs/adr/2555-*) take their own branch: the bot checks always, their
+ * own per-address count (TRIAL_PER_IP_PER_DAY, rows `trial:<key>`), and SIGNUP_PER_HOUR counted over
+ * trial rows only (sign-up never counts them, and they never count sign-ups). They never count toward SIGNUP_MAX_USERS (nor are
+ * they refused by it: TRIAL_MAX_ACCOUNTS is their cap, account/trial.ts), and their lifetime is
+ * TRIAL_LIFETIME_HOURS, set when the row is made, never ACCOUNT_LIFETIME_DAYS.
  */
 
 /** Advisory lock key of the account cap (a different key from the admin lock, always taken after it). */
@@ -44,8 +50,9 @@ const ipLimit = () => new AppError(429, 'SIGNUP_IP_LIMIT', 'Too many accounts we
 const rateLimit = () => new AppError(429, 'SIGNUP_RATE_LIMIT', 'This server has taken as many new accounts as it allows for now. Try again in an hour.')
 const botCheck = () => new AppError(400, 'SIGNUP_CHECK_FAILED', 'Please wait a moment and send the form again')
 
+/** Accounts that count toward SIGNUP_MAX_USERS: every one but trial accounts. */
 async function userCount(exec: Pick<Tx, 'execute'>): Promise<number> {
-  const [r] = (await exec.execute(sql`SELECT count(*)::int AS n FROM users`)) as unknown as { n: number }[]
+  const [r] = (await exec.execute(sql`SELECT count(*)::int AS n FROM users WHERE NOT trial`)) as unknown as { n: number }[]
   return Number(r?.n ?? 0)
 }
 
@@ -56,12 +63,18 @@ async function ipCount(exec: Pick<Tx, 'execute'>, ip: string): Promise<number> {
   return Number(r?.n ?? 0)
 }
 
-/** Sign-ups of the whole server in the last hour (taken-ID records are not sign-ups). */
-async function hourCount(exec: Pick<Tx, 'execute'>): Promise<number> {
-  const [r] = (await exec.execute(sql`
-    SELECT count(*)::int AS n FROM signup_events
-     WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%'
-  `)) as unknown as { n: number }[]
+/**
+ * Sign-ups of the whole server in the last hour (taken-ID records are not sign-ups), or with `trial`
+ * the trial accounts made in it: SIGNUP_PER_HOUR applies to each on its own, so trials never use up
+ * the hour of real sign-ups and the other way round (docs/adr/2555-*).
+ */
+async function hourCount(exec: Pick<Tx, 'execute'>, trial = false): Promise<number> {
+  const [r] = (await exec.execute(
+    trial
+      ? sql`SELECT count(*)::int AS n FROM signup_events WHERE created_at > now() - interval '1 hour' AND ip LIKE 'trial:%'`
+      : sql`SELECT count(*)::int AS n FROM signup_events
+             WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%' AND ip NOT LIKE 'trial:%'`,
+  )) as unknown as { n: number }[]
   return Number(r?.n ?? 0)
 }
 
@@ -69,15 +82,45 @@ const takenKey = (ip: string) => `taken:${signupIpKey(ip)}`
 /** The taken-ID count is kept while the per-IP limit is on (it needs the real client address too). */
 const takenCountOn = () => limits.signupPerIpPerDay !== null
 
+/** The hidden field must be empty and the form must have been on screen for MIN_FORM_MS. */
+export function assertBotChecks(rawBody: unknown): void {
+  const raw = (rawBody && typeof rawBody === 'object' ? rawBody : {}) as Record<string, unknown>
+  if (typeof raw.website === 'string' && raw.website.trim() !== '') throw botCheck()
+  const ms = typeof raw.formMs === 'number' ? raw.formMs : null
+  if (ms === null || !Number.isFinite(ms) || ms < MIN_FORM_MS) throw botCheck()
+}
+
+/** `signup_events.ip` of a trial account: apart from sign-ups, so the two daily counts do not mix. */
+export const trialIpKey = (ip: string) => `trial:${signupIpKey(ip)}`
+
+async function beforeTrial(ctx: SignupContext): Promise<void> {
+  const trial = limits.trial
+  // the route answers 404 before this while the setting is off; a hook never makes a trial without it
+  if (!trial) throw new AppError(404, 'TRIAL_OFF', 'This server has no trial accounts')
+  assertBotChecks(ctx.rawBody)
+  if ((await ipCount(db, trialIpKey(ctx.ip))) >= trial.perIpPerDay) throw ipLimit()
+  if (limits.signupPerHour !== undefined && (await hourCount(db, true)) >= limits.signupPerHour) throw rateLimit()
+}
+
+async function onTrial(tx: Tx, ctx: SignupContext): Promise<void> {
+  const trial = limits.trial
+  if (!trial) throw new AppError(404, 'TRIAL_OFF', 'This server has no trial accounts')
+  const key = trialIpKey(ctx.ip)
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'signup-ip:' + key}))`)
+  if ((await ipCount(tx, key)) >= trial.perIpPerDay) throw ipLimit()
+  if (limits.signupPerHour !== undefined) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${SIGNUP_RATE_LOCK})`)
+    if ((await hourCount(tx, true)) >= limits.signupPerHour) throw rateLimit()
+  }
+  // always recorded: the per-address count needs it whatever the sign-up settings are
+  await tx.execute(sql`INSERT INTO signup_events (ip) VALUES (${key})`)
+}
+
 export async function beforeSignup(ctx: SignupContext): Promise<void> {
+  if (ctx.trial) return beforeTrial(ctx)
   if (!signupChecksOn()) return
   noteSignupAddress(ctx.ip, (m) => ctx.req.log.warn(m))
-  const raw = (ctx.rawBody && typeof ctx.rawBody === 'object' ? ctx.rawBody : {}) as Record<string, unknown>
-  if (!ctx.setupCode) {
-    if (typeof raw.website === 'string' && raw.website.trim() !== '') throw botCheck()
-    const ms = typeof raw.formMs === 'number' ? raw.formMs : null
-    if (ms === null || !Number.isFinite(ms) || ms < MIN_FORM_MS) throw botCheck()
-  }
+  if (!ctx.setupCode) assertBotChecks(ctx.rawBody)
   if (limits.signupMaxUsers !== null && !ctx.setupCode && (await userCount(db)) >= limits.signupMaxUsers) throw full()
   if (limits.signupPerIpPerDay !== null && !ctx.setupCode && (await ipCount(db, signupIpKey(ctx.ip))) >= limits.signupPerIpPerDay) throw ipLimit()
   // before the account insert can answer "taken": a prober learns nothing more once refused
@@ -86,6 +129,7 @@ export async function beforeSignup(ctx: SignupContext): Promise<void> {
 }
 
 export async function onSignup(tx: Tx, user: SignupUser, ctx: SignupContext): Promise<void> {
+  if (ctx.trial) return onTrial(tx, ctx)
   if (limits.signupMaxUsers !== null && !ctx.setupCode) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${SIGNUP_CAP_LOCK})`)
     // the new row is counted (same transaction); committed rows of other sign-ups too (read committed)
@@ -129,9 +173,9 @@ export async function noteTakenSignup(ctx: SignupContext): Promise<void> {
  * carries. Returns the boot warning, or null.
  */
 export function proxyWarning(): string | null {
-  if (limits.signupPerIpPerDay === null) return null
+  if (limits.signupPerIpPerDay === null && limits.trial === undefined) return null
   if (env.trustProxy === false) {
-    return '[inkling] SIGNUP_PER_IP_PER_DAY is set but TRUST_PROXY is off: behind a reverse proxy every sign-up has the proxy\'s address and shares one daily count. Set TRUST_PROXY to the proxy\'s address (the default loopback,uniquelocal covers Caddy on the same host or the Docker network).'
+    return '[inkling] SIGNUP_PER_IP_PER_DAY or TRIAL_ACCOUNTS is set but TRUST_PROXY is off: behind a reverse proxy every sign-up has the proxy\'s address and shares one daily count. Set TRUST_PROXY to the proxy\'s address (the default loopback,uniquelocal covers Caddy on the same host or the Docker network).'
   }
   return null
 }

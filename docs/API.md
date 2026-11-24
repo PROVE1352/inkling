@@ -36,6 +36,7 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 |---|---|---|---|
 | GET | `/api/auth/mode` | - | `AuthModeDTO` `{ delegated, delegatedName, delegatedEmailDomain, signupKeyRequired, mailEnabled, emailVerificationRequired, defaultLocale }` (no auth required). `defaultLocale: 'en' \| 'ko' \| null` is set only when the operator configured `DEFAULT_LOCALE` (otherwise `null`, and the browser language decides). Restricted mode (0.22) adds optional fields, each only when its setting is on: [v0.22.0 additions](#v0220-additions) |
 | POST | `/api/auth/register` | `registerSchema` | `{ user: UserDTO }` + Set-Cookie. Email is normalized to lowercase. Duplicate → 409 `EMAIL_TAKEN`. Sign-up automatically creates a personal workspace named after the user (the user is its owner; name in the [request locale](#localization)). If there are no admins yet, this user becomes the admin (bootstrap). Mail enabled → a verification email is sent. In enforced-verification mode there is no session: `{ user, verificationRequired: true, mailSent }`. Email in the delegated domain → 400 `EMAIL_RESERVED`. Bad sign-up key → 403 `INVALID_SIGNUP_KEY`. Restricted mode (0.22): `loginId` instead of `email`, consent and bot-check fields, new errors ([v0.22.0 additions](#v0220-additions)). |
+| POST | `/api/auth/trial` | `{ formMs, website?, legalVersion? }` | Trial account (`TRIAL_ACCOUNTS=1`, docs/adr/2555-*): `{ user, workspaceId, samplePageId }` + Set-Cookie. Makes an account in the reserved domain `@trial.invalid` with no known password, its workspace (invite link off) and, with onboarding on, the sample page; never an admin. Off → 404 `TRIAL_OFF`; a valid session cookie already → 409 `ALREADY_SIGNED_IN`; no admin → 403 `SETUP_REQUIRED`; `signup.json` with tick boxes → 403 `TRIAL_NEEDS_CONSENT`; seats taken → 403 `TRIAL_FULL`; bot checks always (`website` empty, `formMs` ≥ 2000, else 400 `SIGNUP_CHECK_FAILED`); 429 `SIGNUP_IP_LIMIT` (`TRIAL_PER_IP_PER_DAY`) and `SIGNUP_RATE_LIMIT` (`SIGNUP_PER_HOUR`, trial accounts counted apart); 10 a minute per address; with documents but no tick boxes the current `legalVersion` is required (400 `CONSENT_REQUIRED`). |
 | POST | `/api/auth/login` | `loginSchema` | `{ user: UserDTO }` + Set-Cookie. Failure → 401 `INVALID_CREDENTIALS` (never reveal whether the email exists; same message). Unverified account in enforced-verification mode (only when the password is correct) → 403 `EMAIL_NOT_VERIFIED`. If there are no admins, bootstrap promotion applies. |
 | POST | `/api/auth/login/totp` | `{ challenge, code }` | Second step for accounts with two-step verification: `POST /api/auth/login` then returns `200 { totpRequired: true, challenge }` without a cookie. `code` is a 6-digit app code or a recovery code. `{ user: UserDTO, recoveryCodeUsed }` + Set-Cookie. 401 `INVALID_TOTP_CODE` / `TOTP_CODE_REUSED` / `TOTP_CHALLENGE_EXPIRED` (5 minutes or 5 failures). 10/min (docs/adr/1061-*) |
 | GET | `/api/auth/2fa` | - | `{ enabled, pending, recoveryCodesLeft, available }`. Browser session, local accounts only (also for the other `/auth/2fa*` routes). |
@@ -56,6 +57,17 @@ Request validation schemas and DTO types are defined in `@inkling/shared` (packa
 - Brute-force protection: failures on the auth routes above, MCP OAuth and public share tokens are counted per IP; over the limit →
   429 `RATE_LIMITED` + `Retry-After` (uniform wording). Per account there is only backoff (no lockout). Full policy:
   deploy/DEPLOY.md 3-F.
+- Trial accounts (0.23, docs/adr/2555-*): `GET /api/auth/mode` adds `trial: { available, reason?: 'full' | 'consent' |
+  'setup', hours }` only while `TRIAL_ACCOUNTS=1`; `GET /api/auth/me` adds `user.trial: { expiresAt }` for a trial
+  account (and leaves out `expiresAt`). Sign-up, sign-in and password reset refuse the domain `@trial.invalid`
+  (400 `EMAIL_RESERVED`, 401 `INVALID_CREDENTIALS`, 400 `INVALID_RESET`); `forgot-password` does nothing for it. A trial
+  account gets 403 `TRIAL_RESTRICTED` from the routes in `TRIAL_RESTRICTED_ROUTES` (`apps/server/src/account/trial.ts`:
+  share links, form links, the iCal feed, Notion publishing, joining, invites and members, webhooks, Slack, `POST
+  /api/workspaces`, password, two-step setup, OIDC linking) and from `PATCH /api/workspaces/:id/settings` with
+  `inviteLinkEnabled: true`, also through API tokens and MCP tools. `SIGNUP_MAX_USERS`, `LIMIT_WORKSPACES_TOTAL` and
+  `signupFull` do not count trial accounts, and `SIGNUP_PER_HOUR` counts them apart. Past its `expiresAt` a trial
+  account's session, API tokens and MCP grants answer 401 before it is deleted. `DELETE /api/me` from a trial
+  account's browser session needs only `confirm` (`GET /api/me/delete-preview` answers `needs` all false).
 
 ## Sidebar menus (per user, docs/adr/1020-*)
 

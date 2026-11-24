@@ -276,6 +276,29 @@ export interface AuthModeDTO {
    * exporting and deleting work. Absent otherwise.
    */
   instanceFull?: true
+  /**
+   * TRIAL_ACCOUNTS (docs/adr/2555-*): the "Try without an account" button. Absent while the setting is
+   * off. `available: false` hides the button; `reason` says why (`full`: every trial seat is taken,
+   * `consent`: the sign-up texts have tick boxes, `setup`: the server has no admin yet). `hours` is
+   * TRIAL_LIFETIME_HOURS.
+   */
+  trial?: TrialModeDTO
+}
+
+export interface TrialModeDTO {
+  available: boolean
+  reason?: 'full' | 'consent' | 'setup'
+  hours: number
+}
+
+/**
+ * Trial accounts (docs/adr/2555-*) have an address in this reserved domain (RFC 2606 `.invalid`):
+ * nobody can sign up with it, sign in with it, reset its password, or get mail at it.
+ */
+export const TRIAL_EMAIL_SUFFIX = '@trial.invalid'
+
+export function isTrialEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(TRIAL_EMAIL_SUFFIX)
 }
 
 export const createWorkspaceSchema = z.object({
@@ -399,6 +422,8 @@ export interface UserDTO {
   expiresAt?: string
   /** /auth/me only, restricted mode: the person has not consented to the current documents (LEGAL_DIR). */
   consentRequired?: true
+  /** /auth/me only: a trial account (TRIAL_ACCOUNTS, docs/adr/2555-*) and when it is deleted (ISO). Absent otherwise. */
+  trial?: { expiresAt: string }
 }
 
 /** owner > admin > member (docs/adr/0945-*). */

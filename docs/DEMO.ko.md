@@ -180,6 +180,8 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `SIGNUP_PER_HOUR` | `10` | 서버 전체에서 한 시간에 만들 수 있는 계정 수(설정 링크로 만든 계정은 세지 않음) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을 등록 후 이 시간이 지나면 삭제 |
 | `OAUTH_UNUSED_CLIENT_MAX` | `500` | 한 번도 쓰이지 않은 OAuth 클라이언트를 남기는 최대 수. 새 등록이 가장 오래된 것부터 지움(15분이 안 된 것은 지우지 않음) |
+| `TRIAL_ACCOUNTS` | `0` | `1`이면 로그인·가입 화면에 "가입 없이 둘러보기"가 나옴(OPERATIONS.md "체험 계정"). `signup.json`에 필수 체크 항목이 있으면 버튼이 나오지 않음 |
+| `TRIAL_LIFETIME_HOURS`, `TRIAL_MAX_ACCOUNTS`, `TRIAL_PER_IP_PER_DAY` | `24`, `30`, `3` | 체험 계정이 사는 시간, 동시에 있을 수 있는 체험 계정 수, 한 주소가 하루에 만드는 체험 계정 수 |
 | `DEMO_PORT` | `127.0.0.1:3100` | 데모의 호스트 포트(3000은 안 됨) |
 | `DEMO_IMAGE` | `inkling-demo:local` | 데모 전용 이미지 이름. 운영의 이름은 안 됨(1단계) |
 | `DEMO_VOLUME_ROOT` | 0단계의 파일시스템 | 절대 경로. 데모의 볼륨 네 개가 이 안의 폴더 |

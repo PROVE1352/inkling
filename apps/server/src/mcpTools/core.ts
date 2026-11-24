@@ -160,6 +160,16 @@ export function restrictedModeHint(code: string, e: { limit?: unknown; used?: un
   }
 }
 
+/** A write whose JSON body is over the request limit (0.24.1): bytes, not characters. */
+export function bodyTooLargeMessage(bytes: number, limit: number): string {
+  const mib = (n: number) => `${Math.round((n / 1_048_576) * 100) / 100} MiB`
+  return (
+    `Request too large (PAYLOAD_TOO_LARGE): ${mib(bytes)} of UTF-8 JSON; this server takes at most ${mib(limit)} (${limit} bytes) ` +
+    `per request. Text is counted in bytes (Korean is 3 bytes a character: about ${Math.floor(limit / 3 / 1000) * 1000} characters). ` +
+    'Nothing was written. Split it: put parts into child pages (create_page with parentId) or append them in several calls'
+  )
+}
+
 /** Call an existing REST route as the token user; 4xx/5xx become a ToolError carrying the server message */
 export async function call(
   ctx: ToolCtx,
@@ -196,6 +206,11 @@ export async function call(
       if (body?.error?.message) message = `${body.error.message} (${body.error.code ?? res.statusCode})`
     } catch {
       // Body is not JSON: keep the default message
+    }
+    // A JSON body over the route's limit (0.24.1): Fastify's 413, which the root handler words as
+    // the 25 MB file limit. Say the real limit in bytes and what to do instead.
+    if (res.statusCode === 413 && opts.json !== undefined && (!code || code === 'PAYLOAD_TOO_LARGE' || code === 'VALIDATION')) {
+      throw new ToolError(bodyTooLargeMessage(Buffer.byteLength(payload ?? ''), ctx.app.initialConfig.bodyLimit ?? 1_048_576))
     }
     // Error codes first (more specific than the status), then the status.
     const hint =

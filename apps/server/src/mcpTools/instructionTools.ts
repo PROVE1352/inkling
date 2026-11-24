@@ -1,6 +1,8 @@
 import type { InstructionBundle } from '../agentInstructions'
 import { instructionLengthNote } from '../instructionLength'
-import { call, text, wrap, idArg } from './core'
+import { findVisiblePage } from '../pageDto'
+import { runAsConnection } from './agentContext'
+import { call, text, ToolError, wrap, idArg } from './core'
 import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY } from './idArgs'
 import { shortId } from './shortIds'
 import type { McpServer, ToolCtx } from './core'
@@ -66,6 +68,19 @@ export function registerInstructionTools(server: McpServer, ctx: ToolCtx): void 
       // docs/adr/1943-*: only which workspace is inferred; the bundle route still decides what counts
       // as an instruction (locked, designated pages), exactly as before.
       const workspaceId = await inferWorkspace(ctx, wsRef, forPageId)
+      // Both given (0.24.1): a page of another workspace is named as such, instead of the bundle
+      // route's 404 reading as "workspace not found". A page the caller cannot see gets the same
+      // words as a missing one.
+      if (wsRef && forPageId) {
+        const page = await runAsConnection(ctx, () => findVisiblePage(forPageId, ctx.user.id))
+        if (!page) throw new ToolError('forPageId: page not found or not visible to you; use find_context or list_pages to get a valid id')
+        if (page.workspaceId !== workspaceId) {
+          throw new ToolError(
+            `forPageId is not a page of workspace ${shortId(workspaceId)}: it is in workspace ${shortId(page.workspaceId)}. ` +
+              "Call get_instructions again without workspaceId (it defaults to the page's workspace) or with that workspace.",
+          )
+        }
+      }
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/agent-instructions/bundle`, {
         query: forPageId ? { forPageId } : undefined,
       })

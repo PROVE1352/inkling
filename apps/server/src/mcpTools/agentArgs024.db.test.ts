@@ -197,4 +197,62 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
       assert.match(wrong.text, /is not an inbox cursor\. Pass the value after "cursor:" on the last line of inbox \(like 91 or 91;ws=…\), or ids: the numbers at the start of inbox lines\. Nothing was acknowledged\./)
     }
   })
+  it('get_instructions: forPageId of another workspace is named as such; hidden and missing pages read alike', async () => {
+    const ws2 = await h.makeWorkspace(alice)
+    const bob = await h.makeUser('bob')
+    const bobWs = await h.makeWorkspace(bob)
+    const there = await h.makeDocPage(ws2.id, alice.id, 'Elsewhere', [] as never)
+    const hidden = await h.makeDocPage(bobWs.id, bob.id, 'Bob only', [] as never)
+    const other = await mcp.tool('get_instructions', { workspaceId: ws.id, forPageId: there.id })
+    assert.equal(other.isError, true)
+    assert.match(other.text, new RegExp(`forPageId is not a page of workspace ${ws.id.slice(0, 8)}: it is in workspace ${ws2.id.slice(0, 8)}\\. Call get_instructions again without workspaceId`))
+    const viaPage = await mcp.tool('get_instructions', { forPageId: there.id })
+    assert.equal(viaPage.isError, false, viaPage.text)
+    const a = await mcp.tool('get_instructions', { workspaceId: ws.id, forPageId: hidden.id })
+    const b = await mcp.tool('get_instructions', { workspaceId: ws.id, forPageId: '00000000-0000-4000-8000-000000000000' })
+    assert.equal(a.isError, true)
+    assert.equal(a.text, b.text)
+    assert.match(a.text, /^Error: forPageId: page not found or not visible to you;/)
+  })
+
+  it('update_page over the request limit names the limit in bytes and what to do', async () => {
+    const made = await mcp.tool('create_page', { workspaceId: ws.id, title: 'Big', markdown: 'start' })
+    const pageId = /([0-9a-f]{8}-[0-9a-f-]{27})/.exec(made.text)![1]
+    const big = '가나다라마바사아자차'.repeat(40_000) // 400k characters, 1.2 MB as UTF-8
+    const r = await mcp.tool('update_page', { pageId, mode: 'append', markdown: big })
+    assert.equal(r.isError, true)
+    assert.match(r.text, /Request too large \(PAYLOAD_TOO_LARGE\): 1\.\d+ MiB of UTF-8 JSON; this server takes at most 1 MiB \(1048576 bytes\) per request\. Text is counted in bytes \(Korean is 3 bytes a character: about 349000 characters\)\. Nothing was written\. Split it: put parts into child pages/)
+    assert.doesNotMatch(r.text, /25MB/)
+  })
+
+  it('POST /mcp: arguments that are not an object are invalid params (-32602); a body over the limit names it', async () => {
+    const Fastify = (await import('fastify')).default
+    const door = Fastify()
+    await door.register(async (root) => {
+      await (await import('../mcp')).registerMcpRoutes(root, app)
+    })
+    await door.ready()
+    try {
+      const token = await h.mintToken(alice)
+      const post = (payload: string) =>
+        door.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json' }, payload })
+      for (const args of ['[]', '["x"]', '"x"']) {
+        const r = await post(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_workspaces","arguments":${args}}}`)
+        assert.equal(r.statusCode, 200, r.body)
+        const body = r.json() as { id: number; error: { code: number; message: string } }
+        assert.equal(body.id, 7)
+        assert.equal(body.error.code, -32602)
+        assert.match(body.error.message, /^Invalid params: tools\/call arguments must be a JSON object/)
+      }
+      // an object (or none) still runs
+      const ok = await post('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}')
+      assert.equal(ok.statusCode, 200, ok.body)
+      assert.doesNotMatch(ok.body, /"error"/)
+      const big = await post(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"update_page","arguments":{"markdown":"${'x'.repeat(13 * 1024 * 1024)}"}}}`)
+      assert.equal(big.statusCode, 413)
+      assert.match(big.json().error.message, /^Request body is larger than \d+ MB, the most this server takes on \/mcp; nothing was done\. Send large content in several calls/)
+    } finally {
+      await door.close()
+    }
+  })
 })

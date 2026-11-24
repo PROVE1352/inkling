@@ -15,7 +15,7 @@ import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFa
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
 import { SERVER_VERSION } from './version'
-import { agentUploadEnv } from './agentUploads'
+import { agentUploadEnv, mbText } from './agentUploads'
 import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
 import { reviewFactsFor } from './review'
@@ -747,7 +747,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'if the page changed since, nothing is written; without it, a page a person edited last is refused. Changes show live to anyone viewing the page.',
       inputSchema: {
         pageId: idArg('page').describe('Page id (kind=doc)'),
-        markdown: z.string().max(1_000_000).describe('Markdown'),
+        markdown: z.string().max(1_000_000).describe('Markdown (at most 1 MiB as UTF-8)'),
         mode: z.enum(['append', 'replace']).describe('append = add to the end, replace = replace the whole body'),
         baseVersion: z.string().trim().max(64).optional().describe("replace: the version line of your read_page"),
       },
@@ -1019,6 +1019,18 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
     if (!profile) return reply.code(400).send(PROFILE_ERROR)
     await noteAgentConnected(user.id) // onboarding: the agent's first request, once (docs/adr/2390-*)
 
+    // tools/call with `arguments` that is not an object (an array, a string): the SDK's request
+    // schema would answer -32603 (internal error); it is the caller's invalid params (0.24.1).
+    const msg = req.body as { id?: unknown; method?: unknown; params?: { arguments?: unknown } } | undefined
+    const args = msg && !Array.isArray(msg) && msg.method === 'tools/call' ? msg.params?.arguments : undefined
+    if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
+      return reply.send({
+        jsonrpc: '2.0',
+        id: (msg as { id?: unknown }).id ?? null,
+        error: { code: -32602, message: 'Invalid params: tools/call arguments must be a JSON object of named arguments ({"name": value}), not an array or a single value. Nothing was run.' },
+      })
+    }
+
     const server = buildMcpServer({ app: rootApp, token, ip: req.ip, user, origin, canWrite: canWriteFromScopes(user.scope), profile })
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -1052,6 +1064,19 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
   await scope.register(async (inner) => {
     // value cap before JSON.parse (B-L10, docs/adr/1526-*); scoped so /oauth/* keep the default parser
     registerMcpJsonParser(inner)
+    // A body over the route's limit is cut off by Fastify before the parser: name this limit, not
+    // the 25 MB file limit the root handler states for uploads (0.24.1). Other errors go up as before.
+    inner.setErrorHandler((err, _req, reply) => {
+      if ((err as { code?: string }).code !== 'FST_ERR_CTP_BODY_TOO_LARGE') throw err
+      return reply.code(413).send({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message:
+            `Request body is larger than ${mbText(agentUploadEnv.mcpUploadBodyBytes)}, the most this server takes on /mcp; nothing was done. ` +
+            'Send large content in several calls (append in parts, or put parts into child pages with create_page)',
+        },
+      })
+    })
     const authFirst = async (req: FastifyRequest, reply: FastifyReply) => {
       const token = readBearer(req.headers.authorization)
       if (agentTokenBanMs(req, token) > 0) return agentTokenBanned(req, reply, token)

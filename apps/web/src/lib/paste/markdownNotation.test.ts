@@ -114,6 +114,22 @@ describe('paste: math nodes', () => {
     assert.deepEqual(out[1].children[0].content, [{ type: 'inlineMath', props: { latex: 'x' } }])
   })
 
+  it('a sentinel anywhere else (autolink href, image props) comes back as its source', () => {
+    const md = 'https://api.example.com/x?$filter=a&$select=b\n\n![그림 $x$](https://e.x/i.png)'
+    const prep = prepareMarkdownPaste(md)
+    const [k1, k2] = prep.markdown.match(/Iq[a-z]{12}I\d+Q/g)
+    const nonce = k1.slice(0, 14)
+    const href = `https://api.example.com/x?${k1}select=b`
+    const out = prep.restore([
+      { id: 'a', type: 'paragraph', content: [{ type: 'link', href, content: [{ type: 'text', text: href, styles: {} }] }], children: [] },
+      { id: 'i', type: 'image', props: { url: 'https://e.x/i.png', caption: '', name: `그림 ${k2}` }, children: [] },
+    ])
+    assert.ok(!JSON.stringify(out).includes(nonce))
+    assert.equal(out[0].content[0].href, 'https://api.example.com/x?$filter=a&$select=b')
+    assert.equal(out[0].content[0].content[0].text, 'https://api.example.com/x?$filter=a&$select=b')
+    assert.equal(out[1].props.name, '그림 $x$')
+  })
+
   it('the sentinel never collides with the pasted text', () => {
     const prep = prepareMarkdownPaste('$a$ Iqabc')
     assert.ok(!/Iq[a-z]{12}/.test('$a$ Iqabc'))

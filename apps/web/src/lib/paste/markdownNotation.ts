@@ -248,7 +248,21 @@ export function notationRestore(src: Sentinels, callouts: boolean): (blocks: Pas
     }
     return list
   }
-  return restore
+  // Last pass: a sentinel the parser put anywhere else (an autolink's href, an image's alt text in its
+  // props, …) gets its source text back, so no sentinel ever reaches the document.
+  const leftovers = (v: unknown): unknown => {
+    if (typeof v === 'string') return unsentinel(v)
+    if (Array.isArray(v)) {
+      for (let k = 0; k < v.length; k++) v[k] = leftovers(v[k])
+      return v
+    }
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>
+      for (const k of Object.keys(o)) o[k] = leftovers(o[k])
+    }
+    return v
+  }
+  return (blocks) => leftovers(restore(blocks)) as PasteBlock[]
 }
 
 /**

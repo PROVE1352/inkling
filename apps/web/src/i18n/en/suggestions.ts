@@ -1,7 +1,7 @@
 // Suggested edits from agents and section claims (docs/adr/1530-* .. 1536-*).
 export default {
-  'suggestions.notice': '{count} suggested edits from agents',
-  'suggestions.noticeOne': '1 suggested edit from an agent',
+  'suggestions.notice': '{count} suggested edits',
+  'suggestions.noticeOne': '1 suggested edit',
   'suggestions.review': 'Review',
   'suggestions.title': 'Suggested edits',
   'suggestions.empty': 'No open suggestions on this page.',

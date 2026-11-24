@@ -1,7 +1,7 @@
 // 에이전트가 제안한 편집과 섹션 예약 (docs/adr/1530-* .. 1536-*).
 export default {
-  'suggestions.notice': '에이전트가 제안한 편집 {count}개',
-  'suggestions.noticeOne': '에이전트가 제안한 편집 1개',
+  'suggestions.notice': '제안된 편집 {count}개',
+  'suggestions.noticeOne': '제안된 편집 1개',
   'suggestions.review': '검토',
   'suggestions.title': '제안된 편집',
   'suggestions.empty': '이 페이지에 열린 제안이 없습니다.',

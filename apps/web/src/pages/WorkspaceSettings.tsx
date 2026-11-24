@@ -74,6 +74,8 @@ import { LargePagesPanel } from '../components/LargePagesPanel'
 import { WorkspaceAvatar } from '../components/WorkspaceAvatar'
 import { DeletedWorkspacesList, WorkspaceDangerDialogs, type DangerAction } from '../components/WorkspaceDanger'
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, useT, type TKey } from '../i18n'
+import { useOnboarding } from '../onboarding/api'
+import { AI_CONNECT_PATH, samplePageOf } from '../onboarding/firstSteps'
 
 // Workspace settings (/w/:wsId/workspace-settings?tab=…) — docs/adr/0945-* .. 0952-*.
 // One screen for what used to be spread over the switcher menu and four modals. Tabs follow the
@@ -735,6 +737,8 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
   const onErr = (e: unknown) => setError(errText(e, t('wsSettings.saveFailed')))
   const connections = agents.data?.connections ?? []
   const blocks = agents.data?.blocks ?? []
+  // the viewer's sample page here, which carries the example agent's suggestions (docs/adr/2388-*)
+  const sample = samplePageOf(useOnboarding(), ws.id)
 
   return (
     <>
@@ -751,7 +755,24 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
               <Spinner size={18} />
             </div>
           ) : connections.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-sub">{t('agents.empty')}</p>
+            // what shows up here once a member connects an agent, and the way to connect one (docs/adr/2380-*)
+            <div className="flex flex-col gap-2 px-4 py-6 text-center text-sm text-sub" data-testid="ws-agents-empty">
+              <p>{t('agents.empty')}</p>
+              <p className="text-xs leading-relaxed">
+                {t('agents.emptyNext')}{' '}
+                <Link to={AI_CONNECT_PATH} className="text-accent hover:underline" data-testid="agents-empty-connect">
+                  {t('getStarted.item.ai')}
+                </Link>
+              </p>
+              {sample && (
+                <p className="text-xs leading-relaxed">
+                  {t('getStarted.sampleSuggestions')}{' '}
+                  <Link to={`/w/${ws.id}/p/${sample}`} className="text-accent hover:underline" data-testid="agents-empty-sample">
+                    {t('getStarted.sampleOpen')}
+                  </Link>
+                </p>
+              )}
+            </div>
           ) : (
             connections.map((c) => (
               <div key={c.grantId} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">

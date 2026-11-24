@@ -6,6 +6,7 @@ export default {
   'teamAgents.toggleSidebar': '사이드바 열고 닫기',
   'teamAgents.totals': '잡아 둔 섹션 {claims}개 · 기다리는 제안 {open}개 · 오늘 편집 {edits}건',
   'teamAgents.empty': '이 워크스페이스에 연결된 에이전트가 아직 없고, 오늘 한 일도 없습니다.',
+  'teamAgents.emptyNext': '에이전트를 연결하면 잡아 둔 섹션, 사람을 기다리는 제안, 오늘 한 편집이 여기 나옵니다.',
   'teamAgents.claims': '작업 중',
   'teamAgents.claimLeft': '{min}분 남음',
   'teamAgents.hiddenPage': '열 수 없는 페이지',

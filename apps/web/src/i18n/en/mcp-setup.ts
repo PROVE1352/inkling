@@ -41,6 +41,14 @@ export default {
   'mcpSetup.helpProfileChange':
     'Changing the tools changes the URL: remove the server from the app and add it again (Claude Code: claude mcp remove inkling).',
 
+  // The three lines around the command and the folded choices (docs/adr/2380-*)
+  'mcpSetup.why':
+    'Once connected, your agent reads only the sections a question needs and edits against the version it read. If someone changed it in between, the agent is told instead of overwriting.',
+  'mcpSetup.tryAsking': 'Then try asking: “List what is left to do on the sample page.”',
+  'mcpSetup.verifyOauth': 'Once it is connected, the app shows up under "{apps}" below.',
+  'mcpSetup.verifyToken': 'With a token, the token\'s last-used time under "{tokens}" below changes once the agent connects.',
+  'mcpSetup.otherOptions': 'Other options (tools, sign-in)',
+
   // Agent connection tokens (docs/adr/2060-*) and suggest-only connections in the lists (docs/adr/2042-*)
   'agentTokens.title': 'Agent connection tokens',
   'agentTokens.intro':

@@ -10,10 +10,12 @@ import { Spinner } from '../components/Spinner'
 import { FileTextIcon, MenuIcon, PlusIcon } from '../components/Icons'
 import { useT } from '../i18n'
 import { useIsGuest } from '../lib/useGuest'
-import { useOnboarding } from '../onboarding/api'
+import { useCreateSample, useOnboarding } from '../onboarding/api'
 import { Checklist } from '../onboarding/Checklist'
+import { homeOffersSample } from '../onboarding/firstSteps'
 
-// No page selected: empty state + New page button.
+// No page selected: empty state + New page button. A new account without a sample page here gets
+// "Make a sample page to try things on" as the main button and New page beside it (docs/adr/2380-*).
 export function WorkspaceHome() {
   const { wsId } = useParams()
   const navigate = useNavigate()
@@ -25,6 +27,17 @@ export function WorkspaceHome() {
   const guest = useIsGuest(wsId)
   // Getting started card for new accounts (docs/adr/2380-*)
   const onboarding = useOnboarding()
+  const offerSample = homeOffersSample(onboarding, wsId, guest)
+  const sample = useCreateSample()
+  const [sampleFailed, setSampleFailed] = useState(false)
+  const makeSample = () => {
+    if (!wsId) return
+    setSampleFailed(false)
+    sample.mutate(wsId, {
+      onSuccess: (r) => navigate(`/w/${wsId}/p/${r.pageId}`),
+      onError: () => setSampleFailed(true),
+    })
+  }
 
   // Setting "Page to open on launch: last" — jump to the last page only on first app entry (consumed once during render).
   // When Home is clicked again in the sidebar the entry is already consumed, so we stay on Home.
@@ -63,27 +76,55 @@ export function WorkspaceHome() {
         <div>
           <p className="text-base font-medium text-ink">{t('home.emptyTitle')}</p>
           <p className="mt-1 text-sm text-sub">
-            {t('home.emptyHint')}
+            {offerSample ? (
+              t('getStarted.homeSampleHint')
+            ) : (
+              <>
+                {/* the sidebar is not on screen below md: point at the menu button instead of "the left" */}
+                <span className="hidden md:inline">{t('home.emptyHint')}</span>
+                <span className="md:hidden">{t('getStarted.homeHintNarrow')}</span>
+              </>
+            )}
           </p>
         </div>
         {guest ? (
           <p className="text-sm text-sub">{t('guest.homeHint')}</p>
         ) : (
-        <button
-          type="button"
-          onClick={newPage}
-          disabled={isPending}
-          data-onboarding="new-page"
-          className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
-        >
-          {isPending ? (
-            <Spinner size={16} className="border-white/40 border-t-white" />
-          ) : (
-            <PlusIcon size={16} />
-          )}
-          {t('home.newPage')}
-        </button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {offerSample && (
+              <button
+                type="button"
+                onClick={makeSample}
+                disabled={sample.isPending}
+                title={t('getStarted.sampleHint')}
+                data-testid="home-sample-create"
+                className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60"
+              >
+                {sample.isPending && <Spinner size={16} className="border-white/40 border-t-white" />}
+                {t('getStarted.sampleCreate')}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={newPage}
+              disabled={isPending}
+              data-onboarding="new-page"
+              className={
+                offerSample
+                  ? 'flex items-center gap-2 rounded-md border border-line px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-hover disabled:opacity-60'
+                  : 'flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90 disabled:opacity-60'
+              }
+            >
+              {isPending ? (
+                <Spinner size={16} className={offerSample ? undefined : 'border-white/40 border-t-white'} />
+              ) : (
+                <PlusIcon size={16} />
+              )}
+              {t('home.newPage')}
+            </button>
+          </div>
         )}
+        {sampleFailed && <p className="text-xs text-red-600">{t('getStarted.sampleFailed')}</p>}
         {!guest && wsId && onboarding?.checklist.show && (
           <div className="mt-4 flex w-full justify-center">
             <Checklist wsId={wsId} dto={onboarding} variant="home" />

@@ -6,6 +6,7 @@ import { useT, type TKey } from '../i18n'
 import type { SidebarCardSize } from '../lib/sidebarMenu'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '../components/Icons'
 import { playIntro, useCreateSample, useUpdateOnboarding } from './api'
+import { AI_CONNECT_HINT_TARGET, AI_CONNECT_PATH } from './firstSteps'
 import { showHint } from './hint'
 
 // The "Getting started" card (docs/adr/2380-*): first steps that tick themselves as the person does
@@ -106,8 +107,9 @@ export function Checklist({
         hint(id, [`button[title="${label('members.copyInvite')}"]`, `[aria-label="${label('members.copyInvite')}"]`, `[aria-label="${label('page.shareToWeb')}"]`])
         break
       case 'ai':
-        navigate(`/w/${wsId}/settings#connections`)
-        hint(id, ['[data-pref="mcp"]'])
+        // straight to the app picker and the command to paste (not the Settings row that links there)
+        navigate(AI_CONNECT_PATH)
+        hint(id, [AI_CONNECT_HINT_TARGET])
         break
       case 'explore':
         hint(id, [`[aria-label="${label('tree.label')}"]`])

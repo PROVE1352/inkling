@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useT, type TKey } from '../i18n'
+import { mcpOptionsOpen } from '../onboarding/firstSteps'
 import {
   MCP_CLIENTS,
   MCP_PROFILES,
@@ -16,6 +17,9 @@ import {
 // and how it signs in; the box shows what to paste. Token sign-in uses an agent connection token (docs/adr/2060-*),
 // never a personal API token (401 at /mcp). A token appears in it only while the one just made on this screen is
 // still shown (the parent holds it in React state, never in storage or the URL).
+// The app picker comes first with its command right below it; the tool set and sign-in method, usually left at
+// their defaults, sit in an "Other options" fold. Around them: what connecting gives, a first question to ask and
+// where a working connection shows up.
 
 const CLIENT_LABEL: Record<McpClient, string> = {
   'claude-code': 'Claude Code',
@@ -41,6 +45,7 @@ export function McpSetup({
   secret,
   tokenAuthEnabled = MCP_TOKEN_AUTH_ENABLED,
   initial,
+  onCopied,
 }: {
   origin: string
   /** The agent connection token made on this screen a moment ago, while it is still shown; else null. */
@@ -48,6 +53,8 @@ export function McpSetup({
   tokenAuthEnabled?: boolean
   /** Initial choices (tests). */
   initial?: { client?: McpClient; profile?: McpProfile; auth?: McpAuth }
+  /** Called after the address or the command was copied (the getting-started "AI agent" item). */
+  onCopied?: () => void
 }) {
   const t = useT()
   const [client, setClient] = useState<McpClient>(initial?.client ?? 'claude-code')
@@ -55,9 +62,17 @@ export function McpSetup({
   const [authChoice, setAuth] = useState<McpAuth>(initial?.auth ?? (isAgentConnectionToken(secret) ? 'token' : 'oauth'))
   // A token was just made on this screen: show the settings that use it (the person can switch back to sign-in).
   const [seenSecret, setSeenSecret] = useState(secret)
+  // the fold with the tool set and sign-in method: open from the start only when a choice there is not the
+  // default; afterwards the person opens and closes it (a token made here opens it again)
+  const [optionsOpen, setOptionsOpen] = useState(() =>
+    mcpOptionsOpen(profile, tokenAuthEnabled ? authChoice : 'oauth'),
+  )
   if (secret !== seenSecret) {
     setSeenSecret(secret)
-    if (isAgentConnectionToken(secret)) setAuth('token')
+    if (isAgentConnectionToken(secret)) {
+      setAuth('token')
+      if (tokenAuthEnabled) setOptionsOpen(true)
+    }
   }
   const [copied, setCopied] = useState<'config' | 'url' | 'header' | null>(null)
   const auth: McpAuth = tokenAuthEnabled ? authChoice : 'oauth'
@@ -72,6 +87,7 @@ export function McpSetup({
       await navigator.clipboard.writeText(text)
       setCopied(which)
       setTimeout(() => setCopied(null), 1500)
+      if (which !== 'header') onCopied?.()
     } catch {
       // No clipboard permission: the text is selectable
     }
@@ -81,6 +97,9 @@ export function McpSetup({
   return (
     <section className="flex min-w-0 flex-col gap-3 rounded-lg border border-line p-4" data-testid="mcp-setup">
       <h2 className="text-sm font-semibold text-ink">{t('mcpSetup.title')}</h2>
+      <p className="text-xs leading-relaxed text-sub" data-testid="mcp-why">
+        {t('mcpSetup.why')}
+      </p>
 
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-xs text-sub">{t('connections.serverUrl')}</span>
@@ -98,61 +117,22 @@ export function McpSetup({
         </div>
       </div>
 
-      <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-ink">
-        <span className="shrink-0">{t('mcpSetup.client')}</span>
-        <select
-          value={client}
-          onChange={(e) => setClient(e.target.value as McpClient)}
-          className="min-w-0 flex-1 rounded border border-line bg-app px-1.5 py-1 text-xs text-ink"
-          data-testid="mcp-client"
-        >
-          {MCP_CLIENTS.map((c) => (
-            <option key={c} value={c}>
-              {clientLabel(c)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <fieldset className="flex min-w-0 flex-col gap-1.5">
-        <legend className="mb-1 text-xs font-medium text-ink">{t('mcpSetup.profile')}</legend>
-        <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
-          {MCP_PROFILES.map((p) => (
-            <label
-              key={p}
-              className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${profile === p ? 'border-accent' : 'border-line'}`}
-            >
-              <input type="radio" name="mcp-profile" className="mt-0.5" checked={profile === p} onChange={() => setProfile(p)} />
-              <span className="flex min-w-0 flex-col">
-                <span className="font-medium text-ink">{t(PROFILE_LABEL[p].name)}</span>
-                <span className="text-sub">{t(PROFILE_LABEL[p].hint)}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {tokenAuthEnabled && (
-        <fieldset className="flex min-w-0 flex-col gap-1.5" data-testid="mcp-auth">
-          <legend className="mb-1 text-xs font-medium text-ink">{t('mcpSetup.auth')}</legend>
-          <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
-            {(['oauth', 'token'] as const).map((a) => (
-              <label
-                key={a}
-                className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${authChoice === a ? 'border-accent' : 'border-line'}`}
-              >
-                <input type="radio" name="mcp-auth" className="mt-0.5" checked={authChoice === a} onChange={() => setAuth(a)} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="font-medium text-ink">{a === 'oauth' ? t('mcpSetup.authOauth') : t('mcpSetup.authToken')}</span>
-                  <span className="text-sub">{a === 'oauth' ? t('mcpSetup.authOauthHint') : t('mcpSetup.authTokenHint')}</span>
-                </span>
-              </label>
+      <div className="flex min-w-0 flex-col gap-1.5" data-onboarding="mcp-app">
+        <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-ink">
+          <span className="shrink-0">{t('mcpSetup.client')}</span>
+          <select
+            value={client}
+            onChange={(e) => setClient(e.target.value as McpClient)}
+            className="min-w-0 flex-1 rounded border border-line bg-app px-1.5 py-1 text-xs text-ink"
+            data-testid="mcp-client"
+          >
+            {MCP_CLIENTS.map((c) => (
+              <option key={c} value={c}>
+                {clientLabel(c)}
+              </option>
             ))}
-          </div>
-        </fieldset>
-      )}
-
-      <div className="flex min-w-0 flex-col gap-1.5">
+          </select>
+        </label>
         <p className="text-xs leading-relaxed text-sub" data-testid="mcp-steps">
           {t(client === 'claude-code' && auth === 'token' ? 'mcpSetup.steps.claudeCodeToken' : CLIENT_STEPS[client])}
         </p>
@@ -165,9 +145,10 @@ export function McpSetup({
             ))}
           </ul>
         )}
-        <div className="relative min-w-0">
+        {/* the button sits beside the box, never over the command; long lines wrap inside it */}
+        <div className="flex min-w-0 items-start gap-2">
           <pre
-            className="max-h-64 min-w-0 overflow-auto whitespace-pre rounded-md bg-side p-2 pr-14 font-mono text-[11px] leading-snug text-ink"
+            className="max-h-64 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-md bg-side p-2 font-mono text-[11px] leading-snug text-ink"
             data-testid="mcp-config"
           >
             {config.text}
@@ -175,7 +156,7 @@ export function McpSetup({
           <button
             type="button"
             onClick={() => copy(config.text, 'config')}
-            className="absolute right-1.5 top-1.5 rounded-md border border-line bg-app px-2 py-0.5 text-xs text-ink hover:bg-hover"
+            className="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-hover"
           >
             {copied === 'config' ? t('common.copied') : t('common.copy')}
           </button>
@@ -207,6 +188,63 @@ export function McpSetup({
           </p>
         )}
       </div>
+
+      <div className="flex min-w-0 flex-col gap-1 text-xs leading-relaxed text-sub">
+        <p data-testid="mcp-try">{t('mcpSetup.tryAsking')}</p>
+        <p data-testid="mcp-verify">
+          {auth === 'token'
+            ? t('mcpSetup.verifyToken', { tokens: t('agentTokens.title') })
+            : t('mcpSetup.verifyOauth', { apps: t('connections.apps') })}
+        </p>
+      </div>
+
+      <details
+        className="text-xs text-sub"
+        open={optionsOpen}
+        onToggle={(e) => setOptionsOpen(e.currentTarget.open)}
+        data-testid="mcp-options"
+      >
+        <summary className="cursor-pointer text-ink">{t('mcpSetup.otherOptions')}</summary>
+        <div className="mt-2 flex min-w-0 flex-col gap-3">
+          <fieldset className="flex min-w-0 flex-col gap-1.5">
+            <legend className="mb-1 text-xs font-medium text-ink">{t('mcpSetup.profile')}</legend>
+            <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
+              {MCP_PROFILES.map((p) => (
+                <label
+                  key={p}
+                  className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${profile === p ? 'border-accent' : 'border-line'}`}
+                >
+                  <input type="radio" name="mcp-profile" className="mt-0.5" checked={profile === p} onChange={() => setProfile(p)} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-medium text-ink">{t(PROFILE_LABEL[p].name)}</span>
+                    <span className="text-sub">{t(PROFILE_LABEL[p].hint)}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {tokenAuthEnabled && (
+            <fieldset className="flex min-w-0 flex-col gap-1.5" data-testid="mcp-auth">
+              <legend className="mb-1 text-xs font-medium text-ink">{t('mcpSetup.auth')}</legend>
+              <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
+                {(['oauth', 'token'] as const).map((a) => (
+                  <label
+                    key={a}
+                    className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${authChoice === a ? 'border-accent' : 'border-line'}`}
+                  >
+                    <input type="radio" name="mcp-auth" className="mt-0.5" checked={authChoice === a} onChange={() => setAuth(a)} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-medium text-ink">{a === 'oauth' ? t('mcpSetup.authOauth') : t('mcpSetup.authToken')}</span>
+                      <span className="text-sub">{a === 'oauth' ? t('mcpSetup.authOauthHint') : t('mcpSetup.authTokenHint')}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+        </div>
+      </details>
 
       <details className="text-xs text-sub" open={isLocalHttp}>
         <summary className="cursor-pointer text-ink">{t('mcpSetup.helpTitle')}</summary>

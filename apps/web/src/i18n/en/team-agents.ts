@@ -7,6 +7,7 @@ export default {
   'teamAgents.toggleSidebar': 'Toggle sidebar',
   'teamAgents.totals': '{claims} claimed sections · {open} suggestions waiting · {edits} edits today',
   'teamAgents.empty': 'No agent is connected to this workspace yet, and none worked here today.',
+  'teamAgents.emptyNext': 'Once an agent is connected, the sections it claimed, its suggestions waiting for a person and its edits today show up here.',
   'teamAgents.claims': 'Working on',
   'teamAgents.claimLeft': '{min} min left',
   'teamAgents.hiddenPage': 'A page you cannot open',

@@ -148,7 +148,7 @@ export function McpSetup({
         {/* the button sits beside the box, never over the command; long lines wrap inside it */}
         <div className="flex min-w-0 items-start gap-2">
           <pre
-            className="max-h-64 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-md bg-side p-2 font-mono text-[11px] leading-snug text-ink"
+            className="max-h-64 min-w-0 flex-1 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded-md bg-side p-2 font-mono text-[11px] leading-snug text-ink"
             data-testid="mcp-config"
           >
             {config.text}

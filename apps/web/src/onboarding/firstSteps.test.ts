@@ -92,7 +92,8 @@ describe('the connect screen the AI agent buttons land on', () => {
   it('the copy button is beside the command, not over it, and long lines wrap', () => {
     const html = render()
     assert.doesNotMatch(html, /absolute right-1\.5/)
-    assert.match(html, /<pre class="[^"]*whitespace-pre-wrap[^"]*break-all/)
+    assert.match(html, /<pre class="[^"]*whitespace-pre-wrap \[overflow-wrap:anywhere\]/)
+    assert.doesNotMatch(html, /<pre class="[^"]*break-all/)
   })
 
   it('the tool set and sign-in fold: closed at the defaults, open when a token was just made', () => {

@@ -12,7 +12,7 @@ export default {
   'getStarted.sampleOpen': '샘플 페이지 열기',
   'getStarted.sampleHint': '내 개인 페이지에 만들어져 나만 봅니다.',
   'getStarted.sampleFailed': '샘플 페이지를 만들지 못했습니다.',
-  'getStarted.sampleSuggestions': '연결하기 전에도 샘플 페이지에서 예시 에이전트의 제안(제목 옆 ✎)을 검토해 볼 수 있습니다.',
+  'getStarted.sampleSuggestions': '연결하기 전에 샘플 페이지에서 제안을 검토하는 방법을 미리 볼 수 있습니다.',
   'getStarted.homeSampleHint': '블록, 링크, 데이터베이스를 미리 넣어 둔 연습용 페이지로 시작하거나 새 페이지를 만드세요.',
   'getStarted.homeHintNarrow': '왼쪽 위 메뉴 버튼으로 페이지 목록을 열거나 새 페이지를 만들어 보세요.',
   'getStarted.noRoom': '여기서는 펼칠 자리가 없습니다. \'더보기\'를 닫거나 창을 키우세요.',

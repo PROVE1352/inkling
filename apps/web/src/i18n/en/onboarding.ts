@@ -13,7 +13,7 @@ export default {
   'getStarted.sampleOpen': 'Open the sample page',
   'getStarted.sampleHint': 'Only you see it, in your private pages.',
   'getStarted.sampleFailed': 'Could not make the sample page.',
-  'getStarted.sampleSuggestions': 'Even before you connect one, you can review the example agent\'s suggestions (✎ next to a heading) on the sample page.',
+  'getStarted.sampleSuggestions': 'Before you connect one, the sample page shows how reviewing a suggestion works.',
   'getStarted.homeSampleHint': 'Start with a practice page that already has blocks, links and a database, or make a new page.',
   'getStarted.homeHintNarrow': 'Open the page list with the menu button at the top left, or create a new page.',
   'getStarted.noRoom': 'No room to open it here: close “More” or make the window taller.',

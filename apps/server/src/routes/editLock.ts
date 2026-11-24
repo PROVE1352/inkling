@@ -110,7 +110,12 @@ export interface AgentContextDTO {
  * The workspace access version read with the pages keys the lock-chain and instruction caches
  * (docs/adr/1071-*).
  */
-export async function agentContextFor(userId: string, ids: string[], opts: { read?: boolean } = {}): Promise<AgentContextDTO> {
+export async function agentContextFor(
+  userId: string,
+  ids: string[],
+  /** read: content is being handed over; anchors: only these sections were (a section read, 0.24.1) */
+  opts: { read?: boolean; anchors?: { pageId: string; anchor: string }[] } = {},
+): Promise<AgentContextDTO> {
   if (!ids.length) return { pages: [], applies: [] }
   const acl = aclColumns(sql`pages.workspace_id`)
   // Visible, live pages in live workspaces the caller belongs to (and that do not block this agent).
@@ -169,7 +174,8 @@ export async function agentContextFor(userId: string, ids: string[], opts: { rea
   const policies = await effectivePolicies(ordered.map((r) => ({ id: r.id, workspaceId: r.workspaceId })))
   const flags = await suspiciousSections(ordered.map((r) => r.id))
   // Flagged content handed to a connection makes it suggest-only for a while (docs/adr/0977-*, 2040-*).
-  if (opts.read && flags.size) await recordFlaggedPages([...flags.keys()])
+  // A section read counts only a flag in the section handed over, as for API tokens (0.24.1).
+  if (opts.read && flags.size) await recordFlaggedPages([...flags.keys()], opts.anchors)
   // Where this connection is suggest-only now, its edits land as suggestions (docs/adr/2041-*).
   const demoted = new Set<string>()
   for (const ws of new Set(ordered.map((r) => r.workspaceId))) if (await demotionIn(ws)) demoted.add(ws)

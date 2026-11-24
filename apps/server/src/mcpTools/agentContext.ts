@@ -45,12 +45,17 @@ function agentScopeOf(ctx: ToolCtx): Promise<{ agent: AgentScope; range: RangeSc
  * (token lookup, request pipeline) is not repeated. The agent scope is entered here exactly as
  * requireUser does for an injected request, so blocks and agent lock rules apply unchanged.
  */
-export async function loadAgentContext(ctx: ToolCtx, ids: string[], opts: { read?: boolean } = {}): Promise<AgentContextDTO> {
+export async function loadAgentContext(
+  ctx: ToolCtx,
+  ids: string[],
+  /** anchors: only these sections were handed over (read_page section=…), so only their flags count */
+  opts: { read?: boolean; anchors?: { pageId: string; anchor: string }[] } = {},
+): Promise<AgentContextDTO> {
   const uniq = [...new Set(ids)].slice(0, 50)
   if (!uniq.length) return { pages: [], applies: [] }
   if (!idsSchema.safeParse(uniq).success) throw new ToolError('Request failed (VALIDATION): page ids must be UUIDs')
   // read: page content is being handed to the agent (taint record, docs/adr/0977-*).
-  const run = () => agentContextFor(ctx.user.id, uniq, { read: opts.read })
+  const run = () => agentContextFor(ctx.user.id, uniq, { read: opts.read, anchors: opts.anchors })
   const scope = await agentScopeOf(ctx)
   if (!scope) throw new ToolError('Request failed (HTTP 401): the access token is no longer valid; reconnect the Inkling connector')
   const { range } = scope

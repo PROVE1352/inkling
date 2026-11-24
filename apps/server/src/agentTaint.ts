@@ -237,7 +237,8 @@ function currentUserId(): string | null {
  * listed sections were handed over, so only a flag in one of them counts. Errors are logged, never
  * thrown: a read must not fail because the record could not be written.
  *
- * MCP tools record through agentContextFor (`read`), for the whole page they read from; personal API
+ * MCP tools record through agentContextFor (`read`), for the whole page they read from, except
+ * read_page(section=…), which passes the section it returned as `onlyAnchors` (0.24.1); personal API
  * tokens call the REST routes directly, which record here for the content they return
  * (`recordTokenRead`).
  */

@@ -337,4 +337,27 @@ describe('[db] suggest-only connections after flagged content', { skip: !HAS_DB 
     // the page is untouched
     assert.equal((await db.select().from(schema.pages).where(eq(schema.pages.id, pg.id)))[0].deletedAt, null)
   })
+  it('MCP: read_page(section=…) counts only the section it returned; the flagged section or the whole page still counts', async () => {
+    const ws3 = (await h.makeWorkspace(alice, [dave])).id
+    const mixed = await newPage(ws3, 'Mixed', [heading('Summary'), para('Normal text.'), heading('Footer'), para(INJECTION)])
+    const P = await newPage(ws3, 'Plain three')
+    const D = await agent(dave)
+    const clean = await D.tool('read_page', { pageId: mixed, section: 'summary' })
+    assert.equal(clean.isError, false, clean.text)
+    assert.doesNotMatch(clean.text, /suspicious:/)
+    const direct = await D.tool('patch_section', { pageId: P, section: 'log', mode: 'append', markdown: 'direct line' })
+    assert.match(direct.text, /^Done \(append\)/)
+    assert.match(await sectionText(P, 'log'), /direct line/)
+    assert.match((await D.tool('read_page', { pageId: P, outline: true })).text, /can: read,comment,edit\n/)
+    // the flagged section: suggest-only from here
+    const flagged = await D.tool('read_page', { pageId: mixed, section: 'footer' })
+    assert.match(flagged.text, /suspicious: injection-like/)
+    const after = await D.tool('patch_section', { pageId: P, section: 'log', mode: 'append', markdown: 'after flagged' })
+    assert.doesNotMatch(after.text, /^Done/)
+    assert.doesNotMatch(await sectionText(P, 'log'), /after flagged/)
+    // a whole-page read of a page with a flag anywhere counts, as before
+    const W = await agent(dave, 'Whole')
+    await W.tool('read_page', { pageId: mixed })
+    assert.match((await W.tool('read_page', { pageId: P, outline: true })).text, /can: read,comment,suggest\n/)
+  })
 })

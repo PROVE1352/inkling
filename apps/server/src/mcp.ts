@@ -518,7 +518,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           truncated: boolean
           totalChars: number
         }
-        const ac = await loadAgentContext(ctx, [r.page.id], { read: true })
+        // only this section was handed over: a flag elsewhere on the page does not count (0.24.1)
+        const ac = await loadAgentContext(ctx, [r.page.id], { read: true, anchors: [{ pageId: r.page.id, anchor: r.section.anchor }] })
         const claim = r.claim ? claimLine({ ...r.claim, by: cleanText(r.claim.by) }) : null
         // The section the caller already has (docs/adr/1540-*); a renamed heading is never "unchanged".
         if (known && known === r.section.version && !r.movedFrom) {

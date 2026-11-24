@@ -147,4 +147,54 @@ describe('[db] agent arguments as printed (0.24.1)', { skip: !HAS_DB }, async ()
     assert.equal(old.isError, true)
     assert.match(old.text, new RegExp(`the page changed since version ${pv} \\(PAGE_CONFLICT`))
   })
+  it("catch_up's `next since:` works in changes_since; a future since says so; inbox/ack take what inbox printed", async () => {
+    const { drainChangeLog } = await import('../context/changeLog')
+    const first = await mcp.tool('catch_up', { workspaceId: ws.id, peek: true })
+    assert.equal(first.isError, false, first.text)
+    const sinceLine = first.text.trimEnd().split('\n').at(-1)!
+    assert.match(sinceLine, /^next since: \S+ \(up to [^)]+\)$/)
+    const token = /^next since: (\S+)/.exec(sinceLine)![1]
+    await mcp.tool('create_page', { workspaceId: ws.id, title: 'After catch up', markdown: 'hello' })
+    await drainChangeLog()
+    for (const cursor of [token, sinceLine]) {
+      const r = await mcp.tool('changes_since', { workspaceId: ws.id, cursor })
+      assert.equal(r.isError, false, r.text)
+      assert.match(r.text, /After catch up/)
+      assert.match(r.text.trimEnd().split('\n').at(-1)!, /^next cursor: \S+$/)
+    }
+    // and the printed line works as catch_up's own since
+    const again = await mcp.tool('catch_up', { workspaceId: ws.id, since: sinceLine, peek: true })
+    assert.equal(again.isError, false, again.text)
+    assert.match(again.text, /After catch up/)
+    // garbage is still refused
+    const bad = await mcp.tool('changes_since', { workspaceId: ws.id, cursor: 'garbage!!' })
+    assert.equal(bad.isError, true)
+
+    // a future since: a note on the first line, not a silent "nothing happened"
+    for (const since of ['2099-01-01', '2099-01-01T09:00Z']) {
+      const fut = await mcp.tool('catch_up', { workspaceId: ws.id, since, peek: true })
+      assert.equal(fut.isError, false, fut.text)
+      assert.match(fut.text.split('\n')[0], /^note: since is in the future \(server time \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z, UTC\); nothing can match$/)
+    }
+    const past = await mcp.tool('catch_up', { workspaceId: ws.id, since: '2020-01-01', peek: true })
+    assert.doesNotMatch(past.text, /in the future/)
+
+    // inbox / ack: ids as numbers, the cursor line as printed; anything else says what to pass
+    const inbox = await mcp.tool('inbox', {})
+    assert.equal(inbox.isError, false, inbox.text)
+    const cursorLine = inbox.text.trimEnd().split('\n').at(-1)!
+    assert.match(cursorLine, /^cursor: \d+/)
+    const viaLine = await mcp.tool('inbox', { cursor: cursorLine })
+    assert.equal(viaLine.isError, false, viaLine.text)
+    const nums = await mcp.tool('ack', { ids: [987654321, '987654322'] })
+    assert.equal(nums.isError, false, nums.text)
+    assert.match(nums.text, /^Acknowledged 0 item\(s\)\.$/)
+    const line = await mcp.tool('ack', { cursor: cursorLine })
+    assert.equal(line.isError, false, line.text)
+    for (const cursor of ['since: 4', 'abc']) {
+      const wrong = await mcp.tool('ack', { cursor })
+      assert.equal(wrong.isError, true, cursor)
+      assert.match(wrong.text, /is not an inbox cursor\. Pass the value after "cursor:" on the last line of inbox \(like 91 or 91;ws=…\), or ids: the numbers at the start of inbox lines\. Nothing was acknowledged\./)
+    }
+  })
 })

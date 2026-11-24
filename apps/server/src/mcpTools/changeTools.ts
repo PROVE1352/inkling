@@ -1,7 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { FEED_MAX_BUDGET, FEED_MIN_BUDGET } from '../context/changeFeed'
+import { encodeCursor, FEED_MAX_BUDGET, FEED_MIN_BUDGET } from '../context/changeFeed'
+import { decodeCatchUpCursor } from '../catchUp'
 import type { FeedResult } from '../context/changeFeed'
 import { CHANGE_WAIT_MAX_SEC, changeMark, waitForChanges } from '../context/changeWait'
 import { noteWait } from '../connectionUsage'
@@ -21,8 +22,20 @@ export const WAIT_SKIPPED_LINE =
  */
 export function cursorArg(raw: string | undefined): string | undefined {
   if (!raw) return raw
-  const token = raw.replace(/^(?:(?:next|fresh)\s+)?cursor:\s*/i, '')
+  // 0.24.1: also catch_up's `next since: … (up to …)` line, whose token changes_since takes too
+  const token = raw.replace(/^(?:(?:next|fresh)\s+)?(?:cursor|since):\s*/i, '').replace(/\s+\(up to [^)]*\)\s*$/i, '')
   return token || raw
+}
+
+/**
+ * A catch_up cursor (`next since:`) passed to changes_since (0.24.1). Both carry a position in the
+ * same change log (reserveCursor), so it becomes the feed cursor for that position: changes after
+ * the catch_up, in the workspace this call names. Anything else is passed on as it is.
+ */
+export function feedCursorFrom(token: string | undefined, workspaceId: string | undefined): string | undefined {
+  const c = token ? decodeCatchUpCursor(token) : null
+  if (!c) return token
+  return encodeCursor({ seq: c.seq, at: Math.floor(c.at / 3_600_000) * 3_600_000, ws: workspaceId ?? null })
 }
 
 /**
@@ -98,7 +111,7 @@ export function registerChangeTools(server: McpServer, ctx: ToolCtx): void {
     },
     async (args, extra) =>
       wrap(async ({ cursor: cursorRaw, workspaceId, budget, detail, wait }: typeof args) => {
-        const cursor = cursorArg(cursorRaw)
+        const cursor = feedCursorFrom(cursorArg(cursorRaw), workspaceId)
         const read = async (c: string | undefined) => {
           const query: Record<string, string> = {}
           if (c) query.cursor = c

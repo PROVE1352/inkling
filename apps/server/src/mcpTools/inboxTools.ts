@@ -33,6 +33,20 @@ const CURSOR_RE = new RegExp(
 
 export const inboxCursorSchema = z.string().max(200).regex(CURSOR_RE)
 
+/**
+ * The cursor argument of inbox / ack as pasted (0.24.1): the value, or the whole `cursor: …` line.
+ * Anything else is refused with what to pass, instead of a schema error (or, worse, acking nothing).
+ */
+export function inboxCursorArg(raw: string | undefined): string | undefined {
+  if (raw === undefined) return raw
+  const t = raw.trim().replace(/^(?:next\s+)?cursor:\s*/i, '')
+  if (CURSOR_RE.test(t)) return t
+  throw new ToolError(
+    `"${cleanText(raw).slice(0, 80)}" is not an inbox cursor. Pass the value after "cursor:" on the last line of inbox ` +
+      '(like 91 or 91;ws=…), or ids: the numbers at the start of inbox lines. Nothing was acknowledged.',
+  )
+}
+
 export function parseInboxCursor(raw: string | undefined): InboxCursor {
   if (!raw) return { seq: null }
   const m = CURSOR_RE.exec(raw)
@@ -112,12 +126,13 @@ export function registerInboxTools(server: McpServer, ctx: ToolCtx): void {
         'list only newer ones. Reserved kind: source_changed.',
       inputSchema: {
         workspaceId: uuid().optional().describe('Limit to one workspace'),
-        cursor: inboxCursorSchema.optional().describe('Only items after this cursor (from a previous call; it keeps that call\'s filters)'),
+        cursor: z.string().max(200).optional().describe('Only items after this cursor (from a previous call; it keeps that call\'s filters)'),
         kinds: z.array(z.enum(INBOX_KINDS)).max(INBOX_KINDS.length).optional().describe('Only these kinds'),
         budget: z.number().int().min(200).max(8000).optional().describe(`Max tokens to return (default ${INBOX_DEFAULT_BUDGET})`),
       },
     },
-    wrap(async ({ workspaceId, cursor, kinds, budget }) => {
+    wrap(async ({ workspaceId, cursor: cursorRaw, kinds, budget }) => {
+      const cursor = inboxCursorArg(cursorRaw)
       // explicit filters win; otherwise the ones the cursor carries (docs/adr/1922-*)
       const c = parseInboxCursor(cursor)
       const filter = { workspaceId: workspaceId ?? c.workspaceId, kinds: kinds?.length ? kinds : c.kinds }
@@ -139,14 +154,18 @@ export function registerInboxTools(server: McpServer, ctx: ToolCtx): void {
         'Mark inbox items as handled so inbox no longer lists them: ids (the numbers at the start of inbox lines) or ' +
         'cursor (everything up to and including it). Does not mark them read for the person in the app.',
       inputSchema: {
-        ids: z.array(z.string().regex(/^\d{1,19}$/)).max(500).optional().describe('Item ids from inbox'),
-        cursor: inboxCursorSchema
+        // numbers too, as an agent copies them from the inbox lines (0.24.1); the schema still says string
+        ids: z.array(z.coerce.string().regex(/^\d{1,19}$/)).max(500).optional().describe('Item ids from inbox'),
+        cursor: z
+          .string()
+          .max(200)
           .optional()
           .describe('Acknowledge everything up to this cursor that the inbox call it came from listed (same workspace/kinds)'),
       },
     },
-    wrapWrite(ctx, async ({ ids, cursor }) => {
-      if (!ids?.length && !cursor) throw new ToolError('Pass ids or cursor (from the last line of inbox)')
+    wrapWrite(ctx, async ({ ids, cursor: cursorRaw }) => {
+      if (!ids?.length && !cursorRaw) throw new ToolError('Pass ids or cursor (from the last line of inbox)')
+      const cursor = inboxCursorArg(cursorRaw)
       const c = parseInboxCursor(cursor)
       const res = await call(ctx, 'POST', '/api/inbox/ack', {
         json: { ids, cursor: c.seq ?? undefined, workspaceId: c.workspaceId, kinds: c.kinds },

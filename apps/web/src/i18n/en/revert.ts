@@ -49,4 +49,13 @@ export default {
   'revert.badgeRevert': 'revert',
   'history.labelBeforeRevert': 'Before revert',
   'audit.action.page.changes_reverted': 'Changes reverted',
+  // Section marks next to headings: who changed the section last (docs/adr/1627-*)
+  'sectionMark.title': '{name} · {when}',
+  'sectionMark.titleVia': '{name} via {client} · {when}',
+  'sectionMark.label': 'Last change of this section',
+  'sectionMark.last': 'Last changed {when} by {name}',
+  'sectionMark.lastVia': 'Last changed {when} by {name} via {client}',
+  'sectionMark.revert': 'Revert this change',
+  'sectionMark.tooLarge': 'Too large to revert here; use version history.',
+  'sectionMark.revertedBy': 'Reverted by {name} {when}',
 } as const

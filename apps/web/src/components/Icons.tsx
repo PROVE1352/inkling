@@ -551,3 +551,10 @@ export const ExternalLinkIcon = (p: IconProps) => (
     <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
   </Svg>
 )
+
+/** An agent made the change (section marks next to headings, docs/adr/1627-*): a four-point sparkle. */
+export const AgentIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3.5 13.9 10.1 20.5 12 13.9 13.9 12 20.5 10.1 13.9 3.5 12 10.1 10.1Z" />
+  </Svg>
+)

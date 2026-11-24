@@ -7,6 +7,21 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-11-24
+
+A small patch release: one new optional setting, a contact link to the operator. No database migration (63 applied
+migrations, as 0.22.2), no API route added or removed, and the MCP tool list is unchanged. A server that does not
+set it looks and answers as before.
+
+### Contact link to the operator (`INSTANCE_CONTACT`)
+- **`INSTANCE_CONTACT`** (docs/adr/2554-*): an email address or an `https://` URL. It adds a "Contact" link after the
+  terms links under the sign-in, sign-up and consent screens, at the foot of the sidebar, and a row in Settings ›
+  About. The link shows without `LEGAL_DIR` too. An `https://` link opens in a new tab.
+- `GET /api/auth/mode` returns `instanceContact` (the finished `mailto:` or `https://` href) only while the setting
+  is set. Any other scheme, spaces, control characters, a user name in the URL or more than 300 characters refuse to
+  boot (docs/OPERATIONS.md, docs/adr/2554-*).
+- The demo preset passes it through as an optional setting (docs/DEMO.md).
+
 ## [0.22.2] - 2026-11-24
 
 A small patch release: three fixes to the MCP server, sign-up without tick boxes for operators who use `LEGAL_DIR`,

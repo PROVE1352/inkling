@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify'
 import { configuredMailOrigin } from './origin'
 import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
+import { isTrialEmail, TRIAL_EMAIL_SUFFIX } from '@inkling/shared'
 import { env, mailEnabled } from './env'
 import { AppError } from './errors'
 import { fmtMailDateTime, resolveLocale, type Locale } from './i18n'
@@ -328,6 +329,11 @@ export async function sendMail(
   content: MailContent,
   log?: (msg: string) => void,
 ): Promise<void> {
+  // Trial accounts' reserved domain (docs/adr/2555-*): nothing ever goes there, from any sender.
+  if (isTrialEmail(to)) {
+    log?.(`[mail] skipped → *${TRIAL_EMAIL_SUFFIX} (${content.subject})`)
+    return
+  }
   const t = getTransport()
   const domain = to.split('@')[1] ?? '?'
   try {

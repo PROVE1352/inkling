@@ -16,7 +16,7 @@ import type { Tx } from './pageTree'
  *
  * Hooks run in registration order. With no hook registered the route behaves as 0.21.1.
  *
- * Only the sign-up route runs these. Accounts made any other way (admin, delegated sign-in, OIDC,
+ * Only the sign-up route and the trial route (account/trial.ts, `ctx.trial`) run these. Accounts made any other way (admin, delegated sign-in, OIDC,
  * page guest invites, CLI) do not: restricted mode handles them after sign-in (docs/adr/2502-*).
  */
 
@@ -31,6 +31,11 @@ export interface SignupContext {
   locale: Locale
   /** The account is the first admin made with the one-time setup code (docs/adr/2160-*). */
   setupCode: boolean
+  /**
+   * A one-click trial account (POST /api/auth/trial, docs/adr/2555-*): never the setup code, never an
+   * admin. The sign-up limits count it apart (account/signupGuards.ts).
+   */
+  trial?: boolean
   req: FastifyRequest
 }
 

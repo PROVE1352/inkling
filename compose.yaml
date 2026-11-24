@@ -194,6 +194,11 @@ services:
       OAUTH_UNUSED_CLIENT_MAX: ${OAUTH_UNUSED_CLIENT_MAX:-}
       LIMIT_WORKSPACES_TOTAL: ${LIMIT_WORKSPACES_TOTAL:-}
       LIMIT_INSTANCE_STORAGE_MB: ${LIMIT_INSTANCE_STORAGE_MB:-}
+      # "Try without an account" (0.23, docs/adr/2555-*): off unless TRIAL_ACCOUNTS=1.
+      TRIAL_ACCOUNTS: ${TRIAL_ACCOUNTS:-}
+      TRIAL_LIFETIME_HOURS: ${TRIAL_LIFETIME_HOURS:-}
+      TRIAL_MAX_ACCOUNTS: ${TRIAL_MAX_ACCOUNTS:-}
+      TRIAL_PER_IP_PER_DAY: ${TRIAL_PER_IP_PER_DAY:-}
       # MCP connectors that identify themselves with a Client ID Metadata Document (see .env.example,
       # docs/adr/2280-*). Empty = off.
       OAUTH_CIMD: ${OAUTH_CIMD:-}

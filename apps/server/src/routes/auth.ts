@@ -9,7 +9,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
 } from '@inkling/shared'
-import type { AuthModeDTO, AuthModeLimitsDTO, SidebarPrefsDTO, UserDTO } from '@inkling/shared'
+import { isTrialEmail, type AuthModeDTO, type AuthModeLimitsDTO, type SidebarPrefsDTO, type UserDTO } from '@inkling/shared'
 import {
   DELEGATED_EMAIL_SUFFIX,
   consumeResetCode,
@@ -222,7 +222,8 @@ async function restrictedAuthMode(): Promise<Partial<AuthModeDTO>> {
   const out: Partial<AuthModeDTO> = {}
   if (limits.loginIdMode === 'username') out.loginId = 'username'
   if (limits.signupMaxUsers !== null) {
-    const [c] = await db.select({ n: count() }).from(users)
+    // trial accounts do not count toward SIGNUP_MAX_USERS (docs/adr/2555-*)
+    const [c] = await db.select({ n: count() }).from(users).where(eq(users.trial, false))
     if ((c?.n ?? 0) >= limits.signupMaxUsers) out.signupFull = true
   }
   if (limits.instanceLabel !== null) out.instanceLabel = limits.instanceLabel
@@ -282,8 +283,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const body = parseRegisterBody(req.body)
     const email = body.email.trim().toLowerCase()
 
-    // Self-signup cannot take the namespace reserved for delegated-account mirrors.
-    if (isDelegatedEmail(email)) {
+    // Self-signup cannot take the namespace reserved for delegated-account mirrors, nor the trial
+    // accounts' reserved domain (docs/adr/2555-*; an ID in LOGIN_ID_MODE=username has no '@' at all).
+    if (isDelegatedEmail(email) || isTrialEmail(email)) {
       throw new AppError(400, 'EMAIL_RESERVED', 'This email domain is not allowed')
     }
 
@@ -437,6 +439,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await recordFailure(req, 'login', acct)
       return invalid()
     }
+    // Trial accounts never sign in with a password (nobody knows theirs; docs/adr/2555-*).
+    if (isTrialEmail(identifier)) throw await fail()
     const cols = {
       id: users.id,
       email: users.email,
@@ -616,6 +620,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         locale: users.locale,
         sidebarPrefs: users.sidebarPrefs,
         expiresAt: users.expiresAt,
+        trial: users.trial,
       })
       .from(users)
       .where(eq(users.id, user.id))
@@ -639,7 +644,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     // Restricted mode (docs/adr/2500-*): when the account will be deleted (ACCOUNT_LIFETIME_DAYS).
     // Only accounts created while the setting was on have a date; the field is absent otherwise.
-    if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
+    // A trial account (docs/adr/2555-*) has its own field instead, so the account-lifetime notice
+    // does not show beside the trial badge.
+    if (extra?.expiresAt && extra.trial) out.trial = { expiresAt: extra.expiresAt.toISOString() }
+    else if (extra?.expiresAt) out.expiresAt = extra.expiresAt.toISOString()
     // Fields the restricted-mode pieces register (restrictedExtras.ts, docs/adr/2503-*); none = nothing.
     Object.assign(out, await meExtraFields(user))
     // For the badge on the admin entry link: piggybacks on /auth/me instead of separate polling.
@@ -684,6 +692,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await recordFailure(req, 'reset', email)
       return invalid()
     }
+    // A trial account has no password to reset (docs/adr/2555-*).
+    if (isTrialEmail(email)) throw await fail()
 
     const [u] = await db
       .select({ id: users.id, origin: users.origin, signupKey: users.signupKey })
@@ -728,6 +738,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // Input without '@' is treated as a delegated account ID
     const email = raw.includes('@') ? raw : `${raw}${DELEGATED_EMAIL_SUFFIX}`
     const accepted = { ok: true }
+    // Trial accounts: no mail to the reserved domain and nothing in the admin queue (docs/adr/2555-*).
+    if (isTrialEmail(email)) return accepted
 
     const [u] = await db
       .select({

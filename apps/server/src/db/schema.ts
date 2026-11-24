@@ -78,7 +78,13 @@ export const users = pgTable('users', {
    * setting on later does not touch existing accounts, and nothing is deleted while it is off.
    */
   expiresAt: timestamp('expires_at', { withTimezone: true }),
-})
+  /**
+   * A trial account made with one click (TRIAL_ACCOUNTS, docs/adr/2555-*): no password anyone knows,
+   * a reserved address (`@trial.invalid`), deleted when expires_at passes whatever
+   * ACCOUNT_LIFETIME_DAYS says, refused the routes of account/trial.ts TRIAL_RESTRICTED_ROUTES.
+   */
+  trial: boolean('trial').notNull().default(false),
+}, (t) => [index('users_trial_idx').on(t.expiresAt).where(sql`${t.trial}`)])
 
 /**
  * Inkling's own signup keys. Unrelated to the external auth server used for delegated login; accounts made

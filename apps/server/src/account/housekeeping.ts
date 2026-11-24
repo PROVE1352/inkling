@@ -19,12 +19,14 @@ type DeleteFn = (userId: string, opts: DeleteAccountOptions) => Promise<DeleteAc
  * Nothing at all unless ACCOUNT_LIFETIME_DAYS is set; with ACCOUNT_LIFETIME_DRY_RUN=1 only the plan
  * is logged. Accounts without expires_at (made before the setting, or admins) never match.
  * Returns the number deleted (dry run: the number that would be).
+ * Trial accounts are not this job's: account/trial.ts expireTrialAccounts deletes them whatever this
+ * setting and its dry run say (docs/adr/2555-*).
  */
 export async function expireAccounts(log: (msg: string) => void, del: DeleteFn = deleteAccount): Promise<number> {
   if (limits.accountLifetimeDays === null) return 0
   const due = (await db.execute(sql`
     SELECT id FROM users
-     WHERE expires_at IS NOT NULL AND expires_at < now() AND is_admin = false
+     WHERE expires_at IS NOT NULL AND expires_at < now() AND is_admin = false AND NOT trial
      ORDER BY expires_at, id
      LIMIT ${EXPIRY_BATCH}
   `)) as unknown as { id: string }[]

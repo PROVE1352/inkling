@@ -22,8 +22,8 @@ export function ProvenanceMark({ item, onOpen }: { item: SectionProvenanceDTO; o
       aria-haspopup="dialog"
       data-testid="section-provenance"
       data-kind={l.kind}
-      // shrinks first on a narrow line (the suggestion badge keeps its size)
-      className="flex min-w-0 shrink-[3] items-center gap-0.5 rounded px-0.5 py-0.5 text-[11px] leading-none text-sub transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      // on a narrow line the client name gives way (down to the sign); initials keep their size
+      className={`flex items-center gap-0.5 overflow-hidden rounded px-0.5 py-0.5 text-[11px] leading-none text-sub transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${l.kind === 'agent' ? 'min-w-[16px] shrink-[20]' : 'shrink-0'}`}
     >
       {l.kind === 'agent' ? (
         <>

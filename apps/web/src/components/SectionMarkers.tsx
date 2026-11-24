@@ -181,7 +181,9 @@ export function SectionMarkers({
               <div
                 key={m.blockId}
                 style={{ position: 'absolute', top: m.top, left: m.left, maxWidth: m.maxWidth }}
-                className="nd-pop z-10 flex min-w-0 -translate-y-1/2 items-center gap-1"
+                // Narrow lines (phones, long headings): the claim gives way first, then the agent's name,
+                // then the suggestion label; the line is clipped at its room, never wider than the page.
+                className="nd-pop z-10 flex min-w-0 -translate-y-1/2 items-center gap-1 overflow-hidden py-0.5"
                 data-testid="section-marker"
               >
                 {m.provenance && <ProvenanceMark item={m.provenance} onOpen={(el) => openPopover(m.blockId, el)} />}
@@ -190,16 +192,16 @@ export function SectionMarkers({
                     type="button"
                     onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SUGGESTIONS_EVENT, { detail: { blockId: m.blockId } }))}
                     title={t('suggestions.badgeTitle')}
-                    className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-accent/40 bg-app px-2 py-0.5 text-[11px] leading-none text-accent shadow-sm transition-colors hover:bg-accent/10"
+                    className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap rounded-full border border-accent/40 bg-app px-2 py-0.5 text-[11px] leading-none text-accent shadow-sm transition-colors hover:bg-accent/10"
                   >
-                    <span aria-hidden>✎</span>
-                    {t('suggestions.badge', { count: m.suggestions })}
+                    <span aria-hidden className="shrink-0">✎</span>
+                    <span className="min-w-0 truncate">{t('suggestions.badge', { count: m.suggestions })}</span>
                   </button>
                 )}
                 {m.claim && (
                   <span
                     title={t('claims.until', { time: new Date(m.claim.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
-                    className="flex min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-line bg-app px-2 py-0.5 text-[11px] leading-none text-sub shadow-sm"
+                    className="flex min-w-0 shrink-[50] items-center gap-1 overflow-hidden whitespace-nowrap rounded-full border border-line bg-app px-2 py-0.5 text-[11px] leading-none text-sub shadow-sm"
                   >
                     <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
                     <span className="min-w-0 truncate">{t('claims.working', { name: m.claim.by })}</span>

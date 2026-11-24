@@ -56,6 +56,13 @@ const PATCH_SNAPSHOT_WINDOW_MS = 2 * 60_000
  * patch_sections, accepting a suggestion): at most one per page per 2 minutes, labelled in the
  * editor's locale. The one place for this rule (docs/adr/0930-*, 1542-*).
  */
+/** Extra sentence for a version conflict on a mode that only adds text (append/prepend/insert_after). */
+export function additiveRetryHint(mode: string): string {
+  return mode === 'append' || mode === 'prepend' || mode === 'insert_after'
+    ? ' This mode does not change existing text, so sending it again without baseVersion adds it to the current content; first check the current content does not already have your lines.'
+    : ''
+}
+
 export async function beforeAgentEditSnapshot(pageId: string, user: Pick<AuthUser, 'id' | 'via'>, locale: () => Promise<Locale>): Promise<void> {
   const recent = await db
     .select({ id: pageSnapshots.id })
@@ -256,7 +263,7 @@ export async function patchSectionAs(
           code: 'SECTION_CONFLICT',
           message: movedFrom
             ? `Section "${movedFrom}" was renamed to "${res.section.anchor}" (its version includes the heading, so it changed since baseVersion ${body.baseVersion}); nothing was written. Check the current content and retry with section "${res.section.anchor}" and baseVersion ${res.section.version}.`
-            : `Section "${res.section.anchor}" changed since baseVersion ${body.baseVersion}; nothing was written. Merge your edit into the current content and retry with baseVersion ${res.section.version}.`,
+            : `Section "${res.section.anchor}" changed since baseVersion ${body.baseVersion}; nothing was written. Merge your edit into the current content and retry with baseVersion ${res.section.version}.${additiveRetryHint(body.mode)}`,
           ...(movedFrom ? { movedFrom } : {}),
           current: {
             anchor: res.section.anchor,

@@ -21,7 +21,7 @@ import type { AnyBlock } from '../md/convert'
 import { gatedTransact } from '../md/docWrite'
 import { buildTitleResolver } from '../md/importer'
 import { findVisiblePage } from '../pageDto'
-import { asAgentStep, beforeAgentEditSnapshot, sectionEditDelta, stepSections } from '../context/sectionWrite'
+import { additiveRetryHint, asAgentStep, beforeAgentEditSnapshot, sectionEditDelta, stepSections } from '../context/sectionWrite'
 import { isAgentVia } from '../agentVia'
 import { claimLine, claimOf, connectionKey, pageClaims } from '../leases'
 import { versionArg } from '../versionArg'
@@ -244,7 +244,7 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
               baseVersion: e.baseVersion,
               version: f.section.version,
               markdown: markdown.trim(),
-              message: `changed since baseVersion ${e.baseVersion} (now v=${f.section.version})`,
+              message: `changed since baseVersion ${e.baseVersion} (now v=${f.section.version})${batchHint(e.mode)}`,
             })
           } else if (f.reason === 'not_found') {
             list.push({ index: f.index, ref: e.ref, anchor, reason: 'not_found', message: 'not found (the section was removed meanwhile, or an earlier edit removed it)' })
@@ -270,7 +270,7 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
 async function versionConflict(
   pageId: string,
   index: number,
-  e: { ref: string; baseVersion?: string },
+  e: { ref: string; mode: string; baseVersion?: string },
   anchor: string,
   version: string,
 ): Promise<SectionConflict> {
@@ -283,7 +283,7 @@ async function versionConflict(
     baseVersion: e.baseVersion,
     version,
     ...(r.found ? { markdown: r.markdown } : {}),
-    message: `changed since baseVersion ${e.baseVersion} (now v=${version})`,
+    message: `changed since baseVersion ${e.baseVersion} (now v=${version})${batchHint(e.mode)}`,
   }
 }
 
@@ -302,4 +302,10 @@ function sendConflicts(
       anchors: anchors.slice(0, 50),
     },
   })
+}
+
+/** The additive-mode retry hint, as a sentence after "(now v=…)"; replace/delete keep their message unchanged. */
+function batchHint(mode: string): string {
+  const hint = additiveRetryHint(mode)
+  return hint ? `.${hint}` : ''
 }

@@ -408,7 +408,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
         "Edit one section of a document page, leaving the rest untouched (live editors keep their work). section = §anchor from " +
         "find_context/read_page(outline). mode: replace (body; a leading heading in markdown also renames it), append (end of the " +
         "section), prepend (after its heading), insert_after (new content after the section, e.g. a new '## Heading'), delete. " +
-        'baseVersion (the v=… you read) is required for replace/delete; if the section changed you get a conflict with its current ' +
+        'baseVersion (the v=… you read) is required for replace/delete (optional otherwise; omit it when many append to one section); if the section changed you get a conflict with its current ' +
         'text and version — merge and retry. Preferred over update_page. suggest=true leaves the change as a suggestion that a ' +
         'person accepts or rejects (also what happens on pages locked to "agents: suggestions only").',
       inputSchema: {

@@ -49,7 +49,7 @@ export function registerPatchSectionsTool(server: McpServer, ctx: ToolCtx): void
       title: 'Patch sections',
       description:
         'Several patch_section edits on one document page in one call, applied together or not at all. Each edit is ' +
-        '{section, mode, markdown, baseVersion} exactly as in patch_section (baseVersion required for replace/delete); they apply ' +
+        '{section, mode, markdown, baseVersion} exactly as in patch_section (baseVersion required for replace/delete, optional otherwise); they apply ' +
         'in order and each section may appear once. If any edit cannot apply (changed since baseVersion, unknown section), ' +
         'nothing is written and every problem is listed with the current text — fix them and send all edits again. ' +
         'suggest=true leaves all edits as suggestions for a person to accept (one per section, made together); on pages locked to ' +

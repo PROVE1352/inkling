@@ -83,6 +83,7 @@ jobs:
           - { name: v0.23.0, ref: v0.23.0 }
           - { name: v0.24.0, ref: v0.24.0 }
           - { name: v0.24.1, ref: v0.24.1 }
+          - { name: v0.25.0, ref: v0.25.0 }
     steps:
       # Two separate checkouts so neither build context contains the other tree.
       - uses: actions/checkout@v4

@@ -799,8 +799,12 @@ Agents (MCP)
 
 Editor
 - **Low** (PASTE-1) Paste is stricter than the server import about `$…$`: a closing `$` followed by a letter, digit, `_`, `{` or `(` is left as text, so `$n$th` stays as typed, and `$$…$$` in the middle of a line is left as text too (only a line that is nothing but `$$…$$` becomes a math block). `\$` in pasted Markdown keeps its backslash (the server import drops it). Pasted HTML does not turn `<blockquote>[!note]` into a callout, and KaTeX pasted into a column is not converted. The clipboard contents used for the check were made by hand, not copied from a chat app.
-- **Info** (PASTE-2) Callouts imported through server Markdown start with an empty line and copy as `> [!type]` followed by `> \`. In server Markdown an image's alt text with `$x$` keeps an internal placeholder in the image name, and `$` inside a bare URL can become math.
+- **Info** (PASTE-2) Callouts imported through server Markdown start with an empty line and copy as `> [!type]` followed by `> \`.
 - **Info** (IME-1) Korean composition was checked by simulated events only: a confirmed syllable followed by a separate Enter works in the slash menu, wiki links and the title box, but the Enter that confirms a composition, arrow keys and Backspace during composition need a real keyboard (macOS Chrome and Safari, Windows, iPadOS, Android). The title box checks `isComposing` only, which Safari may not set.
 
 Agents on an open page
 - **Info** (NOTICE-1, docs/adr/2557-*) The notice reaches only clients connected to the same process (single instance). A claim that simply runs out sends nothing: the badge goes at the next poll or within a minute. With offline copies off, a page whose socket is down shows no body, so there is nowhere for a badge to appear until it reconnects.
+
+## Added in 0.25.1
+
+- **Info** (KO-PARTICLE-1) About twenty Korean strings still put one fixed particle right after a name or a value (`{name}로 로그인`, `{client}가`, `{key}는`, `"{workspace}"를`), which reads wrong for some names. The one paired form left is in the connection screen (`mcp-setup`).

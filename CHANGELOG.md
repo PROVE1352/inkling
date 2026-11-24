@@ -7,6 +7,19 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-25
+
+Two small fixes. No migration, no new settings, no change to the MCP tools.
+
+### Fixed
+- Korean screens and notification mails no longer show paired particles after a name ("이(가)", "을(를)",
+  "(으)로"): the plug-in prompts, the trash and workspace deletion confirmations, the page-update notification, the
+  OAuth consent line, the section mark and the account deletion prompts are reworded so one particle always fits
+  (for example `"{title}" 페이지를 수정했습니다`).
+- Server Markdown import (the page content API and MCP writes) no longer leaves an internal placeholder in an
+  image's alt text or another property when it holds `$x$`, and `$` inside a bare URL or a `<…>` autolink is no
+  longer read as math (`https://api.example.com/x?$filter=a&$select=b` stays one link).
+
 ## [0.25.0] - 2026-11-25
 
 Editor feel, first part (from an audit of the editor against twelve everyday actions): pasted Markdown keeps math and

@@ -1631,11 +1631,14 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
 
 | 메서드 | 경로 | 본문 | 응답 | 비고 |
 | --- | --- | --- | --- | --- |
-| GET | `/api/me/onboarding` | — | `OnboardingDTO` `{ enabled, audience: owner\|member\|guest, intro, checklist: { show, collapsed, dismissed, complete, items: [{ id, done }] }, samples: { [workspaceId]: pageId } }` | 처음 부르면 그 사람의 행을 만듭니다. 새 서버의 첫 관리자라면 샘플 페이지도 만듭니다. 120/min |
-| PATCH | `/api/me/onboarding` | `{ introSeen: true, collapsed, dismissed, event: slash\|link\|ai\|explore\|install }` 중 아무것이나 (strict) | `OnboardingDTO` | 비었거나 모르는 필드는 400. 60/min |
+| GET | `/api/me/onboarding` | — | `OnboardingDTO` `{ enabled, audience: owner\|member\|guest, intro, checklist: { show, collapsed, dismissed, complete, items: [{ id, done }] }, samples: { [workspaceId]: pageId }, agentConnected }` | 처음 부르면 그 사람의 행을 만듭니다. 새 계정이면 가입할 때 받은 워크스페이스에 샘플 페이지도 만듭니다(0.24부터. 그 전에는 새 서버의 첫 관리자만). 120/min |
+| PATCH | `/api/me/onboarding` | `{ introSeen: true, collapsed, dismissed, event: slash\|link\|explore\|install }` 중 아무것이나 (strict. 0.24부터 `ai`는 거절합니다) | `OnboardingDTO` | 비었거나 모르는 필드는 400. 60/min |
 | POST | `/api/me/onboarding/sample` | `{ workspaceId }` | `{ pageId, workspaceId, created }` | 그 워크스페이스의 멤버(게스트 제외). 개인 페이지로 만듭니다. 살아 있는 샘플이 있으면 그것을 돌려줍니다(`created: false`). 만드는 중이면 409 `SAMPLE_IN_PROGRESS`, 404 `ONBOARDING_OFF`. 10/min |
 
 - `ONBOARDING=off`: GET과 PATCH는 `enabled: false`로 답하고 눈에 보이는 것은 아무것도 바꾸지 않습니다. POST는 404 `ONBOARDING_OFF`입니다.
+- `agentConnected`(0.24, docs/adr/2390-*): 그 사람의 에이전트가 인증된 `/mcp` 요청을 처음 보냈으면(OAuth 연결이나 에이전트
+  연결 토큰) true입니다. 0.24 전에 쓰인 연결이 있어도 true입니다. 한 번 true가 되면 그대로이고, `ai` 항목도 이때 체크됩니다.
+  주소를 복사하거나 토큰을 만들기만 해서는 체크되지 않습니다. 온보딩이 꺼져 있으면 false입니다.
 - `POST /api/pages/from-template`(그래서 `create_from_template`도): 템플릿 문서 안의 페이지 임베드가 같은 템플릿의 페이지를 가리키면, 이제 그 페이지의 새 복사본을 가리킵니다(docs/adr/2381-*).
 
 <a id="mcp-tools-8"></a>

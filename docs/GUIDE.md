@@ -69,6 +69,13 @@ so you can try reviewing a suggestion before you connect an agent: press ✎ nex
 page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
 with **More** open), it stays folded until there is room.
 
+Since 0.24 a new account finds the sample page already made in the workspace it signed up with (in its private
+pages); the button above is for making another one after deleting it. The **Connect an AI agent** item ticks when your
+agent makes its first request, not when you copy the address. If Inkling is open at that moment it says "Your agent is
+connected" with a first question to ask and a button to the Team agents board; the connections screen shows the same
+line under its steps. From then on the sidebar shows **Activity** by default (its screen links to the Team agents
+board), unless you have arranged the sidebar yourself.
+
 Settings → About → Getting started: **Watch the intro again**, and a switch to show the checklist again.
 Accounts that existed before the upgrade start with the checklist off, and see the intro only if the
 server's operator set `ONBOARDING_EXISTING_USERS=once`. The intro never opens while you are typing.

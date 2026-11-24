@@ -30,6 +30,7 @@ import { QueryBlockPortals } from './blocks/QueryBlock'
 import { MermaidPortals, mermaidCodeBlockSpec } from './blocks/MermaidBlock'
 import { useSectionLinkJump } from '../lib/sectionLinks'
 import { handleUrlPaste } from './blocks/LinkEmbed'
+import { withInklingMarkdown } from '../lib/paste/pasteMarkdown'
 import { useDisabledFeatures } from './quota/features'
 import { ColumnsSideMenu, columnsExtension, pasteFlatInColumn } from './blocks/Columns'
 import type { CollabUser } from './OnlineUsers'
@@ -437,8 +438,11 @@ function CollabEditorBody({
       dictionary: editorDictionary(),
       uploadFile: (file: File) => uploadFile(wsId, file, pageId),
       // A bare URL pasted on an empty line becomes an embed/card block (switchable to a link).
+      // Pasted Markdown keeps math and callouts as Inkling blocks (lib/paste/pasteMarkdown.ts).
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
-        handleUrlPaste(event, editor as InklingEditor) || pasteFlatInColumn(event, editor) || defaultPasteHandler(),
+        handleUrlPaste(event, editor as InklingEditor) ||
+        pasteFlatInColumn(event, editor) ||
+        withInklingMarkdown(editor, defaultPasteHandler),
       // Link clicks: BlockNote's default opens every link with window.open — internal links move in
       // the app instead (lib/internalLinks.ts, onClickCapture below).
       links: { onClick: editorLinkClick },
@@ -663,7 +667,9 @@ export function LocalDocEditor({
       ...(placeholder ? { placeholders: { emptyDocument: placeholder } } : {}),
       uploadFile: (file: File) => uploadFile(wsId, file, uploadPageId),
       pasteHandler: ({ event, editor, defaultPasteHandler }) =>
-        handleUrlPaste(event, editor as InklingEditor) || pasteFlatInColumn(event, editor) || defaultPasteHandler(),
+        handleUrlPaste(event, editor as InklingEditor) ||
+        pasteFlatInColumn(event, editor) ||
+        withInklingMarkdown(editor, defaultPasteHandler),
       links: { onClick: editorLinkClick },
       extensions: [inklingShortcuts(), tableQuickInput(), selectPickerGuard(), columnsExtension()],
     },

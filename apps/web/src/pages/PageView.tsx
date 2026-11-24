@@ -54,6 +54,7 @@ import { SuspiciousNotice } from '../components/SuspiciousNotice'
 import { LargePageNotice } from '../components/LargePageNotice'
 import { SuggestionsNotice } from '../components/SuggestionsPanel'
 import { SectionMarkers } from '../components/SectionMarkers'
+import { AgentView } from '../components/AgentView'
 import { SplitPageModal } from '../components/SplitPageModal'
 import { PageFollowPanel } from '../components/PageFollow'
 import { usePageSubscription } from '../notificationsApi'
@@ -95,6 +96,7 @@ import {
   PenIcon,
   SplitIcon,
   SunIcon,
+  TextSearchIcon,
 } from '../components/Icons'
 import { setTheme, useTheme, type Theme } from '../lib/theme'
 import { reloadOnceForStaleChunk } from '../lib/pwa'
@@ -565,6 +567,8 @@ export function PageView() {
   const memberStatuses = statusByUser(members.data)
   // Split into subpages (docs/adr/1140-*); `?split=1` (the "large page" notification) opens it.
   const [splitOpen, setSplitOpen] = useState(false)
+  // "What an agent reads" dialog (docs/adr/2389-*); the editor stays mounted under it
+  const [agentViewOpen, setAgentViewOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   useEffect(() => setSplitOpen(false), [pageId])
   useEffect(() => {
@@ -926,6 +930,17 @@ export function PageView() {
                   },
                 ]
               : []),
+            ...(isDoc && page && !guest
+              ? [
+                  {
+                    label: tr('agentView.menu'),
+                    icon: <TextSearchIcon size={16} />,
+                    checked: agentViewOpen,
+                    onSelect: () => setAgentViewOpen(true),
+                    testId: 'page-agent-view-button',
+                  },
+                ]
+              : []),
             ...(page && !guest && page.kind !== 'folder'
               ? [
                   {
@@ -1183,6 +1198,9 @@ export function PageView() {
           blocks={slides}
           onClose={() => setSlides(null)}
         />
+      )}
+      {page && wsId && isDoc && !guest && (
+        <AgentView key={`agent:${page.id}`} pageId={page.id} wsId={wsId} open={agentViewOpen} onClose={() => setAgentViewOpen(false)} />
       )}
       {page && followOpen && !guest && (
         <Modal open={followOpen} onClose={() => setFollowOpen(false)} title={tr('follow.button')}>

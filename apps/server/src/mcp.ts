@@ -14,6 +14,7 @@ import { hasRequestGates, runRequestGates } from './requestGates'
 import { agentTokenBanMs, agentTokenBanned, isAgentTokenShaped, noteAgentTokenFailure } from './agentTokens'
 import type { AuthUser } from './auth'
 import { registerMcpJsonParser } from './mcpBody'
+import { SERVER_VERSION } from './version'
 import { agentUploadEnv } from './agentUploads'
 import { rangeInstruction } from './tokenRange'
 import { findVisiblePage } from './pageDto'
@@ -48,7 +49,7 @@ import { SEARCH_MAX_LIMIT } from './routes/agentSearchText'
 import type { AgentSearchResponse } from './routes/agentSearchText'
 import { pageRef, resolvePageRef, shortId } from './mcpTools/shortIds'
 import { PATH_SEP } from './context/chunker'
-import { inferWorkspace, resolveIdArgs } from './mcpTools/idArgs'
+import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY, resolveIdArgs } from './mcpTools/idArgs'
 import { idArg, isFullId } from './mcpTools/idSchema'
 import { slimToolList } from './mcpTools/toolList'
 import { applyProfile, parseProfile, PROFILE_ERROR } from './mcpTools/profiles'
@@ -346,7 +347,7 @@ async function assertReplaceBase(ctx: ToolCtx, pageId: string, baseVersion: stri
 
 export function buildMcpServer(ctx: ToolCtx): McpServer {
   const server = new McpServer(
-    { name: 'inkling', version: '1.0.0' },
+    { name: 'inkling', version: SERVER_VERSION },
     {
       // read-only (docs/adr/0935-*) and range-limited (docs/adr/1200-*) connections are told so
       instructions: [
@@ -394,7 +395,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         "format 'compact' (default: 8-character ids, numbered/dated siblings folded into one line), 'lines' (one line per page, " +
         "full ids) or 'json' (fields id, title, kind, parentId, section, path, children).",
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         parentId: z
           .string()
           .optional()
@@ -607,7 +608,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         '(kind). With parentId it goes under that page (inheriting its section and workspace); otherwise at the top level of ' +
         'the shared section (or the private section if private=true).',
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         title: z.string().trim().min(1).max(300).describe('Page title'),
         markdown: z.string().max(1_000_000).optional().describe('Body Markdown for a document (no title heading needed)'),
         parentId: idArg('page').optional().describe('Parent page id'),
@@ -676,7 +677,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'folderName becomes the title of the top-level folder page; files[].path is the path relative to it (e.g. "notes/day1.md"). ' +
         'Non-.md files are ignored. Up to 300 files and about 12 MB per call (split larger folders into several calls with parentId). With parentId, the folder is created under that page.',
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         folderName: z.string().trim().min(1).max(300).describe('Title of the top-level folder page (usually the local folder name)'),
         files: z
           .array(
@@ -858,7 +859,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'Page templates I can use in a workspace: built-ins (id = key such as "project", "meeting") and the workspace\'s ' +
         'custom templates (id = uuid; private ones only if I created them). kind=structure templates create a page tree ' +
         '(sub-pages, collections, canvases). inputs are the {{input:…}} questions create_from_template can answer.',
-      inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace') },
+      inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace' + WORKSPACE_REQUIRED_IF_MANY) },
     },
     wrap(async ({ workspaceId: wsRef }) => {
       const workspaceId = await inferWorkspace(ctx, wsRef) // docs/adr/1943-*
@@ -891,7 +892,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         '(question → answer; unanswered ones use their default). With parentId the pages go under that page (inheriting its section); ' +
         'otherwise at the top level of the shared section (or the private section if private=true).',
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         template: z.string().trim().min(1).max(64).describe('Template id from list_templates (built-in key or uuid)'),
         title: z.string().trim().max(300).optional().describe('Title of the created root page (default: the template title)'),
         parentId: idArg('page').optional().describe('Parent page id'),

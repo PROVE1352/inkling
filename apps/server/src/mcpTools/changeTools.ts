@@ -15,6 +15,17 @@ export const WAIT_SKIPPED_LINE =
   'wait skipped: the server has too many waiting calls right now (or is restarting); call again in a few seconds'
 
 /**
+ * The cursor as an agent may pass it: the token, or the whole line the feed printed it on
+ * (`cursor: …`, `next cursor: …`, `fresh cursor: …`, any case). A bare label stays as it is, so it
+ * fails as an invalid cursor instead of starting over.
+ */
+export function cursorArg(raw: string | undefined): string | undefined {
+  if (!raw) return raw
+  const token = raw.replace(/^(?:(?:next|fresh)\s+)?cursor:\s*/i, '')
+  return token || raw
+}
+
+/**
  * Long-poll (docs/adr/1551-*): `first` came back empty for `cursor`; wait for a change in the
  * caller's workspaces and read again, until something comes back or `waitSec` is over. The wait is
  * reported to the usage frame so it does not count as latency (docs/adr/1552-*).
@@ -86,7 +97,8 @@ export function registerChangeTools(server: McpServer, ctx: ToolCtx): void {
       },
     },
     async (args, extra) =>
-      wrap(async ({ cursor, workspaceId, budget, detail, wait }: typeof args) => {
+      wrap(async ({ cursor: cursorRaw, workspaceId, budget, detail, wait }: typeof args) => {
+        const cursor = cursorArg(cursorRaw)
         const read = async (c: string | undefined) => {
           const query: Record<string, string> = {}
           if (c) query.cursor = c

@@ -116,6 +116,8 @@ describe('tools/list (docs/adr/1945-*)', () => {
     // the measured value plus a small margin: a new tool or a longer description must move it on purpose.
     // 0.20: every tool carries its annotation hints, without those equal to the spec defaults
     // (docs/adr/2460-*): 12,777 → 13,245 tok (+468, 51,059 → 52,932 chars); core 7,533 → 7,857 (+324).
+    // 0.22.2: "; required with several" on the workspaceId of the 10 tools that infer the workspace:
+    // 13,245 → 13,303 tok (52,932 → 53,162 chars), under the same cap.
     assert.ok(tokens < 13_320, `tools/list ~${tokens} tok`)
   })
 
@@ -177,5 +179,23 @@ describe('outline lines and anchors (docs/adr/1942-*)', () => {
     const v = outlineVersion({ page: { id: 'p', title: 'T', kind: 'doc' }, sections })
     assert.equal(v, outlineVersion({ page: { id: 'p', title: 'T', kind: 'doc' }, sections: sections.map((s) => ({ ...s })) }))
     assert.notEqual(v, outlineVersion({ page: { id: 'p', title: 'T2', kind: 'doc' }, sections }))
+  })
+})
+
+describe('workspaceId on tools that infer the workspace (0.22.2)', () => {
+  it('says it is required with several workspaces, on exactly the tools that call inferWorkspace', async () => {
+    const { WORKSPACE_REQUIRED_IF_MANY } = await import('./idArgs')
+    const { tools } = await listTools()
+    const marked = tools
+      .filter((t) => {
+        const ws = (t.inputSchema.properties as Record<string, { description?: string }> | undefined)?.workspaceId
+        return ws?.description?.endsWith(WORKSPACE_REQUIRED_IF_MANY)
+      })
+      .map((t) => t.name)
+      .sort()
+    assert.deepEqual(marked, [
+      'check_notes', 'create_collection', 'create_from_template', 'create_page', 'get_instructions',
+      'import_folder', 'import_zip', 'list_pages', 'list_templates', 'list_trash',
+    ])
   })
 })

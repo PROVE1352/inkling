@@ -15,7 +15,7 @@ import { fieldTypeSchema, rollupFnSchema, selectOptionSchema, UNIQUE_ID_PREFIX_R
 import type { CollectionField, PageMetaDTO, SelectOption } from '@inkling/shared'
 import { call, text, ToolError, wrapWrite, idArg } from './core'
 import type { McpServer, ToolCtx } from './core'
-import { inferWorkspace } from './idArgs'
+import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY } from './idArgs'
 import { resolvePageRef } from './shortIds'
 import { loadAgentContext, withApplies } from './agentContext'
 import { cleanText, wrapUntrusted } from './trust'
@@ -325,7 +325,7 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         'Rows always have a Title. Empty fields = the default Status/Assignee/Due properties. The collection gets a table view; ' +
         'views are edited in the app. With parentId it goes under that page (inheriting its section).',
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         title: z.string().trim().min(1).max(300).describe('Collection title'),
         fields: z.array(fieldSpecSchema).max(100).describe('Properties, in order (no Title: every row has one)'),
         parentId: idArg('page').optional().describe('Parent page id'),

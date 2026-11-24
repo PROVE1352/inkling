@@ -19,7 +19,7 @@ import { findVisiblePage } from '../pageDto'
 import { loadAgentContext, pageFacts, withApplies } from './agentContext'
 import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
-import { inferWorkspace } from './idArgs'
+import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY } from './idArgs'
 import { attr, cleanText, wrapUntrusted } from './trust'
 import { suggestionMadeText } from './collabTools'
 import { recordFlaggedFile } from '../agentTaint'
@@ -341,7 +341,7 @@ export function registerTrashTools(server: McpServer, ctx: ToolCtx): void {
         "Pages in a workspace's trash that I can see (newest first): title, id, when it was trashed, its former parent. " +
         'restore_page(pageId) brings one back with its subpages. Trashed pages are deleted for good after the workspace\'s ' +
         'retention period; there is no permanent-delete tool.',
-      inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace') },
+      inputSchema: { workspaceId: idArg('workspace').optional().describe('Default: your only workspace' + WORKSPACE_REQUIRED_IF_MANY) },
     },
     wrap(async ({ workspaceId: wsRef }) => {
       const workspaceId = await inferWorkspace(ctx, wsRef) // docs/adr/1943-*
@@ -710,7 +710,7 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
         'files under assets/ become attachments (the upload rules apply). Structure is kept. Not for Notion exports (web app).',
       inputSchema: {
         base64: z.string().max(UPLOAD_ARG_MAX).describe('The .zip file, base64'),
-        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         parentId: idArg('page').optional().describe('Import under this page'),
         source: z.enum(['auto', 'markdown']).optional().describe('markdown = import even if it looks like a Notion export'),
       },

@@ -67,16 +67,8 @@ export function prepareMarkdownPaste(md: string): MarkdownPaste | null {
   const hasCallout = md.includes('[!') && CALLOUT_HINT_RE.test(md)
   if (!md.includes('$') && !hasCallout) return null
 
-  let nonce = ''
-  do nonce = `Iq${randomLetters(12)}`
-  while (md.includes(nonce))
-  let next = 0
-  const sentinel = (kind: 'B' | 'I') => `${nonce}${kind}${next++}Q`
-  /** key → LaTeX source */
-  const blockSources = new Map<string, string>()
-  const inlineSources = new Map<string, string>()
-  /** key → the text it replaced, for a sentinel that ends up where no node can go */
-  const literals = new Map<string, string>()
+  const src = newSentinels(md)
+  const { sentinel, blockSources, inlineSources, literals } = src
 
   const lines = md.split('\n')
   const out: string[] = []
@@ -154,6 +146,42 @@ export function prepareMarkdownPaste(md: string): MarkdownPaste | null {
 
   if (!blockSources.size && !inlineSources.size && !hasCallout) return null
   const markdown = blockSources.size || inlineSources.size ? out.join('\n') : md
+  return { markdown, restore: notationRestore(src, hasCallout) }
+}
+
+/** Sentinels for math sources cut out of a text: `<nonce><B|I><n>Q`, letters and digits only. */
+export interface Sentinels {
+  nonce: string
+  sentinel(kind: 'B' | 'I'): string
+  /** key → LaTeX source */
+  blockSources: Map<string, string>
+  inlineSources: Map<string, string>
+  /** key → the text it replaced, for a sentinel that ends up where no node can go */
+  literals: Map<string, string>
+}
+
+/** A sentinel set whose nonce does not occur in `avoid`. */
+export function newSentinels(avoid: string): Sentinels {
+  let nonce = ''
+  do nonce = `Iq${randomLetters(12)}`
+  while (avoid.includes(nonce))
+  let next = 0
+  return {
+    nonce,
+    sentinel: (kind) => `${nonce}${kind}${next++}Q`,
+    blockSources: new Map(),
+    inlineSources: new Map(),
+    literals: new Map(),
+  }
+}
+
+/**
+ * The step after BlockNote's parser: a paragraph holding only a block sentinel becomes a math block,
+ * other sentinels inlineMath (or their source text in code and link text), and with `callouts` a
+ * `[!type]` quote becomes a callout. Mutates and returns the blocks.
+ */
+export function notationRestore(src: Sentinels, callouts: boolean): (blocks: PasteBlock[]) => PasteBlock[] {
+  const { nonce, blockSources, inlineSources, literals } = src
   const any = new RegExp(`${nonce}[BI]\\d+Q`, 'g')
   const literal = (key: string) => literals.get(key) ?? key
   const unsentinel = (text: string) => (text.includes(nonce) ? text.replace(any, literal) : text)
@@ -212,7 +240,7 @@ export function prepareMarkdownPaste(md: string): MarkdownPaste | null {
           }
         }
       }
-      if (hasCallout && b.type === 'quote' && Array.isArray(b.content)) {
+      if (callouts && b.type === 'quote' && Array.isArray(b.content)) {
         const callout = calloutFromQuote(b, b.content as Inline[])
         if (callout) list[i] = callout
       }
@@ -220,7 +248,7 @@ export function prepareMarkdownPaste(md: string): MarkdownPaste | null {
     }
     return list
   }
-  return { markdown, restore }
+  return restore
 }
 
 /**

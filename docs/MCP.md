@@ -484,7 +484,10 @@ Token numbers in tool output are estimates (ASCII characters / 4, one per Korean
   change. People lift it in Inkling (the connection's owner in Settings › Connections, an owner or admin for their
   workspace on the team agents board), or a workspace switches the rule off (Workspace settings › Connected agents ›
   Suspicious content, on by default); an agent cannot. MCP connections, agent connection tokens and personal API
-  tokens are all covered.
+  tokens are all covered. The refusal gives the address where the person lifts it (`PUBLIC_URL` +
+  `/settings/connections#suggest-only`, and the workspace's team agents page); if the flag looks like a false alarm,
+  pass it on. Since 0.24 the rules also need a sign that the text tells someone to do something, so notes that only
+  describe such attacks are flagged less often ([ADR 0979](adr/0979-injection-rules-need-a-directive.md)).
 - **This is a mitigation, not a permission boundary.** Detection and markers can be evaded and a model can still be
   misled; suggest-only helps only when the heuristics fire. The boundaries are the edit lock, read/write scopes, the
   connection's range (some workspaces or one subtree) and per-workspace agent blocks; edits in suggestion mode wait

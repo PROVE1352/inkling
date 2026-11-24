@@ -93,7 +93,7 @@ export const READ_ONLY_TOKEN_MESSAGE =
 
 /** The 403 a read-only personal API token gets on a write route (docs/adr/1201-*). */
 export const READ_ONLY_API_TOKEN_MESSAGE =
-  'This API token is read-only. Make a read and write token in Settings › Connections to change notes'
+  'This API token is read-only. Make a read and write token in Settings > Connections to change notes'
 
 // ---------------------------------------------------------------------------
 // Password hashing (@node-rs/argon2 default options)

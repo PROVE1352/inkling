@@ -13,7 +13,7 @@ import { AppError } from './errors'
 export const AGENT_INK_OFF_CODE = 'AGENT_INK_OFF'
 export const AGENT_INK_OFF_MESSAGE =
   'Agents cannot read handwriting in this workspace. An owner or admin can turn on ' +
-  '"Agents can read handwriting" in Workspace settings › Connected agents'
+  '"Agents can read handwriting" in Workspace settings > Connected agents'
 
 export function agentInkOff(): AppError {
   return new AppError(403, AGENT_INK_OFF_CODE, AGENT_INK_OFF_MESSAGE)

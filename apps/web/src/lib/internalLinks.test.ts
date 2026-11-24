@@ -16,6 +16,18 @@ describe('internal links in editor bodies', () => {
     assert.equal(internalLinkPath(`${ORIGIN}/w/ws1/p/page1#h=x`, ORIGIN), '/w/ws1/p/page1#h=x')
   })
 
+  it('the settings screens are in-app too, by an allowlist', () => {
+    assert.equal(internalLinkPath('/settings/connections', ORIGIN), '/settings/connections')
+    assert.equal(internalLinkPath(`${ORIGIN}/settings/connections`, ORIGIN), '/settings/connections')
+    assert.equal(internalLinkPath('/settings', ORIGIN), '/settings')
+    assert.equal(internalLinkPath('/settingsX', ORIGIN), null)
+    assert.equal(internalLinkPath('//evil.example/settings/connections', ORIGIN), null)
+    assert.equal(internalLinkPath('https://example.com/settings/connections', ORIGIN), null)
+    assert.equal(internalLinkPath('/api/settings', ORIGIN), null)
+    assert.equal(internalLinkPath('/api/auth/me', ORIGIN), null)
+    assert.equal(internalLinkPath('javascript:alert(1)', ORIGIN), null)
+  })
+
   it('external, other-origin, protocol-relative and non-page links are not', () => {
     assert.equal(internalLinkPath('https://example.com/w/ws1/p/page1', ORIGIN), null)
     assert.equal(internalLinkPath('//evil.example/w/ws1/p/page1', ORIGIN), null)

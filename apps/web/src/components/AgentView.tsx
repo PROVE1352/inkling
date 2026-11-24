@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAgentContext, useAgentOutline, useAgentSection } from '../agentViewApi'
-import { INTRO_ANCHOR, anchorTail, contextSummary, outlineRows, sampleQuestion, type OutlineRow } from '../lib/agentView'
+import { INTRO_ANCHOR, contextSummary, outlineRows, sampleQuestion, shortAnchors, type OutlineRow } from '../lib/agentView'
 import { useOnboarding } from '../onboarding/api'
 import { fmtNumber, t, useLocale, useT, type Locale, type TKey, type TParams } from '../i18n'
 import { Modal } from './Modal'
@@ -173,7 +173,7 @@ function Question({
                   >
                     <span className={`min-w-0 max-w-full truncate ${r.onThisPage ? 'font-semibold' : ''}`}>{r.title || t('common.untitled')}</span>
                     <span className="min-w-0 max-w-full truncate font-mono text-xs" title={r.anchors.join('\n')}>
-                      §{anchorTail(r.anchor)}
+                      §{r.short}
                       {r.anchors.length > 1 ? ` +${r.anchors.length - 1}` : ''}
                     </span>
                     <span className="text-xs tabular-nums">{t('agentView.tokens', { tokens: r.tokens })}</span>
@@ -202,6 +202,8 @@ const SectionList = memo(function SectionList({
   const t = useT()
   const [all, setAll] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  // the labels find_context prints (shortest unique anchor suffix), not the anchor cut to width
+  const shorts = useMemo(() => shortAnchors(rows.map((r) => r.anchor)), [rows])
   if (rows.length === 0) return <p className="text-sub">{t('agentView.empty')}</p>
   const shown = all ? rows : rows.slice(0, FIRST_ROWS)
   return (
@@ -213,6 +215,7 @@ const SectionList = memo(function SectionList({
             key={r.anchor}
             pageId={pageId}
             row={r}
+            short={shorts.get(r.anchor) ?? r.anchor}
             open={expanded === r.anchor}
             returned={returned.has(r.anchor)}
             onToggle={setExpanded}
@@ -231,12 +234,14 @@ const SectionList = memo(function SectionList({
 const SectionRow = memo(function SectionRow({
   pageId,
   row,
+  short,
   open,
   returned,
   onToggle,
 }: {
   pageId: string
   row: OutlineRow
+  short: string
   open: boolean
   returned: boolean
   onToggle: (anchor: string | null) => void
@@ -257,7 +262,7 @@ const SectionRow = memo(function SectionRow({
       >
         <span className="flex min-w-[10rem] flex-1 items-baseline gap-1.5 overflow-hidden">
           <ChevronRightIcon size={12} className={`shrink-0 self-center text-sub transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
-          <span className={`truncate font-mono text-xs ${returned ? 'font-semibold text-ink' : 'text-ink'}`}>§{anchorTail(row.anchor || INTRO_ANCHOR)}</span>
+          <span className={`truncate font-mono text-xs ${returned ? 'font-semibold text-ink' : 'text-ink'}`}>§{short || INTRO_ANCHOR}</span>
           {intro && <span className="truncate text-xs text-sub">{t('agentView.intro')}</span>}
         </span>
         <span className="ml-auto flex shrink-0 items-baseline gap-3 text-xs tabular-nums text-sub">

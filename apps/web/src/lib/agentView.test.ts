@@ -3,7 +3,7 @@
 // "What an agent reads" helpers (docs/adr/2389-*).
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { INTRO_ANCHOR, anchorTail, contextSummary, outlineRows, sampleQuestion } from './agentView'
+import { INTRO_ANCHOR, contextSummary, outlineRows, sampleQuestion, shortAnchors } from './agentView'
 
 const sec = (anchor: string, tokens: number, version = 'v1', level = 2) => ({
   anchor,
@@ -53,12 +53,21 @@ describe('agentView outlineRows', () => {
   })
 })
 
-describe('agentView anchorTail', () => {
-  it('keeps a top-level anchor and shortens a nested one to its last segment', () => {
-    assert.equal(anchorTail('5-ai-agents'), '5-ai-agents')
-    assert.equal(anchorTail('_intro'), '_intro')
-    assert.equal(anchorTail('section-1/section-2'), '…/section-2')
-    assert.equal(anchorTail('a/b/c'), '…/c')
+describe('agentView shortAnchors', () => {
+  it('top-level anchors stay; a nested one keeps the fewest trailing segments that are unique', () => {
+    const m = shortAnchors(['_intro', '5-ai-agents', 'setup/notes', 'usage/notes', 'usage/tips', 'a/b/c'])
+    assert.equal(m.get('_intro'), '_intro')
+    assert.equal(m.get('5-ai-agents'), '5-ai-agents')
+    assert.equal(m.get('setup/notes'), 'setup/notes')
+    assert.equal(m.get('usage/notes'), 'usage/notes')
+    assert.equal(m.get('usage/tips'), 'tips')
+    assert.equal(m.get('a/b/c'), 'c')
+  })
+
+  it('a suffix equal to another top-level anchor is not used', () => {
+    const m = shortAnchors(['notes', 'setup/notes'])
+    assert.equal(m.get('notes'), 'notes')
+    assert.equal(m.get('setup/notes'), 'setup/notes')
   })
 })
 
@@ -70,10 +79,10 @@ describe('agentView contextSummary', () => {
         pageId: page,
         title: 'Getting started',
         anchor: '5-ai-agents',
-        sections: [{ anchor: '5-ai-agents' }, { anchor: 'a-few-shortcuts' }],
+        sections: [{ anchor: '5-ai-agents', short: '5-ai-agents' }, { anchor: 'a-few-shortcuts', short: 'a-few-shortcuts' }],
         tokens: 120,
       },
-      { pageId: 'p-2', title: 'Other', anchor: 'setup', sections: [{ anchor: 'setup' }], tokens: 80 },
+      { pageId: 'p-2', title: 'Other', anchor: 'guide/setup', sections: [{ anchor: 'guide/setup', short: 'setup' }], tokens: 80 },
     ],
     more: [],
     titleOnly: [],
@@ -89,6 +98,7 @@ describe('agentView contextSummary', () => {
     assert.deepEqual(s.rows[0].anchors, ['5-ai-agents', 'a-few-shortcuts'])
     assert.equal(s.rows[0].anchor, '5-ai-agents')
     assert.equal(s.rows[0].tokens, 120)
+    assert.equal(s.rows[1].short, 'setup')
   })
 
   it('marks the rows of this page', () => {
@@ -112,6 +122,7 @@ describe('agentView contextSummary', () => {
     const s = contextSummary({ fragments: [{ pageId: page, title: 'T', anchor: 'x', sections: [], tokens: 9 }], budget: 100, usedTokens: 9 }, page)
     assert.equal(s.sections, 1)
     assert.deepEqual(s.rows[0].anchors, ['x'])
+    assert.equal(s.rows[0].short, 'x')
   })
 })
 

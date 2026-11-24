@@ -26,13 +26,15 @@ returns, the same cached path, the default 3,500-token budget).
     sections are set in bold in the section list. `more` (matches that did not fit the budget) is counted.
     The question is sent 400 ms after typing stops, or on Enter, with `workspaceId` = the current workspace.
   - The sections: `§anchor`, `~tokens`, share of the page in whole percent (largest remainder, so the rows add
-    up to 100; a section with tokens that rounds to 0 shows "<1%"), `v=version`, indented by heading level. A
-    nested anchor (`parent/child`) shows its last segment (`…/child`) with the full anchor in the title, since
-    cutting it to width would leave only the parent's part. The part before the first heading is `_intro`,
+    up to 100; a section with tokens that rounds to 0 shows "<1%"), `v=version`, indented by heading level.
+    Anchors are shown by the label find_context prints (ADR 1212): the shortest unique run of trailing
+    segments, which read_page accepts too (the result lines use the route's `short`, the list computes the
+    same rule); the full anchor is in the title. Cutting a nested anchor (`parent/child`) to width would leave
+    only the parent's part on every row under it. The part before the first heading is `_intro`,
     labelled "(before the first heading)". A row opens to the section's Markdown in a read-only `<pre>`,
     fetched only then, at most 20,000 characters (the rest is counted).
   - "Tokens are estimates. Searched in this workspace as you, with no agent connected."
-- **The sample page** (decision 4 of the 0.23 plan) starts with a question filled in: "How do I connect an
+- **The sample page** starts with a question filled in: "How do I connect an
   agent to an MCP client?" / "에이전트를 MCP 클라이언트에 연결하려면?", chosen from the language of the sample's
   title (an automatically made sample can be in another language than the UI). Both find the sample's
   "5. AI agents" section in either language's sample, through "MCP". The page counts as the sample when

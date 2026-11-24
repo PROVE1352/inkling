@@ -46,19 +46,42 @@ export function outlineRows(o: OutlineLike): OutlineRow[] {
 }
 
 /**
- * The part of an anchor to show in a row: the last segment of a nested anchor (`a/b/c` → `…/c`), so the
- * rows under one parent do not all read as the parent once cut to width. The full anchor goes in a title.
+ * The label find_context and read_page use for each anchor of a page (ADR 1212): the shortest run of
+ * trailing segments (`parent/child` → `child`) that no other anchor on the page also ends with; read_page
+ * accepts it in place of the full anchor. Same rule as the server's `shortAnchors` (context/chunker.ts),
+ * counted with one map instead of comparing every pair, for pages with hundreds of sections.
  */
-export function anchorTail(anchor: string): string {
-  const i = anchor.lastIndexOf('/')
-  return i < 0 ? anchor : `…/${anchor.slice(i + 1)}`
+export function shortAnchors(anchors: string[]): Map<string, string> {
+  const uniq = [...new Set(anchors)]
+  const owners = new Map<string, number>()
+  for (const a of uniq) {
+    const segs = a.split('/')
+    for (let k = 1; k <= segs.length; k++) {
+      const suffix = segs.slice(segs.length - k).join('/')
+      owners.set(suffix, (owners.get(suffix) ?? 0) + 1)
+    }
+  }
+  const out = new Map<string, string>()
+  for (const a of uniq) {
+    const segs = a.split('/')
+    let short = a
+    for (let k = 1; k < segs.length; k++) {
+      const suffix = segs.slice(segs.length - k).join('/')
+      if (owners.get(suffix) === 1) {
+        short = suffix
+        break
+      }
+    }
+    out.set(a, short)
+  }
+  return out
 }
 
 export interface ContextFragmentLike {
   pageId: string
   title: string
   anchor: string
-  sections: { anchor: string }[]
+  sections: { anchor: string; short?: string }[]
   tokens: number
 }
 
@@ -73,6 +96,8 @@ export interface ContextRow {
   title: string
   /** First section of the fragment. */
   anchor: string
+  /** Its short label as find_context prints it (`short` of the first section, else the anchor). */
+  short: string
   /** Every section the fragment carries (neighbours are merged into one fragment), in page order. */
   anchors: string[]
   tokens: number
@@ -91,7 +116,8 @@ export interface ContextSummary {
 export function contextSummary(r: ContextResultLike, pageId: string): ContextSummary {
   const rows = r.fragments.map((f) => {
     const anchors = f.sections.length ? f.sections.map((s) => s.anchor) : [f.anchor]
-    return { pageId: f.pageId, title: f.title, anchor: f.anchor, anchors, tokens: f.tokens, onThisPage: f.pageId === pageId }
+    const short = f.sections[0]?.short || f.anchor
+    return { pageId: f.pageId, title: f.title, anchor: f.anchor, short, anchors, tokens: f.tokens, onThisPage: f.pageId === pageId }
   })
   return {
     rows,
@@ -102,9 +128,9 @@ export function contextSummary(r: ContextResultLike, pageId: string): ContextSum
 }
 
 /**
- * The question filled in on the sample page (decision 4 of the 0.23 plan). Words from the sample's
- * "AI agents" section, so a word search finds it ("MCP" also finds it in a sample of the other language,
- * checked against the 0.23 server); kept as constants here, not read from the server's
+ * The question filled in on the sample page (docs/adr/2389-*). Words from the sample's "AI agents"
+ * section, so a word search finds it ("MCP" also finds it in a sample of the other language); kept as
+ * constants here, not read from the server's
  * sample text, so a change to the sample shows up in the test.
  */
 export function sampleQuestion(locale: Locale): string {

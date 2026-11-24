@@ -227,3 +227,32 @@ export interface ClientNameNotice {
   /** true = the connection will be refused in those workspaces; false = a common app name, warning only. */
   blocking: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Section marks: who changed each section last (docs/adr/1627-*)
+// ---------------------------------------------------------------------------
+
+/** The newest logged change of one current section (GET /pages/:id/section-provenance). */
+export interface SectionProvenanceDTO {
+  anchor: string
+  /** Heading block id of the section in the current outline (the web places the mark by it). */
+  blockId: string | null
+  headingPath: string
+  /** page_changes.seq as a string (bigint); POST /changes/:seq/revert takes it. */
+  seq: string
+  /** added | modified | renamed | moved */
+  kind: string
+  changedAt: string
+  actor: { id: string; name: string } | null
+  /** page_changes.via_client: the OAuth client name, the public form marker or "automation: …". */
+  via: string | null
+  /** `via` names an agent connection (not a form, not an automation). */
+  agent: boolean
+  revertable: boolean
+  revertedBy: { name: string; at: string } | null
+  isRevert: boolean
+}
+
+export interface SectionProvenanceResponseDTO {
+  sections: SectionProvenanceDTO[]
+}

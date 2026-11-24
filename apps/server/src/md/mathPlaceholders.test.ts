@@ -3,11 +3,12 @@
 // none may survive into the blocks, and a URL's `$` is never a delimiter. Pure — no database.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { markdownToBlocks } from './convert'
+import { blocksToMarkdown, markdownToBlocks } from './convert'
 import type { AnyBlock } from './convert'
 
 const noTitles = () => null
 const parse = (md: string) => markdownToBlocks(md, noTitles)
+const toMd = async (blocks: AnyBlock[]) => (await blocksToMarkdown(blocks, { assetMode: 'absolute' })).markdown
 /** `Iq` + 12 letters a–p, kind, counter, `Q` (math.ts `newSentinels` / `sentinel`). */
 const SENTINEL = /Iq[a-p]{12}[BID]\d+Q/
 const strip = (blocks: AnyBlock[]): unknown => JSON.parse(JSON.stringify(blocks, (k, v) => (k === 'id' ? undefined : v)))
@@ -64,6 +65,9 @@ describe('math import: no sentinel is left in the blocks', () => {
     assert.equal(img.props?.name, '그림 $x$')
     const [linked] = await parse('[![img $x$ and \\$5](https://e.com/i.png)](https://e.com)')
     assert.equal(linked.props?.name, 'img $x$ and $5')
+    // mid-line `$$x$$` is inline math `x`; in alt text it stays as written
+    const [display] = await parse('![a $$x$$ b](https://e.com/i.png)')
+    assert.equal(display.props?.name, 'a $$x$$ b')
   })
 
   for (const [where, md] of [
@@ -97,6 +101,23 @@ describe('math import: `$` in URLs is not a delimiter', () => {
   it('<…> autolink keeps its text', async () => {
     const md = '<https://api.example.com/x?$filter=a&$select=b>'
     assert.doesNotMatch(JSON.stringify(inlines((await parse(md))[0])), /inlineMath/)
+  })
+
+  it('export → import keeps a URL with $ as text, with and without math on the line', async () => {
+    const url = 'https://api.example.com/x?$filter=a&$select=b'
+    const para = (content: unknown[]) => [{ id: 'p', type: 'paragraph', props: {}, content, children: [] }] as unknown as AnyBlock[]
+    const z = { type: 'inlineMath', props: { latex: 'z' } }
+    for (const blocks of [
+      para([{ type: 'text', text: url, styles: {} }]),
+      para([{ type: 'text', text: `${url} and `, styles: {} }, z]),
+      para([{ type: 'text', text: `<${url}> and `, styles: {} }, z]),
+      para([{ type: 'link', href: url, content: [{ type: 'text', text: url, styles: {} }] }, { type: 'text', text: ' ', styles: {} }, z]),
+    ]) {
+      const md1 = await toMd(blocks)
+      const back = await parse(md1)
+      assert.deepEqual(inlines(back[0]), inlines(blocks[0]), md1)
+      assert.equal(await toMd(back), md1)
+    }
   })
 
   it('math elsewhere on the line is still math', async () => {

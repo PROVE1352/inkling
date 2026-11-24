@@ -167,21 +167,24 @@ const DISPLAY_OPEN_RE = /^([ \t>]*)\$\$[ \t]*$/
 const DISPLAY_ONE_LINE_RE = /^([ \t>]*)\$\$(.*\S.*?)\$\$[ \t]*$/
 
 /**
- * Masks code spans, link destinations, `<…>` autolinks and bare URLs so `$` inside them is never
- * math. BlockNote's parser links bare URLs (GFM autolink literals), and an OData query such as
- * `?$filter=a&$select=b` would otherwise split the link around a math node. Same masks as the web
- * paste path (apps/web/src/lib/paste/markdownNotation.ts).
+ * Splits a line around code spans and link destinations (kept verbatim) so `$` inside them is never
+ * math. `<…>` autolinks and bare URLs are text without math: BlockNote's parser keeps them as text,
+ * and an OData query such as `?$filter=a&$select=b` would otherwise be split around a math node
+ * (the web paste path masks the same, apps/web/src/lib/paste/markdownNotation.ts). Their `\$` is
+ * still unescaped, since export escapes every `$` on a line that has math. A bare URL stops at `]`
+ * so one written as a link label does not swallow the link's destination.
  */
-function maskedSegments(line: string): { text: string; from: number }[] {
-  const out: { text: string; from: number }[] = []
+function maskedSegments(line: string): { text: string; from: number; math: boolean }[] {
+  const out: { text: string; from: number; math: boolean }[] = []
   const skip =
-    /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b(?:https?:\/\/|www\.)[^\s<>]+/gi
+    /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|(<[a-z][a-z0-9+.-]*:[^>\s]*>|\b(?:https?:\/\/|www\.)[^\s<>\]]+)/gi
   let last = 0
   for (let m = skip.exec(line); m; m = skip.exec(line)) {
-    if (m.index > last) out.push({ text: line.slice(last, m.index), from: last })
+    if (m.index > last) out.push({ text: line.slice(last, m.index), from: last, math: true })
+    if (m[2]) out.push({ text: m[0], from: m.index, math: false })
     last = m.index + m[0].length
   }
-  if (last < line.length) out.push({ text: line.slice(last), from: last })
+  if (last < line.length) out.push({ text: line.slice(last), from: last, math: true })
   return out
 }
 
@@ -198,6 +201,8 @@ export function extractMath(md: string): MathImport {
   const s = newSentinels(md)
   const blockSources = new Map<string, string>()
   const inlineSources = new Map<string, string>()
+  /** The span as written (`$$x$$` mid-line is inline math `x`), for places no math node fits. */
+  const written = new Map<string, string>()
   let dollar = ''
 
   const lines = md.split('\n')
@@ -259,9 +264,10 @@ export function extractMath(md: string): MathImport {
     for (const seg of maskedSegments(line)) {
       next += line.slice(pos, seg.from) // code span / link destination: verbatim
       let p = 0
-      for (const span of scanInlineMath(seg.text)) {
+      for (const span of seg.math ? scanInlineMath(seg.text) : []) {
         const key = sentinel(s, 'I')
         inlineSources.set(key, span.latex)
+        written.set(key, seg.text.slice(span.start, span.end))
         next += unescapeDollars(seg.text.slice(p, span.start)) + key
         p = span.end
       }
@@ -334,9 +340,9 @@ export function extractMath(md: string): MathImport {
       }),
     )
     // A sentinel can also land where no math node fits: image alt text (the block's `name`), a link
-    // href, an indented code block, any other prop. Give the source back as written there.
+    // href, a code block's text, any other prop. Give the source back as written there.
     const plain = (text: string, code: boolean) => {
-      const t = text.replace(any, literal)
+      const t = text.replace(any, (key) => written.get(key) ?? literal(key))
       return dollar ? t.replaceAll(dollar, code ? '\\$' : '$') : t
     }
     const leftovers = (v: unknown, code: boolean): unknown => {

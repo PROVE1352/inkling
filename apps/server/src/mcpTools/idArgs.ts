@@ -242,6 +242,13 @@ async function listWorkspaces(ctx: ToolCtx): Promise<WorkspaceDTO[]> {
 }
 
 /**
+ * Appended to the `workspaceId` description of every tool that goes through inferWorkspace: with
+ * several workspaces and no page to infer from, the call is refused without one. Short on purpose
+ * (tools/list size, toolSurface.test.ts).
+ */
+export const WORKSPACE_REQUIRED_IF_MANY = '; required with several'
+
+/**
  * The workspace a call is about: the one passed, else the workspace of `pageId` (a page this
  * connection can see), else the only workspace this connection has. With several and no hint the
  * error lists them (short id and name), so no list_workspaces call is needed first.

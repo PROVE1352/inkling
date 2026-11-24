@@ -4,7 +4,7 @@ import type { NotesCheckDTO } from '../notesCheck'
 import { NOTES_CHECK_DEFAULT_LIMIT, NOTES_CHECK_MAX_LIMIT } from '../notesCheck'
 import { call, estimateTokens, idArg, text, wrap } from './core'
 import type { ToolCtx } from './core'
-import { inferWorkspace } from './idArgs'
+import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY } from './idArgs'
 import { shortId } from './shortIds'
 import { cleanText, wrapUntrusted } from './trust'
 
@@ -104,7 +104,7 @@ export function registerNotesCheckTools(server: McpServer, ctx: ToolCtx): void {
         'out, lapsed or much-changed verifications, large pages unchanged for 180 days. Totals per kind, top items first, ' +
         '8-character ids. Material for tidying; it changes nothing.',
       inputSchema: {
-        workspaceId: idArg('workspace').optional().describe("Default: parentId's workspace, or your only one"),
+        workspaceId: idArg('workspace').optional().describe("Default: parentId's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         parentId: idArg('page').optional().describe('Only this page and the pages under it'),
         limit: z.number().int().min(1).max(NOTES_CHECK_MAX_LIMIT).optional().describe(`Items per kind (default ${NOTES_CHECK_DEFAULT_LIMIT})`),
         budget: z.number().int().min(CHECK_MIN_BUDGET).max(CHECK_MAX_BUDGET).optional().describe(`Max tokens (default ${CHECK_DEFAULT_BUDGET})`),

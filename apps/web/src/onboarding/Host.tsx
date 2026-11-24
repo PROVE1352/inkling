@@ -120,6 +120,7 @@ export function OnboardingHost({ wsId }: { wsId: string }) {
       actionLabel: t('teamAgents.open'),
       onAction: () => navigate(`/w/${wsId}/team-agents`),
       duration: 12_000,
+      wrap: true,
     })
   }, [agentNotice, wsId, t, navigate])
 

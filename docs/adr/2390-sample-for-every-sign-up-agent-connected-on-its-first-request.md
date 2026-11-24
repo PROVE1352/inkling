@@ -46,8 +46,8 @@ agents do (the Team agents board, reached from the Activity screen) was hidden: 
   connections screen is outside the shell (no toasts): while it is open and nothing has connected, it asks again
   every 5 s, and shows the same line under its steps with a link to the board; whichever shows it first, the other
   does not repeat it.
-- **Activity in the default sidebar once connected.** There is no Team agents menu; the Activity screen links to
-  the board. With `agentConnected` and nothing stored for the sidebar, `activity` is no longer in the default hidden
+- **Activity in the default sidebar once connected.** There is no Team agents menu; the Activity screen's header
+  links to the board ("Team agents"). With `agentConnected` and nothing stored for the sidebar, `activity` is no longer in the default hidden
   list (`sidebarDefaultHidden`, `onboarding/sidebarDefault.ts`). The sidebar, its right-click "hide" and Settings ›
   Sidebar read the same default, so hiding another menu does not take Activity with it. A stored arrangement keeps
   its meaning; with no agent nothing changes.
@@ -72,8 +72,10 @@ agents do (the Team agents board, reached from the Activity screen) was hidden: 
 ## Trade-offs
 - The first onboarding read of a new account takes the sample's time (8 → 60–110 ms locally); the sign-up answer is
   unchanged (median of 20 local sign-ups 26 ms before and after).
-- The toast component draws one line, so the sentence is cut (at 390 px even before its first full stop); the
-  question is whole on the connections screen.
+- The toast component draws its message on one line and cuts it; this toast passes `wrap` (a new `ToastInput`
+  option, `lib/toast.ts`), so its sentence wraps, between words also in Korean (`keep-all`), to at most four lines and is read
+  whole (four lines at 1280 px in Korean and at 390 px in English). Every
+  other toast keeps the one-line look.
 - Back from a terminal into a browser window that stayed visible beside it, the app shell does not ask again
   until the tab is hidden and shown or a screen mounts after 30 s; no polling was added outside the connections
   screen.

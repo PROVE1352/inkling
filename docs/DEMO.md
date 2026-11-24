@@ -163,6 +163,15 @@ them is shown as text, and links work only for `http`, `https` and `mailto`.
 The templates describe what the app does with the settings of this page. If you change a setting, check
 the sentences about it (deletion after 14 days, trash 7 days, limits, features turned off).
 
+### Without tick boxes: one line
+
+Put `"items": []` in `signup.json` and keep `terms.*.md` and `privacy.*.md` in the folder. The sign-up form
+then has no tick boxes; under the sign-up button it says "By signing up, you agree to the Terms of Service
+and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
+consent is recorded in `user_consents` in this case, and nobody is asked again when a document changes.
+Which of the two ways fits your service is for you to decide under the law of your country; this page is
+not legal advice (see the end of this page).
+
 ## 3. Proxy
 
 Put HTTPS for the address in `PUBLIC_URL` in front of `127.0.0.1:3100`. With an https address the session
@@ -225,7 +234,7 @@ One line each; the full reference is in the operations docs.
 | `SIGNUP_REQUIRE_KEY` | `0` | Anyone can sign up without a key |
 | `SIGNUP_MAX_USERS` | `50` | Most accounts on the server, administrators included |
 | `SIGNUP_PER_IP_PER_DAY` | `2` | Sign-ups from one address in 24 hours |
-| `ACCOUNT_LIFETIME_DAYS` | `14` | Accounts made from now on are deleted this many days after sign-up |
+| `ACCOUNT_LIFETIME_DAYS` | `14` | Accounts made from now on are deleted this many days after sign-up. Empty: no account is deleted on a schedule |
 | `ACCOUNT_LIFETIME_DRY_RUN` | empty | `1` logs what would be deleted and deletes nothing |
 | `LIMIT_WORKSPACES_PER_USER` | `2` | Workspaces one person owns, deleted ones still restorable included |
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | Members of one workspace |

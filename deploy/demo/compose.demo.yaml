@@ -27,7 +27,7 @@ x-demo-limits: &demo-limits
   LOGIN_ID_MODE: ${LOGIN_ID_MODE:?set in deploy/demo/demo.env}
   SIGNUP_MAX_USERS: ${SIGNUP_MAX_USERS:?set in deploy/demo/demo.env}
   SIGNUP_PER_IP_PER_DAY: ${SIGNUP_PER_IP_PER_DAY:?set in deploy/demo/demo.env}
-  ACCOUNT_LIFETIME_DAYS: ${ACCOUNT_LIFETIME_DAYS:?set in deploy/demo/demo.env}
+  ACCOUNT_LIFETIME_DAYS: ${ACCOUNT_LIFETIME_DAYS:-}
   ACCOUNT_LIFETIME_DRY_RUN: ${ACCOUNT_LIFETIME_DRY_RUN:-}
   LIMIT_WORKSPACES_PER_USER: ${LIMIT_WORKSPACES_PER_USER:?set in deploy/demo/demo.env}
   LIMIT_MEMBERS_PER_WORKSPACE: ${LIMIT_MEMBERS_PER_WORKSPACE:?set in deploy/demo/demo.env}

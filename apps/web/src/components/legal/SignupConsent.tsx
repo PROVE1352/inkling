@@ -3,7 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '../../i18n'
 import { Spinner } from '../Spinner'
 import { ConsentItems } from './ConsentItems'
-import { CONSENT_REQUIRED_EVENT, useLegal, useLegalMode } from './legalApi'
+import { CONSENT_REQUIRED_EVENT, DOC_PATH, useLegal, useLegalMode } from './legalApi'
+import { signupAgreementParts } from './signupAgreement'
 
 /** What the consent block tells the sign-up form. */
 export interface SignupConsentState {
@@ -79,6 +80,8 @@ export function SignupConsent({ onChange }: { onChange: (state: SignupConsentSta
       </p>
     )
   }
+  // signup.json without items and without a notice: nothing above the button (the line goes under it)
+  if (legal.data.items.length === 0 && !legal.data.notice && !changed) return null
   return (
     <div className="flex flex-col gap-2">
       {changed && (
@@ -103,3 +106,31 @@ export function SignupConsent({ onChange }: { onChange: (state: SignupConsentSta
   )
 }
 
+
+/**
+ * The one line under the sign-up button when signup.json has no items to tick but the folder has
+ * documents (docs/adr/2553-*): "By signing up, you agree to the Terms of Service and the Privacy
+ * Policy.", each document name a link opening in a new tab so the form keeps what was typed. Nothing
+ * is recorded for it (no user_consents rows); the sign-up still sends the version shown.
+ */
+export function SignupAgreementLine() {
+  const t = useT()
+  const mode = useLegalMode()
+  const legal = useLegal(!!mode)
+  if (!mode || !legal.data) return null
+  const parts = signupAgreementParts(mode.docs, legal.data.items.length)
+  if (parts.length === 0) return null
+  return (
+    <p className="break-keep text-center text-xs leading-relaxed text-sub" data-testid="legal-signup-agreement">
+      {parts.map((p, i) =>
+        'doc' in p ? (
+          <a key={i} href={DOC_PATH[p.doc]} target="_blank" rel="noopener" className="text-ink underline underline-offset-2 hover:text-accent">
+            {t(p.doc === 'terms' ? 'legal.terms' : 'legal.privacy')}
+          </a>
+        ) : (
+          <span key={i}>{t(p.key)}</span>
+        ),
+      )}
+    </p>
+  )
+}

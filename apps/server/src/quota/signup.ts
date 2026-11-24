@@ -12,18 +12,21 @@ import { assertWorkspacesTotalRoom, workspacesTotalReached } from './room'
  *     already inserted there, so it counts).
  *   - LIMIT_INSTANCE_STORAGE_MB: a full server takes no new account (503 INSTANCE_FULL).
  * The first admin's sign-up with the setup code is never refused (like SIGNUP_MAX_USERS): it makes the
- * operator's own account. Without the settings nothing is read.
+ * operator's own account. Without the settings nothing is read. A trial account (docs/adr/2555-*) is
+ * refused only by the fuse: its workspace is not counted in the total (room.ts COUNT_WORKSPACES).
  */
 export const quotaSignupHook: SignupHook = {
   async before(ctx) {
     if (ctx.setupCode) return
     if (await isInstanceFull()) throw instanceFullError()
+    // a trial account's workspace is not counted in LIMIT_WORKSPACES_TOTAL (TRIAL_MAX_ACCOUNTS bounds it)
+    if (ctx.trial) return
     if (await workspacesTotalReached(db)) {
       throw new AppError(403, 'SIGNUP_FULL', 'This server is not taking new accounts right now')
     }
   },
   async on(tx, _user, ctx) {
-    if (ctx.setupCode) return
+    if (ctx.setupCode || ctx.trial) return
     await assertWorkspacesTotalRoom(tx, 0, 'signup')
   },
 }

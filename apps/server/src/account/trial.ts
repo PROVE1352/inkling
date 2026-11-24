@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { TRIAL_EMAIL_SUFFIX, type RegisterInput, type TrialModeDTO, type UserDTO } from '@inkling/shared'
 import { createSession, getSessionUser, hashPassword, SESSION_COOKIE, setSessionCookie } from '../auth'
@@ -13,8 +13,8 @@ import { activeLegal } from '../legal/consent'
 import { limits, TRIAL_DEFAULTS } from '../limits'
 import { createSample, onboardingEnabled } from '../onboarding/state'
 import type { Tx } from '../pageTree'
+import { ipPrefixKey } from '../ipPrefix'
 import { isInstanceFull } from '../quota/instance'
-import { workspacesTotalReached } from '../quota/room'
 import type { RequestGate } from '../requestGates'
 import { runBeforeSignup, runOnSignup, type SignupContext } from '../signupHooks'
 import { deleteAccount, type DeleteAccountResult } from './deletion'
@@ -106,7 +106,7 @@ export async function trialAvailability(): Promise<TrialModeDTO> {
   const max = limits.trial?.maxAccounts ?? TRIAL_DEFAULTS.maxAccounts
   const { total, expired } = await trialCounts()
   if (total - Math.min(expired, QUICK_RECLAIM) >= max) return { available: false, reason: 'full', hours }
-  if ((await isInstanceFull()) || (await workspacesTotalReached(db))) return { available: false, reason: 'full', hours }
+  if (await isInstanceFull()) return { available: false, reason: 'full', hours }
   return { available: true, hours }
 }
 
@@ -161,7 +161,10 @@ export async function expireTrialAccounts(log: (msg: string) => void = (m) => co
  * runBeforeSignup. Everything up to the membership is one transaction with the sign-up hooks' `on`
  * part; the sample page comes after the commit and a failure there leaves a working account.
  */
-export async function createTrialAccount(ctx: SignupContext): Promise<{ user: UserDTO; workspaceId: string; samplePageId: string | null }> {
+export async function createTrialAccount(
+  ctx: SignupContext,
+  hash: (password: string) => Promise<string> = hashPassword,
+): Promise<{ user: UserDTO; workspaceId: string; samplePageId: string | null }> {
   const trial = limits.trial
   if (!trial) throw trialOff()
   const log = (m: string) => ctx.req.log.warn(m)
@@ -173,8 +176,11 @@ export async function createTrialAccount(ctx: SignupContext): Promise<{ user: Us
       log(`[inkling] trial accounts: reclaiming user ${id} failed (${typeof code === 'string' ? code : 'error'})`)
     }
   }
+  // a full server answers before the expensive part (the argon2 hash, the locked transaction); the
+  // count under the lock below stays the one that decides
+  if ((await trialCounts()).total >= trial.maxAccounts) throw trialFull()
   // a password nobody knows: the random bytes are dropped here
-  const passwordHash = await hashPassword(randomBytes(32).toString('base64url'))
+  const passwordHash = await hash(randomBytes(32).toString('base64url'))
   const { email, name } = ctx.body
   const created = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${TRIAL_CAP_LOCK})`)
@@ -206,6 +212,7 @@ export async function createTrialAccount(ctx: SignupContext): Promise<{ user: Us
     await runOnSignup(tx, { ...u, isAdmin: false, workspaceId: wsId }, ctx)
     return { user: { ...u, isAdmin: false }, workspaceId: wsId }
   })
+  trialRowsSeen = true
   let samplePageId: string | null = null
   if (onboardingEnabled()) {
     try {
@@ -287,6 +294,22 @@ export function trialRestriction(method: string, url: string | undefined, body: 
   return null
 }
 
+/**
+ * Whether this server may have trial accounts: always while TRIAL_ACCOUNTS is on; while it is off, read
+ * once (accounts made before it was turned off stay refused until they are deleted) and remembered.
+ * Only one server process uses a database (instanceLock.ts), and with the setting off nothing in this
+ * process makes a trial account, so "none" stays true until the setting is on again.
+ */
+let trialRowsSeen: boolean | null = null
+async function mayHaveTrialAccounts(): Promise<boolean> {
+  if (trialOn() || trialRowsSeen) return true
+  if (trialRowsSeen === null) {
+    const r = (await db.execute(sql`SELECT 1 FROM users WHERE trial LIMIT 1`)) as unknown as unknown[]
+    trialRowsSeen = r.length > 0
+  }
+  return trialRowsSeen
+}
+
 async function isTrialUser(userId: string): Promise<boolean> {
   const [r] = await db.select({ trial: users.trial }).from(users).where(eq(users.id, userId)).limit(1)
   return !!r?.trial
@@ -295,13 +318,14 @@ async function isTrialUser(userId: string): Promise<boolean> {
 /**
  * Request gate (requestGates.ts): REST requests only (cookie, API token, and the REST routes MCP
  * tools call through inject). The account is read from the database only when the route is on the
- * list, so the gate costs nothing elsewhere and stays right after TRIAL_ACCOUNTS is turned off, with
- * several app instances, or when an account is deleted. The /mcp door and the collaboration socket
+ * list, so the gate costs nothing elsewhere and stays right after TRIAL_ACCOUNTS is turned off or an
+ * account is deleted; with the setting off and no trial account ever seen, not even that. The /mcp door and the collaboration socket
  * reach no listed route.
  */
 export const trialGate: RequestGate = async ({ user, req, channel }) => {
   if (channel !== 'http' || !req) return
   if (!trialRestriction(req.method, req.routeOptions?.url, req.body)) return
+  if (!(await mayHaveTrialAccounts())) return
   if (await isTrialUser(user.id)) throw trialRestricted()
 }
 
@@ -315,7 +339,10 @@ const trialBody = z.object({
 
 /** POST /api/auth/trial (registered from account/register.ts on every app). */
 export async function registerTrialRoutes(api: FastifyInstance): Promise<void> {
-  api.post('/auth/trial', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+  // Keyed by the address only: the global key would give a request carrying any `Bearer ink_pat_…` header
+  // a bucket of its own (rateLimitKey.ts), and this route never checks a bearer.
+  const byAddress = (req: FastifyRequest) => 'trial-' + ipPrefixKey(req.ip, 64)
+  api.post('/auth/trial', { config: { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: byAddress } } }, async (req, reply) => {
     if (!trialOn()) throw trialOff()
     // A browser already signed in keeps its session: a trial session never replaces a real one, and a
     // cross-site form cannot swap it (the Origin check refuses those first, csrf.ts).

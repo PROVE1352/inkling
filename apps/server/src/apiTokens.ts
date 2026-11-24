@@ -88,6 +88,8 @@ export async function getApiTokenUser(token: string, ip: string | null): Promise
       and(
         eq(apiTokens.tokenHash, sha256(token)),
         or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, new Date())),
+        // a trial account past its time, before the hourly job deletes it (docs/adr/2555-*)
+        sql`(NOT ${users.trial} OR ${users.expiresAt} IS NULL OR ${users.expiresAt} >= now())`,
       ),
     )
     .limit(1)

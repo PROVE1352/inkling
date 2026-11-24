@@ -47,13 +47,24 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
   })
 
   /** Every route module that has a refused route, registered as index.ts does. */
-  async function buildApp(): Promise<FastifyInstance> {
+  async function buildApp(opts: { rateLimit?: boolean } = {}): Promise<FastifyInstance> {
     const Fastify = (await import('fastify')).default
     const { ZodError } = await import('zod')
     const { AppError } = await import('../errors')
     const app = Fastify()
     await app.register(import('@fastify/cookie'))
     await app.register(import('@fastify/multipart'), { limits: { fileSize: 25 * 1024 * 1024, files: 300 } })
+    if (opts.rateLimit) {
+      // as index.ts: the global limit keyed by rateLimitKey, routes overriding max and key
+      const { rateLimitKey } = await import('../rateLimitKey')
+      await app.register(import('@fastify/rate-limit'), {
+        global: true,
+        max: 300,
+        timeWindow: '1 minute',
+        errorResponseBuilder: () => new AppError(429, 'RATE_LIMITED', 'Too many requests'),
+        keyGenerator: rateLimitKey,
+      })
+    }
     app.setErrorHandler((err, _req, reply) => {
       if (err instanceof AppError) return reply.code(err.status).send({ error: { ...(err.details ?? {}), code: err.code, message: err.message } })
       if (err instanceof ZodError) return reply.code(400).send({ error: { code: 'VALIDATION', message: err.message } })
@@ -81,6 +92,8 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
         await (await import('../routes/files')).registerFileRoutes(api)
         await (await import('../routes/webhooks')).registerWebhookRoutes(api)
         await (await import('../routes/slack')).registerSlackRoutes(api)
+        await (await import('../routes/linkPreview')).registerLinkPreviewRoutes(api)
+        await (await import('../routes/clip')).registerClipRoutes(api)
       },
       { prefix: '/api' },
     )
@@ -213,15 +226,25 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     assert.equal((await register(`ip-${ipN}@example.com`, ip)).statusCode, 200)
   })
 
-  it('SIGNUP_PER_HOUR is shared: trial rows count toward it and it refuses trials (429 SIGNUP_RATE_LIMIT)', async () => {
-    const hour = await n(sql`SELECT count(*)::int AS n FROM signup_events WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%'`)
-    assert.ok(hour >= 3, `${hour} trial rows this hour`)
-    on({ signupPerHour: hour })
+  it('SIGNUP_PER_HOUR counts trials and sign-ups apart: a full hour of trials leaves sign-up open, and the other way round', async () => {
+    const trialHour = await n(sql`SELECT count(*)::int AS n FROM signup_events WHERE created_at > now() - interval '1 hour' AND ip LIKE 'trial:%'`)
+    const signupHour = await n(sql`SELECT count(*)::int AS n FROM signup_events WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%' AND ip NOT LIKE 'trial:%'`)
+    assert.ok(trialHour >= 3, `${trialHour} trial rows this hour`)
+    // the hour's number set to what trials already made: trials are refused, sign-up is not
+    on({ signupPerHour: trialHour })
+    assert.ok(signupHour < trialHour, `${signupHour} sign-up rows, ${trialHour} trial rows`)
     const r = await tryTrial()
     assert.equal(r.statusCode, 429)
     assert.equal(code(r), 'SIGNUP_RATE_LIMIT')
-    const s = await register('hourly@example.com')
-    assert.equal(code(s), 'SIGNUP_RATE_LIMIT')
+    const s1 = await register(`hourly-${ipN}@example.com`)
+    assert.equal(s1.statusCode, 200, s1.body)
+    // sign-ups fill their own hour: sign-up is refused, a trial (with room in its own count) is not
+    const signupNow = signupHour + 1
+    on({ signupPerHour: signupNow })
+    assert.equal(code(await register(`hourly2-${ipN}@example.com`)), 'SIGNUP_RATE_LIMIT')
+    if (trialHour < signupNow) assert.equal((await tryTrial()).statusCode, 200)
+    on({ signupPerHour: Math.max(signupNow, trialHour) + 1 })
+    assert.equal((await tryTrial()).statusCode, 200)
     on()
   })
 
@@ -389,11 +412,107 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     assert.equal((await app.inject({ method: 'GET', url: '/api/workspaces', headers: { authorization: `Bearer ${apiToken}` } })).statusCode, 200)
   })
 
-  it('known gap: a trial account cannot delete itself early (DELETE /api/me wants a password nobody knows)', async () => {
-    const r = await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: first.cookie }, payload: { confirm: first.user.email } })
-    assert.equal(r.statusCode, 400, r.body)
-    assert.equal(code(r), 'INVALID_PASSWORD')
-    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE id = ${first.user.id}`), 1)
+  it('a trial account deletes itself from its browser session with the confirmation only, no password; its seat frees at once', async () => {
+    const t = await makeTrial()
+    const preview = await app.inject({ method: 'GET', url: '/api/me/delete-preview', headers: { cookie: t.cookie } })
+    assert.equal(preview.statusCode, 200, preview.body)
+    assert.deepEqual((preview.json() as { needs: unknown }).needs, { password: false, code: false, recentSignIn: false })
+    // the same rules as before for anything but the browser session and the confirmation
+    const tok = await app.inject({ method: 'POST', url: '/api/tokens', headers: { cookie: t.cookie }, payload: { name: 'x', expiresInDays: 30, access: 'write', range: { kind: 'all' } } })
+    const bearer = await app.inject({ method: 'DELETE', url: '/api/me', headers: { authorization: `Bearer ${(tok.json() as { secret: string }).secret}` }, payload: { confirm: t.user.email } })
+    assert.equal(bearer.statusCode, 403)
+    const wrong = await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: t.cookie }, payload: { confirm: 'nope' } })
+    assert.equal(code(wrong), 'CONFIRM_MISMATCH')
+    const seats = await n(sql`SELECT count(*)::int AS n FROM users WHERE trial`)
+    const r = await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: t.cookie }, payload: { confirm: t.user.email } })
+    assert.equal(r.statusCode, 200, r.body)
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE id = ${t.user.id}`), 0)
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE trial`), seats - 1)
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM workspaces WHERE id = ${t.workspaceId}`), 0)
+    // repeated attempts did not count as sign-in failures for the address (the guard would answer 429)
+    const again = await makeTrial()
+    for (let i = 0; i < 12; i++) await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: again.cookie }, payload: { confirm: 'still wrong' } })
+    const ok = await app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie: again.cookie }, payload: { confirm: again.user.email } })
+    assert.equal(ok.statusCode, 200, ok.body)
+  })
+
+  it('an expired trial account is signed out at once, before the hourly job: cookie, API token and MCP grant are 401', async () => {
+    const t = await makeTrial()
+    const tok = await app.inject({ method: 'POST', url: '/api/tokens', headers: { cookie: t.cookie }, payload: { name: 'x', expiresInDays: 30, access: 'write', range: { kind: 'all' } } })
+    const pat = (tok.json() as { secret: string }).secret
+    const grant = await h.mintToken(t.user, 'notes')
+    const asCookie = () => app.inject({ method: 'GET', url: '/api/workspaces', headers: { cookie: t.cookie } })
+    const asPat = () => app.inject({ method: 'GET', url: '/api/workspaces', headers: { authorization: `Bearer ${pat}` } })
+    const asMcp = () => app.inject({ method: 'GET', url: '/api/workspaces', headers: { authorization: `Bearer ${grant}`, [MCP_INTERNAL_HEADER]: MCP_INTERNAL_SECRET } })
+    for (const f of [asCookie, asPat, asMcp]) assert.equal((await f()).statusCode, 200)
+    await db.execute(sql`UPDATE users SET expires_at = now() - interval '1 second' WHERE id = ${t.user.id}`)
+    for (const f of [asCookie, asPat, asMcp]) assert.equal((await f()).statusCode, 401)
+    const { getSessionUser } = await import('../auth')
+    assert.equal(await getSessionUser(t.cookie.split('=')[1]), null, 'the collaboration socket reads the same function')
+    assert.equal(await n(sql`SELECT count(*)::int AS n FROM users WHERE id = ${t.user.id}`), 1, 'not deleted yet')
+    // an ordinary account with a past expires_at is not touched (ACCOUNT_LIFETIME_DAYS off: it stays usable)
+    const plain = await h.makeUser('PastDate')
+    await db.execute(sql`UPDATE users SET expires_at = now() - interval '1 day' WHERE id = ${plain.id}`)
+    assert.equal((await app.inject({ method: 'GET', url: '/api/workspaces', headers: { cookie: plain.cookie } })).statusCode, 200)
+    await trial.expireTrialAccounts(() => {})
+  })
+
+  it('LIMIT_WORKSPACES_TOTAL does not count trial workspaces: trials neither fill it nor are refused by it', async () => {
+    const counted = await n(sql`SELECT count(*)::int AS n FROM workspaces w WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = w.created_by AND u.trial)`)
+    const trials = await n(sql`SELECT count(*)::int AS n FROM workspaces w JOIN users u ON u.id = w.created_by WHERE u.trial`)
+    assert.ok(trials > 0)
+    // at the limit for ordinary workspaces: sign-up is full, trials still work
+    on({ workspacesTotal: counted })
+    assert.equal((await mode()).signupFull, true)
+    assert.equal(code(await register(`wst-${ipN}@example.com`)), 'SIGNUP_FULL')
+    assert.equal((await tryTrial()).statusCode, 200)
+    // one ordinary seat left: however many trials exist, an ordinary sign-up takes it
+    on({ workspacesTotal: counted + 1 })
+    await makeTrial()
+    await makeTrial()
+    assert.notEqual((await mode()).signupFull, true)
+    assert.equal((await register(`wst2-${ipN}@example.com`)).statusCode, 200)
+    on()
+  })
+
+  it('a full server answers TRIAL_FULL before hashing a password', async () => {
+    const seats = await n(sql`SELECT count(*)::int AS n FROM users WHERE trial`)
+    on({ trial: { lifetimeHours: 24, maxAccounts: seats, perIpPerDay: 30 } })
+    let hashed = 0
+    const spy = async (p: string) => {
+      hashed++
+      return p
+    }
+    const ctx = { rawBody: human, body: { email: trial.trialEmail(), name: 'Trial X', password: '' } as never, ip: freshIp(), locale: 'en' as const, setupCode: false, trial: true, req: { log: { warn() {}, error() {} } } as never }
+    await assert.rejects(trial.createTrialAccount(ctx, spy), (e: unknown) => (e as { code?: string }).code === 'TRIAL_FULL')
+    assert.equal(hashed, 0)
+    on()
+  })
+
+  it('rate limits: a token with a fresh cookie each time, or a made-up bearer on the trial route, still runs out', async () => {
+    const limited = await buildApp({ rateLimit: true })
+    try {
+      const tok = await limited.inject({ method: 'POST', url: '/api/tokens', headers: { cookie: admin.cookie }, payload: { name: 'rl', expiresInDays: 30, access: 'write', range: { kind: 'all' } } })
+      assert.equal(tok.statusCode, 201, tok.body)
+      const pat = (tok.json() as { secret: string }).secret
+      const { randomBytes } = await import('node:crypto')
+      const cookie = () => `inkling_sid=${randomBytes(16).toString('hex')}`
+      // link previews (no url: 400 before any fetch) and clips (empty body: 400), 30 a minute each
+      for (const [method, url] of [['GET', '/api/link-preview'], ['POST', '/api/clip']] as const) {
+        const send = () => limited.inject({ method, url, remoteAddress: '203.0.113.7', headers: { authorization: `Bearer ${pat}`, cookie: cookie() }, ...(method === 'POST' ? { payload: {} } : {}) })
+        for (let i = 0; i < 30; i++) assert.notEqual((await send()).statusCode, 429, `${url} #${i + 1}`)
+        const over = await send()
+        assert.equal(over.statusCode, 429, `${url}: ${over.body}`)
+      }
+      // the trial route: a random `Bearer ink_pat_…` per request does not make a new bucket
+      const { API_TOKEN_PREFIX } = await import('@inkling/shared')
+      const sendTrial = () =>
+        limited.inject({ method: 'POST', url: '/api/auth/trial', remoteAddress: '203.0.113.8', headers: { authorization: `Bearer ${API_TOKEN_PREFIX}${randomBytes(24).toString('base64url')}` }, payload: {} })
+      for (let i = 0; i < 10; i++) assert.notEqual((await sendTrial()).statusCode, 429, `trial #${i + 1}`)
+      assert.equal((await sendTrial()).statusCode, 429)
+    } finally {
+      await limited.close()
+    }
   })
 
   it('a trial account an admin made an admin is never deleted by the trial job', async () => {

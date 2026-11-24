@@ -285,6 +285,16 @@ export async function assertUserRoom(tx: QuotaExec, userId: string, need: { work
 }
 
 /**
+ * The workspaces LIMIT_WORKSPACES_TOTAL counts: all but those a trial account made (docs/adr/2555-*).
+ * A trial account makes exactly one, at its sign-up, and can make no other, so trial workspaces are
+ * bounded by TRIAL_MAX_ACCOUNTS instead; counting them here too would let trials fill the server's
+ * total for everyone.
+ */
+const COUNT_WORKSPACES = sql`
+  SELECT count(*)::int AS n FROM workspaces w
+   WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = w.created_by AND u.trial)`
+
+/**
  * Room for `need` more workspaces on the whole server (LIMIT_WORKSPACES_TOTAL, contract §14, security
  * review F1, docs/adr/2531-*). Counted: every `workspaces` row, deleted-but-restorable ones included.
  * Taken under one server-wide lock (`ws-total`), always after the person's own `user-ws:` lock, so
@@ -296,7 +306,7 @@ export async function assertWorkspacesTotalRoom(tx: QuotaExec, need: number, as:
   const limit = limits.workspacesTotal
   if (limit === undefined) return
   await lockKey(tx, 'ws-total')
-  const [{ n }] = await rows<{ n: number }>(tx, sql`SELECT count(*)::int AS n FROM workspaces`)
+  const [{ n }] = await rows<{ n: number }>(tx, COUNT_WORKSPACES)
   if (n + need <= limit) return
   if (as === 'signup') throw new AppError(403, 'SIGNUP_FULL', 'This server is not taking new accounts right now', undefined, { limit, used: n })
   throw new AppError(
@@ -312,7 +322,7 @@ export async function assertWorkspacesTotalRoom(tx: QuotaExec, need: number, as:
 export async function workspacesTotalReached(exec: QuotaExec): Promise<boolean> {
   const limit = limits.workspacesTotal
   if (limit === undefined) return false
-  const [{ n }] = await rows<{ n: number }>(exec, sql`SELECT count(*)::int AS n FROM workspaces`)
+  const [{ n }] = await rows<{ n: number }>(exec, COUNT_WORKSPACES)
   return n >= limit
 }
 

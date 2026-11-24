@@ -28,8 +28,8 @@ import type { SignupContext, SignupHook, SignupUser } from '../signupHooks'
  *   ACCOUNT_LIFETIME_DAYS   on: expires_at = now() + N days, except for admins (user.isAdmin is final).
  *
  * Trial accounts (`ctx.trial`, docs/adr/2555-*) take their own branch: the bot checks always, their
- * own per-address count (TRIAL_PER_IP_PER_DAY, rows `trial:<key>`), the hourly count shared with
- * sign-up (SIGNUP_PER_HOUR counts their rows too). They never count toward SIGNUP_MAX_USERS (nor are
+ * own per-address count (TRIAL_PER_IP_PER_DAY, rows `trial:<key>`), and SIGNUP_PER_HOUR counted over
+ * trial rows only (sign-up never counts them, and they never count sign-ups). They never count toward SIGNUP_MAX_USERS (nor are
  * they refused by it: TRIAL_MAX_ACCOUNTS is their cap, account/trial.ts), and their lifetime is
  * TRIAL_LIFETIME_HOURS, set when the row is made, never ACCOUNT_LIFETIME_DAYS.
  */
@@ -63,12 +63,18 @@ async function ipCount(exec: Pick<Tx, 'execute'>, ip: string): Promise<number> {
   return Number(r?.n ?? 0)
 }
 
-/** Sign-ups of the whole server in the last hour (taken-ID records are not sign-ups). */
-async function hourCount(exec: Pick<Tx, 'execute'>): Promise<number> {
-  const [r] = (await exec.execute(sql`
-    SELECT count(*)::int AS n FROM signup_events
-     WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%'
-  `)) as unknown as { n: number }[]
+/**
+ * Sign-ups of the whole server in the last hour (taken-ID records are not sign-ups), or with `trial`
+ * the trial accounts made in it: SIGNUP_PER_HOUR applies to each on its own, so trials never use up
+ * the hour of real sign-ups and the other way round (docs/adr/2555-*).
+ */
+async function hourCount(exec: Pick<Tx, 'execute'>, trial = false): Promise<number> {
+  const [r] = (await exec.execute(
+    trial
+      ? sql`SELECT count(*)::int AS n FROM signup_events WHERE created_at > now() - interval '1 hour' AND ip LIKE 'trial:%'`
+      : sql`SELECT count(*)::int AS n FROM signup_events
+             WHERE created_at > now() - interval '1 hour' AND ip NOT LIKE 'taken:%' AND ip NOT LIKE 'trial:%'`,
+  )) as unknown as { n: number }[]
   return Number(r?.n ?? 0)
 }
 
@@ -93,7 +99,7 @@ async function beforeTrial(ctx: SignupContext): Promise<void> {
   if (!trial) throw new AppError(404, 'TRIAL_OFF', 'This server has no trial accounts')
   assertBotChecks(ctx.rawBody)
   if ((await ipCount(db, trialIpKey(ctx.ip))) >= trial.perIpPerDay) throw ipLimit()
-  if (limits.signupPerHour !== undefined && (await hourCount(db)) >= limits.signupPerHour) throw rateLimit()
+  if (limits.signupPerHour !== undefined && (await hourCount(db, true)) >= limits.signupPerHour) throw rateLimit()
 }
 
 async function onTrial(tx: Tx, ctx: SignupContext): Promise<void> {
@@ -104,7 +110,7 @@ async function onTrial(tx: Tx, ctx: SignupContext): Promise<void> {
   if ((await ipCount(tx, key)) >= trial.perIpPerDay) throw ipLimit()
   if (limits.signupPerHour !== undefined) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${SIGNUP_RATE_LOCK})`)
-    if ((await hourCount(tx)) >= limits.signupPerHour) throw rateLimit()
+    if ((await hourCount(tx, true)) >= limits.signupPerHour) throw rateLimit()
   }
   // always recorded: the per-address count needs it whatever the sign-up settings are
   await tx.execute(sql`INSERT INTO signup_events (ip) VALUES (${key})`)

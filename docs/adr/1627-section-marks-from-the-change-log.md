@@ -41,8 +41,9 @@ texts a revert needs; `page_changes_page_idx (page_id, anchor, seq)` serves "new
 - What "last change" means is what the log keeps: rows live 30 days, so older sections have no mark
   (no mark does not mean a person wrote it); one actor's edits of a section within 10 minutes are one
   row, so "Revert this change" can take several edits back (the dialog's preview shows them).
-- The marks lag the editor by the change log's delay: about a second after a server write, 8–30 s
-  after live typing. The web polls every 30 s, refreshes on focus, 1.5 s after a suggestion is
+- The marks lag the editor by the change log's delay (about a second after a server write, 8–30 s
+  after live typing) plus the web's polling: up to 30 s for an agent's edit on an open page, about a
+  minute after typing. The web polls every 30 s, refreshes on focus, 1.5 s after a suggestion is
   decided and when a mark is opened; a revert refreshes them through the `['pageChanges']` key.
 
 ## References

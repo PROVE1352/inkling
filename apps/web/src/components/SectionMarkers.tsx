@@ -112,12 +112,14 @@ export function SectionMarkers({
       // right after the heading text when it is measurable, else at the block's right edge
       const inline = el.querySelector('.bn-inline-content') ?? el
       const ir = inline.getBoundingClientRect()
-      const textRight = inline instanceof HTMLElement && inline.firstChild ? Math.min(textEnd(inline) ?? ir.right, r.right - 8) : r.right - 8
+      // a wrapped heading: after its LAST line, centred on that line (never across the lines above)
+      const last = inline instanceof HTMLElement && inline.firstChild ? lastTextRect(inline) : null
+      const textRight = last ? Math.min(last.right, r.right - 8) : r.right - 8
       const left = textRight - cRect.left + container.scrollLeft + 10
       next.push({
         ...m,
         // centred on the heading text line, not on the block box (its padding is above the text)
-        top: (inline === el ? r.top + r.height / 2 : ir.top + ir.height / 2) - cRect.top + container.scrollTop,
+        top: (last ? last.top + last.height / 2 : inline === el ? r.top + r.height / 2 : ir.top + ir.height / 2) - cRect.top + container.scrollTop,
         left,
         maxWidth: Math.max(80, container.clientWidth + container.scrollLeft - left - 8),
       })
@@ -216,11 +218,10 @@ export function SectionMarkers({
   )
 }
 
-/** Right edge of the text inside `el` (a Range over its contents), or null when it has none. */
-function textEnd(el: HTMLElement): number | null {
+/** The box of the last line of text inside `el` (a Range over its contents), or null when it has none. */
+function lastTextRect(el: HTMLElement): DOMRect | null {
   const range = document.createRange()
   range.selectNodeContents(el)
-  const rects = range.getClientRects()
-  const last = rects[rects.length - 1]
-  return last ? last.right : null
+  const rects = [...range.getClientRects()].filter((x) => x.width > 0 || x.height > 0)
+  return rects[rects.length - 1] ?? null
 }

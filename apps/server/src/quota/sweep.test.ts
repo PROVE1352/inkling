@@ -44,6 +44,10 @@ const SITES: Record<string, { n: number; check: 'room' | 'user' | 'exempt'; why:
   'routes/auth.ts:workspaces': { n: 1, check: 'exempt', why: 'the sign-up workspace' },
   'routes/oidc.ts:workspaceMembers': { n: 1, check: 'exempt', why: 'a new OIDC account: its first workspace' },
   'routes/oidc.ts:workspaces': { n: 1, check: 'exempt', why: 'a new OIDC account: its first workspace' },
+  // trial accounts (docs/adr/2555-*): bounded by TRIAL_MAX_ACCOUNTS × one workspace each; a trial account
+  // cannot make another (POST /workspaces is in TRIAL_RESTRICTED_ROUTES), both fixed in account/trial*.test.ts
+  'account/trial.ts:workspaceMembers': { n: 1, check: 'exempt', why: 'the trial account\'s only workspace: TRIAL_MAX_ACCOUNTS × 1, no second one (trial gate)' },
+  'account/trial.ts:workspaces': { n: 1, check: 'exempt', why: 'the trial account\'s only workspace: TRIAL_MAX_ACCOUNTS × 1, no second one (trial gate)' },
 }
 
 describe('limits on every creating path (docs/adr/2505-*)', () => {

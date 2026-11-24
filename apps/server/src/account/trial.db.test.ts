@@ -4,12 +4,16 @@
 // per-address, hourly and seat limits (concurrent requests too), SIGNUP_MAX_USERS untouched, the sign-up
 // texts, the reserved domain, every refused route (session, API token, MCP grant), nobody joining a trial
 // workspace, expiry without ACCOUNT_LIFETIME_DAYS (other accounts untouched, dry run not applied), what
-// deletion leaves, and two deletions of one account at once.
+// deletion leaves (rows and the uploaded file on disk), the instance storage fuse, and two deletions of
+// one account at once.
 // Run: cd apps/server && DATABASE_URL=postgres://… node ../../scripts/run-tests.mjs --db --test-name-pattern="trial accounts"
-import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+// uploads of this file go to a folder of its own (as accountDeletion.db.test.ts), set before env.ts loads
+process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), 'inkling-trial-'))
+mkdirSync(path.join(process.env.DATA_DIR, 'uploads'), { recursive: true })
+import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 
@@ -37,6 +41,7 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     restoreLimits()
     legal.resetLegalForTests()
     for (const d of folders) rmSync(d, { recursive: true, force: true })
+    rmSync(process.env.DATA_DIR!, { recursive: true, force: true })
     await collab.destroyCollab().catch(() => undefined)
     await drop()
   })
@@ -48,6 +53,7 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     const { AppError } = await import('../errors')
     const app = Fastify()
     await app.register(import('@fastify/cookie'))
+    await app.register(import('@fastify/multipart'), { limits: { fileSize: 25 * 1024 * 1024, files: 300 } })
     app.setErrorHandler((err, _req, reply) => {
       if (err instanceof AppError) return reply.code(err.status).send({ error: { ...(err.details ?? {}), code: err.code, message: err.message } })
       if (err instanceof ZodError) return reply.code(400).send({ error: { code: 'VALIDATION', message: err.message } })
@@ -72,6 +78,7 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
         await (await import('../routes/suggestions')).registerSuggestionRoutes(api)
         await (await import('../onboarding/routes')).registerOnboardingRoutes(api)
         await (await import('../routes/apiTokens')).registerApiTokenRoutes(api)
+        await (await import('../routes/files')).registerFileRoutes(api)
         await (await import('../routes/webhooks')).registerWebhookRoutes(api)
         await (await import('../routes/slack')).registerSlackRoutes(api)
       },
@@ -389,6 +396,56 @@ describe('[db] trial accounts', { skip: !HAS_DB }, async () => {
     const r = await app.inject({ method: 'POST', url: '/api/workspaces/join', headers: { cookie: admin.cookie }, payload: { code: inviteCode } })
     assert.notEqual(r.statusCode, 200, r.body)
     assert.equal(await n(sql`SELECT count(*)::int AS n FROM workspace_members WHERE workspace_id = ${first.workspaceId}`), 1)
+  })
+
+  it('the instance storage fuse refuses a click (503 INSTANCE_FULL) and shows the seats as full', async () => {
+    const I = await import('../quota/instance')
+    const before = await n(sql`SELECT count(*)::int AS n FROM users`)
+    const restoreFuse = setLimitsForTests({ instanceStorageMb: 1 })
+    I._setInstanceStorageForTests({ dbBytes: 2 * 1024 * 1024, fileBytes: 0 })
+    try {
+      const r = await tryTrial()
+      assert.equal(r.statusCode, 503, r.body)
+      assert.equal(code(r), 'INSTANCE_FULL')
+      assert.equal(((await mode()).trial as { reason?: string }).reason, 'full')
+      assert.equal(await n(sql`SELECT count(*)::int AS n FROM users`), before)
+    } finally {
+      I._setInstanceStorageForTests({ dbBytes: 0, fileBytes: 0 })
+      I._setInstanceStorageForTests(null)
+      restoreFuse()
+    }
+    assert.equal((await tryTrial()).statusCode, 200)
+  })
+
+  it('deletion leaves nothing: workspace, pages, example suggestions, the upload\'s row and its file on disk', async () => {
+    const t = await makeTrial()
+    const boundary = '----w23trial'
+    const up = await app.inject({
+      method: 'POST',
+      url: `/api/files?workspaceId=${t.workspaceId}&pageId=${t.samplePageId}`,
+      headers: { cookie: t.cookie, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="note.txt"\r\nContent-Type: text/plain\r\n\r\nhello trial\r\n--${boundary}--\r\n`,
+    })
+    assert.equal(up.statusCode, 200, up.body)
+    const fileId = (up.json() as { file?: { id: string }; id?: string }).file?.id ?? (up.json() as { id: string }).id
+    const uploads = path.join(process.env.DATA_DIR!, 'uploads')
+    const onDisk = () => readdirSync(uploads, { recursive: true }).map(String).filter((f) => f.includes(fileId))
+    assert.ok(onDisk().length > 0, 'the upload is on disk')
+    const counts = async () => ({
+      workspaces: await n(sql`SELECT count(*)::int AS n FROM workspaces WHERE id = ${t.workspaceId}`),
+      pages: await n(sql`SELECT count(*)::int AS n FROM pages WHERE workspace_id = ${t.workspaceId}`),
+      suggestions: await n(sql`SELECT count(*)::int AS n FROM section_suggestions WHERE page_id = ${t.samplePageId}`),
+      files: await n(sql`SELECT count(*)::int AS n FROM files WHERE workspace_id = ${t.workspaceId}`),
+      members: await n(sql`SELECT count(*)::int AS n FROM workspace_members WHERE user_id = ${t.user.id}`),
+      onboarding: await n(sql`SELECT count(*)::int AS n FROM user_onboarding WHERE user_id = ${t.user.id}`),
+    })
+    const was = await counts()
+    assert.ok(was.pages > 0 && was.suggestions === 2 && was.files === 1 && was.workspaces === 1, JSON.stringify(was))
+    await db.execute(sql`UPDATE users SET expires_at = now() - interval '1 minute' WHERE id = ${t.user.id}`)
+    assert.ok((await trial.expireTrialAccounts(() => {})) >= 1)
+    assert.deepEqual(await counts(), { workspaces: 0, pages: 0, suggestions: 0, files: 0, members: 0, onboarding: 0 })
+    assert.deepEqual(onDisk(), [], 'the uploaded file is gone from DATA_DIR')
+    assert.equal(existsSync(path.join(uploads, fileId)), false)
   })
 
   it('expiry without ACCOUNT_LIFETIME_DAYS: an expired trial is deleted with its sessions, tokens and grants; an ordinary account with a past expires_at is not', async () => {

@@ -150,6 +150,7 @@ const ROUTES: Record<string, Entry> = {
   'POST /me/ical': { open: PERSON },
   'PATCH /auth/me/locale': { open: PERSON },
   'POST /auth/register': { open: PERSON + ' (sign-up: the limits of accounts and workspaces apply, signup hooks)' },
+  'POST /auth/trial': { open: PERSON + ' (trial account, docs/adr/2555-*: TRIAL_MAX_ACCOUNTS under a lock, TRIAL_PER_IP_PER_DAY, SIGNUP_PER_HOUR, the signup hooks incl. LIMIT_WORKSPACES_TOTAL, and the instance fuse refuses it when full)' },
   'POST /auth/login': { open: PERSON },
   'POST /auth/login/totp': { open: PERSON },
   'POST /auth/logout': { open: PERSON },

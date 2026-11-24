@@ -1,8 +1,8 @@
 // Trial accounts (docs/adr/2555-*), the parts without a database: names and addresses, the TRIAL_*
 // settings, the list of refused routes, and two sweeps of the source that keep that list in step with
-// the routes that exist (every write route of the files or paths that publish, invite, join, send out or
-// change how an account signs in is either refused or reviewed below) and with the MCP tools (none calls
-// a refused route, so the gate needs nothing MCP-specific).
+// the routes that exist (every write route of the source is either refused or allowed below with a
+// reason, so a new one fails until someone decides) and with the MCP tools (none calls a refused route,
+// so the gate needs nothing MCP-specific).
 // Run: cd apps/server && node ../../scripts/run-tests.mjs --test-name-pattern="trial accounts"
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -35,67 +35,184 @@ function writeRoutesInSource(): { method: string; url: string; file: string }[] 
   return out
 }
 
-/** Files whose every write route is reviewed, and paths that are, wherever they live. */
-const SENSITIVE_FILES = new Set([
-  'routes/slack.ts', 'routes/webhooks.ts', 'routes/forms.ts', 'routes/public.ts', 'routes/pageAccess.ts',
-  'routes/ical.ts', 'routes/notion.ts', 'routes/oidc.ts', 'routes/twoFactor.ts', 'routes/workspaces.ts',
-  'routes/auth.ts', 'routes/automations.ts', 'routes/sheetSync.ts', 'push/routes.ts', 'routes/clip.ts',
-])
-const SENSITIVE_PATH = /share|invite|join|webhook|slack|form-link|publish|ical|member|transfer|password|oidc|2fa|guest|access|public|email|login|sync|^\/workspaces$/
+/** Why a trial account may use a route (each write route not refused names one). */
+const WHY = {
+  CONTENT: "content of the person's own workspace: bounded by the workspace limits, nothing leaves the server or becomes public (sheet sync and the clipper read in through safeFetch; automations and buttons call only a registered webhook, which a trial account cannot register)",
+  WORKSPACE: 'settings and members of the own workspace: no one else can be in it (joining is refused and the invite link stays off: PATCH /settings refuses inviteLinkEnabled: true)',
+  STOPS: 'removes, withdraws or turns off: never publishes or brings anyone in',
+  PERSON: 'about the person only: session, preferences, lists, read marks, consent, push to their own browsers (endpoint hosts checked), leaving',
+  AGENTS: "the person's own agent connections and API tokens (what the demo is for); every REST call they make runs the gate",
+  READS: 'a read sent as POST',
+  NO_SESSION: 'no session, so no trial account behind it: sign-in routes (the reserved domain is refused there), public reads and forms, Slack calling in, OAuth client registration and tokens',
+} as const
 
 /**
- * Write routes of that class a trial account may use, each with the reason. A new route there that is
- * in neither list fails the sweep until someone decides.
+ * Every write route (POST, PUT, PATCH, DELETE) of the source that a trial account may use, by reason.
+ * With TRIAL_RESTRICTED_ROUTES it covers every write route: a new one fails the sweep until someone
+ * puts it in one or the other (closed by default). The admin API is left out (requireAdmin; a trial
+ * account is never an admin).
  */
-const TRIAL_REVIEWED_ALLOWED: Record<string, string> = {
-  'DELETE /collection-views/:id/form-link': 'stops a public form',
-  'DELETE /collections/:id/automations/:ruleId': 'removes a rule',
-  'PATCH /collections/:id/automations/:ruleId': 'a webhook action needs a webhook registered in the workspace, which a trial account cannot register',
-  'POST /collections/:id/automations': 'as above',
-  'POST /pages/:id/button-webhook': 'as above: only a registered webhook is called',
-  'DELETE /me/ical': 'stops the feed',
-  'DELETE /pages/:id/access/:userId': 'removes access',
-  'DELETE /pages/:id/invites/:inviteId': 'withdraws an invitation',
-  'POST /workspaces/:id/guests/remove': 'removes guests',
-  'DELETE /pages/:id/share': 'stops a public link',
-  'POST /workspaces/:id/shared/unpublish': 'stops public links',
-  'DELETE /webhooks/:id': 'removes a webhook',
-  'DELETE /workspaces/:id/slack': 'turns Slack off',
-  'DELETE /workspaces/:id/slack/links/:userId': 'unlinks',
-  'POST /slack/w/:workspaceId/commands': 'Slack calling in, signed by Slack, no session; needs the Slack setting a trial account cannot make',
-  'POST /slack/w/:workspaceId/events': 'as above',
-  'POST /public/:token/unlock': 'no session: reading someone else\'s public link',
-  'POST /public/forms/:token': 'no session: answering someone else\'s public form',
-  'DELETE /pages/:id/collection/sheet-sync': 'stops a sync',
-  'PUT /pages/:id/collection/sheet-sync': 'reads a public Google Sheet (fixed host, safeFetch); sends nothing of the person\'s',
-  'POST /pages/:id/collection/sheet-sync/run': 'as above',
-  'POST /clip': 'web clipper: reads a page into the person\'s own workspace through safeFetch, as link previews do',
-  'DELETE /push/devices/:id': 'push to the person\'s own browsers (endpoint hosts checked, push/config.ts)',
-  'DELETE /push/subscriptions': 'as above',
-  'PATCH /push/settings': 'as above',
-  'POST /push/subscriptions': 'as above',
-  'POST /push/test': 'as above',
-  'DELETE /pages/:id/sync': 'vault sync (experimental) of the person\'s own pages',
-  'POST /workspaces/:id/sync/pages': 'as above',
-  'POST /workspaces/:id/sync/read': 'as above',
-  'PUT /pages/:id/sync/md': 'as above',
-  'DELETE /workspaces/:id': 'deletes the own workspace',
-  'PATCH /workspaces/:id': 'renames the own workspace',
-  'POST /workspaces/:id/restore': 'brings back the own workspace (still one)',
-  'DELETE /workspaces/:id/members/:userId': 'leaving; nobody else can be a member',
-  'PATCH /workspaces/:id/members/:userId': 'roles; nobody else can be a member',
-  'PATCH /auth/me/locale': 'the interface language',
-  'POST /auth/2fa/disable': 'nothing to turn off: setup and enable are refused',
-  'POST /auth/2fa/recovery-codes': 'as above',
-  'POST /auth/login': 'no session; the reserved domain is refused in the route',
-  'POST /auth/login/totp': 'no session; follows a password sign-in',
-  'POST /auth/logout': 'signing out',
-  'POST /auth/register': 'no session; the reserved domain is refused in the route (EMAIL_RESERVED)',
-  'POST /auth/forgot-password': 'no session; the reserved domain gets nothing (no mail, no admin queue)',
-  'POST /auth/reset-password': 'no session; the reserved domain is refused in the route',
-  'POST /auth/verify-email': 'no session; a token from a mail the reserved domain never gets',
-  'POST /auth/verify-email/send': 'no mail goes to the reserved domain (mail.ts)',
+const TRIAL_ALLOWED: Record<string, keyof typeof WHY> = {
+  'POST /pages': 'CONTENT',
+  'PATCH /pages/:id': 'CONTENT',
+  'DELETE /pages/:id': 'CONTENT',
+  'DELETE /pages/:id/purge': 'CONTENT',
+  'POST /pages/:id/duplicate': 'CONTENT',
+  'POST /pages/:id/expand-canvas': 'CONTENT',
+  'POST /pages/:id/restore': 'CONTENT',
+  'PATCH /pages/:id/props': 'CONTENT',
+  'PUT /pages/:id/collection/fields': 'CONTENT',
+  'POST /pages/:id/collection/views': 'CONTENT',
+  'PATCH /collection-views/:id': 'CONTENT',
+  'DELETE /collection-views/:id': 'CONTENT',
+  'PATCH /pages/:id/collection/rows/batch': 'CONTENT',
+  'POST /pages/:id/collection/rows/batch': 'CONTENT',
+  'POST /pages/:id/collection/rows': 'CONTENT',
+  'POST /pages/:id/collection/row-templates': 'CONTENT',
+  'PATCH /collection-row-templates/:id': 'CONTENT',
+  'DELETE /collection-row-templates/:id': 'CONTENT',
+  'POST /pages/:id/comments': 'CONTENT',
+  'PATCH /comments/:id': 'CONTENT',
+  'DELETE /comments/:id': 'CONTENT',
+  'POST /pages/:id/section': 'CONTENT',
+  'POST /pages/:id/sections': 'CONTENT',
+  'POST /pages/:id/content': 'CONTENT',
+  'PUT /pages/:id/ink': 'CONTENT',
+  'POST /pages/:id/snapshots': 'CONTENT',
+  'POST /pages/:id/snapshots/:sid/restore': 'CONTENT',
+  'POST /pages/:id/rotation/target': 'CONTENT',
+  'POST /pages/:id/split': 'CONTENT',
+  'PUT /pages/:id/rotation': 'CONTENT',
+  'PATCH /pages/:id/tasks/:blockId': 'CONTENT',
+  'POST /workspaces/:id/tasks': 'CONTENT',
+  'POST /pages/from-template': 'CONTENT',
+  'POST /workspaces/:id/templates': 'CONTENT',
+  'POST /workspaces/:id/templates/import': 'CONTENT',
+  'DELETE /templates/:id': 'CONTENT',
+  'POST /workspaces/:id/import': 'CONTENT',
+  'POST /workspaces/:id/import-folder': 'CONTENT',
+  'POST /files': 'CONTENT',
+  'POST /changes/:seq/revert': 'CONTENT',
+  'POST /pages/:id/revert': 'CONTENT',
+  'POST /workspaces/:id/revert': 'CONTENT',
+  'POST /pages/:id/claims': 'CONTENT',
+  'DELETE /pages/:id/claims': 'CONTENT',
+  'POST /suggestions/:id/accept': 'CONTENT',
+  'POST /suggestions/:id/reject': 'CONTENT',
+  'POST /suggestions/:id/withdraw': 'CONTENT',
+  'POST /pages/:id/verification': 'CONTENT',
+  'DELETE /pages/:id/verification': 'CONTENT',
+  'PUT /pages/:id/lock': 'CONTENT',
+  'PUT /pages/:id/agent-instructions': 'CONTENT',
+  'DELETE /pages/:id/agent-instructions': 'CONTENT',
+  'PUT /pages/:id/agent-rules': 'CONTENT',
+  'PUT /pages/:id/living': 'CONTENT',
+  'PUT /pages/:id/owner': 'CONTENT',
+  'POST /pages/:id/review': 'CONTENT',
+  'POST /pages/:id/view': 'CONTENT',
+  'POST /me/onboarding/sample': 'CONTENT',
+  'POST /collections/:id/automations': 'CONTENT',
+  'PATCH /collections/:id/automations/:ruleId': 'CONTENT',
+  'DELETE /collections/:id/automations/:ruleId': 'CONTENT',
+  'POST /pages/:id/button-webhook': 'CONTENT',
+  'POST /clip': 'CONTENT',
+  'PUT /pages/:id/collection/sheet-sync': 'CONTENT',
+  'POST /pages/:id/collection/sheet-sync/run': 'CONTENT',
+  'DELETE /pages/:id/collection/sheet-sync': 'CONTENT',
+  'DELETE /pages/:id/sync': 'CONTENT',
+  'POST /workspaces/:id/sync/pages': 'CONTENT',
+  'POST /workspaces/:id/sync/read': 'CONTENT',
+  'PUT /pages/:id/sync/md': 'CONTENT',
+  'POST /plugins/:id/pages/:pageId/content': 'CONTENT',
+  'PUT /plugins/:id/storage/:key': 'CONTENT',
+  'DELETE /plugins/:id/storage/:key': 'CONTENT',
+  'PATCH /workspaces/:id': 'WORKSPACE',
+  'DELETE /workspaces/:id': 'WORKSPACE',
+  'DELETE /workspaces/:id/permanent': 'WORKSPACE',
+  'POST /workspaces/:id/restore': 'WORKSPACE',
+  'PATCH /workspaces/:id/settings': 'WORKSPACE',
+  'PUT /workspaces/:id/settings/agent-ink': 'WORKSPACE',
+  'PUT /workspaces/:id/settings/two-factor': 'WORKSPACE',
+  'PUT /workspaces/:id/settings/agent-taint': 'WORKSPACE',
+  'PUT /workspaces/:id/settings/agent-uploads': 'WORKSPACE',
+  'PUT /workspaces/:id/agent-policy': 'WORKSPACE',
+  'POST /workspaces/:id/agents/blocks': 'WORKSPACE',
+  'DELETE /workspaces/:id/agents/blocks/:blockId': 'WORKSPACE',
+  'POST /workspaces/:id/agent-connections/release': 'WORKSPACE',
+  'PATCH /workspaces/:id/members/:userId': 'WORKSPACE',
+  'DELETE /workspaces/:id/members/:userId': 'WORKSPACE',
+  'PUT /workspaces/:id/notification-level': 'WORKSPACE',
+  'DELETE /pages/:id/share': 'STOPS',
+  'DELETE /collection-views/:id/form-link': 'STOPS',
+  'POST /workspaces/:id/shared/unpublish': 'STOPS',
+  'DELETE /me/ical': 'STOPS',
+  'DELETE /pages/:id/access/:userId': 'STOPS',
+  'DELETE /pages/:id/invites/:inviteId': 'STOPS',
+  'POST /workspaces/:id/guests/remove': 'STOPS',
+  'DELETE /webhooks/:id': 'STOPS',
+  'DELETE /workspaces/:id/slack': 'STOPS',
+  'DELETE /workspaces/:id/slack/links/:userId': 'STOPS',
+  'POST /auth/2fa/disable': 'STOPS',
+  'POST /auth/2fa/recovery-codes': 'STOPS',
+  'PATCH /auth/me/locale': 'PERSON',
+  'POST /auth/logout': 'PERSON',
+  'DELETE /me': 'PERSON',
+  'PATCH /me/onboarding': 'PERSON',
+  'PUT /me/sidebar': 'PERSON',
+  'PUT /me/status': 'PERSON',
+  'DELETE /me/status': 'PERSON',
+  'PATCH /me/notification-settings': 'PERSON',
+  'PUT /pages/:id/subscription': 'PERSON',
+  'POST /notifications/read': 'PERSON',
+  'POST /inbox/ack': 'PERSON',
+  'POST /later': 'PERSON',
+  'PATCH /later/:id': 'PERSON',
+  'DELETE /later/:id': 'PERSON',
+  'POST /threads/:id/read': 'PERSON',
+  'PUT /threads/:id/follow': 'PERSON',
+  'POST /pages/:id/bookmark': 'PERSON',
+  'POST /me/workspace-groups': 'PERSON',
+  'PATCH /me/workspace-groups/:id': 'PERSON',
+  'DELETE /me/workspace-groups/:id': 'PERSON',
+  'POST /me/workspace-groups/:id/archive': 'PERSON',
+  'PUT /me/workspace-groups/order': 'PERSON',
+  'PUT /me/workspace-order': 'PERSON',
+  'PATCH /me/workspaces/:id/listing': 'PERSON',
+  'POST /legal/consent': 'PERSON',
+  'POST /push/subscriptions': 'PERSON',
+  'DELETE /push/subscriptions': 'PERSON',
+  'DELETE /push/devices/:id': 'PERSON',
+  'PATCH /push/settings': 'PERSON',
+  'POST /push/test': 'PERSON',
+  'POST /tokens': 'AGENTS',
+  'PATCH /tokens/:id': 'AGENTS',
+  'DELETE /tokens/:id': 'AGENTS',
+  'POST /agent-tokens': 'AGENTS',
+  'DELETE /agent-tokens/:id': 'AGENTS',
+  'PATCH /oauth/grants/:id': 'AGENTS',
+  'DELETE /oauth/grants/:id': 'AGENTS',
+  'POST /oauth/authorize': 'AGENTS',
+  'POST /mcp': 'AGENTS',
+  'DELETE /mcp': 'AGENTS',
+  'POST /connections/release': 'AGENTS',
+  'POST /workspaces/:id/query': 'READS',
+  'POST /workspaces/:id/charts/aggregate': 'READS',
+  'POST /auth/register': 'NO_SESSION',
+  'POST /auth/login': 'NO_SESSION',
+  'POST /auth/login/totp': 'NO_SESSION',
+  'POST /auth/forgot-password': 'NO_SESSION',
+  'POST /auth/reset-password': 'NO_SESSION',
+  'POST /auth/verify-email': 'NO_SESSION',
+  'POST /auth/verify-email/send': 'NO_SESSION',
+  'POST /auth/trial': 'NO_SESSION',
+  'POST /oauth/register': 'NO_SESSION',
+  'POST /oauth/token': 'NO_SESSION',
+  'POST /public/:token/unlock': 'NO_SESSION',
+  'POST /public/forms/:token': 'NO_SESSION',
+  'POST /slack/w/:workspaceId/commands': 'NO_SESSION',
+  'POST /slack/w/:workspaceId/events': 'NO_SESSION',
 }
+
 
 const key = (r: { method: string; url: string }) => `${r.method} ${r.url}`
 const withoutApi = (url: string) => url.replace(/^\/api(?=\/)/, '')
@@ -166,6 +283,12 @@ describe('trial accounts: the refused routes', () => {
     assert.equal(trialRestriction('POST', undefined, {}), null)
   })
 
+  it('the instance storage fuse refuses POST /api/auth/trial (it is not on the open list)', async () => {
+    const { refusedWhenFull, OPEN_WHEN_FULL } = await import('../quota/instanceGate')
+    assert.equal(refusedWhenFull({ method: 'POST', url: '/api/auth/trial', routeOptions: { url: '/api/auth/trial' } } as never), true)
+    assert.ok(!OPEN_WHEN_FULL.includes('POST /api/auth/trial'))
+  })
+
   it('workspace settings: refused only when turning the invite link on', () => {
     const { method, url } = TRIAL_INVITE_LINK_ROUTE
     assert.equal(trialRestriction(method, url, { inviteLinkEnabled: true }), 'members')
@@ -183,23 +306,49 @@ describe('trial accounts: the refused routes', () => {
     for (const r of TRIAL_RESTRICTED_ROUTES) assert.match(r.url, /^\/api\//, key(r))
   })
 
-  it('sweep: each write route that publishes, invites, joins, sends out or signs in is refused or reviewed', () => {
+  it('closed sweep: every write route of the source is refused or allowed with a reason, never both, none stale', () => {
     const refused = new Set(TRIAL_RESTRICTED_ROUTES.map((r) => `${r.method} ${withoutApi(r.url)}`))
-    const unreviewed: string[] = []
+    const routes = writeRoutesInSource()
+    assert.ok(routes.length > 180, `${routes.length} write routes found`)
+    const unclassified: string[] = []
+    const both: string[] = []
     const seen = new Set<string>()
-    for (const r of writeRoutesInSource()) {
-      // the admin API: requireAdmin, and a trial account is never an admin
-      if (r.url.startsWith('/admin/')) continue
-      if (!SENSITIVE_FILES.has(r.file) && !SENSITIVE_PATH.test(r.url)) continue
+    for (const r of routes) {
       const k = key(r)
       seen.add(k)
-      if (!refused.has(k) && !(k in TRIAL_REVIEWED_ALLOWED)) unreviewed.push(`${k} (${r.file})`)
+      // the admin API: requireAdmin, and a trial account is never an admin
+      if (r.url.startsWith('/admin/')) continue
+      const isRefused = refused.has(k)
+      const isAllowed = k in TRIAL_ALLOWED
+      if (isRefused && isAllowed) both.push(k)
+      if (!isRefused && !isAllowed) unclassified.push(`${k} (${r.file})`)
     }
-    assert.deepEqual(unreviewed, [], 'add each to TRIAL_RESTRICTED_ROUTES (trial.ts) or, with a reason, to TRIAL_REVIEWED_ALLOWED')
-    // a reviewed entry for a route that no longer exists is stale
-    assert.deepEqual(Object.keys(TRIAL_REVIEWED_ALLOWED).filter((k) => !seen.has(k)), [])
-    // the sweep sees the routes it is about
-    for (const k of ['POST /pages/:id/share', 'POST /workspaces/:id/webhooks', 'PUT /workspaces/:id/slack', 'POST /collection-views/:id/form-link']) assert.ok(seen.has(k), k)
+    assert.deepEqual(unclassified, [], 'a new write route: add it to TRIAL_RESTRICTED_ROUTES (account/trial.ts) or, with a reason, to TRIAL_ALLOWED here')
+    assert.deepEqual(both, [])
+    assert.deepEqual(Object.keys(TRIAL_ALLOWED).filter((k) => !seen.has(k)), [], 'allowed but no longer a route')
+    for (const why of Object.values(TRIAL_ALLOWED)) assert.ok(WHY[why].length > 10)
+  })
+
+  it('the extraction finds what the quota sweep finds (same source, DELETE added)', () => {
+    // quota/writeSweep.test.ts reads POST/PUT/PATCH with `(app|api|s|inner|root|scope).method(`; this
+    // sweep reads any receiver, so it can only find more
+    const ours = new Set(writeRoutesInSource().map(key))
+    const re = /\b(?:app|api|s|inner|root|scope)\.(post|put|patch|delete)(?:<[^>]*>)?\(\s*(['`])([^'`]+)\2/g
+    const walk = (dir: string, out: string[] = []): string[] => {
+      for (const f of readdirSync(dir)) {
+        const p = path.join(dir, f)
+        if (statSync(p).isDirectory()) walk(p, out)
+        else if (p.endsWith('.ts') && !p.endsWith('.test.ts') && !/TestKit|testHarness|Fixture|fixture/.test(p)) out.push(p)
+      }
+      return out
+    }
+    const missed: string[] = []
+    for (const file of walk(src)) {
+      const text = readFileSync(file, 'utf8')
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text))) if (m[3].startsWith('/') && !ours.has(`${m[1].toUpperCase()} ${m[3]}`)) missed.push(`${m[1].toUpperCase()} ${m[3]}`)
+    }
+    assert.deepEqual(missed, [])
   })
 
   it('MCP tools: no tool calls a refused route (they reach REST through the gated routes only)', () => {

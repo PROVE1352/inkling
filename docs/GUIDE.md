@@ -857,6 +857,15 @@ In **Activity** or in the page's side panel (**History › Recent changes**), ch
 workspace, and a period. The preview shows what will be reverted and what stays because someone edited it afterwards.
 Reverting is saved as your own change (a "Before revert" version is kept) and can be undone with **Undo revert**.
 
+Next to a section heading, a small mark shows who changed that section last: the agent sign and the app's name
+when an agent did, the person's initials otherwise. Hover it for the name and the time; click it for what changed and
+**Revert this change**, which opens the same preview. The mark comes from the change history, so it shows up a little
+after a change: up to half a minute for an agent's edit while the page is open, up to about a minute after typing.
+Sections nobody changed in the last 30 days have none. No mark
+does not mean a person wrote the section. One person's or one agent's edits of a section within 10 minutes count as one
+change, and the preview shows everything that revert would take back. An accepted suggestion is the change of the
+person who accepted it.
+
 ### Team agents
 
 **Team agents** in the header of **Activity** shows what each person's AI connections are working on: the sections they claimed

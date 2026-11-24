@@ -1127,6 +1127,7 @@ Hocuspocus `PermissionDenied` 메시지를 이유 `permission-changed`와 함께
 | 메서드 | 경로 | 요청 | 응답 |
 |---|---|---|---|
 | GET | `/api/pages/:id/changes` | `before?`(seq), `limit?`(1–100, 기본 20) | `{ items: ActivityItemDTO[], next }`: 그 페이지 자신의 변경 기록, 최신순. 항목마다 `revert`(아래)가 있습니다 |
+| GET | `/api/pages/:id/section-provenance` | | `{ sections: SectionProvenanceDTO[] }`: 지금 있는 섹션마다 가장 최근 변경(제목 옆 표시, docs/adr/1627-*). 멤버만(게스트 403). 문서 페이지가 아니면 `[]` |
 | POST | `/api/changes/:seq/revert` | `{ dryRun? }` | `RevertResultDTO`. 변경 하나. 그 페이지의 편집 권한 필요. 변경이나 그 페이지가 보이지 않으면 404. 30/min |
 | POST | `/api/pages/:id/revert` | `{ seqs? (1–200) \| via, actorId?, since?, until?, dryRun? }` | `RevertResultDTO`. 지정한 변경들, 또는 한 에이전트가 그 페이지에서 한 기간 동안 한 변경(`via` = 클라이언트 이름, `actorId`를 주면 한 멤버의 연결로 좁힘). `seqs`나 `via` 중 하나가 필요합니다(없으면 400). 30/min |
 | POST | `/api/workspaces/:id/revert` | `{ via, actorId?, since, until?, dryRun? }` | `RevertResultDTO`. 워크스페이스에서 한 에이전트가 한 변경. 소유자와 관리자. 페이지마다 전부 쓰거나 전혀 쓰지 않고, 잠긴 페이지는 보고합니다. 10/min |
@@ -1140,6 +1141,12 @@ Hocuspocus `PermissionDenied` 메시지를 이유 `permission-changed`와 함께
 
 `GET /api/workspaces/:id/activity`와 `GET /api/pages/:id/changes` 항목에 `revert: { revertable, revertedBy: { name,
 at } | null, isRevert }`가 붙습니다.
+
+섹션 출처 응답의 항목은 `SectionProvenanceDTO { anchor, blockId, headingPath, seq, kind, changedAt, actor: { id, name }, via, agent, revertable, revertedBy: { name, at } | null, isRevert }`이고 목차 순서입니다. 섹션 anchor마다 그 사람이 볼 수 있는 가장 최근 `page_changes` 행입니다
+(`GET /api/pages/:id/changes`와 같은 행). 가장 최근 변경이 삭제이거나 누가 했는지 모르는 섹션(여러 사람의 실시간 입력)은 빠지고,
+목차에 더는 없는 anchor도 빠집니다. `blockId`는 지금 목차의 제목 블록입니다. `agent`는 `via`가 에이전트 연결일 때 true입니다(공개 폼,
+자동화는 아님). `seq`는 `POST /api/changes/:seq/revert`에 넘길 변경입니다. 행은 30일 동안 남고, 한 사람(또는 한 에이전트)이 한 섹션을
+10분 안에 고친 것은 한 행입니다. 서버 쓰기는 1초쯤, 실시간 입력은 8–30초 뒤에 나타납니다.
 
 <a id="change-feed-docsadr1625-16501653"></a>
 ### 변경 피드 (docs/adr/1625, 1650–1653)

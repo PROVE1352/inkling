@@ -49,4 +49,13 @@ export default {
   'revert.badgeRevert': '되돌리기',
   'history.labelBeforeRevert': '되돌리기 전',
   'audit.action.page.changes_reverted': '변경 되돌리기',
+  // 제목 옆 섹션 표시: 그 섹션을 마지막으로 고친 쪽 (docs/adr/1627-*)
+  'sectionMark.title': '{name} · {when}',
+  'sectionMark.titleVia': '{name} ({client} 통해) · {when}',
+  'sectionMark.label': '이 섹션의 마지막 변경',
+  'sectionMark.last': '{when} {name}님이 마지막으로 고침',
+  'sectionMark.lastVia': '{when} {name}님이 {client}(으)로 마지막으로 고침',
+  'sectionMark.revert': '이 변경 되돌리기',
+  'sectionMark.tooLarge': '너무 커서 여기서 되돌릴 수 없습니다. 버전 기록을 쓰세요.',
+  'sectionMark.revertedBy': '{name}님이 {when} 되돌림',
 } as const

@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { revertChangeSchema, revertPageSchema, revertWorkspaceSchema } from '@inkling/shared'
-import type { ActivityItemDTO } from '@inkling/shared'
+import type { ActivityItemDTO, SectionProvenanceResponseDTO } from '@inkling/shared'
 import { getUser, requireUser } from '../auth'
 import { db } from '../db/index'
 import { notFound } from '../errors'
@@ -11,6 +11,7 @@ import { requestLocale } from '../i18n'
 import { findVisiblePage } from '../pageDto'
 import { memberOrGuestSql } from '../pageGrants'
 import { revertChanges, revertInfo } from '../revert'
+import { sectionProvenance } from '../sectionProvenance'
 import { pageInRangeSql } from '../tokenRange'
 import { requireManager } from '../workspaceAdmin'
 
@@ -19,6 +20,8 @@ import { requireManager } from '../workspaceAdmin'
  * every route takes `dryRun` for the preview.
  *
  *   GET  /pages/:id/changes?before=&limit=   the page's own change log, newest first, with revert facts
+ *   GET  /pages/:id/section-provenance        the newest change of each current section (heading marks,
+ *                                             docs/adr/1627-*), with the same revert facts
  *   POST /changes/:seq/revert {dryRun}        one change (edit access to its page)
  *   POST /pages/:id/revert {seqs | via, actorId, since, until, dryRun}
  *                                             explicit changes, or one agent's changes on the page in a period
@@ -84,6 +87,15 @@ export async function registerRevertRoutes(app: FastifyInstance): Promise<void> 
       revert: info.get(r.seq),
     }))
     return { items, next: more ? list[list.length - 1].seq : null }
+  })
+
+  // Read-only like /changes: members only (guests 403), the change log's own visibility per row.
+  app.get('/pages/:id/section-provenance', { preHandler: requireUser }, async (req) => {
+    const user = getUser(req)
+    const page = await findVisiblePage(idParam(req.params), user.id)
+    if (!page) throw notFound()
+    await requireMembership(page.workspaceId, user.id)
+    return { sections: await sectionProvenance(page, user.id) } satisfies SectionProvenanceResponseDTO
   })
 
   app.post(

@@ -29,6 +29,7 @@ export default {
   'getStarted.item.database.hint': 'Pick Database from this menu. Table, board and calendar views are tabs above the database.',
   'getStarted.item.share': 'Invite a member or share a page',
   'getStarted.item.share.hint': 'Copy the invite link and send it to a teammate. A page also gets a public link from the globe button at its top.',
+  'getStarted.item.share.hintInviteOnly': 'Copy the invite link and send it to a teammate.',
   'getStarted.item.ai': 'Connect an AI agent',
   'getStarted.item.ai.hint': 'Pick the app you use and the command to paste appears right below it. Copy it into that app.',
   'getStarted.item.explore': 'Look around the team workspace',

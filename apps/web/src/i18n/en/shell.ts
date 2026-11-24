@@ -132,6 +132,7 @@ export default {
   'palette.cycleTheme': 'Switch theme',
   'palette.toggleSidebar': 'Toggle sidebar',
   'palette.mcpConnections': 'Manage MCP connections',
+  'palette.mcpConnectionsLong': 'Connect an AI agent (manage MCP connections)',
   'palette.switchWorkspace': 'Workspace: {name}',
   'palette.placeholder': 'Run a command or jump to a page…',
 

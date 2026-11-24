@@ -35,3 +35,11 @@ export function samplePageOf(dto: OnboardingDTO | null | undefined, wsId: string
 export function mcpOptionsOpen(profile: 'full' | 'core', auth: 'oauth' | 'token'): boolean {
   return profile !== 'full' || auth !== 'oauth'
 }
+
+/**
+ * The share step's hint and what it points at. The invite link is always there (no server switch turns it
+ * off); the public link from the page's globe button is named only while `public-links` is on.
+ */
+export function shareHint(publicLinksOff: boolean): { key: 'getStarted.item.share.hint' | 'getStarted.item.share.hintInviteOnly'; publicLink: boolean } {
+  return publicLinksOff ? { key: 'getStarted.item.share.hintInviteOnly', publicLink: false } : { key: 'getStarted.item.share.hint', publicLink: true }
+}

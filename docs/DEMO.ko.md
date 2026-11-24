@@ -175,6 +175,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `LEGAL_DIR` | `/legal` | 컨테이너 안의 약관 폴더(호스트에서는 `DEMO_LEGAL_DIR`) |
 | `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시. 비우면 표시 없음 |
 | `INSTANCE_NOTICE` | 비움 | 로그인·가입·동의 화면과 모든 앱 화면 위에 보이는 공지(글자만, 500자까지) |
+| `INSTANCE_CONTACT` | 비움 | 로그인 화면 아래, 사이드바, 설정 › 정보에 보이는 "문의하기" 링크(메일 주소나 `https://` URL) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | 남기는 백업 세트 수 |
 | `SIGNUP_PER_HOUR` | `10` | 서버 전체에서 한 시간에 만들 수 있는 계정 수(설정 링크로 만든 계정은 세지 않음) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을 등록 후 이 시간이 지나면 삭제 |

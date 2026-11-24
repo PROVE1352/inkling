@@ -27,6 +27,7 @@ import { DISABLED_FEATURE_NAMES, isDisabledFeatureName, type DisabledFeatureName
  *   INSTANCE_LABEL              ≤ 20 characters  a label every screen shows
  *   LIMIT_TRASH_DAYS            integer ≥ 7      cap on the days trashed pages are kept (contract §13)
  *   INSTANCE_NOTICE             ≤ 500 characters an operator notice on the sign-in, sign-up and app screens
+ *   INSTANCE_CONTACT            email | https URL a "Contact" link to the operator (≤ 300 characters)
  *   SIGNUP_PER_HOUR             integer ≥ 1      accounts the whole server makes in one hour (contract §14)
  *   OAUTH_UNUSED_CLIENT_HOURS   integer ≥ 1      dynamic OAuth clients never used are deleted this long after registering
  *   OAUTH_UNUSED_CLIENT_MAX     integer ≥ 1      cap on dynamic OAuth clients never used (oldest go first)
@@ -68,6 +69,8 @@ export interface Limits {
   trashDays?: number
   /** INSTANCE_NOTICE (docs/adr/2526-*): plain text, line breaks kept. Absent when unset. */
   instanceNotice?: string
+  /** INSTANCE_CONTACT (docs/adr/2554-*): the link's href, `mailto:…` or `https://…`. Absent when unset. */
+  instanceContact?: string
   /** SIGNUP_PER_HOUR (security fix, docs/adr/2537-*): accounts per hour on the whole server. Absent when unset. */
   signupPerHour?: number
   /** OAUTH_UNUSED_CLIENT_HOURS (docs/adr/2536-*): never-used dynamic clients go after this many hours. Absent when unset. */
@@ -97,6 +100,7 @@ export const INSTANCE_LABEL_MAX = 20
 /** The shortest trash retention a workspace can choose (TRASH_RETENTION_DAYS.min); the cap cannot go below it. */
 export const TRASH_DAYS_MIN = 7
 export const INSTANCE_NOTICE_MAX = 500
+export const INSTANCE_CONTACT_MAX = 300
 
 const MB = 1024 * 1024
 export const mbToBytes = (mb: number): number => Math.floor(mb * MB)
@@ -136,6 +140,37 @@ function megabytes(e: Env, name: string, opts: { max?: number } = {}): number | 
   if (mbToBytes(n) < 1) throw new LimitsConfigError(`${name}=${v} is less than one byte`)
   if (opts.max !== undefined && n > opts.max) throw new LimitsConfigError(`${name}=${v} is above ${opts.max}`)
   return n
+}
+
+// An address the "Contact" link can carry as mailto: without escaping: a dot-atom local part without
+// # % & / ? (a URL would read them), a domain of letters, digits and hyphens with at least one dot.
+// No query (?subject=…), no second address.
+const CONTACT_EMAIL = /^[A-Za-z0-9!$'*+=^_`{|}~-]+(\.[A-Za-z0-9!$'*+=^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/
+
+/**
+ * INSTANCE_CONTACT (pure, for tests): the operator's contact as the href of a link. `raw` is the
+ * trimmed value or null. Returns null when unset, `mailto:<address>` for an email address (with or
+ * without `mailto:`), the URL as written for `https://…`. Anything else throws LimitsConfigError:
+ * other schemes (http:, javascript:, …), spaces or control characters, more than 300 characters.
+ */
+export function parseInstanceContact(raw: string | null): string | null {
+  if (raw === null) return null
+  if ([...raw].length > INSTANCE_CONTACT_MAX) throw new LimitsConfigError(`INSTANCE_CONTACT is longer than ${INSTANCE_CONTACT_MAX} characters`)
+  if (/[\s\p{Cc}]/u.test(raw)) throw new LimitsConfigError('INSTANCE_CONTACT contains a space or a control character')
+  if (/^https:\/\//i.test(raw)) {
+    let u: URL
+    try {
+      u = new URL(raw)
+    } catch {
+      throw new LimitsConfigError('INSTANCE_CONTACT is not a valid https URL')
+    }
+    if (u.protocol !== 'https:' || u.hostname === '') throw new LimitsConfigError('INSTANCE_CONTACT is not a valid https URL')
+    if (u.username !== '' || u.password !== '') throw new LimitsConfigError('INSTANCE_CONTACT has a user name or password in the URL')
+    return raw
+  }
+  const address = /^mailto:/i.test(raw) ? raw.slice('mailto:'.length) : raw
+  if (CONTACT_EMAIL.test(address)) return `mailto:${address}`
+  throw new LimitsConfigError('INSTANCE_CONTACT is neither an email address nor an https:// URL')
 }
 
 /** Parse every restricted-mode variable (pure, for tests). Throws LimitsConfigError on a bad value. */
@@ -194,6 +229,8 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceNotice = n
   }
 
+  const instanceContact = parseInstanceContact(raw(e, 'INSTANCE_CONTACT'))
+
   const signupPerHour = int(e, 'SIGNUP_PER_HOUR')
   const oauthUnusedClientHours = int(e, 'OAUTH_UNUSED_CLIENT_HOURS')
   const oauthUnusedClientMax = int(e, 'OAUTH_UNUSED_CLIENT_MAX')
@@ -218,6 +255,7 @@ export function parseLimitsEnv(e: Env): Limits {
     instanceLabel: label,
     ...(trashDays !== null ? { trashDays } : {}),
     ...(instanceNotice !== null ? { instanceNotice } : {}),
+    ...(instanceContact !== null ? { instanceContact } : {}),
     ...(signupPerHour !== null ? { signupPerHour } : {}),
     ...(oauthUnusedClientHours !== null ? { oauthUnusedClientHours } : {}),
     ...(oauthUnusedClientMax !== null ? { oauthUnusedClientMax } : {}),
@@ -278,6 +316,7 @@ export function limitsBootLines(l: Limits): string[] {
   if (l.instanceLabel !== null) on.push(`instance label "${l.instanceLabel}"`)
   if (l.trashDays !== undefined) on.push(`trash kept at most ${l.trashDays} days`)
   if (l.instanceNotice !== undefined) on.push(`instance notice (${[...l.instanceNotice].length} characters)`)
+  if (l.instanceContact !== undefined) on.push('contact link')
   if (l.signupPerHour !== undefined) on.push(`${l.signupPerHour} sign-ups per hour`)
   if (l.oauthUnusedClientHours !== undefined) on.push(`unused OAuth clients deleted after ${l.oauthUnusedClientHours} hours`)
   if (l.oauthUnusedClientMax !== undefined) on.push(`at most ${l.oauthUnusedClientMax} unused OAuth clients`)

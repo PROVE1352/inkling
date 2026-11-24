@@ -267,6 +267,11 @@ export interface AuthModeDTO {
    */
   instanceNotice?: string
   /**
+   * INSTANCE_CONTACT: the href of a "Contact" link to the operator, `mailto:…` or `https://…` (checked
+   * by the server). Absent when unset.
+   */
+  instanceContact?: string
+  /**
    * LIMIT_INSTANCE_STORAGE_MB is reached (the server's storage fuse tripped): only reading, signing in,
    * exporting and deleting work. Absent otherwise.
    */

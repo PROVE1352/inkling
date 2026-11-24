@@ -31,5 +31,8 @@ export default {
   'legal.version': '문서 버전 {version}',
   'legal.instanceTitle': '이 서버: {label}',
   'legal.instanceNotice': '운영자 공지',
+  'legal.contact': '문의하기',
+  'legal.contactTitle': '운영자에게 문의',
+  'legal.contactDesc': '이 서버를 운영하는 사람에게 연락합니다.',
   'legal.deleteNoExport': '동의하기 전에는 내보내기를 쓸 수 없습니다.',
 } satisfies Partial<Record<keyof typeof en, string>>

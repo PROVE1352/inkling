@@ -23,8 +23,8 @@ name: inkling-demo
 
 x-demo-limits: &demo-limits
   # compose.yaml passes the 0.22 settings as optional (empty = off); here the limits are required (`:?`), so
-  # the demo cannot start with one missing. ACCOUNT_LIFETIME_*, INSTANCE_LABEL and INSTANCE_NOTICE may be
-  # empty (`:-`, empty = off). Meanings: docs/DEMO.md and .env.example.
+  # the demo cannot start with one missing. ACCOUNT_LIFETIME_*, INSTANCE_LABEL, INSTANCE_NOTICE and
+  # INSTANCE_CONTACT may be empty (`:-`, empty = off). Meanings: docs/DEMO.md and .env.example.
   LOGIN_ID_MODE: ${LOGIN_ID_MODE:?set in deploy/demo/demo.env}
   SIGNUP_MAX_USERS: ${SIGNUP_MAX_USERS:?set in deploy/demo/demo.env}
   SIGNUP_PER_IP_PER_DAY: ${SIGNUP_PER_IP_PER_DAY:?set in deploy/demo/demo.env}
@@ -42,6 +42,8 @@ x-demo-limits: &demo-limits
   INSTANCE_LABEL: ${INSTANCE_LABEL:-}
   # The operator's notice on every screen (changes, outages, incidents): optional, empty = none.
   INSTANCE_NOTICE: ${INSTANCE_NOTICE:-}
+  # A "Contact" link to the operator (an email address or an https:// URL): optional, empty = none.
+  INSTANCE_CONTACT: ${INSTANCE_CONTACT:-}
   # The folder mounted below; the server refuses to boot when it is missing or malformed.
   LEGAL_DIR: /legal
   # Already passed by compose.yaml, repeated as required here so the demo cannot start without them.

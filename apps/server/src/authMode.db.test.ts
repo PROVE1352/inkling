@@ -9,7 +9,7 @@ for (const k of [
   'SMTP_HOST', 'MAIL_FROM', 'DEFAULT_LOCALE', 'EXPERIMENTAL_FEATURES', 'REQUIRE_EMAIL_VERIFICATION', 'NODE_ENV',
   'LOGIN_ID_MODE', 'SIGNUP_MAX_USERS', 'SIGNUP_PER_IP_PER_DAY', 'ACCOUNT_LIFETIME_DAYS', 'ACCOUNT_LIFETIME_DRY_RUN',
   'LIMIT_WORKSPACES_PER_USER', 'LIMIT_MEMBERS_PER_WORKSPACE', 'LIMIT_PAGES_PER_WORKSPACE', 'LIMIT_FILE_MB',
-  'LIMIT_WORKSPACE_STORAGE_MB', 'LIMIT_VERSIONS_PER_PAGE', 'DISABLED_FEATURES', 'WORKSPACE_RESTORE_DAYS', 'LEGAL_DIR', 'INSTANCE_LABEL',
+  'LIMIT_WORKSPACE_STORAGE_MB', 'LIMIT_VERSIONS_PER_PAGE', 'DISABLED_FEATURES', 'WORKSPACE_RESTORE_DAYS', 'LEGAL_DIR', 'INSTANCE_LABEL', 'INSTANCE_CONTACT',
 ]) delete process.env[k]
 process.env.SIGNUP_REQUIRE_KEY = '0'
 
@@ -110,6 +110,22 @@ describe('[db] auth mode and me: inert by default, a field per restricted settin
     }
     // and back to the plain answer
     assert.equal(Object.keys((await mode()).json()).length, 10)
+  })
+
+  it('INSTANCE_CONTACT: instanceContact only while set (docs/adr/2554-*)', async () => {
+    const plain = (await mode()).json() as Record<string, unknown>
+    assert.ok(!('instanceContact' in plain))
+    for (const href of ['mailto:you@example.org', 'https://example.org/contact']) {
+      const restore = limitsMod.setLimitsForTests({ instanceContact: href })
+      try {
+        assert.equal(((await mode()).json() as Record<string, unknown>).instanceContact, href)
+      } finally {
+        restore()
+      }
+    }
+    const after = (await mode()).json() as Record<string, unknown>
+    assert.ok(!('instanceContact' in after))
+    assert.equal(Object.keys(after).length, 10)
   })
 
   it('/auth/me has expiresAt only for an account with an expiry date', async () => {

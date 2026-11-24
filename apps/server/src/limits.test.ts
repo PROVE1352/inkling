@@ -11,6 +11,7 @@ import {
   limits,
   limitsBootLines,
   LimitsConfigError,
+  parseInstanceContact,
   parseLimitsEnv,
   setLimitsForTests,
   workspaceRestoreDays,
@@ -384,5 +385,58 @@ describe('restricted-mode registration places', () => {
       await app.ready()
       await app.close()
     }
+  })
+})
+
+describe('INSTANCE_CONTACT (docs/adr/2554-*)', () => {
+  const bad = (v: string, re: RegExp) =>
+    assert.throws(() => parseInstanceContact(v), (e: unknown) => e instanceof LimitsConfigError && /INSTANCE_CONTACT/.test(e.message) && re.test(e.message))
+
+  it('unset or empty: no link, no key, no boot line', () => {
+    assert.equal(parseInstanceContact(null), null)
+    for (const v of ['', '   ']) {
+      const l = parseLimitsEnv({ INSTANCE_CONTACT: v })
+      assert.ok(!('instanceContact' in l))
+      assert.deepEqual(limitsBootLines(l), [])
+    }
+  })
+
+  it('an email address, with or without mailto:, becomes a mailto: href', () => {
+    assert.equal(parseInstanceContact('name@example.org'), 'mailto:name@example.org')
+    assert.equal(parseInstanceContact('mailto:name@example.org'), 'mailto:name@example.org')
+    assert.equal(parseInstanceContact('MAILTO:first.last+inkling@mail.example.co.kr'), 'mailto:first.last+inkling@mail.example.co.kr')
+    assert.equal(parseLimitsEnv({ INSTANCE_CONTACT: ' you@example.org ' }).instanceContact, 'mailto:you@example.org')
+  })
+
+  it('an https URL is kept as written', () => {
+    assert.equal(parseInstanceContact('https://example.org/contact'), 'https://example.org/contact')
+    assert.equal(parseInstanceContact('https://example.org/contact?from=inkling#form'), 'https://example.org/contact?from=inkling#form')
+    assert.equal(parseLimitsEnv({ INSTANCE_CONTACT: 'https://example.org/contact' }).instanceContact, 'https://example.org/contact')
+  })
+
+  it('other schemes, spaces, control characters, 301 characters and broken addresses refuse to boot', () => {
+    bad('http://example.org/contact', /neither an email address nor an https/)
+    bad('javascript:alert(1)', /neither an email address nor an https/)
+    bad('data:text/html,hi', /neither an email address nor an https/)
+    bad('ftp://example.org', /neither an email address nor an https/)
+    bad('mailto:', /neither an email address nor an https/)
+    bad('mailto:name@example.org?subject=hi', /neither an email address nor an https/)
+    bad('name@example.org,other@example.org', /neither an email address nor an https/)
+    bad('example.org', /neither an email address nor an https/)
+    bad('name@localhost', /neither an email address nor an https/)
+    bad('https://', /not a valid https URL/)
+    bad('https://user:pw@example.org/', /user name or password/)
+    bad('https://example.org/a b', /space or a control character/)
+    bad('name @example.org', /space or a control character/)
+    bad('https://example.org/\nx', /space or a control character/)
+    bad('https://example.org/\tx', /space or a control character/)
+    bad('https://example.org/' + 'a'.repeat(281), /longer than 300/)
+    assert.equal(parseInstanceContact('https://example.org/' + 'a'.repeat(280))?.length, 300)
+    assert.throws(() => parseLimitsEnv({ INSTANCE_CONTACT: 'http://example.org' }), LimitsConfigError)
+  })
+
+  it('boot line says "contact link", not the address', () => {
+    const l = parseLimitsEnv({ INSTANCE_CONTACT: 'you@example.org' })
+    assert.deepEqual(limitsBootLines(l), ['restricted mode: contact link'])
   })
 })

@@ -1013,7 +1013,7 @@ the number of people, and a demo server that strangers can sign up to. Setting u
 | `TRIAL_ACCOUNTS` | `1` or `0` | off | "Try without an account" on the sign-in and sign-up screens: one click makes a trial account, its workspace and the sample page (0.23, below) | 404 `TRIAL_OFF` |
 | `TRIAL_LIFETIME_HOURS` | whole number 1–168 | 24 | Hours a trial account lives; then it is deleted whatever `ACCOUNT_LIFETIME_DAYS` says | — |
 | `TRIAL_MAX_ACCOUNTS` | whole number ≥ 1 | 30 | Trial accounts at once, expired ones not yet deleted included, counted again under a lock. They do not count toward `SIGNUP_MAX_USERS` | 403 `TRIAL_FULL` |
-| `TRIAL_PER_IP_PER_DAY` | whole number ≥ 1 | 3 | Trial accounts one address (IPv4, or the IPv6 /56) makes in 24 hours, apart from `SIGNUP_PER_IP_PER_DAY`. `SIGNUP_PER_HOUR` counts trial accounts too | 429 `SIGNUP_IP_LIMIT` |
+| `TRIAL_PER_IP_PER_DAY` | whole number ≥ 1 | 3 | Trial accounts one address (IPv4, or the IPv6 /56) makes in 24 hours, apart from `SIGNUP_PER_IP_PER_DAY`. `SIGNUP_PER_HOUR` applies to trial accounts on a count of their own | 429 `SIGNUP_IP_LIMIT` |
 
 - Megabytes are 1,048,576 bytes. A value that is unset or empty means "no limit" (or off); with nothing set the
   server answers as 0.21.1 and runs none of the checks below.
@@ -1297,9 +1297,18 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
 - The hourly job deletes trial accounts whose time is up, also after `TRIAL_ACCOUNTS` is turned off and whatever
   `ACCOUNT_LIFETIME_DRY_RUN` says, through the same deletion as leaving. A new click first deletes up to three
   expired ones, so a seat is not held for the rest of the hour.
+- Once its time is up the account's session, API tokens and MCP connections stop working at once (401), before
+  the hourly job deletes it. A trial account can also delete itself in Settings › Account with the confirmation
+  alone (it has no password); its seat frees at once.
 - Lifting a trial account's expiry in Admin › Users keeps the account with its restrictions, and it keeps one
   trial seat until it is deleted.
-- Behind a proxy the per-address count needs `TRUST_PROXY`, as for sign-up.
+- Trial accounts and their workspaces do not count toward `SIGNUP_MAX_USERS` or `LIMIT_WORKSPACES_TOTAL`
+  (`TRIAL_MAX_ACCOUNTS` bounds them, one workspace each), and `SIGNUP_PER_HOUR` counts them apart from sign-ups.
+- Limits of the protection: the 2-second bot check is a value the browser sends, so a script passes it. The
+  per-address count needs the real client address: behind a proxy set `TRUST_PROXY`; behind a CDN or a proxy that
+  does not pass `X-Forwarded-For`, every visitor shares one count. A trial account can still make the server fetch
+  an address it picks through the web clipper, Sheets sync and link previews (through safeFetch, rate-limited per
+  person or token).
 
 ### Account deletion
 - Every account can delete itself on every server (Settings › Account › **Delete account**, `DELETE /api/me`), from

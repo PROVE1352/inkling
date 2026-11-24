@@ -14,6 +14,8 @@ export function agentJustConnected(prev: boolean | undefined, next: boolean | un
 
 type NoticeState = { due: boolean; shown: boolean }
 let state: NoticeState = { due: false, shown: false }
+/** Whose notice `state` is: another account signed in in the same tab starts from nothing. */
+let stateUser: string | null = null
 const lastSeen = new Map<string, boolean>()
 const listeners = new Set<() => void>()
 
@@ -25,6 +27,10 @@ function set(next: NoticeState) {
 /** Every onboarding answer for this person passes through here (onboarding/api.ts). */
 export function observeAgentConnected(userId: string, connected: boolean | undefined): void {
   if (!userId || connected === undefined) return
+  if (stateUser !== userId) {
+    stateUser = userId
+    if (state.due) set({ due: false, shown: false })
+  }
   const prev = lastSeen.get(userId)
   lastSeen.set(userId, connected)
   if (agentJustConnected(prev, connected) && !state.due) set({ due: true, shown: false })
@@ -55,5 +61,6 @@ export function markAgentNoticeShown(): void {
 /** Tests: a fresh page load. */
 export function resetAgentNoticeForTests(): void {
   lastSeen.clear()
+  stateUser = null
   state = { due: false, shown: false }
 }

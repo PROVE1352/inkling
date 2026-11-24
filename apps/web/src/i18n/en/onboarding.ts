@@ -30,7 +30,7 @@ export default {
   'getStarted.item.share': 'Invite a member or share a page',
   'getStarted.item.share.hint': 'Copy the invite link and send it to a teammate. A page also gets a public link from the globe button at its top.',
   'getStarted.item.ai': 'Connect an AI agent',
-  'getStarted.item.ai.hint': 'Pick the app you use and the command to paste appears right below it. Copy it into that app.',
+  'getStarted.item.ai.hint': 'Pick the app you use and the command to paste appears right below it. Copy it into that app. This ticks once your agent first connects.',
   'getStarted.item.explore': 'Look around the team workspace',
   'getStarted.item.explore.hint': 'Open a page your team wrote from the page tree.',
   'getStarted.item.comment': 'Leave a comment',

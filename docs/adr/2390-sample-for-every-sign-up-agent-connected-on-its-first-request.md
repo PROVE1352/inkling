@@ -40,7 +40,9 @@ agents do (the Team agents board, reached from the Activity screen) was hidden: 
   (`PATCH { event: 'ai' }` is 400), and the web app no longer sends it on copy.
 - **The notice.** The web app tells the person once, when an answer of this page load said `false` and a later one
   says `true` (`agentJustConnected`, `onboarding/agentNotice.ts`): a toast in the app shell with the first question
-  to ask and a button to the Team agents board. The app shell learns it from the existing refetch on focus. The
+  to ask and a button to the Team agents board. The app shell learns it from the existing refetches: when the tab
+  becomes visible again (`refetchOnWindowFocus`, which TanStack Query 5 ties to `visibilitychange`, not to the window's
+  `focus`), and when a screen mounts after the answer is 30 s old. The
   connections screen is outside the shell (no toasts): while it is open and nothing has connected, it asks again
   every 5 s, and shows the same line under its steps with a link to the board; whichever shows it first, the other
   does not repeat it.
@@ -70,8 +72,11 @@ agents do (the Team agents board, reached from the Activity screen) was hidden: 
 ## Trade-offs
 - The first onboarding read of a new account takes the sample's time (8 → 60–110 ms locally); the sign-up answer is
   unchanged (median of 20 local sign-ups 26 ms before and after).
-- The toast draws one line and cuts the sentence; the question is whole on the connections screen
-  (KNOWN-ISSUES).
+- The toast component draws one line, so the sentence is cut (at 390 px even before its first full stop); the
+  question is whole on the connections screen.
+- Back from a terminal into a browser window that stayed visible beside it, the app shell does not ask again
+  until the tab is hidden and shown or a screen mounts after 30 s; no polling was added outside the connections
+  screen.
 - A connection made before 0.24 whose grant was never used is not "connected" until its next request, which then
   shows the notice if the app is open.
 

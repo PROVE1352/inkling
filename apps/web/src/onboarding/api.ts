@@ -95,8 +95,8 @@ export function wantsItem(dto: OnboardingDTO | null, id: OnboardingItemId): bool
 }
 
 /**
- * Record something only the browser sees (slash menu opened, link inserted from the [[ menu, MCP
- * address copied, someone else's page opened, app installed). Cheap enough for a keystroke handler:
+ * Record something only the browser sees (slash menu opened, link inserted from the [[ menu, someone
+ * else's page opened, app installed; the AI agent item is the server's, docs/adr/2390-*). Cheap enough for a keystroke handler:
  * nothing is sent unless the open checklist still waits for that item, and each event at most once
  * per page load.
  */

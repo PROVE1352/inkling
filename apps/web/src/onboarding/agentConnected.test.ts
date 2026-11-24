@@ -50,6 +50,16 @@ describe('the notice over a page load', () => {
     observeAgentConnected('u2', true)
     assert.equal(agentNoticeState().due, false)
   })
+
+  it('a notice of one account does not carry over to the next one signed in in the same tab', () => {
+    observeAgentConnected('u1', false)
+    observeAgentConnected('u1', true)
+    assert.equal(agentNoticeState().due, true)
+    observeAgentConnected('u2', false)
+    assert.deepEqual(agentNoticeState(), { due: false, shown: false })
+    observeAgentConnected('u2', true)
+    assert.equal(agentNoticeState().due, true, 'the second account’s own first connection')
+  })
 })
 
 describe('sidebar default with a connected agent', () => {

@@ -287,8 +287,8 @@ async function promoteWithoutNewNodes(): Promise<number> {
  * every boot; with nothing to change it is one sequential scan of page_chunks for rows with flags (no index
  * on the column; flagged rows are few). Returns how many rows changed.
  */
-export async function rescanFlaggedChunks(log: (msg: string) => void = console.log): Promise<number> {
-  const BATCH = 500
+export async function rescanFlaggedChunks(log: (msg: string) => void = console.log, batch = 500): Promise<number> {
+  const BATCH = Math.max(1, batch)
   let changed = 0
   let after: { pageId: string; ord: number } | null = null
   const workspaces = new Set<string>()

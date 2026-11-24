@@ -91,9 +91,9 @@ const STRONG_SIGN =
 /** Same-sentence signs: request words, "me" as the one who benefits, urgency. */
 const WEAK_SIGN =
   /\bplease\b|\bmust\b|\bshould\s+(now|immediately|also)\b|\bimmediately\b|\bright\s+(now|away)\b|\bnow\s*[.!]*$|\b(grant|give|make|let|send|show|tell)\s+me\b|즉시|당장|지금\s*바로|반드시/
-/** Korean imperative and request endings, followed by a clause end (so "하라고" reported speech and "할 것이다" do not count). */
+/** Korean imperative and request endings, followed by a clause end (so "하라고" reported speech, "할 것이다" and "할 것 같다" do not count). */
 const KO_COMMAND =
-  /(해라|하라|어라|아라|여라|거라|세요|십시오|하시오|줘요|줘|할\s*것|바란다|바랍니다|해야\s*(한다|합니다|해)|하도록\s*하라)(?=$|[\s.!?,;:'"”’」』)\]>~])/
+  /(해라|하라|어라|아라|여라|거라|세요|십시오|하시오|줘요|줘|바란다|바랍니다|해야\s*(한다|합니다|해)|하도록\s*하라)(?=$|[\s.!?,;:'"”’」』)\]>~])|할\s*것\s*($|[.!,;:'"”’」』)\]>~])/
 /** Informal (반말) commands at the very end of a sentence. */
 const KO_COMMAND_END =
   /(해|줘|봐|둬|바꿔|풀어|올려|지워|넣어|보내|열어|들어|꺼|켜|가|와|써|만들어|알려|보여|붙여|옮겨|비워|따라|들어가|나가)$/
@@ -206,7 +206,7 @@ function imageExfil(text: string): boolean {
   return false
 }
 const EXFIL_VERB =
-  /\b(append|add|attach|include|put|send|post|visit|open|fetch|load|encode|upload|copy|forward|submit)\b[^.\n]{0,80}(\b(url|link|query|parameter|endpoint)\b|\bto\s+https?:\/\/)|(url|링크|주소|쿼리)[^.\n]{0,40}(붙여|추가|넣어|포함)|(보내|전송|방문)/
+  /\b(append|add|attach|include|put|send|post|visit|open|fetch|load|encode)\b[^.\n]{0,80}\b(url|link|query|parameter|endpoint)\b|(url|링크|주소|쿼리)[^.\n]{0,40}(붙여|추가|넣어|포함)|(보내|전송|방문)/
 const DATA_WORD = /\b(data|contents?|secrets?|tokens?|passwords?|api[\s_-]?keys?|credentials?|conversation|notes?|summary|email)\b|비밀|토큰|비밀번호|내용|데이터|대화|요약/
 
 /** NFKC, lower case, invisibles removed, whitespace collapsed — what the phrase rules see. */

@@ -60,7 +60,10 @@ describe('[db] injection flags re-judged at boot', { skip: !HAS_DB }, async () =
     `)
     assert.deepEqual((await suspiciousSections([pageId])).get(pageId)?.map((s) => s.anchor), ['notes', 'footer'])
 
-    assert.ok((await rescanFlaggedChunks(() => {})) >= 1)
+    // one row per batch: the keyset paging over (page_id, ord) runs (other files leave flagged rows in this database)
+    const flaggedRows = (await db.execute(sql`SELECT count(*)::int AS n FROM page_chunks WHERE cardinality(suspicious) > 0`)) as unknown as { n: number }[]
+    assert.ok(flaggedRows[0].n >= 2, 'at least two flagged rows, so a batch of one pages')
+    assert.ok((await rescanFlaggedChunks(() => {}, 1)) >= 1)
     const now = await rows()
     assert.deepEqual(now, clean, 'flags and hashes are what a fresh index pass gives')
     assert.deepEqual((await suspiciousSections([pageId])).get(pageId)?.map((s) => s.anchor), ['footer'])
@@ -78,7 +81,7 @@ describe('[db] injection flags re-judged at boot', { skip: !HAS_DB }, async () =
     await db.execute(sql`
       UPDATE page_chunks SET suspicious = '{override-phrase,permission-change}', hash = 'v1-hash' WHERE page_id = ${pageId} AND anchor = 'footer'
     `)
-    await rescanFlaggedChunks(() => {})
+    await rescanFlaggedChunks(() => {}, 1)
     assert.deepEqual((await rows()).find((x) => x.anchor === 'footer')?.suspicious, ['permission-change'])
   })
 })

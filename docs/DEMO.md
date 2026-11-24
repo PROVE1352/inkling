@@ -252,6 +252,7 @@ One line each; the full reference is in the operations docs.
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
 | `INSTANCE_LABEL` | `Demo` | The label every screen shows; empty = no label |
 | `INSTANCE_NOTICE` | empty | A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters) |
+| `INSTANCE_CONTACT` | empty | A "Contact" link to the operator under the sign-in screens, in the sidebar and in Settings › About (an email address or an `https://` URL) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | Backup sets kept |
 | `SIGNUP_PER_HOUR` | `10` | Accounts the whole server makes in one hour (the setup link's account does not count) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | Self-registered OAuth clients that were never used are deleted this many hours after registering |

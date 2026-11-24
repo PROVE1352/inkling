@@ -723,6 +723,7 @@ null이거나 고정 기본값)입니다. 0.21 데이터베이스는 적용된 �
 | `INSTANCE_LABEL` | 20자 이하, 제어 문자 없음 | 없음 | 모든 화면에 늘 보이는 표시. 예: `Demo` | — |
 | `LIMIT_TRASH_DAYS` | 정수 ≥ 7 | 없음 | 페이지 휴지통 보관 일수의 상한. 페이지는 min(워크스페이스의 "휴지통 보관 기간", 이 값)일 동안 휴지통에 남고, MCP `list_trash`도 같은 날짜를 알려 줍니다. 워크스페이스에 저장된 값은 고쳐 쓰지 않습니다. 워크스페이스 설정은 이 상한을 보여 주고 더 큰 값을 받지 않습니다 | 워크스페이스가 더 긴 기간을 고르면 400 `LIMIT_TRASH_DAYS` |
 | `INSTANCE_NOTICE` | 500자 이하의 일반 글자(HTML 아님), 줄바꿈 가능 | 없음 | 로그인·가입·동의·운영자 대기 화면의 제목 아래와 모든 앱 화면 위의 띠에 늘 보이는 운영자 공지. 아무도 닫을 수 없고, 링크 없이 글자로만 보입니다. 메일을 보내지 않는 서버에서 변경, 중단, 사고를 알리는 수단입니다 | — |
+| `INSTANCE_CONTACT` | 메일 주소(`you@example.org`나 `mailto:you@example.org`) 또는 `https://` URL. 300자 이하, 공백 없음 | 없음 | 로그인·가입·동의 화면 아래, 사이드바 맨 아래, 설정 › 정보에서 약관 링크 뒤에 붙는 "문의하기" 링크. 주소는 메일 앱을 열고(`mailto:`), URL은 새 탭에서 열립니다. `LEGAL_DIR`이 없어도 보입니다 | — |
 | `SIGNUP_PER_HOUR` | 정수 ≥ 1 | 없음 | 서버 전체가 한 시간에 만드는 계정 수. 가입 트랜잭션 안에서 잠금 하나를 잡고 다시 셉니다. 설정 코드로 하는 가입은 세지도 거절하지도 않습니다 | 429 `SIGNUP_RATE_LIMIT` |
 | `OAUTH_UNUSED_CLIENT_HOURS` | 정수 ≥ 1 | 없음 | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을, 등록하고 이만큼 시간이 지나면 매시간 정리 작업이 지웁니다(아래) | — |
 | `OAUTH_UNUSED_CLIENT_MAX` | 정수 ≥ 1 | 없음 | 한 번도 쓰이지 않은 자체 등록 OAuth 클라이언트를 남겨 두는 최대 수. 새 등록이 가장 오래된 것부터 지우고, 15분이 안 된 것은 지우지 않습니다(아래) | 그보다 새 것만 남았으면 `/oauth/register`에서 503 `temporarily_unavailable` |
@@ -747,7 +748,9 @@ null이거나 고정 기본값)입니다. 0.21 데이터베이스는 적용된 �
 - 값을 적힌 대로 읽을 수 없을 때. 정수가 필요한 자리에 정수가 아닌 값, 1보다 작은 값, 지수로 쓴 소수, 25보다 큰
   `LIMIT_FILE_MB`, 50보다 큰 `LIMIT_VERSIONS_PER_PAGE`, `1`이나 `0`이 아닌 `ACCOUNT_LIFETIME_DRY_RUN`, `email`이나
   `username`이 아닌 `LOGIN_ID_MODE`, `DISABLED_FEATURES`의 모르는 이름, 20자가 넘거나 제어 문자가 든
-  `INSTANCE_LABEL`, 7보다 작은 `LIMIT_TRASH_DAYS`, 500자가 넘거나 줄바꿈 말고 다른 제어 문자가 든 `INSTANCE_NOTICE`.
+  `INSTANCE_LABEL`, 7보다 작은 `LIMIT_TRASH_DAYS`, 500자가 넘거나 줄바꿈 말고 다른 제어 문자가 든 `INSTANCE_NOTICE`,
+  메일 주소도 `https://` URL도 아니거나(`http:`, `javascript:` 같은 다른 스킴 포함) 공백·제어 문자가 들었거나 300자가
+  넘는 `INSTANCE_CONTACT`.
 - `LOGIN_ID_MODE=username`이 `DELEGATED_AUTH_URL`, OpenID Connect, SMTP 메일과 함께 켜져 있거나,
   `DISABLED_FEATURES`에 `password-reset`이 없을 때(아이디는 메일을 받을 수 있는 주소가 아닙니다).
 - `LEGAL_DIR`이 읽을 수 있는 폴더가 아니거나, `signup.json`이 없거나, 안의 파일 형식이 틀렸을 때(아래).

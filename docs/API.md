@@ -1837,6 +1837,8 @@ deletion, leaving a workspace alone and "delete now" exist on every server.
   MB as set)
   and `workspaceRestoreDays` (only when it is not 30).
 - `GET /api/auth/mode` adds `instanceNotice: string` while `INSTANCE_NOTICE` is set (plain text, line breaks as `\n`).
+- `GET /api/auth/mode` adds `instanceContact: string` while `INSTANCE_CONTACT` is set: the href of the "Contact"
+  link, `mailto:<address>` or the `https://` URL as set.
 - `UserDTO` from `GET /api/auth/me` adds `expiresAt` (ISO, the account's deletion date under
   `ACCOUNT_LIFETIME_DAYS`) and `consentRequired: true` (no consent to the current documents). The login, second-step
   and sign-up answers keep their short `user`; the web app reads these from `/auth/me`.

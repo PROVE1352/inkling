@@ -1701,6 +1701,8 @@ Slack에서 오는 요청(세션 없음. 본문을 v0 서명, 5분 타임스탬�
   'privacy')[] }`(`LEGAL_DIR`), `limits: { workspacesPerUser?, membersPerWorkspace?, pagesPerWorkspace?, fileMb?,
   workspaceStorageMb?, trashDays? }`(설정된 한도만, MB는 설정한 값 그대로), `workspaceRestoreDays`(30이 아닐 때만)입니다.
 - `GET /api/auth/mode`는 `INSTANCE_NOTICE`가 있으면 `instanceNotice: string`을 더합니다(일반 글자, 줄바꿈은 `\n`).
+- `GET /api/auth/mode`는 `INSTANCE_CONTACT`가 있으면 `instanceContact: string`을 더합니다. "문의하기" 링크의 href로,
+  `mailto:<주소>`이거나 설정한 `https://` URL 그대로입니다.
 - `GET /api/auth/me`의 `UserDTO`는 `expiresAt`(ISO, `ACCOUNT_LIFETIME_DAYS`에 따른 계정 삭제일)과
   `consentRequired: true`(현재 문서에 동의하지 않음)를 더합니다. 로그인, 2단계, 가입 응답의 `user`는 지금처럼 짧게
   두고, 웹 앱은 이 필드를 `/auth/me`에서 읽습니다.

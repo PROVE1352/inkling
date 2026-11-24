@@ -1037,6 +1037,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2551](2551-memory-of-a-large-markdown-replace.md) | Memory of a large Markdown replace: what holds it, what was cut, what is left | Accepted |
 | [2552](2552-awareness-ids-count-against-the-connection-that-brought-them-in.md) | Awareness ids count against the connection that brought them in (corrects 2541) | Accepted |
 | [2553](2553-one-line-agreement-when-signup-has-no-items.md) | One-line agreement under the sign-up button when signup.json has no items | Accepted (amends 2519) |
+| [2554](2554-operator-contact-link.md) | A "Contact" link to the operator (INSTANCE_CONTACT) | Accepted |
 
 ## 099x Client updates
 

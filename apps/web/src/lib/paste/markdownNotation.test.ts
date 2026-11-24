@@ -28,6 +28,9 @@ describe('paste: which dollars are math (server rule)', () => {
     '\\$x\\$',
     '인라인 코드 `$x$` 입니다',
     '[링크](https://example.com/$a$)',
+    // bare URLs are masked on paste (the server's import does not mask them)
+    'https://api.example.com/x?$filter=a&$select=b',
+    '주소는 www.example.com/$a$b 입니다',
   ]
   for (const md of literal) {
     it(`stays text: ${md}`, () => {
@@ -115,18 +118,18 @@ describe('paste: math nodes', () => {
   })
 
   it('a sentinel anywhere else (autolink href, image props) comes back as its source', () => {
-    const md = 'https://api.example.com/x?$filter=a&$select=b\n\n![그림 $x$](https://e.x/i.png)'
+    const md = 'a $u$ b\n\n![그림 $x$](https://e.x/i.png)'
     const prep = prepareMarkdownPaste(md)
     const [k1, k2] = prep.markdown.match(/Iq[a-z]{12}I\d+Q/g)
     const nonce = k1.slice(0, 14)
-    const href = `https://api.example.com/x?${k1}select=b`
+    const href = `https://e.x/?q=${k1}`
     const out = prep.restore([
       { id: 'a', type: 'paragraph', content: [{ type: 'link', href, content: [{ type: 'text', text: href, styles: {} }] }], children: [] },
       { id: 'i', type: 'image', props: { url: 'https://e.x/i.png', caption: '', name: `그림 ${k2}` }, children: [] },
     ])
     assert.ok(!JSON.stringify(out).includes(nonce))
-    assert.equal(out[0].content[0].href, 'https://api.example.com/x?$filter=a&$select=b')
-    assert.equal(out[0].content[0].content[0].text, 'https://api.example.com/x?$filter=a&$select=b')
+    assert.equal(out[0].content[0].href, 'https://e.x/?q=$u$')
+    assert.equal(out[0].content[0].content[0].text, 'https://e.x/?q=$u$')
     assert.equal(out[1].props.name, '그림 $x$')
   })
 

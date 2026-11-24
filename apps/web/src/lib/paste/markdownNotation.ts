@@ -39,10 +39,14 @@ function randomLetters(n: number): string {
   return s
 }
 
-/** Masks code spans, link destinations and autolinks so `$` inside them is never math (as md/math.ts). */
+/**
+ * Masks code spans, link destinations and autolinks so `$` inside them is never math (as md/math.ts),
+ * and, unlike the server, bare URLs: BlockNote's parser links them (GFM autolink literals), and a span
+ * cut out of `https://…?$filter=a&$select=b` would leave a broken link around an equation.
+ */
 function maskedSegments(line: string): { text: string; from: number }[] {
   const out: { text: string; from: number }[] = []
-  const skip = /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|<[a-z][a-z0-9+.-]*:[^>\s]*>/gi
+  const skip = /(`+)[\s\S]*?\1|\]\([^)\s]*(?:\s+"[^"]*")?\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b(?:https?:\/\/|www\.)[^\s<>]+/gi
   let last = 0
   for (let m = skip.exec(line); m; m = skip.exec(line)) {
     if (m.index > last) out.push({ text: line.slice(last, m.index), from: last })

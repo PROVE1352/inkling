@@ -82,8 +82,8 @@ importers:
         specifier: ^3.10.2
         version: 3.10.2
       nodemailer:
-        specifier: 10.5.0
-        version: 10.5.0
+        specifier: 10.6.1
+        version: 10.6.1
       postgres:
         specifier: ^3.4.0
         version: 3.4.9
@@ -4230,8 +4230,8 @@ packages:
     resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}
     engines: {node: '>=18'}
 
-  nodemailer@10.5.0:
-    resolution: {integrity: sha512-L/w/HH5MqpzMDuZD7fQdt/+KqymuvrpaApaIjAH2XA3ILePwlcvXCVVvP75xVrXCEt2ggK2marrrHHFB5Qu0kA==}
+  nodemailer@10.6.1:
+    resolution: {integrity: sha512-d7kfFfS/tR4Aca+SBvRaQ+MXKNv7d2JiRe5TxaRcFT/kYMh4GGPnW9aKksTIEvyEbA7d/7HYWE4YPDEHxzJj/g==}
     engines: {node: '>=20.0.0'}
 
   normalize-path@3.0.0:
@@ -9516,7 +9516,7 @@ snapshots:
 
   node-releases@2.0.51: {}
 
-  nodemailer@10.5.0: {}
+  nodemailer@10.6.1: {}
 
   normalize-path@3.0.0: {}
 

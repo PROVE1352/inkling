@@ -101,6 +101,11 @@ deploy/demo/demo.sh up
 
 틀은 이 문서의 설정으로 앱이 하는 일을 적었습니다. 설정을 바꾸면 그 설정에 관한 문장(가입 14일 뒤 삭제, 휴지통 7일, 한도, 꺼 둔 기능)을 확인합니다.
 
+<a id="without-tick-boxes-one-line"></a>
+### 체크박스 없이 한 줄로
+
+`signup.json`에 `"items": []`를 넣고 `terms.*.md`, `privacy.*.md`를 폴더에 두면 가입 화면에 체크박스가 없어집니다. 대신 가입 버튼의 글자가 "계속하기"가 되고, 그 아래에 "계속하면 이용약관과 개인정보 처리방침에 동의하는 것입니다."라는 한 줄이 나오고, 문서 이름을 누르면 그 문서가 열립니다. 폴더에 있는 문서만 나옵니다. 이 방식에서는 `user_consents`에 동의 기록이 남지 않고, 문서가 바뀌어도 다시 묻지 않습니다. 어느 방식이 맞는지는 운영자가 자기 나라 법에 맞춰 정합니다. 이 문서는 법률 자문이 아닙니다(이 문서 끝 참고).
+
 <a id="3-proxy"></a>
 ## 3. 프록시
 
@@ -152,7 +157,7 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `SIGNUP_REQUIRE_KEY` | `0` | 가입 키 없이 누구나 가입 |
 | `SIGNUP_MAX_USERS` | `50` | 서버 전체 계정 수 상한(관리자 포함) |
 | `SIGNUP_PER_IP_PER_DAY` | `2` | 한 주소에서 24시간 동안 할 수 있는 가입 수 |
-| `ACCOUNT_LIFETIME_DAYS` | `14` | 지금부터 가입하는 계정은 가입 후 이 일수가 지나면 삭제 |
+| `ACCOUNT_LIFETIME_DAYS` | `14` | 지금부터 가입하는 계정은 가입 후 이 일수가 지나면 삭제. 비우면 자동 삭제 없음 |
 | `ACCOUNT_LIFETIME_DRY_RUN` | 비움 | `1`이면 지울 대상을 로그로만 남기고 지우지 않음 |
 | `LIMIT_WORKSPACES_PER_USER` | `2` | 한 사람이 소유한 워크스페이스 수(삭제했지만 복구할 수 있는 것 포함) |
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | 워크스페이스 하나의 멤버 수 |
@@ -168,8 +173,9 @@ deploy/demo/demo.sh logs app | grep -A2 'No accounts yet'
 | `APP_MEM_LIMIT`, `NODE_OPTIONS` | `768m`, `--max-old-space-size=448` | 앱 컨테이너의 메모리와 그 안에서 서버가 쓰는 힙(아래 "메모리") |
 | `DISABLED_FEATURES` | `demo.env.example` 참고 | 서버 전체에서 끄는 기능 |
 | `LEGAL_DIR` | `/legal` | 컨테이너 안의 약관 폴더(호스트에서는 `DEMO_LEGAL_DIR`) |
-| `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시 |
+| `INSTANCE_LABEL` | `Demo` | 모든 화면에 보이는 표시. 비우면 표시 없음 |
 | `INSTANCE_NOTICE` | 비움 | 로그인·가입·동의 화면과 모든 앱 화면 위에 보이는 공지(글자만, 500자까지) |
+| `INSTANCE_CONTACT` | 비움 | 로그인 화면 아래, 사이드바, 설정 › 정보에 보이는 "문의하기" 링크(메일 주소나 `https://` URL) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | 남기는 백업 세트 수 |
 | `SIGNUP_PER_HOUR` | `10` | 서버 전체에서 한 시간에 만들 수 있는 계정 수(설정 링크로 만든 계정은 세지 않음) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | 스스로 등록한 OAuth 클라이언트 가운데 한 번도 쓰이지 않은 것을 등록 후 이 시간이 지나면 삭제 |

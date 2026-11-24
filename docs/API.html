@@ -1373,6 +1373,8 @@ exporting and deleting work), <code>signupChecks: true</code> (<code>SIGNUP_MAX_
 MB as set)
 and <code>workspaceRestoreDays</code> (only when it is not 30).</li>
 <li><code>GET /api/auth/mode</code> adds <code>instanceNotice: string</code> while <code>INSTANCE_NOTICE</code> is set (plain text, line breaks as <code>\n</code>).</li>
+<li><code>GET /api/auth/mode</code> adds <code>instanceContact: string</code> while <code>INSTANCE_CONTACT</code> is set: the href of the &quot;Contact&quot;
+link, <code>mailto:&lt;address&gt;</code> or the <code>https://</code> URL as set.</li>
 <li><code>UserDTO</code> from <code>GET /api/auth/me</code> adds <code>expiresAt</code> (ISO, the account&#39;s deletion date under
 <code>ACCOUNT_LIFETIME_DAYS</code>) and <code>consentRequired: true</code> (no consent to the current documents). The login, second-step
 and sign-up answers keep their short <code>user</code>; the web app reads these from <code>/auth/me</code>.</li>
@@ -1598,7 +1600,7 @@ page had more than 2,000 blocks before (docs/adr/2551-*).</li>
 </div>
 <footer class="foot">
   <div class="wrap wide">
-    <span>Inkling v0.22.1</span>
+    <span>Inkling v0.22.3</span>
     <nav aria-label="Footer">
       <a href="https://github.com/PROVE1352/inkling">GitHub</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">Changelog</a>

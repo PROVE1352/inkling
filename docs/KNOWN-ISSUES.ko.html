@@ -995,13 +995,19 @@
 <li class="issue" data-sev="low"><strong class="sev">Low</strong> <span class="issue-id">(LIMITS-67, docs/adr/2552-*)</span> 페이지 하나는 살아 있는 awareness id를 1,024개까지만 둡니다. 그 페이지에 접근할 수 있는 사람이 연결을 약 256개 열면 이것을 채울 수 있고, 그러면 새로 온 사람의 소켓은 자기 id를 들여오는 순간 끊깁니다. 다른 연결들이 나가면 풀립니다.</li>
 <li class="issue" data-sev="info"><strong class="sev">Info</strong> <span class="issue-id">(LIMITS-68, docs/adr/2546-*)</span> 데모 프리셋은 디스크 I/O를 제한하지 않습니다. Docker의 컨테이너 로그(컨테이너당 30 MB까지)와 백업 컨테이너의 빈 익명 볼륨은 데모의 파일시스템이 아니라 Docker의 디스크에 있습니다.</li>
 </ul>
+<p><a id="added-in-0222"></a></p>
+<h2 id="0222에서-추가">0.22.2에서 추가</h2>
+<p>에이전트(MCP)</p>
+<ul>
+<li class="issue" data-sev="low"><strong class="sev">Low</strong> <span class="issue-id">(MCP-REPL-2, docs/adr/1947-*)</span> <code>baseVersion</code> 없이 update_page replace를 부르면 &quot;마지막 편집자가 사람인지&quot;를 그 페이지의 가장 최근 <code>page_changes</code> 행으로 정합니다. 이 행은 쓰기가 commit된 뒤 변경 기록 소비자가 넣습니다(commit 때 바로 시작하고, 늦어도 1 s 폴링 때). changes_since와 달리 이 검사는 소비자를 기다리지 않습니다. 그래서 소비자가 밀려 있는 동안에는 (1) 사람이 전에 고친 페이지에서 에이전트가 자기 변경(예: 이름 변경) 바로 뒤에 부른 replace가 &quot;사람이 마지막으로 고친 페이지&quot;로 거절될 수 있습니다. 다시 부르거나 <code>baseVersion</code>을 넘기면 됩니다. (2) 방금 저장된 사람의 편집이 아직 잡히지 않아 <code>baseVersion</code> 없는 replace가 통과할 수 있습니다. 편집기에서 친 글은 여기에 색인 디바운스(≤ 30 s, MCP-REPL-1)가 더해집니다. <code>baseVersion</code>을 넘기면 두 경우 모두 해당하지 않습니다.</li>
+</ul>
 <p class="doc-meta"><a href="KNOWN-ISSUES.ko.md" type="text/markdown">Markdown 원문</a><a href="https://github.com/PROVE1352/inkling/blob/main/docs/KNOWN-ISSUES.ko.md">GitHub에서 보기</a><a href="index.ko.html">전체 문서</a></p>
   </main>
-  <nav class="docs-toc" aria-label="이 문서의 목차" data-toc><h2>목차</h2><ul><li><a href="#보안">보안</a></li><li><a href="#동시성">동시성</a></li><li><a href="#운영">운영</a></li><li><a href="#성능">성능</a></li><li><a href="#편집기">편집기</a></li><li><a href="#현지화-i18n-작업-docsadr0900-0904">현지화 (i18n 작업, docs/adr/0900-0904)</a></li><li><a href="#060에서-추가">0.6.0에서 추가</a></li><li><a href="#070에서-추가">0.7.0에서 추가</a></li><li><a href="#080에서-추가">0.8.0에서 추가</a></li><li><a href="#090에서-추가">0.9.0에서 추가</a></li><li><a href="#0100에서-추가">0.10.0에서 추가</a></li><li><a href="#0110에서-추가">0.11.0에서 추가</a></li><li><a href="#0120에서-추가">0.12.0에서 추가</a></li><li><a href="#0130에서-추가">0.13.0에서 추가</a></li><li><a href="#0140에서-추가">0.14.0에서 추가</a></li><li><a href="#0150에서-추가">0.15.0에서 추가</a></li><li><a href="#0151에서-추가">0.15.1에서 추가</a></li><li><a href="#0160에서-추가">0.16.0에서 추가</a></li><li><a href="#0170에서-추가">0.17.0에서 추가</a></li><li><a href="#0180에서-추가">0.18.0에서 추가</a></li><li><a href="#0190에서-추가">0.19.0에서 추가</a></li><li><a href="#0200에서-추가">0.20.0에서 추가</a></li><li><a href="#0210에서-추가">0.21.0에서 추가</a></li><li><a href="#0220에서-추가">0.22.0에서 추가</a></li><li><a href="#0221에서-추가">0.22.1에서 추가</a></li></ul></nav>
+  <nav class="docs-toc" aria-label="이 문서의 목차" data-toc><h2>목차</h2><ul><li><a href="#보안">보안</a></li><li><a href="#동시성">동시성</a></li><li><a href="#운영">운영</a></li><li><a href="#성능">성능</a></li><li><a href="#편집기">편집기</a></li><li><a href="#현지화-i18n-작업-docsadr0900-0904">현지화 (i18n 작업, docs/adr/0900-0904)</a></li><li><a href="#060에서-추가">0.6.0에서 추가</a></li><li><a href="#070에서-추가">0.7.0에서 추가</a></li><li><a href="#080에서-추가">0.8.0에서 추가</a></li><li><a href="#090에서-추가">0.9.0에서 추가</a></li><li><a href="#0100에서-추가">0.10.0에서 추가</a></li><li><a href="#0110에서-추가">0.11.0에서 추가</a></li><li><a href="#0120에서-추가">0.12.0에서 추가</a></li><li><a href="#0130에서-추가">0.13.0에서 추가</a></li><li><a href="#0140에서-추가">0.14.0에서 추가</a></li><li><a href="#0150에서-추가">0.15.0에서 추가</a></li><li><a href="#0151에서-추가">0.15.1에서 추가</a></li><li><a href="#0160에서-추가">0.16.0에서 추가</a></li><li><a href="#0170에서-추가">0.17.0에서 추가</a></li><li><a href="#0180에서-추가">0.18.0에서 추가</a></li><li><a href="#0190에서-추가">0.19.0에서 추가</a></li><li><a href="#0200에서-추가">0.20.0에서 추가</a></li><li><a href="#0210에서-추가">0.21.0에서 추가</a></li><li><a href="#0220에서-추가">0.22.0에서 추가</a></li><li><a href="#0221에서-추가">0.22.1에서 추가</a></li><li><a href="#0222에서-추가">0.22.2에서 추가</a></li></ul></nav>
 </div>
 <footer class="foot">
   <div class="wrap wide">
-    <span>Inkling v0.22.1</span>
+    <span>Inkling v0.22.3</span>
     <nav aria-label="바닥글">
       <a href="https://github.com/PROVE1352/inkling">GitHub</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>

@@ -163,6 +163,15 @@ them is shown as text, and links work only for `http`, `https` and `mailto`.
 The templates describe what the app does with the settings of this page. If you change a setting, check
 the sentences about it (deletion after 14 days, trash 7 days, limits, features turned off).
 
+### Without tick boxes: one line
+
+Put `"items": []` in `signup.json` and keep `terms.*.md` and `privacy.*.md` in the folder. The sign-up form
+then has no tick boxes; the button says "Continue" and under it a line says "By continuing, you agree to the
+Terms of Service and the Privacy Policy.", each name a link to the document (only the documents the folder has). No
+consent is recorded in `user_consents` in this case, and nobody is asked again when a document changes.
+Which of the two ways fits your service is for you to decide under the law of your country; this page is
+not legal advice (see the end of this page).
+
 ## 3. Proxy
 
 Put HTTPS for the address in `PUBLIC_URL` in front of `127.0.0.1:3100`. With an https address the session
@@ -225,7 +234,7 @@ One line each; the full reference is in the operations docs.
 | `SIGNUP_REQUIRE_KEY` | `0` | Anyone can sign up without a key |
 | `SIGNUP_MAX_USERS` | `50` | Most accounts on the server, administrators included |
 | `SIGNUP_PER_IP_PER_DAY` | `2` | Sign-ups from one address in 24 hours |
-| `ACCOUNT_LIFETIME_DAYS` | `14` | Accounts made from now on are deleted this many days after sign-up |
+| `ACCOUNT_LIFETIME_DAYS` | `14` | Accounts made from now on are deleted this many days after sign-up. Empty: no account is deleted on a schedule |
 | `ACCOUNT_LIFETIME_DRY_RUN` | empty | `1` logs what would be deleted and deletes nothing |
 | `LIMIT_WORKSPACES_PER_USER` | `2` | Workspaces one person owns, deleted ones still restorable included |
 | `LIMIT_MEMBERS_PER_WORKSPACE` | `4` | Members of one workspace |
@@ -241,8 +250,9 @@ One line each; the full reference is in the operations docs.
 | `APP_MEM_LIMIT`, `NODE_OPTIONS` | `768m`, `--max-old-space-size=448` | The app container's memory and the server's heap inside it ("Memory" below) |
 | `DISABLED_FEATURES` | see `demo.env.example` | Features turned off on the whole server |
 | `LEGAL_DIR` | `/legal` | The terms folder inside the container (`DEMO_LEGAL_DIR` on the host) |
-| `INSTANCE_LABEL` | `Demo` | The label every screen shows |
+| `INSTANCE_LABEL` | `Demo` | The label every screen shows; empty = no label |
 | `INSTANCE_NOTICE` | empty | A notice on the sign-in, sign-up and consent screens and above every app screen (plain text, at most 500 characters) |
+| `INSTANCE_CONTACT` | empty | A "Contact" link to the operator under the sign-in screens, in the sidebar and in Settings › About (an email address or an `https://` URL) |
 | `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`, `BACKUP_KEEP_MONTHLY` | `7`, `0`, `0` | Backup sets kept |
 | `SIGNUP_PER_HOUR` | `10` | Accounts the whole server makes in one hour (the setup link's account does not count) |
 | `OAUTH_UNUSED_CLIENT_HOURS` | `24` | Self-registered OAuth clients that were never used are deleted this many hours after registering |

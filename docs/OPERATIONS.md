@@ -1004,6 +1004,7 @@ the number of people, and a demo server that strangers can sign up to. Setting u
 | `INSTANCE_LABEL` | up to 20 characters, no control characters | none | A label every screen shows, for example `Demo` | — |
 | `LIMIT_TRASH_DAYS` | whole number ≥ 7 | none | Upper bound of page trash retention: pages stay in the trash min(the workspace's "Keep trash for", this value) days, and MCP `list_trash` gives the same date. The stored workspace value is not rewritten; Workspace settings show the bound and do not take a larger value | 400 `LIMIT_TRASH_DAYS` when a workspace asks for more |
 | `INSTANCE_NOTICE` | up to 500 characters of plain text (not HTML); line breaks allowed | none | An operator notice under the title of the sign-in, sign-up, consent and setup-waiting screens and as a strip above every app screen, which nobody can close. Shown as text, without links. For servers that send no mail: changes, interruptions, incidents | — |
+| `INSTANCE_CONTACT` | an email address (`you@example.org` or `mailto:you@example.org`) or an `https://` URL; at most 300 characters, no spaces | none | A "Contact" link to the operator after the terms links under the sign-in, sign-up and consent screens, at the foot of the sidebar and in Settings › About. An address opens the mail app (`mailto:`), a URL opens in a new tab. Shown even without `LEGAL_DIR` | — |
 | `SIGNUP_PER_HOUR` | whole number ≥ 1 | none | Accounts the whole server makes in one hour, counted again under one lock inside the sign-up transaction. The setup-code sign-up does not count and is not refused | 429 `SIGNUP_RATE_LIMIT` |
 | `OAUTH_UNUSED_CLIENT_HOURS` | whole number ≥ 1 | none | Self-registered OAuth clients that were never used are deleted by the hourly housekeeping this many hours after registering (below) | — |
 | `OAUTH_UNUSED_CLIENT_MAX` | whole number ≥ 1 | none | Most never-used self-registered OAuth clients kept: a new registration first deletes the oldest, never one younger than 15 minutes (below) | 503 `temporarily_unavailable` on `/oauth/register` when only younger ones are left |
@@ -1029,7 +1030,9 @@ The log names the variable and the reason. The server does not start when:
   exponent, `LIMIT_FILE_MB` above 25, `LIMIT_VERSIONS_PER_PAGE` above 50, `ACCOUNT_LIFETIME_DRY_RUN` other than `1`
   or `0`, `LOGIN_ID_MODE` other than `email` or `username`, an unknown name in `DISABLED_FEATURES`, an
   `INSTANCE_LABEL` over 20 characters or with a control character, `LIMIT_TRASH_DAYS` below 7, an
-  `INSTANCE_NOTICE` over 500 characters or with a control character other than a line break;
+  `INSTANCE_NOTICE` over 500 characters or with a control character other than a line break, an `INSTANCE_CONTACT`
+  that is neither an email address nor an `https://` URL (`http:`, `javascript:` and other schemes included), has a
+  space or control character, or is over 300 characters;
 - `LOGIN_ID_MODE=username` is set together with `DELEGATED_AUTH_URL`, OpenID Connect or SMTP mail, or without
   `password-reset` in `DISABLED_FEATURES` (an ID is not an address that mail can reach);
 - `LEGAL_DIR` is not a readable folder, has no `signup.json`, or a file in it is malformed (below).

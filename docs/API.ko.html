@@ -1259,6 +1259,8 @@ Hocuspocus <code>PermissionDenied</code> 메시지를 이유 <code>permission-ch
 <code>SIGNUP_PER_IP_PER_DAY</code>, <code>SIGNUP_PER_HOUR</code> 가운데 하나가 있어서 가입 양식이 봇 검사 필드를 보냄),
 <code>instanceLabel</code>, <code>accountLifetimeDays</code>, <code>disabledFeatures: string[]</code>(정렬), <code>legal: { version, docs: (&#39;terms&#39; | &#39;privacy&#39;)[] }</code>(<code>LEGAL_DIR</code>), <code>limits: { workspacesPerUser?, membersPerWorkspace?, pagesPerWorkspace?, fileMb?, workspaceStorageMb?, trashDays? }</code>(설정된 한도만, MB는 설정한 값 그대로), <code>workspaceRestoreDays</code>(30이 아닐 때만)입니다.</li>
 <li><code>GET /api/auth/mode</code>는 <code>INSTANCE_NOTICE</code>가 있으면 <code>instanceNotice: string</code>을 더합니다(일반 글자, 줄바꿈은 <code>\n</code>).</li>
+<li><code>GET /api/auth/mode</code>는 <code>INSTANCE_CONTACT</code>가 있으면 <code>instanceContact: string</code>을 더합니다. &quot;문의하기&quot; 링크의 href로,
+<code>mailto:&lt;주소&gt;</code>이거나 설정한 <code>https://</code> URL 그대로입니다.</li>
 <li><code>GET /api/auth/me</code>의 <code>UserDTO</code>는 <code>expiresAt</code>(ISO, <code>ACCOUNT_LIFETIME_DAYS</code>에 따른 계정 삭제일)과
 <code>consentRequired: true</code>(현재 문서에 동의하지 않음)를 더합니다. 로그인, 2단계, 가입 응답의 <code>user</code>는 지금처럼 짧게
 두고, 웹 앱은 이 필드를 <code>/auth/me</code>에서 읽습니다.</li>
@@ -1474,7 +1476,7 @@ REST, <code>/mcp</code> 엔드포인트 자체(JSON-RPC 응답 전에 오류 본
 </div>
 <footer class="foot">
   <div class="wrap wide">
-    <span>Inkling v0.22.1</span>
+    <span>Inkling v0.22.3</span>
     <nav aria-label="바닥글">
       <a href="https://github.com/PROVE1352/inkling">GitHub</a>
       <a href="https://github.com/PROVE1352/inkling/blob/main/CHANGELOG.md">변경 기록</a>

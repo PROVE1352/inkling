@@ -1109,7 +1109,7 @@ Hocuspocus `PermissionDenied` 메시지를 이유 `permission-changed`와 함께
 | 메서드 | 경로 | 요청 | 응답 |
 |---|---|---|---|
 | GET | `/api/pages/:id/suggestions` | `preview=1`, `status?`, `all=1` | 0.12와 같습니다. `status` = `open`(기본) \| `decided`(accepted, accepted_partial, rejected) \| `all` \| 상태 하나. `all=1`은 여전히 웹 기록(superseded를 뺀 전부)입니다. `preview=1`이면 열린 `replace` 제안의 `preview`에 `merge: { baseKnown, key, hunks: [{ id, conflict, same, before, after, ours, context }] }`가 붙습니다(섹션이 없어졌거나 너무 커서 나눌 수 없으면 없음) |
-| GET | `/api/suggestions` | `status?` | `{ suggestions }`: 호출한 사람이 낸 것, 같은 필터, 기본 `open`, 최신 50개 |
+| GET | `/api/suggestions` | `status?` | `{ suggestions }`: 호출한 사람이 낸 것, 같은 필터, 기본 `open`, 최신 50개. 0.23부터 샘플 페이지에 미리 넣는 예시 제안(`connection = 'example'`, docs/adr/2388-*)은 빠집니다. 그 페이지의 목록에는 그대로 나옵니다 |
 | POST | `/api/suggestions/:id/accept` | `{ confirmChanged?, hunks?: number[], mergeKey?: string }` | `{ suggestion }`. `hunks`(`preview.merge`의 id들, 그 `key`를 `mergeKey`로 줌)를 주면 그 변경 조각만 적용합니다. 서버가 병합을 다시 계산해 병합된 섹션을 씁니다. `mergeKey`가 낡았으면 → 409 `SUGGESTION_CHANGED`, `error.preview`와 함께. `status`는 `accepted` 또는 `accepted_partial`(`partial: { applied, total }`)입니다. `hunks`가 없으면 0.12와 같습니다 |
 | POST | `/api/suggestions/:id/withdraw` | | `{ suggestion }`. 이미 열린 상태가 아닌 제안은 상태마다 다른 409를 답합니다(아래) |
 

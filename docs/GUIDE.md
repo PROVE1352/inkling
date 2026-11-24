@@ -61,6 +61,8 @@ The **Getting started** card on the empty workspace screen (and folded at the bo
 lists a few first steps. They tick themselves as you do them, on every device. Press an item to go
 where it is done; a short bubble points at the button. **Make a sample page to try things on** creates a page in
 your private pages (only you see it); delete it when you are done, it does not come back.
+A new sample page comes with two suggested edits from an "Example agent", written in advance (no AI is involved),
+so you can try reviewing a suggestion before you connect an agent: press ✎ next to "4. Diagrams" or "5. AI agents".
 **Don't show again** hides the card. Opened in the sidebar, the card takes only the room the menus and the
 page tree leave and scrolls inside when its list is longer; when even that room is too small (a short window
 with **More** open), it stays folded until there is room.
@@ -821,6 +823,9 @@ that text with the agent's version. Everything else people wrote stays.
 
 When an agent is working on a section, the heading shows "Claude is working on this section". You can keep editing;
 other agents wait until it is done.
+
+The two suggestions "via Example agent" on a new sample page are examples that came with it. Reviewing them works the
+same, but nobody is notified when they are made or decided, and they are not listed among your own suggestions.
 
 ### How agents edit
 

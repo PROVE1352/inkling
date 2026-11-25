@@ -33,7 +33,7 @@ lists both.
 
 - **New account:** you need a signup key from the person who runs the server. Open the sign-in page, choose
   **Sign up with a signup key**, paste the key, and fill in your name, email and password (8+ characters).
-- **Try without an account.** Some servers show **Try without an account** under the sign-in form. One click opens a
+- **Try without an account.** Some servers show **Try without an account** above the sign-in form. One click opens a
   workspace of your own with the sample page, under a name like "Trial 4F2A". The sidebar shows "Trial account ·
   deleted in N h"; open it to see what a trial account cannot do (publishing to the web, inviting people, joining
   workspaces, webhooks, Slack, a second workspace). There is no password: you cannot come back from another browser,

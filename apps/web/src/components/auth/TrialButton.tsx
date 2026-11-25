@@ -16,11 +16,12 @@ interface TrialResult {
 }
 
 /**
- * "Try without an account" under the sign-in and sign-up forms (TRIAL_ACCOUNTS, docs/adr/2555-*).
- * Nothing while the server has trials off, or hides the button (no admin yet, sign-up tick boxes); a
- * line instead of it while every trial seat is taken. A click before the screen has been up 2 s waits
- * for the rest before sending (the server's bot check), then lands on the sample page. With documents
- * but no tick boxes, the one-line agreement goes under it and the version shown is sent.
+ * "Try without an account" above the sign-in and sign-up forms (TRIAL_ACCOUNTS, docs/adr/2555-*), so a
+ * visitor sees it before a form to fill in. Nothing while the server has trials off, hides the button
+ * (no admin yet, sign-up tick boxes) or has every trial seat taken (`TrialFullLine` says that under the
+ * form). A click before the screen has been up 2 s waits for the rest before sending (the server's bot
+ * check), then lands on the sample page. With documents but no tick boxes, the one-line agreement goes
+ * right under the button on both screens (pressing it agrees) and the version shown is sent.
  */
 export function TrialButton({ placement }: { placement: 'login' | 'register' }) {
   const t = useT()
@@ -31,15 +32,7 @@ export function TrialButton({ placement }: { placement: 'login' | 'register' }) 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const trial = mode.data?.trial
-  if (!trial) return null
-  if (!trial.available) {
-    if (trial.reason !== 'full') return null
-    return (
-      <p className="mt-4 break-keep text-center text-xs text-sub" data-testid="trial-full">
-        {t('trial.full')}
-      </p>
-    )
-  }
+  if (!trial?.available) return null
 
   const start = async () => {
     if (busy) return
@@ -71,7 +64,7 @@ export function TrialButton({ placement }: { placement: 'login' | 'register' }) 
   }
 
   return (
-    <div className="mt-4 flex flex-col gap-2" data-testid={`trial-${placement}`}>
+    <div className="mb-4 flex flex-col gap-2" data-testid={`trial-${placement}`}>
       <button
         type="button"
         onClick={() => void start()}
@@ -88,9 +81,20 @@ export function TrialButton({ placement }: { placement: 'login' | 'register' }) 
           {error}
         </p>
       )}
-      {/* the sign-up form has the same line under its own button already */}
-      {placement === 'login' && <SignupAgreementLine />}
+      <SignupAgreementLine />
       <p className="break-keep text-center text-[11px] leading-relaxed text-sub">{t('trial.hint', { hours: trial.hours })}</p>
     </div>
+  )
+}
+
+/** Under the forms, where the button used to be: every trial seat is taken, so signing up is the way in. */
+export function TrialFullLine() {
+  const t = useT()
+  const trial = useAuthMode().data?.trial
+  if (!trial || trial.available || trial.reason !== 'full') return null
+  return (
+    <p className="mt-4 break-keep text-center text-xs text-sub" data-testid="trial-full">
+      {t('trial.full')}
+    </p>
   )
 }

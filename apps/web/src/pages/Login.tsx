@@ -9,7 +9,7 @@ import { LanguageSelect } from '../components/LanguageSelect'
 import { InstanceBadge } from '../components/InstanceBadge'
 import { InstanceNotice } from '../components/InstanceNotice'
 import { LegalLinks } from '../components/legal/LegalLinks'
-import { TrialButton } from '../components/auth/TrialButton'
+import { TrialButton, TrialFullLine } from '../components/auth/TrialButton'
 import { t as tr, tMaybe, useT } from '../i18n'
 
 /**
@@ -184,6 +184,7 @@ export function Login() {
           <InstanceNotice placement="auth" />
         </div>
 
+        {!challenge && <TrialButton placement="login" />}
         {challenge ? (
           <form
             onSubmit={submitCode}
@@ -315,7 +316,7 @@ export function Login() {
           {oidcName && <OidcButton name={oidcName} next={next} />}
         </form>
         )}
-        {!challenge && <TrialButton placement="login" />}
+        {!challenge && <TrialFullLine />}
 
         <FeatureOn name="password-reset"><p className="mt-4 text-center text-xs text-sub">
           <Link

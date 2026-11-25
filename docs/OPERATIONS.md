@@ -1363,7 +1363,7 @@ these rows on a server open to strangers (docs/adr/2536-*). Both are off by defa
   a date; they never give a date to an account that has none.
 
 ### Trial accounts
-- `TRIAL_ACCOUNTS=1` (docs/adr/2555-*) puts **Try without an account** under the sign-in and sign-up forms.
+- `TRIAL_ACCOUNTS=1` (docs/adr/2555-*) puts **Try without an account** above the sign-in and sign-up forms.
   `POST /api/auth/trial` makes an account, its workspace and the sample page and signs the browser in. The button
   is hidden while the server has no admin (the trial path never makes one) and while `LEGAL_DIR`'s `signup.json`
   has tick boxes; documents without tick boxes show the one-line agreement under it.

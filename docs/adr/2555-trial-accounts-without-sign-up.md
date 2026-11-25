@@ -47,8 +47,10 @@ people's workspaces, and it must go away on its own.
   `expires_at` the account's session, API tokens and MCP grants are refused at once (the three lookups
   check `trial` and `expires_at`). It can delete itself from its browser session with the confirmation
   alone.
-- The web shows the button under the sign-in and sign-up forms; a click within 2 s of the screen
-  appearing waits for the rest before sending. The sidebar shows "Trial account · deleted in N h".
+- The web shows the button above the sign-in and sign-up forms, with the one-line agreement right under
+  it when there is one (0.25.3; it was under the forms until then, where a visitor sent to the sign-up
+  screen met the form first and on a phone had to scroll to it). "All trial seats are taken" stays under
+  the forms. A click within 2 s of the screen appearing waits for the rest before sending. The sidebar shows "Trial account · deleted in N h".
   Refused actions show the server's error; buttons are not hidden in 0.23.
 
 ## Consequences

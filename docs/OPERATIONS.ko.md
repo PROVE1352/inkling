@@ -1037,7 +1037,7 @@ deploy/demo/demo.sh exec db psql -c 'VACUUM FULL page_snapshots'
 
 <a id="trial-accounts"></a>
 ### 체험 계정
-- `TRIAL_ACCOUNTS=1`(docs/adr/2555-*)이면 로그인·가입 양식 아래에 **가입 없이 둘러보기**가 나옵니다.
+- `TRIAL_ACCOUNTS=1`(docs/adr/2555-*)이면 로그인·가입 양식 위에 **가입 없이 둘러보기**가 나옵니다.
   `POST /api/auth/trial`이 계정과 워크스페이스, 샘플 페이지를 만들고 그 브라우저를 로그인시킵니다. 서버에 관리자가
   없으면(체험 경로는 관리자를 만들지 않습니다) 버튼을 숨기고, `LEGAL_DIR`의 `signup.json`에 체크 항목이 있어도 숨깁니다.
   체크 항목 없이 문서만 있으면 버튼 아래에 동의 한 줄이 나옵니다.

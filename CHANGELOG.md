@@ -7,6 +7,17 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-11-25
+
+One change from a comment on the demo: the sign-up form came before the button that needs no form. No migration,
+no new settings.
+
+### Changed
+- **"Try without an account" is above the sign-in and sign-up forms** on servers with `TRIAL_ACCOUNTS=1`, with the
+  one-line agreement right under it on both screens. It was under the forms: a visitor sent to the sign-up screen
+  saw a form to fill in first, and on a phone had to scroll to find the button. "All trial seats are taken" stays
+  under the forms. Servers without trial accounts look as before (docs/adr/2555-*).
+
 ## [0.25.2] - 2026-11-25
 
 One fix from running ten simulated agents on one section. No migration, no new settings.

@@ -130,9 +130,9 @@ describe('[db] team agents: hand-offs, agent assignments, board', { skip: !HAS_D
     assert.match(mine.text, /\(1 handed to this connection\)/)
     const other = await bCursor.mcp.tool('inbox')
     assert.doesNotMatch(other.text, /draft the FAQ/, "Bob's other connection does not see it")
-    // Bob's bell: not listed without the copies setting
+    // Bob's bell: listed even without the copies setting, since Alice (another person) handed it (0.25.4, docs/adr/2576-*)
     const bell = (await req(B, 'GET', '/notifications')).json() as { notifications: { excerpt: string | null }[]; unread: number }
-    assert.ok(!bell.notifications.some((n) => n.excerpt?.includes('draft the FAQ')))
+    assert.ok(bell.notifications.some((n) => n.excerpt?.includes('draft the FAQ')))
 
     // an ack through another connection cannot clear it
     await bCursor.mcp.tool('ack', { cursor: '999999999999' })

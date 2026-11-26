@@ -431,8 +431,10 @@ async function writePlanned(p: Planned, look: Lookup, exec: Exec): Promise<Proce
     const level = p.levels.get(userId) ?? 'mentions'
     const s = look.settings.get(userId) ?? DEFAULT_SETTINGS
     // A hand-off is work for the agent, not a ping: the person's level does not drop it, and the
-    // person sees (and is mailed about) it only with their "copies" setting (docs/adr/1863-*).
-    const personToo = !!ev.connection && s.agentHandoffCopy === true
+    // person sees (and is mailed about) it only with their "copies" setting (docs/adr/1863-*) —
+    // or always when someone else handed it (docs/adr/2576-*): another member puts work on this
+    // person's agent, so the person is told whatever the setting says.
+    const personToo = !!ev.connection && (s.agentHandoffCopy === true || ev.actorId !== userId)
     const d = ev.connection ? (personToo ? { deliver: true, delivery: decide(w.kind, w.reason, level, agent).delivery } : { deliver: true, delivery: 'now' as const }) : decide(w.kind, w.reason, level, agent)
     if (!d.deliver) continue
     const spec = KINDS[w.kind]

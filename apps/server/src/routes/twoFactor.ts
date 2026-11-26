@@ -73,7 +73,7 @@ export async function registerTwoFactorRoutes(app: FastifyInstance): Promise<voi
 
   /** Check an app or recovery code of the signed-in account (wrong ones count too). */
   const checkCode = async (req: FastifyRequest, u: { id: string; email: string }, code: string) => {
-    assertAccount(totpAccountKey(u.email))
+    assertAccount(totpAccountKey(u.email), { secondFactor: true })
     const r = await verifySecondFactor(u.id, code)
     if (r === 'invalid' || r === 'reused') {
       await recordFailure(req, '2fa-code', totpAccountKey(u.email))
@@ -81,7 +81,7 @@ export async function registerTwoFactorRoutes(app: FastifyInstance): Promise<voi
         ? new AppError(400, 'TOTP_CODE_REUSED', 'This code was already used. Wait for the next one.')
         : invalidCode()
     }
-    recordSuccess(req, totpAccountKey(u.email))
+    recordSuccess(req, totpAccountKey(u.email), { secondFactor: true })
   }
 
   app.get('/auth/2fa', { preHandler: requireUser }, async (req) => {
@@ -103,7 +103,7 @@ export async function registerTwoFactorRoutes(app: FastifyInstance): Promise<voi
     const body = z.object({ code: z.string().trim().min(1).max(20) }).parse(req.body)
     if (!secretBoxAvailable()) throw unavailable()
     const u = await localAccount(req)
-    assertAccount(totpAccountKey(u.email))
+    assertAccount(totpAccountKey(u.email), { secondFactor: true })
     const codes = await confirmSetup(u.id, body.code)
     if (!codes) {
       await recordFailure(req, '2fa-setup', totpAccountKey(u.email))

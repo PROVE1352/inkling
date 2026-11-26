@@ -477,7 +477,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (local && local.origin === 'local') {
       // An account with piled-up wrong 2FA codes is delayed here too, before the argon2 check:
       // a correct password must not reset the code counter (docs/adr/1061-*).
-      assertAccount(totpAccountKey(acct))
+      assertAccount(totpAccountKey(acct), { secondFactor: true })
       const ok = await verifyPassword(local.passwordHash, body.password)
       if (!ok) throw await fail()
       // Reveal the verification state only after the password matched (no account-existence leak).
@@ -586,7 +586,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       .limit(1)
     if (!u) throw expired()
     const acct = u.email.toLowerCase()
-    assertAccount(totpAccountKey(acct))
+    assertAccount(totpAccountKey(acct), { secondFactor: true })
 
     const result = await verifySecondFactor(u.id, body.code)
     if (result === 'invalid' || result === 'reused') {
@@ -601,7 +601,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     await dropChallenge(body.challenge)
     recordSuccess(req, acct)
-    recordSuccess(req, totpAccountKey(acct))
+    recordSuccess(req, totpAccountKey(acct), { secondFactor: true })
     const isAdmin = u.isAdmin || (await promoteIfNoAdmin(u.id))
     // Only while the password verified in step one is still the account's (a reset in between voids it).
     const { token, expiresAt } = await createSession(u.id, { expectPasswordHash: attempt.passwordHash })

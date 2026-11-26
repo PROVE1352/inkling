@@ -103,6 +103,16 @@ interface Counter {
 
 const ipFails = new Map<string, Counter>()
 const acctFails = new Map<string, Counter>()
+/**
+ * Second-factor counters (two-step codes) in a map of their own: only an account whose password was
+ * right, or a signed-in person, adds a key here, so failed sign-ins with made-up names cannot push a
+ * two-step backoff out of the capped map (0.25.4 security fix A-F5). Which map a call uses comes from
+ * the code (the failure reason, or `secondFactor`), never from the key: a sign-in name is any string,
+ * "totp:…" included.
+ */
+const secondFactorFails = new Map<string, Counter>()
+const SECOND_FACTOR_REASONS = new Set(['totp', '2fa-code', '2fa-setup'])
+const accountMap = (secondFactor: boolean | undefined) => (secondFactor ? secondFactorFails : acctFails)
 /** Active bans: ipKey → release time */
 const bans = new Map<string, number>()
 /** Re-ban level: ipKey → { level, lastBanAt } */
@@ -138,6 +148,7 @@ function sweep(): void {
   const now = Date.now()
   for (const [k, c] of ipFails) if (now - c.windowStart >= WINDOW_MS) ipFails.delete(k)
   for (const [k, c] of acctFails) if (now - c.windowStart >= WINDOW_MS) acctFails.delete(k)
+  for (const [k, c] of secondFactorFails) if (now - c.windowStart >= WINDOW_MS) secondFactorFails.delete(k)
   for (const [k, until] of bans) if (until <= now) bans.delete(k)
   for (const [k, s] of strikes) if (now - s.lastBanAt >= STRIKE_MEMORY_MS) strikes.delete(k)
 }
@@ -186,10 +197,13 @@ export function assertNotBanned(req: FastifyRequest): void {
   if (left > 0) throw tooMany(left / 1000)
 }
 
-/** Account backoff: an account past the failure limit cannot be retried for a while after its last failure */
-export function assertAccount(account: string | null | undefined): void {
+/**
+ * Account backoff: an account past the failure limit cannot be retried for a while after its last
+ * failure. `secondFactor`: the two-step code counter of the account (its own map, A-F5).
+ */
+export function assertAccount(account: string | null | undefined, opts: { secondFactor?: boolean } = {}): void {
   if (!account) return
-  const c = acctFails.get(account.toLowerCase())
+  const c = accountMap(opts.secondFactor).get(account.toLowerCase())
   if (!c || Date.now() - c.windowStart >= WINDOW_MS) return
   const over = c.count - cfg.accountFailures
   if (over < 0) return
@@ -205,7 +219,7 @@ export async function recordFailure(
   account?: string | null,
 ): Promise<void> {
   const now = Date.now()
-  if (account) bump(acctFails, account.toLowerCase(), now)
+  if (account) bump(accountMap(SECOND_FACTOR_REASONS.has(reason)), account.toLowerCase(), now)
   if (isAllowlisted(req.ip)) return
   const key = ipKey(req.ip)
   const c = bump(ipFails, key, now)
@@ -215,9 +229,9 @@ export async function recordFailure(
 }
 
 /** Success: reset the failure counters of that IP and account (the ban level stays) */
-export function recordSuccess(req: FastifyRequest, account?: string | null): void {
+export function recordSuccess(req: FastifyRequest, account?: string | null, opts: { secondFactor?: boolean } = {}): void {
   ipFails.delete(ipKey(req.ip))
-  if (account) acctFails.delete(account.toLowerCase())
+  if (account) accountMap(opts.secondFactor).delete(account.toLowerCase())
 }
 
 /**

@@ -42,11 +42,13 @@ import type { AnyBlock } from '../md/convert'
 import { publicMarkdownFile } from '../md/publicMarkdown'
 import { configuredPublicOrigin } from '../origin'
 import { publicCustomBlocks } from './publicBlocks'
+import { addressKey } from '../rateLimitKey'
 
-// Public route rate limit: a gentle 60/min per route, separate from the global 300/min.
-const PUBLIC_RATE_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
+// Public route rate limit: a gentle 60/min per route, separate from the global 300/min. Keyed by the
+// address alone (rateLimitKey.ts addressKey): no public route checks a bearer (0.25.4 A-F1).
+const PUBLIC_RATE_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute', keyGenerator: addressKey('public') } }
 // Password attempts: as strict as sign-in (docs/adr/1171-*), on top of the per-link backoff and IP ban.
-const UNLOCK_RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } }
+const UNLOCK_RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: addressKey('unlock') } }
 
 // Safe rasters allowed to render inline (cannot run scripts). Everything else (pdf/video/svg...) is an attachment.
 // Intentionally identical to the same-named set in files.ts, to keep the public routes self-contained.

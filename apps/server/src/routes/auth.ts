@@ -106,7 +106,6 @@ const mailRateLimit = { config: { rateLimit: { max: 5, timeWindow: '1 minute', k
 // The same numbers for routes a signed-in person uses: the global key (per token, else per address),
 // so people behind one NAT do not share one bucket.
 const strictRateLimitSignedIn = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
-const mailRateLimitSignedIn = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }
 
 /** Outcome of a delegated login */
 type DelegatedResult = 'ok' | 'invalid' | 'totp' | 'rate_limited' | 'unavailable'
@@ -847,7 +846,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    * Resend the verification mail: for the signed-in account (cookie), or by email + password when
    * sign-in is blocked. One mail per minute.
    */
-  app.post('/auth/verify-email/send', mailRateLimitSignedIn, async (req) => {
+  // Per address: the email + password branch needs no session and never checks a bearer (0.25.4 A-F1).
+  app.post('/auth/verify-email/send', mailRateLimit, async (req) => {
     if (!mailEnabled) throw new AppError(501, 'MAIL_DISABLED', 'Mail is not configured')
     const body = resendVerificationSchema.parse(req.body ?? {})
 

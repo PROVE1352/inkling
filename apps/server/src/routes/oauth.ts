@@ -32,6 +32,7 @@ import {
   verifyPkce,
 } from '../oauth'
 import { insertDynamicClient } from '../oauthClientCleanup'
+import { addressKey } from '../rateLimitKey'
 import { resourceWithoutProfile } from '../mcpProfile'
 import { isInstanceFull } from '../quota/instance'
 import { suggestOnlyStates } from '../agentTaint'
@@ -59,8 +60,9 @@ import type { CimdClient } from '../oauthCimd'
  *   DELETE /api/agent-tokens/:id       revoke (range changes: PATCH /api/oauth/grants/:id)
  */
 
-// strict per-IP limits for the token / registration endpoints
-const strictRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute' } }
+// strict per-address limits for the token / registration endpoints: keyed by the address alone
+// (rateLimitKey.ts addressKey), as these routes never check a bearer (0.25.4 A-F1)
+const strictRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute', keyGenerator: addressKey('oauth') } }
 
 /** RFC 6749 §5.2 error response */
 function oauthError(

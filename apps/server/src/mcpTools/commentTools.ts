@@ -125,7 +125,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolCtx): void {
     .array(z.string().trim().min(1).max(120))
     .max(10)
     .optional()
-    .describe('Hand to these agent connections (g:xxxxxxxx, see catch_up team); only their inbox lists it')
+    .describe("Hand to these agent connections (g:xxxxxxxx, see catch_up team); only their inbox lists it, and another person's connection tells its person")
 
   server.registerTool(
     'add_comment',

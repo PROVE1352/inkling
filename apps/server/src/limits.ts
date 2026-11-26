@@ -112,6 +112,11 @@ export const INSTANCE_NOTICE_MAX = 500
 export const INSTANCE_CONTACT_MAX = 300
 export const TRIAL_LIFETIME_HOURS_MAX = 168
 export const TRIAL_DEFAULTS = { lifetimeHours: 24, maxAccounts: 30, perIpPerDay: 3 } as const
+/**
+ * Live section claims of one person, all their connections together (docs/adr/2578-*): beside the
+ * per-connection cap (leases.ts), so that many tokens of one account cannot hold every section.
+ */
+export const MAX_CLAIMS_PER_PERSON = 60
 
 export interface TrialLimits {
   lifetimeHours: number

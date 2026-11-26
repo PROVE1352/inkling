@@ -1,6 +1,7 @@
 import { assertWorkspaceWritable } from '../quota/room'
 import { desc, eq, sql } from 'drizzle-orm'
 import { assertPageEditable } from '../editLock'
+import { assertAgentMayRewrite } from '../autoAccept'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createSnapshotSchema } from '@inkling/shared'
@@ -132,6 +133,8 @@ export async function registerSnapshotRoutes(app: FastifyInstance): Promise<void
     // Role and the workspace's lock state come with the membership (docs/adr/1071-*).
     const { role, acl } = await requireMembershipAcl(page.workspaceId, user.id)
     await assertPageEditable(id, user.id, { role, acl })
+    // An agent under an auto / review policy cannot restore: it is no suggestion (docs/adr/2577-*).
+    await assertAgentMayRewrite(page, 'restoring a version')
 
     // Canvases (cnodes/cedges) are out of scope in v1 — only doc pages can be restored
     if (page.kind !== 'doc') {

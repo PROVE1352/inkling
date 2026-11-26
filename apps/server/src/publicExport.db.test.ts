@@ -233,7 +233,11 @@ describe('[db] public pages: Markdown download', { skip: !HAS_DB }, async () => 
     assert.equal((await member(alice, 'POST', `/pages/${other.id}/share`, { allowDownload: true })).statusCode, 400)
     // both routes are rate-limited like the other public routes
     for (const url of ['/api/public/:token/export.md', '/api/public/:token/p/:ref/export.md']) {
-      assert.deepEqual((routeConfig.get(url) as { rateLimit?: unknown } | undefined)?.rateLimit, { max: 60, timeWindow: '1 minute' }, url)
+      // counted per address, never per (unchecked) bearer (0.25.4 A-F1, rateLimitByAddress.test.ts)
+      const rl = (routeConfig.get(url) as { rateLimit?: { keyGenerator?: unknown } } | undefined)?.rateLimit
+      assert.equal(typeof rl?.keyGenerator, 'function', url)
+      const { keyGenerator: _key, ...limit } = rl ?? {}
+      assert.deepEqual(limit, { max: 60, timeWindow: '1 minute' }, url)
     }
   })
 

@@ -38,6 +38,14 @@ export interface RangeScope {
   workspaceIds: string[]
   /** Root page of a subtree range. */
   rootPageId: string | null
+  /**
+   * docs/adr/2580-*: the stored range is "all", but the owner was added to some workspaces by someone else
+   * and has not included them for agents yet. The scope is then the workspaces the owner may hand to
+   * agents (`workspaceIds`), and `pendingWorkspaceIds` are the ones left out, so that a refusal can say
+   * how to include them. Absent for every stored range other than "all".
+   */
+  implicit?: true
+  pendingWorkspaceIds?: string[]
 }
 
 const store = new AsyncLocalStorage<RangeScope>()
@@ -71,6 +79,15 @@ export function invalidRange(message: string): AppError {
 
 export function outOfRange(): AppError {
   return new AppError(403, 'OUT_OF_RANGE', OUT_OF_RANGE_MESSAGE)
+}
+
+/** docs/adr/2580-*: the refusal for a workspace someone else added the person to. Same code as any range refusal. */
+export const NOT_INCLUDED_MESSAGE =
+  'Someone else added this person to this workspace, and they have not included it for their agents yet. ' +
+  'Only the person can include it, signed in to the web app (Settings > Connections, or the notification). Work in the other workspaces until then'
+
+export function notIncluded(): AppError {
+  return new AppError(403, 'OUT_OF_RANGE', NOT_INCLUDED_MESSAGE)
 }
 
 function uuidArrayLiteral(ids: string[]): string {
@@ -134,7 +151,9 @@ export function visibleRangeSql(userId: string): SQL | null {
 /** 403 OUT_OF_RANGE when `workspaceId` is outside the current range (no-op without one). */
 export function assertWorkspaceInRange(workspaceId: string, userId?: string): void {
   const scope = currentRange(userId)
-  if (scope && !scope.workspaceIds.includes(workspaceId)) throw outOfRange()
+  if (scope && !scope.workspaceIds.includes(workspaceId)) {
+    throw scope.pendingWorkspaceIds?.includes(workspaceId) ? notIncluded() : outOfRange()
+  }
 }
 
 /**
@@ -257,11 +276,54 @@ export function columnsToRange(c: StoredRange): AccessRange {
  * The request scope for a token's stored range, or null for 'all'. `rootWorkspaceId` is the root
  * page's current workspace (read in the token lookup's statement); null when the root is gone.
  */
-export function scopeFromColumns(userId: string, c: StoredRange, rootWorkspaceId: string | null): RangeScope | null {
+export function scopeFromColumns(
+  userId: string,
+  c: StoredRange,
+  rootWorkspaceId: string | null,
+  /** agentMembershipsSql's value: null when no membership of the owner waits to be included */
+  membershipsValue: AgentMemberships | string | null = null,
+): RangeScope | null {
   const r = columnsToRange(c)
-  if (r.kind === 'all') return null
+  if (r.kind === 'all') {
+    // json from the driver: parsed or not, depending on its type parsers
+    const memberships: AgentMemberships | null =
+      typeof membershipsValue === 'string' ? (JSON.parse(membershipsValue) as AgentMemberships) : membershipsValue
+    // docs/adr/2580-*: "all" means every workspace except the ones someone else added the owner to and
+    // the owner has not included yet. Without such a membership nothing changes (no scope, no SQL).
+    if (!memberships || !memberships.pending?.length) return null
+    return {
+      userId,
+      kind: 'workspaces',
+      workspaceIds: [...(memberships.included ?? [])].sort(),
+      rootPageId: null,
+      implicit: true,
+      pendingWorkspaceIds: [...memberships.pending].sort(),
+    }
+  }
   if (r.kind === 'workspaces') return { userId, kind: 'workspaces', workspaceIds: r.workspaceIds, rootPageId: null }
   return { userId, kind: 'subtree', workspaceIds: rootWorkspaceId ? [rootWorkspaceId] : [], rootPageId: r.pageId }
+}
+
+/** The owner's memberships split by whether agents may see them (docs/adr/2580-*). */
+export interface AgentMemberships {
+  included: string[] | null
+  pending: string[] | null
+}
+
+/**
+ * SQL for the token lookups (oauth.ts getBearerUser, apiTokens.ts getApiTokenUser): for a stored range of
+ * "all" whose owner has a membership waiting to be included (docs/adr/2580-*), the included and the
+ * waiting workspace ids; null otherwise. The EXISTS probe runs on a partial index of the waiting rows,
+ * so a request of anyone without one costs one index lookup that finds nothing.
+ */
+export function agentMembershipsSql(userIdCol: AnyPgColumn, rangeKindCol: AnyPgColumn): SQL<AgentMemberships | null> {
+  return sql<AgentMemberships | null>`(CASE WHEN (${rangeKindCol} IS NULL OR ${rangeKindCol} = 'all')
+      AND EXISTS (SELECT 1 FROM workspace_members amp WHERE amp.user_id = ${userIdCol} AND amp.agents_pending)
+    THEN (SELECT json_build_object(
+            'included', array_agg(am.workspace_id) FILTER (WHERE NOT am.agents_pending),
+            'pending', array_agg(am.workspace_id) FILTER (WHERE am.agents_pending))
+            FROM workspace_members am WHERE am.user_id = ${userIdCol})
+    END)`
 }
 
 /** SQL selecting the root page's workspace for a row with a `range_page_id` column. */
@@ -346,6 +408,9 @@ export function rangeCacheKey(userId: string): string {
 /** One sentence for the MCP server instructions describing the range (null for 'all'). */
 export function rangeInstruction(scope: RangeScope | null): string | null {
   if (!scope) return null
+  if (scope.implicit) {
+    return 'Some workspaces this person was added to by someone else are hidden from this connection until the person includes them in the web app (Settings > Connections); they answer OUT_OF_RANGE. Do not try to reach them another way.'
+  }
   return scope.kind === 'subtree'
     ? 'This connection only sees one page and the pages under it; anything else answers OUT_OF_RANGE or not found. Create new pages under that page.'
     : 'This connection only sees some of your workspaces (list_workspaces shows them); others answer OUT_OF_RANGE.'

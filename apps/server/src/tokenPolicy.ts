@@ -37,6 +37,9 @@ export const SESSION_ONLY: Rule[] = [
   { method: 'DELETE', url: '/api/pages/:id/collection/sheet-sync', reason: 'sheet sync settings' },
   { method: 'DELETE', url: '/api/pages/:id/purge', reason: 'permanent deletion' },
   { method: 'POST', url: '/api/workspaces/join', reason: 'joins a workspace with an invite code' },
+  // docs/adr/2580-*: only the person lets their agents into a workspace someone else added them to
+  { method: 'POST', url: '/api/workspaces/:id/agent-include', reason: 'lets agents into a workspace someone else added the person to' },
+  { method: 'GET', url: '/api/me/agent-pending-workspaces', reason: 'names chosen by whoever added the person' },
   { method: 'POST', url: '/api/workspaces/:id/invite/regenerate', reason: 'invite code' },
   { method: 'POST', url: '/api/workspaces/:id/members', reason: 'membership' },
   { method: 'PATCH', url: '/api/workspaces/:id/members/:userId', reason: 'member roles' },
@@ -85,7 +88,9 @@ export function assertBearerRouteAllowed(req: FastifyRequest, range: RangeScope 
   if (!url) return
   const method = req.method === 'HEAD' ? 'GET' : req.method
   if (matches(SESSION_ONLY, method, url)) throw forbidden(SESSION_ONLY_MESSAGE)
-  if (!range) return
+  // An "all" range that only leaves out workspaces waiting to be included (docs/adr/2580-*) is not a
+  // chosen limit: creating a workspace and the other ranged refusals stay as for "all".
+  if (!range || range.implicit) return
   if (matches(RANGED_DENY, method, url)) throw outOfRange()
   if (range.kind === 'subtree' && matches(SUBTREE_DENY, method, url)) throw outOfRange()
 }

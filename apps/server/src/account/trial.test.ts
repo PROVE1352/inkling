@@ -195,6 +195,8 @@ const TRIAL_ALLOWED: Record<string, keyof typeof WHY> = {
   'POST /mcp': 'AGENTS',
   'DELETE /mcp': 'AGENTS',
   'POST /connections/release': 'AGENTS',
+  // docs/adr/2580-*: lets the person's own agents into a workspace someone added them to
+  'POST /workspaces/:id/agent-include': 'AGENTS',
   'POST /workspaces/:id/query': 'READS',
   'POST /workspaces/:id/charts/aggregate': 'READS',
   'POST /auth/register': 'NO_SESSION',

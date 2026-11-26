@@ -317,10 +317,21 @@ export const workspaceMembers = pgTable(
       .notNull()
       .default('member'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Someone else added this person (direct add) and they have not yet included the workspace for their
+     * agents: every connection whose range is "all" treats it as out of range until they do (docs/adr/2580-*).
+     * False for every path the person takes themselves (create, invite link, sign-up) and for rows older
+     * than 0064.
+     */
+    agentsPending: boolean('agents_pending').notNull().default(false),
+    /** Who added this person directly (docs/adr/2580-*); null when they joined themselves or that account is gone. */
+    addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.userId] }),
     index('workspace_members_user_idx').on(t.userId),
+    // the per-request probe of a bearer token whose range is "all" (tokenRange.ts agentMembershipsSql)
+    index('workspace_members_agents_pending_idx').on(t.userId).where(sql`${t.agentsPending}`),
   ],
 )
 

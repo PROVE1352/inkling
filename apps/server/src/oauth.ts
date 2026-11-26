@@ -7,7 +7,7 @@ import { db } from './db/index'
 import { oauthClients, oauthCodes, oauthGrants, users } from './db/schema'
 import { env } from './env'
 import type { AuthUser } from './auth'
-import { rootWorkspaceSql, scopeFromColumns } from './tokenRange'
+import { agentMembershipsSql, rootWorkspaceSql, scopeFromColumns } from './tokenRange'
 
 // ---------------------------------------------------------------------------
 // Shared OAuth 2.1 helpers for the remote MCP connector (routes in routes/oauth.ts, MCP in mcp.ts)
@@ -223,6 +223,8 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
       rangeWorkspaceIds: oauthGrants.rangeWorkspaceIds,
       rangePageId: oauthGrants.rangePageId,
       rootWorkspaceId: rootWorkspaceSql(oauthGrants.rangePageId),
+      // workspaces someone else added the owner to, left out of an "all" range (docs/adr/2580-*)
+      agentMemberships: agentMembershipsSql(users.id, oauthGrants.rangeKind),
       clientName: oauthClients.name,
       clientId: oauthClients.id,
       id: users.id,
@@ -264,7 +266,7 @@ export async function getBearerUser(token: string): Promise<AuthUser | null> {
     grantId: row.grantId,
     clientId: row.clientId,
     // what this connection may see (docs/adr/1200-*); null = everything the user can see
-    range: scopeFromColumns(row.id, row, row.rootWorkspaceId),
+    range: scopeFromColumns(row.id, row, row.rootWorkspaceId, row.agentMemberships),
     // page rows (docs/adr/1253-*): guest workspaces are hidden from tokens
     ...(row.hasGrants ? { hasGrants: true } : {}),
   }

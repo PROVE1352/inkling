@@ -7,7 +7,7 @@ import { db } from './db/index'
 import { apiTokens, users } from './db/schema'
 import type { AuthUser } from './auth'
 import { sha256, STORED_SCOPE_FULL, STORED_SCOPE_READ_ONLY, canWriteFromScopes } from './oauth'
-import { columnsToRange, rangeToColumns, rangeView, rootWorkspaceSql, scopeFromColumns } from './tokenRange'
+import { agentMembershipsSql, columnsToRange, rangeToColumns, rangeView, rootWorkspaceSql, scopeFromColumns } from './tokenRange'
 
 /**
  * Personal API tokens (docs/adr/1201-*).
@@ -74,6 +74,8 @@ export async function getApiTokenUser(token: string, ip: string | null): Promise
       rangeWorkspaceIds: apiTokens.rangeWorkspaceIds,
       rangePageId: apiTokens.rangePageId,
       rootWorkspaceId: rootWorkspaceSql(apiTokens.rangePageId),
+      // workspaces someone else added the owner to, left out of an "all" range (docs/adr/2580-*)
+      agentMemberships: agentMembershipsSql(users.id, apiTokens.rangeKind),
       lastUsedAt: apiTokens.lastUsedAt,
       lastUsedIp: apiTokens.lastUsedIp,
       id: users.id,
@@ -109,7 +111,7 @@ export async function getApiTokenUser(token: string, ip: string | null): Promise
     isAdmin: row.isAdmin,
     scope: row.scope,
     tokenId: row.tokenId,
-    range: scopeFromColumns(row.id, row, row.rootWorkspaceId),
+    range: scopeFromColumns(row.id, row, row.rootWorkspaceId, row.agentMemberships),
     // page rows (docs/adr/1253-*): guest workspaces are hidden from tokens
     ...(row.hasGrants ? { hasGrants: true } : {}),
   }

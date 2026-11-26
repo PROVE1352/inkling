@@ -46,6 +46,7 @@ import limits from './en/limits'
 import legal from './en/legal'
 import accountLifecycle from './en/account-lifecycle'
 import agentView from './en/agent-view'
+import agentInclusion from './en/agent-inclusion'
 
 // English dictionary — the source of truth for every key. Each area file is owned by one part of
 // the UI; keys are 'screen.key' and must be unique across files.
@@ -98,6 +99,7 @@ export const en = {
   ...legal,
   ...accountLifecycle,
   ...agentView,
+  ...agentInclusion,
 }
 
 export type MessageKey = keyof typeof en

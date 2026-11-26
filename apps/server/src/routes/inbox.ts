@@ -44,6 +44,8 @@ export interface InboxItem {
   can: 'edit' | 'comment' | 'read' | null
   /** Handed to this connection (docs/adr/1863-*): only its inbox lists it. Additive. */
   handoff?: boolean
+  /** A hand-off made by someone other than the person (docs/adr/2576-*): their request, not the person's. Additive. */
+  byOther?: boolean
 }
 
 const uuidArray = (ids: string[]) => sql`${`{${ids.join(',')}}`}::uuid[]`
@@ -95,7 +97,8 @@ export async function readInbox(
   const rows = (await db.execute(sql`
     SELECT n.seq::text AS seq, n.type, coalesce(n.workspace_id, p.workspace_id) AS "workspaceId", n.page_id AS "pageId",
            p.title AS "pageTitle", n.anchor, a.name AS "actorName", n.via_client AS via, n.excerpt, n.count,
-           n.created_at AS "createdAt", n.read, n.connection IS NOT NULL AS handoff
+           n.created_at AS "createdAt", n.read, n.connection IS NOT NULL AS handoff,
+           (n.connection IS NOT NULL AND n.actor_id IS DISTINCT FROM ${userId}::uuid) AS "byOther"
       FROM notifications n
       LEFT JOIN pages p ON p.id = n.page_id
       LEFT JOIN users a ON a.id = n.actor_id
@@ -116,6 +119,7 @@ export async function readInbox(
     createdAt: Date | string
     read: '0' | '1'
     handoff: boolean
+    byOther: boolean
   }[]
   const [{ n: unacked, h: handoffs }] = (await db.execute(sql`
     SELECT count(*)::int AS n, count(*) FILTER (WHERE n.connection IS NOT NULL)::int AS h
@@ -162,6 +166,7 @@ export async function readInbox(
       read: r.read === '1',
       can: c === undefined ? null : c & CAP_EDIT ? 'edit' : c & CAP_COMMENT ? 'comment' : 'read',
       handoff: r.handoff === true,
+      ...(r.byOther === true ? { byOther: true } : {}),
     }
   })
   return { items, more, unacked, handoffs }

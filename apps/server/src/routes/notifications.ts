@@ -104,6 +104,10 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
           WHEN ${notifications.connection} ~ '^grant:[0-9a-f-]{36}$' THEN (SELECT oc.name FROM oauth_grants og JOIN oauth_clients oc ON oc.id = og.client_id WHERE og.id = substr(${notifications.connection}, 7)::uuid)
           WHEN ${notifications.connection} ~ '^token:[0-9a-f-]{36}$' THEN (SELECT at.name FROM api_tokens at WHERE at.id = substr(${notifications.connection}, 7)::uuid)
         END`,
+        // docs/adr/2580-*: my agents do not see the workspace I was added to until I include it
+        agentsPending: sql<boolean>`(${notifications.type} = 'workspace_added' AND EXISTS (
+          SELECT 1 FROM workspace_members apm
+           WHERE apm.workspace_id = ${notifications.workspaceId} AND apm.user_id = ${user.id}::uuid AND apm.agents_pending))`,
       })
       .from(notifications)
       .leftJoin(pages, eq(pages.id, notifications.pageId))
@@ -129,6 +133,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
       anchor: r.anchor,
       quiet: r.delivery === 'quiet',
       ...(r.forAgent ? { forAgent: r.forAgent } : {}),
+      ...(r.agentsPending ? { agentsPending: true } : {}),
     }))
 
     const unread = await countUnread(user.id)

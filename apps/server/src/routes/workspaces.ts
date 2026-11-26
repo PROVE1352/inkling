@@ -74,6 +74,7 @@ import {
 import type { AuditActor } from '../workspaceAdmin'
 import { collectDateItems } from '../md/dateItems'
 import { broadcastToUser } from '../collab'
+import { registerAgentInclusionRoutes } from './agentInclusion'
 import { invalidateWebhookCache } from '../webhooks'
 import {
   listRestorableWorkspaces,
@@ -158,6 +159,9 @@ function buildSnippet(text: string, term: string): string {
 }
 
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
+  // Including a workspace someone else added me to, for my agents (docs/adr/2580-*)
+  await registerAgentInclusionRoutes(app)
+
   // Workspaces I am a member of
   app.get('/workspaces', { preHandler: requireUser }, async (req) => {
     const user = getUser(req)
@@ -443,7 +447,9 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       await assertWorkspaceRoom(tx, id, { members: 1, memberId: userId }) // LIMIT_MEMBERS (docs/adr/2505-*)
       const rows = await tx
         .insert(workspaceMembers)
-        .values({ workspaceId: id, userId, role: 'member' })
+        // Not the person's own step: their agents do not see this workspace until they include it
+        // themselves, signed in (docs/adr/2580-*). People see it at once, as before.
+        .values({ workspaceId: id, userId, role: 'member', agentsPending: true, addedBy: user.id })
         .onConflictDoNothing()
         .returning({ userId: workspaceMembers.userId })
       if (rows.length === 0) return false

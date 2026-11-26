@@ -82,7 +82,8 @@ async function workspacesInRange(exec: Pick<typeof db, 'execute'>, userId: strin
     SELECT m.workspace_id AS id FROM workspace_members m
       JOIN workspaces w ON w.id = m.workspace_id AND w.deleted_at IS NULL
      WHERE m.user_id = ${userId}::uuid
-       AND (${r.rangeKind}::text IS NULL OR ${r.rangeKind}::text = 'all'
+       -- "all" leaves out what someone else added the owner to and they have not included (docs/adr/2580-*)
+       AND ((${r.rangeKind}::text IS NULL OR ${r.rangeKind}::text = 'all') AND NOT m.agents_pending
             OR (${r.rangeKind}::text = 'workspaces' AND m.workspace_id = ANY(${`{${(r.rangeWorkspaceIds ?? []).join(',')}}`}::uuid[]))
             OR (${r.rangeKind}::text = 'subtree' AND m.workspace_id = (SELECT p.workspace_id FROM pages p WHERE p.id = ${r.rangePageId}::uuid)))
      ORDER BY m.workspace_id

@@ -887,6 +887,23 @@ export interface NotificationDTO {
   quiet?: boolean
   /** Handed to one of my agent connections; I see a copy (docs/adr/1863-*). Client or token name. Additive. */
   forAgent?: string | null
+  /**
+   * workspace_added only: my agents do not see that workspace until I include it (docs/adr/2580-*).
+   * Present (true) only while that is so. Additive.
+   */
+  agentsPending?: boolean
+}
+
+/**
+ * A workspace someone else added me to that my agent connections do not see yet (docs/adr/2580-*):
+ * GET /api/me/agent-pending-workspaces (browser sessions only).
+ */
+export interface AgentPendingWorkspaceDTO {
+  workspaceId: string
+  workspaceName: string
+  /** The member who added me; null when that account is gone. */
+  addedByName: string | null
+  addedAt: string
 }
 
 // ---------------------------------------------------------------------------

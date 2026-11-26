@@ -7,6 +7,7 @@ import { t, useT } from '../i18n'
 import { BellIcon, ClockIcon } from './Icons'
 import { useSaveLater } from '../laterApi'
 import { toast } from '../lib/toast'
+import { AgentPendingLine } from './AgentPendingLine'
 
 // Builds the notification text — actorName commented on / mentioned you in pageTitle. reminder (M17) is a due-date line.
 // The switch is exhaustive over NotificationType, so a new type fails typecheck until it has a line.
@@ -150,6 +151,8 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                   // Quiet items (agent-written mentions, level "nothing") never count as unread.
                   const unreadItem = !n.read && !n.quiet
                   const repeat = repeatSuffix(n)
+                  // A workspace someone added me to that my agents do not see yet (docs/adr/2580-*)
+                  const pending = n.type === 'workspace_added' && n.agentsPending && n.workspaceId ? n.workspaceId : null
                   return (
                     <li key={n.id} className="group/notif relative">
                       {/* Save for later (docs/adr/1410-*): page notifications only, the target must be a page. */}
@@ -178,7 +181,7 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                         onClick={() => openItem(n)}
                         title={n.quiet ? t('notifications.quiet') : undefined}
                         data-quiet={n.quiet || undefined}
-                        className={`flex w-full flex-col gap-0.5 border-b border-line px-3 py-2 text-left transition-colors hover:bg-hover ${
+                        className={`flex w-full flex-col gap-0.5 ${pending ? '' : 'border-b border-line'} px-3 py-2 text-left transition-colors hover:bg-hover ${
                           unreadItem ? 'bg-accent-soft/40' : ''
                         } ${n.quiet ? 'opacity-60' : ''}`}
                       >
@@ -203,6 +206,16 @@ export function NotificationBell({ wsId }: { wsId: string }) {
                           {relativeTime(n.createdAt)}
                         </span>
                       </button>
+                      {pending && (
+                        <div className={`border-b border-line px-3 pb-2 pl-6 ${unreadItem ? 'bg-accent-soft/40' : ''}`}>
+                          <AgentPendingLine
+                            workspaceId={pending}
+                            workspaceName={n.workspaceName ?? t('notifications.workspaceFallback')}
+                            actorName={n.actorName}
+                            small
+                          />
+                        </div>
+                      )}
                     </li>
                   )
                 })}

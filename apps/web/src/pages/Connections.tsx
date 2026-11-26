@@ -19,6 +19,8 @@ import {
   useUpdateAgentTokenRange,
 } from '../agentTokens'
 import { RangeBadge, RangePicker, rangeFromView } from '../components/RangePicker'
+import { AgentPendingLine } from '../components/AgentPendingLine'
+import { useAgentPendingWorkspaces } from '../agentInclusion'
 import { Spinner } from '../components/Spinner'
 import { McpSetup } from '../components/McpSetup'
 import { fmtDate, fmtRelative, useT } from '../i18n'
@@ -60,6 +62,8 @@ export function Connections() {
     if (agentNotice.due) markAgentNoticeShown()
   }, [agentNotice])
   const boardWs = lastWorkspaceId(workspaces.data?.map((w) => w.id) ?? [])
+  // Workspaces someone else added me to: no connection with access to everything sees them yet (docs/adr/2580-*)
+  const pending = useAgentPendingWorkspaces()
 
   return (
     <div className="min-h-full bg-app px-4 py-12">
@@ -92,6 +96,15 @@ export function Connections() {
 
         <section className="flex flex-col gap-2 rounded-lg border border-line p-4">
           <h2 className="text-sm font-semibold text-ink">{t('connections.apps')}</h2>
+          {!!pending.data?.length && (
+            <ul className="flex flex-col divide-y divide-line border-b border-line">
+              {pending.data.map((p) => (
+                <li key={p.workspaceId} className="py-2">
+                  <AgentPendingLine workspaceId={p.workspaceId} workspaceName={p.workspaceName} actorName={p.addedByName} />
+                </li>
+              ))}
+            </ul>
+          )}
           {grants.isLoading ? (
             <div className="flex justify-center py-4">
               <Spinner size={18} />

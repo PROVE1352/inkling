@@ -88,6 +88,11 @@ Agents (MCP)
 - Parallel uploads through connections pass the daily budget by one file at most, and a zip import checks the budget
   before each attachment.
 
+### Fixed
+- The hourly job that hands items of a gone connection back to its person counted a connection as live in a workspace
+  when its person was a member of any workspace, so items handed to a connection whose person had left one workspace
+  stayed with it there.
+
 ### Upgrade notes
 - **Migration 0064** adds `workspace_members.agents_pending` and `added_by` and a partial index. Existing memberships
   are included, so no agent loses a workspace on upgrade.

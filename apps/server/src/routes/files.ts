@@ -234,10 +234,13 @@ export async function registerFileDownloadRoute(app: FastifyInstance): Promise<v
     if (role === 'guest' && !row.pageId) throw notFound()
 
     // If the file is linked to a page, download only when that page is visible to the requester
-    // now (automatic protection when it moves shared→private). Legacy (null) needs membership only.
+    // now (automatic protection when it moves shared→private). Legacy (null) needs membership only,
+    // except on a connection limited to a subtree (as the meta route; 0.25.4, sec26 D-3).
     if (row.pageId) {
       const page = await findVisiblePage(row.pageId, user.id)
       if (!page) throw notFound()
+    } else if (currentRange(user.id)?.kind === 'subtree') {
+      throw outOfRange()
     }
 
     const filePath = uploadPath(id)

@@ -132,4 +132,6 @@ export default {
   'automation.value.dateHint': '상대 날짜는 실행되는 날부터 셉니다.',
   'automation.value.deletedField': '(삭제된 속성)',
   'automation.value.deletedHint': '삭제된 속성이라 이 값은 건너뜁니다.',
+  'button.err.otherWorkspace': '이 워크스페이스에서 볼 수 있는 데이터베이스가 아닙니다',
+  'button.confirmAddRow': '이 버튼은 다음 데이터베이스에 행을 추가합니다: {names}. 실행할까요?',
 } as const

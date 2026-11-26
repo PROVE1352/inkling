@@ -23,6 +23,13 @@ export const PDF_LIMITS = {
   timeoutMs: 10_000,
   /** Old-generation heap of the worker. */
   heapMb: 256,
+  /**
+   * ArrayBuffer memory of the worker (sec26 D-2), which heapMb does not count: pdf.js inflates a stream into one
+   * Uint8Array that it doubles as it grows, so a 0.5 MB PDF of compressed zeros took the process to 1.6 GB.
+   * A typed array or ArrayBuffer of 1 MB or more that would take the worker past this is refused (pdf.js gives
+   * up on that content, the rest of the document is still read).
+   */
+  bufferMb: 128,
   /** PDFs parsed at once by this process; more wait for a slot (up to timeoutMs). */
   concurrent: 2,
 } as const
@@ -40,6 +47,29 @@ export type PdfResult =
 // the same under tsx (tests) and in the built image (dist/index.js next to node_modules).
 const WORKER = `
 const { parentPort, workerData } = require('node:worker_threads')
+// ArrayBuffer budget (PDF_LIMITS.bufferMb): pdf.js looks these constructors up as globals at each call, so the
+// guarded ones are in place before it loads. Small allocations are not checked (most of them, and cheap).
+{
+  const cap = workerData.bufferBytes
+  const big = 1024 * 1024
+  const guard = (C, bytesPer) =>
+    new Proxy(C, {
+      construct(target, args, newTarget) {
+        const n = args[0]
+        if (typeof n === 'number' && n * bytesPer >= big && process.memoryUsage().arrayBuffers + n * bytesPer > cap) {
+          throw new RangeError('PDF buffer budget exceeded')
+        }
+        return Reflect.construct(target, args, newTarget)
+      },
+    })
+  // pdf.js inflates through DecompressionStream when there is one, into chunks allocated natively (not by these
+  // constructors) that it gathers before it looks at the size: without it, pdf.js inflates in JS (ensureBuffer).
+  delete globalThis.DecompressionStream
+  globalThis.ArrayBuffer = guard(ArrayBuffer, 1)
+  for (const C of [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]) {
+    globalThis[C.name] = guard(C, C.BYTES_PER_ELEMENT)
+  }
+}
 ;(async () => {
   const { getDocumentProxy } = await import(workerData.lib)
   const doc = await getDocumentProxy(new Uint8Array(workerData.bytes), {
@@ -120,7 +150,7 @@ export async function extractPdfText(bytes: Buffer, opts: { first: number; last:
       let settled = false
       const worker = new Worker(WORKER, {
         eval: true,
-        workerData: { lib: libUrl(), bytes, first: opts.first, last: opts.last, maxChars: opts.maxChars },
+        workerData: { lib: libUrl(), bytes, first: opts.first, last: opts.last, maxChars: opts.maxChars, bufferBytes: PDF_LIMITS.bufferMb * 1024 * 1024 },
         resourceLimits: { maxOldGenerationSizeMb: PDF_LIMITS.heapMb },
         stdout: true,
         stderr: true,

@@ -7,6 +7,7 @@ import {
 } from '@hocuspocus/provider'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { CollabUser } from '../components/OnlineUsers'
+import { guardAwareness, safeCursorColor } from './awarenessGuard'
 import { emitPageNotice } from './pageNotices'
 import { setCollabPendingCheck } from './update'
 import { createUnsavedTracker, showUnsaved, UNSAVED_SHOW_AFTER_MS } from './unsavedEdits'
@@ -257,6 +258,8 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       token: opts.token ?? 'cookie',
       onStateless,
     })
+    // before the editor's cursor plugin listens (sec26 E-1); the listener goes with the provider's awareness
+    guardAwareness(provider.awareness)
     let released = false
     live.add(provider)
     const untrack = trackUnsaved(provider, opts.document, opts.copy)
@@ -294,6 +297,7 @@ export function openCollab(opts: OpenCollabOptions): CollabHandle {
       s.denied.add(opts.name)
     },
   })
+  guardAwareness(provider.awareness) // as above (sec26 E-1)
   let released = false
   let destroyed = false
   live.add(provider)
@@ -348,7 +352,7 @@ export function readStatus(provider: HocuspocusProvider): 'connected' | 'connect
 
 type AwarenessLike = {
   clientID: number
-  getStates: () => Map<number, { user?: { name?: string; color?: string; id?: unknown } }>
+  getStates: () => Map<number, { user?: { name?: unknown; color?: unknown; id?: unknown } }>
 }
 
 export function readUsers(provider: HocuspocusProvider): CollabUser[] {
@@ -359,10 +363,11 @@ export function readUsers(provider: HocuspocusProvider): CollabUser[] {
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === selfId) return
     const user = state?.user
-    if (user?.name) {
+    // awareness is client-written: a name only as a string, a colour only as #rgb/#rrggbb (sec26 E-1)
+    if (user && typeof user.name === 'string' && user.name) {
       // the account id (docs/adr/1846-*); awareness is client-written, so it only picks a status to show
       const userId = typeof user.id === 'string' ? user.id : undefined
-      out.push({ clientId, name: user.name, color: user.color ?? '#888888', ...(userId ? { userId } : {}) })
+      out.push({ clientId, name: user.name, color: safeCursorColor(user.color), ...(userId ? { userId } : {}) })
     }
   })
   return out

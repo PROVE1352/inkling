@@ -18,7 +18,8 @@ import { api, qk, useMe, usePages } from '../../api'
 import { t, useT } from '../../i18n'
 import { pageOfEditor } from '../../lib/activeEditor'
 import { fetchCollectionFields } from '../../lib/automationsApi'
-import { createRunGuard, localToday, runButtonActions, type ButtonRunResult } from '../../lib/buttonRun'
+import { checkButtonTargets, createRunGuard, localToday, runButtonActions, type ButtonRunResult } from '../../lib/buttonRun'
+import { askConfirm } from '../../lib/confirm'
 import { insertFromSlash, type SlashEditor } from '../../lib/slashInsert'
 import { SettingsIcon } from '../Icons'
 import { Spinner } from '../Spinner'
@@ -101,6 +102,23 @@ function ButtonBlockView({ editor, block }: { editor: AnyEditor; block: { id: st
       setHostPageId(pageId)
       if (!pageId) {
         setResult({ kind: 'error', text: tt('button.onlyOnPage') })
+        return
+      }
+      // the databases it adds rows to: of this workspace, and named to the presser on the first press (sec26 E-2)
+      const targets = await checkButtonTargets(actions, block.id, {
+        collectionTitle: (id) => {
+          const c = pages.data?.find((p) => p.id === id && p.kind === 'collection')
+          return c ? c.title || tt('button.untitled') : null
+        },
+        confirm: (titles) => askConfirm(tt('button.confirmAddRow', { names: titles.join(', ') }), tt('common.confirm')),
+      })
+      if (!targets.ok) {
+        if (targets.reason === 'otherWorkspace') {
+          setResult({
+            kind: 'error',
+            text: tt('button.failedAt', { n: targets.failedIndex + 1, kind: tt(actionTypeKey('addRow')), message: tt('button.err.otherWorkspace') }),
+          })
+        }
         return
       }
       setRunning(true)

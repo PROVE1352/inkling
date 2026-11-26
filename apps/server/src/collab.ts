@@ -462,10 +462,17 @@ export const hocuspocus = new Hocuspocus({
   // message, after this hook, so an update sent after the page gained such a node is dropped
   // (SyncStatus false) even when the connection was authorised before. Cheap for current clients.
   async beforeHandleMessage({ connection, context, document, documentName, update }) {
+    const messageType = frameMessageType(update)
+    // Stateless broadcasts (0.25.4, sec26 D-1): Hocuspocus hands a client's BroadcastStateless to every
+    // connection of the document, read-only ones included, and the web app takes whatever arrives on that
+    // channel as the server's own notices (`schema` turned every editor read-only, `gen` set offline edits
+    // aside). Only the server sends them (broadcastToPage, sendStateless); no client of ours sends this
+    // type (@hocuspocus/provider 2.15.3 has no call for it), so it is refused from anyone.
+    if (messageType === BROADCAST_STATELESS_MESSAGE) refuseFrame(connection, 'a stateless broadcast')
     // Awareness (0.22.1 N1(c), collabAwareness.ts, every server): a message past the caps on client ids
     // or sizes is never applied, and the socket is closed. Read-only connections included: Hocuspocus
     // applies their awareness too.
-    if (frameMessageType(update) === AWARENESS_MESSAGE) {
+    if (messageType === AWARENESS_MESSAGE) {
       const ctx = (context ?? {}) as { awareness?: SocketAwareness }
       const why = admitAwarenessFrame(update, ctx, ctx.awareness, (document as unknown as { awareness?: AwarenessLike }).awareness)
       if (why) refuseFrame(connection, `awareness ${why}`)
@@ -667,8 +674,10 @@ function reconnectForSchema(conns: SchemaConnection[]): void {
 }
 /** Hocuspocus's message type of awareness frames. */
 const AWARENESS_MESSAGE = 1
+/** Hocuspocus's BroadcastStateless: a client asking the server to pass a payload to every connection. */
+const BROADCAST_STATELESS_MESSAGE = 6
 
-/** Close code of a socket that sent what no client of ours sends (an awareness flood, an update to the inbox). */
+/** Close code of a socket that sent what no client of ours sends (an awareness flood, an update to the inbox, a stateless broadcast). */
 export const REFUSED_FRAME_CODE = 4400
 
 /**

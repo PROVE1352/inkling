@@ -21,6 +21,7 @@ import { icalTokens, workspaceMembers, workspaces } from '../db/schema'
 import { twoFactorBlockedSql } from '../twoFactorPolicy'
 import { collectDateItems } from '../md/dateItems'
 import { publicOrigin } from '../oauth'
+import { addressKey } from '../rateLimitKey'
 
 const TOKEN_RE = /^([A-Za-z0-9_-]{43})\.ics$/
 const PAST_DAYS = 90
@@ -197,8 +198,8 @@ export async function registerIcalFeedRoute(app: FastifyInstance): Promise<void>
     '/ical/:file',
     {
       // Unauthenticated endpoint: keep it cheap to refuse. The global limiter skips non-/api GETs,
-      // so this route sets its own limit.
-      config: { rateLimit: { max: 30, timeWindow: '1 minute', allowList: () => false } },
+      // so this route sets its own limit, per address (the token is in the path, never a bearer).
+      config: { rateLimit: { max: 30, timeWindow: '1 minute', allowList: () => false, keyGenerator: addressKey('ical') } },
     },
     async (req, reply) => {
       // iCal feeds turned off (DISABLED_FEATURES, docs/adr/2507-*): existing tokens stop answering

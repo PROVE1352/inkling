@@ -29,12 +29,20 @@ PUBLIC_URL="${PUBLIC_URL:-$(env_public_url)}"
 PUBLIC_URL="${PUBLIC_URL:-https://notes.example.com}"
 PUBLIC_URL="${PUBLIC_URL%/}"
 
-# Alphabet without confusable characters (0/O, 1/I/L) — same rule as invite codes
+# Alphabet without confusable characters (0/O, 1/I/L) — same rule as invite codes. 28 characters in
+# groups of four (about 138 bits) from /dev/urandom, never bash $RANDOM: that is a 31-bit generator,
+# so a key's stored SHA-256 could be matched offline by trying every seed. Bytes of 248 and above are
+# dropped so each of the 31 characters is equally likely (248 = 8 × 31).
 gen_key() {
-  local alphabet='ABCDEFGHJKMNPQRSTUVWXYZ23456789' out='' i
-  for ((i = 0; i < 16; i++)); do
-    out+="${alphabet:$((RANDOM % ${#alphabet})):1}"
-    if ((i == 3 || i == 7 || i == 11)); then out+='-'; fi
+  local alphabet='ABCDEFGHJKMNPQRSTUVWXYZ23456789' out='' n=0 b
+  while ((n < 28)); do
+    for b in $(od -An -tu1 -N64 /dev/urandom); do
+      ((b < 248)) || continue
+      if ((n > 0 && n % 4 == 0)); then out+='-'; fi
+      out+="${alphabet:$((b % ${#alphabet})):1}"
+      n=$((n + 1))
+      ((n < 28)) || break
+    done
   done
   printf '%s' "$out"
 }

@@ -167,6 +167,12 @@ export const env = {
    * linklocal / uniquelocal presets). Default 'loopback,uniquelocal' covers both Caddy on the same
    * host (127.0.0.1) and the Docker bridge (172.16/12 etc.). Connections straight from the
    * internet do not match, so a forged XFF is ignored. 'false' never trusts XFF.
+   * Exception: a connection Docker's userland proxy forwards arrives from the bridge gateway, which
+   * this default trusts. That is the usual path of an IPv6 client when the host has IPv6 and the
+   * container network does not: with the app port published, its own XFF is believed; behind the
+   * Caddy overlay, every IPv6 client counts as the gateway's one address (bans and limits shared).
+   * There, set TRUST_PROXY to the proxy's own address and give the network IPv6 or keep the
+   * published ports IPv4-only (0.25.4 review F-2; operator steps in docs/OPERATIONS.md).
    */
   trustProxy: ((): string[] | false => {
     const raw = (process.env.TRUST_PROXY?.trim() || 'loopback,uniquelocal').trim()

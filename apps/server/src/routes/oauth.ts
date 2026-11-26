@@ -32,6 +32,8 @@ import {
   verifyPkce,
 } from '../oauth'
 import { insertDynamicClient } from '../oauthClientCleanup'
+import { addressKey } from '../rateLimitKey'
+import { ipPrefixKey } from '../ipPrefix'
 import { resourceWithoutProfile } from '../mcpProfile'
 import { isInstanceFull } from '../quota/instance'
 import { suggestOnlyStates } from '../agentTaint'
@@ -59,8 +61,9 @@ import type { CimdClient } from '../oauthCimd'
  *   DELETE /api/agent-tokens/:id       revoke (range changes: PATCH /api/oauth/grants/:id)
  */
 
-// strict per-IP limits for the token / registration endpoints
-const strictRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute' } }
+// strict per-address limits for the token / registration endpoints: keyed by the address alone
+// (rateLimitKey.ts addressKey), as these routes never check a bearer (0.25.4 A-F1)
+const strictRateLimit = { rateLimit: { max: 20, timeWindow: '1 minute', keyGenerator: addressKey('oauth') } }
 
 /** RFC 6749 §5.2 error response */
 function oauthError(
@@ -331,7 +334,7 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
       // unless a previously valid document is still cached.
       if (isUrlClientId(grant.clientId)) {
         try {
-          await resolveCimdClient(grant.clientId, publicOrigin(req))
+          await resolveCimdClient(grant.clientId, publicOrigin(req), `user:${grant.userId}`)
         } catch (e) {
           if (!(e instanceof CimdError)) throw e
           if (e.kind === 'transient') return oauthError(reply, 503, 'temporarily_unavailable', e.message)
@@ -425,7 +428,8 @@ const authorizeBodySchema = authorizeQuerySchema.extend({
  */
 async function cimdClientFor(req: FastifyRequest, clientId: string): Promise<CimdClient> {
   try {
-    return await resolveCimdClient(clientId, publicOrigin(req))
+    // the signed-in account's share of the fetch budget (D-5); routes reaching here require a session
+    return await resolveCimdClient(clientId, publicOrigin(req), req.user ? `user:${req.user.id}` : `addr:${ipPrefixKey(req.ip, 64)}`)
   } catch (e) {
     if (!(e instanceof CimdError)) throw e
     if (e.code === 'disabled') throw new AppError(400, 'INVALID_CLIENT', 'Unknown app. Connect again from the app.')

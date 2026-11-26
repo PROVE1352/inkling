@@ -80,29 +80,53 @@ export function newTempPassword(): string {
 
 /**
  * Masks bearer secrets in a request URL before it is logged (C-L8): path tokens of the iCal feed
- * (/ical/<token>.ics), public shares (/api/public/<token>…, /s/<token>) and secret-looking query
- * parameters (code, token, key, secret, password, state, refresh_token, …).
+ * (/ical/<token>.ics), public shares (/api/public/<token>…, /s/<token>), public forms
+ * (/api/public/forms/<token>, /f/<token>), workspace invite codes (/join/<code>), page invites
+ * (/api/page-invites/<token>, /invite/page/<token>), signup keys in admin paths, secret-looking query
+ * parameters (code, token, key, secret, password, state, refresh_token, …), and a sign-in redirect
+ * (`next`, `returnTo`) that points at any of these (0.25.4 security fix F-3 / E-3).
  */
 export function maskUrlSecrets(url: string): string {
+  return maskUrl(url, 0)
+}
+
+const PATH_SECRETS: RegExp[] = [
+  /^(\/ical\/)[^/?]+/i,
+  /^(\/api\/public\/forms\/)[^/?]+/i,
+  /^(\/api\/public\/)(?!forms(?:\/|$))[^/?]+/i,
+  /^(\/s\/)[^/?]+/i,
+  /^(\/f\/)[^/?]+/i,
+  /^(\/join\/)[^/?]+/i,
+  /^(\/invite\/page\/)[^/?]+/i,
+  /^(\/api\/page-invites\/)[^/?]+/i,
+  /^(\/api\/admin\/signup-keys\/)[^/?]+/i,
+]
+const SECRET_QUERY = /^(code|token|key|secret|password|state|code_verifier|refresh_token|access_token|signup_?key|invite(_?code)?)$/i
+/** Query parameters that hold an in-app path (sign-in redirects): masked as a URL of their own. */
+const REDIRECT_QUERY = /^(next|returnTo|return_to|redirect)$/i
+
+function maskUrl(url: string, depth: number): string {
   if (!url) return url
   const q = url.indexOf('?')
   let pathPart = q >= 0 ? url.slice(0, q) : url
   const query = q >= 0 ? url.slice(q + 1) : ''
-  pathPart = pathPart
-    .replace(/^(\/ical\/)[^/?]+/i, '$1***')
-    .replace(/^(\/api\/public\/)[^/?]+/i, '$1***')
-    .replace(/^(\/s\/)[^/?]+/i, '$1***')
+  for (const re of PATH_SECRETS) pathPart = pathPart.replace(re, '$1***')
   if (!query) return pathPart
   const masked = query
     .split('&')
     .map((kv) => {
       const eq = kv.indexOf('=')
-      const k = eq >= 0 ? kv.slice(0, eq) : kv
-      return /^(code|token|key|secret|password|state|code_verifier|refresh_token|access_token|signup_?key|invite(_?code)?)$/i.test(
-        decodeURIComponentSafe(k),
-      ) && eq >= 0
-        ? `${k}=***`
-        : kv
+      if (eq < 0) return kv
+      const k = decodeURIComponentSafe(kv.slice(0, eq))
+      if (SECRET_QUERY.test(k)) return `${kv.slice(0, eq)}=***`
+      if (REDIRECT_QUERY.test(k)) {
+        // a nested redirect inside a redirect is not followed further: masked whole
+        if (depth > 0) return `${kv.slice(0, eq)}=***`
+        const inner = decodeURIComponentSafe(kv.slice(eq + 1).replace(/\+/g, ' '))
+        const out = maskUrl(inner, depth + 1)
+        return out === inner ? kv : `${kv.slice(0, eq)}=${encodeURIComponent(out)}`
+      }
+      return kv
     })
     .join('&')
   return `${pathPart}?${masked}`

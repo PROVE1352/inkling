@@ -50,9 +50,10 @@ import { isManagerRole, recordAudit } from '../workspaceAdmin'
 import { liveWorkspace } from '../workspaceLive'
 import { requestLocale } from '../i18n'
 import { PUBLIC_FORM_VIA } from '../agentVia'
+import { addressKey } from '../rateLimitKey'
 
-/** Visitors' reads: as gentle as the other public routes. */
-const FORM_READ_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute' } }
+/** Visitors' reads: as gentle as the other public routes; per address (rateLimitKey.ts addressKey). */
+const FORM_READ_LIMIT = { rateLimit: { max: 60, timeWindow: '1 minute', keyGenerator: addressKey('form') } }
 /** Visitors' answers per IP. */
 export const FORM_SUBMIT_PER_MINUTE = 10
 /** Answers one form takes per hour, whatever their source (a distributed flood fills nothing more). */
@@ -299,7 +300,7 @@ export async function registerFormRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/public/forms/:token',
     {
-      config: { rateLimit: { max: FORM_SUBMIT_PER_MINUTE, timeWindow: '1 minute' } },
+      config: { rateLimit: { max: FORM_SUBMIT_PER_MINUTE, timeWindow: '1 minute', keyGenerator: addressKey('form-submit') } },
       bodyLimit: FORM_LIMITS.bodyBytes,
     },
     async (req, reply) => {

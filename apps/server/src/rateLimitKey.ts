@@ -23,3 +23,15 @@ export function rateLimitKey(req: FastifyRequest): string {
   }
   return ipPrefixKey(req.ip, 64)
 }
+
+/**
+ * Key for a route's own limit when the route is reached without signing in (sign-in, sign-up, OAuth
+ * registration and token, OIDC, public links and forms, iCal feeds, share previews): the address only,
+ * IPv6 as its /64. Such a route never looks at a bearer, so with the global key above a made-up
+ * `Bearer ink_pat_…` per request would be a fresh bucket each time and the limit would never run out
+ * (0.25.4 security fix A-F1). `scope` keeps the keys of different routes apart in logs; each route has
+ * its own counter anyway. rateLimitByAddress.test.ts fails for a new unauthenticated route without it.
+ */
+export function addressKey(scope: string): (req: FastifyRequest) => string {
+  return (req) => `${scope}-${ipPrefixKey(req.ip, 64)}`
+}

@@ -118,6 +118,14 @@ export function parseWebhookUrl(raw: string, kindHint?: WebhookKind): { url: str
  * is kept (some receivers put a routing key there). The synchronous safeFetch checks run here
  * (scheme, port, literal private addresses, localhost); `assertPublicWebhookHost` adds DNS.
  */
+/**
+ * One answer for a host that does not resolve and one that resolves to an internal address, at save
+ * time and in a test send or delivery: telling them apart lets a workspace owner map internal DNS
+ * names (0.25.4 security fix D-4). Link previews answer every failure alike for the same reason.
+ */
+export const NOT_PUBLIC_HOST_MESSAGE = 'Webhook URL must point to a public internet address'
+export const NOT_PUBLIC_HOST_ERROR = 'host_unreachable'
+
 function parseGenericUrl(u: URL): string {
   if (u.protocol !== 'https:') throw new WebhookUrlError('Webhook URL must start with https://')
   if (u.username || u.password) throw new WebhookUrlError('Webhook URL must not contain a user name or password')
@@ -126,7 +134,7 @@ function parseGenericUrl(u: URL): string {
   try {
     validateUrl(u, { allowedPorts: [443] })
   } catch (e) {
-    if (e instanceof SafeFetchError) throw new WebhookUrlError('Webhook URL must point to a public internet address')
+    if (e instanceof SafeFetchError) throw new WebhookUrlError(NOT_PUBLIC_HOST_MESSAGE)
     throw e
   }
   return u.href
@@ -142,8 +150,7 @@ export async function assertPublicWebhookHost(url: string): Promise<void> {
   try {
     await resolvePublic(u.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase())
   } catch (e) {
-    if (e instanceof SafeFetchError && e.code === 'dns_failed') throw new WebhookUrlError('The webhook host could not be resolved')
-    if (e instanceof SafeFetchError) throw new WebhookUrlError('Webhook URL must point to a public internet address')
+    if (e instanceof SafeFetchError) throw new WebhookUrlError(NOT_PUBLIC_HOST_MESSAGE)
     throw e
   }
 }
@@ -619,7 +626,9 @@ export async function deliver(
   } catch (e) {
     const code = e instanceof SafeFetchError ? e.code : 'network'
     const retryable = code === 'timeout' || code === 'network' || code === 'dns_failed'
-    return { ok: false, retryable, error: code, durationMs: elapsed() }
+    // the owner sees `error` (test send, delivery log, last error): one word for both (D-4)
+    const error = code === 'dns_failed' || code === 'blocked_address' ? NOT_PUBLIC_HOST_ERROR : code
+    return { ok: false, retryable, error, durationMs: elapsed() }
   }
 }
 

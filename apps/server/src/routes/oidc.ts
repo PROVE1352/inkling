@@ -40,6 +40,7 @@ import {
 import { createLoginChallenge, twoFactorEnabled } from '../twoFactor'
 import { assertWorkspacesTotalRoom } from '../quota/room'
 import { instanceFullError, isInstanceFull } from '../quota/instance'
+import { addressKey } from '../rateLimitKey'
 
 /**
  * Sign-in with an OpenID Connect provider (docs/adr/1160-*, 1161-*, 1162-*).
@@ -61,7 +62,8 @@ const COOKIE_PATH = '/api/auth/oidc'
 export const STATE_TTL_MS = 10 * 60_000
 
 // Many people of one office can sign in at nine through one NAT address: looser than password sign-in.
-const oidcRateLimit = { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }
+// Keyed by the address alone (rateLimitKey.ts addressKey): start and callback never check a bearer.
+const oidcRateLimit = { config: { rateLimit: { max: 30, timeWindow: '1 minute', keyGenerator: addressKey('oidc') } } }
 
 function isUniqueViolation(err: unknown): boolean {
   const e = err as { code?: string; cause?: { code?: string } } | null

@@ -31,6 +31,7 @@ import { parseFileUrl } from '../md/convert'
 import { shareGated, shareNotStarted } from '../shareAccess'
 import { buildFolderShare, findSharedPageByToken } from './public'
 import type { SharedPage } from './public'
+import { addressKey } from '../rateLimitKey'
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{1,128}$/
 const REF_RE = /^[A-Za-z0-9_-]{22}$/
@@ -39,8 +40,8 @@ const SITE_NAME = 'Inkling'
 const UNTITLED = 'Untitled'
 
 const RATE_LIMIT = {
-  // Non-API GETs are on the global limiter's allowList; this route does a DB lookup, so meter it.
-  rateLimit: { max: 120, timeWindow: '1 minute', allowList: () => false },
+  // Non-API GETs are on the global limiter's allowList; this route does a DB lookup, so meter it (per address).
+  rateLimit: { max: 120, timeWindow: '1 minute', allowList: () => false, keyGenerator: addressKey('share-meta') },
 }
 
 export function escapeHtml(s: string): string {

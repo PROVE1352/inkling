@@ -37,3 +37,7 @@ agent is gone.
 ## References
 - apps/server/src/notify/engine.ts, apps/server/src/routes/inbox.ts, apps/server/src/routes/notifications.ts,
   apps/server/src/teamAgents.ts (handBackConnections), apps/server/drizzle/0046_wave13_team_agents.sql
+
+## Amended in 0.25.4
+- The copy setting now matters only for items a person hands to their own connections. An item someone
+  else hands to a connection always reaches the connection's person too (docs/adr/2576-*).

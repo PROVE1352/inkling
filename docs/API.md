@@ -2103,3 +2103,53 @@ No route added or removed, no migration (docs/adr/2540-* .. 2551-*). What a clie
 - **AI steps** (`GET /api/pages/:id/snapshots`, `step`): an agent's `update_page` replace has no `added` and
   `removed` when the new body has more than 2,000 blocks or more than 262,144 characters of Markdown, as when the
   page had more than 2,000 blocks before (docs/adr/2551-*).
+
+## v0.25.4 changes
+
+Security fixes (docs/adr/2572-* .. 2585-*); migration 0064. What a client or an integration can notice:
+
+- **New routes, browser session only** (a token gets 403 like the other session-only routes; docs/adr/2580-*):
+  - `GET /api/me/agent-pending-workspaces` → `{ workspaces: AgentPendingWorkspaceDTO[] }`, each
+    `{ workspaceId, workspaceName, addedByName: string | null, addedAt }`: workspaces someone else added me to that my
+    agents do not see yet.
+  - `POST /api/workspaces/:id/agent-include` → `{ workspaceId }`: include it for my agents. Only my own membership
+    changes; 404 when I am not a member. Sending it again answers the same.
+- **Direct adds** (`POST /api/workspaces/:id/members`): the new membership waits for the added person's agents. People
+  see the workspace at once; that person's tokens and connections whose range is "all" answer 403 `OUT_OF_RANGE`
+  ("Someone else added this person to this workspace, and they have not included it for their agents yet …") and
+  leave it out of every list. Members who made the workspace, joined with a link or code, or were in before 0.25.4 are
+  included.
+- **Notifications and inbox**: a `workspace_added` item carries `agentsPending: true` while that workspace waits. An
+  item another person hands to my connection is listed in `GET /api/notifications` whatever `agentHandoffCopy` says
+  (the setting applies to my own hand-offs). `GET /api/inbox` items add `byOther: true` for such hand-offs.
+- **Agent instructions**: `GET /api/workspaces/:id/agent-instructions/bundle` adds `workspaceName`. An instruction page
+  takes only suggestions from agents: a bearer write to its body becomes a suggestion that is never auto-accepted, and
+  rename, move, trash, version restore and split answer 403 `PAGE_LOCKED`.
+- **Edit policy**: `POST /api/pages/:id/snapshots/:sid/restore` and `POST /api/pages/:id/split` (not `preview`) answer
+  403 `PAGE_LOCKED` to agents when the page's policy is auto or review; people are unchanged.
+- **Claims**: `POST /api/pages/:id/claims` answers 429 `TOO_MANY_CLAIMS` when the account's connections already hold
+  60 live claims together (20 per connection as before).
+- **Suggest-only releases**: `POST /api/workspaces/:id/agent-connections/release` by a workspace owner/admin lifts the
+  source only inside that workspace; the connection's owner lifts it everywhere and takes over earlier admin releases
+  (`released` counts them).
+- **Section conflicts**: the 409 of `POST /api/pages/:id/section` and `POST /api/pages/:id/sections` hands over the
+  current text, so for a personal API token it counts as a read of those sections (suggest-only rule). The body is
+  unchanged.
+- **Uploads through a connection** (`POST /api/files` with a bearer token): the daily budget is counted again when the
+  file is stored, so a request can get 429 `UPLOAD_BUDGET` after its body was read. A zip import through a connection
+  skips the attachments past the budget and reports them.
+- **Page access**: `DELETE /api/pages/:id/access/:userId` for my own row answers 403 when removing it would raise my
+  level. `PUT /api/pages/:id/access { email }` for an account that is not verified and not in the workspace answers
+  like an address without an account (an invitation), and such accounts are not in the candidates. `GET
+  /api/pages/:id/access` gives guests' `email` as `''` unless the caller manages the list or may add guests. A page
+  owner whose own level is below edit gets `canManage: false` and 403 from the lock and agent-rules routes. `PATCH
+  /api/pages/:id { scope: 'private' }` on a shared page without an author is for owners and admins (403 / 400).
+- **Files**: `GET /files/:id` answers 403 `OUT_OF_RANGE` to a connection limited to a subtree for a file without a
+  page, and the zip export of `GET /api/pages/:id/export` leaves such files out for it.
+- **Webhooks**: saving answers "Webhook URL must point to a public internet address" both for a host that does not
+  resolve and for one that is not public; a delivery to either records `host_unreachable`.
+- **Rate limits**: the routes without sign-in that have a limit of their own count by client address (IPv6 by /64)
+  whatever `Authorization` header they get.
+- **Collaboration socket**: a client message of the stateless-broadcast type cuts the socket (close 4400). Awareness
+  states are cleaned on the way through: a `user.color` that is not `#rgb`/`#rrggbb` becomes `#888888` (or is dropped
+  where that does not fit), a `user.name` that is not a string and a `user` that is not an object are dropped.

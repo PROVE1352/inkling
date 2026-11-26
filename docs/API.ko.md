@@ -1955,3 +1955,51 @@ OAuth 라우트는 OAuth 오류 형식(`{ error, error_description }`)으로 답
 - **AI 단계**(`GET /api/pages/:id/snapshots`의 `step`): 에이전트의 `update_page` replace는 새 본문이 2,000블록을 넘거나
   마크다운이 262,144자를 넘으면 `added`와 `removed`가 없습니다. 원래 페이지가 2,000블록을 넘었을 때와 같습니다
   (docs/adr/2551-*).
+
+<a id="v0254-changes"></a>
+## v0.25.4 변경 사항
+
+보안 수정입니다(docs/adr/2572-* .. 2585-*). 마이그레이션 0064가 있습니다. 클라이언트나 연동 쪽에서 알아챌 수 있는 것은 아래와 같습니다.
+
+- **새 경로, 브라우저 세션 전용**(토큰으로 부르면 다른 세션 전용 경로처럼 403입니다. docs/adr/2580-*):
+  - `GET /api/me/agent-pending-workspaces` → `{ workspaces: AgentPendingWorkspaceDTO[] }`. 항목은
+    `{ workspaceId, workspaceName, addedByName: string | null, addedAt }`이고, 다른 사람이 나를 넣었지만 내 에이전트는
+    아직 못 보는 워크스페이스들입니다.
+  - `POST /api/workspaces/:id/agent-include` → `{ workspaceId }`. 내 에이전트에게 그 워크스페이스를 포함합니다. 바뀌는 것은
+    내 멤버십뿐이고, 멤버가 아니면 404입니다. 다시 보내도 같은 답이 옵니다.
+- **직접 추가**(`POST /api/workspaces/:id/members`): 새 멤버십은 추가된 사람의 에이전트를 기다리게 합니다. 사람에게는 바로
+  보입니다. 그 사람의 토큰과 범위가 "전체"인 연결은 403 `OUT_OF_RANGE`("Someone else added this person to this workspace,
+  and they have not included it for their agents yet …")로 답하고, 모든 목록에서 그 워크스페이스를 뺍니다. 워크스페이스를
+  만든 사람, 링크나 코드로 들어온 사람, 0.25.4 전부터 있던 멤버는 포함된 상태입니다.
+- **알림과 inbox**: 워크스페이스가 기다리는 동안 `workspace_added` 항목에 `agentsPending: true`가 붙습니다. 다른 사람이 내
+  연결에 넘긴 항목은 `agentHandoffCopy`와 상관없이 `GET /api/notifications`에 나옵니다(이 설정은 내가 넘긴 것에만
+  적용됩니다). `GET /api/inbox` 항목에는 그런 넘기기에 `byOther: true`가 붙습니다.
+- **에이전트 지침**: `GET /api/workspaces/:id/agent-instructions/bundle`에 `workspaceName`이 더해졌습니다. 지침 페이지는
+  에이전트에게서 제안만 받습니다. bearer로 본문을 쓰면 자동 수락되지 않는 제안이 되고, 이름 바꾸기, 옮기기, 휴지통, 버전
+  복원, 나누기는 403 `PAGE_LOCKED`로 답합니다.
+- **편집 방식**: 페이지 방식이 auto나 review이면 `POST /api/pages/:id/snapshots/:sid/restore`와 `POST /api/pages/:id/split`
+  (`preview` 말고)이 에이전트에게 403 `PAGE_LOCKED`로 답합니다. 사람은 그대로입니다.
+- **섹션 잡기**: 한 계정의 연결들이 이미 살아 있는 claim 60개를 함께 잡고 있으면 `POST /api/pages/:id/claims`가 429
+  `TOO_MANY_CLAIMS`로 답합니다(연결 하나는 예전처럼 20개).
+- **제안만 상태 풀기**: 워크스페이스 소유자·관리자가 `POST /api/workspaces/:id/agent-connections/release`로 푼 출처는 그
+  워크스페이스 안에서만 풀립니다. 연결의 주인이 풀면 모든 곳에서 풀리고, 앞서 관리자가 푼 것도 이어받습니다(`released`에
+  함께 셉니다).
+- **섹션 충돌**: `POST /api/pages/:id/section`과 `POST /api/pages/:id/sections`의 409는 지금 글을 건네주므로, 개인 API
+  토큰에게는 그 섹션을 읽은 것으로 칩니다(제안만 규칙). 응답 본문은 그대로입니다.
+- **연결을 통한 업로드**(bearer 토큰으로 `POST /api/files`): 파일을 저장할 때 하루 예산을 다시 셉니다. 그래서 본문을 다
+  읽은 뒤에 429 `UPLOAD_BUDGET`이 올 수 있습니다. 연결로 가져온 zip은 예산을 넘긴 뒤의 첨부를 건너뛰고 알려 줍니다.
+- **페이지 접근**: 내 행을 `DELETE /api/pages/:id/access/:userId`로 지울 때 내 수준이 올라가게 되면 403입니다. 인증되지
+  않았고 워크스페이스에도 없는 계정에 `PUT /api/pages/:id/access { email }`을 하면 계정이 없는 주소처럼 답하고(초대),
+  그런 계정은 후보에 나오지 않습니다. `GET /api/pages/:id/access`는 목록을 관리하거나 게스트를 추가할 수 있는 사람이 아니면
+  게스트의 `email`을 `''`로 줍니다. 자기 수준이 편집보다 낮은 페이지 소유자는 `canManage: false`를 받고, 잠금과 에이전트
+  규칙 경로에서 403을 받습니다. 작성자가 없는 공유 페이지에 `PATCH /api/pages/:id { scope: 'private' }`를 하는 것은
+  소유자와 관리자만 됩니다(403 / 400).
+- **파일**: 하위 트리로 범위를 좁힌 연결이 페이지 없는 파일을 `GET /files/:id`로 부르면 403 `OUT_OF_RANGE`이고,
+  `GET /api/pages/:id/export`의 zip에서도 그런 파일은 빠집니다.
+- **웹훅**: 저장할 때 이름이 풀리지 않는 호스트와 공인 주소가 아닌 호스트 둘 다 "Webhook URL must point to a public internet
+  address"로 답하고, 둘 중 어느 쪽으로 보내든 `host_unreachable`로 기록합니다.
+- **요청 제한**: 로그인 없이 쓰는 경로 가운데 자체 제한이 있는 것은 `Authorization` 헤더와 상관없이 클라이언트 주소(IPv6는
+  /64)로 셉니다.
+- **협업 소켓**: 클라이언트가 stateless broadcast 종류의 메시지를 보내면 소켓을 끊습니다(close 4400). awareness 상태는
+  지나가면서 정리합니다. `#rgb`/`#rrggbb`가 아닌 `user.color`는 `#888888`이 되고(자리가 안 맞으면 빠집니다), 문자열이 아닌
+  `user.name`과 객체가 아닌 `user`는 빠집니다.

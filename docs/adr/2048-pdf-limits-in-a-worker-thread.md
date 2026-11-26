@@ -36,3 +36,8 @@ event loop busy or grow memory. Page-level yielding does not bound a single slow
 
 ## References
 - apps/server/src/pdfText.ts (`PDF_LIMITS`, `extractPdfText`), apps/server/src/mcpTools/historyInkFileTools.ts (`readPdf`)
+
+## Amended in 0.25.4
+- `PDF_LIMITS.bufferMb` (128): inside the worker, an allocation of 1 MB or more that would take the
+  worker's ArrayBuffer memory above it throws, and `DecompressionStream` is removed so pdf.js inflates in
+  JavaScript, where that check sees it. A compression bomb ends as "PDF buffer budget exceeded".

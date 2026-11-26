@@ -1051,6 +1051,20 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2555](2555-trial-accounts-without-sign-up.md) | Trial accounts without sign-up (TRIAL_ACCOUNTS) | Accepted |
 | [2557](2557-claims-and-suggestions-reach-open-pages-at-once.md) | Claims and suggestions reach an open page at once (a contentless notice on the collab document) | Accepted |
 
+## 2570–2589 Security fixes (0.25.4)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2572](2572-workspace-admin-release-lifts-suggest-only-in-that-workspace-only.md) | A workspace admin's release lifts suggest-only in that workspace only | Accepted (amends 2042) |
+| [2573](2573-conflict-text-as-data-one-line-member-strings-and-wider-marker-escape.md) | Conflict text is data, member strings outside a wrapper are one line, markers escape across gaps | Accepted (amends 0975, 0976) |
+| [2576](2576-hand-offs-from-another-person-reach-the-person.md) | A hand-off from another person always reaches the connection's person, and the inbox says who asked | Accepted |
+| [2577](2577-restore-and-split-follow-the-agent-edit-policy.md) | Restore and split follow the agent edit policy; a grace-period accept needs a live connection | Accepted |
+| [2578](2578-per-person-caps-on-claims-and-the-upload-budget.md) | Per-person cap on section claims; the upload budget is checked again when the file is stored | Accepted |
+| [2579](2579-agents-only-suggest-on-instruction-pages.md) | Agents only suggest changes to agent-instruction pages | Accepted |
+| [2580](2580-workspaces-added-by-others-wait-for-agents.md) | Workspaces someone else added you to wait before your agents see them | Accepted |
+| [2584](2584-second-factor-backoff-has-its-own-map.md) | The two-step code backoff has a map of its own, chosen by the code | Accepted |
+| [2585](2585-failed-query-logs-through-one-wrapper.md) | Failed-query errors reach the log through logSafeError, console included | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

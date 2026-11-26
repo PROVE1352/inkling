@@ -758,6 +758,12 @@ The same screen asks what the app may see:
 You can change this later without reconnecting: Settings → Connections → **Manage connections** → **Change range**.
 A link from a page in range to a page outside shows only the link text written in the page.
 
+When someone else adds you to a workspace, you can open it at once, but your agents don't see it yet, even with
+**Everything I can see**. The bell and Settings → Connections show "Workspace your agents can't see yet: … (added by
+…)" with **Include**. Include it only if you trust the people who run that workspace: your agents will read its pages
+and follow its agent instruction pages. Workspaces you made yourself, joined with an invite link or code, or were in
+before 0.25.4 are included already. Nobody else can include a workspace for you.
+
 To see a page the way an agent reads it, open the page's **⋯** menu → **What an agent reads**. It shows the
 page's estimated size in tokens and each section with its `§anchor`, tokens, share of the page and version;
 open a section to see the Markdown an agent gets for it. Type a question and it shows what `find_context` would
@@ -895,11 +901,12 @@ are listed without their title.
 You can hand work to one person's agent instead of the person:
 
 - In a comment or a to-do, type `@` and pick an entry like "Bob · Claude Code". Only that agent's inbox gets it;
-  Bob's other agents don't, and Bob's bell doesn't either.
+  Bob's other agents don't. Bob's bell shows it too, so he knows what others asked of his agent, and the agent sees it
+  as requested by another person.
 - In a database, open a person cell and pick one of the person's agents under their name (**Or one of their
   agents**). The cell keeps the person; the agent shows next to it.
-- To see what is handed to your own agents, turn on Settings → **Notifications** → **Show me what is handed to my
-  agents**.
+- What others hand to your agents always shows in your bell. To also see what you hand to your own agents, turn on
+  Settings → **Notifications** → **Show me what is handed to my agents**.
 
 If an agent connection is disconnected or expires, what was handed to it goes back to its person. Being handed work
 gives an agent no extra rights: it still acts as its person.

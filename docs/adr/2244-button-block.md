@@ -43,3 +43,9 @@ links, printed, exported, synced to a vault and read by agents.
   components/blocks/ButtonBlock.tsx, lib/buttonRun.ts.
 - Tests: notationRoundTrip.test.ts (button element), ButtonCompat.test.ts (an old schema loses only the
   button), automations.db.test.ts (button webhook), buttonRun.test.ts.
+
+## Amended in 0.25.4
+- `addRow` runs only for databases of this workspace that the person pressing sees; any other target stops
+  the button before its first action. The first press of a button in a tab asks once, naming the
+  databases it adds rows to. The risk stays that a button's author picks targets the person pressing would
+  not have chosen; the author still gains no right.

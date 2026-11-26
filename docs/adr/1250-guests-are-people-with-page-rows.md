@@ -67,3 +67,10 @@ another workspace's content on all but one path.
 - Notion: guests per page with view/comment/edit/full, a workspace setting for who may invite guests,
   and a guest list in Settings. https://www.notion.com/help/add-members-admins-guests-and-groups
 - Confluence: guests limited to one space; Outline: guests on the paid plan (competitor survey).
+
+## Amended in 0.25.4
+- An address that belongs to an account is given a row at once only when the account is verified
+  (`email_verified_at`, or an OIDC or delegated origin), or is already a member or guest of this workspace.
+  Any other address gets an invitation, like an address without an account, and such accounts are not in
+  the candidate list. Rows given to unverified accounts before 0.25.4 stay; admins see them in the guest list.
+- A guest's email in the access list is shown only to people who manage the list or may add guests.

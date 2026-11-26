@@ -345,6 +345,14 @@ the web build wrote to `WEB_DIST/build.json`; docs/adr/0990-*). What they do is 
 
 - Forced account deletion (admin): the user's private pages go to the trash with no owner. They are visible to nobody, admins included, and are purged after 30 days. Deletion is refused with 409 while the user is the sole owner of a workspace; transfer ownership first.
 - Ownerless private pages created before this behaviour (by older versions) stay hidden and are not deleted.
+- Signup keys made with `./deploy/signup-key.sh` are 28 characters (seven groups of four) since 0.25.4; the admin
+  screen still makes 16. Both are accepted, and keys made earlier stay valid.
+- `./deploy/reset-password.sh` ends every login of the account: browser sessions, MCP and agent connections, API
+  tokens and the iCal URL, as a password change in the app does. Editor tabs already open stay connected until
+  `docker compose restart app`.
+- Sharing a page by email with an account that is not verified, and not already a member or guest of the workspace,
+  sends an invitation instead of a row (0.25.4). Rows such accounts got before stay: look at each workspace's guest
+  list once after the upgrade.
 
 - OpenID Connect: a person's connected sign-ins are listed in `user_identities` (issuer, subject, user). The app has no "disconnect" yet; remove a wrong connection with `DELETE FROM user_identities WHERE user_id = '<id>' AND issuer = '<issuer>'`. Changing `OIDC_ISSUER` does not move connections: people connect again in Settings › Account (or are linked by verified email with `OIDC_LINK_EXISTING=1`).
 
@@ -686,7 +694,8 @@ only route where a visitor without an account writes data.
   `403 CONNECTION_SUGGEST_ONLY`. On in every workspace after the upgrade.
 - Turn it off per workspace: Workspace settings › Connected agents › Suspicious content (owners and admins). Lift it
   early for one connection: its owner in Settings › Connections (**Allow edits again**), or a workspace owner/admin on
-  the team agents board (**Allow edits here**, for content that was in that workspace).
+  the team agents board (**Allow edits here**, for content that was in that workspace). Since 0.25.4 an admin's
+  release holds only in that workspace; only the connection's owner lifts it everywhere (docs/adr/2572-*).
 - The audit log shows `agent.tainted` (the source page or file and the rules, never the text) and
   `agent.taint_released`. Refused writes are not audited one by one.
 - The hourly housekeeping deletes `connection_taints` rows older than 30 days.
@@ -712,6 +721,8 @@ only route where a visitor without an account writes data.
 - Each call parses in a short-lived worker thread: 256 MB heap cap, 10 s wall time, at most two PDFs at once per
   process (more wait for a slot); files over 20 MB are not parsed (metadata only), at most 50 pages per call. Nothing
   to configure. No OCR: scanned PDFs have no text.
+- Since 0.25.4 the worker also keeps its ArrayBuffer memory under 128 MB (`PDF_LIMITS.bufferMb`); a PDF that would
+  inflate past it fails with "PDF buffer budget exceeded" instead of growing the process.
 
 ## 11. Local trial, setup link, zips, versions and diagrams (0.17)
 
@@ -1306,6 +1317,21 @@ that whatever the fuse misses cannot fill the disk the main instance uses.
   address. Set `TRUST_PROXY` to your reverse proxy's address only, and do not publish the app port beyond
   `127.0.0.1`. A sign-up that arrives from a private or loopback address is logged once as a hint that the proxy
   does not send the header.
+- **IPv6 and Docker's userland proxy.** On a host with an IPv6 address, Docker's default userland proxy takes IPv6
+  connections to a published port and reconnects to the container from the bridge gateway (172.x.0.1), which the
+  default `TRUST_PROXY` trusts. With the app port published, an IPv6 client's own `X-Forwarded-For` is then believed
+  (bans and the sign-up, trial and request limits no longer see its address); behind the Caddy container every IPv6
+  user counts as the one gateway address. What to do:
+  1. Do not publish the app port: `INKLING_PORT=127.0.0.1:3000` behind a proxy on the host (the Caddy overlay already
+     closes it).
+  2. Narrow `TRUST_PROXY` to your proxy: `loopback` for Caddy or nginx on the host; for the Caddy container, give the
+     compose network a fixed subnet and Caddy a fixed address, and name that address.
+  3. To count IPv6 users behind the Caddy container one by one, turn on IPv6 for the Docker network
+     (`enable_ipv6: true`, with `ip6tables` in the daemon), or publish 443 on IPv4 only (`0.0.0.0:443:443`).
+  4. Check: connect over IPv6 and look at `remoteAddress` in the request log or at the admin IP-ban list; it should be
+     your /64, not 172.x.
+  IPv4 connections keep their source address (Docker forwards them with DNAT). This was worked out from Docker's
+  defaults and the compose files, not tried on a real IPv6 host.
 - The sign-up limits count an IPv6 client by its /56 (one subscriber usually holds at least that much), an IPv4
   client by its address, and an IPv4-mapped IPv6 address as the IPv4 address. The request rate limit of every server
   counts IPv6 by /64; the sign-in failure bans are unchanged.
@@ -1464,3 +1490,24 @@ This applies to every server, with or without limits (docs/adr/2550-*, 2551-*).
 - The demo preset runs a 448 MB heap in a 768 MB container, and app, database and backup get `memswap_limit` equal to
   `mem_limit`, so a container that runs out is stopped and restarted instead of using the host's swap; `demo.sh`
   refuses a configuration without these limits ([DEMO.md](DEMO.md), "Memory").
+
+## 18. Security fixes (0.25.4)
+
+### Upgrading to 0.25.4
+- One migration, `0064_members_added_by_others` (65 applied): `workspace_members.agents_pending` (default false),
+  `workspace_members.added_by` and a partial index on the pending rows. Existing memberships stay included; nothing is
+  backfilled.
+- **Workspaces someone else added a person to wait for that person** (docs/adr/2580-*). People see them at once as
+  before; that person's connections with the range "all" answer `OUT_OF_RANGE` there, with a sentence that only the
+  person can include it, until they press **Include** in the notification bell or in Settings › Connections. A team
+  that adds colleagues directly should tell them; admins cannot include it for them. Workspaces made, joined by link
+  or code, or held before the upgrade are included.
+- **Other behaviour an operator may be asked about**: work another person hands to an agent always reaches the agent's
+  person; agents only suggest on agent-instruction pages; agents' `restore_version` and `split_page` are refused under
+  an auto or review policy; an account's connections hold at most 60 section claims (429 `TOO_MANY_CLAIMS`).
+- **Logs**: a failed query is logged as `Failed query: <SQL with $1…>` and `cause: <SQLSTATE> <message>`, without the
+  bound values (docs/adr/2585-*). Secrets in paths (public form tokens, invitation and join links, signup keys in admin
+  routes) and in `next`/`returnTo` redirects are masked as `***`.
+- **Rate limits**: routes without sign-in that have a limit of their own count by address (IPv6 by /64). A script that
+  called public links with a personal API token no longer gets a bucket of its own there.
+- On a host with IPv6, read "IPv6 and Docker's userland proxy" in section 17.

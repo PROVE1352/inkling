@@ -58,3 +58,10 @@ model that stays explainable in one sentence.
 - `PageLockDTO` gains `level` and `guest` (additive); `canEdit`/`canComment` include the level.
 - Writes in a workspace with rows pay one walk per page and version (cached); without rows nothing.
 - Tests: `guests.db.test.ts` ("members with their own rows"), `pageGrants.test.ts`.
+
+## Amended in 0.25.4
+- Leaving is allowed only when it does not raise the person's level: after removing their own row, the
+  nearest row above (or the member default, edit) must not give more than the row did. A member with a
+  `view` row under a `full` row above cannot remove it; leaving that lowers the level still works.
+- A page owner whose own level here is below edit no longer manages the page's lock or its agent rules
+  (`canManageLock` looks at the owner's nearest row).

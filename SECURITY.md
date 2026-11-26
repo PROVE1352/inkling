@@ -71,7 +71,9 @@ Out of scope:
   tokens are rejected.
 - Public share links are unauthenticated, read-only and limited to the shared page or subtree.
 - MCP access uses OAuth 2.1 with PKCE (S256), with `read` or `write` scope; tokens are stored hashed and work only on
-  `/mcp`. An agent sees only what its user can see, and there is no permanent-delete tool.
+  `/mcp`. An agent sees only what its user can see, and there is no permanent-delete tool. A workspace someone else
+  added the user to stays out of the user's agents until the user includes it in the web app, since its owner
+  controls the instruction pages agents follow there.
 - Outbound fetches triggered by users (link previews, sheet sync, webhooks) go through an SSRF-filtering client that
   pins resolved addresses and blocks private and reserved ranges.
 
@@ -83,6 +85,7 @@ The reasoning behind these boundaries is written up as ADRs:
 - [0971 Lock evaluation order for people and agents](docs/adr/0971-lock-evaluation-order-people-and-agents.md)
 - [0975 Agent instruction pages](docs/adr/0975-agent-instruction-pages.md)
 - [0976 Data/instruction boundary in MCP output](docs/adr/0976-data-instruction-boundary-in-mcp-output.md)
+- [2580 Workspaces someone else added you to wait before your agents see them](docs/adr/2580-workspaces-added-by-others-wait-for-agents.md)
 - [0977 Injection signals and taint record](docs/adr/0977-injection-signals-and-taint-record.md)
 - [0978 Reserved OAuth client names](docs/adr/0978-reserved-oauth-client-names.md)
 - [0935 OAuth read/write scopes](docs/adr/0935-oauth-read-write-scopes.md)
@@ -99,4 +102,5 @@ The reasoning behind these boundaries is written up as ADRs:
 
 Before exposing an instance to the internet, follow the deployment checklist in
 [docs/OPERATIONS.md](docs/OPERATIONS.md): run behind HTTPS, set `PUBLIC_URL`, require signup keys, change
-`POSTGRES_PASSWORD`, keep `TRUST_PROXY` limited to your proxy, and keep an off-site encrypted backup.
+`POSTGRES_PASSWORD`, keep `TRUST_PROXY` limited to your proxy (on a host with IPv6, also read "IPv6 and Docker's
+userland proxy" there), and keep an off-site encrypted backup.

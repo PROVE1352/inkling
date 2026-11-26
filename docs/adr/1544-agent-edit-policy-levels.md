@@ -54,3 +54,8 @@ harmless edits, or review everything — with locked pages and folders able to c
 - apps/server/src/autoAccept.ts, apps/server/src/editLock.ts (`chainAgentPolicy`, `CAP_AUTO`,
   `CAP_DIRECT`), apps/server/src/routes/agentPolicy.ts, apps/server/src/suggestions.ts (`suggestionMode`),
   apps/web/src/pages/WorkspaceSettings.tsx, apps/web/src/components/PageLockModal.tsx
+
+## Amended in 0.25.4
+- `restore_version` and `split_page` (not the dry run) are refused to agents with `PAGE_LOCKED` when the
+  page's policy is auto or review: neither can be a suggestion (docs/adr/2577-*).
+- An agent-instruction page is review for every agent, the owner's and admins' included (docs/adr/2579-*).

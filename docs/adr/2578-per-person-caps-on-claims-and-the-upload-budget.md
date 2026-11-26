@@ -22,5 +22,7 @@ again, so parallel uploads all passed it (C-mcp I2).
 - Extending the same claim over and over is still possible (one section per claim); a cap on extensions
   is left for later.
 - The two checks are count-then-insert: two parallel claims can end one above the cap.
-- The upload recheck applies where it is called: `POST /files` through a connection. Zip import
-  attachments are still checked once before the first attachment.
+- The upload recheck applies where it is called: `POST /files` through a connection. A zip imported
+  through a connection asks the budget again before each attachment (0.25.4 merge): its attachments are
+  stored one by one outside a transaction, so there is no lock to take; once the budget is passed the
+  remaining attachments are skipped and reported, and the pages still import.

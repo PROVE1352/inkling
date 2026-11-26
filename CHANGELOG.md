@@ -7,6 +7,97 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.25.4] - 2026-11-27
+
+Security fixes from a full code review of 0.25.3 (six reviewers, reading only). Every finding was first reproduced as
+a test; the ones that did not reproduce were left as they were. One database migration (0064, two columns and a
+partial index on `workspace_members`; 65 applied migrations). No new setting and no new dependency. Two routes are
+new, both for a signed-in browser only: `GET /api/me/agent-pending-workspaces` and
+`POST /api/workspaces/:id/agent-include`. Design notes are docs/adr/2572-* .. 2585-*. What is left is in
+docs/KNOWN-ISSUES.md, "Added in 0.25.4".
+
+### What changes on every server
+These change with no setting, and people or agents will notice them:
+- **A workspace someone else added you to stays out of your agents until you include it** (docs/adr/2580-*). People
+  see it at once as before; a connection whose range is "all" answers `OUT_OF_RANGE` for it, and its team board lists
+  none of your connections. A line in the notification bell and in Settings › Connections has an **Include** button.
+  Workspaces you made, joined with a link or code, or were in before the upgrade are included.
+- **Work another person hands to your agent always reaches you too**, whatever the copy setting says; the setting now
+  only matters for items you hand to your own connections. inbox and catch_up mark such items "requested by another
+  person" (docs/adr/2576-*).
+- **Agents only suggest on agent-instruction pages**, the owner's and admins' agents included, and those suggestions
+  are never accepted automatically. Renaming, moving, trashing, restoring or splitting such a page is for a person
+  (docs/adr/2579-*).
+- **`restore_version` and `split_page` are refused to agents when the page's agent policy is auto or review**: neither
+  can become a suggestion. The split preview and people are unchanged (docs/adr/2577-*).
+- **An account's connections hold at most 60 section claims together** (each connection still at most 20).
+- **`deploy/signup-key.sh` makes 28-character keys** from the system's random source. Keys made before stay valid;
+  keys made in the admin screen are unchanged.
+- **`deploy/reset-password.sh` also signs the account out of its agents and scripts**: MCP connections, agent tokens,
+  API tokens and iCal links, as a password change in the app does. Open editor tabs stay until the app restarts.
+- **Every tool's `applies:` line names each instruction's workspace** (`applies: {Team} House rules (…)`), and
+  `<instructions>` carries `workspace="…"`.
+
+### Security
+Sign-in, limits and logs
+- Routes without sign-in that have a rate limit of their own (OAuth registration and token, public links and forms,
+  iCal, share previews, OIDC, the verification mail) count by address. Before, a made-up bearer token per request got
+  a fresh bucket each time.
+- Request logs mask the secrets that ride in paths (public form tokens, invitation and join links, signup keys in the
+  admin routes) and in `next`/`returnTo` redirects.
+- A failed database query is logged without its bound values, also from background jobs (docs/adr/2585-*).
+- Two-step code backoff has its own counters, so failed sign-ins with made-up names cannot push it out
+  (docs/adr/2584-*).
+- `deploy/signup-key.sh` no longer derives keys from bash's `$RANDOM`, whose seed could be matched offline from a
+  stolen key hash.
+- Saving or testing a webhook gives one answer for a host that does not resolve and one that is not public, so it no
+  longer tells internal names apart.
+- Client ID Metadata Document fetches have a share per account (10 a minute) inside the server's 60, so one account
+  cannot use the whole budget.
+
+Page access
+- A member can no longer remove their own access row on a page to get more than the row gave; leaving that lowers
+  their level still works.
+- Sharing by email with an account that is not verified and not already in the workspace sends an invitation
+  instead of giving access at once, and such accounts are no longer offered as candidates.
+- Guests' email addresses in a page's access list are shown only to people who manage the list or may add guests.
+- A page owner whose own level on the page is below edit can no longer change its lock or agent rules.
+- A shared page whose author was deleted can be made private only by an owner or admin.
+
+Live editing, files and buttons
+- The server refuses the broadcast message type from clients: any connected member, read-only included, could send
+  notices to everyone else on the page.
+- Live cursors: a color that is not `#rgb`/`#rrggbb` is replaced and a name that is not text is dropped, on the
+  server and in the web app. Before, another member's cursor could inject CSS into the page or stop typing for
+  everyone on it.
+- A connection limited to a subtree gets no file without a page, neither from `GET /files/:id` nor inside a zip export.
+- Reading a PDF through `read_file` keeps its memory to a fixed budget; a small compressed PDF could take gigabytes.
+- A button's "add a row" runs only for databases of this workspace that the person pressing can see, and the first
+  press asks once, naming them.
+
+Agents (MCP)
+- Text an agent gets back from a conflict (`patch_section`, `patch_sections`, `update_row`, and the REST section
+  routes for API tokens) is wrapped as data and counts as read for the suggest-only rule, like `read_page`.
+- Titles, names and REST error messages outside the data markers are printed on one line, and the marker escape
+  catches markers split with spaces or invisible characters.
+- A workspace admin's release of suggest-only holds only in that workspace; only the connection's owner lifts it
+  everywhere (docs/adr/2572-*).
+- `create_chart`, `create_view` and `upload_file` look pages up within the connection's range.
+- A grace-period auto-accept is held for a person when the connection that made the suggestion was revoked or blocked
+  meanwhile.
+- Parallel uploads through connections pass the daily budget by one file at most, and a zip import checks the budget
+  before each attachment.
+
+### Upgrade notes
+- **Migration 0064** adds `workspace_members.agents_pending` and `added_by` and a partial index. Existing memberships
+  are included, so no agent loses a workspace on upgrade.
+- **A team that adds colleagues directly**: each colleague includes the workspace once (bell or Settings ›
+  Connections) before their agents see it. Admins cannot do it for them.
+- **Access given to unverified accounts by email before 0.25.4 stays.** Check the guest list of each workspace.
+- **`TRUST_PROXY` on a host with IPv6 and Docker's userland proxy**: IPv6 clients can reach the app as if from the
+  Docker bridge, which the default trusts. Bind the app port to `127.0.0.1` and narrow `TRUST_PROXY` (docs/OPERATIONS.md,
+  "Sign-up limits and `TRUST_PROXY`").
+
 ## [0.25.3] - 2026-11-25
 
 One change from a comment on the demo: the sign-up form came before the button that needs no form. No migration,

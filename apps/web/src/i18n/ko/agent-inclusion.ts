@@ -2,7 +2,7 @@ import type en from '../en/agent-inclusion'
 
 // 남이 넣어 준 워크스페이스는 내가 포함하기 전까지 에이전트 연결에 보이지 않는다 (docs/adr/2580-*).
 export default {
-  'agentInclusion.line': '에이전트가 아직 못 보는 워크스페이스: {workspace} ({actor} 님이 추가함)',
+  'agentInclusion.line': '에이전트가 아직 못 보는 워크스페이스: {workspace} ({actor}님이 추가함)',
   'agentInclusion.lineNoActor': '에이전트가 아직 못 보는 워크스페이스: {workspace}',
   'agentInclusion.include': '포함',
   'agentInclusion.confirm':

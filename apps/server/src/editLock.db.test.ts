@@ -430,7 +430,8 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
       assert.equal(a.text, b.text)
       const t = a.text
       assert.match(t, /^Agent instructions for workspace [0-9a-f]{8} \(v=[0-9a-f]{12}\)/) // 8-character ids since 0.15.1
-      const iAlways = t.indexOf(`<instructions page="${I1.slice(0, 8)}" title="House rules" mode="always">`)
+      // the workspace is named on each block (C-mcp M1, 0.25.4)
+      const iAlways = t.indexOf(`<instructions page="${I1.slice(0, 8)}" title="House rules" mode="always" workspace="`)
       const iSubtree = t.indexOf(`<instructions page="${I2.slice(0, 8)}"`)
       const iGlob = t.indexOf(`<instructions page="${I3.slice(0, 8)}"`)
       assert.ok(iAlways > 0 && iSubtree > iAlways && iGlob > iSubtree, t)

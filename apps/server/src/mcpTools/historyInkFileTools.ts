@@ -16,7 +16,7 @@ import type { DiffOp } from '../context/diff'
 import { INK_MAX_TILES, renderInk } from '../ink/render'
 import type { StoredStroke } from '../ink/render'
 import { findVisiblePage } from '../pageDto'
-import { loadAgentContext, pageFacts, withApplies } from './agentContext'
+import { loadAgentContext, pageFacts, runAsConnection, withApplies } from './agentContext'
 import { call, text, ToolError, wrap, wrapWrite, idArg } from './core'
 import type { ToolCtx } from './core'
 import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY } from './idArgs'
@@ -624,7 +624,8 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
     wrapWrite(ctx, async ({ pageId, name, text: body, base64, section, attachOnly }) => {
       if ((body === undefined) === (base64 === undefined)) throw new ToolError('pass exactly one of text (text files) or base64')
       // Off for this workspace (docs/adr/2065-*): say so before size or type, which would not help.
-      const target = await findVisiblePage(pageId, ctx.user.id)
+      // as this connection (range, agent blocks): a page outside them reads as not found (C-mcp I1)
+      const target = await runAsConnection(ctx, () => findVisiblePage(pageId, ctx.user.id))
       if (!target) throw new ToolError('page not found or not visible to you; use find_context or list_pages to get a valid id')
       await assertAgentUploadsAllowed(target.workspaceId).catch((err: unknown) => {
         throw err instanceof AppError

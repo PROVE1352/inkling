@@ -8,6 +8,7 @@ import { readOutline } from './context/sectionSource'
 import type { OutlineSection } from './context/sectionSource'
 import { db } from './db/index'
 import { AppError, badRequest } from './errors'
+import { MAX_CLAIMS_PER_PERSON } from './limits'
 import { suggestionsChanged } from './suggestionNotice'
 
 /**
@@ -107,12 +108,21 @@ export async function claimSection(
   const conn = connectionKey(user)
   if (!conn) throw badRequest('Section claims belong to an agent connection (MCP or API token); people are never blocked')
   const ttl = Math.min(Math.max(Math.round(ttlSeconds), 30), CLAIM_TTL_MAX_S)
+  // Per connection, and per person over all their connections (docs/adr/2578-*): one account with
+  // many tokens must not be able to hold every section of a workspace. Extending a claim is not a new one.
   const [count] = (await db.execute(sql`
-    SELECT count(*)::int AS n FROM section_leases
-     WHERE connection = ${conn} AND expires_at > now() AND NOT (page_id = ${page.id} AND anchor = ${section.anchor})
-  `)) as unknown as { n: number }[]
+    SELECT count(*) FILTER (WHERE connection = ${conn})::int AS n, count(*)::int AS person FROM section_leases
+     WHERE user_id = ${user.id} AND expires_at > now() AND NOT (page_id = ${page.id} AND anchor = ${section.anchor})
+  `)) as unknown as { n: number; person: number }[]
   if ((count?.n ?? 0) >= MAX_CLAIMS_PER_CONNECTION) {
     throw new AppError(429, 'TOO_MANY_CLAIMS', `This connection already holds ${MAX_CLAIMS_PER_CONNECTION} section claims; release_section the ones you are done with`)
+  }
+  if ((count?.person ?? 0) >= MAX_CLAIMS_PER_PERSON) {
+    throw new AppError(
+      429,
+      'TOO_MANY_CLAIMS',
+      `This account's connections already hold ${MAX_CLAIMS_PER_PERSON} section claims together; release_section the ones you are done with`,
+    )
   }
   const rows = (await db.execute(sql`
     INSERT INTO section_leases (page_id, anchor, block_id, workspace_id, user_id, connection, via, expires_at)

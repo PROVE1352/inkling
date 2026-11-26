@@ -132,4 +132,6 @@ export default {
   'automation.value.dateHint': 'Relative dates count from the day it runs.',
   'automation.value.deletedField': '(deleted property)',
   'automation.value.deletedHint': 'This property was deleted; the value is skipped.',
+  'button.err.otherWorkspace': 'that database is not one of the databases you can see in this workspace',
+  'button.confirmAddRow': 'This button adds rows to: {names}. Run it?',
 } as const

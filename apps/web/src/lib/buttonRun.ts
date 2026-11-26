@@ -148,6 +148,51 @@ export async function runButtonActions(actions: ButtonAction[], input: ButtonRun
   return { ok: true, done: actions.length, collections: [...collections] }
 }
 
+/**
+ * Where a button's "add a row" actions write (0.25.4, sec26 E-2). The actions are written by whoever edits the page
+ * and run with the rights of whoever presses, so before a press:
+ *  - a database that is not one of the presser's databases in the workspace the button is in (another workspace,
+ *    or one they cannot see) refuses the press, before anything runs;
+ *  - the first press of a button (per tab, and again when its databases change) asks the presser, naming the
+ *    databases it adds rows to.
+ */
+export interface ButtonTargetDeps {
+  /** Title of a database of the button's workspace as the presser sees it (the app's page list); null if none. */
+  collectionTitle: (collectionId: string) => string | null
+  /** Asks the presser to go on (the app's confirm dialog). */
+  confirm: (titles: string[]) => Promise<boolean>
+}
+
+export type ButtonTargetCheck = { ok: true } | { ok: false; reason: 'otherWorkspace'; failedIndex: number } | { ok: false; reason: 'cancelled' }
+
+const confirmedTargets = new Set<string>()
+
+export async function checkButtonTargets(
+  actions: ButtonAction[],
+  blockId: string,
+  deps: ButtonTargetDeps,
+  confirmed: Set<string> = confirmedTargets,
+): Promise<ButtonTargetCheck> {
+  const ids: string[] = []
+  const titles: string[] = []
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i]
+    if (a.type !== 'addRow') continue
+    const title = deps.collectionTitle(a.collectionId)
+    if (title === null) return { ok: false, reason: 'otherWorkspace', failedIndex: i }
+    if (!ids.includes(a.collectionId)) {
+      ids.push(a.collectionId)
+      titles.push(title)
+    }
+  }
+  if (!ids.length) return { ok: true }
+  const key = `${blockId}\n${[...ids].sort().join(',')}`
+  if (confirmed.has(key)) return { ok: true }
+  if (!(await deps.confirm(titles))) return { ok: false, reason: 'cancelled' }
+  confirmed.add(key)
+  return { ok: true }
+}
+
 /** One run at a time per button: a press while a run is going is ignored (double clicks, Enter held). */
 export function createRunGuard() {
   let busy = false

@@ -7,6 +7,7 @@ import { getBearerUser } from '../oauth'
 import { runInRange } from '../tokenRange'
 import type { RangeScope } from '../tokenRange'
 import { ToolError } from './core'
+import { instructionWorkspaces } from '../agentInstructions'
 import type { ToolCtx } from './core'
 import { cleanText, editPhrase } from './trust'
 import { INJECTION_RULES } from '@inkling/shared'
@@ -59,13 +60,59 @@ export async function loadAgentContext(
   const scope = await agentScopeOf(ctx)
   if (!scope) throw new ToolError('Request failed (HTTP 401): the access token is no longer valid; reconnect the Inkling connector')
   const { range } = scope
-  return runAsAgent(scope.agent, range ? () => runInRange(range, run) : run)
+  const ac: AgentContextWithWorkspaces = await runAsAgent(scope.agent, range ? () => runInRange(range, run) : run)
+  // the applies line names each instruction's workspace (C-mcp M1; titles alone can be copied)
+  if (ac.applies.length) ac.appliesWs = await instructionWorkspaces(ac.applies.map((a) => a.pageId))
+  return ac
 }
 
-/** `applies: A; B (get_instructions)` or null when nothing applies. Deterministic order (server). */
-export function appliesLine(c: AgentContextDTO): string | null {
+/** The agent context with the workspaces of its instruction pages (loadAgentContext fills it). */
+export type AgentContextWithWorkspaces = AgentContextDTO & { appliesWs?: Map<string, { id: string; name: string }> }
+
+/**
+ * `applies: {Workspace} A; {Workspace} B (…)` or null when nothing applies. Deterministic order
+ * (server). Without the workspaces (a context not from loadAgentContext) the titles alone.
+ */
+export function appliesLine(c: AgentContextWithWorkspaces): string | null {
   if (!c.applies.length) return null
+  if (c.appliesWs) return appliesLineByWorkspace(c, c.appliesWs)
   return `applies: ${c.applies.map((a) => cleanText(a.title || 'Untitled').replace(/\s+/g, ' ')).join('; ')} (read them with get_instructions)`
+}
+
+/** Longest workspace name printed in a result line (cut with "…"). */
+const WS_NAME_MAX = 40
+
+/** `{Name} ` label of a workspace: the member-written name cleaned on one line, no braces, cut (docs/adr/2185-*). */
+export function wsLabel(name: string, fallback: string): string {
+  const n = cleanText(name).replace(/[{}]/g, '').trim()
+  const short = [...n].length > WS_NAME_MAX ? `${[...n].slice(0, WS_NAME_MAX - 1).join('')}…` : n
+  return `{${short || fallback}} `
+}
+
+/**
+ * The `applies:` line with workspaces (C-mcp M1): each instruction title carries its workspace
+ * (`{Name} Title`), and the line says rules stay in their workspace. find_context (an answer may span
+ * workspaces) and, since the merge of 0.25.4, every other tool's applies line (appliesLine).
+ * `ws`: instruction page id → workspace (instructionWorkspaces). Null when nothing applies.
+ */
+export function appliesLineByWorkspace(ac: AgentContextDTO, ws: Map<string, { id: string; name: string }>): string | null {
+  if (!ac.applies.length) return null
+  // a workspace may take another's name: two workspaces with one label get their short ids too
+  const idsByLabel = new Map<string, Set<string>>()
+  for (const a of ac.applies) {
+    const w = ws.get(a.pageId)
+    if (!w) continue
+    const l = wsLabel(w.name, w.id.slice(0, 8))
+    idsByLabel.set(l, (idsByLabel.get(l) ?? new Set()).add(w.id))
+  }
+  const one = (a: AgentContextDTO['applies'][number]) => {
+    const w = ws.get(a.pageId)
+    if (!w) return cleanText(a.title || 'Untitled')
+    const l = wsLabel(w.name, w.id.slice(0, 8))
+    const label = (idsByLabel.get(l)?.size ?? 0) > 1 ? `${l.slice(0, -2)} ${w.id.slice(0, 8)}} ` : l
+    return `${label}${cleanText(a.title || 'Untitled')}`
+  }
+  return `applies: ${ac.applies.map(one).join('; ')} (read them with get_instructions; a workspace's rules apply only to its own pages)`
 }
 
 /** Prepends the applies line (if any) as the first line of `text`. */

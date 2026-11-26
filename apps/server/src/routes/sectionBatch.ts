@@ -25,6 +25,7 @@ import { additiveRetryHint, asAgentStep, beforeAgentEditSnapshot, sectionEditDel
 import { isAgentVia } from '../agentVia'
 import { claimLine, claimOf, connectionKey, pageClaims } from '../leases'
 import { versionArg } from '../versionArg'
+import { recordTokenRead } from '../agentTaint'
 
 /**
  * POST /pages/:id/sections — several section patches in one request, all or nothing
@@ -174,7 +175,13 @@ export async function registerSectionBatchRoutes(app: FastifyInstance): Promise<
           })
         }
       })
-      if (conflicts.length) return sendConflicts(reply, conflicts, body.edits.length, anchors)
+      if (conflicts.length) {
+        // version conflicts hand over the sections' current text: a read of those sections for the taint
+        // record of an API token, as POST /pages/:id/section (C-mcp M4; MCP records in patchSections.ts)
+        const shown = conflicts.filter((c) => c.markdown !== undefined && c.anchor).map((c) => ({ pageId: id, anchor: c.anchor! }))
+        if (shown.length) await recordTokenRead(user.tokenId, [id], shown)
+        return sendConflicts(reply, conflicts, body.edits.length, anchors)
+      }
 
       // What the agent saw of each replaced section, so untouched blocks stay untouched (as POST …/section).
       const agent = isAgentVia(user.via)

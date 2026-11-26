@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import { anyIdArg } from './idSchema'
 import type { AuthUser } from '../auth'
 import { MCP_INTERNAL_HEADER, MCP_INTERNAL_SECRET } from '../oauth'
-import { cleanStrings, UNTRUSTED_JSON_NOTE, untrustedObject } from './trust'
+import { cleanStrings, cleanText, UNTRUSTED_JSON_NOTE, untrustedObject } from './trust'
+import { NOT_INCLUDED_MESSAGE } from '../tokenRange'
 
 /**
  * Shared plumbing for the MCP tool modules (mcp.ts and mcpTools/*.ts).
@@ -109,6 +110,10 @@ const NEXT_STEP_BY_CODE: Record<string, string> = {
     'this connection may not reach it; do not retry elsewhere to get around it. Work inside the range, or ask the user to widen it in Settings › Connections',
 }
 
+/** OUT_OF_RANGE for a workspace that waits to be included: the range is not what to widen. */
+const NOT_INCLUDED_HINT =
+  'this connection may not reach it; do not retry elsewhere to get around it. Ask the user to include the workspace in Settings › Connections, or work in the other workspaces'
+
 /** A byte count for a person: "4.2 MB". */
 function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -198,12 +203,14 @@ export async function call(
   if (res.statusCode >= 400 && !opts.passStatuses?.includes(res.statusCode)) {
     let message = `Request failed (HTTP ${res.statusCode})`
     let code: string | undefined
-    let detail: { limit?: unknown; used?: unknown; feature?: unknown } = {}
+    let detail: { limit?: unknown; used?: unknown; feature?: unknown; message?: unknown } = {}
     try {
       const body = res.json() as { error?: { message?: string; code?: string; limit?: unknown; used?: unknown; feature?: unknown } }
       code = body?.error?.code
       detail = body?.error ?? {}
-      if (body?.error?.message) message = `${body.error.message} (${body.error.code ?? res.statusCode})`
+      // REST messages can carry member text (a heading path, a property or zip entry name, an app
+      // name): one line, markers escaped, like every other string outside a wrapper (0.25.4)
+      if (body?.error?.message) message = `${cleanText(body.error.message)} (${body.error.code ?? res.statusCode})`
     } catch {
       // Body is not JSON: keep the default message
     }
@@ -216,7 +223,10 @@ export async function call(
       throw new ToolError(bodyTooLargeMessage(bytes, limit))
     }
     // Error codes first (more specific than the status), then the status.
+    // a workspace someone else added the person to: only the person can include it (docs/adr/2580-*)
+    const notIncluded = code === 'OUT_OF_RANGE' && typeof detail.message === 'string' && detail.message.startsWith(NOT_INCLUDED_MESSAGE.slice(0, 40))
     const hint =
+      (notIncluded && NOT_INCLUDED_HINT) ||
       (code && (NEXT_STEP_BY_CODE[code] ?? restrictedModeHint(code, detail))) ||
       (res.statusCode === 404 ? NOT_FOUND_HINT[opts.target ?? notFoundTarget(url)] : NEXT_STEP[res.statusCode])
     if (hint) message = `${message}: ${hint}`

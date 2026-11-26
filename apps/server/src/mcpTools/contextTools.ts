@@ -10,7 +10,7 @@ import type { ReviewFacts } from '../review'
 import { call, idArg, text, ToolError, uuid, wrap, wrapWrite } from './core'
 import type { ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
-import { flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies } from './agentContext'
+import { appliesLineByWorkspace, flaggedRules, largeLine, loadAgentContext, pageFacts, pageSuspiciousLine, withApplies, wsLabel } from './agentContext'
 import { LARGE_PAGE_HINT } from '../context/largePage'
 import { groupSpans, queryGroups, searchText } from '../context/rank'
 import { suspiciousNote } from '../context/injectionScan'
@@ -101,40 +101,7 @@ export interface PageWorkspace {
   name: string
 }
 
-/** Longest workspace name printed in a result line (cut with "…"). */
-const WS_NAME_MAX = 40
-
-/** `{Name} ` label of a workspace: the member-written name cleaned on one line, no braces, cut (docs/adr/2185-*). */
-function wsLabel(name: string, fallback: string): string {
-  const n = cleanText(name).replace(/[{}]/g, '').trim()
-  const short = [...n].length > WS_NAME_MAX ? `${[...n].slice(0, WS_NAME_MAX - 1).join('')}…` : n
-  return `{${short || fallback}} `
-}
-
-/**
- * find_context's `applies:` line (C-mcp M1): an answer may span workspaces, so each instruction
- * title carries its workspace (`{Name} Title`), and the line says rules stay in their workspace.
- * `ws`: instruction page id → workspace (instructionWorkspaces). Null when nothing applies.
- */
-export function appliesLineByWorkspace(ac: AgentContextDTO, ws: Map<string, { id: string; name: string }>): string | null {
-  if (!ac.applies.length) return null
-  // a workspace may take another's name: two workspaces with one label get their short ids too
-  const idsByLabel = new Map<string, Set<string>>()
-  for (const a of ac.applies) {
-    const w = ws.get(a.pageId)
-    if (!w) continue
-    const l = wsLabel(w.name, w.id.slice(0, 8))
-    idsByLabel.set(l, (idsByLabel.get(l) ?? new Set()).add(w.id))
-  }
-  const one = (a: AgentContextDTO['applies'][number]) => {
-    const w = ws.get(a.pageId)
-    if (!w) return cleanText(a.title || 'Untitled')
-    const l = wsLabel(w.name, w.id.slice(0, 8))
-    const label = (idsByLabel.get(l)?.size ?? 0) > 1 ? `${l.slice(0, -2)} ${w.id.slice(0, 8)}} ` : l
-    return `${label}${cleanText(a.title || 'Untitled')}`
-  }
-  return `applies: ${ac.applies.map(one).join('; ')} (read them with get_instructions; a workspace's rules apply only to its own pages)`
-}
+export { appliesLineByWorkspace } from './agentContext'
 
 /**
  * Workspace labels for one answer (docs/adr/2185-*): only when the printed pages (fragments,

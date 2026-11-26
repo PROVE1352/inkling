@@ -246,7 +246,7 @@ describe('[db] access version, write gate and agent context', { skip: !HAS_DB },
         const before = (await mcp.tool('read_page', { pageId: P })).text
         assert.doesNotMatch(before, /^applies:/m)
         assert.equal((await req(O, 'PUT', `/pages/${I}/agent-instructions`, { mode: 'always' })).statusCode, 200)
-        assert.match((await mcp.tool('read_page', { pageId: P })).text.split('\n')[0], /^applies: House rules/)
+        assert.match((await mcp.tool('read_page', { pageId: P })).text.split('\n')[0], /^applies: \{[^}]+\} House rules/)
         assert.ok((await req(O, 'DELETE', `/pages/${I}/agent-instructions`)).statusCode < 300)
         assert.doesNotMatch((await mcp.tool('read_page', { pageId: P })).text, /^applies:/m)
       } finally {

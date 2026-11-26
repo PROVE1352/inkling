@@ -445,9 +445,12 @@ describe('[db] edit lock, agent instructions and the trust boundary', { skip: !H
 
     it('read and write tools start with one applies: line', async () => {
       const r = await mcpM.tool('read_page', { pageId: D })
-      assert.equal(r.text.split('\n')[0], 'applies: House rules; Spec rules; Spec glob rules (read them with get_instructions)')
+      // each title with its workspace (C-mcp M1, 0.25.4)
+      const W = /^applies: (\{[^}]+\}) /.exec(r.text)?.[1]
+      assert.ok(W, r.text)
+      assert.equal(r.text.split('\n')[0], `applies: ${W} House rules; ${W} Spec rules; ${W} Spec glob rules (read them with get_instructions; a workspace's rules apply only to its own pages)`)
       const x = await mcpM.tool('read_page', { pageId: X })
-      assert.equal(x.text.split('\n')[0], 'applies: House rules (read them with get_instructions)')
+      assert.equal(x.text.split('\n')[0], `applies: ${W} House rules (read them with get_instructions; a workspace's rules apply only to its own pages)`)
       const c = await mcpM.tool('add_comment', { pageId: X, body: 'ok' })
       assert.equal(c.isError, false)
     })

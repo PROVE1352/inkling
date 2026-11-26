@@ -16,6 +16,7 @@ import { env } from '../env'
 import { AppError } from '../errors'
 import { collections, files, pageDocs, pages, users } from '../db/schema'
 import { visibleTo } from '../pageDto'
+import { currentRange } from '../tokenRange'
 import { collectAssetRefs, collectPageRefs, stateToCanvasJson } from './canvas'
 import type { StateToCanvasOptions } from './canvas'
 import { blocksToMarkdown, stateToBlocks } from './convert'
@@ -638,11 +639,14 @@ async function buildZip(
   //     So that embedding another user's private-page attachment UUID in a visible page cannot leak
   //     the blob, an attachment is included only if its owning pageId is in this export's visible page
   //     set (byId) or its pageId is null (legacy). Files not in the workspace (absent from the map) are excluded too.
+  //     A connection limited to a subtree gets no file without a page, as from GET /files/:id (0.25.4, sec26 D-3).
+  const subtreeRange = currentRange(userId)?.kind === 'subtree'
   const includedAssets: string[] = []
   for (const fileId of ctx.usedAssets) {
     if (!filePageMap.has(fileId)) continue
     const ownerPageId = filePageMap.get(fileId) ?? null
     if (ownerPageId !== null && !byId.has(ownerPageId)) continue
+    if (ownerPageId === null && subtreeRange) continue
     includedAssets.push(fileId)
   }
 

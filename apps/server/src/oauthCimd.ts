@@ -56,6 +56,12 @@ export const CIMD_CACHE_ENTRIES = 500
 export const CIMD_RETRY_GAP_MS = 30_000
 /** Fetches per minute across all URLs. */
 export const CIMD_FETCHES_PER_MINUTE = 60
+/**
+ * Fetches per minute one requester (a signed-in account, or the grant's account at /oauth/token) may
+ * cause, so one account cannot spend the whole budget above and lock everyone else's new clients out
+ * (0.25.4 security fix D-5). Cached documents cost nothing.
+ */
+export const CIMD_FETCHES_PER_REQUESTER_PER_MINUTE = 10
 
 const MAX_REDIRECT_URIS = 20
 const MAX_CLIENT_NAME = 100
@@ -264,6 +270,8 @@ const cache = new Map<string, Entry>() // insertion order = recency (LRU)
 const inflight = new Map<string, Promise<CimdClient>>()
 const lastFailure = new Map<string, number>()
 let budget: { windowStart: number; used: number } = { windowStart: 0, used: 0 }
+/** Fetches per requester in the current budget window (cleared with the window). */
+const shares = new Map<string, number>()
 let now: () => number = () => Date.now()
 
 function remember(url: string, e: Entry): void {
@@ -277,10 +285,18 @@ function remember(url: string, e: Entry): void {
   if (lastFailure.size > CIMD_CACHE_ENTRIES) lastFailure.clear()
 }
 
-function takeBudget(): boolean {
+function takeBudget(requester?: string): boolean {
   const t = now()
-  if (t - budget.windowStart >= 60_000) budget = { windowStart: t, used: 0 }
+  if (t - budget.windowStart >= 60_000) {
+    budget = { windowStart: t, used: 0 }
+    shares.clear()
+  }
   if (budget.used >= CIMD_FETCHES_PER_MINUTE) return false
+  if (requester !== undefined) {
+    const mine = shares.get(requester) ?? 0
+    if (mine >= CIMD_FETCHES_PER_REQUESTER_PER_MINUTE) return false
+    shares.set(requester, mine + 1)
+  }
   budget.used++
   return true
 }
@@ -327,9 +343,10 @@ async function fetchDocument(clientId: string, cfg: CimdConfig): Promise<{ clien
  * The client described by `clientId`'s document: from the cache while fresh, else fetched (one fetch
  * per URL at a time). A transient failure falls back to the last valid document for up to 7 days
  * (§6.1); a terminal one drops it (§6.2: invalid documents are never cached). `ownOrigin` is this
- * server's public origin (client_ids on it are refused).
+ * server's public origin (client_ids on it are refused). `requester` (an account, `user:<id>`) gets at
+ * most CIMD_FETCHES_PER_REQUESTER_PER_MINUTE of the per-minute fetches; without it only the global cap applies.
  */
-export async function resolveCimdClient(clientId: string, ownOrigin: string | null): Promise<CimdClient> {
+export async function resolveCimdClient(clientId: string, ownOrigin: string | null, requester?: string): Promise<CimdClient> {
   const cfg = cimdConfig()
   if (!cfg.enabled) throw terminal('disabled', 'Client ID Metadata Documents are not enabled on this server')
   checkClientIdUrl(clientId, ownOrigin, cfg)
@@ -343,7 +360,7 @@ export async function resolveCimdClient(clientId: string, ownOrigin: string | nu
   if (pending) return pending
   const usableStale = () => (hit && hit.staleUntil > now() ? hit.client : null)
   const failedAt = lastFailure.get(clientId)
-  if ((failedAt !== undefined && t - failedAt < CIMD_RETRY_GAP_MS) || !takeBudget()) {
+  if ((failedAt !== undefined && t - failedAt < CIMD_RETRY_GAP_MS) || !takeBudget(requester)) {
     const stale = usableStale()
     if (stale) return stale
     throw new CimdError('transient', 'rate_limited', 'The client metadata was fetched too often; try again in a minute')
@@ -390,5 +407,6 @@ export function _resetCimd(clock?: () => number): void {
   inflight.clear()
   lastFailure.clear()
   budget = { windowStart: 0, used: 0 }
+  shares.clear()
   now = clock ?? (() => Date.now())
 }

@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { DEFAULT_AUTO_ACCEPT_RULES } from '@inkling/shared'
 import type { AgentEditLevel, AutoAcceptRules, SuggestionPreviewDTO } from '@inkling/shared'
 import { pageAccess } from './aclVersion'
-import { outsideAgent } from './agentAccess'
+import { currentAgent, outsideAgent } from './agentAccess'
 import { demotionFor, taintReviewReason } from './agentTaint'
 import type { AuthUser } from './auth'
 import { patchSectionAs } from './context/sectionWrite'
@@ -11,6 +11,7 @@ import { assertPageEditable, lockAgentPolicies } from './editLock'
 import { normalizeLocale } from './i18n'
 import type { Locale } from './i18n'
 import { env } from './env'
+import { AppError } from './errors'
 import { notify } from './notify/engine'
 import { findLivePage } from './pageDto'
 import { dropSuggestionBases } from './suggestionMerge'
@@ -111,6 +112,27 @@ export async function effectivePolicies(pages: { id: string; workspaceId: string
 
 export async function effectivePolicy(page: { id: string; workspaceId: string }): Promise<EffectivePolicy> {
   return (await effectivePolicies([page])).get(page.id)!
+}
+
+/**
+ * Restoring a version and splitting a page (docs/adr/2577-*) rewrite the whole body at once and cannot
+ * be left as a suggestion. Under a policy other than direct (the workspace default or a lock node's
+ * "auto" / "suggestions only"), an agent request is refused with the lock's code and a person does it
+ * in the web app. People (browser sessions) are not affected.
+ */
+export async function assertAgentMayRewrite(page: { id: string; workspaceId: string }, what: string): Promise<void> {
+  if (!currentAgent()) return
+  const policy = await effectivePolicy(page)
+  if (policy.level === 'direct') return
+  throw new AppError(
+    403,
+    'PAGE_LOCKED',
+    `This page follows the agent edit policy (${policy.level === 'auto' ? 'auto-accept' : 'review'}, ${ruleText(policy.label)}): ` +
+      `agent edits there become suggestions, and ${what} cannot be suggested. A person must do it in the web app; ` +
+      'you can use patch_section or update_page to leave a suggestion instead.',
+    undefined,
+    { lockedPageId: policy.source === 'lock' ? policy.label.replace(/^page:/, '') : null, editors: [] },
+  )
 }
 
 /** "the workspace rule" / "the rule of page <id>" (agent text, inbox excerpts). */
@@ -259,6 +281,12 @@ export async function runAutoAccepts(limit = 20): Promise<number> {
       await hold('the auto-accept rule changed during the grace period')
       continue
     }
+    // The connection was revoked, expired, blocked here or left the workspace during the grace period
+    // (docs/adr/2577-*): what it suggested is no longer accepted on its behalf; a person decides.
+    if (row.connection && !(await connectionLive(row.connection, row.workspaceId))) {
+      await hold('the connection that made it was revoked or blocked during the grace period')
+      continue
+    }
     // The connection read flagged content during the grace period (docs/adr/2041-*): a person decides.
     const taint = row.connection ? await demotionFor(row.connection, row.workspaceId) : null
     if (taint) {
@@ -289,6 +317,13 @@ export async function runAutoAccepts(limit = 20): Promise<number> {
     })
   }
   return accepted
+}
+
+/** The suggestion's connection is still live in its workspace (teamAgents connectionLiveSql). */
+async function connectionLive(connection: string, workspaceId: string): Promise<boolean> {
+  const { connectionLiveSql } = await import('./teamAgents')
+  const [r] = (await db.execute(sql`SELECT ${connectionLiveSql(sql`${connection}::text`, sql`${workspaceId}::uuid`)} AS live`)) as unknown as { live: boolean }[]
+  return r?.live === true
 }
 
 let timer: ReturnType<typeof setInterval> | null = null

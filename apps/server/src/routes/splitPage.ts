@@ -28,6 +28,7 @@ import { db } from '../db/index'
 import { pages } from '../db/schema'
 import { scheduleDocIndex } from '../docIndexer'
 import { assertPageEditable } from '../editLock'
+import { assertAgentMayRewrite } from '../autoAccept'
 import { AppError, badRequest, notFound } from '../errors'
 import { idParam, requireMembershipAcl } from '../helpers'
 import { requestLocale } from '../i18n'
@@ -506,6 +507,8 @@ export async function registerSplitPageRoutes(app: FastifyInstance): Promise<voi
       const e = await editablePage(user, id)
       if (e.page.kind !== 'doc') throw badRequest('Only document pages can be split')
       if (body.preview) return previewSplit(e, body.level, body.sections)
+      // An agent under an auto / review policy cannot split: it is no suggestion (docs/adr/2577-*).
+      await assertAgentMayRewrite(e.page, 'splitting a page')
       return runSplit(e, body.level, body.sections, await requestLocale(req, user.id))
     },
   )

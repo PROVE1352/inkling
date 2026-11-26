@@ -118,9 +118,20 @@ function wsLabel(name: string, fallback: string): string {
  */
 export function appliesLineByWorkspace(ac: AgentContextDTO, ws: Map<string, { id: string; name: string }>): string | null {
   if (!ac.applies.length) return null
+  // a workspace may take another's name: two workspaces with one label get their short ids too
+  const idsByLabel = new Map<string, Set<string>>()
+  for (const a of ac.applies) {
+    const w = ws.get(a.pageId)
+    if (!w) continue
+    const l = wsLabel(w.name, w.id.slice(0, 8))
+    idsByLabel.set(l, (idsByLabel.get(l) ?? new Set()).add(w.id))
+  }
   const one = (a: AgentContextDTO['applies'][number]) => {
     const w = ws.get(a.pageId)
-    return `${w ? wsLabel(w.name, w.id.slice(0, 8)) : ''}${cleanText(a.title || 'Untitled')}`
+    if (!w) return cleanText(a.title || 'Untitled')
+    const l = wsLabel(w.name, w.id.slice(0, 8))
+    const label = (idsByLabel.get(l)?.size ?? 0) > 1 ? `${l.slice(0, -2)} ${w.id.slice(0, 8)}} ` : l
+    return `${label}${cleanText(a.title || 'Untitled')}`
   }
   return `applies: ${ac.applies.map(one).join('; ')} (read them with get_instructions; a workspace's rules apply only to its own pages)`
 }

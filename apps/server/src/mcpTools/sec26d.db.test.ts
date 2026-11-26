@@ -200,6 +200,16 @@ describe('[db] sec26d: conflicts, one-line titles, instruction workspaces, scope
       assert.ok(line.includes('{Team docs} House rules') && line.includes('{Evil corp} Security policy'), line)
     })
 
+    it('applies: two workspaces with the same name are told apart by their short ids', async () => {
+      const { appliesLineByWorkspace } = await import('./contextTools')
+      const a = { id: '11111111-0000-4000-8000-000000000000', name: 'Team docs' }
+      const b = { id: '22222222-0000-4000-8000-000000000000', name: 'Team\ndocs' }
+      const ac = { pages: [], applies: [{ pageId: 'p1', title: 'House rules', mode: 'always' }, { pageId: 'p2', title: 'Security policy', mode: 'always' }] }
+      const line = appliesLineByWorkspace(ac as never, new Map([['p1', a], ['p2', b]]))
+      assert.equal(line, "applies: {Team docs 11111111} House rules; {Team docs 22222222} Security policy (read them with get_instructions; a workspace's rules apply only to its own pages)")
+      assert.equal(appliesLineByWorkspace(ac as never, new Map([['p1', a]]))?.split(';')[0], 'applies: {Team docs} House rules')
+    })
+
     it('get_instructions: the header says whose rules they are; <instructions> carries workspace="…"', async () => {
       const V = await agent(vic, 'Vic Rules Agent')
       const r = await V.tool('get_instructions', { workspaceId: wsE })

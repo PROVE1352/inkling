@@ -90,6 +90,11 @@ export interface LockNode {
   title: string
   ownerId: string | null
   overrides: Override[]
+  /**
+   * The leaf page itself is designated as agent instructions (docs/adr/2579-*): agents may only
+   * suggest changes to it, whatever its presets or the policy say. Set on the leaf's own node only.
+   */
+  instructions?: boolean
 }
 
 export interface AccessActor {
@@ -124,14 +129,15 @@ export async function lockChains(exec: Exec, leafIds: string[]): Promise<Map<str
        WHERE u.depth < ${TREE_MAX_DEPTH}
     )
     SELECT up.leaf, up.id, p.title, p.owner_id AS "ownerId",
+           (up.depth = 0 AND EXISTS (SELECT 1 FROM agent_instructions ai WHERE ai.page_id = up.id)) AS instr,
            coalesce((SELECT json_agg(json_build_object('s', o.subject, 'a', o.allow, 'd', o.deny) ORDER BY o.subject)
                        FROM page_access_overrides o WHERE o.page_id = up.id), '[]'::json) AS ov
       FROM up JOIN pages p ON p.id = up.id
      WHERE up.edit_locked
      ORDER BY up.leaf, up.depth DESC
-  `)) as unknown as { leaf: string; id: string; title: string; ownerId: string | null; ov: Override[] }[]
+  `)) as unknown as { leaf: string; id: string; title: string; ownerId: string | null; instr: boolean; ov: Override[] }[]
   for (const r of rows) {
-    out.get(r.leaf)?.push({ id: r.id, title: r.title, ownerId: r.ownerId, overrides: r.ov ?? [] })
+    out.get(r.leaf)?.push({ id: r.id, title: r.title, ownerId: r.ownerId, overrides: r.ov ?? [], ...(r.instr ? { instructions: true } : {}) })
   }
   return out
 }
@@ -203,6 +209,9 @@ export function effectiveCaps(chain: LockNode[], actor: AccessActor): number {
       caps = applyLayer(caps, own || ownerAllow ? { a: (own?.a ?? 0) | ownerAllow, d: own?.d ?? 0 } : undefined)
     }
     if (actor.agent) caps = applyLayer(caps, agentLayer(by.get('agents')))
+    // An agent-instruction page (docs/adr/2579-*): an agent's edit becomes a suggestion, owners' and
+    // admins' agents included; a stricter preset (comment / read) stays as it is.
+    if (actor.agent && node.instructions && caps & CAP_EDIT) caps = (caps & ~CAP_EDIT) | CAP_SUGGEST
   }
   // SUGGEST is an agent bit, and only while the agent's person may edit here (docs/adr/1532-*).
   if (caps & CAP_SUGGEST && (!actor.agent || caps & CAP_EDIT || !(effectiveCaps(chain, { ...actor, agent: false }) & CAP_EDIT))) {
@@ -218,6 +227,9 @@ export function effectiveCaps(chain: LockNode[], actor: AccessActor): number {
  * (comment/read: the caps refuse the write anyway).
  */
 export function chainAgentPolicy(chain: LockNode[]): { level: 'direct' | 'auto' | 'review'; nodeId: string } | null {
+  // An agent-instruction page: every agent suggestion waits for a person (docs/adr/2579-*).
+  const leaf = chain[chain.length - 1]
+  if (leaf?.instructions) return { level: 'review', nodeId: leaf.id }
   for (let i = chain.length - 1; i >= 0; i--) {
     const o = chain[i].overrides.find((x) => x.s === 'agents')
     if (!o) continue
@@ -304,9 +316,15 @@ export async function pageLockedError(chain: LockNode[], actor: AccessActor, bit
   const suggestive = presets.agents === 'suggest' || presets.agents === 'auto'
   const personBlocked = suggestive && !(effectiveCaps(chain, { ...actor, agent: false }) & CAP_EDIT)
   const agentRule = actor.agent && presets.agents !== 'same' && presets.agents !== 'direct' && !personBlocked
+  // An agent-instruction page refuses what cannot be suggested (docs/adr/2579-*).
+  const instructionRule = actor.agent && node.instructions === true && (effectiveCaps(chain, { ...actor, agent: false }) & CAP_EDIT) !== 0
   let message: string
   if (bit === CAP_COMMENT) {
     message = `${title} is locked: agents may not comment on it. Ask a person to comment instead.`
+  } else if (instructionRule) {
+    message =
+      `${title} holds agent instructions: agents may only suggest changes to it. Use patch_section or update_page; they ` +
+      'leave a suggestion that a person accepts or rejects. Renaming, moving, trashing, restoring or splitting it is for a person in the web app.'
   } else if (agentRule && suggestive) {
     message =
       `${title} is locked for agents (suggestions only): this kind of change cannot be suggested. ` +

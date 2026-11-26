@@ -330,7 +330,13 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       // The patch itself (snapshot, echo, gate, rename follow-up, conflict) is shared with
       // accepting a suggestion (context/sectionWrite.ts, docs/adr/1533-*).
       const r = await patchSectionAs(user, page, access, body, () => requestLocale(req, user.id))
-      if (r.status === 409) return reply.code(409).send(r.body)
+      if (r.status === 409) {
+        // the conflict hands over the section's current text: a read of that section for the taint
+        // record, like GET /pages/:id/section (C-mcp M4; MCP tools record through agentContextFor)
+        const cur = (r.body as { error?: { current?: { anchor: string } } }).error?.current
+        if (cur) await recordTokenRead(user.tokenId, [page.id], [{ pageId: page.id, anchor: cur.anchor }])
+        return reply.code(409).send(r.body)
+      }
       return r.body
     },
   )

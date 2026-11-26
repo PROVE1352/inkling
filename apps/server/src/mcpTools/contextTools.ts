@@ -28,6 +28,7 @@ import { db } from '../db/index'
 import { pages, workspaces } from '../db/schema'
 import { archivedNote } from '../workspaceListing'
 import { versionArg } from '../versionArg'
+import { instructionWorkspaces } from '../agentInstructions'
 
 /**
  * Agent retrieval tools (docs/adr/0927-0930): find_context, read_pages, patch_section.
@@ -103,6 +104,27 @@ export interface PageWorkspace {
 /** Longest workspace name printed in a result line (cut with "…"). */
 const WS_NAME_MAX = 40
 
+/** `{Name} ` label of a workspace: the member-written name cleaned on one line, no braces, cut (docs/adr/2185-*). */
+function wsLabel(name: string, fallback: string): string {
+  const n = cleanText(name).replace(/[{}]/g, '').trim()
+  const short = [...n].length > WS_NAME_MAX ? `${[...n].slice(0, WS_NAME_MAX - 1).join('')}…` : n
+  return `{${short || fallback}} `
+}
+
+/**
+ * find_context's `applies:` line (C-mcp M1): an answer may span workspaces, so each instruction
+ * title carries its workspace (`{Name} Title`), and the line says rules stay in their workspace.
+ * `ws`: instruction page id → workspace (instructionWorkspaces). Null when nothing applies.
+ */
+export function appliesLineByWorkspace(ac: AgentContextDTO, ws: Map<string, { id: string; name: string }>): string | null {
+  if (!ac.applies.length) return null
+  const one = (a: AgentContextDTO['applies'][number]) => {
+    const w = ws.get(a.pageId)
+    return `${w ? wsLabel(w.name, w.id.slice(0, 8)) : ''}${cleanText(a.title || 'Untitled')}`
+  }
+  return `applies: ${ac.applies.map(one).join('; ')} (read them with get_instructions; a workspace's rules apply only to its own pages)`
+}
+
 /**
  * Workspace labels for one answer (docs/adr/2185-*): only when the printed pages (fragments,
  * pointers, title matches) come from two or more workspaces, else null and the output is exactly
@@ -137,9 +159,7 @@ export function workspaceLabels(
     const w = of(pageId, f?.workspaceId)
     if (!w) return ''
     const w0 = byId.get(w.id) ?? w
-    const name = cleanText(w0.name).replace(/\s+/g, ' ').replace(/[{}]/g, '').trim()
-    const short = [...name].length > WS_NAME_MAX ? `${[...name].slice(0, WS_NAME_MAX - 1).join('')}…` : name
-    return `{${short || ids.get(w.id)}} `
+    return wsLabel(w0.name, ids.get(w.id) ?? w.id)
   }
   const parts = order.map((w) => {
     const nos = fragNo.get(w.id)
@@ -167,8 +187,16 @@ export function renderFindContext(
   ink?: Map<string, number>,
   verifications?: Map<string, VerificationFacts>,
   wsOf?: Map<string, PageWorkspace>,
+  /** instruction page id → workspace: the applies line names workspaces (C-mcp M1) */
+  appliesWs?: Map<string, { id: string; name: string }>,
 ): string {
   const wrapData = (lines: string[]) => wrapUntrusted(lines.join('\n'), { source: 'find_context' })
+  const finish = (t: string) => {
+    if (!ac) return t
+    if (!appliesWs) return withApplies(ac, t)
+    const line = appliesLineByWorkspace(ac, appliesWs)
+    return line ? `${line}\n${t}` : t
+  }
   // Two or more workspaces: `{Name} ` before each title and one closing line (docs/adr/2185-*); else ''.
   const spans = workspaceLabels(r, wsOf)
   const ws = (pageId: string) => (spans ? spans.label(pageId) : '')
@@ -195,7 +223,7 @@ export function renderFindContext(
     // archived workspaces left out of a search without workspaceId (docs/adr/2304-*)
     const left = archivedNote(r.archived)
     if (left) lines.push(left)
-    return ac ? withApplies(ac, lines.join('\n')) : lines.join('\n')
+    return finish(lines.join('\n'))
   }
   // `can:` once in the header when two or more results all have the same (docs/adr/1906-*); with one
   // result the fragment line is as short
@@ -265,7 +293,29 @@ export function renderFindContext(
     return note ? [`[${i + 1}] ${note}`] : []
   })
   if (marks.length) out.push(`Verification: ${marks.join('; ')}`)
-  return ac ? withApplies(ac, out.join('\n')) : out.join('\n')
+  return finish(out.join('\n'))
+}
+
+/**
+ * patch_section's 409 (C-mcp M4): the current section is member-written text handed to the agent,
+ * so it goes into an <untrusted_content> block like read_page(section=…), and is recorded as read
+ * (taint record, docs/adr/2040-*) for that section only, with the same `suspicious:` note.
+ */
+export async function sectionConflictText(
+  ctx: ToolCtx,
+  pageId: string,
+  message: string,
+  cur: { anchor: string; version: string; markdown: string } | undefined,
+): Promise<string> {
+  const head = `Conflict: ${cleanText(message)}`
+  if (!cur) return head
+  const ac = await loadAgentContext(ctx, [pageId], { read: true, anchors: [{ pageId, anchor: cur.anchor }] })
+  const f = pageFacts(ac, pageId)
+  const flag = suspiciousNote(flaggedRules(ac, pageId, [cur.anchor]))
+  return (
+    `${head}\n\nCurrent §${cur.anchor} (v=${cur.version}):${flag ? `\n${flag}` : ''}\n` +
+    wrapUntrusted(cur.markdown, { source: 'page', id: pageId, createdBy: f.createdBy, lastEdit: f.lastEdit })
+  )
 }
 
 interface ReadPagesResponse {
@@ -299,7 +349,7 @@ export function renderReadPages(r: ReadPagesResponse, ac?: AgentContextDTO): str
     )
   }
   if (r.omitted.length) {
-    out.push(`Not shown (budget ${r.budget} tokens used up): ${r.omitted.map((o) => `${o.title || 'Untitled'} (${o.id})`).join(', ')}. Read them in another call or by section.`)
+    out.push(`Not shown (budget ${r.budget} tokens used up): ${r.omitted.map((o) => `${cleanText(o.title || 'Untitled')} (${o.id})`).join(', ')}. Read them in another call or by section.`)
   }
   if (r.missing.length) out.push(`Not found or not visible: ${r.missing.join(', ')} — use find_context to get valid ids.`)
   const textOut = out.join('\n').trim()
@@ -366,7 +416,9 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
       const ac = await loadAgentContext(ctx, shown, { read: true })
       // Workspace names only when this answer may span several (no workspaceId), docs/adr/2185-*
       const wsOf = workspaceId ? undefined : await printedWorkspaces(result)
-      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown), await verificationFactsFor(shown), wsOf))
+      // `applies:` comes from the shown pages only (`shown`, above), each title with its workspace (C-mcp M1)
+      const appliesWs = ac.applies.length ? await instructionWorkspaces(ac.applies.map((a) => a.pageId)) : undefined
+      return text(renderFindContext(list[0], result, review, ac, await inkStrokeCounts(shown), await verificationFactsFor(shown), wsOf, appliesWs))
     }),
   )
 
@@ -439,17 +491,7 @@ export function registerContextTools(server: McpServer, ctx: ToolCtx): void {
           error: { message: string; current?: { anchor: string; version: string; markdown: string } }
         }
         const cur = body.error.current
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text:
-                `Conflict: ${body.error.message}` +
-                (cur ? `\n\nCurrent §${cur.anchor} (v=${cur.version}):\n${cur.markdown}` : ''),
-            },
-          ],
-        }
+        return { isError: true, content: [{ type: 'text', text: await sectionConflictText(ctx, pageId, body.error.message, cur) }] }
       }
       const r = res.json() as { section: { anchor: string; headingPath: string; version: string } | null; movedFrom?: string }
       const ac = await loadAgentContext(ctx, [pageId])

@@ -249,14 +249,15 @@ describe('[db] suggest-only connections after flagged content', { skip: !HAS_DB 
     assert.equal(rel.json().released, 1)
     assert.equal(rel.json().suggestOnly.sourcesHere, 0)
     assert.match(await write('still suggested'), /^Not written/)
-    // the connection's owner lifts everything
-    assert.equal((await req(bob, 'POST', '/connections/release', { connection: B.key })).json().released, 1)
+    // the connection's owner lifts everything; the admin's ws1 release (which lifted it in ws1 only,
+    // C-mcp L1, 0.25.4) is taken over so that source is lifted everywhere too
+    assert.equal((await req(bob, 'POST', '/connections/release', { connection: B.key })).json().released, 2)
     assert.match(await write('direct now'), /^Done \(append\)/)
     const released = await db
       .select()
       .from(schema.workspaceAuditEvents)
       .where(and(eq(schema.workspaceAuditEvents.action, 'agent.taint_released'), eq(schema.workspaceAuditEvents.targetId, B.key)))
-    assert.deepEqual(released.map((e) => [e.workspaceId, (e.after as { scope: string }).scope]).sort(), [[ws1, 'workspace'], [ws2, 'all']].sort())
+    assert.deepEqual(released.map((e) => [e.workspaceId, (e.after as { scope: string }).scope]).sort(), [[ws1, 'workspace'], [ws1, 'all'], [ws2, 'all']].sort())
 
     // the same flagged content again: no new taint; changed flagged content: tainted again
     _resetTaintMemory()

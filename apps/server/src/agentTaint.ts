@@ -27,9 +27,13 @@ import { recordAudit } from './workspaceAdmin'
  *   - browser sessions, background jobs and accepts by people are never affected.
  *
  * A person lifts it early (`releaseTaints`): the connection's owner for every source, a workspace
- * owner/admin for the sources in their workspace. A released source does not taint the connection
- * again while its flagged content is unchanged (same fingerprint). Taints and releases are audited
- * without any of the flagged text.
+ * owner/admin for the sources in their workspace. A release by the connection's owner lifts the source
+ * everywhere; a release by anyone else (a workspace owner/admin) lifts it only inside that source's
+ * workspace, so the owner of the workspace that held the flagged text cannot free the connection in
+ * other workspaces (C-mcp L1): `released_by` against the connection's owner tells them apart. A source
+ * released by the owner does not taint the connection again while its flagged content is unchanged
+ * (same fingerprint); one released by a workspace admin keeps the connection suggest-only elsewhere
+ * when read again. Taints and releases are audited without any of the flagged text.
  */
 
 export const TAINT_WINDOW_MS = TAINT_WINDOW_MINUTES * 60_000
@@ -44,6 +48,24 @@ export interface Demotion {
 
 const minute = (d: Date) => `${d.toISOString().slice(0, 16)}Z`
 
+/** SQL: the user who owns connection `key` (grant or personal token), as teamAgents.connectionOwnerSql. */
+function ownerOfKeySql(key: string) {
+  return sql`(CASE
+    WHEN ${key}::text ~ '^grant:[0-9a-fA-F-]{36}$' THEN (SELECT g.user_id FROM oauth_grants g WHERE g.id = substr(${key}::text, 7)::uuid)
+    WHEN ${key}::text ~ '^token:[0-9a-fA-F-]{36}$' THEN (SELECT k.user_id FROM api_tokens k WHERE k.id = substr(${key}::text, 7)::uuid)
+  END)`
+}
+
+/**
+ * SQL: taint row `t` still counts for its connection in workspace `ws` (null: anywhere). Unreleased;
+ * or released by someone other than the connection's owner (a workspace owner/admin), which lifts it
+ * only in the source's own workspace (C-mcp L1).
+ */
+function countsSql(key: string, ws: string | null) {
+  return sql`(t.released_at IS NULL OR (t.released_by IS DISTINCT FROM ${ownerOfKeySql(key)}
+    ${ws ? sql`AND t.workspace_id <> ${ws}::uuid` : sql``}))`
+}
+
 /**
  * Is `key` suggest-only in `workspaceId` right now? One statement (the workspace switch and the
  * newest unreleased taint inside the window).
@@ -52,7 +74,7 @@ export async function demotionFor(key: string, workspaceId: string, exec: Exec =
   const [r] = (await exec.execute(sql`
     SELECT w.agent_taint_demote AS "on",
            (SELECT max(t.tainted_at) FROM connection_taints t
-             WHERE t.connection = ${key} AND t.released_at IS NULL AND t.tainted_at > now() - ${WINDOW}) AS "at"
+             WHERE t.connection = ${key} AND ${countsSql(key, workspaceId)} AND t.tainted_at > now() - ${WINDOW}) AS "at"
       FROM workspaces w WHERE w.id = ${workspaceId}
   `)) as unknown as { on: boolean; at: string | Date | null }[]
   if (!r || !r.on || !r.at) return null
@@ -187,10 +209,10 @@ async function noteSource(key: string, userId: string, s: Source, via: string | 
   const scope = currentConnection()
   await db.transaction(async (tx) => {
     const [cur] = (await tx.execute(sql`
-      SELECT fingerprint, released_at AS "releasedAt", tainted_at > now() - ${WINDOW} AS "live",
+      SELECT fingerprint, released_at AS "releasedAt", released_by AS "releasedBy", tainted_at > now() - ${WINDOW} AS "live",
              tainted_at > now() - interval '1 minute' AS "fresh"
         FROM connection_taints WHERE connection = ${key} AND source = ${s.source} FOR UPDATE
-    `)) as unknown as { fingerprint: string; releasedAt: string | null; live: boolean; fresh: boolean }[]
+    `)) as unknown as { fingerprint: string; releasedAt: string | null; releasedBy: string | null; live: boolean; fresh: boolean }[]
     let newly = false
     if (!cur) {
       const ins = (await tx.execute(sql`
@@ -199,8 +221,14 @@ async function noteSource(key: string, userId: string, s: Source, via: string | 
         ON CONFLICT DO NOTHING RETURNING 1 AS one
       `)) as unknown as unknown[]
       newly = ins.length > 0
+    } else if (cur.releasedAt && cur.fingerprint === s.fingerprint && cur.releasedBy === userId) {
+      return // the connection's owner looked at exactly this and lifted it
     } else if (cur.releasedAt && cur.fingerprint === s.fingerprint) {
-      return // a person looked at exactly this and lifted it
+      // lifted by the source workspace's owner/admin: stays lifted there, and reading it again
+      // restarts the window everywhere else (C-mcp L1)
+      if (cur.fresh) return
+      await tx.execute(sql`UPDATE connection_taints SET tainted_at = now() WHERE connection = ${key} AND source = ${s.source}`)
+      newly = !cur.live
     } else if (!cur.releasedAt && cur.fingerprint === s.fingerprint && cur.fresh) {
       return
     } else {
@@ -339,6 +367,11 @@ export async function recordFlaggedFile(
 export async function suggestOnlyStates(keys: string[], workspaceId?: string, exec: Exec = db): Promise<Map<string, SuggestOnlyDTO>> {
   const out = new Map<string, SuggestOnlyDTO>()
   if (!keys.length) return out
+  // per row: a release by someone other than the connection's owner lifts it only in its own workspace (C-mcp L1)
+  const ownerOfConnSql = sql`(CASE
+    WHEN t.connection ~ '^grant:[0-9a-fA-F-]{36}$' THEN (SELECT g.user_id FROM oauth_grants g WHERE g.id = substr(t.connection, 7)::uuid)
+    WHEN t.connection ~ '^token:[0-9a-fA-F-]{36}$' THEN (SELECT k.user_id FROM api_tokens k WHERE k.id = substr(t.connection, 7)::uuid)
+  END)`
   if (workspaceId) {
     const [w] = (await exec.execute(sql`SELECT agent_taint_demote AS "on" FROM workspaces WHERE id = ${workspaceId}`)) as unknown as { on: boolean }[]
     if (!w?.on) return out
@@ -347,7 +380,9 @@ export async function suggestOnlyStates(keys: string[], workspaceId?: string, ex
     SELECT t.connection, max(t.tainted_at) AS "at", count(*)::int AS n,
            count(*) FILTER (WHERE t.workspace_id = ${workspaceId ?? null}::uuid)::int AS here
       FROM connection_taints t
-     WHERE t.connection = ANY(${`{${keys.join(',')}}`}::text[]) AND t.released_at IS NULL AND t.tainted_at > now() - ${WINDOW}
+     WHERE t.connection = ANY(${`{${keys.join(',')}}`}::text[]) AND t.tainted_at > now() - ${WINDOW}
+       AND (t.released_at IS NULL OR (t.released_by IS DISTINCT FROM ${ownerOfConnSql}
+            ${workspaceId ? sql`AND t.workspace_id <> ${workspaceId}::uuid` : sql``}))
      GROUP BY t.connection
   `)) as unknown as { connection: string; at: string | Date; n: number; here: number }[]
   for (const r of rows) {
@@ -367,9 +402,13 @@ export async function suggestOnlyStates(keys: string[], workspaceId?: string, ex
  */
 export async function releaseTaints(by: { id: string; name: string }, key: string, workspaceId: string | null): Promise<number> {
   return db.transaction(async (tx) => {
+    // The connection's owner also takes over a workspace admin's release (which lifted the source only
+    // in its own workspace) so that it lifts the source everywhere (C-mcp L1).
     const rows = (await tx.execute(sql`
-      UPDATE connection_taints SET released_at = now(), released_by = ${by.id}
-       WHERE connection = ${key} AND released_at IS NULL ${workspaceId ? sql`AND workspace_id = ${workspaceId}` : sql``}
+      UPDATE connection_taints t SET released_at = now(), released_by = ${by.id}
+       WHERE t.connection = ${key} ${workspaceId ? sql`AND t.workspace_id = ${workspaceId}` : sql``}
+         AND (t.released_at IS NULL
+              OR (${by.id}::uuid = ${ownerOfKeySql(key)} AND t.released_by IS DISTINCT FROM ${by.id}::uuid))
       RETURNING source, workspace_id AS "workspaceId"
     `)) as unknown as { source: string; workspaceId: string }[]
     const byWs = new Map<string, string[]>()

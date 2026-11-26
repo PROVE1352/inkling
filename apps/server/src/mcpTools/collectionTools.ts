@@ -61,10 +61,15 @@ async function getRow(ctx: ToolCtx, rowId: string): Promise<CollectionRowDTO> {
   }
 }
 
-function conflictError(rowId: string, base: string, cur: CollectionRowDTO): ToolError {
+/**
+ * update_row's version conflict. The current cells are member-written: one <untrusted_content> block
+ * (C-mcp M4), and recorded as read like query_rows does (taint record on the collection, docs/adr/2040-*).
+ */
+async function conflictError(ctx: ToolCtx, rowId: string, base: string, cur: CollectionRowDTO): Promise<ToolError> {
+  await loadAgentContext(ctx, [cur.collection.id], { read: true })
   return new ToolError(
     `Version conflict: row ${rowId} changed since you read it (your baseVersion ${base}, current ${cur.row.version}). Nothing was written.\n` +
-      `Current values:\n${rowLines(cur.columns, cur.row.cells)}\n` +
+      `Current values:\n${wrapUntrusted(rowLines(cur.columns, cur.row.cells), { source: 'rows', id: rowId })}\n` +
       `If your change still applies, retry update_row with baseVersion "${cur.row.version}".`,
   )
 }
@@ -86,11 +91,11 @@ async function resolveRelationRefs(ctx: ToolCtx, mapped: MappedWrite, fields: Co
   for (const { field, refs } of mapped.relations) {
     const target = field.relation?.targetPageId
     if (!target) {
-      errors.push(`"${field.name}" has no target collection configured`)
+      errors.push(`"${cleanText(field.name)}" has no target collection configured`)
       continue
     }
     if (field.relation?.subItems && refs.length > 1) {
-      errors.push(`"${field.name}" takes one parent row`)
+      errors.push(`"${cleanText(field.name)}" takes one parent row`)
       continue
     }
     const ids: string[] = []
@@ -111,8 +116,8 @@ async function resolveRelationRefs(ctx: ToolCtx, mapped: MappedWrite, fields: Co
       const rows = (res.json() as { rows: { id: string; title: string }[] }).rows
       const hits = rows.filter((r) => r.title.trim().toLowerCase() === ref.toLowerCase())
       if (hits.length === 1) ids.push(hits[0].id)
-      else if (hits.length > 1) errors.push(`"${ref}" matches ${hits.length} rows in "${field.name}"; pass a row id: ${hits.map((h) => h.id).join(', ')}`)
-      else errors.push(`No row titled "${ref}" in the target of "${field.name}"; use query_rows on that collection to find the row id`)
+      else if (hits.length > 1) errors.push(`"${cleanText(ref)}" matches ${hits.length} rows in "${cleanText(field.name)}"; pass a row id: ${hits.map((h) => h.id).join(', ')}`)
+      else errors.push(`No row titled "${cleanText(ref)}" in the target of "${cleanText(field.name)}"; use query_rows on that collection to find the row id`)
     }
     out[field.id] = ids
   }
@@ -128,7 +133,7 @@ function assertSanitized(fields: CollectionField[], props: Record<string, unknow
     // a person's agent next to a person cell: checked by the server (docs/adr/1864-*)
     if (k.startsWith('agent:')) continue
     const ok = v === null ? del.includes(k) : k in set
-    if (!ok) throw new ToolError(`Value for "${byId.get(k)?.name ?? k}" was rejected; check its type with query_rows describe`)
+    if (!ok) throw new ToolError(`Value for "${cleanText(byId.get(k)?.name ?? k)}" was rejected; check its type with query_rows describe`)
   }
 }
 
@@ -317,13 +322,13 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
       const baseVersion = versionArg(baseRaw) // `v=…` as printed (0.24.1)
       if (Object.keys(properties).length === 0) throw new ToolError('properties is empty; pass at least one { "Name": value }')
       const cur = await getRow(ctx, rowId)
-      if (cur.row.version !== baseVersion) throw conflictError(rowId, baseVersion, cur)
+      if (cur.row.version !== baseVersion) throw await conflictError(ctx, rowId, baseVersion, cur)
       let mapped: MappedWrite
       try {
         const members = needsMembers(cur.fields, properties) ? await loadMembers(ctx, cur.workspaceId) : undefined
         mapped = mapWrite(cur.fields, properties, { userId: ctx.user.id, today: today(), members, connection: connectionKey(ctx.user) || null })
       } catch (err) {
-        if (err instanceof ValueError) throw new ToolError(`${err.message}\nNothing was written.`)
+        if (err instanceof ValueError) throw new ToolError(`${cleanText(err.message.split('\n').join('; '))}\nNothing was written.`)
         throw err
       }
       if (mapped.title !== undefined) throw new ToolError('update_row does not change the title; use rename_page. Nothing was written.')
@@ -334,7 +339,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         res = await call(ctx, 'PATCH', `/api/pages/${rowId}/props`, { json: { props: { ...mapped.props, ...rel }, baseVersion } })
       } catch (err) {
         if (err instanceof ToolError && err.message.includes('ROW_VERSION_CONFLICT')) {
-          throw conflictError(rowId, baseVersion, await getRow(ctx, rowId))
+          throw await conflictError(ctx, rowId, baseVersion, await getRow(ctx, rowId))
         }
         throw err
       }
@@ -387,7 +392,7 @@ export function registerCollectionTools(server: McpServer, ctx: ToolCtx): void {
         const members = needsMembers(fields, properties) ? await loadMembers(ctx, def.workspaceId) : undefined
         mapped = mapWrite(fields, properties, { userId: ctx.user.id, today: today(), members, connection: connectionKey(ctx.user) || null })
       } catch (err) {
-        if (err instanceof ValueError) throw new ToolError(`${err.message}\nNothing was written.`)
+        if (err instanceof ValueError) throw new ToolError(`${cleanText(err.message.split('\n').join('; '))}\nNothing was written.`)
         throw err
       }
       const props = Object.fromEntries(Object.entries(mapped.props).filter(([, v]) => v !== null))

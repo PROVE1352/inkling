@@ -91,7 +91,12 @@ export function registerPatchSectionsTool(server: McpServer, ctx: ToolCtx): void
       // Kept as suggestions instead of written (docs/adr/1538-*)
       if (res.statusCode === 202) return text(suggestionsMadeText((res.json() as { suggestions: SuggestionDTO[] }).suggestions))
       if (res.statusCode === 409) {
-        return { isError: true, content: [{ type: 'text', text: renderSectionConflicts(pageId, res.json() as BatchConflict) }] }
+        const body = res.json() as BatchConflict
+        // the current text of conflicting sections is handed over: recorded as read for those
+        // sections only, like read_page(section=…) (C-mcp M4, docs/adr/2040-*)
+        const shown = body.error.conflicts.filter((c) => c.reason === 'version' && c.markdown !== undefined && c.anchor)
+        if (shown.length) await loadAgentContext(ctx, [pageId], { read: true, anchors: shown.map((c) => ({ pageId, anchor: c.anchor! })) })
+        return { isError: true, content: [{ type: 'text', text: renderSectionConflicts(pageId, body) }] }
       }
       const r = res.json() as BatchOk
       const ac = await loadAgentContext(ctx, [pageId])

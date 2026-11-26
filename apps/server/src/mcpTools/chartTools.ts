@@ -33,7 +33,7 @@ import {
 import type { ChartBlockConfig, ChartDataDTO, ChartSettings, CollectionField, CollectionViewDTO, SuggestionDTO, ViewConfig } from '@inkling/shared'
 import { call, text, ToolError, wrapWrite, idArg } from './core'
 import type { McpServer, ToolCtx } from './core'
-import { loadAgentContext, withApplies } from './agentContext'
+import { loadAgentContext, runAsConnection, withApplies } from './agentContext'
 import { suggestionMadeText } from './collabTools'
 import { cleanText, wrapUntrusted } from './trust'
 import { findVisiblePage } from '../pageDto'
@@ -267,7 +267,8 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
     wrapWrite(ctx, async (args: SettingsArgs & { pageId: string; section?: string; placement?: 'end' | 'start' | 'after'; collectionId?: string; view?: string; query?: string; suggest?: boolean }) => {
       if (!!args.collectionId === !!args.query) throw new ToolError('Give exactly one data source: collectionId or query. Nothing was written.')
       if (args.suggest && !args.section) throw new ToolError('suggest needs a section (§anchor) to suggest into. Nothing was written.')
-      const page = await findVisiblePage(args.pageId, ctx.user.id)
+      // as this connection (range, agent blocks): a page outside them reads as not found (C-mcp I1)
+      const page = await runAsConnection(ctx, () => findVisiblePage(args.pageId, ctx.user.id))
       if (!page) throw new ToolError('Page not found or not visible to you; use find_context to get a valid id. Nothing was written.')
       if (page.kind !== 'doc') throw new ToolError(`Charts go into document pages; this page is a ${page.kind}. For a collection use create_view(type="chart"). Nothing was written.`)
 
@@ -291,7 +292,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
 
       // the data once, as this user: a source they cannot see or a bad field writes nothing
       const check = await aggregateFor(ctx, page.workspaceId, cfg)
-      if (!check.data) throw new ToolError(`Cannot chart this: ${check.error}. Nothing was written.`)
+      if (!check.data) throw new ToolError(`Cannot chart this: ${cleanText(check.error ?? '')}. Nothing was written.`)
       const emptyNote = await emptyFilterNote(ctx, page.workspaceId, cfg, check.data, chartView)
 
       const markdown = `<!-- inkling:chart ${tokenJson(cfg)} -->`
@@ -387,7 +388,7 @@ export function registerChartTools(server: McpServer, ctx: ToolCtx): void {
       const ac = await loadAgentContext(ctx, [collectionId])
       let tail = ''
       if (view.type === 'chart' && view.config.chart) {
-        const wsId = (await findVisiblePage(collectionId, ctx.user.id))?.workspaceId ?? ''
+        const wsId = (await runAsConnection(ctx, () => findVisiblePage(collectionId, ctx.user.id)))?.workspaceId ?? ''
         const cfg: ChartBlockConfig = { source: { type: 'collection', collectionId, viewId: view.id }, ...view.config.chart }
         const r = await aggregateFor(ctx, wsId, cfg)
         tail = r.data

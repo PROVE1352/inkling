@@ -7,7 +7,7 @@ import type {
   WorkspaceRole,
 } from '@inkling/shared'
 import { db } from './db/index'
-import { agentInstructions, pageDocs, pages } from './db/schema'
+import { agentInstructions, pageDocs, pages, workspaces } from './db/schema'
 import { badRequest, forbidden } from './errors'
 import { applyLockChange, loadLockTarget } from './editLock'
 import { closePageConnections, liveDocState } from './liveConnections'
@@ -230,6 +230,22 @@ export async function applicableInstructions(
   return [...always.map((r) => ({ ...r, rank: null })), ...m]
 }
 
+/**
+ * Workspace (id, name) of each instruction page, for the `applies:` line (C-mcp M1): an agent that
+ * works across workspaces sees whose rules each title is. One statement; unknown ids are left out.
+ */
+export async function instructionWorkspaces(pageIds: string[]): Promise<Map<string, { id: string; name: string }>> {
+  const out = new Map<string, { id: string; name: string }>()
+  if (!pageIds.length) return out
+  const rows = await db
+    .select({ pageId: agentInstructions.pageId, id: workspaces.id, name: workspaces.name })
+    .from(agentInstructions)
+    .innerJoin(workspaces, eq(workspaces.id, agentInstructions.workspaceId))
+    .where(inArray(agentInstructions.pageId, [...new Set(pageIds)]))
+  for (const r of rows) out.set(r.pageId, { id: r.id, name: r.name })
+  return out
+}
+
 /** Markdown body of an instruction page (live document first), capped. */
 export async function instructionBody(pageId: string): Promise<{ markdown: string; truncated: boolean }> {
   const live = liveDocState(pageId)
@@ -242,6 +258,8 @@ export async function instructionBody(pageId: string): Promise<{ markdown: strin
 
 export interface InstructionBundle {
   workspaceId: string
+  /** Member-written; printed cleaned on one line (C-mcp M1: say whose rules these are). */
+  workspaceName: string
   forPageId: string | null
   always: (AgentInstructionDTO & { markdown: string; truncated: boolean })[]
   matching: (AgentInstructionDTO & { markdown: string; truncated: boolean })[]
@@ -261,8 +279,10 @@ export async function instructionBundle(workspaceId: string, forPage: { id: stri
   const matching = await Promise.all(applied.filter((r) => r.mode === 'match').map(withBody))
   const hash = createHash('sha256')
   for (const a of always) hash.update(`${a.pageId}\n${a.title}\n${a.markdown}\n`)
+  const [ws] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
   return {
     workspaceId,
+    workspaceName: ws?.name ?? '',
     forPageId: forPage?.id ?? null,
     always,
     matching,

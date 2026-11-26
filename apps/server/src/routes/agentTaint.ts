@@ -16,7 +16,9 @@ import { capabilitiesFor, isManagerRole, loadPolicy, recordAudit, requireManager
  *
  *   PUT  /workspaces/:id/settings/agent-taint            { enabled } owners/admins; audited settings.updated
  *   POST /workspaces/:id/agent-connections/release       { connection } owners/admins, or the connection's
- *                                                         owner: lifts the sources in this workspace
+ *                                                         owner: lifts the sources in this workspace (an
+ *                                                         admin's release counts in this workspace only,
+ *                                                         the owner's everywhere: docs/adr/2572-*)
  *   POST /connections/release                            { connection } the connection's owner: lifts every source
  *   GET  /connections/suggest-only                       the caller's own connections that are suggest-only now
  */

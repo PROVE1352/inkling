@@ -221,7 +221,8 @@ export async function handBackConnections(keys: string[] | null, exec: Pick<Exec
   if (keys && !keys.length) return []
   const which = keys
     ? sql`connection = ANY(${`{${keys.map((k) => k.replace(/[^a-z0-9:-]/gi, '')).join(',')}}`}::text[])`
-    : sql`connection IS NOT NULL AND NOT ${connectionLiveSql(sql`connection`, sql`workspace_id`)}`
+    : // qualified: inside connectionLiveSql a bare workspace_id would name the subqueries' own columns
+      sql`connection IS NOT NULL AND NOT ${connectionLiveSql(sql`notifications.connection`, sql`notifications.workspace_id`)}`
   const rows = (await exec.execute(sql`
     UPDATE notifications SET connection = NULL, person_too = false
      WHERE ${which} AND acked_at IS NULL

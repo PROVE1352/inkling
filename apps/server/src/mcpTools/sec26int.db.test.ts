@@ -35,6 +35,7 @@ describe('[db] sec26 merge: pending workspaces, hand-offs, instruction locks, ta
   const { createApiToken } = await import('../apiTokens')
   const { bumpAcl } = await import('../aclVersion')
   const engine = await import('../notify/engine')
+  const { handBackConnections } = await import('../teamAgents')
   const app = await h.buildTestApp()
   const closers: (() => Promise<void>)[] = []
   after(async () => {
@@ -127,7 +128,11 @@ describe('[db] sec26 merge: pending workspaces, hand-offs, instruction locks, ta
       assert.ok((await req(A, 'GET', `/workspaces/${evil}/team-agents`)).body.includes(vAgent.key))
       const r2 = await req(A, 'POST', `/pages/${evilPage}/comments`, { blockId: 'b-2', body: `handed again ${word}`, mentionConnections: [vAgent.ref] })
       assert.equal(r2.statusCode, 200, r2.body)
-      // back to pending for the tests below (a direct add always waits)
+      // back to pending for the tests below (a direct add always waits). The hand-off just made is removed
+      // first: a connection that is not live in a workspace has its items handed back to the person by the
+      // hourly job (handBackConnections), which another test file checks server-wide.
+      await engine.flushNotifications()
+      await db.execute(sql`DELETE FROM notifications WHERE workspace_id = ${evil} AND connection IS NOT NULL`)
       await db.update(schema.workspaceMembers).set({ agentsPending: true }).where(and(eq(schema.workspaceMembers.workspaceId, evil), eq(schema.workspaceMembers.userId, V.id)))
       await bumpAcl(db, evil)
     })
@@ -148,6 +153,13 @@ describe('[db] sec26 merge: pending workspaces, hand-offs, instruction locks, ta
       const vicLine = cu.split('\n').find((l) => l.includes('→ this connection') && l.includes('Vic'))
       assert.ok(vicLine && !vicLine.includes('requested by another person'), cu)
       assert.match(cu, /do not do it; ask them first/)
+      // the hourly hand-back leaves them with the connection: it is live in this workspace, even though
+      // V waits to include another one (a bare workspace_id in that query once matched any membership)
+      await handBackConnections(null)
+      const left = (await db.execute(
+        sql`SELECT count(*)::int AS n FROM notifications WHERE workspace_id = ${team} AND connection = ${vAgent.key} AND excerpt LIKE ${'%asks ' + word + '%'}`,
+      )) as unknown as { n: number }[]
+      assert.equal(left[0].n, 2)
     })
   })
 

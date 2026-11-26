@@ -145,6 +145,8 @@ const ROUTES: Record<string, Entry> = {
   'PUT /me/workspace-groups/order': { open: PERSON },
   'PUT /me/workspace-order': { open: PERSON },
   'PATCH /me/workspaces/:id/listing': { open: PERSON },
+  // docs/adr/2580-*: flips one flag on the person's own membership
+  'POST /workspaces/:id/agent-include': { open: PERSON },
   'PUT /me/sidebar': { open: PERSON },
   'PUT /me/status': { open: PERSON },
   'POST /me/ical': { open: PERSON },

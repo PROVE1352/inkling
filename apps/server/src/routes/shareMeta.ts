@@ -32,6 +32,7 @@ import { shareGated, shareNotStarted } from '../shareAccess'
 import { buildFolderShare, findSharedPageByToken } from './public'
 import type { SharedPage } from './public'
 import { addressKey } from '../rateLimitKey'
+import { logSafeError } from '../errors'
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{1,128}$/
 const REF_RE = /^[A-Za-z0-9_-]{22}$/
@@ -192,7 +193,7 @@ export async function registerShareMetaRoutes(app: FastifyInstance): Promise<voi
       }
       return send(reply, injectMeta(base, meta))
     } catch (err) {
-      req.log.warn({ err }, 'share meta injection failed')
+      req.log.warn({ err: logSafeError(err) }, 'share meta injection failed')
       return send(reply, base)
     }
   }

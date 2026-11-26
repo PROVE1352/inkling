@@ -27,7 +27,7 @@ import {
   pages,
 } from '../db/schema'
 import { env } from '../env'
-import { AppError, badRequest, forbidden, notFound } from '../errors'
+import { AppError, badRequest, forbidden, logSafeError, notFound } from '../errors'
 import { idParam, requireMembership, requireMembershipAcl } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { stateToBlocks } from '../md/convert'
@@ -1277,7 +1277,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       try {
         await db.delete(files).where(inArray(files.id, fileIds))
       } catch (err) {
-        req.log.error({ err }, '[inkling] purge: failed to delete attachment rows')
+        req.log.error({ err: logSafeError(err) }, '[inkling] purge: failed to delete attachment rows')
       }
       for (const fid of fileIds) {
         try {
@@ -1477,7 +1477,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
         try {
           blocks = stateToBlocks(cur.state)
         } catch (err) {
-          req.log.error({ err, pageId: id }, '[inkling] expand to canvas: document conversion failed')
+          req.log.error({ err: logSafeError(err), pageId: id }, '[inkling] expand to canvas: document conversion failed')
           blocks = []
         }
       }

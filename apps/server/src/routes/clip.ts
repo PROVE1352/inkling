@@ -20,7 +20,7 @@ import { reindexPageChunks } from '../context/chunkIndex'
 import { db } from '../db/index'
 import { pageDocs, pages } from '../db/schema'
 import { actorFor, assertCan } from '../editLock'
-import { AppError, badRequest } from '../errors'
+import { AppError, badRequest, logSafeError } from '../errors'
 import { requireMembership } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { blocksToStateBuffer, stateToBlocks } from '../md/convert'
@@ -150,7 +150,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
                 truncated = extracted.truncated || fetched.truncatedBytes || built.cut
               }
             } catch (err) {
-              req.log.warn({ err }, 'clip: article extraction failed')
+              req.log.warn({ err: logSafeError(err) }, 'clip: article extraction failed')
               fallback = 'no_content'
             }
           }
@@ -177,7 +177,7 @@ export async function registerClipRoutes(app: FastifyInstance): Promise<void> {
         state = blocksToStateBuffer(bodyOf(true))
       } catch (err) {
         if (!article) throw err
-        req.log.warn({ err }, 'clip: article blocks could not be stored')
+        req.log.warn({ err: logSafeError(err) }, 'clip: article blocks could not be stored')
         state = blocksToStateBuffer(bodyOf(false))
         article = null
         mode = 'link'

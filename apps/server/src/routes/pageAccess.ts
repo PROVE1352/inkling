@@ -25,7 +25,7 @@ import type {
 import { db } from '../db/index'
 import { pageGrants, pageInvites, pages, users, workspaces } from '../db/schema'
 import { getUser, requireUser } from '../auth'
-import { AppError, badRequest, forbidden, notFound } from '../errors'
+import { AppError, badRequest, forbidden, logSafeError, notFound } from '../errors'
 import { findVisiblePage } from '../pageDto'
 import { idParam, lockWorkspaceMembers, memberRoleTx, requireMembership } from '../helpers'
 import { bumpAcl } from '../aclVersion'
@@ -616,7 +616,7 @@ async function createInvite(
       await sendMail(email, pageInviteMail({ inviter: actor.name, pageTitle: ctx.page.title, workspaceName: ws?.name ?? '', url, expiresAt }))
       mailed = true
     } catch (err) {
-      req.log.warn({ err }, 'page invite mail failed')
+      req.log.warn({ err: logSafeError(err) }, 'page invite mail failed')
     }
   }
   const dto: PageInviteDTO = {

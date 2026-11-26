@@ -78,3 +78,15 @@ export function logSafeError(err: unknown): unknown {
   }
   return safe
 }
+
+/**
+ * console.error / console.warn with every failed-query error made log-safe (logSafeError): background
+ * jobs log their errors with console (about a hundred places), so the server installs this once at
+ * start instead of wrapping each call (0.25.4 security fix F-4). Other arguments pass through as they are.
+ */
+export function installLogSafeConsole(target: Pick<Console, 'error' | 'warn'> = console): void {
+  for (const k of ['error', 'warn'] as const) {
+    const orig = target[k].bind(target)
+    target[k] = (...args: unknown[]) => orig(...args.map(logSafeError))
+  }
+}

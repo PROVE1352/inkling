@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { PageMetaDTO, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
 import { db } from './db/index'
+import { logSafeError } from './errors'
 import { pages } from './db/schema'
 import { stripFrontmatter } from './md/convert'
 import { canWriteFromScopes, getBearerUser, publicOrigin, readBearer } from './oauth'
@@ -1051,7 +1052,7 @@ export async function registerMcpRoutes(scope: FastifyInstance, rootApp: Fastify
       await server.connect(transport)
       await transport.handleRequest(req.raw, reply.raw, req.body)
     } catch (err) {
-      req.log.error(err)
+      req.log.error(logSafeError(err))
       if (!reply.raw.headersSent) {
         reply.raw.statusCode = 500
         reply.raw.setHeader('content-type', 'application/json')

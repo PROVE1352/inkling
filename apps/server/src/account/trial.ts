@@ -6,7 +6,7 @@ import { TRIAL_EMAIL_SUFFIX, type RegisterInput, type TrialModeDTO, type UserDTO
 import { createSession, getSessionUser, hashPassword, SESSION_COOKIE, setSessionCookie } from '../auth'
 import { db } from '../db/index'
 import { users, workspaceMembers, workspaces } from '../db/schema'
-import { AppError } from '../errors'
+import { AppError, logSafeError } from '../errors'
 import { generateInviteCodeColumns } from '../helpers'
 import { requestLocale, type Locale } from '../i18n'
 import { activeLegal } from '../legal/consent'
@@ -219,7 +219,7 @@ export async function createTrialAccount(
       const r = await createSample({ userId: created.user.id, userName: name, workspaceId: created.workspaceId, role: 'owner', locale: ctx.locale })
       samplePageId = r.pageId
     } catch (err) {
-      ctx.req.log.error({ err }, '[inkling] trial accounts: sample page failed')
+      ctx.req.log.error({ err: logSafeError(err) }, '[inkling] trial accounts: sample page failed')
     }
   }
   return { ...created, samplePageId }

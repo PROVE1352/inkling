@@ -27,7 +27,7 @@ import { startStaleIndexPass } from './staleIndex'
 import { acquireInstanceLock, InstanceLockError, instanceLockSettings } from './instanceLock'
 import type { InstanceLock } from './instanceLock'
 import { env, mailEnabled } from './env'
-import { AppError } from './errors'
+import { AppError, installLogSafeConsole, logSafeError } from './errors'
 import { registerApiCachePolicy, staticCacheControl } from './httpCache'
 import { guardHook, initGuard, RATE_LIMIT_MESSAGE } from './guard'
 import { registerMcpRoutes } from './mcp'
@@ -236,6 +236,8 @@ async function databaseReady(): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  // failed-query errors logged through console lose their bound values (0.25.4 F-4)
+  installLogSafeConsole()
   // 0) Configuration that must not silently fall back to request headers (C-M1).
   assertOriginConfigured()
   assertSecretKeyConfig()
@@ -501,7 +503,8 @@ async function main(): Promise<void> {
         .code(statusCode)
         .send({ error: { code: 'BAD_REQUEST', message: 'Invalid request' } })
     }
-    req.log.error(err)
+    // a failed query's bound values stay out of the log (0.25.4 F-4)
+    req.log.error(logSafeError(err))
     return reply
       .code(500)
       .send({ error: { code: 'INTERNAL', message: 'Internal server error' } })

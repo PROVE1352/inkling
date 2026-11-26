@@ -3,6 +3,7 @@ import type {
   LockAgents,
   LockPeople,
   LockPersonDTO,
+  PageAccessLevel,
   PageLockDTO,
   SetPageLockInput,
   WorkspaceAccessRole,
@@ -508,9 +509,11 @@ export interface LockTarget {
   kind: 'doc' | 'folder' | 'canvas' | 'collection'
   ownerId: string | null
   editLocked: boolean
+  /** The page owner's own level here (their nearest page_grants row; null = none, the role default). */
+  ownerLevel: PageAccessLevel | null
 }
 
-export async function loadLockTarget(exec: Pick<typeof db, 'select'>, pageId: string): Promise<LockTarget> {
+export async function loadLockTarget(exec: Pick<typeof db, 'select' | 'execute'>, pageId: string): Promise<LockTarget> {
   const [p] = await exec
     .select({
       id: pages.id,
@@ -525,17 +528,20 @@ export async function loadLockTarget(exec: Pick<typeof db, 'select'>, pageId: st
     .where(and(eq(pages.id, pageId), isNull(pages.deletedAt)))
     .limit(1)
   if (!p) throw notFound()
-  return p
+  const ownerLevel = p.ownerId ? ((await nearestGrants(exec, [pageId], p.ownerId)).get(pageId)?.level ?? null) : null
+  return { ...p, ownerLevel }
 }
 
 /**
  * May `userId` change the own lock of `target`? Workspace owners/admins; or the page owner while
- * they can edit it as a person (a nested lock must not become a way around an outer one).
+ * they can edit it as a person (a nested lock must not become a way around an outer one), and their
+ * own level here (page_grants, docs/adr/1251-*) is at least edit: an owner turned read-only is not.
  */
 export function canManageLock(target: LockTarget, chain: LockNode[], userId: string, role: WorkspaceAccessRole | null): boolean {
   if (target.scope !== 'shared') return false
   if (isManagerRole(role)) return true
-  return target.ownerId === userId && (effectiveCaps(chain, { userId, role, agent: false }) & CAP_EDIT) !== 0
+  if (target.ownerId !== userId || (grantCaps(role, target.ownerLevel) & CAP_EDIT) === 0) return false
+  return (effectiveCaps(chain, { userId, role, agent: false }) & CAP_EDIT) !== 0
 }
 
 export async function pageLockStatus(pageId: string, actor: AccessActor): Promise<PageLockDTO> {

@@ -163,9 +163,13 @@ async function invitesOf(pageId: string): Promise<PageInviteDTO[]> {
 
 async function accessDTO(ctx: Ctx, viewerId: string): Promise<PageAccessDTO> {
   const isPrivate = ctx.page.scope === 'private'
+  // A guest's address is for whoever manages this list (like the workspace guest list); members' addresses
+  // are on the members list anyway.
+  const seesGuestEmails = ctx.canManage || ctx.canInviteGuests
+  const people = isPrivate ? [] : await peopleOnPath(ctx.page.id, ctx.page.workspaceId, viewerId)
   return {
     pageId: ctx.page.id,
-    people: isPrivate ? [] : await peopleOnPath(ctx.page.id, ctx.page.workspaceId, viewerId),
+    people: seesGuestEmails ? people : people.map((p) => (p.guest ? { ...p, email: '' } : p)),
     invites: !isPrivate && (ctx.canManage || ctx.canInviteGuests) ? await invitesOf(ctx.page.id) : [],
     myLevel: ctx.myLevel,
     canManage: ctx.canManage,
@@ -260,6 +264,23 @@ async function assertMayChange(ctx: Ctx, actorId: string, targetId: string, leve
   }
 }
 
+/**
+ * Would removing `userId`'s own row on `pageId` raise their level there? After removal the nearest row
+ * above (or the role's default) decides: a member's view row with no row above falls back to edit, a
+ * view row below a full row falls back to full. Read inside the page-tree lock.
+ */
+async function leavingRaises(tx: Pick<typeof db, 'execute'>, ctx: Ctx, pageId: string, userId: string): Promise<boolean> {
+  const [own] = (await tx.execute(sql`
+    SELECT g.level, p.parent_id AS "parentId" FROM page_grants g JOIN pages p ON p.id = g.page_id
+     WHERE g.page_id = ${pageId} AND g.user_id = ${userId}
+  `)) as unknown as { level: PageAccessLevel; parentId: string | null }[]
+  if (!own) return false
+  const above = own.parentId ? ((await nearestGrants(tx, [own.parentId], userId)).get(own.parentId)?.level ?? null) : null
+  const before = effectiveLevel(ctx.role, own.level)
+  const after = effectiveLevel(ctx.role, above)
+  return levelRank(after) > levelRank(before)
+}
+
 const userParams = z.object({ id: z.uuid(), userId: z.uuid() })
 const inviteParams = z.object({ id: z.uuid(), inviteId: z.uuid() })
 const tokenParams = z.object({ token: z.string().min(20).max(100) })
@@ -288,6 +309,18 @@ async function loadInvite(token: string) {
   return row
 }
 
+/**
+ * SQL boolean over `users u`: the account may be found by its address when sharing (sec26 A-F2): a member
+ * or a guest of this workspace already, or an address that is verified (delegated and OIDC accounts count
+ * as verified, as in emailMatches and /auth/me). Otherwise anyone could register the address first.
+ */
+function knownAddressSql(workspaceId: string) {
+  return sql`(u.email_verified_at IS NOT NULL OR u.origin IN ('delegated', 'oidc')
+    OR EXISTS (SELECT 1 FROM workspace_members km WHERE km.workspace_id = ${workspaceId} AND km.user_id = u.id)
+    OR EXISTS (SELECT 1 FROM page_grants kg JOIN pages kp ON kp.id = kg.page_id
+                WHERE kg.user_id = u.id AND kp.workspace_id = ${workspaceId} AND kp.deleted_at IS NULL))`
+}
+
 /** The signed-in account may take an invitation for `email`: same address, verified where the server verifies. */
 async function emailMatches(userId: string, email: string): Promise<boolean> {
   const [u] = await db
@@ -313,16 +346,18 @@ export async function registerPageAccessRoutes(app: FastifyInstance): Promise<vo
     const ctx = await loadCtx(idParam(req.params), user.id)
     let targetId = body.userId ?? null
     if (!targetId && body.email) {
-      // Exact address only: the dialog never lists the instance's accounts by prefix.
-      const [u] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(sql`lower(${users.email}) = ${body.email.toLowerCase()}`)
-        .limit(1)
+      // Exact address only: the dialog never lists the instance's accounts by prefix. An account that
+      // only claims the address (not verified, not already in this workspace) gets no row from it: the
+      // invitation goes to the address, and accepting needs that account (docs/adr/1250-*).
+      const [u] = (await db.execute(sql`
+        SELECT u.id FROM users u
+         WHERE lower(u.email) = ${body.email.toLowerCase()} AND ${knownAddressSql(ctx.page.workspaceId)}
+         LIMIT 1
+      `)) as unknown as { id: string }[]
       targetId = u?.id ?? null
     }
     if (!targetId) {
-      // No account with that address: an invitation (guests only, so the guest policy decides).
+      // No account with that address we can trust: an invitation (guests only, so the guest policy decides).
       if (!ctx.canInviteGuests) {
         throw forbidden('The workspace settings do not allow you to share this page with people outside the workspace')
       }
@@ -343,10 +378,16 @@ export async function registerPageAccessRoutes(app: FastifyInstance): Promise<vo
     const user = getUser(req)
     const { id, userId } = userParams.parse(req.params)
     const ctx = await loadCtx(id, user.id)
-    if (userId !== user.id) await assertMayChange(ctx, user.id, userId, null)
+    // Leaving is allowed only while it raises nobody: removing your own view/comment row (or one below
+    // a fuller row above) would lift you to that level, so it needs the same right as anyone else's row.
+    const self = userId === user.id
+    if (!self) await assertMayChange(ctx, user.id, userId, null)
     const removed = await db.transaction(async (tx) => {
       await lockTree(tx, ctx.page.workspaceId)
       await lockWorkspaceMembers(tx, ctx.page.workspaceId)
+      if (self && !ctx.canManage && (await leavingRaises(tx, ctx, id, user.id))) {
+        throw forbidden('Ask someone with full access to change your own access')
+      }
       await bumpAcl(tx, ctx.page.workspaceId)
       const rows = await tx
         .delete(pageGrants)
@@ -404,6 +445,7 @@ export async function registerPageAccessRoutes(app: FastifyInstance): Promise<vo
         SELECT u.id AS "userId", u.name, u.email FROM users u
          WHERE lower(u.email) = ${q.toLowerCase()}
            AND NOT EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = ${ctx.page.workspaceId} AND m.user_id = u.id)
+           AND ${knownAddressSql(ctx.page.workspaceId)}
          LIMIT 1
       `)) as unknown as { userId: string; name: string; email: string }[]
       for (const r of rows) out.push({ ...r, guest: true })

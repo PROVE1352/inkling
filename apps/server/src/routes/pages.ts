@@ -606,8 +606,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
             ${descendantsCte(id)}
             SELECT p.id, p.created_by FROM pages p JOIN descendants d ON d.id = p.id
           `)) as unknown as { id: string; created_by: string | null }[]
+          // Ownerless pages (author deleted) are the team's: only owners/admins may take them private.
           const foreign = subtree.filter(
-            (r) => r.created_by !== null && r.created_by !== user.id,
+            (r) => (r.created_by === null ? !isManagerRole(role) : r.created_by !== user.id),
           )
           // 403 if the target page itself is someone else's (no privatizing), 400 if such pages are among its descendants.
           if (foreign.some((r) => r.id === id)) {

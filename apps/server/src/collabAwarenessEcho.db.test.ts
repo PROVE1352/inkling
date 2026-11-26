@@ -324,7 +324,18 @@ describe('[db] awareness with the real provider: echoes never close a socket, fl
     const cursorOnServer = () =>
       ((live() as unknown as { awareness: { states: Map<number, { cursor?: { anchor?: { type?: { clock?: number } } } }> } }).awareness.states.get(t.doc.clientID)?.cursor?.anchor?.type?.clock)
     await until(() => cursorOnServer() === 5, 'the offline cursor on the server')
-    const states = (live() as unknown as { awareness: { states: Map<number, unknown> } }).awareness.states
+    // waits for the other person's state on the server to be the one their tab holds. On a close the provider
+    // removes everyone else's state locally (onClose), and HocuspocusProviderWebsocket keeps that removal in its
+    // queue and sends it after the return: the server drops the other person's state, their tab answers with a
+    // higher clock and the state is back a round trip later (traced in w22-reports/sec26/FIX-linux-awareness.md,
+    // 0.25.3 and 0.25.4 alike). Read inside that round trip the page held 1 state (once on a loaded Linux run).
+    const serverAw = (live() as unknown as { awareness: { states: Map<number, unknown>; meta: Map<number, { clock: number }> } }).awareness
+    const otherId = tv.doc.clientID
+    await until(
+      () => serverAw.states.has(otherId) && serverAw.meta.get(otherId)?.clock === tv.provider.awareness.meta.get(otherId)?.clock,
+      "the other person's own state on the server",
+    )
+    const states = serverAw.states
     console.log(`[fix5] own ids: after a reconnect and an offline return the page holds ${states.size} states; new ids recorded ${A.awarenessStats.newIds - before}; most ids one connection brought in ${A.awarenessStats.mostOwned}`)
     assert.equal(states.size, 2, 'one id each: the tab’s own and the other person’s')
     assert.equal(A.awarenessStats.newIds - before, 0, 'the same id comes back: no new clock record')

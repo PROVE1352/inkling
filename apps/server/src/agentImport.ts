@@ -1,4 +1,5 @@
 import { currentConnectionKey } from './agentAccess'
+import { AppError } from './errors'
 import { assertAgentUploadsAllowed, assertDailyUploadBudget } from './agentUploads'
 import type { AgentImportRules } from './md/importer'
 import { importLimits } from './md/importLimits'
@@ -9,7 +10,8 @@ import { AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from './uploadCheck'
  * /import-folder; docs/adr/2162-*). The Markdown of an import is what import_folder already sends;
  * its attachments are uploads, so the 0.16 rules for upload_file apply to each of them:
  * the AI upload switch (server AGENT_UPLOADS and the workspace setting) and the daily budget, checked
- * once before the first attachment; the per-file cap (AGENT_UPLOAD_MAX_MB) and the server's type
+ * before the first attachment (refuses the import) and again before each one (skips the rest once it
+ * is passed, 0.25.4); the per-file cap (AGENT_UPLOAD_MAX_MB) and the server's type
  * decision per attachment (refused ones are skipped and reported, the pages still import); the
  * stored files carry the connection in files.uploaded_via, so they count toward the budget.
  */
@@ -21,6 +23,15 @@ export function agentImportRules(workspaceId: string, userId: string): AgentImpo
     beforeAttachments: async () => {
       await assertAgentUploadsAllowed(workspaceId)
       await assertDailyUploadBudget(userId)
+    },
+    beforeEachAttachment: async () => {
+      try {
+        await assertDailyUploadBudget(userId)
+        return null
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'UPLOAD_BUDGET') return 'past the daily budget for uploads through connections'
+        throw err
+      }
     },
   }
 }

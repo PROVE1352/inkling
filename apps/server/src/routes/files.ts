@@ -20,7 +20,7 @@ import { memberOrGuestSql } from '../pageGrants'
 import { findVisiblePage } from '../pageDto'
 import { cutUploadError, streamToFile } from './exportImport'
 import { AGENT_UPLOAD_MAX_BYTES, agentUploadMime } from '../uploadCheck'
-import { assertAgentUploadsAllowed, assertDailyUploadBudget, mbText } from '../agentUploads'
+import { assertAgentUploadsAllowed, assertDailyUploadBudget, mbText, recheckDailyUploadBudget } from '../agentUploads'
 import { currentConnectionKey } from '../agentAccess'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -153,6 +153,8 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     try {
       ;[row] = await db.transaction(async (tx) => {
         await assertWorkspaceRoom(tx, workspaceId, { bytes: fileStorageBytes(size) }) // LIMIT_STORAGE, reserves the counted bytes
+        // Parallel uploads through a connection: count the day's bytes again under a per-person lock
+        if (bearer) await recheckDailyUploadBudget(tx, user.id)
         return tx
           .insert(files)
           .values({

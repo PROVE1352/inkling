@@ -78,6 +78,12 @@ export interface AgentImportRules {
   typeOf(name: string, bytes: Buffer): { mime: string } | { error: string }
   /** Runs once before the first attachment is stored (the switch and the daily budget); throws to refuse. */
   beforeAttachments(): Promise<void>
+  /**
+   * Runs before each attachment is stored (the daily budget again, 0.25.4): a reason skips that
+   * attachment and the ones after it are asked again, so an import passes the budget by one
+   * attachment at most, as a single upload does.
+   */
+  beforeEachAttachment?(): Promise<string | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +446,11 @@ export async function importEntries(
     if (same) {
       assetMap.set(e.name, same)
       stats.duplicateAttachments++
+      continue
+    }
+    const refused = agent?.beforeEachAttachment ? await agent.beforeEachAttachment() : null
+    if (refused) {
+      ;(stats.skippedAttachments ??= []).push({ name: e.name, reason: refused })
       continue
     }
     const [row] = await db

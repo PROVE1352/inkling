@@ -93,7 +93,6 @@ describe('[db] uploads by AI agents: the daily budget under parallel requests', 
 
   it(
     'parallel uploads through an API token pass the budget by one upload at most',
-    { skip: 'needs routes/files.ts to call recheckDailyUploadBudget(tx, user.id) in its insert transaction (merge)' },
     async () => {
       const rs = await Promise.all(
         Array.from({ length: 6 }, (_, i) =>

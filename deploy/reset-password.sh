@@ -2,7 +2,10 @@
 # Reset an Inkling password (emergency path from the server console).
 # Normally use "temporary password" / "reset code" in the web admin page. This script is for
 # when the admin account itself is locked out or the web UI is down — it sets a new temporary
-# password and ends every login (session) of that account.
+# password and ends every login of that account: browser sessions, MCP/OAuth connections and agent
+# tokens, personal API tokens and the iCal feed URL, as the app's own password change does
+# (accounts.ts setPassword). Editor connections already open are not cut by this script (the app
+# closes them itself on a web reset); restart the app (docker compose restart app) to cut them at once.
 #
 #   ./deploy/reset-password.sh someone@example.com
 #
@@ -48,12 +51,16 @@ if [[ -z "$pw" || "$hashed" != \$argon2* ]]; then
   exit 1
 fi
 
-# Replace the password + delete all sessions + discard leftover reset codes + resolve pending reset requests
+# Replace the password + delete all sessions + revoke OAuth grants (MCP connections, agent tokens), API
+# tokens and the iCal token + discard leftover reset codes + resolve pending reset requests
 # (psql variables are only substituted in stdin scripts, so pass it as a heredoc)
 psql -q -v uid="$uid" -v h="$hashed" <<'SQL'
 BEGIN;
 UPDATE users SET password_hash = :'h' WHERE id = :'uid';
 DELETE FROM sessions WHERE user_id = :'uid';
+DELETE FROM oauth_grants WHERE user_id = :'uid';
+DELETE FROM api_tokens WHERE user_id = :'uid';
+DELETE FROM ical_tokens WHERE user_id = :'uid';
 DELETE FROM password_reset_codes WHERE user_id = :'uid';
 UPDATE password_reset_requests SET status = 'resolved', resolved_at = now()
  WHERE user_id = :'uid' AND status = 'pending';
@@ -64,5 +71,8 @@ echo
 echo "  Account           : $email"
 echo "  Temporary password: $pw"
 echo
-echo "  All existing logins of this account were ended. Ask them to change the password in Settings > Account after logging in."
+echo "  All existing logins of this account were ended: sessions, MCP connections and agent tokens,"
+echo "  API tokens and the iCal feed URL. Ask them to change the password in Settings > Account after"
+echo "  logging in, and to reconnect their apps. Editor tabs already open stay connected until they"
+echo "  reconnect: restart the app (docker compose restart app) to cut them at once."
 echo

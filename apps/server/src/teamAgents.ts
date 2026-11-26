@@ -33,7 +33,8 @@ import { EXAMPLE_CONNECTION } from './suggestions'
  *   - the grant's refresh token has not expired (an OAuth grant is deleted on revoke), or the API
  *     token exists and has not expired;
  *   - its person is a member of the workspace (guests' connections are never targets);
- *   - its range includes the workspace (docs/adr/1200-*): all, the workspace in a 'workspaces'
+ *   - its range includes the workspace (docs/adr/1200-*): all (but not a workspace someone else added
+ *     the person to and they have not included yet, docs/adr/2580-*), the workspace in a 'workspaces'
  *     range, or a 'subtree' range rooted in the workspace;
  *   - an owner/admin has not blocked that OAuth client of that person there (docs/adr/0947-*).
  * Anything else means the person (docs/adr/1863-*).
@@ -67,9 +68,15 @@ export function connectionOwnerSql(conn: SQL): SQL {
   END)`
 }
 
-/** SQL: the range columns of table alias `a` include workspace `ws`. */
+/**
+ * SQL: the range columns of table alias `a` include workspace `ws`. A range of "all" leaves out a
+ * workspace someone else added the person to until they include it for their agents (docs/adr/2580-*):
+ * its team board does not list the connection and nothing there resolves to it.
+ */
 function rangeCoversSql(a: SQL, ws: SQL): SQL {
-  return sql`(${a}.range_kind IS NULL OR ${a}.range_kind = 'all'
+  return sql`(((${a}.range_kind IS NULL OR ${a}.range_kind = 'all')
+      AND NOT EXISTS (SELECT 1 FROM workspace_members pm
+                       WHERE pm.workspace_id = ${ws} AND pm.user_id = ${a}.user_id AND pm.agents_pending))
     OR (${a}.range_kind = 'workspaces' AND ${ws} = ANY(${a}.range_workspace_ids))
     OR (${a}.range_kind = 'subtree' AND EXISTS (SELECT 1 FROM pages rp WHERE rp.id = ${a}.range_page_id AND rp.workspace_id = ${ws} AND rp.deleted_at IS NULL)))`
 }

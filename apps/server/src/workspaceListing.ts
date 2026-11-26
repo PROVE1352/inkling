@@ -25,10 +25,12 @@ export interface DefaultScope {
 
 /**
  * Archiving applies to this request: not to a connection limited to some workspaces or one subtree,
- * whose range already says where it looks (docs/adr/2303-*).
+ * whose range already says where it looks (docs/adr/2303-*). A range of "all" narrowed only because
+ * some workspaces wait to be included (implicit, docs/adr/2580-*) is still "all" here.
  */
 export function archiveApplies(userId: string): boolean {
-  return !currentRange(userId)
+  const r = currentRange(userId)
+  return !r || r.implicit === true
 }
 
 /** SQL: `ws` is archived by `userId` (a NOT EXISTS probe on the primary key, no extra round trip). */

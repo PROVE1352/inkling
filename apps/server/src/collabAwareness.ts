@@ -167,6 +167,8 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   let newIds = 0
   let broughtIn = 0
   let changed = 0
+  /** States this message applies: cleaned once it is within the caps and rates (only those bytes are parsed). */
+  const toClean: [number, number][] = []
   for (let i = 0; i < n; i++) {
     let id: number
     let clock: number
@@ -179,6 +181,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
     if (stateLen < 0 || pos + stateLen > end) return 'malformed'
     if (stateLen > AWARENESS_MAX_STATE_BYTES) return 'state'
     const isNull = stateLen === 4 && frame[pos] === 0x6e && frame[pos + 1] === 0x75 && frame[pos + 2] === 0x6c && frame[pos + 3] === 0x6c
+    const statePos = pos
     pos += stateLen
     if (stateLen > awarenessStats.largestState) awarenessStats.largestState = stateLen
     // y-protocols applyAwarenessUpdate: a newer clock, or the same clock removing a live state
@@ -187,6 +190,7 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
     const curClock = seen ? seen.clock : (meta.get(id)?.clock ?? 0)
     const curLive = seen ? seen.live : states.has(id)
     if (!(curClock < clock || (curClock === clock && isNull && curLive))) continue // an echo: nothing happens
+    if (!isNull) toClean.push([statePos, stateLen])
     if (!seen && !meta.has(id) && !pending?.has(id)) newIds++ // a clock record the document did not have
     clocks.set(id, { clock, live: !isNull })
     changed += stateLen
@@ -223,6 +227,8 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   let bytes = 0
   for (const b of owned.values()) bytes += b
   if (socket && socket.bytes + (bytes - conn.bytes) > AWARENESS_MAX_SOCKET_BYTES) return 'socket'
+  // what other people's editors draw from it (sec26 E-1): cleaned in place, or the whole message dropped
+  for (const [at, len] of toClean) if (!cleanAwarenessUser(frame, at, len)) return dropFrame(frame, p3, countEnd)
   // admitted: record it
   if (socket) socket.bytes = Math.max(0, socket.bytes + (bytes - conn.bytes))
   conn.owned = owned
@@ -245,6 +251,73 @@ function check(frame: Uint8Array, context: object, socket: SocketAwareness | und
   awarenessStats.changedBytes += changed
   if (awareness) sweepAwarenessMeta(awareness)
   return null
+}
+
+/**
+ * Awareness `user` as other people's editors draw it (0.25.4, sec26 E-1). BlockNote's cursor puts `user.color`
+ * into a style attribute (`background-color: ${color}; …`) and calls `color.charAt`, y-prosemirror's selection
+ * puts `${color}70` into another, and the presence list and cursor label show `user.name`. A colour of any other
+ * shape was CSS laid over everyone's page (a view-only guest could cover the editor with text of their choosing
+ * and load an outside image); a number threw in the cursor builder. So a state applied from a socket keeps a
+ * colour only when it is `#rgb` or `#rrggbb` (anything else becomes AWARENESS_FALLBACK_COLOR, or no colour when that
+ * does not fit; y-prosemirror then gives the cursor its own), a name only when
+ * it is a string, and `user` only when it is an object. Names are still what the client says (KNOWN-ISSUES
+ * C-L9: the server does not set the identity).
+ */
+export const AWARENESS_FALLBACK_COLOR = '#888888'
+export const AWARENESS_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const stateDecoder = new TextDecoder()
+const stateEncoder = new TextEncoder()
+export const awarenessCleaned = { rewritten: 0, dropped: 0 }
+
+/**
+ * Cleans the awareness state at frame[start, start + len) in place. The bytes are rewritten only when something
+ * changes: the cleaned JSON, padded with spaces to the same length (y-protocols reads the state as a string of
+ * that length and JSON.parse skips trailing white space), so every length and offset in the frame stays. Returns
+ * false when the cleaned state would not fit (the caller drops the message). A state that is not JSON is left as
+ * is: y-protocols fails on it the same way and applies nothing from that message.
+ */
+function cleanAwarenessUser(frame: Uint8Array, start: number, len: number): boolean {
+  let state: unknown
+  try {
+    state = JSON.parse(stateDecoder.decode(frame.subarray(start, start + len)))
+  } catch {
+    return true
+  }
+  if (!state || typeof state !== 'object' || Array.isArray(state) || !Object.hasOwn(state, 'user')) return true
+  const st = state as Record<string, unknown>
+  const user = st.user
+  if (user === null || user === undefined) return true
+  let changed = false
+  if (typeof user !== 'object' || Array.isArray(user)) {
+    delete st.user
+    changed = true
+  } else {
+    const u = user as Record<string, unknown>
+    if (Object.hasOwn(u, 'color') && u.color !== undefined && !(typeof u.color === 'string' && AWARENESS_COLOR_RE.test(u.color))) {
+      u.color = AWARENESS_FALLBACK_COLOR
+      changed = true
+    }
+    if (Object.hasOwn(u, 'name') && u.name !== undefined && typeof u.name !== 'string') {
+      delete u.name
+      changed = true
+    }
+  }
+  if (!changed) return true
+  let out = stateEncoder.encode(JSON.stringify(st))
+  // a short bad colour (a number) leaves no room for the fallback: without one, the cursor uses its own default
+  if (out.length > len && typeof st.user === 'object' && st.user && (st.user as Record<string, unknown>).color === AWARENESS_FALLBACK_COLOR) {
+    delete (st.user as Record<string, unknown>).color
+    out = stateEncoder.encode(JSON.stringify(st))
+  }
+  if (out.length > len) {
+    awarenessCleaned.dropped++
+    return false
+  }
+  frame.set(out, start)
+  frame.fill(0x20, start + out.length, start + len)
+  awarenessCleaned.rewritten++
+  return true
 }
 
 const sweptAt = new WeakMap<object, number>()

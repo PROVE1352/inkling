@@ -49,7 +49,9 @@ import { COMPACT_LEGEND, renderCompactSearch, renderCompactTree, searchJson } fr
 import { SEARCH_MAX_LIMIT } from './routes/agentSearchText'
 import type { AgentSearchResponse } from './routes/agentSearchText'
 import { pageRef, resolvePageRef, shortId } from './mcpTools/shortIds'
-import { PATH_SEP } from './context/chunker'
+import { PATH_SEP, splitSections } from './context/chunker'
+import { bodyChangeCount } from './context/renamedKnown'
+import { currentBlocks } from './context/sectionSource'
 import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY, resolveIdArgs } from './mcpTools/idArgs'
 import { idArg, isFullId } from './mcpTools/idSchema'
 import { slimToolList } from './mcpTools/toolList'
@@ -318,6 +320,19 @@ async function backlinksLine(ctx: ToolCtx, pageId: string): Promise<string> {
   const list = [...found].sort((a, b) => cmp(titleOf(a), titleOf(b)) || cmp(a.id, b.id))
   const shown = list.slice(0, MAX).map((p) => `${shortId(p.id)} "${cleanText(titleOf(p)).replace(/\s+/g, ' ')}"`)
   return `linked from (${list.length}): ${shown.join(', ')}${list.length > MAX ? `, … ${list.length - MAX} more` : ''}`
+}
+
+/**
+ * After an update_page replace of a page with 3+ sections (docs/adr/2597-*): how many section bodies
+ * actually changed, and that patch_sections would have cost less. Null when every body changed.
+ */
+function replaceHint(before: string[], after: string[]): string | null {
+  const { changed, total } = bodyChangeCount(before, after)
+  if (changed >= total) return null
+  return (
+    `hint: ${changed} of ${total} sections changed their body (headings and order aside); patch_sections changes only ` +
+    'the sections you name and costs fewer tokens than replacing the whole page.'
+  )
 }
 
 /**
@@ -771,8 +786,16 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
               })
           : null
       const writeId = target?.pageId ?? pageId
+      // section bodies before a replace, for the patch_sections hint (docs/adr/2597-*); read only to count
+      // (a page that cannot be read here gets no hint; the write below answers as before)
+      const bodiesBefore =
+        mode === 'replace' ? await currentBlocks(writeId).then((b) => splitSections(b).map((s) => s.text), () => null) : null
       const written = await call(ctx, 'POST', `/api/pages/${writeId}/content`, { json: { markdown, mode } })
       if (written.statusCode === 202) return text(suggestionMadeText((written.json() as { suggestion: SuggestionDTO }).suggestion))
+      const hint =
+        bodiesBefore && bodiesBefore.length >= 3
+          ? await currentBlocks(writeId).then((b) => replaceHint(bodiesBefore, splitSections(b).map((s) => s.text)), () => null)
+          : null
       const ac = await loadAgentContext(ctx, [writeId])
       const large = largeLine(ac, writeId)
       const mentioned = await mentionStatusLineForPage(writeId, markdown)
@@ -792,7 +815,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
             : 'Replaced the body (the previous content is saved as a version-history snapshot).') +
             (large ? `\n${large}` : '') +
             // statuses of the people the Markdown mentions (docs/adr/1846-*)
-            (mentioned ? `\n${mentioned}` : ''),
+            (mentioned ? `\n${mentioned}` : '') +
+            (hint ? `\n${hint}` : ''),
         ),
       )
     }),

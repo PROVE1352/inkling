@@ -5,8 +5,10 @@
  * position). Output: one change per affected section:
  *   - modified: same anchor, different version (body or heading text changed)
  *   - renamed:  a removed and an added section that are the same section under a new anchor —
- *               same heading block id, or (no id match) an identical body. A renamed section whose
- *               body also changed carries both texts, so the reader can still show the diff.
+ *               same heading block id, or an identical body. Order: block id with the same body,
+ *               identical non-empty body, block id alone, identical (empty) body (docs/adr/2597-*).
+ *               A renamed section whose body also changed carries both texts, so the reader can
+ *               still show the diff.
  *   - added / removed: the rest
  *   - moved:    sections present on both sides whose relative order changed. The kept order is the
  *               longest increasing subsequence of old positions taken in new order (O(n log n));
@@ -103,36 +105,52 @@ export function computeSectionChanges(before: SectionLike[], after: SectionLike[
   const pairedOld = new Set<string>()
   const pairedNew = new Set<string>()
   if (removed.length && added.length) {
-    // 1) same heading block id
-    const byBlock = new Map<string, SectionLike>()
-    for (const r of removed) if (r.blockId) byBlock.set(r.blockId, r)
-    for (const a of added) {
-      const r = a.blockId ? byBlock.get(a.blockId) : undefined
-      if (!r || pairedOld.has(r.anchor)) continue
+    const pair = (a: SectionLike, r: SectionLike) => {
       pairedOld.add(r.anchor)
       pairedNew.add(a.anchor)
       match.set(a.anchor, r)
     }
-    // 2) identical body, first unpaired candidate in document order
-    const byText = new Map<string, SectionLike[]>()
-    for (const r of removed) {
-      if (pairedOld.has(r.anchor)) continue
-      const list = byText.get(r.text)
-      if (list) list.push(r)
-      else byText.set(r.text, [r])
+    const byBlock = new Map<string, SectionLike>()
+    for (const r of removed) if (r.blockId) byBlock.set(r.blockId, r)
+    const blockPairs = (sameBody: boolean) => {
+      for (const a of added) {
+        if (pairedNew.has(a.anchor)) continue
+        const r = a.blockId ? byBlock.get(a.blockId) : undefined
+        if (!r || pairedOld.has(r.anchor) || (sameBody && r.text !== a.text)) continue
+        pair(a, r)
+      }
     }
-    const cursor = new Map<string, number>()
-    for (const a of added) {
-      if (pairedNew.has(a.anchor)) continue
-      const list = byText.get(a.text)
-      if (!list) continue
-      const i = cursor.get(a.text) ?? 0
-      if (i >= list.length) continue
-      cursor.set(a.text, i + 1)
-      pairedOld.add(list[i].anchor)
-      pairedNew.add(a.anchor)
-      match.set(a.anchor, list[i])
+    // Identical body, first unpaired candidate in document order.
+    const textPairs = (nonEmptyOnly: boolean) => {
+      const byText = new Map<string, SectionLike[]>()
+      for (const r of removed) {
+        if (pairedOld.has(r.anchor) || (nonEmptyOnly && r.text.trim() === '')) continue
+        const list = byText.get(r.text)
+        if (list) list.push(r)
+        else byText.set(r.text, [r])
+      }
+      const cursor = new Map<string, number>()
+      for (const a of added) {
+        if (pairedNew.has(a.anchor)) continue
+        const list = byText.get(a.text)
+        if (!list) continue
+        const i = cursor.get(a.text) ?? 0
+        if (i >= list.length) continue
+        cursor.set(a.text, i + 1)
+        pair(a, list[i])
+      }
     }
+    // 1) same heading block id and same body
+    blockPairs(true)
+    // 2) identical non-empty body (docs/adr/2597-*): update_page replace edits headings in place by
+    //    position, so once a section is dropped the next heading can keep the dropped one's block
+    //    while its body is another section's, unchanged. The body is the better evidence then; an
+    //    empty body is none (many sections share it).
+    textPairs(true)
+    // 3) same heading block id, body changed
+    blockPairs(false)
+    // 4) identical body, empty ones included
+    textPairs(false)
   }
   for (const a of added) {
     if (pairedNew.has(a.anchor)) {

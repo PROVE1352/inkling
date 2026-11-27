@@ -301,6 +301,19 @@ export const workspaces = pgTable('workspaces', {
   storageCheckedAt: timestamp('storage_checked_at', { withTimezone: true }),
   /** storage_bytes is past LIMIT_WORKSPACE_STORAGE_MB: read-only until something is deleted. */
   overStorage: boolean('over_storage').notNull().default(false),
+  // --- Sidebar order (docs/adr/2590-*, 2591-*, 2592-*) -------------------------------------
+  /** How the shared section's top level is ordered: 'manual' (drag order, default) or 'title' (numeric-aware). */
+  rootChildSort: text('root_child_sort', { enum: ['manual', 'title'] }).notNull().default('manual'),
+  /**
+   * Where agents' new pages go when they name no parent (docs/adr/2592-*): a shared page of this
+   * workspace, or null = the top level as before. A trashed page counts as unset. Owners and admins set it.
+   */
+  agentDefaultParentId: uuid('agent_default_parent_id').references((): AnyPgColumn => pages.id, { onDelete: 'set null' }),
+  /**
+   * OAuth client name when an agent connection created this workspace (create_workspace, docs/adr/2596-*);
+   * null = created in the app or before 0.26. Counts toward the per-day cap of agent-made workspaces.
+   */
+  createdVia: text('created_via'),
 })
 
 export const workspaceMembers = pgTable(
@@ -326,6 +339,8 @@ export const workspaceMembers = pgTable(
     agentsPending: boolean('agents_pending').notNull().default(false),
     /** Who added this person directly (docs/adr/2580-*); null when they joined themselves or that account is gone. */
     addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
+    /** This person's order of their private section's top level: 'manual' (default) or 'title' (docs/adr/2591-*). */
+    privateChildSort: text('private_child_sort', { enum: ['manual', 'title'] }).notNull().default('manual'),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.userId] }),
@@ -437,6 +452,13 @@ export const pages = pgTable('pages', {
    * whose unsent edits descend from an older generation is not merged but kept as a recovery item.
    */
   docGen: integer('doc_gen').notNull().default(0),
+  /**
+   * Pinned for the whole workspace (docs/adr/2590-*): stays above its unpinned siblings. Not the
+   * per-person favorites (bookmarks). People who may edit the page switch it, in the web app.
+   */
+  pinned: boolean('pinned').notNull().default(false),
+  /** How this page's children are ordered: 'manual' (drag order, default) or 'title' (numeric-aware, docs/adr/2591-*). */
+  childSort: text('child_sort', { enum: ['manual', 'title'] }).notNull().default('manual'),
 }, (t) => [
   // Declared here (docs/adr/0755-*) so `drizzle-kit push` no longer drops them: they were
   // created by hand-written migrations 0007/0009 and a push against production removed them.
@@ -598,7 +620,7 @@ export const notifications = pgTable(
       enum: [
         'comment', 'comment_mention', 'doc_mention', 'reminder', 'workspace_added', 'webhook_disabled', 'backup_failed', 'workspace_deleted',
         'comment_reply', 'page_owner', 'task_assigned', 'page_update', 'agent_digest', 'approval_request', 'approval_result',
-        'large_page', 'later_reminder', 'workspace_owner',
+        'large_page', 'later_reminder', 'workspace_owner', 'agent_workspace',
       ],
     }).notNull(),
     pageId: uuid('page_id').references(() => pages.id, { onDelete: 'cascade' }),

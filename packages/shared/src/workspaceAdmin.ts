@@ -57,6 +57,11 @@ export interface WorkspaceSettingsDTO {
   agentUploads?: 'on' | 'off' | null
   /** The server's AGENT_UPLOADS default ('never' = off everywhere, the workspace cannot turn it on). Read-only, additive. */
   agentUploadsServer?: 'on' | 'off' | 'never'
+  /**
+   * Where agents' new pages go when they name no parent (docs/adr/2592-*): the page, or null when unset
+   * (or the page is in the trash). Additive.
+   */
+  agentDefaultParent?: { id: string; title: string } | null
 }
 
 /** PATCH /workspaces/:id/settings (owner only). Every field optional; unknown keys are rejected. */

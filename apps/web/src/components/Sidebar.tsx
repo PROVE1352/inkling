@@ -12,6 +12,7 @@ import {
   useSharedList,
 } from '../api'
 import { copyText, inviteLink } from '../lib/clipboard'
+import { readAccountCollapsed, writeAccountCollapsed } from '../lib/accountCollapse'
 import { useDailyNote } from '../lib/dailyNote'
 import { useNewPage } from '../lib/newPage'
 import { PageIconGlyph } from './PageIconGlyph'
@@ -121,6 +122,17 @@ export function Sidebar({
   const { openDaily, busy: dailyBusy } = useDailyNote(wsId)
 
   const [copied, setCopied] = useState<'ok' | 'fail' | null>(null)
+  // The account block folds to one line (name + arrow), remembered per person in this browser (0.26).
+  const meId = me.data?.id
+  const [accountCollapsed, setAccountCollapsed] = useState(false)
+  useEffect(() => {
+    setAccountCollapsed(readAccountCollapsed(typeof localStorage === 'undefined' ? null : localStorage, meId))
+  }, [meId])
+  const toggleAccount = () => {
+    const next = !accountCollapsed
+    setAccountCollapsed(next)
+    writeAccountCollapsed(typeof localStorage === 'undefined' ? null : localStorage, meId, next)
+  }
   const [trashOpen, setTrashOpen] = useState(false)
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [favCollapsed, setFavCollapsed] = useState(() => {
@@ -927,15 +939,28 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="border-t border-line p-2">
-          <div className="mb-2 px-1">
-            <div className="truncate text-sm font-medium text-ink">
-              {me.data?.name ?? t('sidebar.userFallback')}
-            </div>
-            <div className="truncate text-xs text-sub">{me.data?.email}</div>
+        <div className="border-t border-line p-2" data-testid="sidebar-account">
+          <div className={`${accountCollapsed ? '' : 'mb-2 '}px-1`}>
+            {/* the name line folds the rest away, like a section header (button + chevron) */}
+            <button
+              type="button"
+              onClick={toggleAccount}
+              aria-expanded={!accountCollapsed}
+              title={accountCollapsed ? t('sidebar.accountExpand') : t('sidebar.accountCollapse')}
+              className="flex w-full min-w-0 items-center gap-1 rounded text-left text-sm font-medium text-ink"
+            >
+              <span className="truncate">{me.data?.name ?? t('sidebar.userFallback')}</span>
+              <span
+                className={`ml-auto inline-flex shrink-0 text-sub transition-transform duration-200 ease-out ${accountCollapsed ? '' : 'rotate-90'}`}
+              >
+                <ChevronRightIcon size={12} />
+              </span>
+            </button>
+            {!accountCollapsed && <div className="truncate text-xs text-sub">{me.data?.email}</div>}
             <LegalSidebarLinks />
           </div>
-          <div className="flex items-center gap-1">
+          {!accountCollapsed && (
+          <div id="sidebar-account-details" className="flex items-center gap-1">
             {guest ? (
               <span className="flex-1" />
             ) : (
@@ -961,6 +986,7 @@ export function Sidebar({
               <LogOutIcon size={16} />
             </button>
           </div>
+          )}
         </div>
         </>
       )}

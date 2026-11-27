@@ -13,7 +13,8 @@ import {
 import { useNavigate, useParams } from 'react-router'
 import { useDndMonitor, useDroppable } from '@dnd-kit/core'
 import type { PageMetaDTO, PageScope } from '@inkling/shared'
-import { useDeletePage, useDeletePages, useRestorePage, useRestorePages } from '../api'
+import { orderPageTree } from '@inkling/shared'
+import { useDeletePage, useDeletePages, useRestorePage, useRestorePages, useWorkspaces } from '../api'
 import { confirmTrash } from '../lib/confirm'
 import { setTreeExpandHandler } from '../lib/treeExpand'
 import { isTypingElement } from '../lib/platform'
@@ -159,7 +160,8 @@ function flattenInto(
   }
 }
 
-// Flat array → tree by parentId. Input is already sorted by sortOrder asc (server contract).
+// Flat array → tree by parentId. Input is already in tree order (orderPageTree: pinned first, title-sorted
+// parents by title, docs/adr/2590-*, 2591-*).
 export function buildTree(pages: PageMetaDTO[]): TreeNode[] {
   const byId = new Map<string, TreeNode>()
   for (const p of pages) byId.set(p.id, { page: p, children: [] })
@@ -495,11 +497,17 @@ export function PageTree({
     if (pageId) selectOne(pageId)
   }, [pageId, selectOne])
 
+  // Top-level order of both sections (docs/adr/2591-*): the workspace's for shared, the caller's own for private.
+  const rootSort = useWorkspaces().data?.find((w) => w.id === wsId)?.rootSort
   // Hide a collection's child (row) pages from the tree — they appear only in the collection's table/board.
+  // Ordered with the server's function (docs/adr/2590-*, 2591-*), so optimistic edits sit where the next poll puts them.
   const treePages = useMemo(() => {
     const kindById = new Map(pages.map((p) => [p.id, p.kind]))
-    return pages.filter((p) => !(p.parentId && kindById.get(p.parentId) === 'collection'))
-  }, [pages])
+    return orderPageTree(
+      pages.filter((p) => !(p.parentId && kindById.get(p.parentId) === 'collection')),
+      rootSort,
+    )
+  }, [pages, rootSort])
   const prevTreeRef = useRef<Map<string, TreeNode>>(new Map())
   const tree = useMemo(() => {
     const built = buildTreeShared(treePages, prevTreeRef.current)

@@ -124,6 +124,16 @@ editor is in Settings → Sidebar.
 - In the tree, hover a page and use **+** (Add subpage) or the **⋯** menu (right-click works too): Add subpage,
   Add subfolder, Add sub-database, Move to…, Duplicate, Rename, Add to favorites, Save as template and more.
 - Drag pages in the tree to reorder or nest them.
+- **Pin to top** in a page's ⋯ menu keeps it first among the pages next to it, for everyone in the workspace; a small
+  pin shows next to its title, and **Unpin** undoes it. Pinned pages keep the order you drag them in, and new pages go
+  below them. You need to be able to edit the page.
+- **Sort subpages by title** in the ⋯ menu keeps a page's subpages in title order, with numbers in order ("2" before
+  "10") and pinned pages still on top. Dragging to reorder inside it is off while it is on; dragging pages in or out
+  still works. For the top level, Workspace settings → General → **Sidebar order** has **Sort the shared section by
+  title** (for everyone) and **Sort my private section by title** (only for you).
+- Owners and admins can pick **New agent pages go here** in a shared page's ⋯ menu. Pages that AI agents and API
+  tokens create at the top of the shared section without choosing a place then go under that page. Workspace
+  settings → **Connected agents** → **New pages from agents** shows which page it is, with **Clear**.
 - Where ⌘N puts the new page (top level, inside or next to the current page) is set in Settings →
   Files & links → **New page location**.
 - **Today** in the sidebar opens today's daily note. The command palette (⌘P) also has yesterday's and
@@ -789,7 +799,12 @@ It can:
 - open attachments: images, text files and the text of PDFs (not scanned ones), and the name and size of other files,
 - attach a file it made (an image, a PDF or a text file, up to 5 MB by default) to a page it may edit, where the
   workspace allows it,
-- see your handwriting, only where the workspace allows it.
+- see your handwriting, only where the workspace allows it,
+- create a workspace for you (you get a notification), unless the connection is limited to some workspaces or one
+  page tree; at most 5 a day for your account.
+
+When it creates a page without saying where, the page goes to the top of the shared section, or under the page your
+owners and admins picked with **New agent pages go here** (see "Making pages"). The AI's answer says where it went.
 
 It can't:
 
@@ -797,7 +812,8 @@ It can't:
 - delete anything permanently (the trash keeps it) or empty the trash,
 - accept or reject suggestions (people do that),
 - change edit locks, members, public links or admin settings,
-- edit a locked page unless the lock allows it.
+- edit a locked page unless the lock allows it,
+- pin pages or change how the sidebar is sorted.
 
 ### "via" labels
 
@@ -1034,6 +1050,10 @@ with every menu on, a tablet with the browser's bars), the last ones fold under 
 n of them (the page list gets shorter while it is open), and again (**Show less**) to fold them. On a very short
 window the open list scrolls, with a "k more below" row at the bottom. On a short screen the trash, shortcuts, settings and account rows
 become one row of icons at the bottom.
+
+The account block at the bottom (your name, email, invite link and sign out) folds to the row with your name: click
+the arrow next to it. This browser remembers the choice for you; it starts unfolded. The server's terms and contact
+links stay visible either way, and the short-screen row of icons is unchanged.
 
 ⌘\ hides or shows the whole sidebar. To make it wider or narrower, drag its right edge (200–480 px);
 double-click the edge to go back to 260 px. With the edge focused, ←/→ change the width (Shift for bigger steps).

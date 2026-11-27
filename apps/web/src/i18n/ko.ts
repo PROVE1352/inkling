@@ -48,6 +48,7 @@ import legal from './ko/legal'
 import accountLifecycle from './ko/account-lifecycle'
 import agentView from './ko/agent-view'
 import agentInclusion from './ko/agent-inclusion'
+import sidebarOrder from './ko/sidebar-order'
 
 // Korean dictionary. Missing keys fall back to English (see i18n/index.ts).
 export const ko: Partial<Record<MessageKey, string>> = {
@@ -100,4 +101,5 @@ export const ko: Partial<Record<MessageKey, string>> = {
   ...accountLifecycle,
   ...agentView,
   ...agentInclusion,
+  ...sidebarOrder,
 }

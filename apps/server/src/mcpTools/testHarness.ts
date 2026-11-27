@@ -82,6 +82,7 @@ export async function buildTestApp(): Promise<FastifyInstance> {
       await (await import('../routes/memberStatus')).registerMemberStatusRoutes(api)
       await (await import('../routes/oauth')).registerOAuthApiRoutes(api)
       await (await import('../routes/sidebarPrefs')).registerSidebarPrefsRoutes(api)
+      await (await import('../routes/sidebarOrder')).registerSidebarOrderRoutes(api) // docs/adr/2590-*..2592-*
       await (await import('../routes/workspaceListing')).registerWorkspaceListingRoutes(api) // docs/adr/2300-*
       await (await import('../onboarding/routes')).registerOnboardingRoutes(api) // docs/adr/2380-*
       await (await import('../routes/files')).registerFileRoutes(api)

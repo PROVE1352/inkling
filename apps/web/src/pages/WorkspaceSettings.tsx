@@ -66,6 +66,7 @@ import { MembersPanel, RoleBadge } from '../components/MembersPanel'
 import { GuestsPanel } from '../components/GuestsPanel'
 import { Modal } from '../components/Modal'
 import { NavButtons } from '../components/NavButtons'
+import { useRootSort, useSetAgentDefaultParent } from '../sidebarOrderApi'
 import { Group, Row, Select, Toggle } from '../components/SettingsRows'
 import { Spinner } from '../components/Spinner'
 import { WebhooksPanel } from '../components/WebhooksPanel'
@@ -470,6 +471,7 @@ function GeneralTab({ ws, can }: { ws: WorkspaceDTO; can: WorkspaceCapabilities 
         </>
       )}
       {error && <p className="text-xs text-red-600">{error}</p>}
+      {ws.role !== 'guest' && <SidebarOrderGroup ws={ws} />}
     </>
   )
 }
@@ -747,6 +749,7 @@ function AgentsTab({ ws }: { ws: WorkspaceDTO }) {
       <AgentInkGroup ws={ws} />
       <AgentTaintGroup ws={ws} />
       <AgentUploadsGroup ws={ws} />
+      <AgentDefaultGroup ws={ws} />
       <section className="mb-8">
         <h2 className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-sub">{t('agents.connections')}</h2>
         <div className="divide-y divide-line rounded-lg border border-line">
@@ -1007,6 +1010,82 @@ function AgentUploadsGroup({ ws }: { ws: WorkspaceDTO }) {
           {t('agentUploads.never')}
         </p>
       )}
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
+  )
+}
+
+/**
+ * Sidebar order (docs/adr/2591-*): the shared section's top level by title (the workspace's, any member)
+ * and the caller's private section (their own).
+ */
+function SidebarOrderGroup({ ws }: { ws: WorkspaceDTO }) {
+  const t = useT()
+  const set = useRootSort(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const change = (section: 'shared' | 'private', on: boolean) => {
+    setError(null)
+    set.mutate({ section, childSort: on ? 'title' : 'manual' }, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+  }
+  return (
+    <Group title={t('sidebarOrder.group')}>
+      <Row id="rootSortShared" title={t('sidebarOrder.sharedTitle')} desc={t('sidebarOrder.sharedDesc')}>
+        <Toggle
+          checked={ws.rootSort?.shared === 'title'}
+          disabled={set.isPending}
+          label={t('sidebarOrder.sharedTitle')}
+          onChange={(v) => change('shared', v)}
+        />
+      </Row>
+      <Row id="rootSortPrivate" title={t('sidebarOrder.privateTitle')} desc={t('sidebarOrder.privateDesc')}>
+        <Toggle
+          checked={ws.rootSort?.private === 'title'}
+          disabled={set.isPending}
+          label={t('sidebarOrder.privateTitle')}
+          onChange={(v) => change('private', v)}
+        />
+      </Row>
+      {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
+    </Group>
+  )
+}
+
+/**
+ * Where agents' new pages go (docs/adr/2592-*): shown with its page, cleared here; picked from the page's
+ * sidebar menu. Owners and admins.
+ */
+function AgentDefaultGroup({ ws }: { ws: WorkspaceDTO }) {
+  const t = useT()
+  const settings = useWorkspaceSettings(ws.id)
+  const set = useSetAgentDefaultParent(ws.id)
+  const [error, setError] = useState<string | null>(null)
+  const current = settings.data?.settings.agentDefaultParent ?? null
+  return (
+    <Group title={t('agentDefault.group')}>
+      <Row id="agentDefaultParent" title={t('agentDefault.title')} desc={t('agentDefault.desc')}>
+        <div className="flex min-w-0 items-center gap-2">
+          {current ? (
+            <Link to={`/w/${ws.id}/p/${current.id}`} className="max-w-[12rem] truncate text-sm text-ink hover:underline" data-testid="agent-default-page">
+              {current.title || t('common.untitled')}
+            </Link>
+          ) : (
+            <span className="text-sm text-sub" data-testid="agent-default-page">{t('agentDefault.none')}</span>
+          )}
+          {current && (
+            <button
+              type="button"
+              disabled={!capsOf(ws).manage || set.isPending}
+              onClick={() => {
+                setError(null)
+                set.mutate(null, { onError: (e) => setError(errText(e, t('wsSettings.saveFailed'))) })
+              }}
+              className="shrink-0 rounded-md px-2 py-1 text-xs text-sub transition-colors duration-150 hover:bg-hover hover:text-ink disabled:opacity-50"
+            >
+              {t('agentDefault.clear')}
+            </button>
+          )}
+        </div>
+      </Row>
       {error && <p className="px-4 py-2 text-xs text-red-600">{error}</p>}
     </Group>
   )

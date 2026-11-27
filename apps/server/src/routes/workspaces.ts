@@ -43,7 +43,7 @@ import {
   workspaceMembers,
   workspaces,
 } from '../db/schema'
-import { badRequest, forbidden, notFound } from '../errors'
+import { AppError, badRequest, forbidden, notFound } from '../errors'
 import {
   generateInviteCodeColumns,
   idParam,
@@ -158,6 +158,25 @@ function buildSnippet(text: string, term: string): string {
   return snippet
 }
 
+/** Workspaces one account's agent connections may create per 24 hours (create_workspace, docs/adr/2596-*). */
+export const AGENT_WORKSPACES_PER_DAY = 5
+
+/** 429 when the account's agent connections already made AGENT_WORKSPACES_PER_DAY workspaces in the last 24 hours. */
+async function assertAgentWorkspaceRoom(tx: Pick<typeof db, 'execute'>, userId: string): Promise<void> {
+  // soft-deleted ones count too: deleting does not hand the allowance back
+  const [r] = (await tx.execute(sql`
+    SELECT count(*)::int AS "n" FROM workspaces
+     WHERE created_by = ${userId} AND created_via IS NOT NULL AND created_at > now() - interval '24 hours'
+  `)) as unknown as { n: number }[]
+  if ((r?.n ?? 0) >= AGENT_WORKSPACES_PER_DAY) {
+    throw new AppError(
+      429,
+      'AGENT_WORKSPACE_LIMIT',
+      `Agents can create at most ${AGENT_WORKSPACES_PER_DAY} workspaces a day for one account; create more in the web app, or work in an existing workspace`,
+    )
+  }
+}
+
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
   // Including a workspace someone else added me to, for my agents (docs/adr/2580-*)
   await registerAgentInclusionRoutes(app)
@@ -175,6 +194,10 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         policy: policyColumns,
         twoFactorRequiredAt: workspaces.twoFactorRequiredAt,
         twoFactorGraceDays: workspaces.twoFactorGraceDays,
+        // sidebar order (docs/adr/2591-*, 2592-*): the shared top level, the caller's private one, the agents' default place
+        rootChildSort: workspaces.rootChildSort,
+        privateChildSort: workspaceMembers.privateChildSort,
+        agentDefaultParentId: sql<string | null>`(SELECT p.id FROM pages p WHERE p.id = ${workspaces.agentDefaultParentId} AND p.deleted_at IS NULL)`,
       })
       .from(workspaceMembers)
       .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
@@ -208,9 +231,17 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       rows.some((r) => r.twoFactorRequiredAt) || guestRows.some((r) => r.twoFactorRequiredAt)
         ? await userSatisfiesTwoFactor(user.id)
         : true
-    const result: WorkspaceDTO[] = rows.map((r) =>
-      toWorkspaceDTO(r, r.role, r.policy, twoFactorStatus(r.twoFactorRequiredAt, r.twoFactorGraceDays, satisfied)),
-    )
+    const result: WorkspaceDTO[] = rows.map((r) => {
+      const dto = toWorkspaceDTO(r, r.role, r.policy, twoFactorStatus(r.twoFactorRequiredAt, r.twoFactorGraceDays, satisfied))
+      if (r.rootChildSort === 'title' || r.privateChildSort === 'title') {
+        dto.rootSort = {
+          ...(r.rootChildSort === 'title' ? { shared: 'title' as const } : {}),
+          ...(r.privateChildSort === 'title' ? { private: 'title' as const } : {}),
+        }
+      }
+      if (r.agentDefaultParentId) dto.agentDefaultParentId = r.agentDefaultParentId
+      return dto
+    })
     for (const g of guestRows) {
       result.push({
         id: g.id,
@@ -235,19 +266,28 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     const user = getUser(req)
     const body = createWorkspaceSchema.parse(req.body)
 
+    // An agent connection (OAuth or agent token, not a personal API token) creating a workspace for its
+    // person (create_workspace, docs/adr/2596-*): capped per account and day, labelled, and the person is told.
+    const agentVia = req.authVia === 'bearer' && user.grantId ? (user.via ?? 'agent').slice(0, 100) : null
     const ws = await db.transaction(async (tx) => {
       await assertUserRoom(tx, user.id, { workspaces: 1 }) // LIMIT_WORKSPACES (docs/adr/2505-*)
       await assertWorkspacesTotalRoom(tx, 1) // LIMIT_WORKSPACES_TOTAL (docs/adr/2531-*), after the user lock
+      if (agentVia) await assertAgentWorkspaceRoom(tx, user.id) // after the user lock, so two calls count each other
       const id = randomUUID()
       const [created] = await tx
         .insert(workspaces)
-        .values({ id, name: body.name, ...(await generateInviteCodeColumns(tx, id)), createdBy: user.id })
+        .values({ id, name: body.name, ...(await generateInviteCodeColumns(tx, id)), createdBy: user.id, createdVia: agentVia })
         .returning()
+      // agents_pending stays false: the person's own connection made it (docs/adr/2580-*, 2596-*)
       await tx
         .insert(workspaceMembers)
         .values({ workspaceId: created.id, userId: user.id, role: 'owner' })
+      if (agentVia) {
+        await tx.insert(notifications).values({ userId: user.id, type: 'agent_workspace', workspaceId: created.id, actorId: user.id, viaClient: agentVia })
+      }
       return created
     })
+    if (agentVia) broadcastToUser(user.id, { t: 'notifications' })
 
     const dto: WorkspaceDTO = toWorkspaceDTO(ws, 'owner', ws)
     return { workspace: dto }

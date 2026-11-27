@@ -111,6 +111,7 @@ describe('[db] tool annotations and the read-only connection', { skip: !HAS_DB }
     create_collection: { workspaceId: ws.id, title: 'More', fields: [] },
     update_fields: { collectionId, order: ['Status'] },
     check_notes: { workspaceId: ws.id },
+    create_workspace: { name: 'Read-only check' }, // 0.26 (docs/adr/2596-*)
     more_tools: {},
   }
 

@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { storedDefaultParent } from './agentDefaultParent'
 import type {
   AuditAction,
   RolePolicy,
@@ -63,8 +64,10 @@ export type WorkspacePolicy = WorkspaceSettingsDTO
 export async function loadPolicy(exec: Pick<Exec, 'select'>, workspaceId: string): Promise<WorkspacePolicy> {
   const [row] = await exec.select(policyColumns).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
   if (!row) throw notFound()
+  // where agents' new pages go when they name no parent (docs/adr/2592-*); a trashed page counts as unset
+  const agentDefaultParent = await storedDefaultParent(exec, workspaceId)
   // the server default rides along so the settings screen can show it (docs/adr/2065-*)
-  return { ...row, agentUploadsServer: agentUploadEnv.mode }
+  return { ...row, agentUploadsServer: agentUploadEnv.mode, agentDefaultParent }
 }
 
 export function capabilitiesFor(role: WorkspaceRole, p: WorkspacePolicy): WorkspaceCapabilities {

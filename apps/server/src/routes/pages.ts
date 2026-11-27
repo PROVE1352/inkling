@@ -81,9 +81,36 @@ import { recordPageEvents } from '../context/changeLog'
 import { backlinkSections } from '../context/sectionLinks'
 import type { PageEvent } from '../context/changeLog'
 import { assertTopLevelInRange, currentRange, guestOutside } from '../tokenRange'
+import { agentDefaultParent } from '../agentDefaultParent'
+import { rootSortFor } from './sidebarOrder'
+import { orderPageTree } from '@inkling/shared'
+import { workspaceMembers, workspaces } from '../db/schema'
 import { clientGoneSignal, heavyJobs } from '../heavyJobs'
 
 const shortId = (): string => randomUUID().slice(0, 8)
+
+/** The siblings of `page` are sorted by title: its parent's setting, or its section's top-level one. */
+async function siblingsSortedByTitle(
+  tx: Parameters<typeof assertCan>[0] & Pick<typeof db, 'select'>,
+  page: { workspaceId: string; parentId: string | null; scope: PageScope },
+  userId?: string,
+): Promise<boolean> {
+  if (page.parentId) {
+    const [p] = await tx.select({ s: pages.childSort }).from(pages).where(eq(pages.id, page.parentId)).limit(1)
+    return p?.s === 'title'
+  }
+  if (page.scope === 'shared') {
+    const [w] = await tx.select({ s: workspaces.rootChildSort }).from(workspaces).where(eq(workspaces.id, page.workspaceId)).limit(1)
+    return w?.s === 'title'
+  }
+  if (!userId) return false
+  const [m] = await tx
+    .select({ s: workspaceMembers.privateChildSort })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, page.workspaceId), eq(workspaceMembers.userId, userId)))
+    .limit(1)
+  return m?.s === 'title'
+}
 
 /**
  * Names of things this route creates on the user's behalf (default fields, views, properties,
@@ -314,7 +341,9 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     const role = await requireMembership(workspaceId, user.id, { guests: true })
     // Tree depends only on this workspace's pages rows (ADR 0752): answer 304 before the query. A
     // guest's tree also depends on their rows (the scope's roots), so they are part of the tag.
-    const etagParts = [user.id, await workspaceVersion(workspaceId)]
+    // Top-level order of both sections (docs/adr/2591-*): part of the tag, since it changes no page row.
+    const rootSort = role === 'guest' ? {} : await rootSortFor(workspaceId, user.id)
+    const etagParts = [user.id, await workspaceVersion(workspaceId), `${rootSort.shared ?? 'm'}${rootSort.private ?? 'm'}`]
     if (role === 'guest') etagParts.push(guestCacheKey(user.id))
     if (precheckEtag(req, reply, etagParts)) return reply
 
@@ -334,9 +363,12 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     if (role === 'guest') {
       // The pages shared with a guest are the tops of their tree: their real parents do not exist for them.
       const ids = new Set(rows.map((r) => r.id))
-      return { pages: rows.map((r) => toPageDTO(r.parentId && !ids.has(r.parentId) ? { ...r, parentId: null } : r)) }
+      return { pages: orderPageTree(rows.map((r) => toPageDTO(r.parentId && !ids.has(r.parentId) ? { ...r, parentId: null } : r))) }
     }
-    return { pages: rows.map(toPageDTO) }
+    // Pinned pages first, title-sorted parents by title (docs/adr/2590-*, 2591-*): the same function
+    // the web app orders its copy with, so the sidebar, list_pages and drag targets agree.
+    const ordered = orderPageTree(rows.map(toPageDTO), rootSort)
+    return { pages: ordered, ...(rootSort.shared || rootSort.private ? { rootSort } : {}) }
   })
 
   // Create a page (optional kind/title)
@@ -347,7 +379,12 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     // top level is refused by assertTopLevelInRange for their scope, docs/adr/1252-*).
     const role = await requireMembership(body.workspaceId, user.id, { guests: true })
 
-    const parentId = body.parentId ?? null
+    // A token's shared top-level page goes under the workspace's default place for agents' pages, when
+    // one is set and the token may write there; `parentId: null` asks for the top level on purpose (docs/adr/2592-*).
+    const defaultParent = body.parentId
+      ? null
+      : await agentDefaultParent(req, body.workspaceId, { explicitTop: body.parentId === null, scope: body.scope ?? 'shared' })
+    const parentId = body.parentId ?? defaultParent?.id ?? null
     // a subtree-limited connection creates only under its subtree (docs/adr/1202-*)
     if (!parentId) assertTopLevelInRange(body.workspaceId, user.id)
     // scope: with a parent, the parent's scope is forced (body.scope ignored); at the root, body.scope (default shared)
@@ -426,7 +463,7 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
     })
     if (queued > 0) outboxCommitted(['webhook'])
     if (logged) outboxCommitted(['change'])
-    return { page: toPageDTO(row) }
+    return { page: toPageDTO(row), ...(defaultParent ? { defaultParent } : {}) }
   })
 
   // Update a page (title/icon/parent/order/section move)
@@ -497,6 +534,14 @@ export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
       await assertEditable(tx, id, user.id, role, { subtree: carriesSubtree, acl: gate.acl })
 
       const updates: Partial<typeof pages.$inferInsert> = { updatedAt: new Date() }
+
+      // Title order (docs/adr/2591-*): a reorder among siblings sorted by title would change nothing anyone
+      // sees, so it is refused; a move to another parent (or section) keeps working.
+      if (body.sortOrder !== undefined && (body.parentId === undefined || body.parentId === page.parentId) && body.scope === undefined) {
+        if (await siblingsSortedByTitle(tx, page, user.id)) {
+          throw new AppError(409, 'SORTED_BY_TITLE', 'These pages are sorted by title; turn off "Sort subpages by title" to arrange them by hand')
+        }
+      }
 
       if (body.title !== undefined) updates.title = body.title
       if (body.icon !== undefined) updates.icon = body.icon

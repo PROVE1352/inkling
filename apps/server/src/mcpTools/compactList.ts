@@ -1,4 +1,5 @@
-import type { PageMetaDTO } from '@inkling/shared'
+import type { PageMetaDTO, RootSortDTO } from '@inkling/shared'
+import { sortSiblingGroup } from '@inkling/shared'
 import { SEARCH_MAX_LIMIT } from '../routes/agentSearchText'
 import type { AgentSearchHit, AgentSearchResponse } from '../routes/agentSearchText'
 import { cleanText, wrapUntrusted } from './trust'
@@ -124,7 +125,7 @@ const marksOf = (p: PageMetaDTO) => `${p.kind !== 'doc' ? ` [${p.kind}]` : ''}${
  * list_pages(format='compact'): the 'lines' tree with short ids, folded sibling runs and one-space
  * indentation. Same order, depth limit and "(+N)" hidden-children count as 'lines'.
  */
-export function renderCompactTree(all: PageMetaDTO[], opts: { parentId?: string; depth?: number }): string {
+export function renderCompactTree(all: PageMetaDTO[], opts: { parentId?: string; depth?: number; rootSort?: RootSortDTO }): string {
   const byId = new Map(all.map((p) => [p.id, p]))
   const children = new Map<string | null, PageMetaDTO[]>()
   for (const p of all) {
@@ -133,7 +134,8 @@ export function renderCompactTree(all: PageMetaDTO[], opts: { parentId?: string;
     list.push(p)
     children.set(k, list)
   }
-  for (const list of children.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  // the sidebar's order: pinned first, title-sorted parents by title (docs/adr/2590-*, 2591-*)
+  for (const [k, list] of children) sortSiblingGroup(list, k ? (byId.get(k) ?? null) : null, opts.rootSort)
   // Collisions are checked over the whole workspace, so a subtree listing prints the same ids.
   const short = shortIdsFor(all.map((p) => p.id).sort())
   const start = opts.parentId && opts.parentId !== 'root' ? opts.parentId : null

@@ -1,4 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { DEFAULT_PLACE_NOTE, placedText } from './defaultPlace'
+import type { DefaultParentDTO } from './defaultPlace'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -708,7 +710,8 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
       title: 'Import zip',
       description:
         `Import a zip of a folder (max ${mbText(AGENT_IMPORT_MAX_ZIP_BYTES)}): folders become folder pages, .md documents, .canvas canvases; ` +
-        'files under assets/ become attachments (the upload rules apply). Structure is kept. Not for Notion exports (web app).',
+        'files under assets/ become attachments (the upload rules apply). Structure is kept. Not for Notion exports (web app).' +
+        DEFAULT_PLACE_NOTE,
       inputSchema: {
         base64: z.string().max(UPLOAD_ARG_MAX).describe('The .zip file, base64'),
         workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
@@ -754,6 +757,7 @@ export function registerFileTools(server: McpServer, ctx: ToolCtx): void {
         pages: PageMetaDTO[]
         duplicateAttachments?: number
         skippedAttachments?: { name: string; reason: string }[]
+        defaultParent?: DefaultParentDTO
       }
       return text(importZipText(ctx, res, workspaceId, parentId ?? null))
     }),
@@ -765,16 +769,25 @@ const IMPORT_ZIP_LIST_MAX = 60
 
 export function importZipText(
   ctx: Pick<ToolCtx, 'origin'>,
-  res: { pages: PageMetaDTO[]; duplicateAttachments?: number; skippedAttachments?: { name: string; reason: string }[] },
+  res: {
+    pages: PageMetaDTO[]
+    duplicateAttachments?: number
+    skippedAttachments?: { name: string; reason: string }[]
+    defaultParent?: DefaultParentDTO
+  },
   workspaceId: string,
-  parentId: string | null,
+  parentIdArg: string | null,
 ): string {
   const pages = res.pages
   if (pages.length === 0) return 'The zip had nothing to import (no .md or .canvas files).'
+  // the workspace's default place for agents' new pages, when the server used it (docs/adr/2592-*)
+  const parentId = parentIdArg ?? res.defaultParent?.id ?? null
   const tops = pages.filter((p) => p.parentId === parentId)
   const lines = [
-    `Imported ${pages.length} page(s) ${parentId ? `under page ${parentId}` : `at the top level of workspace ${workspaceId}`}.`,
+    `Imported ${pages.length} page(s) ${parentIdArg ? `under page ${parentIdArg}` : res.defaultParent ? 'under the page below' : `at the top level of workspace ${workspaceId}`}.`,
   ]
+  const placed = placedText(res.defaultParent)
+  if (placed) lines.push(placed)
   const listed = pages.slice(0, IMPORT_ZIP_LIST_MAX)
   const body = [
     ...tops.slice(0, 10).map((p) => `top: ${titleOf(p.title)} (${p.id}) ${ctx.origin}/w/${p.workspaceId}/p/${p.id}`),

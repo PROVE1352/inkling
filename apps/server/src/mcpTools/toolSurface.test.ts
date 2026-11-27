@@ -118,7 +118,9 @@ describe('tools/list (docs/adr/1945-*)', () => {
     // (docs/adr/2460-*): 12,777 → 13,245 tok (+468, 51,059 → 52,932 chars); core 7,533 → 7,857 (+324).
     // 0.22.2: "; required with several" on the workspaceId of the 10 tools that infer the workspace:
     // 13,245 → 13,303 tok (52,932 → 53,162 chars), under the same cap.
-    assert.ok(tokens < 13_320, `tools/list ~${tokens} tok`)
+    // 0.26: create_workspace (docs/adr/2596-*) and one sentence on the agents' default place on the five
+    // tools that create pages (docs/adr/2592-*): 13,303 → 13,483 tok (53,162 → 53,881 chars).
+    assert.ok(tokens < 13_500, `tools/list ~${tokens} tok`)
   })
 
   it('only dialect-neutral JSON Schema keywords are used, so dropping $schema changes no meaning', async () => {

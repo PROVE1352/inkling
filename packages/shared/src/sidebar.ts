@@ -44,3 +44,127 @@ export interface SidebarPrefsDTO {
 }
 
 export const DEFAULT_SIDEBAR_PREFS: SidebarPrefsDTO = { order: [], hidden: [] }
+
+// ---------------------------------------------------------------------------
+// Sibling order in the page tree (docs/adr/2590-*, 2591-*)
+//
+// The server orders GET /workspaces/:id/pages with `orderPageTree` and the web app orders its cached
+// copy with the same function, so the sidebar, list_pages and the web app's drag logic agree.
+// ---------------------------------------------------------------------------
+
+/** How a parent orders its children: by drag order (sort_order) or by title. */
+export const CHILD_SORTS = ['manual', 'title'] as const
+export const childSortSchema = z.enum(CHILD_SORTS)
+export type ChildSort = z.infer<typeof childSortSchema>
+
+/** Top-level order of the two sections: shared (whole workspace) and private (this person). Absent = manual. */
+export interface RootSortDTO {
+  shared?: 'title'
+  private?: 'title'
+}
+
+/**
+ * Title comparison for "sort by title": numbers inside titles compare as numbers ("2" before "10"),
+ * case and accents do not matter. A fixed locale so the server and every browser give the same order.
+ */
+const titleCollator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
+
+export function compareTitles(a: string, b: string): number {
+  return titleCollator.compare(a, b)
+}
+
+/** The fields the order needs (PageMetaDTO has them). */
+export interface SiblingLike {
+  id: string
+  parentId: string | null
+  scope: 'shared' | 'private'
+  title: string
+  sortOrder: number
+  createdAt: string
+  pinned?: boolean
+  childSort?: ChildSort
+}
+
+/**
+ * Order of two siblings: pinned ones first; then by title (mode 'title') or by drag order (mode
+ * 'manual'); ties by sort_order, creation time and id, so the order is total and the same everywhere.
+ */
+export function compareSiblings(a: SiblingLike, b: SiblingLike, mode: ChildSort): number {
+  const pa = a.pinned ? 1 : 0
+  const pb = b.pinned ? 1 : 0
+  if (pa !== pb) return pb - pa
+  if (mode === 'title') {
+    const c = compareTitles(a.title.trim(), b.title.trim())
+    if (c !== 0) return c
+  }
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+/** Mode of the children of `parent` (null = a top-level page of `scope`'s section). */
+export function childSortOf(parent: SiblingLike | null, scope: 'shared' | 'private', rootSort: RootSortDTO | undefined): ChildSort {
+  if (parent) return parent.childSort === 'title' ? 'title' : 'manual'
+  return rootSort?.[scope] === 'title' ? 'title' : 'manual'
+}
+
+/**
+ * Sorts one group of siblings in place: the children of `parent`, or (parent null) the top level. At the
+ * top level the two sections keep their drag order interleaved as before while both are manual; once one
+ * is sorted by title, the shared section comes first and each follows its own setting. Either way the
+ * order inside each section is the sidebar's.
+ */
+export function sortSiblingGroup<T extends SiblingLike>(list: T[], parent: SiblingLike | null, rootSort?: RootSortDTO): T[] {
+  if (parent || (rootSort?.shared !== 'title' && rootSort?.private !== 'title')) {
+    const mode = parent ? childSortOf(parent, 'shared', rootSort) : 'manual'
+    return list.sort((a, b) => compareSiblings(a, b, mode))
+  }
+  return list.sort((a, b) => {
+    const sa = a.scope === 'private' ? 1 : 0
+    const sb = b.scope === 'private' ? 1 : 0
+    if (sa !== sb) return sa - sb
+    return compareSiblings(a, b, childSortOf(null, a.scope === 'private' ? 'private' : 'shared', rootSort))
+  })
+}
+
+/**
+ * The page list in tree order: each parent's children sorted by `compareSiblings`, written out depth
+ * first (shared top level, then private). A page whose parent is not in the list counts as top level.
+ * Returns a new array; the input is not changed.
+ */
+export function orderPageTree<T extends SiblingLike>(pages: readonly T[], rootSort?: RootSortDTO): T[] {
+  const byId = new Map<string, T>()
+  for (const p of pages) byId.set(p.id, p)
+  const kids = new Map<string | null, T[]>()
+  for (const p of pages) {
+    const key = p.parentId && byId.has(p.parentId) ? p.parentId : null
+    const list = kids.get(key)
+    if (list) list.push(p)
+    else kids.set(key, [p])
+  }
+  for (const [key, list] of kids) sortSiblingGroup(list, key === null ? null : (byId.get(key) ?? null), rootSort)
+  const out: T[] = []
+  const seen = new Set<string>()
+  const walk = (list: T[]): void => {
+    for (const p of list) {
+      if (seen.has(p.id)) continue
+      seen.add(p.id)
+      out.push(p)
+      const c = kids.get(p.id)
+      if (c) walk(c)
+    }
+  }
+  walk(kids.get(null) ?? [])
+  // cycles cannot happen (the server refuses them); anything not reached keeps its place at the end
+  if (out.length < pages.length) for (const p of pages) if (!seen.has(p.id)) out.push(p)
+  return out
+}
+
+/** PUT /pages/:id/pin (browser only, people who may edit the page). */
+export const setPinnedSchema = z.object({ pinned: z.boolean() }).strict()
+/** PUT /pages/:id/child-sort (browser only, people who may edit the page). */
+export const setChildSortSchema = z.object({ childSort: childSortSchema }).strict()
+/** PUT /workspaces/:id/root-sort (browser only): shared = any member, private = the caller's own. */
+export const setRootSortSchema = z.object({ section: z.enum(['shared', 'private']), childSort: childSortSchema }).strict()
+/** PUT /workspaces/:id/settings/agent-default-parent (browser only, owners and admins). null = unset. */
+export const setAgentDefaultParentSchema = z.object({ pageId: z.uuid().nullable() }).strict()

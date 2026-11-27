@@ -2,6 +2,7 @@ import type { PageMetaDTO } from '@inkling/shared'
 import { useT } from '../i18n'
 import { MenuShortcut, ariaKeys } from './MenuShortcut'
 import {
+  AgentIcon,
   CheckIcon,
   CanvasIcon,
   CopyIcon,
@@ -12,7 +13,9 @@ import {
   LinkIcon,
   LockIcon,
   MoveIcon,
+  PinIcon,
   PlusIcon,
+  SortTitleIcon,
   TemplateIcon,
   TrashIcon,
   UploadIcon,
@@ -40,6 +43,10 @@ export function PageRowMenu({
   onLock,
   onDelete,
   onClose,
+  onTogglePin,
+  onToggleChildSort,
+  onToggleAgentDefault,
+  isAgentDefault = false,
   guest = false,
 }: {
   page: PageMetaDTO
@@ -61,6 +68,14 @@ export function PageRowMenu({
   onLock?: () => void
   onDelete: () => void
   onClose: () => void
+  /** Pin / unpin for the whole workspace (docs/adr/2590-*). Item hidden when absent. */
+  onTogglePin?: () => void
+  /** Sort this page's subpages by title (docs/adr/2591-*). Item hidden when absent. */
+  onToggleChildSort?: () => void
+  /** Owners and admins: agents' new pages go under this page (docs/adr/2592-*). Item hidden when absent. */
+  onToggleAgentDefault?: () => void
+  /** This page is where agents' new pages go. */
+  isAgentDefault?: boolean
   /**
    * Guest of the workspace (docs/adr/1252-*): only what the server lets a guest do on a page —
    * rename, add a subpage or folder (on pages they can edit) and full width.
@@ -105,6 +120,11 @@ export function PageRowMenu({
         </span>{' '}
         {isBookmarked ? t('rowMenu.removeFavorite') : t('rowMenu.addFavorite')}
       </button>
+      {onTogglePin && (
+        <button type="button" onClick={run(onTogglePin)} className={item}>
+          <PinIcon size={15} /> {page.pinned ? t('rowMenu.unpin') : t('rowMenu.pin')}
+        </button>
+      )}
       <button type="button" onClick={run(onRename)} className={item} aria-keyshortcuts={ariaKeys('tree.rename')}>
         <EditIcon size={15} /> {t('common.rename')}
         <MenuShortcut id="tree.rename" />
@@ -121,6 +141,20 @@ export function PageRowMenu({
       <button type="button" onClick={run(onMove)} className={item}>
         <MoveIcon size={15} /> {t('rowMenu.moveTo')}
       </button>
+      {onToggleChildSort && page.kind !== 'collection' && (
+        <button type="button" onClick={run(onToggleChildSort)} className={item} role="menuitemcheckbox" aria-checked={page.childSort === 'title'}>
+          <SortTitleIcon size={15} />
+          <span className="flex-1">{t('rowMenu.sortByTitle')}</span>
+          {page.childSort === 'title' && <CheckIcon size={14} />}
+        </button>
+      )}
+      {onToggleAgentDefault && page.scope !== 'private' && page.kind !== 'collection' && (
+        <button type="button" onClick={run(onToggleAgentDefault)} className={item} role="menuitemcheckbox" aria-checked={isAgentDefault}>
+          <AgentIcon size={15} />
+          <span className="flex-1">{t('rowMenu.agentDefault')}</span>
+          {isAgentDefault && <CheckIcon size={14} />}
+        </button>
+      )}
       <button type="button" onClick={run(onDuplicate)} className={item}>
         <CopyIcon size={15} /> {t('common.duplicate')}
       </button>

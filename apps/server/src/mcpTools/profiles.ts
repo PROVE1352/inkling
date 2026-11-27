@@ -40,6 +40,8 @@ export const HIDDEN_GROUPS: { group: string; tools: string[]; about: string }[] 
   // import_zip (0.17, docs/adr/2162-*) joins them for the same reasons; core's fixed cost is unchanged.
   { group: 'files', tools: ['import_folder', 'import_zip', 'upload_file'], about: 'many Markdown files at once; a zip of a folder; upload an attachment' },
   { group: 'ink', tools: ['read_ink'], about: 'handwriting as images' },
+  // create_workspace (0.26, docs/adr/2596-*): not an everyday flow, and core's fixed cost stays as it is
+  { group: 'workspaces', tools: ['create_workspace'], about: 'a new workspace for the person' },
 ]
 
 /** Tools `core` lists (every registered tool is in exactly one of CORE_TOOLS or HIDDEN_GROUPS). */

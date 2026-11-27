@@ -135,6 +135,11 @@ const TRIAL_ALLOWED: Record<string, keyof typeof WHY> = {
   'PUT /workspaces/:id/settings/two-factor': 'WORKSPACE',
   'PUT /workspaces/:id/settings/agent-taint': 'WORKSPACE',
   'PUT /workspaces/:id/settings/agent-uploads': 'WORKSPACE',
+  // sidebar order (docs/adr/2590-*..2592-*)
+  'PUT /workspaces/:id/settings/agent-default-parent': 'WORKSPACE',
+  'PUT /workspaces/:id/root-sort': 'WORKSPACE',
+  'PUT /pages/:id/pin': 'CONTENT',
+  'PUT /pages/:id/child-sort': 'CONTENT',
   'PUT /workspaces/:id/agent-policy': 'WORKSPACE',
   'POST /workspaces/:id/agents/blocks': 'WORKSPACE',
   'DELETE /workspaces/:id/agents/blocks/:blockId': 'WORKSPACE',
@@ -408,7 +413,9 @@ describe('trial accounts: the refused routes', () => {
       const concrete = url.replace(/\$\{[^}]+\}/g, 'x')
       return TRIAL_RESTRICTED_ROUTES.some((r) => r.method === method && asRegex(r.url).test(concrete))
     })
-    assert.deepEqual(hits, [])
+    // create_workspace (docs/adr/2596-*) goes through the web app's route on purpose: a trial account's
+    // connection gets the same refusal the person gets in the browser
+    assert.deepEqual(hits, ['POST /api/workspaces'])
     // and no tool writes the database itself
     for (const f of readdirSync(dir)) {
       if (!f.endsWith('.ts') || f.endsWith('.test.ts') || f === 'testHarness.ts') continue

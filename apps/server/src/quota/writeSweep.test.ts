@@ -75,6 +75,11 @@ const ROUTES: Record<string, Entry> = {
   'PUT /workspaces/:id/settings/agent-ink': { open: SETTING },
   'PUT /workspaces/:id/settings/agent-taint': { open: SETTING },
   'PUT /workspaces/:id/settings/agent-uploads': { open: SETTING },
+  // sidebar order (docs/adr/2590-*..2592-*): a flag or a page id in place
+  'PUT /workspaces/:id/settings/agent-default-parent': { open: SETTING },
+  'PUT /workspaces/:id/root-sort': { open: SETTING },
+  'PUT /pages/:id/pin': { open: SETTING },
+  'PUT /pages/:id/child-sort': { open: SETTING },
   'PUT /workspaces/:id/settings/two-factor': { open: SETTING },
   'PUT /workspaces/:id/agent-policy': { open: SETTING + ' (level and auto-accept rules)' },
   'PUT /pages/:id/agent-rules': { open: SETTING },

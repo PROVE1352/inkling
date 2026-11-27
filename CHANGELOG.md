@@ -7,6 +7,60 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-27
+
+The sidebar's order becomes the workspace's: pinned pages, title order for any parent and both top-level sections,
+and the same order for agents. A workspace can name the page where agents' new pages go, and agents can create a
+workspace for their person. One database migration (0065, six columns on `pages`, `workspace_members` and
+`workspaces`; 66 applied migrations). No new setting and no new
+dependency. New routes, all for a signed-in browser only: `PUT /api/pages/:id/pin`, `PUT /api/pages/:id/child-sort`,
+`PUT /api/workspaces/:id/root-sort` and `PUT /api/workspaces/:id/settings/agent-default-parent`. One new MCP tool,
+`create_workspace`. Design notes are docs/adr/2590-* .. 2596-*.
+
+### Pinned pages
+- **Pin to top** in a page row's ⋯ or right-click menu keeps the page first among its siblings, for every member of
+  the workspace; pinned pages keep their drag order among themselves, and new or moved pages go below them. A small
+  pin shows next to the title. Pinning needs edit rights on the page; guests cannot pin (docs/adr/2590-*).
+
+### Sort by title
+- **Sort subpages by title** in a page row's ⋯ menu orders that page's children by title: numbers in order ("2"
+  before "10"), case ignored, pinned pages first. Dragging to reorder inside such a parent is refused; moving pages in
+  and out still works.
+- Workspace settings › General › **Sidebar order**: **Sort the shared section by title** (for the whole workspace)
+  and **Sort my private section by title** (only yours).
+- The server, the web app and the MCP `list_pages` use one comparator, so agents see the sidebar's order
+  (docs/adr/2591-*).
+
+### Where agents' new pages go
+- Owners and admins can mark one shared page with **New agent pages go here** (⋯ menu), or see and clear it in
+  Workspace settings › Connected agents › **New pages from agents**. A page an MCP connection or API token creates
+  at the top of the shared section without naming a parent then goes under it, and the answer says so. Imports and
+  templates follow the same rule; private pages, the browser, the web clipper, vault sync and duplicates do not.
+- A connection that cannot see or write to that page creates at the top level as before and is not told the page
+  exists (docs/adr/2592-*).
+
+### Agents can create a workspace
+- MCP `create_workspace(name)` creates a workspace owned by the connection's person, through the same route as the web
+  app (limits, restricted mode and the trial refusal apply). The person gets a notification. Not for read-only
+  connections or connections limited to some workspaces or a page tree. One account's agent connections can create
+  at most 5 workspaces in 24 hours, deleted ones included (`AGENT_WORKSPACE_LIMIT`). In the core profile it runs
+  through `more_tools` (docs/adr/2596-*).
+- Tool list: the full profile lists 49 tools in 53,881 characters (~13,483 tokens; 0.25.4: 48, 53,162, ~13,303); core
+  lists 32 tools (~7,853 tokens).
+
+### Sidebar
+- The account block at the bottom of the sidebar folds to the name row with the arrow next to it. The choice is kept
+  in this browser, per person; it starts unfolded. The operator's terms and contact links stay visible
+  (docs/adr/2593-*).
+
+### Upgrade notes
+- **Migration 0065** adds `pages.pinned` and `child_sort`, `workspace_members.private_child_sort`,
+  `workspaces.root_child_sort`, `agent_default_parent_id` and `created_via`. Existing rows keep today's behaviour:
+  nothing is pinned, every order stays manual and no workspace has a default place for agents.
+- **Scripts with a personal API token** that create pages without `parentId` land under the workspace's default page
+  for agents once an admin sets one. Send `parentId: null` (or `?parentId=root` for imports) to keep the top level.
+- **Clients that reorder pages** get 409 `SORTED_BY_TITLE` inside a parent sorted by title.
+
 ## [0.25.4] - 2026-11-27
 
 Security fixes from a full code review of 0.25.3 (six reviewers, reading only). Every finding was first reproduced as

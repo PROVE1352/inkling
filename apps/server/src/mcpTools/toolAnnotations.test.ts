@@ -88,11 +88,11 @@ describe('tool annotations (docs/adr/2460-*)', () => {
     assert.deepEqual(SPEC_DEFAULTS, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true })
   })
 
-  it('the table has one row per registered tool (48 tools and more_tools), no more', async () => {
+  it('the table has one row per registered tool (49 tools and more_tools), no more', async () => {
     const full = await listed('full')
     const core = await listed('core')
     const registered = new Set([...full.registered, ...core.registered])
-    assert.equal(full.tools.length, 48)
+    assert.equal(full.tools.length, 49) // 0.26: create_workspace (docs/adr/2596-*)
     assert.ok(registered.has('more_tools'))
     assert.deepEqual([...registered].sort(), Object.keys(TOOL_ANNOTATIONS).sort())
   })
@@ -108,7 +108,7 @@ describe('tool annotations (docs/adr/2460-*)', () => {
     // the split the ADR records; a change here is a change of a verdict and belongs in the ADR
     assert.equal(count((a) => a.readOnlyHint), 20)
     assert.equal(count((a) => !a.readOnlyHint && a.destructiveHint), 11)
-    assert.equal(count((a) => !a.readOnlyHint && !a.destructiveHint), 18)
+    assert.equal(count((a) => !a.readOnlyHint && !a.destructiveHint), 19) // 0.26: create_workspace adds
   })
 
   it('a tool without a row, or with its own annotations, stops the build', () => {

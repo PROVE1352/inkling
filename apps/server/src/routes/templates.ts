@@ -1,4 +1,5 @@
 import { assertWorkspaceRoom } from '../quota/room'
+import { agentDefaultParent } from '../agentDefaultParent'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -399,7 +400,11 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
 
       const t = await resolveTemplate(body.workspaceId, (body.builtinKey ?? body.templateId)!, user.id, locale)
 
-      const parentId = body.parentId ?? null
+      // a token's shared top-level tree goes under the agents' default place when one applies (docs/adr/2592-*)
+      const defaultParent = body.parentId
+        ? null
+        : await agentDefaultParent(req, body.workspaceId, { explicitTop: body.parentId === null, scope: body.scope ?? 'shared' })
+      const parentId = body.parentId ?? defaultParent?.id ?? null
       if (parentId) {
         const parent = await findVisiblePage(parentId, user.id)
         if (!parent || parent.workspaceId !== body.workspaceId) throw badRequest('Parent page is invalid')
@@ -438,7 +443,7 @@ export async function registerTemplateRoutes(app: FastifyInstance): Promise<void
       })
       await markCreatedVia(result.pages.map((p) => p.id), user)
       const dtos = result.pages.map(toPageDTO)
-      return { page: dtos[0], pages: dtos, ...(result.cursor ? { cursor: result.cursor } : {}) }
+      return { page: dtos[0], pages: dtos, ...(result.cursor ? { cursor: result.cursor } : {}), ...(defaultParent ? { defaultParent } : {}) }
     },
   )
 }

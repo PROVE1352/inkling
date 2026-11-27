@@ -96,6 +96,7 @@ export const TOOL_ANNOTATIONS: Readonly<Record<string, ToolHints>> = {
   create_collection: adds,
   update_fields: write(true, false), // remove/change hide or rewrite properties
   check_notes: read,
+  create_workspace: adds, // a repeat makes another workspace
   more_tools: write(true, false), // runs any hidden tool: the worst case of what it dispatches
 }
 

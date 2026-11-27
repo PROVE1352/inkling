@@ -9,6 +9,8 @@
  * the first write, so a bad spec writes nothing. Views are not created here (the default table
  * view comes with every collection).
  */
+import { DEFAULT_PLACE_NOTE, placedText } from './defaultPlace'
+import type { DefaultParentDTO } from './defaultPlace'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { fieldTypeSchema, rollupFnSchema, selectOptionSchema, UNIQUE_ID_PREFIX_RE, updateFieldsSchema } from '@inkling/shared'
@@ -323,7 +325,7 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         '{"name": "Owner", "type": "person"}, {"name": "Project", "type": "relation", "target": "<collection id>", "twoWay": true}, ' +
         '{"name": "Tasks done", "type": "rollup", "relation": "Project", "property": "Done", "fn": "percentChecked"}. ' +
         'Rows always have a Title. Empty fields = the default Status/Assignee/Due properties. The collection gets a table view; ' +
-        'views are edited in the app. With parentId it goes under that page (inheriting its section).',
+        'views are edited in the app. With parentId it goes under that page (inheriting its section).' + DEFAULT_PLACE_NOTE,
       inputSchema: {
         workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         title: z.string().trim().min(1).max(300).describe('Collection title'),
@@ -342,7 +344,7 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
         await call(ctx, 'POST', '/api/pages', {
           json: { workspaceId, kind: 'collection', title, ...(parentId ? { parentId } : {}), ...(isPrivate ? { scope: 'private' } : {}) },
         })
-      ).json() as { page: PageMetaDTO }
+      ).json() as { page: PageMetaDTO; defaultParent?: DefaultParentDTO }
       const id = created.page.id
       let stored: CollectionField[]
       if (mapped) {
@@ -374,6 +376,7 @@ export function registerStructureTools(server: McpServer, ctx: ToolCtx): void {
           ac,
           [
             `Created collection ${id} (workspace ${created.page.workspaceId}${created.page.parentId ? `, under ${created.page.parentId}` : ''}) with ${stored.length} propert${stored.length === 1 ? 'y' : 'ies'} and a table view.`,
+            ...(created.defaultParent ? [placedText(created.defaultParent)!] : []),
             wrapUntrusted([`Collection "${created.page.title || 'Untitled'}"`, '- Title (title)', ...fieldLines(stored)].join('\n'), { source: 'rows', id }),
             'Add rows with create_row; query_rows describe=true shows the schema.',
           ].join('\n'),

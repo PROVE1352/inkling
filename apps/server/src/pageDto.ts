@@ -31,6 +31,8 @@ export const pageColumns = {
   updatedAt: pages.updatedAt,
   deletedAt: pages.deletedAt,
   editLocked: pages.editLocked,
+  pinned: pages.pinned,
+  childSort: pages.childSort,
 } as const
 
 export type PageRow = {
@@ -50,6 +52,10 @@ export type PageRow = {
   deletedAt: Date | null
   /** Own edit lock (docs/adr/0970-*); optional so hand-built rows need not carry it. */
   editLocked?: boolean
+  /** Pinned above its siblings (docs/adr/2590-*); optional like editLocked. */
+  pinned?: boolean
+  /** Order of its children (docs/adr/2591-*); optional like editLocked. */
+  childSort?: 'manual' | 'title'
 }
 
 export function toPageDTO(row: PageRow): PageMetaDTO {
@@ -69,6 +75,8 @@ export function toPageDTO(row: PageRow): PageMetaDTO {
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     ...(row.editLocked ? { editLocked: true as const } : {}),
+    ...(row.pinned ? { pinned: true as const } : {}),
+    ...(row.childSort === 'title' ? { childSort: 'title' as const } : {}),
   }
 }
 

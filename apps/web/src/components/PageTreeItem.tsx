@@ -12,6 +12,8 @@ import {
   useSharedList,
 } from '../api'
 import { toast } from '../lib/toast'
+import { useWorkspaces, ApiError } from '../api'
+import { useChildSort, usePinPage, useSetAgentDefaultParent } from '../sidebarOrderApi'
 import { t } from '../i18n'
 import { PageIconGlyph } from './PageIconGlyph'
 import { type TreeNode, useTreeNav, useTreeRow } from './PageTree'
@@ -27,6 +29,7 @@ import { PageLockModal } from './PageLockModal'
 import {
   ChevronRightIcon,
   MoreHorizontalIcon,
+  PinIcon,
   PlusIcon,
   TrashIcon,
   GlobeIcon,
@@ -88,6 +91,13 @@ export const PageTreeItem = memo(function PageTreeItem({
   const bookmarks = useBookmarks(wsId)
   const toggleBookmark = useToggleBookmark(wsId)
   const isBookmarked = (bookmarks.data ?? []).some((b) => b.pageId === page.id)
+  // Sidebar order (docs/adr/2590-*..2592-*): pin for everyone, title order of the subpages, agents' default place.
+  const ws = useWorkspaces().data?.find((w) => w.id === wsId)
+  const pinPage = usePinPage(wsId)
+  const childSort = useChildSort(wsId)
+  const setAgentDefault = useSetAgentDefaultParent(wsId)
+  const isAgentDefault = ws?.agentDefaultParentId === page.id
+  const failed = (err: unknown) => toast({ message: err instanceof ApiError ? err.message : t('tree.orderFailed') })
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
@@ -280,6 +290,13 @@ export const PageTreeItem = memo(function PageTreeItem({
     onShare: guest ? undefined : () => setShareOpen(true),
     onLock: guest ? undefined : () => setLockOpen(true),
     onDelete: () => nav.deleteNode(node),
+    onTogglePin: guest ? undefined : () => pinPage.mutate({ id: page.id, pinned: !page.pinned }, { onError: failed }),
+    onToggleChildSort: guest
+      ? undefined
+      : () => childSort.mutate({ id: page.id, childSort: page.childSort === 'title' ? 'manual' : 'title' }, { onError: failed }),
+    onToggleAgentDefault:
+      guest || !ws?.can?.manage ? undefined : () => setAgentDefault.mutate(isAgentDefault ? null : page.id, { onError: failed }),
+    isAgentDefault,
     guest,
   }
 
@@ -404,6 +421,13 @@ export const PageTreeItem = memo(function PageTreeItem({
               <LockIcon
                 size={11}
                 aria-label={t('tree.editLocked')}
+                className="ml-1 inline-block align-[-1px] text-sub"
+              />
+            )}
+            {page.pinned && (
+              <PinIcon
+                size={11}
+                aria-label={t('tree.pinned')}
                 className="ml-1 inline-block align-[-1px] text-sub"
               />
             )}

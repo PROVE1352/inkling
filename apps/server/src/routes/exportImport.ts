@@ -31,6 +31,7 @@ import { findVisiblePage, toPageDTO } from '../pageDto'
 import { markCreatedVia } from '../notify/provenance'
 import type { PageScope } from '@inkling/shared'
 import { assertTopLevelInRange } from '../tokenRange'
+import { agentDefaultParent } from '../agentDefaultParent'
 import { clientGoneSignal, heavyJobs } from '../heavyJobs'
 
 // Import caps come from md/importLimits.ts (env-configurable, docs/adr/0961-*).
@@ -46,7 +47,8 @@ const MAX_FOLDER_FILE_BYTES = importLimits.maxEntryBytes
 const exportQuerySchema = z.object({ format: z.enum(['md', 'zip', 'canvas']).optional(), notation: z.enum(['plain', 'agent', 'file']).optional() })
 const zipNotationSchema = z.object({ notation: z.enum(['plain', 'file']).optional() })
 const importQuerySchema = z.object({
-  parentId: z.uuid().optional(),
+  /** A page id, or 'root' for the top level on purpose (a token's import skips the agents' default place, docs/adr/2592-*). */
+  parentId: z.union([z.uuid(), z.literal('root')]).optional(),
   /** zip only: 'notion' = Notion "Markdown & CSV" export, 'markdown' = plain folder zip, default = detect */
   source: z.enum(['auto', 'markdown', 'notion']).optional(),
 })
@@ -289,12 +291,16 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
       const { parentId: parentQuery } = importQuerySchema.parse(req.query)
       let parentId: string | null = null
       let scope: PageScope = 'shared'
-      if (parentQuery) {
-        const parent = await findVisiblePage(parentQuery, user.id)
+      // a token's top-level import goes under the agents' default place when one applies (docs/adr/2592-*)
+      const defaultParent =
+        parentQuery && parentQuery !== 'root' ? null : await agentDefaultParent(req, id, { explicitTop: parentQuery === 'root', scope: 'shared' })
+      const parentRef = parentQuery && parentQuery !== 'root' ? parentQuery : defaultParent?.id
+      if (parentRef) {
+        const parent = await findVisiblePage(parentRef, user.id)
         if (!parent || parent.workspaceId !== id) {
           throw badRequest('Parent page is invalid')
         }
-        parentId = parentQuery
+        parentId = parentRef
         scope = parent.scope
       }
       // a subtree-limited connection imports only under its subtree (docs/adr/1202-*)
@@ -388,6 +394,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           pages: created.map(toPageDTO),
           duplicateAttachments: stats.duplicateAttachments,
           ...(stats.skippedAttachments ? { skippedAttachments: stats.skippedAttachments } : {}),
+          ...(defaultParent ? { defaultParent } : {}),
         }
       } finally {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -413,12 +420,16 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
     let parentId: string | null = null
     // scope of imported pages: inherit the parent's when given; root imports are shared.
     let scope: PageScope = 'shared'
-    if (parentQuery) {
-      const parent = await findVisiblePage(parentQuery, user.id)
+    // a token's top-level import goes under the agents' default place when one applies (docs/adr/2592-*)
+    const defaultParent =
+      parentQuery && parentQuery !== 'root' ? null : await agentDefaultParent(req, id, { explicitTop: parentQuery === 'root', scope: 'shared' })
+    const parentRef = parentQuery && parentQuery !== 'root' ? parentQuery : defaultParent?.id
+    if (parentRef) {
+      const parent = await findVisiblePage(parentRef, user.id)
       if (!parent || parent.workspaceId !== id) {
         throw badRequest('Parent page is invalid')
       }
-      parentId = parentQuery
+      parentId = parentRef
       scope = parent.scope
     }
     // a subtree-limited connection imports only under its subtree (docs/adr/1202-*)
@@ -517,7 +528,7 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
                 tableViewName: locale === 'ko' ? '표' : 'Table',
               })
               await markCreatedVia(pages.map((p) => p.id), user)
-              return { pages: pages.map(toPageDTO), report }
+              return { pages: pages.map(toPageDTO), report, ...(defaultParent ? { defaultParent } : {}) }
             }
           }
 
@@ -548,13 +559,15 @@ export async function registerExportImportRoutes(app: FastifyInstance): Promise<
           await markCreatedVia(created.map((p) => p.id), user)
           // `report` stays reserved for the Notion importer's report (its presence tells the client which
           // importer ran); the zip/folder importers only add the de-duplication count (docs/adr/1122-*).
+          const placed = defaultParent ? { defaultParent } : {}
           return isZip
             ? {
                 pages: created.map(toPageDTO),
                 duplicateAttachments: stats.duplicateAttachments,
                 ...(stats.skippedAttachments ? { skippedAttachments: stats.skippedAttachments } : {}),
+                ...placed,
               }
-            : { pages: created.map(toPageDTO) }
+            : { pages: created.map(toPageDTO), ...placed }
         },
         clientGoneSignal(reply.raw),
       )

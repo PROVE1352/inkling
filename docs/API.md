@@ -123,9 +123,9 @@ Which top-of-sidebar menus a person shows and in what order, stored on the accou
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/workspaces/:id/pages` | - | `{ pages: PageMetaDTO[] }`: only `deleted_at IS NULL`, sorted `sortOrder asc, createdAt asc`. The client assembles the tree from `parentId`. |
+| GET | `/api/workspaces/:id/pages` | - | `{ pages: PageMetaDTO[] }`: only `deleted_at IS NULL`, in tree order since 0.26 (pinned first, title order under a parent sorted by title; see "v0.26.0 changes"), before that `sortOrder asc, createdAt asc`. The client assembles the tree from `parentId`. |
 | POST | `/api/pages` | `createPageSchema` | `{ page: PageMetaDTO }`. If `parentId` is given it must be a live page in the same workspace (otherwise 400 VALIDATION). `sortOrder` = max among siblings + 1000. |
-| PATCH | `/api/pages/:id` | `updatePageSchema` | `{ page: PageMetaDTO }`. When `parentId` changes: same workspace, not itself, **not into its own descendants** (cycle prevention via a parent-chain check). Updates `updatedAt`. |
+| PATCH | `/api/pages/:id` | `updatePageSchema` | `{ page: PageMetaDTO }`. When `parentId` changes: same workspace, not itself, **not into its own descendants** (cycle prevention via a parent-chain check). Updates `updatedAt`. Only a `sortOrder` change inside a parent sorted by title → 409 `SORTED_BY_TITLE` (0.26). |
 | DELETE | `/api/pages/:id` | - | 204. Soft delete: sets `deleted_at` on the page and all its descendants (recursive CTE). |
 
 ## Files
@@ -743,6 +743,7 @@ what the caller may do; every route re-checks.
 | PUT | `/api/pages/:id/owner` | member who sees the page | `{ ownerId \| null }` (a member; private page: its author) | `{ review }` |
 | POST | `/api/pages/:id/review` | member who sees the page | - | `{ review }`; "Mark reviewed" now, by the caller |
 | PUT | `/api/pages/:id/living` | member who sees the page | `{ living: true\|false\|null }` | `{ review }` |
+| PUT | `/api/workspaces/:id/settings/agent-default-parent` | owner, admin | `{ pageId \| null }` | `{ settings, role, can }`; where agents' new pages go (0.26, docs/adr/2592-*) |
 
 Changed rules:
 - `POST /api/pages/:id/share`, `DELETE /api/pages/:id/share`: owners and admins; publishing a page
@@ -2153,3 +2154,45 @@ Security fixes (docs/adr/2572-* .. 2585-*); migration 0064. What a client or an 
 - **Collaboration socket**: a client message of the stateless-broadcast type cuts the socket (close 4400). Awareness
   states are cleaned on the way through: a `user.color` that is not `#rgb`/`#rrggbb` becomes `#888888` (or is dropped
   where that does not fit), a `user.name` that is not a string and a `user` that is not an object are dropped.
+
+## v0.26.0 changes
+
+Sidebar order and agent placement (docs/adr/2590-* .. 2596-*); migration 0065. What a client or an integration can
+notice:
+
+- **New routes, browser session only** (a token gets 403):
+  - `PUT /api/pages/:id/pin { pinned: boolean }` → `{ page }`. For people who may edit the page (edit lock, page
+    levels); guests get 403, people outside the workspace 404. It bumps the page's `updatedAt`, so the tree's ETag
+    changes (docs/adr/2590-*).
+  - `PUT /api/pages/:id/child-sort { childSort: 'manual' | 'title' }` → `{ page }`, with the same rights
+    (docs/adr/2591-*).
+  - `PUT /api/workspaces/:id/root-sort { section: 'shared' | 'private', childSort }` → `{ rootSort }`. Members only
+    (guests 403). `shared` is the workspace's top level, `private` the caller's own private section.
+  - `PUT /api/workspaces/:id/settings/agent-default-parent { pageId: uuid | null }` → `{ settings, role, can }`.
+    Owners and admins (members and guests 403), audited as `settings.updated`. 400 `Page is invalid` (missing, or in
+    another workspace), `DEFAULT_PARENT_PRIVATE`, `DEFAULT_PARENT_COLLECTION`, `DEFAULT_PARENT_INSTRUCTIONS` (the page
+    or a page above it is an agent instruction page) (docs/adr/2592-*).
+- **DTOs**: `PageMetaDTO` adds `pinned?: true` and `childSort?: 'title'`, present only when set. `WorkspaceDTO`
+  (`GET /api/workspaces`) adds `rootSort?: { shared?: 'title', private?: 'title' }` and `agentDefaultParentId?`.
+  `GET /api/workspaces/:id/settings` adds `settings.agentDefaultParent: { id, title } | null` (null while the page is
+  in the trash).
+- **Page list**: `GET /api/workspaces/:id/pages` returns the pages in tree order: pinned pages first, then
+  `sortOrder`, or the title under a parent with `childSort: 'title'` (`Intl.Collator('en', { numeric: true,
+  sensitivity: 'base' })`; equal titles by `sortOrder`, `createdAt`, id). It adds `rootSort` when either top-level
+  section is sorted by title, and the ETag covers the top-level order. `@inkling/shared` exports the same comparator
+  (`orderPageTree`, `compareSiblings`, `sortSiblingGroup`).
+- **Reordering**: `PATCH /api/pages/:id` with only `sortOrder` (same parent and section) under a parent sorted by title
+  answers 409 `SORTED_BY_TITLE`. Moving a page in or out still works.
+- **Agents' default place**: when a token (MCP connection, agent connection token or personal API token; not a
+  database automation) creates in the shared section without naming a parent, `POST /api/pages` without `parentId`,
+  `POST /api/workspaces/:id/import` and `/import-folder` without the `parentId` query, and
+  `POST /api/pages/from-template` without `parentId` put the page under the workspace's default page and add
+  `defaultParent: { id, title }` to the answer. `parentId: null` (`?parentId=root` for the imports) keeps the top
+  level. When the caller cannot see or write to that page, or it is under an instruction page, the page is created at
+  the top level and the answer says nothing. Private pages, `POST /api/clip`, `/sync/pages`, the tasks document and
+  duplicates never use it.
+- **Workspaces made by agents**: `POST /api/workspaces` through an MCP OAuth connection or an agent connection token
+  (not a personal API token) is capped at 5 per account in 24 hours, deleted ones included; past it 429
+  `AGENT_WORKSPACE_LIMIT`. The workspace keeps the client's name in `created_via`, and the owner gets an
+  `agent_workspace` notification. A connection limited to some workspaces or a subtree still gets 403 `OUT_OF_RANGE`
+  (docs/adr/2596-*).

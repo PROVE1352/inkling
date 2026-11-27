@@ -129,9 +129,9 @@
 
 | 메서드 | 경로 | 본문 | 응답 |
 |---|---|---|---|
-| GET | `/api/workspaces/:id/pages` | - | `{ pages: PageMetaDTO[] }`: `deleted_at IS NULL`인 것만, `sortOrder asc, createdAt asc` 순서입니다. 트리는 클라이언트가 `parentId`로 조립합니다. |
+| GET | `/api/workspaces/:id/pages` | - | `{ pages: PageMetaDTO[] }`: `deleted_at IS NULL`인 것만 줍니다. 0.26부터는 트리 순서이고(고정한 페이지가 먼저, 제목순으로 정렬한 부모 아래는 제목순. "v0.26.0 변경 사항" 참고), 그 전에는 `sortOrder asc, createdAt asc` 순서였습니다. 트리는 클라이언트가 `parentId`로 조립합니다. |
 | POST | `/api/pages` | `createPageSchema` | `{ page: PageMetaDTO }`. `parentId`를 주면 같은 워크스페이스의 살아 있는 페이지여야 합니다(아니면 400 VALIDATION). `sortOrder` = 형제 가운데 최댓값 + 1000. |
-| PATCH | `/api/pages/:id` | `updatePageSchema` | `{ page: PageMetaDTO }`. `parentId`가 바뀔 때: 같은 워크스페이스여야 하고, 자기 자신이면 안 되고, **자기 하위 페이지 안으로도 안 됩니다**(부모 사슬을 확인해 순환을 막습니다). `updatedAt`을 갱신합니다. |
+| PATCH | `/api/pages/:id` | `updatePageSchema` | `{ page: PageMetaDTO }`. `parentId`가 바뀔 때: 같은 워크스페이스여야 하고, 자기 자신이면 안 되고, **자기 하위 페이지 안으로도 안 됩니다**(부모 사슬을 확인해 순환을 막습니다). `updatedAt`을 갱신합니다. 제목순으로 정렬한 부모 안에서 `sortOrder`만 바꾸면 409 `SORTED_BY_TITLE`입니다(0.26). |
 | DELETE | `/api/pages/:id` | - | 204. 소프트 삭제: 페이지와 그 하위 페이지 전부에 `deleted_at`을 넣습니다(재귀 CTE). |
 
 <a id="files"></a>
@@ -792,6 +792,7 @@ Hocuspocus `PermissionDenied` 메시지를 이유 `permission-changed`와 함께
 | PUT | `/api/pages/:id/owner` | 그 페이지를 볼 수 있는 멤버 | `{ ownerId \| null }`(멤버. 개인 페이지는 그 작성자) | `{ review }` |
 | POST | `/api/pages/:id/review` | 그 페이지를 볼 수 있는 멤버 | - | `{ review }`. 호출한 사람이 지금 "검토 완료"(`Mark reviewed`)를 누른 것으로 기록 |
 | PUT | `/api/pages/:id/living` | 그 페이지를 볼 수 있는 멤버 | `{ living: true\|false\|null }` | `{ review }` |
+| PUT | `/api/workspaces/:id/settings/agent-default-parent` | 소유자, 관리자 | `{ pageId \| null }` | `{ settings, role, can }`. 에이전트가 만드는 새 페이지가 갈 곳입니다(0.26, docs/adr/2592-*) |
 
 바뀐 규칙:
 - `POST /api/pages/:id/share`, `DELETE /api/pages/:id/share`: 소유자와 관리자만 할 수 있습니다. 워크스페이스가 공개 링크를
@@ -2003,3 +2004,42 @@ OAuth 라우트는 OAuth 오류 형식(`{ error, error_description }`)으로 답
 - **협업 소켓**: 클라이언트가 stateless broadcast 종류의 메시지를 보내면 소켓을 끊습니다(close 4400). awareness 상태는
   지나가면서 정리합니다. `#rgb`/`#rrggbb`가 아닌 `user.color`는 `#888888`이 되고(자리가 안 맞으면 빠집니다), 문자열이 아닌
   `user.name`과 객체가 아닌 `user`는 빠집니다.
+
+<a id="v0260-changes"></a>
+## v0.26.0 변경 사항
+
+사이드바 순서와 에이전트가 만드는 페이지의 위치입니다(docs/adr/2590-* .. 2596-*). 마이그레이션 0065가 있습니다. 클라이언트나 연동 쪽에서 알아챌 수 있는 것은 아래와 같습니다.
+
+- **새 경로, 브라우저 세션 전용**(토큰으로 부르면 403입니다):
+  - `PUT /api/pages/:id/pin { pinned: boolean }` → `{ page }`. 그 페이지를 고칠 수 있는 사람만 됩니다(편집 잠금, 페이지
+    수준). 게스트는 403, 워크스페이스 밖의 사람은 404입니다. 페이지의 `updatedAt`을 올리기 때문에 트리의 ETag가
+    바뀝니다(docs/adr/2590-*).
+  - `PUT /api/pages/:id/child-sort { childSort: 'manual' | 'title' }` → `{ page }`. 권한은 고정과 같습니다
+    (docs/adr/2591-*).
+  - `PUT /api/workspaces/:id/root-sort { section: 'shared' | 'private', childSort }` → `{ rootSort }`. 멤버만 되고
+    게스트는 403입니다. `shared`는 워크스페이스의 맨 위 단계이고, `private`는 부른 사람 자신의 개인 구역입니다.
+  - `PUT /api/workspaces/:id/settings/agent-default-parent { pageId: uuid | null }` → `{ settings, role, can }`.
+    소유자와 관리자만 되고(멤버와 게스트는 403), 감사 로그에 `settings.updated`로 남습니다. 400은 `Page is invalid`(없거나
+    다른 워크스페이스의 페이지), `DEFAULT_PARENT_PRIVATE`, `DEFAULT_PARENT_COLLECTION`, `DEFAULT_PARENT_INSTRUCTIONS`(그
+    페이지나 그 위의 페이지가 에이전트 지침 페이지)입니다(docs/adr/2592-*).
+- **DTO**: `PageMetaDTO`에 `pinned?: true`와 `childSort?: 'title'`가 더해졌습니다. 켜져 있을 때만 붙습니다.
+  `WorkspaceDTO`(`GET /api/workspaces`)에는 `rootSort?: { shared?: 'title', private?: 'title' }`와
+  `agentDefaultParentId?`가 붙습니다. `GET /api/workspaces/:id/settings`에는 `settings.agentDefaultParent: { id, title } |
+  null`이 붙고, 그 페이지가 휴지통에 있는 동안은 null입니다.
+- **페이지 목록**: `GET /api/workspaces/:id/pages`는 트리 순서로 줍니다. 고정한 페이지가 먼저 오고 그다음은 `sortOrder`
+  순서인데, `childSort: 'title'`인 부모 아래는 제목순입니다(`Intl.Collator('en', { numeric: true,
+  sensitivity: 'base' })`. 제목이 같으면 `sortOrder`, `createdAt`, id 순). 두 맨 위 구역 가운데 하나라도 제목순이면
+  `rootSort`가 붙고, ETag에도 맨 위 순서가 들어갑니다. 같은 비교 함수를 `@inkling/shared`에서 가져다 쓸 수 있습니다
+  (`orderPageTree`, `compareSiblings`, `sortSiblingGroup`).
+- **순서 바꾸기**: 제목순으로 정렬한 부모 아래에서 `PATCH /api/pages/:id`로 `sortOrder`만 바꾸면(부모와 구역은 그대로)
+  409 `SORTED_BY_TITLE`입니다. 다른 곳에서 옮겨 오거나 밖으로 옮기는 것은 됩니다.
+- **에이전트 기본 위치**: 토큰(MCP 연결, 에이전트 연결 토큰, 개인 API 토큰. 데이터베이스 자동화는 아님)이 공유 구역에
+  부모 없이 만들 때 적용됩니다. `parentId` 없는 `POST /api/pages`, `parentId` 쿼리 없는 `POST /api/workspaces/:id/import`와
+  `/import-folder`, `parentId` 없는 `POST /api/pages/from-template`은 페이지를 워크스페이스의 기본 페이지 아래에 만들고
+  답에 `defaultParent: { id, title }`를 붙입니다. `parentId: null`(가져오기는 `?parentId=root`)을 보내면 맨 위에
+  만듭니다. 부른 쪽이 그 페이지를 볼 수 없거나 쓸 수 없을 때, 또는 그 페이지가 지침 페이지 아래에 있을 때는 아무 말 없이
+  맨 위에 만듭니다. 개인 페이지, `POST /api/clip`, `/sync/pages`, 할 일 문서, 복제는 이 설정을 쓰지 않습니다.
+- **에이전트가 만드는 워크스페이스**: MCP OAuth 연결이나 에이전트 연결 토큰으로 부르는 `POST /api/workspaces`는(개인 API
+  토큰은 빼고) 계정마다 24시간에 5개까지이고, 지운 것도 셉니다. 넘으면 429 `AGENT_WORKSPACE_LIMIT`입니다. 워크스페이스의
+  `created_via`에 클라이언트 이름이 남고, 소유자에게 `agent_workspace` 알림이 갑니다. 일부 워크스페이스나 하위 트리로
+  범위를 좁힌 연결은 예전처럼 403 `OUT_OF_RANGE`입니다(docs/adr/2596-*).

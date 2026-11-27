@@ -558,3 +558,17 @@ export const AgentIcon = (p: IconProps) => (
     <path d="M12 3.5 13.9 10.1 20.5 12 13.9 13.9 12 20.5 10.1 13.9 3.5 12 10.1 10.1Z" />
   </Svg>
 )
+
+/** Pinned for the whole workspace (docs/adr/2590-*). */
+export const PinIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 4h6M10 4v5l-3 4h10l-3-4V4M12 13v7" />
+  </Svg>
+)
+
+/** Sort by title (docs/adr/2591-*): A over Z with a down arrow. */
+export const SortTitleIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 10 6.5 4 9 10M4.8 8h3.4M4 14h5l-5 6h5M17 4v16M14 17l3 3 3-3" />
+  </Svg>
+)

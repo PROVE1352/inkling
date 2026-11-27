@@ -5,7 +5,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import type { PageMetaDTO, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
+import type { PageMetaDTO, RootSortDTO, RotationTargetDTO, TemplateDTO, WorkspaceDTO } from '@inkling/shared'
+import { sortSiblingGroup } from '@inkling/shared'
 import { db } from './db/index'
 import { logSafeError } from './errors'
 import { pages } from './db/schema'
@@ -49,6 +50,9 @@ import { COMPACT_LEGEND, renderCompactSearch, renderCompactTree, searchJson } fr
 import { SEARCH_MAX_LIMIT } from './routes/agentSearchText'
 import type { AgentSearchResponse } from './routes/agentSearchText'
 import { pageRef, resolvePageRef, shortId } from './mcpTools/shortIds'
+import { DEFAULT_PLACE_NOTE, placedText } from './mcpTools/defaultPlace'
+import { registerWorkspaceTools } from './mcpTools/workspaceTools'
+import type { DefaultParentDTO } from './mcpTools/defaultPlace'
 import { PATH_SEP } from './context/chunker'
 import { inferWorkspace, WORKSPACE_REQUIRED_IF_MANY, resolveIdArgs } from './mcpTools/idArgs'
 import { idArg, isFullId } from './mcpTools/idSchema'
@@ -130,7 +134,7 @@ function multipartMd(filenameTitle: string, markdown: string): { payload: Buffer
 /** list_pages rendering (exported for tests): legacy JSON or compact indented lines, with a depth limit. */
 export function renderPageList(
   all: PageMetaDTO[],
-  opts: { parentId?: string; depth?: number; format: 'json' | 'lines' | 'compact' },
+  opts: { parentId?: string; depth?: number; format: 'json' | 'lines' | 'compact'; rootSort?: RootSortDTO },
 ): string {
   // short ids + folded numbered siblings (docs/adr/1541-*)
   if (opts.format === 'compact') return renderCompactTree(all, opts)
@@ -142,7 +146,8 @@ export function renderPageList(
     list.push(p)
     children.set(k, list)
   }
-  for (const list of children.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  // the sidebar's order: pinned first, title-sorted parents by title (docs/adr/2590-*, 2591-*)
+  for (const [k, list] of children) sortSiblingGroup(list, k ? (byId.get(k) ?? null) : null, opts.rootSort)
   const pathOf = (p: PageMetaDTO): string => {
     const parts: string[] = []
     let cur = p.parentId ? byId.get(p.parentId) : undefined
@@ -417,9 +422,9 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       // docs/adr/1943-*: the parent's workspace, or the only one
       const workspaceId = await inferWorkspace(ctx, wsRef, parentId && parentId !== 'root' ? parentId : null)
       const res = await call(ctx, 'GET', `/api/workspaces/${workspaceId}/pages`)
-      const { pages: all } = res.json() as { pages: PageMetaDTO[] }
+      const { pages: all, rootSort } = res.json() as { pages: PageMetaDTO[]; rootSort?: RootSortDTO }
       // compact is the default since 0.15.1 (docs/adr/1944-*)
-      const out = renderPageList(cleanStrings(all), { parentId, depth, format: format ?? 'compact' })
+      const out = renderPageList(cleanStrings(all), { parentId, depth, format: format ?? 'compact', rootSort })
       if ((format ?? 'compact') === 'compact' && out !== 'No pages here.') return text(`${wrapUntrusted(out, { source: 'pages' })}\n${COMPACT_LEGEND}`)
       return text(format === 'lines' && out !== 'No pages here.' ? wrapUntrusted(out, { source: 'pages' }) : out)
     }),
@@ -614,7 +619,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         'Create a page: a document from Markdown ([[Other page title]] becomes a wiki link), or an empty canvas or folder ' +
         '(kind). With parentId it goes under that page (inheriting its section and workspace); otherwise at the top level of ' +
-        'the shared section (or the private section if private=true).',
+        'the shared section (or the private section if private=true).' + DEFAULT_PLACE_NOTE,
       inputSchema: {
         workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         title: z.string().trim().min(1).max(300).describe('Page title'),
@@ -631,23 +636,29 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       // docs/adr/1943-*: the parent's workspace, or the only one
       const workspaceId = await inferWorkspace(ctx, wsRef, parentId)
       let page: PageMetaDTO
+      let placed: DefaultParentDTO | undefined
       if (kind && kind !== 'doc') {
         // docs/adr/1948-*: canvases and folders through the same route as the web app's "New page"
         if (markdown?.trim()) throw new ToolError(`a ${kind} has no Markdown body; leave markdown out (fill a canvas in the web app, or create documents under the folder)`)
         const r = await call(ctx, 'POST', '/api/pages', {
           json: { workspaceId, kind, title, ...(parentId ? { parentId } : {}), ...(isPrivate ? { scope: 'private' } : {}) },
         })
-        page = (r.json() as { page: PageMetaDTO }).page
+        const created = r.json() as { page: PageMetaDTO; defaultParent?: DefaultParentDTO }
+        page = created.page
+        placed = created.defaultParent
       } else {
         const fileTitle = safeFilenameTitle(title)
         const { payload, contentType } = multipartMd(fileTitle, markdown ?? '')
         const res = await call(ctx, 'POST', `/api/workspaces/${workspaceId}/import`, {
           payload,
           headers: { 'content-type': contentType },
-          query: parentId ? { parentId } : undefined,
+          // a private page is imported at the top level on purpose, then moved to the private section
+          query: parentId ? { parentId } : isPrivate ? { parentId: 'root' } : undefined,
         })
-        const created = (res.json() as { pages: PageMetaDTO[] }).pages[0]
+        const answer = res.json() as { pages: PageMetaDTO[]; defaultParent?: DefaultParentDTO }
+        const created = answer.pages[0]
         if (!created) throw new ToolError('Could not create the page')
+        placed = answer.defaultParent
         page = created
         // If the title had characters a filename can't carry (/ etc.), restore the real title; move to the private section if requested
         const patch: Record<string, unknown> = {}
@@ -670,6 +681,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           section: sectionOf(page),
           url: pageUrl(ctx, page),
           ...(status ? { status: status.replace(/^status: /, '') } : {}),
+          ...(placed ? { placed: placedText(placed) } : {}),
         },
         appliesLine(await loadAgentContext(ctx, [page.id])),
       )
@@ -683,7 +695,8 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
       description:
         "Upload a local folder's Markdown files in one go, keeping the directory structure. Folders become folder pages, .md files become document pages. " +
         'folderName becomes the title of the top-level folder page; files[].path is the path relative to it (e.g. "notes/day1.md"). ' +
-        'Non-.md files are ignored. Up to 300 files and about 12 MB per call (split larger folders into several calls with parentId). With parentId, the folder is created under that page.',
+        'Non-.md files are ignored. Up to 300 files and about 12 MB per call (split larger folders into several calls with parentId). With parentId, the folder is created under that page.' +
+        DEFAULT_PLACE_NOTE,
       inputSchema: {
         workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         folderName: z.string().trim().min(1).max(300).describe('Title of the top-level folder page (usually the local folder name)'),
@@ -729,11 +742,13 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
         query: parentId ? { parentId } : undefined,
       })
-      const pages = (res.json() as { pages: PageMetaDTO[] }).pages
-      const top = pages.find((p) => p.parentId === (parentId ?? null)) ?? pages[0]
+      const answer = res.json() as { pages: PageMetaDTO[]; defaultParent?: DefaultParentDTO }
+      const pages = answer.pages
+      const top = pages.find((p) => p.parentId === (parentId ?? answer.defaultParent?.id ?? null)) ?? pages[0]
       return jsonUntrusted({
         created: pages.length,
         root: top ? { id: top.id, title: top.title, url: pageUrl(ctx, top) } : null,
+        ...(answer.defaultParent ? { placed: placedText(answer.defaultParent) } : {}),
         pages: pages.map((p) => ({ id: p.id, title: p.title, parentId: p.parentId })),
       })
     }),
@@ -898,7 +913,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
         'Create a page (or a page tree, for structure templates) from a template returned by list_templates. Variables such as ' +
         '{{date}}, {{author}} and {{title}} are filled in by the server; answer {{input:…}} questions with inputs ' +
         '(question → answer; unanswered ones use their default). With parentId the pages go under that page (inheriting its section); ' +
-        'otherwise at the top level of the shared section (or the private section if private=true).',
+        'otherwise at the top level of the shared section (or the private section if private=true).' + DEFAULT_PLACE_NOTE,
       inputSchema: {
         workspaceId: idArg('workspace').optional().describe("Default: the parent's workspace, or your only one" + WORKSPACE_REQUIRED_IF_MANY),
         template: z.string().trim().min(1).max(64).describe('Template id from list_templates (built-in key or uuid)'),
@@ -927,12 +942,13 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
           ...(inputs ? { inputs } : {}),
         },
       })
-      const { page, pages } = res.json() as { page: PageMetaDTO; pages: PageMetaDTO[] }
+      const { page, pages, defaultParent } = res.json() as { page: PageMetaDTO; pages: PageMetaDTO[]; defaultParent?: DefaultParentDTO }
       return jsonUntrusted({
         id: page.id,
         title: page.title,
         section: sectionOf(page),
         url: pageUrl(ctx, page),
+        ...(defaultParent ? { placed: placedText(defaultParent) } : {}),
         created: pages.length,
         pages: pages.map((p) => ({ id: p.id, title: titleOf(p), kind: p.kind, parentId: p.parentId })),
       })
@@ -961,6 +977,7 @@ export function buildMcpServer(ctx: ToolCtx): McpServer {
   registerCollabTools(server, ctx) // suggestions and section claims (docs/adr/1530-*, 1535-*)
   registerStructureTools(server, ctx)
   registerNotesCheckTools(server, ctx) // check_notes, the memory check (docs/adr/2003-*)
+  registerWorkspaceTools(server, ctx) // create_workspace (docs/adr/2596-*)
   // Pages as resources, three fixed prompts (docs/adr/2001-*, 2002-*)
   registerResources(server, ctx)
   registerPrompts(server, ctx)

@@ -8,6 +8,7 @@ import { formSettingsSchema } from './forms'
 import { mentionConnectionsSchema } from './teamAgents'
 import { filterOpSchema, uniqueIdConfigSchema, viewFilterSchema } from './collectionFields'
 import type { WorkspaceListingDTO } from './workspaceListing'
+import type { RootSortDTO } from './sidebar'
 import type { AuthModeLegalDTO, AuthModeLimitsDTO } from './limits'
 
 // ---------------------------------------------------------------------------
@@ -449,6 +450,13 @@ export interface WorkspaceDTO {
   twoFactor?: WorkspaceTwoFactorStatus
   /** The caller's own arrangement: group, order, archived (docs/adr/2300-*). Absent when never set. */
   listing?: WorkspaceListingDTO
+  /**
+   * Top-level order of the sections when not manual (docs/adr/2591-*): `shared` for the workspace,
+   * `private` for the caller's own section. Absent when both are manual. Members only.
+   */
+  rootSort?: RootSortDTO
+  /** The page agents' new pages go under when they name no parent (docs/adr/2592-*). Members only; absent when unset. */
+  agentDefaultParentId?: string
 }
 
 /** A soft-deleted workspace the caller owns and can still restore (GET /workspaces/deleted). */
@@ -505,6 +513,10 @@ export interface PageMetaDTO {
   deletedAt: string | null
   /** Present (true) only when this page carries its own edit lock; descendants inherit it (docs/adr/0970-*). */
   editLocked?: true
+  /** Present (true) only when the page is pinned above its siblings, for the whole workspace (docs/adr/2590-*). */
+  pinned?: true
+  /** Present ('title') only when the page's children are sorted by title (docs/adr/2591-*). */
+  childSort?: 'title'
 }
 
 export interface FileDTO {
@@ -864,6 +876,8 @@ export type NotificationType =
   | 'later_reminder'
   /** You became the owner of a workspace because its only owner deleted their account (0.22, docs/adr/2517-*). */
   | 'workspace_owner'
+  /** One of your agent connections created a workspace for you (create_workspace, docs/adr/2596-*). */
+  | 'agent_workspace'
 export interface NotificationDTO {
   id: string
   type: NotificationType

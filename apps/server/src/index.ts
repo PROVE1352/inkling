@@ -47,6 +47,7 @@ import { registerFileDownloadRoute, registerFileRoutes } from './routes/files'
 import { registerInkRoutes } from './routes/ink'
 import { registerNotificationRoutes } from './routes/notifications'
 import { registerSidebarPrefsRoutes } from './routes/sidebarPrefs'
+import { registerSidebarOrderRoutes } from './routes/sidebarOrder'
 import { registerActivityRoutes } from './routes/activity'
 import { registerRevertRoutes } from './routes/revert'
 import { registerInboxRoutes } from './routes/inbox'
@@ -589,6 +590,7 @@ async function main(): Promise<void> {
       await registerNotificationRoutes(api)
       // Per-user sidebar menu order / hidden menus (docs/adr/1020-*)
       await registerSidebarPrefsRoutes(api)
+      await registerSidebarOrderRoutes(api) // pin, title order, agents' default place (docs/adr/2590-*..2592-*)
       await (await import('./routes/workspaceListing')).registerWorkspaceListingRoutes(api) // own workspace list: groups, archive (docs/adr/2300-*)
       await (await import('./onboarding/routes')).registerOnboardingRoutes(api) // intro, checklist, sample page (docs/adr/2380-*)
       // Activity screen, diffs, provenance badge and the agent inbox (docs/adr/1003-*, 1005-*)

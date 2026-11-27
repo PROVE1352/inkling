@@ -23,7 +23,8 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { PageMetaDTO, PageScope, UpdatePageInput } from '@inkling/shared'
-import { useMovePages, usePages, useUpdatePage } from '../../api'
+import { orderPageTree } from '@inkling/shared'
+import { useMovePages, usePages, useUpdatePage, useWorkspaces } from '../../api'
 import { PageIconGlyph } from '../PageIconGlyph'
 import { toast } from '../../lib/toast'
 import { getActiveEditor } from '../../lib/activeEditor'
@@ -80,7 +81,9 @@ export function AppDnd({ wsId, children }: { wsId: string; children: ReactNode }
   const pagesQuery = usePages(wsId)
   const updatePage = useUpdatePage(wsId)
   const movePages = useMovePages(wsId)
-  const pages = useMemo(() => pagesQuery.data ?? [], [pagesQuery.data])
+  // The sidebar's order (docs/adr/2590-*, 2591-*): neighbours for a drop are the rows the person sees.
+  const rootSort = useWorkspaces().data?.find((w) => w.id === wsId)?.rootSort
+  const pages = useMemo(() => orderPageTree(pagesQuery.data ?? [], rootSort), [pagesQuery.data, rootSort])
 
   const byId = useMemo(() => {
     const m = new Map<string, PageMetaDTO>()
@@ -114,6 +117,21 @@ export function AppDnd({ wsId, children }: { wsId: string; children: ReactNode }
       return out
     },
     [childrenMap],
+  )
+
+  // A parent (or a section's top level) whose children are sorted by title: dropping between them would
+  // change nothing anyone sees, so only moves in from elsewhere count there (docs/adr/2591-*).
+  const sortedByTitle = useCallback(
+    (parentId: string | null, scope: PageScope): boolean =>
+      parentId ? byId.get(parentId)?.childSort === 'title' : rootSort?.[scope] === 'title',
+    [byId, rootSort],
+  )
+  const alreadyThere = useCallback(
+    (id: string, parentId: string | null, scope: PageScope): boolean => {
+      const p = byId.get(id)
+      return !!p && p.parentId === parentId && (parentId !== null || (p.scope === 'private') === (scope === 'private'))
+    },
+    [byId],
   )
 
   // Visible sidebar order (shared roots → private roots, DFS per subtree). Keeps relative order in multi-moves.
@@ -199,9 +217,14 @@ export function AppDnd({ wsId, children }: { wsId: string; children: ReactNode }
       if (bad.has(oId)) return null
       const parentId = position === 'child' ? oId : byId.get(oId)?.parentId ?? null
       if (parentId && bad.has(parentId)) return null
+      // between title-sorted siblings: no line to show when nothing would move in (docs/adr/2591-*)
+      if (position !== 'child') {
+        const scope = byId.get(oId)?.scope ?? 'shared'
+        if (sortedByTitle(parentId, scope) && moving.every((id) => alreadyThere(id, parentId, scope))) return null
+      }
       return { id: oId, position }
     },
-    [byId, descendantsOf],
+    [byId, descendantsOf, sortedByTitle, alreadyThere],
   )
 
   const onDragStart = (e: DragStartEvent) => {
@@ -239,7 +262,17 @@ export function AppDnd({ wsId, children }: { wsId: string; children: ReactNode }
 
   // Send the computed moves. One → the single-page hook (optimistic + rollback); several → the
   // batch hook (one invalidation).
-  const commitMoves = (moves: { id: string; input: UpdatePageInput }[]) => {
+  const commitMoves = (all: { id: string; input: UpdatePageInput }[]) => {
+    // Under a title-sorted parent the position is the title's: a page already there stays put, a page
+    // moving in only changes its parent (the server refuses a reorder there, docs/adr/2591-*).
+    const moves = all.flatMap((m) => {
+      const target = m.input.parentId ?? null
+      const scope = m.input.scope ?? byId.get(m.id)?.scope ?? 'shared'
+      if (m.input.parentId === undefined || !sortedByTitle(target, scope)) return [m]
+      if (alreadyThere(m.id, target, scope) && !m.input.scope) return []
+      const { sortOrder: _drop, ...rest } = m.input
+      return [{ id: m.id, input: rest }]
+    })
     if (moves.length === 0) return
     if (moves.length === 1) {
       updatePage.mutate(moves[0])

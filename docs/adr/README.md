@@ -1065,6 +1065,16 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2584](2584-second-factor-backoff-has-its-own-map.md) | The two-step code backoff has a map of its own, chosen by the code | Accepted |
 | [2585](2585-failed-query-logs-through-one-wrapper.md) | Failed-query errors reach the log through logSafeError, console included | Accepted |
 
+## 2590–2599 Sidebar order and agent placement (0.26)
+
+| ADR | Title | Status |
+|---|---|---|
+| [2590](2590-pinned-pages-for-the-whole-workspace.md) | Pinned pages: one flag on the page, the same for the whole workspace | Accepted |
+| [2591](2591-title-order-one-comparator-on-server-and-web.md) | Sorting by title: one comparator on the server and in the web app | Accepted |
+| [2592](2592-agents-default-place-for-new-pages.md) | A default place for pages that agents create | Accepted |
+| [2593](2593-collapsible-account-block-in-this-browser.md) | The sidebar's account block folds, remembered in this browser | Accepted |
+| [2596](2596-create-workspace-for-agents.md) | Agents can create a workspace for their person (create_workspace) | Accepted |
+
 ## 099x Client updates
 
 | ADR | Title | Status |

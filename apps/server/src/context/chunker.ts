@@ -232,7 +232,8 @@ function isEmptyBlock(b: AnyBlock): boolean {
   return !inlinesText(b.content).trim()
 }
 
-function sectionVersion(path: string[], body: string): string {
+/** A section's version: sha1 of its heading path and body (also recomputed under an old heading path, docs/adr/2597-*). */
+export function sectionVersion(path: string[], body: string): string {
   return createHash('sha1').update(path.join(PATH_SEP)).update('\n').update(body).digest('hex').slice(0, 12)
 }
 

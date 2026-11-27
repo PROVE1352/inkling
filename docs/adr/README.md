@@ -1074,6 +1074,7 @@ Files are numbered `NNNN-short-title.md`; the first two digits group them by are
 | [2592](2592-agents-default-place-for-new-pages.md) | A default place for pages that agents create | Accepted |
 | [2593](2593-collapsible-account-block-in-this-browser.md) | The sidebar's account block folds, remembered in this browser | Accepted |
 | [2596](2596-create-workspace-for-agents.md) | Agents can create a workspace for their person (create_workspace) | Accepted |
+| [2597](2597-renamed-sections-are-re-keyed-not-resent.md) | Renamed sections are re-keyed, not resent | Accepted |
 
 ## 099x Client updates
 

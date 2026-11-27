@@ -5,7 +5,10 @@ import { call, text } from './core'
 import type { CallToolResult, ToolCtx } from './core'
 import type { AgentContextDTO } from '../routes/editLock'
 import { resolvePageRef, resolvePageRefs, shortId } from './shortIds'
-import { shortAnchors } from '../context/chunker'
+import { shortAnchors, splitSections } from '../context/chunker'
+import { matchRenamedKnown, renameHints } from '../context/renamedKnown'
+import type { KnownRename } from '../context/renamedKnown'
+import { currentBlocks } from '../context/sectionSource'
 import { cleanText, wrapUntrusted } from './trust'
 import { versionArg } from '../versionArg'
 
@@ -80,8 +83,27 @@ interface SectionResponse {
 }
 
 /**
+ * Known anchors that are gone whose section lives on under a new anchor with the same body
+ * (docs/adr/2597-*). Runs after the permission-checked outline read; only sections the outline
+ * lists as changed, at the version the outline printed, are candidates (an edit landing in between
+ * is read in full).
+ */
+async function provenRenames(
+  pageId: string,
+  gone: [string, string][],
+  changed: { anchor: string; version: string }[],
+  current: string[],
+): Promise<KnownRename[]> {
+  const listed = new Map(changed.map((s) => [s.anchor, s.version]))
+  const sections = splitSections(await currentBlocks(pageId)).filter((s) => listed.get(s.anchor) === s.version)
+  if (!sections.length) return []
+  return matchRenamedKnown(gone, sections, await renameHints(pageId, gone.map(([a]) => a), current))
+}
+
+/**
  * read_page(pageId, knownSections={anchor: v}): only the sections whose version differs from the
- * caller's (changed or new) in full, a count of the unchanged ones and the anchors that are gone.
+ * caller's (changed or new) in full, a count of the unchanged ones, `§old → §new v=…` lines for
+ * sections renamed with the body unchanged (docs/adr/2597-*) and the anchors that are gone.
  * Returns null for pages without sections (the caller reads the page in full instead).
  */
 export async function readChangedSections(
@@ -110,9 +132,23 @@ export async function readChangedSections(
     given.set(full, key)
   }
   const current = new Set(outline.sections.map((s) => s.anchor))
-  const changed = outline.sections.filter((s) => known.get(s.anchor) !== s.version)
+  let changed = outline.sections.filter((s) => known.get(s.anchor) !== s.version)
   const unchangedCount = outline.sections.length - changed.length
-  const removed = [...known.keys()].filter((a) => !current.has(a)).map((a) => given.get(a) ?? a).sort()
+  const gone = [...known.entries()].filter(([a]) => !current.has(a))
+  // Renamed with the body unchanged (docs/adr/2597-*): proven by the version, re-keyed, not re-sent.
+  const renames = gone.length && changed.length ? await provenRenames(pageId, gone, changed, outline.sections.map((s) => s.anchor)) : []
+  const renamedTo = new Set(renames.map((r) => r.to))
+  const renamedFrom = new Set(renames.map((r) => r.from))
+  changed = changed.filter((s) => !renamedTo.has(s.anchor))
+  const removed = gone
+    .map(([a]) => a)
+    .filter((a) => !renamedFrom.has(a))
+    .map((a) => given.get(a) ?? a)
+    .sort()
+  const order = new Map(outline.sections.map((s, i) => [s.anchor, i]))
+  const renameLines = [...renames]
+    .sort((x, y) => order.get(x.to)! - order.get(y.to)!)
+    .map((r) => `§${cleanText(given.get(r.from) ?? r.from)} → §${cleanText(r.to)} v=${r.version} (renamed, body unchanged)`)
   const bodies: SectionResponse[] = []
   for (const s of changed) {
     bodies.push(
@@ -129,9 +165,11 @@ export async function readChangedSections(
   const large = largeLine(ac, pageId)
   const head = [
     `# ${cleanText(outline.page.title || 'Untitled')}`,
-    `(page ${shortId(pageId)}; ${changed.length} changed or new, ${unchangedCount} unchanged, ${removed.length} removed of your ${known.size} known sections)`,
+    `(page ${shortId(pageId)}; ${changed.length} changed or new, ${unchangedCount} unchanged, ` +
+      `${renames.length ? `${renames.length} renamed (body unchanged), ` : ''}${removed.length} removed of your ${known.size} known sections)`,
     `can: ${f.can}`,
     ...(large ? [large] : []),
+    ...renameLines,
     ...(removed.length ? [`removed: ${removed.map((a) => `§${cleanText(a)}`).join(', ')}`] : []),
   ]
   if (!bodies.length) return text(withApplies(ac, head.join('\n')))

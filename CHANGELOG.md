@@ -15,7 +15,7 @@ workspace for their person. One database migration (0065, six columns on `pages`
 `workspaces`; 66 applied migrations). No new setting and no new
 dependency. New routes, all for a signed-in browser only: `PUT /api/pages/:id/pin`, `PUT /api/pages/:id/child-sort`,
 `PUT /api/workspaces/:id/root-sort` and `PUT /api/workspaces/:id/settings/agent-default-parent`. One new MCP tool,
-`create_workspace`. Design notes are docs/adr/2590-* .. 2596-*.
+`create_workspace`. Design notes are docs/adr/2590-* .. 2597-*.
 
 ### Pinned pages
 - **Pin to top** in a page row's ⋯ or right-click menu keeps the page first among its siblings, for every member of
@@ -47,6 +47,17 @@ dependency. New routes, all for a signed-in browser only: `PUT /api/pages/:id/pi
   through `more_tools` (docs/adr/2596-*).
 - Tool list: the full profile lists 49 tools in 53,881 characters (~13,483 tokens; 0.25.4: 48, 53,162, ~13,303); core
   lists 32 tools (~7,853 tokens).
+
+### Fewer tokens after a heading rename
+- **Renamed sections are re-keyed, not resent** ([ADR 2597](docs/adr/2597-renamed-sections-are-re-keyed-not-resent.md)).
+  `read_page(knownSections=…)` with anchors from before a heading rename no longer sends the renamed sections in full
+  when their bodies did not change: it answers `§1-alpha → §2-alpha v=… (renamed, body unchanged)` per section, proven
+  by recomputing your version under the old heading (10 renumbered sections: 12,793 → 763 characters). `changes_since`
+  prints the new `v=` on such renames, and a replace that drops sections and renumbers the rest no longer reports the
+  sections that moved up as "body changed" (two dropped of ten: 6,327 → 638 characters). `update_page` replace on a
+  page with three or more sections ends with a `hint:` line saying how many section bodies changed and that
+  `patch_sections` costs less, unless every body changed. A heading whose wording changed (not only its number) still
+  gets its body again unless the change log kept the old heading (docs/KNOWN-ISSUES.md).
 
 ### Sidebar
 - The account block at the bottom of the sidebar folds to the name row with the arrow next to it. The choice is kept

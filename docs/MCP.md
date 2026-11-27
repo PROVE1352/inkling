@@ -646,7 +646,12 @@ Re-reading costs the most when nothing changed. Keep the versions you read and p
   (the `v=` at the end of the outline's header): `read_page(pageId, outline=true, known=v)` is one line when no
   section changed ([ADR 1942](adr/1942-ids-once-and-outline-without-repeated-headings.md)).
 - `read_page(pageId, knownSections={"setup": "…", "backups": "…"})` returns only the sections whose version differs,
-  new sections, and `removed: §…` for anchors that are gone.
+  new sections, and `removed: §…` for anchors that are gone. A known anchor whose section was renamed with its body
+  unchanged (headings renumbered, a heading retyped) comes back as one line, `§setup → §2-setup v=… (renamed, body
+  unchanged)`: re-key your copy, the body is the one you have ([ADR 2597](adr/2597-renamed-sections-are-re-keyed-not-resent.md)).
+- `changes_since` prints the new version on a rename whose body did not change (`renamed 1-alpha → 2-alpha v=… (2. Alpha)`).
+  After `update_page` replace, a `hint: N of M sections changed their body` line means `patch_sections` on those N
+  sections would have cost less.
 - `read_pages(ids, known={id: v, …})` lists unchanged pages first, one line each; they do not use the budget.
 - `list_pages` / `search` print 8-character ids and fold runs such as
   `Weekly sync 2026-11-{03,10,17} ids: a1b2c3d4,e5f6a7b8,c9d0e1f2` by default (ids in the same order as the values;

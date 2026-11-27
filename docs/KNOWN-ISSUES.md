@@ -825,3 +825,7 @@ Security fixes of the 0.25.3 review (docs/adr/2572-* .. 2585-*). What was not cl
 - **Info** (TEAM-10, docs/adr/2576-*) Unread hand-offs on the same thread and connection are merged and keep the latest actor, so when the person hands the same thread on after someone else did, the "requested by another person" mark goes away (the bell copy stays).
 - **Info** (BUTTON-1, docs/adr/2244-*) A button's first-press question names the databases only. After one yes, the author can change titles or values inside the same databases without a new question; the answer is kept per tab.
 - **Info** (PDF-3, docs/adr/2048-*) The PDF worker's memory check sees allocations of 1 MB and up; a document that piles up many smaller ones meets only the heap cap and the 10-second limit.
+
+## Added in 0.26.0
+- **Info** (RENAME-1, docs/adr/2597-*) `read_page(knownSections)` answers a renamed section with one line only when the old heading can be worked out: its number changed, or the change log still has the old heading. A heading whose wording changed in case or word count, with an unchanged body, is sent in full again. Fixing it needs the old heading text stored with the section.
+- **Info** (PIN-1, docs/adr/2590-*) Pinning a page or switching a parent to title order sets the page's `updated_at`, as a drag does, so it shows as recently edited.

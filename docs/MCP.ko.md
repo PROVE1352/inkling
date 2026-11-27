@@ -385,7 +385,8 @@ claude mcp add --transport http inkling https://notes.example.com/mcp --header "
 
 - `read_page`는 `- version: 1a2b3c4d5e6f`를 찍습니다. 다음에는 `read_page(pageId, known="1a2b3c4d5e6f")`로 부르세요. 바뀌지 않았으면 `unchanged (page <id8> v=1a2b3c4d5e6f; can: read,comment,edit)`, 바뀌었으면 새 버전과 함께 페이지 전체가 옵니다. 더는 볼 수 없는 페이지는 예전처럼 오류이고 절대 "unchanged"가 되지 않습니다. `can:` 부분은 언제나 지금 권한을 보여 줍니다.
 - `section=…`을 쓸 때 `known`은 섹션의 `v=`(find_context나 개요에서 받은 값)입니다. 개요에는 개요 자체의 버전(개요 머리 끝의 `v=`)이 있습니다. 바뀐 섹션이 없으면 `read_page(pageId, outline=true, known=v)`는 한 줄로 답합니다([ADR 1942](adr/1942-ids-once-and-outline-without-repeated-headings.md)).
-- `read_page(pageId, knownSections={"setup": "…", "backups": "…"})`는 버전이 다른 섹션, 새 섹션, 그리고 없어진 앵커에 대한 `removed: §…`만 돌려줍니다.
+- `read_page(pageId, knownSections={"setup": "…", "backups": "…"})`는 버전이 다른 섹션, 새 섹션, 그리고 없어진 앵커에 대한 `removed: §…`만 돌려줍니다. 본문은 그대로이고 제목만 바뀐 섹션(번호를 다시 매겼거나 제목을 고친 경우)은 `§setup → §2-setup v=… (renamed, body unchanged)` 한 줄로 옵니다. 갖고 있는 사본의 키만 바꾸면 되고, 본문은 이미 가진 것과 같습니다([ADR 2597](adr/2597-renamed-sections-are-re-keyed-not-resent.md)).
+- `changes_since`도 본문이 안 바뀐 이름 변경에는 새 버전을 붙입니다(`renamed 1-alpha → 2-alpha v=… (2. Alpha)`). `update_page` replace 뒤에 `hint: N of M sections changed their body` 줄이 나오면, 바뀐 N개 섹션만 `patch_sections`로 고치는 편이 쌌다는 뜻입니다.
 - `read_pages(ids, known={id: v, …})`는 바뀌지 않은 페이지를 앞에 한 줄씩 적고, 이 줄들은 예산을 쓰지 않습니다.
 - `list_pages` / `search`는 기본으로 8자 id를 찍고, `Weekly sync 2026-11-{03,10,17} ids: a1b2c3d4,e5f6a7b8,c9d0e1f2`처럼 이어지는 페이지를 접습니다(id는 값과 같은 순서이고, `{1..8}`은 범위입니다). 0.15.1 전의 기본 모양이 필요하면 `format: "json"`을 넘기세요([ADR 1944](adr/1944-compact-is-the-default-list-format.md)).
 - id 인자는 모두 전체 id나, 도구가 찍어 주는 앞 8자(또는 그 이상)의 16진수를 받습니다. 페이지, 상위 페이지, 컬렉션, 행, 워크스페이스, 코멘트 스레드, 휴지통 페이지가 그렇고, 버전 id와 제안 id는 여전히 전체 id가 필요합니다. 앞부분은 이 연결이 볼 수 있는 것 안에서만 찾습니다. 여러 개에 맞으면 후보를 돌려주고, 내가 볼 수 없는 페이지 때문에 앞부분이 모호해지는 일은 없습니다([ADR 1941](adr/1941-short-ids-in-every-tool-and-what-a-prefix-may-reveal.md)). JSON 출력에는 전체 id가 그대로 나옵니다.

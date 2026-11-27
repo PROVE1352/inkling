@@ -174,6 +174,8 @@ export interface FeedUnit {
   large?: boolean
   /** rows_added: the rows (page_added units of one collection), in log order. */
   members?: PageAgg[]
+  /** renamed, body unchanged: the section's current version, when the index holds that body (docs/adr/2597-*). */
+  version?: string
 }
 
 const TEXT_KINDS = new Set(['added', 'modified', 'removed', 'renamed'])
@@ -469,7 +471,9 @@ export function unitHead(u: FeedUnit, parentTitles: Map<string, string>): string
     case 'renamed': {
       const name = g!.origAnchor !== g!.anchor ? `${g!.origAnchor} → ${g!.anchor}` : `${g!.anchor} (heading text)`
       const extra = u.textChanged ? (u.large ? ', body changed: large change, read section' : ', body changed') : ''
-      return [`  renamed ${name}${hp(g!)}${u.moved ? ', moved' : ''}${extra}`]
+      // the new version for a copy keyed by (anchor, v): the body is the one the reader has (docs/adr/2597-*)
+      const v = u.version && !u.textChanged ? ` v=${u.version}` : ''
+      return [`  renamed ${name}${v}${hp(g!)}${u.moved ? ', moved' : ''}${extra}`]
     }
   }
 }
@@ -626,6 +630,32 @@ export async function visibleTitles(userId: string, ids: string[]): Promise<Map<
   return out
 }
 
+/**
+ * The current version of each section renamed with its body unchanged (docs/adr/2597-*), so a reader
+ * keeping copies keyed by (anchor, v) re-keys without reading. Given only when the section index
+ * holds exactly the body and heading path the log ends with (md5 of the joined parts, the text the
+ * log stored); otherwise the line stays without a version, as before. One query, no texts sent.
+ */
+async function addRenamedVersions(units: FeedUnit[]): Promise<void> {
+  const want = units.filter((u) => u.kind === 'renamed' && !u.textChanged && u.group && u.group.ah !== null)
+  if (!want.length) return
+  const pages = [...new Set(want.map((u) => u.page.pageId))]
+  const anchors = [...new Set(want.map((u) => u.group!.anchor))]
+  const rows = (await db.execute(sql`
+    SELECT page_id AS "pageId", anchor, (array_agg(heading_path ORDER BY ord))[1] AS "headingPath",
+           (array_agg(section_hash ORDER BY ord))[1] AS version, md5(string_agg(text, E'\n' ORDER BY ord)) AS h
+      FROM page_chunks
+     WHERE page_id IN (${sql.join(pages.map((id) => sql`${id}::uuid`), sql`, `)})
+       AND anchor IN (${sql.join(anchors.map((a) => sql`${a}`), sql`, `)})
+     GROUP BY page_id, anchor
+  `)) as unknown as { pageId: string; anchor: string; headingPath: string; version: string; h: string }[]
+  const now = new Map(rows.map((r) => [`${r.pageId}\u0000${r.anchor}`, r]))
+  for (const u of want) {
+    const r = now.get(`${u.page.pageId}\u0000${u.group!.anchor}`)
+    if (r && r.h === u.group!.ah && r.headingPath === u.group!.headingPath) u.version = r.version
+  }
+}
+
 /** Lazy text loader for the packer: texts by seq and current page content, in batches. */
 export class TextLoader {
   private texts = new Map<number, { before: string | null; after: string | null }>()
@@ -725,6 +755,7 @@ export async function readChangeFeed(userId: string, opts: FeedOptions): Promise
   const scanEnd = capped ? rows[rows.length - 1].seq : end.seq
 
   const units = groupRowAdds(foldRows(rows))
+  await addRenamedVersions(units)
   const parentIds = new Set<string>()
   for (const u of units) {
     if (u.kind === 'page' && u.page.parentTo) parentIds.add(u.page.parentTo)

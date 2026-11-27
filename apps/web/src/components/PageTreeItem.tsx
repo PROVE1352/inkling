@@ -475,7 +475,7 @@ export const PageTreeItem = memo(function PageTreeItem({
                       top: menuPos?.top ?? 0,
                       visibility: menuPos ? 'visible' : 'hidden',
                     }}
-                    className={`nd-pop fixed z-50 max-h-[min(80dvh,26rem)] w-48 origin-top-right overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${menuPresence.leaving ? 'nd-out' : ''}`}
+                    className={`nd-pop fixed z-50 max-h-[min(80dvh,26rem)] w-max min-w-48 max-w-[calc(100vw-1rem)] origin-top-right overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${menuPresence.leaving ? 'nd-out' : ''}`}
                   >
                     <PageRowMenu {...menuActions} onClose={() => setMenuOpen(false)} />
                   </div>,
@@ -497,7 +497,7 @@ export const PageTreeItem = memo(function PageTreeItem({
               top: ctxPos?.top ?? lastCtx.current.y,
               visibility: ctxPos ? 'visible' : 'hidden',
             }}
-            className={`nd-pop fixed z-50 max-h-[calc(100dvh-1rem)] w-48 origin-top-left overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${ctxPresence.leaving ? 'nd-out' : ''}`}
+            className={`nd-pop fixed z-50 max-h-[calc(100dvh-1rem)] w-max min-w-48 max-w-[calc(100vw-1rem)] origin-top-left overflow-y-auto rounded-md border border-line bg-app py-1 shadow-xl ${ctxPresence.leaving ? 'nd-out' : ''}`}
           >
             {inMulti && !guest ? (
               <>

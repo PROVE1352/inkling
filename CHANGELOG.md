@@ -7,6 +7,12 @@ automatically on boot). Design decisions are in [`docs/adr/`](docs/adr/README.md
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-27
+
+### Fixed
+- The page row's ⋯ and right-click menus grow to fit their longest label instead of wrapping it onto a second line
+  ("New agent pages go here" and its Korean label wrapped at the fixed width). No migration.
+
 ## [0.26.0] - 2026-11-27
 
 The sidebar's order becomes the workspace's: pinned pages, title order for any parent and both top-level sections,
